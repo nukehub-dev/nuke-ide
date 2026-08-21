@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- nuke-cad: **multi-body `.nuke-cad` documents and boolean features** — the
+  `.nuke-cad` schema is now v2 with explicit `bodies`; every solid feature
+  targets a body, and `booleanFuse`/`booleanCut`/`booleanCommon` features merge
+  tool bodies into a target body with optional `keepTools`. The v1→v2 migration
+  creates implicit bodies for legacy documents; the builder validates body refs,
+  maintains per-body accumulators, and runs a final cross-body overlap gate.
+  The Feature Tree adds a **Bodies** section, and boolean dialogs expose
+  target/tool body dropdowns.
 - nuke-cad: **new parametric CAD extension** — script-first geometry
   authoring with build123d/CadQuery, live three.js viewport, canonical STEP
   export, JSON tessellation stream, and region manifest validation. Registered

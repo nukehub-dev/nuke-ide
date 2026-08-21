@@ -199,15 +199,17 @@ describe('GUI build flow', () => {
             const sketchDef = session.toSketchDef();
             expect(store.upsertSketch(sketchDef).success).toBe(true);
 
+            const body = store.addBody('bracket', 'bracket');
+            expect(body.success).toBe(true);
             const feature = {
                 id: 'bracket',
                 name: 'bracket',
                 type: 'pad' as const,
+                body: body.value!,
                 sketchId: sketchDef.id,
                 params: { length: 10 },
                 dependsOn: [],
-                suppressed: false,
-                label: 'bracket'
+                suppressed: false
             };
             expect(store.addFeature(feature).success).toBe(true);
 
@@ -316,16 +318,23 @@ describe('GUI build flow', () => {
             const modSketch = modSession.toSketchDef();
             expect(store.upsertSketch(modSketch).success).toBe(true);
 
+            // Create bodies in the order that preserves the v1 selector map
+            // (clad, fuel, moderator) so the committed fixture stays stable.
+            const cladBody = store.addBody('clad', 'clad');
+            const fuelBody = store.addBody('fuel', 'fuel');
+            const modBody = store.addBody('moderator', 'moderator');
+            expect(cladBody.success && fuelBody.success && modBody.success).toBe(true);
+
             // Three additive pads produce sealed, non-overlapping solids.
             const fuelFeature = {
                 id: 'fuel',
                 name: 'fuel',
                 type: 'pad' as const,
+                body: fuelBody.value!,
                 sketchId: fuelSketch.id,
                 params: { length: height },
                 dependsOn: [],
-                suppressed: false,
-                label: 'fuel'
+                suppressed: false
             };
             expect(store.addFeature(fuelFeature).success).toBe(true);
 
@@ -333,11 +342,11 @@ describe('GUI build flow', () => {
                 id: 'clad',
                 name: 'clad',
                 type: 'pad' as const,
+                body: cladBody.value!,
                 sketchId: cladSketch.id,
                 params: { length: height },
                 dependsOn: [],
-                suppressed: false,
-                label: 'clad'
+                suppressed: false
             };
             expect(store.addFeature(cladFeature).success).toBe(true);
 
@@ -345,11 +354,11 @@ describe('GUI build flow', () => {
                 id: 'moderator',
                 name: 'moderator',
                 type: 'pad' as const,
+                body: modBody.value!,
                 sketchId: modSketch.id,
                 params: { length: height },
                 dependsOn: [],
-                suppressed: false,
-                label: 'moderator'
+                suppressed: false
             };
             expect(store.addFeature(modFeature).success).toBe(true);
 

@@ -28,8 +28,10 @@
 /**
  * `.nuke-cad` JSON document schema and validation.
  *
- * Version 1 models the base document: parameters, datum planes, sketches
- * (planegcs-verbatim primitives and constraints), and a feature tree.
+ * Version 2 introduces explicit bodies: every solid feature targets exactly one
+ * body, labels attach to bodies, and boolean features (fuse/cut/common) combine
+ * bodies. Version 1 documents are migrated automatically by adding one body per
+ * additive feature and assigning subtractive features to the appropriate body.
  *
  * @module nuke-cad/common
  */
@@ -37,7 +39,7 @@
 import { validateTopologyRef, type TopologyRef } from './topology-refs';
 
 /** Current `.nuke-cad` schema version. */
-export const NUKE_CAD_SCHEMA_VERSION = 1;
+export const NUKE_CAD_SCHEMA_VERSION = 2;
 
 /** Supported datum plane kinds. */
 export type DatumKind = 'XY' | 'YZ' | 'XZ' | 'offset' | 'face';
@@ -104,6 +106,14 @@ export interface SketchDef {
     externalRefs?: TopologyRef[];
 }
 
+/** A named, label-bearing body in the document. */
+export interface BodyDef {
+    id: string;
+    name: string;
+    /** Optional region-manifest label applied to all solids of this body. */
+    label?: string;
+}
+
 /** Feature types for solid features. */
 export type FeatureType =
     | 'pad'
@@ -121,6 +131,9 @@ export type FeatureType =
     | 'booleanCut'
     | 'booleanCommon'
     | 'hole';
+
+/** Feature types that create or modify solid geometry. */
+export type SolidFeatureType = 'pad' | 'pocket' | 'revolve' | 'groove' | 'booleanFuse' | 'booleanCut' | 'booleanCommon';
 
 /** Parameters common to extrude-like features. */
 export interface ExtrudeParams {
@@ -169,6 +182,8 @@ export interface PatternParams {
 /** Parameters for booleans. */
 export interface BooleanParams {
     targetBody: string;
+    toolBodies: string[];
+    keepTools?: boolean;
 }
 
 /** Parameters for holes. */
@@ -198,14 +213,14 @@ export interface FeatureDef {
     id: string;
     name: string;
     type: FeatureType;
+    /** Body this feature creates or modifies. */
+    body: string;
     /** Sketch consumed by the feature (implied dependency). */
     sketchId?: string;
     /** Feature-specific parameters. */
     params: FeatureParams;
     /** When true the feature is excluded from the build. */
     suppressed: boolean;
-    /** Per-feature volume label written to the region manifest. */
-    label?: string;
     /** Explicit upstream feature dependencies (in addition to sketchId). */
     dependsOn: string[];
 }
@@ -216,6 +231,7 @@ export interface NukeCadDocument {
     name: string;
     parameters: Record<string, number>;
     datums: DatumPlane[];
+    bodies: BodyDef[];
     sketches: SketchDef[];
     features: FeatureDef[];
 }
@@ -296,6 +312,17 @@ function validateDatum(ctx: MutableValidationContext, datum: DatumPlane, index: 
         } else {
             validateEmbeddedTopologyRef(ctx, `${path}.reference`, datum.reference);
         }
+    }
+}
+
+function validateBody(ctx: MutableValidationContext, body: BodyDef, index: number): void {
+    const path = `bodies[${index}]`;
+    requireId(ctx, `${path}.id`, body.id);
+    if (!isString(body.name)) {
+        issue(ctx, `${path}.name`, 'name must be a string');
+    }
+    if (body.label !== undefined && !isString(body.label)) {
+        issue(ctx, `${path}.label`, 'label must be a string when present');
     }
 }
 
@@ -446,6 +473,12 @@ function validateFeature(ctx: MutableValidationContext, feature: FeatureDef, ind
     if (!knownTypes.includes(feature.type)) {
         issue(ctx, `${path}.type`, `unknown feature type '${feature.type}'`);
     }
+    if (!isString(feature.body) || feature.body.length === 0) {
+        issue(ctx, `${path}.body`, 'body must be a non-empty string');
+    }
+    if ('label' in feature) {
+        issue(ctx, `${path}.label`, 'feature-level label is removed in schema v2; assign labels to bodies instead (migrate from v1)');
+    }
     if (feature.sketchId !== undefined && !isString(feature.sketchId)) {
         issue(ctx, `${path}.sketchId`, 'sketchId must be a string when present');
     }
@@ -545,6 +578,31 @@ function validateFeatureParams(ctx: MutableValidationContext, path: string, type
             }
             break;
         }
+        case 'booleanFuse':
+        case 'booleanCut':
+        case 'booleanCommon': {
+            if (!isString(p.targetBody) || p.targetBody.length === 0) {
+                issue(ctx, `${path}.targetBody`, 'targetBody is required and must be a non-empty string');
+            }
+            if (!Array.isArray(p.toolBodies) || p.toolBodies.length === 0) {
+                issue(ctx, `${path}.toolBodies`, 'toolBodies is required and must be a non-empty array of body ids');
+            } else {
+                const seen = new Set<string>();
+                for (const [i, tool] of p.toolBodies.entries()) {
+                    if (!isString(tool) || tool.length === 0) {
+                        issue(ctx, `${path}.toolBodies[${i}]`, 'tool body id must be a non-empty string');
+                    } else if (seen.has(tool)) {
+                        issue(ctx, `${path}.toolBodies[${i}]`, `duplicate tool body id '${tool}'`);
+                    } else {
+                        seen.add(tool);
+                    }
+                }
+            }
+            if (p.keepTools !== undefined && typeof p.keepTools !== 'boolean') {
+                issue(ctx, `${path}.keepTools`, 'keepTools must be a boolean when present');
+            }
+            break;
+        }
         case 'hole':
             if (!isFiniteNumber(p.diameter) || p.diameter <= 0) {
                 issue(ctx, `${path}.diameter`, 'diameter is required and must be a positive finite number');
@@ -587,6 +645,13 @@ export function validateNukeCadDocument(doc: NukeCadDocument): ValidationResult 
             validateDatum(ctx, datum as DatumPlane, i);
         }
     }
+    if (!Array.isArray(doc.bodies)) {
+        issue(ctx, 'bodies', 'bodies must be an array');
+    } else {
+        for (const [i, body] of doc.bodies.entries()) {
+            validateBody(ctx, body as BodyDef, i);
+        }
+    }
     const documentParamNames = new Set<string>(Object.keys(doc.parameters ?? {}));
     if (!Array.isArray(doc.sketches)) {
         issue(ctx, 'sketches', 'sketches must be an array');
@@ -613,6 +678,7 @@ export function validateNukeCadDocument(doc: NukeCadDocument): ValidationResult 
 
     // Dangling reference pass.
     const datumIds = new Set<string>(doc.datums?.map((d) => (d as DatumPlane).id).filter(isString) ?? []);
+    const bodyIds = new Set<string>(doc.bodies?.map((b) => (b as BodyDef).id).filter(isString) ?? []);
     const sketchIds = new Set<string>(doc.sketches?.map((s) => (s as SketchDef).id).filter(isString) ?? []);
     const featureIds = new Set<string>(doc.features?.map((f) => (f as FeatureDef).id).filter(isString) ?? []);
 
@@ -624,12 +690,28 @@ export function validateNukeCadDocument(doc: NukeCadDocument): ValidationResult 
     }
     for (const [i, feature] of (doc.features ?? []).entries()) {
         const f = feature as FeatureDef;
+        if (f.body && !bodyIds.has(f.body)) {
+            issue(ctx, `features[${i}].body`, `unknown body '${f.body}'`);
+        }
         if (f.sketchId && !sketchIds.has(f.sketchId)) {
             issue(ctx, `features[${i}].sketchId`, `unknown sketch '${f.sketchId}'`);
         }
         for (const [j, dep] of (f.dependsOn ?? []).entries()) {
             if (isString(dep) && !featureIds.has(dep)) {
                 issue(ctx, `features[${i}].dependsOn[${j}]`, `unknown feature '${dep}'`);
+            }
+        }
+        if (f.type === 'booleanFuse' || f.type === 'booleanCut' || f.type === 'booleanCommon') {
+            const p = f.params as Record<string, unknown>;
+            if (isString(p.targetBody) && !bodyIds.has(p.targetBody)) {
+                issue(ctx, `features[${i}].params.targetBody`, `unknown body '${p.targetBody}'`);
+            }
+            if (Array.isArray(p.toolBodies)) {
+                for (const [j, tool] of p.toolBodies.entries()) {
+                    if (isString(tool) && !bodyIds.has(tool)) {
+                        issue(ctx, `features[${i}].params.toolBodies[${j}]`, `unknown body '${tool}'`);
+                    }
+                }
             }
         }
     }
@@ -645,11 +727,103 @@ export interface NukeCadMigrationResult {
     migratedFrom?: number;
 }
 
+function migrateV1ToV2(doc: NukeCadDocument): NukeCadDocument {
+    /**
+     * Migration strategy:
+     *
+     * - Every pad/revolve creates its own body: id `body-<featureId>`, name from
+     *   the feature name, label from the feature label. Because same-body
+     *   additive append is non-fusing, splitting v1's single accumulator into
+     *   per-feature bodies produces the identical final compound.
+     * - Every pocket/groove targets the body of its first `dependsOn` entry's
+     *   body; with no `dependsOn`, the body of the nearest preceding pad/revolve
+     *   in document order. v1 pockets cut the entire accumulated compound, so
+     *   documents relying on cross-region cuts change semantics.
+     * - `dependsOn` is preserved verbatim; feature `label` fields are dropped.
+     */
+    const features = (doc.features ?? []).map((f) => ({ ...(f as FeatureDef) }));
+    const bodies: BodyDef[] = [];
+    const bodyIdForFeature = new Map<string, string>();
+
+    const solidCreators: FeatureType[] = ['pad', 'revolve'];
+    const solidModifiers: FeatureType[] = ['pocket', 'groove'];
+
+    for (const feature of features) {
+        if (!solidCreators.includes(feature.type)) {
+            continue;
+        }
+        const bodyId = `body-${feature.id}`;
+        const label = (feature as unknown as Record<string, unknown>).label;
+        bodies.push({
+            id: bodyId,
+            name: feature.name,
+            label: typeof label === 'string' && label.length > 0 ? label : undefined
+        });
+        bodyIdForFeature.set(feature.id, bodyId);
+        delete (feature as unknown as Record<string, unknown>).label;
+    }
+
+    for (const feature of features) {
+        if (!solidModifiers.includes(feature.type)) {
+            continue;
+        }
+        let bodyId: string | undefined;
+        for (const dep of feature.dependsOn ?? []) {
+            if (bodyIdForFeature.has(dep)) {
+                bodyId = bodyIdForFeature.get(dep);
+                break;
+            }
+        }
+        if (bodyId === undefined) {
+            // Nearest preceding pad/revolve in document order.
+            const index = features.findIndex((f) => f.id === feature.id);
+            for (let i = index - 1; i >= 0; i--) {
+                const preceding = features[i];
+                if (solidCreators.includes(preceding.type) && bodyIdForFeature.has(preceding.id)) {
+                    bodyId = bodyIdForFeature.get(preceding.id);
+                    break;
+                }
+            }
+        }
+        feature.body = bodyId ?? 'body-default';
+        delete (feature as unknown as Record<string, unknown>).label;
+    }
+
+    for (const feature of features) {
+        if (solidCreators.includes(feature.type)) {
+            feature.body = bodyIdForFeature.get(feature.id)!;
+        }
+    }
+
+    // Any remaining feature without a body gets a default body so validation
+    // does not fail on otherwise well-formed legacy documents.
+    for (const feature of features) {
+        if (!feature.body) {
+            feature.body = 'body-default';
+        }
+    }
+    if (features.some((f) => f.body === 'body-default') && !bodies.some((b) => b.id === 'body-default')) {
+        bodies.push({ id: 'body-default', name: 'Default Body' });
+    }
+
+    return {
+        version: 2,
+        name: typeof doc.name === 'string' ? doc.name : 'migrated',
+        parameters: isPlainObject(doc.parameters) ? (doc.parameters as Record<string, number>) : {},
+        datums: Array.isArray(doc.datums) ? (doc.datums as DatumPlane[]) : [],
+        bodies,
+        sketches: Array.isArray(doc.sketches) ? (doc.sketches as SketchDef[]) : [],
+        features
+    };
+}
+
 /**
  * Migrate a parsed `.nuke-cad` document to the current schema version.
  *
- * Currently only version 1 is accepted. Future migrations register steps in
- * {@link MIGRATIONS} keyed by the version they upgrade from.
+ * Registers migration steps in {@link MIGRATIONS} keyed by the version they
+ * upgrade from. Version 1 documents are migrated to version 2 by creating one
+ * body per additive feature and assigning subtractive features to the
+ * appropriate body.
  */
 export function migrateNukeCadDocument(json: unknown): NukeCadMigrationResult {
     if (!isPlainObject(json)) {
@@ -665,7 +839,9 @@ export function migrateNukeCadDocument(json: unknown): NukeCadMigrationResult {
     if (version > NUKE_CAD_SCHEMA_VERSION) {
         throw new Error(`Unsupported .nuke-cad schema version ${version} (this build supports up to ${NUKE_CAD_SCHEMA_VERSION})`);
     }
-    const steps: Record<number, (doc: NukeCadDocument) => NukeCadDocument> = {};
+    const steps: Record<number, (doc: NukeCadDocument) => NukeCadDocument> = {
+        1: migrateV1ToV2
+    };
     let current = json as unknown as NukeCadDocument;
     let guard = 0;
     while (current.version !== NUKE_CAD_SCHEMA_VERSION) {

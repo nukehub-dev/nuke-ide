@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
 """Feature builder for `.nuke-cad` documents.
 
-Executes a document's feature tree in topological order, producing a single
-accumulated build123d shape and a selector map from feature labels to solid
-indices. Full rebuilds are performed on every call; per-feature shape caching is
-deliberately deferred.
+Executes a document's feature tree in topological order, maintaining one
+accumulated build123d shape per body. Boolean features (fuse/cut/common)
+combine bodies via OCP boolean operations. The final shape is a Compound of
+all non-consumed bodies in document body order.
+
+Fuzzy tolerance for boolean operations uses OCP defaults. The DAGMC export
+path no longer performs OCP boolean cuts (it uses gmsh fragment/merge
+instead), so there is no project-wide fuzzy-tolerance convention to align
+with on this code path.
 """
 
 from __future__ import annotations
@@ -441,7 +446,7 @@ def _build_feature_shape(
     feature_shapes: dict[str, Any],
     reference_results: list[dict[str, Any]],
 ) -> Any:
-    """Build the tool shape produced by a single feature.
+    """Build the tool shape produced by a single sketch-based feature.
 
     Returns a build123d ``Shape`` (typically a ``Solid`` or ``Part``).
     """
@@ -734,7 +739,9 @@ def _combine_additive(a: Any, b: Any, feature_id: str = "<unknown>") -> Any:
 
     Overlapping additive tools would create non-manifold or duplicate-volume
     geometry, so a bbox prefilter plus boolean-common volume check raises
-    ``FeatureBuilderError`` if the two solids occupy the same space.
+    ``FeatureBuilderError`` if the two solids occupy the same space. Cross-body
+    overlaps are caught separately by the final overlap gate in
+    ``build_document_shape``.
     """
     if bd is None:
         raise FeatureBuilderError("build123d is not available; cannot combine additive shapes")
@@ -766,6 +773,116 @@ def _combine_additive(a: Any, b: Any, feature_id: str = "<unknown>") -> Any:
     return bd.Compound(children=children)
 
 
+def _body_tip_feature_id(
+    features: list[dict[str, Any]], body_id: str, before_index: int
+) -> str | None:
+    """Return the most recent feature targeting ``body_id`` before ``before_index``.
+
+    The tip is the last feature in document order that references the body,
+    regardless of suppression. Suppressed tips make dependent features stale
+    during the build loop.
+    """
+    for i in range(before_index - 1, -1, -1):
+        if features[i].get("body") == body_id:
+            return features[i]["id"]
+    return None
+
+
+def _compute_implied_dependencies(
+    features: list[dict[str, Any]],
+) -> list[tuple[str, str]]:
+    """Return implied dependency edges derived from body semantics.
+
+    Edges are returned as ``(dependent_id, dependency_id)`` tuples. The caller
+    injects them into each feature's ``dependsOn`` before topological sorting.
+
+    Rules:
+      * A feature depends on the previous feature (in document order) targeting
+        the same body.
+      * A boolean feature depends on the current tip feature of every tool body.
+        The target body's tip is the same as the same-body previous feature, so
+        it is not duplicated.
+    """
+    edges: list[tuple[str, str]] = []
+    body_last_index: dict[str, int] = {}
+    for i, feature in enumerate(features):
+        body_id = feature.get("body")
+        if isinstance(body_id, str) and body_id:
+            prev_index = body_last_index.get(body_id)
+            if prev_index is not None:
+                edges.append((feature["id"], features[prev_index]["id"]))
+            body_last_index[body_id] = i
+
+    for i, feature in enumerate(features):
+        if feature.get("type") not in ("booleanFuse", "booleanCut", "booleanCommon"):
+            continue
+        params = feature.get("params", {}) if isinstance(feature.get("params"), dict) else {}
+        tool_bodies = params.get("toolBodies")
+        if not isinstance(tool_bodies, list):
+            continue
+        for tool_body in tool_bodies:
+            if not isinstance(tool_body, str):
+                continue
+            tip = _body_tip_feature_id(features, tool_body, i)
+            if tip is not None and tip != feature["id"]:
+                edges.append((feature["id"], tip))
+    return edges
+
+
+def _boolean_operation(target: Any, tools: list[Any], op: str) -> Any:
+    """Apply an OCP boolean operation between a target and a list of tools."""
+    if bd is None:
+        raise FeatureBuilderError("build123d is not available; cannot apply boolean operations")
+    if not tools:
+        raise FeatureBuilderError("boolean operation requires at least one tool body")
+
+    combined_tool = tools[0]
+    for tool in tools[1:]:
+        combined_tool = combined_tool + tool
+
+    try:
+        if op == "booleanFuse":
+            return target + combined_tool
+        if op == "booleanCut":
+            return target - combined_tool
+        if op == "booleanCommon":
+            return target & combined_tool
+    except Exception as exc:
+        raise FeatureBuilderError(f"boolean {op} failed: {exc}") from exc
+    raise FeatureBuilderError(f"unknown boolean operation '{op}'")
+
+
+def _solid_count(shape: Any) -> int:
+    """Return the number of solids in a build123d shape."""
+    if shape is None:
+        return 0
+    return len(shape.solids())
+
+
+def _check_cross_body_overlap(bodies: list[Any], body_ids: list[str]) -> None:
+    """Raise FeatureBuilderError when non-consumed bodies overlap in space."""
+    if bd is None:
+        return
+    for i in range(len(bodies)):
+        for j in range(i + 1, len(bodies)):
+            a = bodies[i]
+            b = bodies[j]
+            if a is None or b is None:
+                continue
+            if not _bbox_overlaps_3d(a.bounding_box(), b.bounding_box()):
+                continue
+            try:
+                common = a & b
+            except Exception as exc:
+                raise FeatureBuilderError(
+                    f"failed to check overlap between bodies '{body_ids[i]}' and '{body_ids[j]}': {exc}"
+                ) from exc
+            if common is not None and getattr(common, "volume", 0.0) > 1e-9:
+                raise FeatureBuilderError(
+                    f"bodies '{body_ids[i]}' and '{body_ids[j]}' overlap but are not merged by a boolean"
+                )
+
+
 def build_document_shape(
     document: dict[str, Any],
 ) -> dict[str, Any]:
@@ -774,14 +891,17 @@ def build_document_shape(
     Returns a dict with:
 
         ``shape``
-            The accumulated build123d shape, or ``None`` if no additive feature
+            The assembled build123d shape, or ``None`` if no additive feature
             succeeded.
         ``selectorMap``
-            Mapping from feature label to sorted 1-based solid indices.
+            Mapping from body label to sorted 1-based solid indices.
         ``featureResults``
-            List of ``{featureId, status, error?}`` records in build order.
+            List of ``{featureId, status, bodyId, error?, consumedBodyIds?}``
+            records in build order.
         ``referenceResults``
             List of per-reference resolution status records.
+        ``consumedBodies``
+            Set of body ids consumed by boolean operations.
     """
     if bd is None:
         raise FeatureBuilderError("build123d is not available; cannot build document shape")
@@ -796,27 +916,48 @@ def build_document_shape(
         for s in document.get("sketches", [])
         if isinstance(s, dict) and isinstance(s.get("id"), str)
     }
+    raw_features = document.get("features", [])
     features = [
-        f
-        for f in document.get("features", [])
-        if isinstance(f, dict) and isinstance(f.get("id"), str)
+        dict(f) for f in raw_features if isinstance(f, dict) and isinstance(f.get("id"), str)
     ]
 
-    order = topo_sort_features(features)
+    # Inject implied dependencies so the topological sort respects body order
+    # and boolean tool-body tips.
+    implied = _compute_implied_dependencies(features)
     feature_map = {f["id"]: f for f in features}
+    for dependent_id, dependency_id in implied:
+        feature = feature_map.get(dependent_id)
+        if feature is None or dependency_id in feature.get("dependsOn", []):
+            continue
+        feature.setdefault("dependsOn", []).append(dependency_id)
 
-    accumulated: Any | None = None
+    order = topo_sort_features(features)
+
+    bodies = document.get("bodies", [])
+    body_ids = [b["id"] for b in bodies if isinstance(b, dict) and isinstance(b.get("id"), str)]
+    body_labels = {
+        b["id"]: b.get("label")
+        for b in bodies
+        if isinstance(b, dict)
+        and isinstance(b.get("id"), str)
+        and isinstance(b.get("label"), str)
+        and b["label"]
+    }
+
+    accumulators: dict[str, Any] = {}
     selector_map: dict[str, list[int]] = {}
     feature_results: list[dict[str, Any]] = []
     reference_results: list[dict[str, Any]] = []
     stale_or_failed: set[str] = set()
     feature_shapes: dict[str, Any] = {}
+    consumed_bodies: set[str] = set()
 
     for feature_id in order:
         feature = feature_map[feature_id]
+        body_id = feature.get("body", "")
 
         if feature.get("suppressed"):
-            feature_results.append({"featureId": feature_id, "status": "stale"})
+            feature_results.append({"featureId": feature_id, "bodyId": body_id, "status": "stale"})
             stale_or_failed.add(feature_id)
             continue
 
@@ -824,59 +965,169 @@ def build_document_shape(
             "stale" if any(dep in stale_or_failed for dep in feature.get("dependsOn", [])) else None
         )
         if dependency_status:
-            feature_results.append({"featureId": feature_id, "status": "stale"})
+            feature_results.append({"featureId": feature_id, "bodyId": body_id, "status": "stale"})
             stale_or_failed.add(feature_id)
             continue
 
+        feature_type = feature["type"]
+
+        if feature_type in ("booleanFuse", "booleanCut", "booleanCommon"):
+            params = feature.get("params", {}) if isinstance(feature.get("params"), dict) else {}
+            target_body = params.get("targetBody", "")
+            tool_bodies = params.get("toolBodies", [])
+            keep_tools = bool(params.get("keepTools", False))
+            error: str | None = None
+
+            if not isinstance(target_body, str) or not target_body:
+                error = f"feature '{feature_id}': boolean requires a targetBody"
+            elif not isinstance(tool_bodies, list) or not tool_bodies:
+                error = f"feature '{feature_id}': boolean requires at least one tool body"
+            elif target_body not in accumulators:
+                error = f"feature '{feature_id}': target body '{target_body}' has no geometry"
+            elif any(tool not in accumulators for tool in tool_bodies):
+                missing = [tool for tool in tool_bodies if tool not in accumulators]
+                error = (
+                    f"feature '{feature_id}': tool bodies have no geometry: {', '.join(missing)}"
+                )
+            elif any(tool not in body_ids for tool in tool_bodies):
+                missing = [tool for tool in tool_bodies if tool not in body_ids]
+                error = f"feature '{feature_id}': unknown tool bodies: {', '.join(missing)}"
+
+            if error is not None:
+                feature_results.append(
+                    {"featureId": feature_id, "bodyId": body_id, "status": "failed", "error": error}
+                )
+                stale_or_failed.add(feature_id)
+                continue
+
+            target_shape = accumulators[target_body]
+            tool_shapes = [accumulators[t] for t in tool_bodies]
+            try:
+                result_shape = _boolean_operation(target_shape, tool_shapes, feature_type)
+            except Exception as exc:
+                feature_results.append(
+                    {
+                        "featureId": feature_id,
+                        "bodyId": body_id,
+                        "status": "failed",
+                        "error": str(exc),
+                    }
+                )
+                stale_or_failed.add(feature_id)
+                continue
+
+            accumulators[target_body] = result_shape
+            feature_shapes[feature_id] = getattr(result_shape, "wrapped", result_shape)
+            consumed = [] if keep_tools else list(tool_bodies)
+            if not keep_tools:
+                consumed_bodies.update(tool_bodies)
+            feature_results.append(
+                {
+                    "featureId": feature_id,
+                    "bodyId": body_id,
+                    "status": "built",
+                    "consumedBodyIds": consumed,
+                }
+            )
+            continue
+
+        # Sketch-based solid feature (pad/pocket/revolve/groove).
         try:
             tool_shape = _build_feature_shape(
                 feature, datums, sketches, feature_shapes, reference_results
             )
         except Exception as exc:
-            feature_results.append({"featureId": feature_id, "status": "failed", "error": str(exc)})
+            feature_results.append(
+                {"featureId": feature_id, "bodyId": body_id, "status": "failed", "error": str(exc)}
+            )
             stale_or_failed.add(feature_id)
             continue
 
-        feature_shapes[feature_id] = getattr(tool_shape, "wrapped", tool_shape)
+        previous_body = accumulators.get(body_id)
 
-        feature_type = feature["type"]
-        previous_solid_count = len(accumulated.solids()) if accumulated is not None else 0
         try:
             if feature_type in ("pad", "revolve"):
-                if accumulated is None:
-                    accumulated = tool_shape
+                if previous_body is None:
+                    accumulators[body_id] = tool_shape
                 else:
-                    accumulated = _combine_additive(accumulated, tool_shape, feature_id)
+                    accumulators[body_id] = _combine_additive(previous_body, tool_shape, feature_id)
             elif feature_type in ("pocket", "groove"):
-                if accumulated is None:
+                if previous_body is None:
                     raise FeatureBuilderError(
                         f"feature '{feature_id}': {feature_type} requires an existing solid body"
                     )
-                accumulated = accumulated - tool_shape
+                accumulators[body_id] = previous_body - tool_shape
             else:
                 raise FeatureBuilderError(
                     f"feature '{feature_id}': type '{feature_type}' is not supported yet"
                 )
         except Exception as exc:
-            feature_results.append({"featureId": feature_id, "status": "failed", "error": str(exc)})
+            feature_results.append(
+                {"featureId": feature_id, "bodyId": body_id, "status": "failed", "error": str(exc)}
+            )
             stale_or_failed.add(feature_id)
             continue
 
-        label = feature.get("label")
-        if label and isinstance(label, str) and feature_type in ("pad", "revolve"):
-            indices = _selector_indices_for_tool(tool_shape, previous_solid_count)
-            if indices:
-                existing = selector_map.setdefault(label, [])
-                for idx in indices:
-                    if idx not in existing:
-                        existing.append(idx)
-                existing.sort()
+        current_body = accumulators[body_id]
+        feature_shapes[feature_id] = getattr(current_body, "wrapped", current_body)
+        feature_results.append({"featureId": feature_id, "bodyId": body_id, "status": "built"})
 
-        feature_results.append({"featureId": feature_id, "status": "built"})
+    # Final assembly: Compound of non-consumed bodies in document body order.
+    final_children: list[Any] = []
+    active_body_ids: list[str] = []
+    active_body_shapes: list[Any] = []
+    body_index_offset: dict[str, int] = {}
+    current_solid_count = 0
+
+    for body_id in body_ids:
+        if body_id in consumed_bodies:
+            continue
+        shape = accumulators.get(body_id)
+        if shape is None:
+            continue
+        body_index_offset[body_id] = current_solid_count
+        count = _solid_count(shape)
+        current_solid_count += count
+        final_children.append(shape)
+        active_body_ids.append(body_id)
+        active_body_shapes.append(shape)
+
+    if not final_children:
+        return {
+            "shape": None,
+            "selectorMap": selector_map,
+            "featureResults": feature_results,
+            "referenceResults": reference_results,
+            "consumedBodies": sorted(consumed_bodies),
+            "solidBodyIds": [],
+        }
+
+    _check_cross_body_overlap(active_body_shapes, active_body_ids)
+
+    assembled = (
+        final_children[0] if len(final_children) == 1 else bd.Compound(children=final_children)
+    )
+
+    # Build selector map from body labels to 1-based solid indices in the final compound.
+    solid_body_ids: list[str] = []
+    for body_id in active_body_ids:
+        label = body_labels.get(body_id)
+        offset = body_index_offset[body_id]
+        count = _solid_count(accumulators[body_id])
+        indices = list(range(offset + 1, offset + count + 1))
+        solid_body_ids.extend([body_id] * count)
+        if label and indices:
+            existing = selector_map.setdefault(label, [])
+            for idx in indices:
+                if idx not in existing:
+                    existing.append(idx)
+            existing.sort()
 
     return {
-        "shape": accumulated,
+        "shape": assembled,
         "selectorMap": selector_map,
         "featureResults": feature_results,
         "referenceResults": reference_results,
+        "consumedBodies": sorted(consumed_bodies),
+        "solidBodyIds": solid_body_ids,
     }

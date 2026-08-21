@@ -41,6 +41,7 @@ function makeDocument(): NukeCadDocument {
         name: 'L-bracket',
         parameters: { width: 10, height: 5 },
         datums: [{ id: 'xy', kind: 'XY', name: 'XY' }],
+        bodies: [{ id: 'body-1', name: 'Base', label: 'base' }],
         sketches: [
             {
                 id: 'sketch1',
@@ -60,10 +61,10 @@ function makeDocument(): NukeCadDocument {
                 id: 'pad1',
                 name: 'Base',
                 type: 'pad',
+                body: 'body-1',
                 sketchId: 'sketch1',
                 params: { length: 2 },
                 suppressed: false,
-                label: 'base',
                 dependsOn: []
             }
         ]
@@ -219,10 +220,10 @@ describe('validateNukeCadDocument', () => {
     it('reports missing required parameters per feature type', () => {
         const doc = makeDocument();
         doc.features = [
-            { id: 'pad1', name: 'Pad', type: 'pad', params: {}, suppressed: false, dependsOn: [] },
-            { id: 'rev1', name: 'Revolve', type: 'revolve', params: { axis: 'z' }, suppressed: false, dependsOn: [] },
-            { id: 'fil1', name: 'Fillet', type: 'fillet', params: {}, suppressed: false, dependsOn: [] },
-            { id: 'hole1', name: 'Hole', type: 'hole', params: {}, suppressed: false, dependsOn: [] }
+            { id: 'pad1', name: 'Pad', type: 'pad', body: 'body-1', params: {}, suppressed: false, dependsOn: [] },
+            { id: 'rev1', name: 'Revolve', type: 'revolve', body: 'body-1', params: { axis: 'z' }, suppressed: false, dependsOn: [] },
+            { id: 'fil1', name: 'Fillet', type: 'fillet', body: 'body-1', params: {}, suppressed: false, dependsOn: [] },
+            { id: 'hole1', name: 'Hole', type: 'hole', body: 'body-1', params: {}, suppressed: false, dependsOn: [] }
         ];
         const result = validateNukeCadDocument(doc);
         expect(result.valid).toBe(false);
@@ -235,8 +236,8 @@ describe('validateNukeCadDocument', () => {
     it('reports self-dependencies and duplicate dependencies', () => {
         const doc = makeDocument();
         doc.features = [
-            { id: 'a', name: 'A', type: 'pad', params: { length: 1 }, suppressed: false, dependsOn: ['a'] },
-            { id: 'b', name: 'B', type: 'pad', params: { length: 1 }, suppressed: false, dependsOn: ['a', 'a'] }
+            { id: 'a', name: 'A', type: 'pad', body: 'body-1', params: { length: 1 }, suppressed: false, dependsOn: ['a'] },
+            { id: 'b', name: 'B', type: 'pad', body: 'body-1', params: { length: 1 }, suppressed: false, dependsOn: ['a', 'a'] }
         ];
         const result = validateNukeCadDocument(doc);
         expect(result.valid).toBe(false);
@@ -256,6 +257,7 @@ describe('validateNukeCadDocument', () => {
             id: 'fil1',
             name: 'Fillet',
             type: 'fillet',
+            body: 'body-1',
             params: { edges: [badRef] },
             suppressed: false,
             dependsOn: []
@@ -264,6 +266,7 @@ describe('validateNukeCadDocument', () => {
             id: 'shell1',
             name: 'Shell',
             type: 'shell',
+            body: 'body-1',
             params: { faces: [badRef], thickness: 1 },
             suppressed: false,
             dependsOn: []
@@ -272,6 +275,7 @@ describe('validateNukeCadDocument', () => {
             id: 'draft1',
             name: 'Draft',
             type: 'draft',
+            body: 'body-1',
             params: { faces: [badRef], angle: 5, pullDirection: [0, 0, 1] },
             suppressed: false,
             dependsOn: []
@@ -355,5 +359,109 @@ describe('migrateNukeCadDocument', () => {
 
     it('rejects a missing or invalid version', () => {
         expect(() => migrateNukeCadDocument({})).toThrow(/version must be an integer/);
+    });
+
+    it('migrates v1 additive features to per-feature bodies with labels', () => {
+        const v1 = {
+            version: 1,
+            name: 'test',
+            parameters: {},
+            datums: [{ id: 'xy', kind: 'XY', name: 'XY' }],
+            sketches: [],
+            features: [
+                {
+                    id: 'fuel',
+                    name: 'fuel',
+                    type: 'pad',
+                    sketchId: 's1',
+                    params: { length: 1 },
+                    suppressed: false,
+                    dependsOn: [],
+                    label: 'fuel'
+                },
+                {
+                    id: 'clad',
+                    name: 'clad',
+                    type: 'pad',
+                    sketchId: 's2',
+                    params: { length: 1 },
+                    suppressed: false,
+                    dependsOn: [],
+                    label: 'clad'
+                }
+            ]
+        };
+        const result = migrateNukeCadDocument(v1);
+        expect(result.migratedFrom).toBe(1);
+        expect(result.document.version).toBe(NUKE_CAD_SCHEMA_VERSION);
+        expect(result.document.bodies).toHaveLength(2);
+        expect(result.document.bodies.map((b) => b.id)).toEqual(['body-fuel', 'body-clad']);
+        expect(result.document.bodies.map((b) => b.label)).toEqual(['fuel', 'clad']);
+        expect(result.document.features[0].body).toBe('body-fuel');
+        expect(result.document.features[1].body).toBe('body-clad');
+        expect('label' in result.document.features[0]).toBe(false);
+    });
+
+    it('migrates v1 pockets to the nearest preceding additive body', () => {
+        const v1 = {
+            version: 1,
+            name: 'test',
+            parameters: {},
+            datums: [{ id: 'xy', kind: 'XY', name: 'XY' }],
+            sketches: [],
+            features: [
+                { id: 'base', name: 'base', type: 'pad', sketchId: 's1', params: { length: 1 }, suppressed: false, dependsOn: [] },
+                { id: 'cut', name: 'cut', type: 'pocket', sketchId: 's2', params: { length: 1 }, suppressed: false, dependsOn: [] }
+            ]
+        };
+        const result = migrateNukeCadDocument(v1);
+        expect(result.document.features[1].body).toBe('body-base');
+    });
+});
+
+describe('v2 schema validation', () => {
+    it('rejects a feature-level label', () => {
+        const doc = makeDocument();
+        (doc.features[0] as unknown as { label: string }).label = 'base';
+        const result = validateNukeCadDocument(doc);
+        expect(result.valid).toBe(false);
+        expect(result.issues.some((i) => i.path === 'features[0].label')).toBe(true);
+    });
+
+    it('rejects an unknown feature body reference', () => {
+        const doc = makeDocument();
+        doc.features[0].body = 'missing';
+        const result = validateNukeCadDocument(doc);
+        expect(result.valid).toBe(false);
+        expect(result.issues.some((i) => i.message.includes("unknown body 'missing'"))).toBe(true);
+    });
+
+    it('rejects boolean features with missing target or tool bodies', () => {
+        const doc = makeDocument();
+        doc.bodies.push({ id: 'tool', name: 'tool' });
+        doc.features = [
+            {
+                id: 'fuse',
+                name: 'fuse',
+                type: 'booleanFuse',
+                body: 'body-1',
+                params: { targetBody: 'missing', toolBodies: ['tool'] },
+                suppressed: false,
+                dependsOn: []
+            },
+            {
+                id: 'cut',
+                name: 'cut',
+                type: 'booleanCut',
+                body: 'body-1',
+                params: { targetBody: 'body-1', toolBodies: [] },
+                suppressed: false,
+                dependsOn: []
+            }
+        ];
+        const result = validateNukeCadDocument(doc);
+        expect(result.valid).toBe(false);
+        expect(result.issues.some((i) => i.path === 'features[0].params.targetBody')).toBe(true);
+        expect(result.issues.some((i) => i.path === 'features[1].params.toolBodies')).toBe(true);
     });
 });

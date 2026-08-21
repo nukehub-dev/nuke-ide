@@ -40,9 +40,11 @@
 import {
     NUKE_CAD_SCHEMA_VERSION,
     type NukeCadDocument,
+    type BodyDef,
     type SketchDef,
     type FeatureDef,
     type FeatureParams,
+    type DatumKind,
     type ValidationIssue,
     validateNukeCadDocument,
     migrateNukeCadDocument
@@ -71,6 +73,8 @@ export interface DocumentSelection {
     readonly selectedSketchId?: string;
     /** Id of the selected feature, if any. */
     readonly selectedFeatureId?: string;
+    /** Id of the selected body, if any. */
+    readonly selectedBodyId?: string;
 }
 
 interface StoreState {
@@ -101,6 +105,7 @@ function emptyDocument(name: string): NukeCadDocument {
             { id: 'datum-yz', kind: 'YZ', name: 'YZ Plane' },
             { id: 'datum-xz', kind: 'XZ', name: 'XZ Plane' }
         ],
+        bodies: [],
         sketches: [],
         features: []
     };
@@ -112,6 +117,7 @@ function cloneDocument(doc: NukeCadDocument): NukeCadDocument {
         name: doc.name,
         parameters: { ...doc.parameters },
         datums: doc.datums.map((d) => ({ ...d, reference: d.reference !== undefined ? cloneTopologyRef(d.reference) : undefined })),
+        bodies: doc.bodies.map((b) => ({ ...b })),
         sketches: doc.sketches.map((s) => ({
             ...s,
             primitives: s.primitives.map((p) => ({ ...p })),
@@ -120,7 +126,7 @@ function cloneDocument(doc: NukeCadDocument): NukeCadDocument {
             dimensions: s.dimensions !== undefined ? s.dimensions.map((d) => ({ ...d })) : undefined,
             externalRefs: s.externalRefs !== undefined ? s.externalRefs.map((r) => cloneTopologyRef(r)) : undefined
         })),
-        features: doc.features.map((f) => ({ ...f, params: { ...f.params }, dependsOn: [...f.dependsOn] }))
+        features: doc.features.map((f) => ({ ...f, params: { ...f.params }, dependsOn: [...f.dependsOn], body: f.body }))
     };
 }
 
@@ -173,6 +179,13 @@ function cloneTopologyRef(ref: TopologyRef): TopologyRef {
 
 function formatIssues(issues: ValidationIssue[]): string {
     return issues.map((i) => `${i.path || 'document'}: ${i.message}`).join('; ');
+}
+
+function fingerprintsEqual(
+    a: import('../../common/topology-refs').FaceFingerprint | import('../../common/topology-refs').EdgeFingerprint,
+    b: import('../../common/topology-refs').FaceFingerprint | import('../../common/topology-refs').EdgeFingerprint
+): boolean {
+    return JSON.stringify(a) === JSON.stringify(b);
 }
 
 /**
@@ -248,7 +261,7 @@ export class CadDocumentStore {
      * Create a new empty document with the given name.
      *
      * The new document contains the three canonical datum planes (XY, YZ, XZ)
-     * and no sketches or features. It is not marked dirty.
+     * and no sketches, bodies, or features. It is not marked dirty.
      */
     createDocument(name: string): DocumentMutationResult {
         const document = emptyDocument(name);
@@ -334,7 +347,7 @@ export class CadDocumentStore {
      * can be referenced by later features. For a new sketch, a name collision
      * with an existing document parameter that has a different value is returned
      * as a structured error; an exact-value match is allowed. Updating an
-     * existing sketch re-merges its local parameters so edits flow back into the
+     * existing sketch re-merges its parameters so edits flow back into the
      * document-level parameter table.
      *
      * The stored sketch keeps its geometry, constraints, and dimensions but its
@@ -519,52 +532,118 @@ export class CadDocumentStore {
     }
 
     /**
+     * Add a body to the document.
+     *
+     * Generates a collision-free id. Returns the new body id on success.
+     */
+    addBody(name: string, label?: string): DocumentMutationResult<string> {
+        const check = this.requireDocument();
+        if (!check.success) {
+            return { success: false, error: check.error, issues: check.issues };
+        }
+        const doc = cloneDocument(check.value!);
+        const id = uniqueBodyId(doc);
+        const body: BodyDef = { id, name, label };
+        doc.bodies.push(body);
+        const result = this.commit(doc, { selectBody: id });
+        if (!result.success) {
+            return { success: false, error: result.error, issues: result.issues };
+        }
+        return { success: true, value: id };
+    }
+
+    /**
+     * Rename an existing body.
+     */
+    renameBody(id: string, name: string): DocumentMutationResult {
+        const check = this.requireDocument();
+        if (!check.success) {
+            return { success: false, error: check.error, issues: check.issues };
+        }
+        const doc = cloneDocument(check.value!);
+        const body = doc.bodies.find((b) => b.id === id);
+        if (body === undefined) {
+            return { success: false, error: `Body '${id}' not found` };
+        }
+        body.name = name;
+        return this.commit(doc);
+    }
+
+    /**
+     * Set or clear the label of an existing body.
+     */
+    setBodyLabel(id: string, label?: string): DocumentMutationResult {
+        const check = this.requireDocument();
+        if (!check.success) {
+            return { success: false, error: check.error, issues: check.issues };
+        }
+        const doc = cloneDocument(check.value!);
+        const body = doc.bodies.find((b) => b.id === id);
+        if (body === undefined) {
+            return { success: false, error: `Body '${id}' not found` };
+        }
+        if (label === undefined) {
+            delete body.label;
+        } else {
+            body.label = label;
+        }
+        return this.commit(doc);
+    }
+
+    /**
+     * Remove a body from the document.
+     *
+     * Rejects when any feature references the body.
+     */
+    removeBody(id: string): DocumentMutationResult {
+        const check = this.requireDocument();
+        if (!check.success) {
+            return { success: false, error: check.error, issues: check.issues };
+        }
+        const doc = cloneDocument(check.value!);
+        const dependents = doc.features.filter((f) => f.body === id).map((f) => f.id);
+        if (dependents.length > 0) {
+            return {
+                success: false,
+                error: `Cannot delete body '${id}' because features depend on it: ${dependents.join(', ')}`
+            };
+        }
+        doc.bodies = doc.bodies.filter((b) => b.id !== id);
+        return this.commit(doc, { clearSelection: { selectedBodyId: id } });
+    }
+
+    /**
      * Add a datum plane to the document.
      *
-     * Generates a collision-free id, validates the result, and preserves the
-     * backing URI and dirty state. For ``face`` datums ``reference`` must be a
-     * valid {@link TopologyRef}; duplicates are detected by reference equality
-     * rather than by offset.
+     * Face datums that reference the same face fingerprint and offset are reused
+     * so repeated sketch-on-face operations do not multiply datums. Other datum
+     * kinds always create a new datum.
      */
-    addDatum(kind: 'XY' | 'YZ' | 'XZ' | 'offset' | 'face', offset = 0, reference?: TopologyRef): DocumentMutationResult<string> {
+    addDatum(kind: DatumKind, offset?: number, reference?: TopologyRef): DocumentMutationResult<string> {
         const check = this.requireDocument();
         if (!check.success) {
             return { success: false, error: check.error, issues: check.issues };
         }
         if (kind === 'face' && reference === undefined) {
-            return { success: false, error: 'face datum requires a TopologyRef reference' };
+            return { success: false, error: 'Face datum requires a topology reference' };
         }
         const doc = cloneDocument(check.value!);
-        const existing = doc.datums.find((d) => {
-            if (d.kind !== kind) {
-                return false;
+        if (kind === 'face' && reference !== undefined) {
+            const existing = doc.datums.find(
+                (d) =>
+                    d.kind === 'face' &&
+                    d.reference !== undefined &&
+                    d.reference.featureId === reference.featureId &&
+                    d.reference.kind === reference.kind &&
+                    fingerprintsEqual(d.reference.fingerprint, reference.fingerprint) &&
+                    (d.offset ?? 0) === (offset ?? 0)
+            );
+            if (existing !== undefined) {
+                return { success: true, value: existing.id };
             }
-            if (kind === 'face') {
-                const dFace = d.reference?.fingerprint as import('../../common/topology-refs').FaceFingerprint | undefined;
-                const rFace = reference?.fingerprint as import('../../common/topology-refs').FaceFingerprint | undefined;
-                if (dFace === undefined || rFace === undefined) {
-                    return false;
-                }
-                return (
-                    d.reference!.featureId === reference!.featureId &&
-                    d.reference!.kind === reference!.kind &&
-                    dFace.surfaceType === rFace.surfaceType &&
-                    dFace.center.every((v, i) => Math.abs(v - rFace.center[i]) < 1e-9)
-                );
-            }
-            return d.offset === offset;
-        });
-        if (existing !== undefined) {
-            return { success: true, value: existing.id };
         }
-        const usedNames = new Set(doc.datums.map((d) => d.name));
-        let name = kind === 'face' ? `Face Datum` : `${kind} Offset ${offset}`;
-        let suffix = 1;
-        while (usedNames.has(name)) {
-            name = kind === 'face' ? `Face Datum (${suffix++})` : `${kind} Offset ${offset} (${suffix++})`;
-        }
-        const id = nextId('datum');
-        doc.datums.push({ id, kind, name, offset, reference });
+        const id = createDatumId();
+        doc.datums.push({ id, kind, name: `${kind} Datum`, offset, reference });
         const result = this.commit(doc);
         if (!result.success) {
             return { success: false, error: result.error, issues: result.issues };
@@ -590,7 +669,16 @@ export class CadDocumentStore {
         this.emitChange();
     }
 
-    /** Clear both sketch and feature selection. */
+    /** Set the selected body id. */
+    selectBody(id: string | undefined): void {
+        this.state = {
+            ...this.state,
+            selection: { ...this.state.selection, selectedBodyId: id }
+        };
+        this.emitChange();
+    }
+
+    /** Clear sketch, feature, and body selection. */
     clearSelection(): void {
         this.state = { ...this.state, selection: {} };
         this.emitChange();
@@ -695,7 +783,11 @@ export class CadDocumentStore {
 
     private commit(
         doc: NukeCadDocument,
-        options?: { clearSelection?: { selectedSketchId?: string; selectedFeatureId?: string }; selectFeature?: string }
+        options?: {
+            clearSelection?: { selectedSketchId?: string; selectedFeatureId?: string; selectedBodyId?: string };
+            selectFeature?: string;
+            selectBody?: string;
+        }
     ): DocumentMutationResult {
         const validation = validateNukeCadDocument(doc);
         if (!validation.valid) {
@@ -714,13 +806,29 @@ export class CadDocumentStore {
         ) {
             selection = { ...selection, selectedFeatureId: undefined };
         }
+        if (options?.clearSelection?.selectedBodyId !== undefined && selection.selectedBodyId === options.clearSelection.selectedBodyId) {
+            selection = { ...selection, selectedBodyId: undefined };
+        }
         if (options?.selectFeature !== undefined) {
             selection = { ...selection, selectedFeatureId: options.selectFeature };
+        }
+        if (options?.selectBody !== undefined) {
+            selection = { ...selection, selectedBodyId: options.selectBody };
         }
         this.state = { ...this.state, document: doc, dirty: true, selection };
         this.emitChange();
         return { success: true };
     }
+}
+
+function uniqueBodyId(doc: NukeCadDocument): string {
+    let index = doc.bodies.length + 1;
+    let id: string;
+    const existing = new Set(doc.bodies.map((b) => b.id));
+    do {
+        id = `body-${index++}`;
+    } while (existing.has(id));
+    return id;
 }
 
 /**
@@ -754,24 +862,30 @@ export function createFeatureId(): string {
 }
 
 /**
+ * Return a new unique id for a body.
+ *
+ * Callers may override the generated id; this helper is provided for
+ * convenience in UI code.
+ */
+export function createBodyId(): string {
+    return nextId('body');
+}
+
+/**
  * Compute the implicit dependency for a new feature.
  *
- * In Tier 1 the backend fuses additive features into and cuts subtractive
- * features from a single accumulated body. This helper finds the most recent
- * non-suppressed solid-producing feature in the existing tree and returns its
- * id, or undefined for the first additive feature.
- *
- * Subtractive features (pocket, groove) should always depend on a previous
- * solid-producing feature; callers surface an error when none exists.
+ * In v2 each body has its own accumulator. This helper finds the most recent
+ * non-suppressed solid-producing feature in the existing tree that targets the
+ * same body, or undefined when the body has no prior solid features.
  */
-export function computeDependsOn(type: FeatureDef['type'], features: readonly FeatureDef[]): string | undefined {
-    const solidProducers: FeatureDef['type'][] = ['pad', 'pocket', 'revolve', 'groove'];
+export function computeDependsOn(type: FeatureDef['type'], bodyId: string, features: readonly FeatureDef[]): string | undefined {
+    const solidProducers: FeatureDef['type'][] = ['pad', 'pocket', 'revolve', 'groove', 'booleanFuse', 'booleanCut', 'booleanCommon'];
     if (!solidProducers.includes(type)) {
         return undefined;
     }
     for (let i = features.length - 1; i >= 0; i--) {
         const feature = features[i];
-        if (!feature.suppressed && solidProducers.includes(feature.type)) {
+        if (!feature.suppressed && solidProducers.includes(feature.type) && feature.body === bodyId) {
             return feature.id;
         }
     }

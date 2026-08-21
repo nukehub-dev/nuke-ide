@@ -18,9 +18,9 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
 - TypeScript side follows `extensions/AGENTS.md` with `src/browser/`,
   `src/node/`, and `src/common/`.
 - `.nuke-cad` JSON document schema lives in `src/common/cad-document.ts`
-  (version 1 today). Validate with `validateNukeCadDocument`; migrate with
-  `migrateNukeCadDocument`. Future migrations register steps in the migration
-  function and bump `NUKE_CAD_SCHEMA_VERSION`.
+  (version 2 today). Validate with `validateNukeCadDocument`; migrate with
+  `migrateNukeCadDocument`. Future migrations register steps in `MIGRATIONS`
+  and bump `NUKE_CAD_SCHEMA_VERSION`.
 - Sketch solver adapter: `src/common/sketch-solver.ts` exports the solver-agnostic
   `SketchSolver` interface and the `PlanegcsSketchSolver` implementation. No
   other source file imports `@salusoft89/planegcs` directly. The dependency is
@@ -115,13 +115,20 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
     sketches, and features; `geometry_service.py` runs `build_document()` and
     feeds the same `_process_shape` so STEP, tessellation, DAGMC, and mesh
     artifacts are authoring-mode-agnostic.
-- `.nuke-cad` document schema lives in `src/common/cad-document.ts` (version 1).
+- `.nuke-cad` document schema lives in `src/common/cad-document.ts` (version 2).
   Validate with `validateNukeCadDocument`; migrate with
   `migrateNukeCadDocument`. The document store
   (`src/browser/document/cad-document-store.ts`) holds the active document,
   performs immutable updates validated against the schema, tracks dirty state,
-  sketch/feature selection, and per-feature build results. Sketch-local
-  parameters are merged into document-level parameters when a sketch is saved.
+  sketch/feature selection, body selection, and per-feature build results.
+  Sketch-local parameters are merged into document-level parameters when a sketch
+  is saved.
+- `.nuke-cad` v2 introduces **bodies** and **boolean features**. Every solid
+  feature (`pad`/`pocket`/`revolve`/`groove`) targets a body id; boolean
+  features (`booleanFuse`/`booleanCut`/`booleanCommon`) consume one target body
+  and one or more tool bodies. Bodies carry an optional `label` that maps to the
+  region manifest / `selector_map` for DAGMC and mesh export. The v1→v2 migration
+  creates a single implicit body for each legacy feature.
 - Sketch mode is split into three layers so each has a single responsibility:
   - `src/browser/sketch/sketch-session.ts` — pure TypeScript controller that
     owns tool state, snap, auto-constraints, constraint/dimension management,
@@ -161,9 +168,12 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   - `python/sketch_builder.py` consumes the solved sketch primitives stored in
     the document and emits build123d `Face` objects on the sketch datum plane.
   - `python/feature_builder.py` executes `pad`/`pocket`/`revolve`/`groove`
-    features in topological order over explicit `dependsOn` edges, fusing
-    additive features into and cutting subtractive features from one accumulated
-    body. Cycles are rejected with a readable member list.
+    features in topological order over explicit `dependsOn` edges, maintaining a
+    separate accumulated body per `body` id. Additive features combine into their
+    target body; subtractive features cut from it. `booleanFuse`,
+    `booleanCut`, and `booleanCommon` features merge tool bodies into a target
+    body and optionally keep the consumed tools. Cycles are rejected with a
+    readable member list.
   - `geometry_service.py` exposes `build_document()` plus a `--from-document`
     CLI flag; it validates references lightly, runs the feature builder, and
     reuses `_process_shape` verbatim so STEP/tessellation/DAGMC/mesh artifacts
@@ -194,10 +204,11 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
     `nuke.cad.saveDocumentAs`, `nuke.cad.newSketch`, `nuke.cad.exitSketch`, and
     `nuke.cad.openFeatureTree`.
   - The **Feature Tree** panel (`src/browser/widgets/feature-tree/`, widget ID
-    `nuke-cad-feature-tree-widget`, label "Feature Tree") lists datums,
+    `nuke-cad-feature-tree-widget`, label "Feature Tree") lists bodies, datums,
     sketches, and features in document order with selection, suppression toggle,
     edit, delete, build-status markers, and lightweight reference-resolution
-    badges (`ambiguous`/`unmatched`) from the last rebuild.
+    badges (`ambiguous`/`unmatched`) from the last rebuild. Boolean features show
+    their target body and tool bodies inline.
 - Viewport picking for sketch-on-face and external geometry:
   - The **Sketch Plane** picker exposes an **On Face…** button that puts the
     viewport into face-pick mode. Hover highlights the candidate face; a click

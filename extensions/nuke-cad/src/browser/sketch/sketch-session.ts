@@ -2176,6 +2176,7 @@ export class SketchSession {
             name: 'validation',
             parameters: {},
             datums: [{ id: this.datumId, kind: 'XY', name: this.datumId }],
+            bodies: [],
             sketches: [this.toSketchDef()],
             features: []
         };

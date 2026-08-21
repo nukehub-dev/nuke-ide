@@ -1,4 +1,21 @@
 {
+  "bodies": [
+    {
+      "id": "body-1",
+      "label": "clad",
+      "name": "clad"
+    },
+    {
+      "id": "body-2",
+      "label": "fuel",
+      "name": "fuel"
+    },
+    {
+      "id": "body-3",
+      "label": "moderator",
+      "name": "moderator"
+    }
+  ],
   "datums": [
     {
       "id": "datum-xy",
@@ -18,9 +35,9 @@
   ],
   "features": [
     {
+      "body": "body-2",
       "dependsOn": [],
       "id": "fuel",
-      "label": "fuel",
       "name": "fuel",
       "params": {
         "length": 1
@@ -30,9 +47,9 @@
       "type": "pad"
     },
     {
+      "body": "body-1",
       "dependsOn": [],
       "id": "clad",
-      "label": "clad",
       "name": "clad",
       "params": {
         "length": 1
@@ -42,9 +59,9 @@
       "type": "pad"
     },
     {
+      "body": "body-3",
       "dependsOn": [],
       "id": "moderator",
-      "label": "moderator",
       "name": "moderator",
       "params": {
         "length": 1
@@ -367,5 +384,5 @@
       ]
     }
   ],
-  "version": 1
+  "version": 2
 }

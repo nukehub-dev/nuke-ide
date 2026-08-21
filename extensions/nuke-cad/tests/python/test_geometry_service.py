@@ -377,10 +377,14 @@ def _circle_sketch_for_doc(x: float, y: float, radius: float, sid: str) -> dict:
 
 def _write_pincell_document(path: Path) -> None:
     doc = {
-        "version": 1,
+        "version": 2,
         "name": "pincell",
         "parameters": {},
         "datums": [{"id": "dxy", "kind": "XY", "name": "XY"}],
+        "bodies": [
+            {"id": "body-clad", "name": "clad", "label": "clad"},
+            {"id": "body-fuel", "name": "fuel", "label": "fuel"},
+        ],
         "sketches": [
             _rect_sketch_for_doc(),
             _circle_sketch_for_doc(60, 10, 5, "fuel"),
@@ -390,21 +394,21 @@ def _write_pincell_document(path: Path) -> None:
                 "id": "clad",
                 "name": "clad",
                 "type": "pad",
+                "body": "body-clad",
                 "sketchId": "rect",
                 "params": {"length": 10},
                 "dependsOn": [],
                 "suppressed": False,
-                "label": "clad",
             },
             {
                 "id": "fuel",
                 "name": "fuel",
                 "type": "pad",
+                "body": "body-fuel",
                 "sketchId": "fuel",
                 "params": {"length": 10},
                 "dependsOn": [],
                 "suppressed": False,
-                "label": "fuel",
             },
         ],
     }
@@ -508,16 +512,18 @@ def test_protocol_marker_ignores_unmarked_json(tmp_path: Path) -> None:
 
 def _write_minimal_document(path: Path) -> None:
     doc = {
-        "version": 1,
+        "version": 2,
         "name": "minimal",
         "parameters": {},
         "datums": [{"id": "dxy", "kind": "XY", "name": "XY"}],
+        "bodies": [{"id": "body-1", "name": "Body 1"}],
         "sketches": [_rect_sketch_for_doc()],
         "features": [
             {
                 "id": "pad1",
                 "name": "pad1",
                 "type": "pad",
+                "body": "body-1",
                 "sketchId": "rect",
                 "params": {"length": 10},
                 "dependsOn": [],
@@ -570,6 +576,7 @@ def test_build_document_rejects_revolve_axis_out_of_plane(tmp_path: Path) -> Non
         "id": "rev1",
         "name": "rev1",
         "type": "revolve",
+        "body": "body-1",
         "sketchId": "rect",
         "params": {"axis": "z", "angle": 360},
         "dependsOn": [],
@@ -592,16 +599,18 @@ def test_build_document_with_face_datum_and_external_refs(tmp_path: Path) -> Non
 
     # Build a base pad and capture its top face.
     base_doc = {
-        "version": 1,
+        "version": 2,
         "name": "base",
         "parameters": {},
         "datums": [{"id": "dxy", "kind": "XY", "name": "XY"}],
+        "bodies": [{"id": "body-base", "name": "base"}],
         "sketches": [_rect_sketch_for_doc()],
         "features": [
             {
                 "id": "base",
                 "name": "base",
                 "type": "pad",
+                "body": "body-base",
                 "sketchId": "rect",
                 "params": {"length": 5},
                 "dependsOn": [],
@@ -636,13 +645,14 @@ def test_build_document_with_face_datum_and_external_refs(tmp_path: Path) -> Non
     edge_ref = {"featureId": "base", "kind": "edge", "fingerprint": vertical_edges[0].to_dict()}
 
     doc = {
-        "version": 1,
+        "version": 2,
         "name": "refs",
         "parameters": {},
         "datums": [
             {"id": "dxy", "kind": "XY", "name": "XY"},
             {"id": "face", "kind": "face", "name": "Top face", "reference": top_ref},
         ],
+        "bodies": [{"id": "body-base", "name": "base"}],
         "sketches": [
             _rect_sketch_for_doc(),
             {
@@ -668,6 +678,7 @@ def test_build_document_with_face_datum_and_external_refs(tmp_path: Path) -> Non
                 "id": "base",
                 "name": "base",
                 "type": "pad",
+                "body": "body-base",
                 "sketchId": "rect",
                 "params": {"length": 5},
                 "dependsOn": [],
@@ -677,6 +688,7 @@ def test_build_document_with_face_datum_and_external_refs(tmp_path: Path) -> Non
                 "id": "top",
                 "name": "top",
                 "type": "pad",
+                "body": "body-base",
                 "sketchId": "top",
                 "params": {"length": 2},
                 "dependsOn": ["base"],

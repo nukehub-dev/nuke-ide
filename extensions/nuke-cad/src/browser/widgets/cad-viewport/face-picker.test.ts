@@ -91,5 +91,49 @@ describe('face-picker', () => {
                 fingerprint: hit.fingerprint
             });
         });
+
+        it('resolves the body tip feature when bodyId is present', () => {
+            const mesh = {} as import('three').Mesh;
+            const hit = {
+                solidId: 1,
+                faceId: 2,
+                bodyId: 'body-a',
+                mesh,
+                fingerprint: {
+                    surfaceType: 'plane' as const,
+                    area: 10,
+                    center: [0, 0, 0] as [number, number, number],
+                    normal: [0, 0, 1] as [number, number, number]
+                }
+            };
+            const ref = buildTopologyRef('fallback', hit, (bodyId) => (bodyId === 'body-a' ? 'body-tip' : undefined));
+            expect(ref).toEqual({
+                featureId: 'body-tip',
+                kind: 'face',
+                fingerprint: hit.fingerprint
+            });
+        });
+
+        it('falls back to the supplied feature id when body tip resolution fails', () => {
+            const mesh = {} as import('three').Mesh;
+            const hit = {
+                solidId: 1,
+                faceId: 2,
+                bodyId: 'body-a',
+                mesh,
+                fingerprint: {
+                    surfaceType: 'plane' as const,
+                    area: 10,
+                    center: [0, 0, 0] as [number, number, number],
+                    normal: [0, 0, 1] as [number, number, number]
+                }
+            };
+            const ref = buildTopologyRef('fallback', hit, () => undefined);
+            expect(ref).toEqual({
+                featureId: 'fallback',
+                kind: 'face',
+                fingerprint: hit.fingerprint
+            });
+        });
     });
 });

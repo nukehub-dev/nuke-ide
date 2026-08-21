@@ -489,13 +489,19 @@ def _read_step(step_path: Path) -> object:
     return shape
 
 
-def _tessellate_shape(shape: object, tolerance: float) -> list[dict]:
+def _tessellate_shape(
+    shape: object, tolerance: float, body_ids: list[str] | None = None
+) -> list[dict]:
     """Tessellate ``shape`` and return per-solid face buffers.
 
     Each face entry includes a geometric ``fingerprint`` (surface type, area,
     centroid, normal/axis/radius) when OCP is available. The fingerprint lets
     the frontend construct stable ``TopologyRef`` objects at pick time instead
     of relying on fragile face indices.
+
+    When ``body_ids`` is provided (document builds), each solid entry also
+    carries the ``bodyId`` of the body that produced it, enabling viewport
+    picking to bind face picks to the owning body's current tip feature.
     """
     from OCP.BRep import BRep_Tool
     from OCP.BRepMesh import BRepMesh_IncrementalMesh
@@ -550,7 +556,10 @@ def _tessellate_shape(shape: object, tolerance: float) -> list[dict]:
             face_id += 1
             face_exp.Next()
 
-        solids.append({"solidId": solid_id, "faces": faces})
+        solid_entry: dict[str, Any] = {"solidId": solid_id, "faces": faces}
+        if body_ids is not None and solid_id - 1 < len(body_ids):
+            solid_entry["bodyId"] = body_ids[solid_id - 1]
+        solids.append(solid_entry)
         solid_id += 1
         solid_exp.Next()
 
@@ -632,6 +641,7 @@ def _process_shape(
     selector_map: dict[str, list[int]] | None = None,
     manifest: RegionManifest | None = None,
     length_scale: float = 1.0,
+    body_ids: list[str] | None = None,
 ) -> dict:
     """Tessellate ``shape`` and write canonical artifacts.
 
@@ -683,7 +693,7 @@ def _process_shape(
     # ------------------------------------------------------------------
     _print_progress("Tessellating B-rep")
     try:
-        solids = _tessellate_shape(shape, tolerance)
+        solids = _tessellate_shape(shape, tolerance, body_ids=body_ids)
     except Exception as exc:
         result["error"] = f"Tessellation failed: {exc}"
         result["traceback"] = traceback.format_exc()
@@ -913,6 +923,73 @@ def import_step_file(
     )
 
 
+def _migrate_v1_to_v2(document: dict[str, Any]) -> dict[str, Any]:
+    """Migrate a v1 ``.nuke-cad`` document to v2 in memory.
+
+    Mirrors the TypeScript migration: every pad/revolve becomes its own body,
+    pockets/grooves target the nearest preceding additive body, and feature-level
+    labels move to bodies. The original document dict is not modified.
+    """
+    features = [dict(f) for f in document.get("features", []) if isinstance(f, dict)]
+    bodies: list[dict[str, Any]] = []
+    body_id_for_feature: dict[str, str] = {}
+
+    solid_creators = {"pad", "revolve"}
+    solid_modifiers = {"pocket", "groove"}
+
+    for feature in features:
+        if feature.get("type") not in solid_creators:
+            continue
+        body_id = f"body-{feature['id']}"
+        label = feature.pop("label", None)
+        bodies.append(
+            {
+                "id": body_id,
+                "name": feature.get("name", feature["id"]),
+                "label": label if isinstance(label, str) and label else None,
+            }
+        )
+        body_id_for_feature[feature["id"]] = body_id
+
+    for feature in features:
+        if feature.get("type") not in solid_modifiers:
+            continue
+        feature.pop("label", None)
+        body_id: str | None = None
+        for dep in feature.get("dependsOn", []):
+            if dep in body_id_for_feature:
+                body_id = body_id_for_feature[dep]
+                break
+        if body_id is None:
+            index = next((i for i, f in enumerate(features) if f.get("id") == feature["id"]), -1)
+            for i in range(index - 1, -1, -1):
+                preceding = features[i]
+                if (
+                    preceding.get("type") in solid_creators
+                    and preceding["id"] in body_id_for_feature
+                ):
+                    body_id = body_id_for_feature[preceding["id"]]
+                    break
+        feature["body"] = body_id or "body-default"
+
+    for feature in features:
+        if feature.get("type") in solid_creators:
+            feature["body"] = body_id_for_feature[feature["id"]]
+        if "body" not in feature:
+            feature["body"] = "body-default"
+
+    if any(f.get("body") == "body-default" for f in features) and not any(
+        b["id"] == "body-default" for b in bodies
+    ):
+        bodies.append({"id": "body-default", "name": "Default Body"})
+
+    migrated = dict(document)
+    migrated["version"] = 2
+    migrated["bodies"] = bodies
+    migrated["features"] = features
+    return migrated
+
+
 def _validate_document_refs(document: dict[str, Any], source_file: Path) -> dict | None:
     """Light structural validation of a ``.nuke-cad`` document.
 
@@ -921,6 +998,7 @@ def _validate_document_refs(document: dict[str, Any], source_file: Path) -> dict
     with a clear message instead of an unwrapped OCCT traceback.
     """
     datum_ids = {d.get("id") for d in document.get("datums", []) if isinstance(d, dict)}
+    body_ids = {b.get("id") for b in document.get("bodies", []) if isinstance(b, dict)}
     sketch_ids = {s.get("id") for s in document.get("sketches", []) if isinstance(s, dict)}
     feature_ids = {f.get("id") for f in document.get("features", []) if isinstance(f, dict)}
 
@@ -940,15 +1018,59 @@ def _validate_document_refs(document: dict[str, Any], source_file: Path) -> dict
             continue
         fid = feature.get("id", f"[{i}]")
         feature_type = feature.get("type")
-        if feature_type not in ("pad", "pocket", "revolve", "groove"):
+        if feature_type not in (
+            "pad",
+            "pocket",
+            "revolve",
+            "groove",
+            "booleanFuse",
+            "booleanCut",
+            "booleanCommon",
+        ):
             return {
                 "success": False,
-                "error": (
-                    f"Feature '{fid}' has unsupported type '{feature_type}'; "
-                    "expected 'pad', 'pocket', 'revolve', or 'groove'"
-                ),
+                "error": (f"Feature '{fid}' has unsupported type '{feature_type}'"),
                 "scriptPath": str(source_file),
             }
+
+        body_id = feature.get("body")
+        if not isinstance(body_id, str) or not body_id:
+            return {
+                "success": False,
+                "error": f"Feature '{fid}' requires a body",
+                "scriptPath": str(source_file),
+            }
+        if body_id not in body_ids:
+            return {
+                "success": False,
+                "error": f"Feature '{fid}' references unknown body '{body_id}'",
+                "scriptPath": str(source_file),
+            }
+
+        if feature_type in ("booleanFuse", "booleanCut", "booleanCommon"):
+            params = feature.get("params", {}) if isinstance(feature.get("params"), dict) else {}
+            target_body = params.get("targetBody")
+            if not isinstance(target_body, str) or not target_body or target_body not in body_ids:
+                return {
+                    "success": False,
+                    "error": f"Feature '{fid}' ({feature_type}) requires a valid targetBody",
+                    "scriptPath": str(source_file),
+                }
+            tool_bodies = params.get("toolBodies")
+            if not isinstance(tool_bodies, list) or not tool_bodies:
+                return {
+                    "success": False,
+                    "error": f"Feature '{fid}' ({feature_type}) requires a non-empty toolBodies list",
+                    "scriptPath": str(source_file),
+                }
+            for j, tool in enumerate(tool_bodies):
+                if not isinstance(tool, str) or tool not in body_ids:
+                    return {
+                        "success": False,
+                        "error": f"Feature '{fid}' references unknown tool body '{tool}' at toolBodies[{j}]",
+                        "scriptPath": str(source_file),
+                    }
+            continue
 
         sketch_id = feature.get("sketchId")
         if not isinstance(sketch_id, str) or not sketch_id:
@@ -1079,12 +1201,15 @@ def build_document(
         }
 
     version = document.get("version")
-    if version != 1:
+    if version not in (1, 2):
         return {
             "success": False,
-            "error": f"Unsupported .nuke-cad schema version {version!r}; expected 1",
+            "error": f"Unsupported .nuke-cad schema version {version!r}; expected 1 or 2",
             "scriptPath": str(document_file),
         }
+
+    if version == 1:
+        document = _migrate_v1_to_v2(document)
 
     ref_error = _validate_document_refs(document, document_file)
     if ref_error is not None:
@@ -1143,6 +1268,7 @@ def build_document(
         selector_map=build_result.get("selectorMap", {}),
         manifest=manifest,
         length_scale=length_scale,
+        body_ids=build_result.get("solidBodyIds"),
     )
     result["featureResults"] = build_result.get("featureResults", [])
     result["referenceResults"] = build_result.get("referenceResults", [])

@@ -30,7 +30,8 @@
  *
  * Maps three.js raycast hits to source face indices and assembles
  * fingerprint-based {@link TopologyRef} objects for sketch-on-face and external
- * geometry.
+ * geometry. Picks bind to the owning body's current tip feature so references
+ * survive downstream boolean or pocket operations on the same body.
  *
  * @module nuke-cad/browser/widgets
  */
@@ -43,6 +44,7 @@ export interface TessFaceData {
     readonly faceId: number;
     readonly nodes: number[][];
     readonly triangles: number[][];
+    readonly bodyId?: string;
     readonly fingerprint?: FaceFingerprint;
 }
 
@@ -50,15 +52,31 @@ export interface TessFaceData {
 export interface FacePickHit {
     readonly solidId: number;
     readonly faceId: number;
+    readonly bodyId?: string;
     readonly mesh: THREE.Mesh;
     readonly fingerprint?: FaceFingerprint;
 }
 
-/** Build a TopologyRef for a picked face. */
-export function buildTopologyRef(featureId: string, hit: FacePickHit): TopologyRef | undefined {
+/**
+ * Build a TopologyRef for a picked face.
+ *
+ * The reference points at the current tip feature of the body that owns the
+ * picked face. ``resolveBodyTipFeature`` maps a body id to the most recent
+ * non-suppressed solid-producing feature targeting that body; when the mapping
+ * is unavailable the reference falls back to the supplied fallback feature id.
+ */
+export function buildTopologyRef(
+    fallbackFeatureId: string,
+    hit: FacePickHit,
+    resolveBodyTipFeature?: (bodyId: string) => string | undefined
+): TopologyRef | undefined {
     if (hit.fingerprint === undefined) {
         return undefined;
     }
+    const featureId =
+        hit.bodyId !== undefined && resolveBodyTipFeature !== undefined
+            ? (resolveBodyTipFeature(hit.bodyId) ?? fallbackFeatureId)
+            : fallbackFeatureId;
     return {
         featureId,
         kind: 'face',
@@ -94,13 +112,19 @@ export function raycastFace(
         return undefined;
     }
     const object = intersects[0].object;
-    const data = object.userData as { solidId?: number; faceId?: number; fingerprint?: FaceFingerprint };
+    const data = object.userData as {
+        solidId?: number;
+        faceId?: number;
+        bodyId?: string;
+        fingerprint?: FaceFingerprint;
+    };
     if (typeof data.solidId !== 'number' || typeof data.faceId !== 'number') {
         return undefined;
     }
     return {
         solidId: data.solidId,
         faceId: data.faceId,
+        bodyId: data.bodyId,
         mesh: object as THREE.Mesh,
         fingerprint: data.fingerprint
     };

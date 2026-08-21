@@ -52,10 +52,14 @@ def _load_fixture() -> dict:
 
 def test_gui_pincell_fixture_is_valid_json() -> None:
     doc = _load_fixture()
-    assert doc.get("version") == 1
+    assert doc.get("version") == 2
     assert doc.get("name") == "pincell"
-    assert "fuel" in {f.get("label") for f in doc.get("features", [])}
-    assert "clad" in {f.get("label") for f in doc.get("features", [])}
+    body_labels = {b.get("label") for b in doc.get("bodies", [])}
+    assert "fuel" in body_labels
+    assert "clad" in body_labels
+    assert "moderator" in body_labels
+    for feature in doc.get("features", []):
+        assert "body" in feature
 
 
 def test_build_document_from_gui_pincell_fixture(tmp_path: Path) -> None:

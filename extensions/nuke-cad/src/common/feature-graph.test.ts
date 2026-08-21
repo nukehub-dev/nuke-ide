@@ -30,7 +30,7 @@ import { FeatureGraph } from './feature-graph';
 import type { FeatureDef } from './cad-document';
 
 function feature(id: string, dependsOn: string[] = [], suppressed = false): FeatureDef {
-    return { id, name: id, type: 'pad', params: {}, suppressed, dependsOn };
+    return { id, name: id, type: 'pad', body: 'body-1', params: { length: 1 }, suppressed, dependsOn };
 }
 
 describe('FeatureGraph', () => {

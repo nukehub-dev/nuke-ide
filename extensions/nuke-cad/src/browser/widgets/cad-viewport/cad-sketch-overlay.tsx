@@ -271,6 +271,7 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
                 <FeatureCreationDialog
                     type={featureCreationType}
                     sketchId={documentStore.selection.selectedSketchId}
+                    documentStore={documentStore}
                     onCancel={onCancelFeatureCreation}
                     onConfirm={(type, params) => {
                         onAddFeature(type, params);
@@ -601,6 +602,7 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
     const doc = props.documentStore.document;
     const selectedSketchId = props.documentStore.selection.selectedSketchId;
     const sketchSelected = selectedSketchId !== undefined;
+    const hasBodies = doc !== undefined && doc.bodies.length > 0;
 
     return (
         <div className="cad-document-toolbar">
@@ -624,7 +626,7 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
             <Tooltip content="Pocket (extrude cut)" position="bottom">
                 <button
                     className="theia-button secondary"
-                    disabled={!sketchSelected}
+                    disabled={!sketchSelected || !hasBodies}
                     onClick={() => props.onStartFeatureCreation('pocket')}
                 >
                     <span className="codicon codicon-fold-down" /> Pocket
@@ -642,10 +644,33 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
             <Tooltip content="Groove" position="bottom">
                 <button
                     className="theia-button secondary"
-                    disabled={!sketchSelected}
+                    disabled={!sketchSelected || !hasBodies}
                     onClick={() => props.onStartFeatureCreation('groove')}
                 >
                     <span className="codicon codicon-discard" /> Groove
+                </button>
+            </Tooltip>
+            <Tooltip content="Boolean Fuse" position="bottom">
+                <button
+                    className="theia-button secondary"
+                    disabled={!hasBodies}
+                    onClick={() => props.onStartFeatureCreation('booleanFuse')}
+                >
+                    <span className="codicon codicon-type-hierarchy-sub" /> Fuse
+                </button>
+            </Tooltip>
+            <Tooltip content="Boolean Cut" position="bottom">
+                <button className="theia-button secondary" disabled={!hasBodies} onClick={() => props.onStartFeatureCreation('booleanCut')}>
+                    <span className="codicon codicon-type-hierarchy-super" /> Cut
+                </button>
+            </Tooltip>
+            <Tooltip content="Boolean Common" position="bottom">
+                <button
+                    className="theia-button secondary"
+                    disabled={!hasBodies}
+                    onClick={() => props.onStartFeatureCreation('booleanCommon')}
+                >
+                    <span className="codicon codicon-intersect" /> Common
                 </button>
             </Tooltip>
             {doc !== undefined && (
@@ -661,24 +686,46 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
 interface FeatureCreationDialogProps {
     readonly type: FeatureType;
     readonly sketchId?: string;
+    readonly documentStore: CadDocumentStore;
     readonly onCancel: () => void;
     readonly onConfirm: (type: FeatureType, params: FeatureParams) => void;
 }
+
+const NEW_BODY_SENTINEL = '__new_body__';
 
 function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactElement {
     const type = props.type;
     const isExtrude = type === 'pad' || type === 'pocket';
     const isRevolve = type === 'revolve' || type === 'groove';
+    const isBoolean = type === 'booleanFuse' || type === 'booleanCut' || type === 'booleanCommon';
+    const doc = props.documentStore.document;
+    const bodies = doc?.bodies ?? [];
     const [length, setLength] = React.useState('1');
     const [axis, setAxis] = React.useState<'x' | 'y' | 'z'>('z');
     const [symmetric, setSymmetric] = React.useState(false);
     const [angle, setAngle] = React.useState('90');
     const [label, setLabel] = React.useState(`${type}_1`);
+    const [bodyId, setBodyId] = React.useState<string>(bodies.length > 0 ? bodies[0].id : NEW_BODY_SENTINEL);
+    const [targetBody, setTargetBody] = React.useState<string>(bodies.length > 0 ? bodies[0].id : '');
+    const [toolBodies, setToolBodies] = React.useState<string[]>([]);
+    const [keepTools, setKeepTools] = React.useState(false);
     const [error, setError] = React.useState<string | undefined>();
 
     const submit = (): void => {
-        if (props.sketchId === undefined) {
+        if (!isBoolean && props.sketchId === undefined) {
             setError('No sketch is selected.');
+            return;
+        }
+        if (isBoolean) {
+            if (!targetBody) {
+                setError('Select a target body.');
+                return;
+            }
+            if (toolBodies.length === 0) {
+                setError('Select at least one tool body.');
+                return;
+            }
+            props.onConfirm(type, { targetBody, toolBodies, keepTools });
             return;
         }
         if (isExtrude) {
@@ -687,21 +734,83 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                 setError('Length must be a positive number.');
                 return;
             }
-            props.onConfirm(type, { length: value, axis, symmetric, label });
+            const effectiveBodyId = bodyId === NEW_BODY_SENTINEL ? undefined : bodyId;
+            props.onConfirm(type, { length: value, axis, symmetric, bodyId: effectiveBodyId, label });
         } else if (isRevolve) {
             const value = Number(angle);
             if (!Number.isFinite(value) || value <= 0 || value > 360) {
                 setError('Angle must be in (0, 360].');
                 return;
             }
-            props.onConfirm(type, { axis, angle: value, label });
+            const effectiveBodyId = bodyId === NEW_BODY_SENTINEL ? undefined : bodyId;
+            props.onConfirm(type, { axis, angle: value, bodyId: effectiveBodyId, label });
         }
     };
+
+    const bodySelector = (
+        <label className="cad-feature-dialog-row">
+            Body
+            <select value={bodyId} onChange={(e) => setBodyId(e.target.value)}>
+                {type === 'pad' || type === 'revolve' ? <option value={NEW_BODY_SENTINEL}>New body</option> : null}
+                {bodies.map((b) => (
+                    <option key={b.id} value={b.id}>
+                        {b.name}
+                    </option>
+                ))}
+            </select>
+        </label>
+    );
+
+    const labelInput = (
+        <label className="cad-feature-dialog-row">
+            Label
+            <input type="text" value={label} onChange={(e) => setLabel(e.target.value)} />
+        </label>
+    );
+
+    const booleanBodySelectors = (
+        <>
+            <label className="cad-feature-dialog-row">
+                Target body
+                <select value={targetBody} onChange={(e) => setTargetBody(e.target.value)}>
+                    {bodies.map((b) => (
+                        <option key={b.id} value={b.id}>
+                            {b.name}
+                        </option>
+                    ))}
+                </select>
+            </label>
+            <label className="cad-feature-dialog-row">
+                Tool bodies
+                <select
+                    multiple
+                    value={toolBodies}
+                    onChange={(e) => {
+                        const options = Array.from(e.target.selectedOptions).map((o) => o.value);
+                        setToolBodies(options);
+                    }}
+                >
+                    {bodies
+                        .filter((b) => b.id !== targetBody)
+                        .map((b) => (
+                            <option key={b.id} value={b.id}>
+                                {b.name}
+                            </option>
+                        ))}
+                </select>
+            </label>
+            <label className="cad-feature-dialog-row">
+                <input type="checkbox" checked={keepTools} onChange={(e) => setKeepTools(e.target.checked)} />
+                Keep tool bodies
+            </label>
+        </>
+    );
 
     return (
         <div className="cad-feature-dialog">
             <div className="cad-feature-dialog-title">{capitalize(type)}</div>
             {error !== undefined && <div className="cad-feature-dialog-error">{error}</div>}
+            {!isBoolean && bodySelector}
             {isExtrude && (
                 <>
                     <label className="cad-feature-dialog-row">
@@ -738,10 +847,8 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                     </label>
                 </>
             )}
-            <label className="cad-feature-dialog-row">
-                Label
-                <input type="text" value={label} onChange={(e) => setLabel(e.target.value)} />
-            </label>
+            {isBoolean && booleanBodySelectors}
+            {!isBoolean && labelInput}
             <div className="cad-feature-dialog-actions">
                 <button className="theia-button" onClick={submit}>
                     <span className="codicon codicon-check" /> Create

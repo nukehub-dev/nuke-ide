@@ -75,13 +75,28 @@ def _circle_sketch(x: float, y: float, radius: float, sid: str = "circle") -> di
 
 
 def _document(
-    features: list[dict[str, Any]], sketches: list[dict[str, Any]] | None = None
+    features: list[dict[str, Any]],
+    sketches: list[dict[str, Any]] | None = None,
+    bodies: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
+    body_list = bodies if bodies is not None else [{"id": "body-1", "name": "Body 1"}]
+    body_ids = {b["id"] for b in body_list}
+
+    def _default_body(feature: dict[str, Any]) -> str:
+        if feature.get("type") in ("booleanFuse", "booleanCut", "booleanCommon"):
+            params = feature.get("params", {})
+            target = params.get("targetBody")
+            if isinstance(target, str) and target in body_ids:
+                return target
+        return "body-1"
+
+    features = [{**f, "body": f.get("body", _default_body(f))} for f in features]
     return {
-        "version": 1,
+        "version": 2,
         "name": "test",
         "parameters": {},
         "datums": [{"id": "dxy", "kind": "XY", "name": "XY"}],
+        "bodies": body_list,
         "sketches": sketches if sketches is not None else [_rect_sketch()],
         "features": features,
     }
@@ -278,24 +293,28 @@ def test_labels_map_to_selector_indices() -> None:
                 "id": "clad",
                 "name": "clad",
                 "type": "pad",
+                "body": "body-clad",
                 "sketchId": "rect",
                 "params": {"length": 10},
                 "dependsOn": [],
                 "suppressed": False,
-                "label": "clad",
             },
             {
                 "id": "fuel",
                 "name": "fuel",
                 "type": "pad",
+                "body": "body-fuel",
                 "sketchId": "fuel",
                 "params": {"length": 10},
                 "dependsOn": [],
                 "suppressed": False,
-                "label": "fuel",
             },
         ],
         sketches=[_rect_sketch(), _circle_sketch(60, 10, 5, "fuel")],
+        bodies=[
+            {"id": "body-clad", "name": "clad", "label": "clad"},
+            {"id": "body-fuel", "name": "fuel", "label": "fuel"},
+        ],
     )
     result = fb.build_document_shape(doc)
     assert result["shape"] is not None
@@ -343,7 +362,12 @@ def test_suppressed_feature_is_stale() -> None:
 
 
 def test_overlapping_additive_pads_raise() -> None:
-    """Two additive pads that occupy the same space raise FeatureBuilderError."""
+    """Two same-body additive pads that occupy the same space fail the second pad.
+
+    Overlapping solids in one body would create duplicate-volume geometry, so the
+    same-body combine check rejects them; the cross-body overlap gate separately
+    handles overlaps between distinct bodies.
+    """
     pytest.importorskip("build123d", reason="build123d not installed")
     doc = _document(
         [
@@ -369,6 +393,7 @@ def test_overlapping_additive_pads_raise() -> None:
     )
     result = fb.build_document_shape(doc)
     by_id = {r["featureId"]: r for r in result["featureResults"]}
+    assert by_id["base"]["status"] == "built"
     assert by_id["overlap"]["status"] == "failed"
     assert "overlap" in by_id["overlap"]["error"].lower()
 
@@ -493,13 +518,14 @@ def test_face_datum_sketch_builds_on_correct_plane() -> None:
     top_ref, _base_doc = _build_base_and_capture_top_face(length=5.0)
 
     doc = {
-        "version": 1,
+        "version": 2,
         "name": "face-datum",
         "parameters": {},
         "datums": [
             {"id": "dxy", "kind": "XY", "name": "XY"},
             {"id": "face", "kind": "face", "name": "Top face", "reference": top_ref},
         ],
+        "bodies": [{"id": "body-1", "name": "Body 1"}],
         "sketches": [
             _rect_sketch(width=10.0, height=10.0),
             {
@@ -524,6 +550,7 @@ def test_face_datum_sketch_builds_on_correct_plane() -> None:
                 "id": "base",
                 "name": "base",
                 "type": "pad",
+                "body": "body-1",
                 "sketchId": "rect",
                 "params": {"length": 5},
                 "dependsOn": [],
@@ -533,6 +560,7 @@ def test_face_datum_sketch_builds_on_correct_plane() -> None:
                 "id": "top",
                 "name": "top",
                 "type": "pad",
+                "body": "body-1",
                 "sketchId": "top",
                 "params": {"length": 2},
                 "dependsOn": ["base"],
@@ -562,13 +590,14 @@ def test_face_datum_offset_shifts_along_normal() -> None:
     top_ref, _base_doc = _build_base_and_capture_top_face(length=5.0)
 
     doc = {
-        "version": 1,
+        "version": 2,
         "name": "face-datum-offset",
         "parameters": {},
         "datums": [
             {"id": "dxy", "kind": "XY", "name": "XY"},
             {"id": "face", "kind": "face", "name": "Top face", "reference": top_ref, "offset": 3.0},
         ],
+        "bodies": [{"id": "body-1", "name": "Body 1"}],
         "sketches": [
             _rect_sketch(width=10.0, height=10.0),
             {
@@ -593,6 +622,7 @@ def test_face_datum_offset_shifts_along_normal() -> None:
                 "id": "base",
                 "name": "base",
                 "type": "pad",
+                "body": "body-1",
                 "sketchId": "rect",
                 "params": {"length": 5},
                 "dependsOn": [],
@@ -602,6 +632,7 @@ def test_face_datum_offset_shifts_along_normal() -> None:
                 "id": "top",
                 "name": "top",
                 "type": "pad",
+                "body": "body-1",
                 "sketchId": "top",
                 "params": {"length": 2},
                 "dependsOn": ["base"],
@@ -668,13 +699,14 @@ def test_non_planar_face_datum_fails_clearly() -> None:
     side_ref = _face_ref("base", base_result["shape"].wrapped, side_face)
 
     doc = {
-        "version": 1,
+        "version": 2,
         "name": "non-planar",
         "parameters": {},
         "datums": [
             {"id": "dxy", "kind": "XY", "name": "XY"},
             {"id": "face", "kind": "face", "name": "Side face", "reference": side_ref},
         ],
+        "bodies": [{"id": "body-1", "name": "Body 1"}],
         "sketches": [
             sketch,
             {
@@ -699,6 +731,7 @@ def test_non_planar_face_datum_fails_clearly() -> None:
                 "id": "base",
                 "name": "base",
                 "type": "revolve",
+                "body": "body-1",
                 "sketchId": "profile",
                 "params": {"axis": "y", "angle": 360},
                 "dependsOn": [],
@@ -708,6 +741,7 @@ def test_non_planar_face_datum_fails_clearly() -> None:
                 "id": "on_side",
                 "name": "on_side",
                 "type": "pad",
+                "body": "body-1",
                 "sketchId": "on_side",
                 "params": {"length": 1},
                 "dependsOn": ["base"],
@@ -732,13 +766,14 @@ def test_fingerprint_survives_pad_length_change() -> None:
 
     def build_with_length(length: float) -> dict[str, Any]:
         doc = {
-            "version": 1,
+            "version": 2,
             "name": "survive",
             "parameters": {},
             "datums": [
                 {"id": "dxy", "kind": "XY", "name": "XY"},
                 {"id": "face", "kind": "face", "name": "Top face", "reference": top_ref},
             ],
+            "bodies": [{"id": "body-1", "name": "Body 1"}],
             "sketches": [
                 _rect_sketch(width=10.0, height=10.0),
                 {
@@ -763,6 +798,7 @@ def test_fingerprint_survives_pad_length_change() -> None:
                     "id": "base",
                     "name": "base",
                     "type": "pad",
+                    "body": "body-1",
                     "sketchId": "rect",
                     "params": {"length": length},
                     "dependsOn": [],
@@ -772,6 +808,7 @@ def test_fingerprint_survives_pad_length_change() -> None:
                     "id": "top",
                     "name": "top",
                     "type": "pad",
+                    "body": "body-1",
                     "sketchId": "top",
                     "params": {"length": 2},
                     "dependsOn": ["base"],
@@ -806,7 +843,7 @@ def test_fingerprint_survives_sibling_feature_addition() -> None:
     top_ref, _base_doc = _build_base_and_capture_top_face(length=5.0)
 
     doc = {
-        "version": 1,
+        "version": 2,
         "name": "sibling",
         "parameters": {},
         "datums": [
@@ -814,6 +851,7 @@ def test_fingerprint_survives_sibling_feature_addition() -> None:
             {"id": "face", "kind": "face", "name": "Top face", "reference": top_ref},
             {"id": "offset", "kind": "offset", "name": "Offset", "offset": 10.0},
         ],
+        "bodies": [{"id": "body-1", "name": "Body 1"}],
         "sketches": [
             _rect_sketch(width=10.0, height=10.0),
             {
@@ -839,6 +877,7 @@ def test_fingerprint_survives_sibling_feature_addition() -> None:
                 "id": "base",
                 "name": "base",
                 "type": "pad",
+                "body": "body-1",
                 "sketchId": "rect",
                 "params": {"length": 5},
                 "dependsOn": [],
@@ -848,6 +887,7 @@ def test_fingerprint_survives_sibling_feature_addition() -> None:
                 "id": "sibling",
                 "name": "sibling",
                 "type": "pad",
+                "body": "body-1",
                 "sketchId": "rect2",
                 "params": {"length": 2},
                 "dependsOn": ["base"],
@@ -857,6 +897,7 @@ def test_fingerprint_survives_sibling_feature_addition() -> None:
                 "id": "top",
                 "name": "top",
                 "type": "pad",
+                "body": "body-1",
                 "sketchId": "top",
                 "params": {"length": 2},
                 "dependsOn": ["base"],
@@ -864,13 +905,17 @@ def test_fingerprint_survives_sibling_feature_addition() -> None:
             },
         ],
     }
-    # The sibling sketch is the third sketch; rename it to "rect2".
+    # The sibling sketch is the third sketch; rename it to "rect2" and place it
+    # on the offset datum so it stacks above the base instead of overlapping it
+    # (same-body additive overlaps are rejected by the combine check).
     doc["sketches"][2]["id"] = "rect2"
     doc["sketches"][2]["name"] = "rect2"
+    doc["sketches"][2]["datumId"] = "offset"
 
     result = fb.build_document_shape(doc)
     assert result["shape"] is not None
     by_id = {r["featureId"]: r for r in result["featureResults"]}
+    assert by_id["sibling"]["status"] == "built"
     assert by_id["top"]["status"] == "built"
 
     ref_results = [r for r in result["referenceResults"] if r["path"] == "datum.face.reference"]
@@ -940,13 +985,14 @@ def test_ambiguous_reference_reported_on_symmetric_edit() -> None:
     top_ref = {"featureId": "base", "kind": "face", "fingerprint": right_faces[0].to_dict()}
 
     doc = {
-        "version": 1,
+        "version": 2,
         "name": "ambiguous",
         "parameters": {},
         "datums": [
             {"id": "dxy", "kind": "XY", "name": "XY"},
             {"id": "face", "kind": "face", "name": "Top face", "reference": top_ref},
         ],
+        "bodies": [{"id": "body-1", "name": "Body 1"}],
         "sketches": [
             tiny_sketch,
             {
@@ -971,6 +1017,7 @@ def test_ambiguous_reference_reported_on_symmetric_edit() -> None:
                 "id": "base",
                 "name": "base",
                 "type": "pad",
+                "body": "body-1",
                 "sketchId": "tiny",
                 "params": {"length": 5},
                 "dependsOn": [],
@@ -980,6 +1027,7 @@ def test_ambiguous_reference_reported_on_symmetric_edit() -> None:
                 "id": "top",
                 "name": "top",
                 "type": "pad",
+                "body": "body-1",
                 "sketchId": "top",
                 "params": {"length": 1},
                 "dependsOn": ["base"],
@@ -1015,13 +1063,14 @@ def test_unmatched_reference_clear_error() -> None:
     }
 
     doc = {
-        "version": 1,
+        "version": 2,
         "name": "unmatched",
         "parameters": {},
         "datums": [
             {"id": "dxy", "kind": "XY", "name": "XY"},
             {"id": "face", "kind": "face", "name": "Top face", "reference": top_ref},
         ],
+        "bodies": [{"id": "body-1", "name": "Body 1"}],
         "sketches": [
             _rect_sketch(width=1.0, height=1.0),
             {
@@ -1046,6 +1095,7 @@ def test_unmatched_reference_clear_error() -> None:
                 "id": "base",
                 "name": "base",
                 "type": "pad",
+                "body": "body-1",
                 "sketchId": "rect",
                 "params": {"length": 1},
                 "dependsOn": [],
@@ -1055,6 +1105,7 @@ def test_unmatched_reference_clear_error() -> None:
                 "id": "top",
                 "name": "top",
                 "type": "pad",
+                "body": "body-1",
                 "sketchId": "top",
                 "params": {"length": 1},
                 "dependsOn": ["base"],
@@ -1163,3 +1214,409 @@ def test_unresolved_reference_raises_when_resolver_unavailable(
     ]
     with pytest.raises(fb.FeatureBuilderError, match="reference resolution requires OCP"):
         fb._resolve_document_refs(refs_with_paths, {}, owner_feature_id="top")
+
+
+def test_multi_body_touching_compound_has_distinct_solids() -> None:
+    """Separate bodies that merely touch stay distinct solids in the final compound."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    left = _rect_sketch(width=10.0, height=10.0)
+    left["id"] = "left_rect"
+    right = {
+        "id": "right_rect",
+        "name": "right_rect",
+        "datumId": "dxy",
+        "primitives": [
+            {"id": "p1", "type": "point", "x": 10, "y": 0},
+            {"id": "p2", "type": "point", "x": 20, "y": 0},
+            {"id": "p3", "type": "point", "x": 20, "y": 10},
+            {"id": "p4", "type": "point", "x": 10, "y": 10},
+            {"id": "l1", "type": "line", "p1_id": "p1", "p2_id": "p2"},
+            {"id": "l2", "type": "line", "p1_id": "p2", "p2_id": "p3"},
+            {"id": "l3", "type": "line", "p1_id": "p3", "p2_id": "p4"},
+            {"id": "l4", "type": "line", "p1_id": "p4", "p2_id": "p1"},
+        ],
+        "constraints": [],
+    }
+    doc = _document(
+        [
+            {
+                "id": "left",
+                "name": "left",
+                "type": "pad",
+                "body": "body-left",
+                "sketchId": "left_rect",
+                "params": {"length": 5},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+            {
+                "id": "right",
+                "name": "right",
+                "type": "pad",
+                "body": "body-right",
+                "sketchId": "right_rect",
+                "params": {"length": 5},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+        ],
+        sketches=[left, right],
+        bodies=[
+            {"id": "body-left", "name": "left", "label": "left"},
+            {"id": "body-right", "name": "right", "label": "right"},
+        ],
+    )
+    result = fb.build_document_shape(doc)
+    assert result["shape"] is not None
+    assert len(result["shape"].solids()) == 2
+    assert result["selectorMap"] == {"left": [1], "right": [2]}
+
+
+def test_boolean_fuse_unites_touching_bodies() -> None:
+    """A boolean fuse of two touching bodies produces a single fused solid."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    left = _rect_sketch(width=10.0, height=10.0)
+    left["id"] = "left_rect"
+    right = {
+        "id": "right_rect",
+        "name": "right_rect",
+        "datumId": "dxy",
+        "primitives": [
+            {"id": "p1", "type": "point", "x": 10, "y": 0},
+            {"id": "p2", "type": "point", "x": 20, "y": 0},
+            {"id": "p3", "type": "point", "x": 20, "y": 10},
+            {"id": "p4", "type": "point", "x": 10, "y": 10},
+            {"id": "l1", "type": "line", "p1_id": "p1", "p2_id": "p2"},
+            {"id": "l2", "type": "line", "p1_id": "p2", "p2_id": "p3"},
+            {"id": "l3", "type": "line", "p1_id": "p3", "p2_id": "p4"},
+            {"id": "l4", "type": "line", "p1_id": "p4", "p2_id": "p1"},
+        ],
+        "constraints": [],
+    }
+    doc = _document(
+        [
+            {
+                "id": "left",
+                "name": "left",
+                "type": "pad",
+                "body": "body-left",
+                "sketchId": "left_rect",
+                "params": {"length": 5},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+            {
+                "id": "right",
+                "name": "right",
+                "type": "pad",
+                "body": "body-right",
+                "sketchId": "right_rect",
+                "params": {"length": 5},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+            {
+                "id": "fuse",
+                "name": "fuse",
+                "type": "booleanFuse",
+                "body": "body-left",
+                "params": {"targetBody": "body-left", "toolBodies": ["body-right"]},
+                "dependsOn": ["left", "right"],
+                "suppressed": False,
+            },
+        ],
+        sketches=[left, right],
+        bodies=[
+            {"id": "body-left", "name": "left", "label": "merged"},
+            {"id": "body-right", "name": "right"},
+        ],
+    )
+    result = fb.build_document_shape(doc)
+    assert result["shape"] is not None
+    # The tool body is consumed, so the final compound has one fused solid.
+    assert len(result["shape"].solids()) == 1
+    assert result["shape"].volume == pytest.approx(20.0 * 10.0 * 5.0, abs=1e-3)
+    by_id = {r["featureId"]: r for r in result["featureResults"]}
+    assert by_id["fuse"]["consumedBodyIds"] == ["body-right"]
+    assert result["selectorMap"].get("merged") == [1]
+
+
+def test_boolean_cut_removes_tool_volume() -> None:
+    """A boolean cut subtracts the tool body volume from the target."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    doc = _document(
+        [
+            {
+                "id": "base",
+                "name": "base",
+                "type": "pad",
+                "body": "body-base",
+                "sketchId": "rect",
+                "params": {"length": 10},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+            {
+                "id": "tool",
+                "name": "tool",
+                "type": "pad",
+                "body": "body-tool",
+                "sketchId": "hole",
+                "params": {"length": 10},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+            {
+                "id": "cut",
+                "name": "cut",
+                "type": "booleanCut",
+                "body": "body-base",
+                "params": {"targetBody": "body-base", "toolBodies": ["body-tool"]},
+                "dependsOn": ["base", "tool"],
+                "suppressed": False,
+            },
+        ],
+        sketches=[_rect_sketch(width=40.0, height=20.0), _circle_sketch(20, 10, 3, "hole")],
+        bodies=[
+            {"id": "body-base", "name": "base"},
+            {"id": "body-tool", "name": "tool"},
+        ],
+    )
+    result = fb.build_document_shape(doc)
+    assert result["shape"] is not None
+    expected = 40.0 * 20.0 * 10.0 - math.pi * 9.0 * 10.0
+    assert result["shape"].volume == pytest.approx(expected, abs=1e-3)
+
+
+def test_boolean_common_returns_intersection_volume() -> None:
+    """A boolean common keeps only the intersection of target and tool."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    # Two identical pads occupying the same space.
+    doc = _document(
+        [
+            {
+                "id": "base",
+                "name": "base",
+                "type": "pad",
+                "body": "body-base",
+                "sketchId": "rect",
+                "params": {"length": 5},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+            {
+                "id": "tool",
+                "name": "tool",
+                "type": "pad",
+                "body": "body-tool",
+                "sketchId": "rect",
+                "params": {"length": 5},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+            {
+                "id": "common",
+                "name": "common",
+                "type": "booleanCommon",
+                "body": "body-base",
+                "params": {"targetBody": "body-base", "toolBodies": ["body-tool"]},
+                "dependsOn": ["base", "tool"],
+                "suppressed": False,
+            },
+        ],
+        sketches=[_rect_sketch(width=10.0, height=10.0)],
+        bodies=[
+            {"id": "body-base", "name": "base"},
+            {"id": "body-tool", "name": "tool"},
+        ],
+    )
+    result = fb.build_document_shape(doc)
+    assert result["shape"] is not None
+    assert result["shape"].volume == pytest.approx(10.0 * 10.0 * 5.0, abs=1e-3)
+
+
+def test_keep_tools_preserves_tool_body_in_final_compound() -> None:
+    """With keepTools=true the tool body remains in the final compound."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    doc = _document(
+        [
+            {
+                "id": "base",
+                "name": "base",
+                "type": "pad",
+                "body": "body-base",
+                "sketchId": "rect",
+                "params": {"length": 5},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+            {
+                "id": "tool",
+                "name": "tool",
+                "type": "pad",
+                "body": "body-tool",
+                "sketchId": "rect",
+                "params": {"length": 5},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+            {
+                "id": "cut",
+                "name": "cut",
+                "type": "booleanCut",
+                "body": "body-base",
+                "params": {
+                    "targetBody": "body-base",
+                    "toolBodies": ["body-tool"],
+                    "keepTools": True,
+                },
+                "dependsOn": ["base", "tool"],
+                "suppressed": False,
+            },
+        ],
+        sketches=[_rect_sketch(width=10.0, height=10.0)],
+        bodies=[
+            {"id": "body-base", "name": "base"},
+            {"id": "body-tool", "name": "tool"},
+        ],
+    )
+    result = fb.build_document_shape(doc)
+    assert result["shape"] is not None
+    # Identical target and tool: cut leaves nothing, but tool is kept.
+    assert len(result["shape"].solids()) == 1
+    by_id = {r["featureId"]: r for r in result["featureResults"]}
+    assert by_id["cut"].get("consumedBodyIds") == []
+
+
+def test_cross_body_overlap_without_boolean_raises() -> None:
+    """Two overlapping bodies that are not merged by a boolean raise FeatureBuilderError."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    doc = _document(
+        [
+            {
+                "id": "left",
+                "name": "left",
+                "type": "pad",
+                "body": "body-left",
+                "sketchId": "rect",
+                "params": {"length": 5},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+            {
+                "id": "right",
+                "name": "right",
+                "type": "pad",
+                "body": "body-right",
+                "sketchId": "rect",
+                "params": {"length": 5},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+        ],
+        sketches=[_rect_sketch(width=10.0, height=10.0)],
+        bodies=[
+            {"id": "body-left", "name": "left"},
+            {"id": "body-right", "name": "right"},
+        ],
+    )
+    with pytest.raises(fb.FeatureBuilderError, match="overlap"):
+        fb.build_document_shape(doc)
+
+
+def test_reference_resolves_against_body_state_after_pocket() -> None:
+    """A face reference on a body resolves against the post-pocket body state."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    base_doc = _document(
+        [
+            {
+                "id": "base",
+                "name": "base",
+                "type": "pad",
+                "body": "body-base",
+                "sketchId": "rect",
+                "params": {"length": 5},
+                "dependsOn": [],
+                "suppressed": False,
+            }
+        ],
+        sketches=[_rect_sketch(width=10.0, height=10.0)],
+        bodies=[{"id": "body-base", "name": "base"}],
+    )
+    base_result = fb.build_document_shape(base_doc)
+    assert base_result["shape"] is not None
+    top_ref = _face_ref("base", base_result["shape"].wrapped, _top_face_predicate())
+
+    doc = {
+        "version": 2,
+        "name": "pocketed-ref",
+        "parameters": {},
+        "datums": [
+            {"id": "dxy", "kind": "XY", "name": "XY"},
+            {"id": "face", "kind": "face", "name": "Top face", "reference": top_ref},
+        ],
+        "bodies": [
+            {"id": "body-base", "name": "base"},
+        ],
+        "sketches": [
+            _rect_sketch(width=10.0, height=10.0),
+            {
+                "id": "top",
+                "name": "top",
+                "datumId": "face",
+                "primitives": [
+                    {"id": "p1", "type": "point", "x": 0, "y": 0},
+                    {"id": "p2", "type": "point", "x": 5, "y": 0},
+                    {"id": "p3", "type": "point", "x": 5, "y": 5},
+                    {"id": "p4", "type": "point", "x": 0, "y": 5},
+                    {"id": "l1", "type": "line", "p1_id": "p1", "p2_id": "p2"},
+                    {"id": "l2", "type": "line", "p1_id": "p2", "p2_id": "p3"},
+                    {"id": "l3", "type": "line", "p1_id": "p3", "p2_id": "p4"},
+                    {"id": "l4", "type": "line", "p1_id": "p4", "p2_id": "p1"},
+                ],
+                "constraints": [],
+            },
+            _circle_sketch(5, 5, 2, "hole"),
+        ],
+        "features": [
+            {
+                "id": "base",
+                "name": "base",
+                "type": "pad",
+                "body": "body-base",
+                "sketchId": "rect",
+                "params": {"length": 5},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+            {
+                "id": "pocket",
+                "name": "pocket",
+                "type": "pocket",
+                "body": "body-base",
+                "sketchId": "hole",
+                "params": {"length": 5},
+                "dependsOn": ["base"],
+                "suppressed": False,
+            },
+            {
+                "id": "top",
+                "name": "top",
+                "type": "pad",
+                "body": "body-base",
+                "sketchId": "top",
+                "params": {"length": 2},
+                "dependsOn": ["pocket"],
+                "suppressed": False,
+            },
+        ],
+    }
+    result = fb.build_document_shape(doc)
+    assert result["shape"] is not None
+    by_id = {r["featureId"]: r for r in result["featureResults"]}
+    assert by_id["top"]["status"] == "built"
+
+    ref_results = [r for r in result["referenceResults"] if r["path"] == "datum.face.reference"]
+    assert len(ref_results) == 1
+    assert ref_results[0]["featureId"] == "top"
+    assert ref_results[0]["status"] == "matched"

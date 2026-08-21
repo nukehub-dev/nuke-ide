@@ -36,6 +36,7 @@ function minimalDoc(overrides?: Partial<NukeCadDocument>): NukeCadDocument {
         name: 'test',
         parameters: {},
         datums: [{ id: 'datum-xy', kind: 'XY', name: 'XY' }],
+        bodies: [{ id: 'body-1', name: 'Body 1' }],
         sketches: [],
         features: [],
         ...overrides
@@ -54,11 +55,12 @@ function sketch(id: string, params?: Record<string, number>): SketchDef {
     };
 }
 
-function feature(id: string, type: FeatureDef['type'], dependsOn: string[] = [], sketchId?: string): FeatureDef {
+function feature(id: string, type: FeatureDef['type'], dependsOn: string[] = [], sketchId?: string, bodyId = 'body-1'): FeatureDef {
     return {
         id,
         name: id,
         type,
+        body: bodyId,
         params: type === 'pad' || type === 'pocket' ? { length: 1 } : { axis: 'z', angle: 90 },
         suppressed: false,
         dependsOn,
@@ -114,6 +116,9 @@ describe('CadDocumentStore', () => {
     it('marks dirty after mutations and clear on save', () => {
         const store = new CadDocumentStore();
         store.createDocument('test');
+        store.addBody('Body 1');
+        expect(store.dirty).toBe(true);
+        store.markSaved();
         expect(store.dirty).toBe(false);
         store.addFeature(feature('pad1', 'pad'));
         expect(store.dirty).toBe(true);
@@ -183,6 +188,7 @@ describe('CadDocumentStore', () => {
         it('rejects deleting a sketch referenced by a feature', () => {
             const store = new CadDocumentStore();
             store.createDocument('test');
+            store.addBody('Body 1');
             store.upsertSketch(sketch('s1'));
             store.addFeature(feature('pad1', 'pad', [], 's1'));
             store.markSaved();
@@ -207,6 +213,7 @@ describe('CadDocumentStore', () => {
         it('adds, updates, renames, and deletes features', () => {
             const store = new CadDocumentStore();
             store.createDocument('test');
+            store.addBody('Body 1');
             store.addFeature(feature('pad1', 'pad'));
             expect(store.document?.features).toHaveLength(1);
 
@@ -223,6 +230,7 @@ describe('CadDocumentStore', () => {
         it('toggles feature suppression', () => {
             const store = new CadDocumentStore();
             store.createDocument('test');
+            store.addBody('Body 1');
             store.addFeature(feature('pad1', 'pad'));
             store.setFeatureSuppressed('pad1', true);
             expect(store.document?.features[0].suppressed).toBe(true);
@@ -231,6 +239,7 @@ describe('CadDocumentStore', () => {
         it('rejects deleting a feature with dependents', () => {
             const store = new CadDocumentStore();
             store.createDocument('test');
+            store.addBody('Body 1');
             store.addFeature(feature('pad1', 'pad'));
             store.addFeature(feature('pad2', 'pad', ['pad1']));
             const result = store.deleteFeature('pad1');
@@ -241,8 +250,41 @@ describe('CadDocumentStore', () => {
         it('selects a newly added feature', () => {
             const store = new CadDocumentStore();
             store.createDocument('test');
+            store.addBody('Body 1');
             store.addFeature(feature('pad1', 'pad'));
             expect(store.selection.selectedFeatureId).toBe('pad1');
+        });
+    });
+
+    describe('body operations', () => {
+        it('adds, renames, labels, and removes bodies', () => {
+            const store = new CadDocumentStore();
+            store.createDocument('test');
+            const add = store.addBody('Fuel', 'fuel');
+            expect(add.success).toBe(true);
+            expect(store.document?.bodies.some((b) => b.name === 'Fuel' && b.label === 'fuel')).toBe(true);
+            expect(store.selection.selectedBodyId).toBe(add.value);
+
+            store.renameBody(add.value!, 'Fuel Pin');
+            expect(store.document?.bodies[0].name).toBe('Fuel Pin');
+
+            store.setBodyLabel(add.value!, 'fuel_pin');
+            expect(store.document?.bodies[0].label).toBe('fuel_pin');
+
+            const removal = store.removeBody(add.value!);
+            expect(removal.success).toBe(true);
+            expect(store.document?.bodies).toHaveLength(0);
+        });
+
+        it('rejects removing a body referenced by a feature', () => {
+            const store = new CadDocumentStore();
+            store.createDocument('test');
+            store.addBody('Base', 'base');
+            const bodyId = store.document!.bodies[0].id;
+            store.addFeature(feature('pad1', 'pad', [], undefined, bodyId));
+            const result = store.removeBody(bodyId);
+            expect(result.success).toBe(false);
+            expect(result.error).toContain('pad1');
         });
     });
 
@@ -279,12 +321,13 @@ describe('CadDocumentStore', () => {
     });
 
     describe('selection', () => {
-        it('tracks sketch and feature selection', () => {
+        it('tracks sketch, feature, and body selection', () => {
             const store = new CadDocumentStore();
             store.createDocument('test');
             store.selectSketch('s1');
             store.selectFeature('f1');
-            expect(store.selection).toEqual({ selectedSketchId: 's1', selectedFeatureId: 'f1' });
+            store.selectBody('b1');
+            expect(store.selection).toEqual({ selectedSketchId: 's1', selectedFeatureId: 'f1', selectedBodyId: 'b1' });
             store.clearSelection();
             expect(store.selection).toEqual({});
         });
@@ -319,21 +362,27 @@ describe('CadDocumentStore', () => {
 
 describe('computeDependsOn', () => {
     it('returns undefined for the first additive feature', () => {
-        expect(computeDependsOn('pad', [])).toBeUndefined();
+        expect(computeDependsOn('pad', 'body-1', [])).toBeUndefined();
     });
 
-    it('depends on the most recent solid-producing feature', () => {
+    it('depends on the most recent solid-producing feature on the same body', () => {
         const features = [feature('pad1', 'pad'), feature('pad2', 'pad', ['pad1'])];
-        expect(computeDependsOn('pocket', features)).toBe('pad2');
+        expect(computeDependsOn('pocket', 'body-1', features)).toBe('pad2');
     });
 
     it('skips suppressed features', () => {
         const features = [feature('pad1', 'pad'), { ...feature('pad2', 'pad', ['pad1']), suppressed: true }];
-        expect(computeDependsOn('pocket', features)).toBe('pad1');
+        expect(computeDependsOn('pocket', 'body-1', features)).toBe('pad1');
     });
 
     it('returns undefined for non-solid features', () => {
-        expect(computeDependsOn('fillet', [])).toBeUndefined();
+        expect(computeDependsOn('fillet', 'body-1', [])).toBeUndefined();
+    });
+
+    it('ignores solid-producing features on other bodies', () => {
+        const features = [feature('pad1', 'pad', [], undefined, 'body-a'), feature('pad2', 'pad', [], undefined, 'body-b')];
+        expect(computeDependsOn('pocket', 'body-b', features)).toBe('pad2');
+        expect(computeDependsOn('pocket', 'body-a', features)).toBe('pad1');
     });
 });
 

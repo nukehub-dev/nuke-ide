@@ -121,38 +121,59 @@ which constraints are conflicting or redundant.
   Sketch** from the Command Palette. The sketch is merged back into the document
   and the viewport returns to the 3D view.
 
+## Bodies
+
+A `.nuke-cad` v2 document contains one or more solid **bodies**. Each body is an
+independent accumulator of material; features target a body by id. New bodies are
+created from the document toolbar or the **Add Body** command in the Feature
+Tree. A body can be renamed and can carry an optional **Label** that maps to the
+region manifest for DAGMC/mesh export.
+
+Bodies let you model multi-part assemblies: for example, a pincell can have
+separate `clad`, `fuel`, and `moderator` bodies that touch but remain distinct
+solids. Bodies that overlap in space must be merged with a boolean feature; the
+builder raises an error if two non-consumed bodies occupy the same volume.
+
 ## Features
 
 Sketches become solid features through the document toolbar or the **Add**
 commands in the Feature Tree:
 
-- **Pad** — extrude a sketch additively.
-- **Pocket** — extrude a sketch as a cut (requires an existing solid).
+- **Pad** — extrude a sketch additively into a body.
+- **Pocket** — extrude a sketch as a cut (requires an existing solid body).
 - **Revolve** — revolve a sketch around `X`, `Y`, or `Z` by an angle in `(0, 360]`.
-- **Groove** — revolve-cut (requires an existing solid).
+- **Groove** — revolve-cut (requires an existing solid body).
+- **Boolean Fuse** — union one or more tool bodies into a target body.
+- **Boolean Cut** — subtract one or more tool bodies from a target body.
+- **Boolean Common** — intersect a target body with one or more tool bodies.
 
-Each feature dialog asks for an extrude direction/revolve axis, length or angle,
-and an optional **Label**. Labels are important because they map to the region
-manifest: a labeled pad becomes a named volume in `selector_map`, and the
+Each solid feature dialog asks for the target body, extrude direction/revolve
+axis, length or angle, and an optional **Label**. Boolean dialogs ask for a
+target body, one or more tool bodies, and whether to keep the tool bodies after
+the operation. Labels are important because they map to the region manifest: a
+labeled body or feature becomes a named volume in `selector_map`, and the
 `.regions.json` sidecar can then assign it a material name such as `fuel` or
 `clad`. Those material names flow into the DAGMC `.h5m` as `mat:<name>` groups
 and into OpenMC Studio on import.
 
 ## Feature tree
 
-The **Feature Tree** panel shows three sections:
+The **Feature Tree** panel shows four sections:
 
-- **Datums** — XY, YZ, XZ, and any offset datum planes.
+- **Bodies** — one row per body; click to select, click the edit button to
+  rename or change its label. New bodies are added from the document toolbar.
+- **Datums** — XY, YZ, XZ, and any offset or face datum planes.
 - **Sketches** — one row per sketch; click to select, click the edit button to
   re-enter sketch mode.
-- **Features** — one row per feature in build order, with status markers from
-  the last rebuild (`built`, `stale`, or `failed`) and reference-resolution
-  badges when topological references are ambiguous or unmatched. Each row has
-  actions for suppress, edit parameters, and delete.
+- **Features** — one row per feature in build order, showing its target body and
+  (for booleans) the target/tool bodies. Status markers from the last rebuild
+  (`built`, `stale`, or `failed`) and reference-resolution badges when
+  topological references are ambiguous or unmatched. Each row has actions for
+  suppress, edit parameters, and delete; boolean features cannot be edited.
 
 Suppressed features are omitted from the build and mark downstream features as
-stale. Deleting a feature with dependents is rejected until the dependencies are
-removed or edited.
+stale. Deleting a feature or body with dependents is rejected until the
+dependencies are removed or edited.
 
 ## Save and rebuild
 
@@ -169,7 +190,8 @@ This release supports the core workflow. These features are not implemented yet:
 
 - Fillets, chamfers, drafts, shells, holes, mirrors, and patterns.
 - Up-to-face / up-to-body extrude termination.
-- Boolean feature types (`booleanFuse`, `booleanCut`, `booleanCommon`).
+- Direct viewport picking of tool bodies for booleans (use the dialog dropdowns
+  instead).
 
 Script mode is unaffected and remains the full-power path for any geometry that
 exceeds the GUI modeler's current scope.

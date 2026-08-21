@@ -73,11 +73,13 @@ interface TessFace {
     readonly faceId: number;
     readonly nodes: number[][];
     readonly triangles: number[][];
+    readonly bodyId?: string;
     readonly fingerprint?: import('../../../common/topology-refs').FaceFingerprint;
 }
 
 interface TessSolid {
     readonly solidId: number;
+    readonly bodyId?: string;
     readonly faces: TessFace[];
 }
 
@@ -196,33 +198,97 @@ export class CadViewportWidget extends ReactWidget {
         if (doc === undefined) {
             return;
         }
-        const sketchId = this.documentStore.selection.selectedSketchId;
-        if (sketchId === undefined) {
+        const paramsRecord = params as Record<string, unknown>;
+
+        // Boolean features do not consume a sketch.
+        const isBoolean = type === 'booleanFuse' || type === 'booleanCut' || type === 'booleanCommon';
+        const sketchId = isBoolean ? undefined : this.documentStore.selection.selectedSketchId;
+        if (!isBoolean && sketchId === undefined) {
             this.messageService.warn('Select a closed sketch before adding a solid feature.');
             return;
         }
-        const dependsOn = computeDependsOn(type, doc.features);
-        if ((type === 'pocket' || type === 'groove') && dependsOn === undefined) {
-            this.messageService.warn(`${type} requires an existing solid body.`);
+
+        let bodyId: string | undefined;
+        if (isBoolean) {
+            bodyId = typeof paramsRecord.targetBody === 'string' ? paramsRecord.targetBody : undefined;
+        } else {
+            bodyId = typeof paramsRecord.bodyId === 'string' ? paramsRecord.bodyId : undefined;
+        }
+
+        const isAdditive = type === 'pad' || type === 'revolve';
+        if (bodyId === undefined && isAdditive) {
+            // Create a new body for the additive feature.
+            const label = typeof paramsRecord.label === 'string' ? paramsRecord.label : undefined;
+            const bodyResult = this.documentStore.addBody(`${type} ${doc.bodies.length + 1}`, label);
+            if (!bodyResult.success) {
+                this.messageService.error(bodyResult.error || 'Failed to create body.');
+                return;
+            }
+            bodyId = bodyResult.value;
+        } else if (bodyId === undefined && (type === 'pocket' || type === 'groove')) {
+            this.messageService.warn(`${type} requires an existing body.`);
             return;
         }
-        const paramsRecord = params as Record<string, unknown>;
-        const label = typeof paramsRecord.label === 'string' ? paramsRecord.label : undefined;
+
+        if (bodyId === undefined) {
+            this.messageService.error('No target body selected for the feature.');
+            return;
+        }
+
+        // Apply body label from the dialog when an existing body is reused.
+        if (!isBoolean && typeof paramsRecord.label === 'string' && paramsRecord.label.length > 0) {
+            const body = doc.bodies.find((b) => b.id === bodyId);
+            if (body !== undefined && body.label !== paramsRecord.label) {
+                const labelResult = this.documentStore.setBodyLabel(bodyId, paramsRecord.label);
+                if (!labelResult.success) {
+                    this.messageService.error(labelResult.error || 'Failed to set body label.');
+                    return;
+                }
+            }
+        }
+
+        let dependsOn: string[] = [];
+        if (isBoolean) {
+            const toolBodies = Array.isArray(paramsRecord.toolBodies) ? (paramsRecord.toolBodies as string[]) : [];
+            const deps = new Set<string>();
+            const targetTip = this.resolveBodyTipFeature(bodyId);
+            if (targetTip !== undefined) {
+                deps.add(targetTip);
+            }
+            for (const toolBody of toolBodies) {
+                const tip = this.resolveBodyTipFeature(toolBody);
+                if (tip !== undefined) {
+                    deps.add(tip);
+                }
+            }
+            dependsOn = [...deps];
+        } else {
+            const implied = computeDependsOn(type, bodyId, doc.features);
+            if (implied !== undefined) {
+                dependsOn = [implied];
+            }
+            if ((type === 'pocket' || type === 'groove') && dependsOn.length === 0) {
+                this.messageService.warn(`${type} requires a prior solid feature on the selected body.`);
+                return;
+            }
+        }
+
         const featureParams: Record<string, unknown> = {};
         for (const [key, value] of Object.entries(paramsRecord)) {
-            if (key !== 'label') {
+            if (key !== 'bodyId' && key !== 'label') {
                 featureParams[key] = value;
             }
         }
+
         const feature: FeatureDef = {
             id: createFeatureId(),
             name: `${type} ${doc.features.length + 1}`,
             type,
+            body: bodyId,
             sketchId,
             params: featureParams as FeatureParams,
             suppressed: false,
-            label,
-            dependsOn: dependsOn !== undefined ? [dependsOn] : []
+            dependsOn
         };
         const result = this.documentStore.addFeature(feature);
         if (!result.success) {
@@ -262,9 +328,24 @@ export class CadViewportWidget extends ReactWidget {
         this.update();
     };
 
+    private resolveBodyTipFeature(bodyId: string): string | undefined {
+        const doc = this.documentStore.document;
+        if (doc === undefined) {
+            return undefined;
+        }
+        const solidProducers: FeatureDef['type'][] = ['pad', 'pocket', 'revolve', 'groove', 'booleanFuse', 'booleanCut', 'booleanCommon'];
+        for (let i = doc.features.length - 1; i >= 0; i--) {
+            const feature = doc.features[i];
+            if (!feature.suppressed && solidProducers.includes(feature.type) && feature.body === bodyId) {
+                return feature.id;
+            }
+        }
+        return undefined;
+    }
+
     protected readonly handleFacePick = (hit: FacePickHit): void => {
         if (this.facePickMode === 'sketchDatum') {
-            const ref = buildTopologyRef(String(hit.solidId), hit);
+            const ref = buildTopologyRef(String(hit.solidId), hit, (bodyId) => this.resolveBodyTipFeature(bodyId));
             if (ref === undefined) {
                 this.messageService.error('Selected face has no geometric fingerprint; rebuild the model first.');
                 this.facePickMode = undefined;
@@ -283,7 +364,7 @@ export class CadViewportWidget extends ReactWidget {
                 this.update();
                 return;
             }
-            const ref = buildTopologyRef(featureId, hit);
+            const ref = buildTopologyRef(featureId, hit, (bodyId) => this.resolveBodyTipFeature(bodyId));
             if (ref === undefined) {
                 this.messageService.error('Selected face has no geometric fingerprint; rebuild the model first.');
                 return;
@@ -393,7 +474,8 @@ export class CadViewportWidget extends ReactWidget {
             this.messageService.warn('Open or create a document before adding features.');
             return;
         }
-        if (this.documentStore.selection.selectedSketchId === undefined) {
+        const isBoolean = type === 'booleanFuse' || type === 'booleanCut' || type === 'booleanCommon';
+        if (!isBoolean && this.documentStore.selection.selectedSketchId === undefined) {
             this.messageService.warn('Select a closed sketch in the feature tree before adding a solid feature.');
             return;
         }
@@ -1134,7 +1216,12 @@ function initViewport(
                     side: THREE.DoubleSide
                 });
                 const mesh = new THREE.Mesh(geometry, material);
-                mesh.userData = { solidId: solid.solidId, faceId: face.faceId, fingerprint: face.fingerprint };
+                mesh.userData = {
+                    solidId: solid.solidId,
+                    faceId: face.faceId,
+                    bodyId: face.bodyId ?? solid.bodyId,
+                    fingerprint: face.fingerprint
+                };
                 modelGroup.add(mesh);
                 meshes.push(mesh);
             }

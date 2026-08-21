@@ -44,7 +44,7 @@ import { MessageService } from '@theia/core/lib/common/message-service';
 import { CommandService } from '@theia/core/lib/common/command';
 import { NukeCadCommands } from '../../commands';
 import { CadDocumentStore } from '../../document/cad-document-store';
-import { type NukeCadDocument, type FeatureDef, type SketchDef, type DatumPlane } from '../../../common/cad-document';
+import { type NukeCadDocument, type BodyDef, type FeatureDef, type SketchDef, type DatumPlane } from '../../../common/cad-document';
 import { type FeatureResult } from '../../../common/nuke-cad-protocol';
 import { type DocumentSelection } from '../../document/cad-document-store';
 import { Tooltip, useTooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
@@ -84,20 +84,16 @@ export class CadFeatureTreeWidget extends ReactWidget {
                 referenceResults={this.documentStore.getReferenceResults()}
                 onSelectSketch={(id) => this.documentStore.selectSketch(id)}
                 onSelectFeature={(id) => this.documentStore.selectFeature(id)}
+                onSelectBody={(id) => this.documentStore.selectBody(id)}
                 onToggleSuppressed={(id, value) => this.handleToggleSuppressed(id, value)}
                 onDeleteFeature={(id) => this.handleDeleteFeature(id)}
                 onEditSketch={(id) => this.commandService.executeCommand(NukeCadCommands.EDIT_SKETCH.id, id)}
                 onNewSketch={() => this.commandService.executeCommand(NukeCadCommands.NEW_SKETCH.id)}
                 onStartFeatureCreation={(type) => {
-                    const command =
-                        type === 'pad'
-                            ? NukeCadCommands.ADD_FEATURE_PAD
-                            : type === 'pocket'
-                              ? NukeCadCommands.ADD_FEATURE_POCKET
-                              : type === 'revolve'
-                                ? NukeCadCommands.ADD_FEATURE_REVOLVE
-                                : NukeCadCommands.ADD_FEATURE_GROOVE;
-                    void this.commandService.executeCommand(command.id);
+                    const command = commandForFeatureType(type);
+                    if (command !== undefined) {
+                        void this.commandService.executeCommand(command.id);
+                    }
                 }}
             />
         );
@@ -125,16 +121,27 @@ interface CadFeatureTreeComponentProps {
     readonly referenceResults: readonly import('../../../common/nuke-cad-protocol').ReferenceResolutionResult[];
     readonly onSelectSketch: (id: string | undefined) => void;
     readonly onSelectFeature: (id: string | undefined) => void;
+    readonly onSelectBody: (id: string | undefined) => void;
     readonly onToggleSuppressed: (id: string, value: boolean) => void;
     readonly onDeleteFeature: (id: string) => void;
     readonly onEditSketch: (id: string) => void;
     readonly onNewSketch: () => void;
-    readonly onStartFeatureCreation: (type: 'pad' | 'pocket' | 'revolve' | 'groove') => void;
+    readonly onStartFeatureCreation: (type: FeatureDef['type']) => void;
 }
 
 function CadFeatureTreeComponent(props: CadFeatureTreeComponentProps): React.ReactElement {
     const doc = props.document;
-    const hasContent = doc !== undefined && (doc.datums.length > 0 || doc.sketches.length > 0 || doc.features.length > 0);
+    const hasContent =
+        doc !== undefined && (doc.datums.length > 0 || doc.sketches.length > 0 || doc.bodies.length > 0 || doc.features.length > 0);
+    const bodyNameMap = React.useMemo(() => {
+        const map = new Map<string, string>();
+        if (doc !== undefined) {
+            for (const body of doc.bodies) {
+                map.set(body.id, bodyLabelText(body));
+            }
+        }
+        return map;
+    }, [doc?.bodies]);
 
     return (
         <div className="cad-feature-tree-panel">
@@ -186,6 +193,17 @@ function CadFeatureTreeComponent(props: CadFeatureTreeComponentProps): React.Rea
                         ))}
                     </TreeSection>
 
+                    <TreeSection title="Bodies" count={doc.bodies.length}>
+                        {doc.bodies.map((body) => (
+                            <BodyRow
+                                key={body.id}
+                                body={body}
+                                selected={props.selection.selectedBodyId === body.id}
+                                onSelect={() => props.onSelectBody(body.id)}
+                            />
+                        ))}
+                    </TreeSection>
+
                     <TreeSection title="Features" count={doc.features.length}>
                         {doc.features.map((feature, index) => (
                             <FeatureRow
@@ -194,11 +212,12 @@ function CadFeatureTreeComponent(props: CadFeatureTreeComponentProps): React.Rea
                                 index={index}
                                 result={props.featureResults.get(feature.id)}
                                 referenceResults={props.referenceResults.filter((r) => r.featureId === feature.id)}
+                                bodyNameMap={bodyNameMap}
                                 selected={props.selection.selectedFeatureId === feature.id}
                                 onSelect={() => props.onSelectFeature(feature.id)}
                                 onToggleSuppressed={props.onToggleSuppressed}
                                 onDelete={props.onDeleteFeature}
-                                onEditParams={() => props.onStartFeatureCreation(feature.type as 'pad' | 'pocket' | 'revolve' | 'groove')}
+                                onEditParams={() => props.onStartFeatureCreation(feature.type)}
                             />
                         ))}
                     </TreeSection>
@@ -281,11 +300,36 @@ function SketchRow(props: SketchRowProps): React.ReactElement {
     );
 }
 
+interface BodyRowProps {
+    readonly body: BodyDef;
+    readonly selected: boolean;
+    readonly onSelect: () => void;
+}
+
+function BodyRow(props: BodyRowProps): React.ReactElement {
+    const tooltip = useTooltip('Click to select body', 'right');
+    return (
+        <>
+            <div
+                className={`feature-tree-row body${props.selected ? ' selected' : ''}`}
+                onClick={props.onSelect}
+                onMouseEnter={tooltip.onMouseEnter}
+                onMouseLeave={tooltip.onMouseLeave}
+            >
+                <span className="codicon codicon-circle-outline feature-tree-icon" />
+                <span className="feature-tree-label">{bodyLabelText(props.body)}</span>
+            </div>
+            {tooltip.tooltipElement}
+        </>
+    );
+}
+
 interface FeatureRowProps {
     readonly feature: FeatureDef;
     readonly index: number;
     readonly result?: FeatureResult;
     readonly referenceResults: readonly import('../../../common/nuke-cad-protocol').ReferenceResolutionResult[];
+    readonly bodyNameMap: ReadonlyMap<string, string>;
     readonly selected: boolean;
     readonly onSelect: () => void;
     readonly onToggleSuppressed: (id: string, value: boolean) => void;
@@ -294,13 +338,17 @@ interface FeatureRowProps {
 }
 
 function FeatureRow(props: FeatureRowProps): React.ReactElement {
-    const { feature, result, referenceResults } = props;
+    const { feature, result, referenceResults, bodyNameMap } = props;
     const status = result?.status ?? 'stale';
     const statusClass = `status-${status}`;
     const statusTooltip = result?.error ?? `${status}`;
     const tooltip = useTooltip(statusTooltip, 'right');
     const ambiguous = referenceResults.filter((r) => r.status === 'ambiguous').length;
     const unmatched = referenceResults.filter((r) => r.status === 'unmatched').length;
+    const isBoolean = feature.type === 'booleanFuse' || feature.type === 'booleanCut' || feature.type === 'booleanCommon';
+    const params = feature.params as Record<string, unknown>;
+    const targetBody = isBoolean && typeof params.targetBody === 'string' ? params.targetBody : undefined;
+    const toolBodies = isBoolean && Array.isArray(params.toolBodies) ? (params.toolBodies as string[]) : [];
 
     return (
         <>
@@ -312,6 +360,15 @@ function FeatureRow(props: FeatureRowProps): React.ReactElement {
             >
                 <span className={`codicon ${iconForFeature(feature.type)} feature-tree-icon`} />
                 <span className="feature-tree-label">{feature.name}</span>
+                <span className="feature-tree-body-chip" title="Target body">
+                    {bodyNameMap.get(feature.body) ?? feature.body}
+                </span>
+                {isBoolean && (
+                    <span className="feature-tree-boolean-hint">
+                        {targetBody !== undefined && `→ ${bodyNameMap.get(targetBody) ?? targetBody}`}
+                        {toolBodies.length > 0 && ` · tools: ${toolBodies.map((id) => bodyNameMap.get(id) ?? id).join(', ')}`}
+                    </span>
+                )}
                 {(ambiguous > 0 || unmatched > 0) && (
                     <span className={`feature-tree-ref-badge ${unmatched > 0 ? 'unmatched' : 'ambiguous'}`}>
                         {unmatched > 0 ? `${unmatched} unmatched` : `${ambiguous} ambiguous`}
@@ -329,17 +386,19 @@ function FeatureRow(props: FeatureRowProps): React.ReactElement {
                         <span className={`codicon codicon-${feature.suppressed ? 'eye-closed' : 'eye'}`} />
                     </button>
                 </Tooltip>
-                <Tooltip content="Edit Parameters" position="left">
-                    <button
-                        className="theia-button secondary feature-tree-action"
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            props.onEditParams();
-                        }}
-                    >
-                        <span className="codicon codicon-edit" />
-                    </button>
-                </Tooltip>
+                {!isBoolean && (
+                    <Tooltip content="Edit Parameters" position="left">
+                        <button
+                            className="theia-button secondary feature-tree-action"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                props.onEditParams();
+                            }}
+                        >
+                            <span className="codicon codicon-edit" />
+                        </button>
+                    </Tooltip>
+                )}
                 <Tooltip content="Delete" position="left">
                     <button
                         className="theia-button secondary feature-tree-action"
@@ -367,7 +426,32 @@ function iconForFeature(type: string): string {
             return 'codicon-sync';
         case 'groove':
             return 'codicon-discard';
+        case 'booleanFuse':
+            return 'codicon-type-hierarchy-sub';
+        case 'booleanCut':
+            return 'codicon-type-hierarchy-super';
+        case 'booleanCommon':
+            return 'codicon-intersect';
         default:
             return 'codicon-symbol-method';
     }
+}
+
+function commandForFeatureType(type: FeatureDef['type']): import('@theia/core/lib/common/command').Command | undefined {
+    switch (type) {
+        case 'pad':
+            return NukeCadCommands.ADD_FEATURE_PAD;
+        case 'pocket':
+            return NukeCadCommands.ADD_FEATURE_POCKET;
+        case 'revolve':
+            return NukeCadCommands.ADD_FEATURE_REVOLVE;
+        case 'groove':
+            return NukeCadCommands.ADD_FEATURE_GROOVE;
+        default:
+            return undefined;
+    }
+}
+
+function bodyLabelText(body: BodyDef): string {
+    return body.label !== undefined ? `${body.name} · ${body.label}` : body.name;
 }
