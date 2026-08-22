@@ -237,6 +237,12 @@ export interface ReferenceResolutionCandidate {
     readonly candidateId: string;
     /** Similarity score in [0, 1]. */
     readonly score: number;
+    /**
+     * Geometric fingerprint of the candidate, mirroring the stored
+     * {@link TopologyRef} fingerprint shape. The frontend uses this to show
+     * type, center/start-end, area/length, and other key matching fields.
+     */
+    readonly fingerprint?: import('./topology-refs').FaceFingerprint | import('./topology-refs').EdgeFingerprint;
 }
 
 /** Per-reference resolution status returned by a document build. */

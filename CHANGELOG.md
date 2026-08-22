@@ -17,6 +17,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   maintains per-body accumulators, and runs a final cross-body overlap gate.
   The Feature Tree adds a **Bodies** section, and boolean dialogs expose
   target/tool body dropdowns.
+- nuke-cad: **Feature Tree editing workflow** — reorder features with
+  dependency-precedence validation; delete with a cascade-delete prompt that
+  covers pattern/mirror `source` dependents; inline rename for bodies and
+  features; an edit-parameters action that reopens the feature dialog prefilled
+  with current values; and a reference-repair popover that lists resolution
+  candidates with fingerprint comparison for each broken `TopologyRef`.
+- nuke-cad: **Export Python for `.nuke-cad` documents** — writes a deterministic,
+  one-way build123d-ish script from the current document via
+  `src/common/python-codegen.ts`, saved through the standard Theia save dialog.
 - nuke-cad: **dress-up features in the GUI modeler** — `fillet`, `chamfer`,
   `draft`, and `shell` features are now available in `.nuke-cad` documents.
   Fillet rounds selected edges by radius; chamfer supports symmetric,

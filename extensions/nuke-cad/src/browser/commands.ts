@@ -118,4 +118,14 @@ export namespace NukeCadCommands {
         id: 'nuke.cad.addFeature.groove',
         label: nls.localize('nuke/cad/addFeature/groove', 'Add Groove Feature')
     };
+
+    export const EDIT_FEATURE: Command = {
+        id: 'nuke.cad.editFeature',
+        label: nls.localize('nuke/cad/editFeature', 'Edit Feature Parameters')
+    };
+
+    export const EXPORT_PYTHON: Command = {
+        id: 'nuke.cad.exportPython',
+        label: nls.localize('nuke/cad/exportPython', 'Export CAD Document as Python')
+    };
 }

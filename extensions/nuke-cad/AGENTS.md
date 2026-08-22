@@ -242,7 +242,31 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
     sketches, and features in document order with selection, suppression toggle,
     edit, delete, build-status markers, and lightweight reference-resolution
     badges (`ambiguous`/`unmatched`) from the last rebuild. Boolean features show
-    their target body and tool bodies inline.
+    their target body and tool bodies inline. The panel supports inline rename
+    for bodies and features, up/down reorder with dependency-precedence
+    validation, and a cascade-delete policy that prompts when deleting a feature
+    that later pattern/mirror features use as a `source`. A reference-repair
+    popover lists resolution candidates with fingerprint comparison for each
+    broken `TopologyRef` so users can pick a replacement or leave the reference
+    unmatched for manual repair.
+  - The **Edit Parameters** flow reopens the feature-creation dialog for an
+    existing feature, prefilled with its current parameters, and updates the
+    document on confirmation.
+  - **Export Python** writes a deterministic, one-way build123d-ish script from
+    the current `.nuke-cad` document using `src/common/python-codegen.ts`. The
+    export is a lossy starting point, not a round-trip format, and the output is
+    saved through the Theia file dialog and `FileService`. Emission mirrors the
+    backend's semantics (`feature_builder.py` / `sketch_builder.py`): arcs
+    become `bd.CenterArc` with a signed degree sweep (document angles are
+    radians), revolve uses `revolution_arc`, pattern counts include the
+    original with full/partial circular sweeps stepped `360/count` resp.
+    `angle/(count-1)`, pattern/mirror instances transform a re-derived source
+    solid (never the sketch), boolean tools are combined before the operation,
+    and contained sketch profiles (any nesting depth) are holes emitted with
+    `bd.Mode.SUBTRACT` — matching the backend's outer/inner-wire pairing.
+    Topology-reference-dependent items (face datums, external geometry,
+    fillet/chamfer edges, draft/shell faces, hole placement) are emitted as
+    `# TODO(manual):` comments, never silently dropped.
 - Viewport picking for sketch-on-face and external geometry:
   - The **Sketch Plane** picker exposes an **On Face…** button that puts the
     viewport into face-pick mode. Hover highlights the candidate face; a click

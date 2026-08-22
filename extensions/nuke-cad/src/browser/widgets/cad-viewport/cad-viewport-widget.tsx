@@ -149,6 +149,8 @@ export class CadViewportWidget extends ReactWidget {
     sketchSetupVisible = false;
     /** True while a feature creation dialog is open. */
     featureCreationType?: FeatureType;
+    /** Id of the feature being edited, when the dialog is in edit mode. */
+    editingFeatureId?: string;
     private sketchController?: SketchModeController;
     private sketchCamera?: THREE.PerspectiveCamera;
     /** Id of the sketch being edited, or undefined for a new sketch. */
@@ -206,6 +208,15 @@ export class CadViewportWidget extends ReactWidget {
     protected readonly handleSaveDocument = (): Promise<void> => this.saveDocument(false);
 
     protected readonly handleSaveDocumentAs = (): Promise<void> => this.saveDocument(true);
+
+    protected readonly handleEditFeature = (id: string, params: FeatureParams): void => {
+        const result = this.documentStore.updateFeatureParams(id, params);
+        if (!result.success) {
+            this.messageService.error(result.error || 'Failed to update feature.');
+            return;
+        }
+        this.scheduleDocumentRebuild();
+    };
 
     protected readonly handleAddFeature = (type: FeatureType, params: FeatureParams): void => {
         const doc = this.documentStore.document;
@@ -588,8 +599,45 @@ export class CadViewportWidget extends ReactWidget {
             this.messageService.warn('Select a closed sketch in the feature tree before adding a solid feature.');
             return;
         }
+        this.editingFeatureId = undefined;
         this.featureCreationType = type;
         this.update();
+    }
+
+    /** Open the feature dialog in edit mode for an existing feature. */
+    startFeatureEdit(id: string): void {
+        const doc = this.documentStore.document;
+        if (doc === undefined) {
+            return;
+        }
+        const feature = doc.features.find((f) => f.id === id);
+        if (feature === undefined) {
+            this.messageService.warn('Feature not found.');
+            return;
+        }
+        this.editingFeatureId = id;
+        this.featureCreationType = feature.type;
+        this.update();
+    }
+
+    /** Export the active document as a one-way build123d Python script. */
+    async exportPython(): Promise<void> {
+        const doc = this.documentStore.document;
+        if (doc === undefined) {
+            this.messageService.warn('No CAD document is active.');
+            return;
+        }
+        const { generatePythonScript } = await import('../../../common/python-codegen.js');
+        const script = generatePythonScript(doc);
+        const uri = await this.fileDialogService.showSaveDialog({
+            title: 'Export CAD Document as Python',
+            filters: { 'Python Script': ['py'] }
+        });
+        if (uri === undefined) {
+            return;
+        }
+        await this.fileService.write(uri, script);
+        this.messageService.info(`Exported Python script to ${uri.path.base}`);
     }
 
     /** Rebuild the active document through the backend. */
@@ -971,6 +1019,7 @@ export class CadViewportWidget extends ReactWidget {
                 dirty={this.documentStore.dirty}
                 sketchSetupVisible={this.sketchSetupVisible}
                 featureCreationType={this.featureCreationType}
+                editingFeatureId={this.editingFeatureId}
                 facePickMode={this.facePickMode}
                 dressUpPickMode={this.dressUpPickMode}
                 documentStore={this.documentStore}
@@ -987,9 +1036,12 @@ export class CadViewportWidget extends ReactWidget {
                 onExitSketch={this.handleExitSketch}
                 onStartFeatureCreation={(type) => this.startFeatureCreation(type)}
                 onAddFeature={this.handleAddFeature}
+                onEditFeature={this.handleEditFeature}
                 onEditSketch={this.handleEditSketch}
+                onExportPython={() => void this.exportPython()}
                 onCancelFeatureCreation={() => {
                     this.featureCreationType = undefined;
+                    this.editingFeatureId = undefined;
                     this.dressUpPickMode = undefined;
                     this.dressUpPickCallback = undefined;
                     this.holePickMode = undefined;
@@ -1021,6 +1073,7 @@ interface CadViewportComponentProps {
     readonly dirty: boolean;
     readonly sketchSetupVisible: boolean;
     readonly featureCreationType?: FeatureType;
+    readonly editingFeatureId?: string;
     readonly facePickMode?: 'sketchDatum' | 'externalGeometry';
     readonly dressUpPickMode?: { readonly type: FeatureType; readonly selecting: 'edge' | 'face' };
     readonly holePickMode?: boolean;
@@ -1039,7 +1092,9 @@ interface CadViewportComponentProps {
     readonly onExitSketch: () => Promise<void>;
     readonly onStartFeatureCreation: (type: FeatureType) => void;
     readonly onAddFeature: (type: FeatureType, params: FeatureParams) => void;
+    readonly onEditFeature: (id: string, params: FeatureParams) => void;
     readonly onEditSketch: (sketchId: string) => void;
+    readonly onExportPython: () => void;
     readonly onCancelFeatureCreation: () => void;
     readonly onStartFacePick: (offset: number) => void;
     readonly onStartExternalGeometryPick: (featureId: string) => void;
@@ -1057,6 +1112,12 @@ interface CadViewportComponentProps {
 function CadViewportComponent(props: CadViewportComponentProps): React.ReactElement {
     const containerRef = React.useRef<HTMLDivElement>(null);
     const [controller, setController] = React.useState<SketchModeController | undefined>();
+    const editFeature = React.useMemo(() => {
+        if (props.editingFeatureId === undefined) {
+            return undefined;
+        }
+        return props.documentStore.document?.features.find((f) => f.id === props.editingFeatureId);
+    }, [props.editingFeatureId, props.documentStore.document?.features]);
     const viewportApi = React.useRef<{
         updateModel?: (tessData?: TessData) => void;
         setFacePickMode?: (mode?: 'sketchDatum' | 'externalGeometry') => void;
@@ -1197,6 +1258,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                         documentStore={props.documentStore}
                         setupVisible={props.sketchSetupVisible}
                         featureCreationType={props.featureCreationType}
+                        editFeature={editFeature}
                         facePickMode={props.facePickMode}
                         dressUpPickMode={props.dressUpPickMode}
                         holePickMode={props.holePickMode}
@@ -1204,7 +1266,9 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                         onExitSketch={props.onExitSketch}
                         onStartFeatureCreation={props.onStartFeatureCreation}
                         onAddFeature={props.onAddFeature}
+                        onEditFeature={props.onEditFeature}
                         onEditSketch={props.onEditSketch}
+                        onExportPython={props.onExportPython}
                         onCancelFeatureCreation={props.onCancelFeatureCreation}
                         onStartFacePick={props.onStartFacePick}
                         onStartExternalGeometryPick={props.onStartExternalGeometryPick}
@@ -1241,6 +1305,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                     documentStore={props.documentStore}
                     setupVisible={props.sketchSetupVisible}
                     featureCreationType={props.featureCreationType}
+                    editFeature={editFeature}
                     facePickMode={props.facePickMode}
                     dressUpPickMode={props.dressUpPickMode}
                     holePickMode={props.holePickMode}
@@ -1248,7 +1313,9 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                     onExitSketch={props.onExitSketch}
                     onStartFeatureCreation={props.onStartFeatureCreation}
                     onAddFeature={props.onAddFeature}
+                    onEditFeature={props.onEditFeature}
                     onEditSketch={props.onEditSketch}
+                    onExportPython={props.onExportPython}
                     onCancelFeatureCreation={props.onCancelFeatureCreation}
                     onStartFacePick={props.onStartFacePick}
                     onStartExternalGeometryPick={props.onStartExternalGeometryPick}

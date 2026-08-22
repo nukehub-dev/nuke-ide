@@ -103,4 +103,10 @@ describe('FeatureGraph', () => {
         const graph = new FeatureGraph([feature('a')]);
         expect(() => graph.markClean(['missing'])).toThrow(/unknown feature/);
     });
+
+    it('preserves document order as the topological tiebreak', () => {
+        // Input order is b, c; both depend on a and both precede d.
+        const graph = new FeatureGraph([feature('a'), feature('b', ['a']), feature('c', ['a']), feature('d', ['b', 'c'])]);
+        expect(graph.topologicalOrder()).toEqual(['a', 'b', 'c', 'd']);
+    });
 });

@@ -1,0 +1,66 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`generatePythonScript > matches the snapshot for the representative document 1`] = `
+"# Generated from "Export fixture" by NukeIDE nuke-cad
+# This is a one-way export; it is NOT re-importable.
+
+import build123d as bd
+
+# Parameters
+blockHeight = 2
+pinRadius = 0.3
+pitch = 1.26
+
+# Datums
+datum_XY_datum_xy = bd.Plane.XY  # XY
+datum_Offset_datum_offset = bd.Plane.XY.offset(0.5)  # Offset
+# TODO(manual): datum "Face" is a face datum and cannot be exported automatically.
+# datum_Face_datum_face = bd.Plane(...)  # reference: face plane area=4 center=(0, 0, 1)
+
+# Sketches
+def sketch_Block_profile_sketch_a():
+    with bd.BuildSketch(datum_XY_datum_xy) as sk:
+        with bd.BuildLine():
+            bd.Line((0, 0), (2, 0))
+            bd.Line((2, 0), (2, 1))
+            bd.Line((2, 1), (0, 1))
+            bd.Line((0, 1), (0, 0))
+        bd.make_face()
+        # External geometry references (projected construction geometry)
+        # TODO(manual): edge line length=2
+    return sk.sketch
+
+def sketch_Pin_profile_sketch_b():
+    with bd.BuildSketch(datum_XY_datum_xy) as sk:
+        with bd.Locations((0, 0)):
+            bd.Circle(0.3)
+    return sk.sketch
+
+# Bodies
+body_Block = None  # Block  # label: block
+body_Pin = None  # Pin  # label: pin
+
+# Features
+body_Block = body_Block + bd.extrude(sketch_Block_profile_sketch_a(), amount=2, dir=(0, 0, 1)) if body_Block is not None else bd.extrude(sketch_Block_profile_sketch_a(), amount=2, dir=(0, 0, 1))  # Base block
+body_Pin = body_Pin + bd.extrude(sketch_Pin_profile_sketch_b(), amount=2, dir=(0, 0, 1)) if body_Pin is not None else bd.extrude(sketch_Pin_profile_sketch_b(), amount=2, dir=(0, 0, 1))  # Pin
+body_Block = body_Block.cut(body_Pin)  # Cut pin
+# TODO(manual): fillet feature "Round edges"
+#   edges: [{"featureId":"pad_a","kind":"edge","fingerprint":{"curveType":"line","length":2,"start":[0,0,0],"end":[1,0,0]}}]
+#   radius: 0.1
+_tool_lin_pattern_1 = bd.extrude(sketch_Pin_profile_sketch_b(), amount=2, dir=(0, 0, 1))  # source: Pin
+for _k in range(1, 3):
+    body_Pin = body_Pin + _tool_lin_pattern_1.moved(bd.Location((1.5 * _k, 0 * _k, 0 * _k)))
+# Pattern pin
+# TODO(manual): hole feature "Mounting hole"
+#   face: {"featureId":"pad_a","kind":"face","fingerprint":{"surfaceType":"plane","area":4,"center":[0,0,1],"normal":[0,0,1]}}
+#   center: [0.5,0.5]
+#   diameter: 0.2
+
+# -----------------------------------------------------------------------------
+# Features requiring manual repair before the exported script is runnable
+# -----------------------------------------------------------------------------
+# TODO(manual): datum "Face" (face datum)
+# TODO(manual): fillet "Round edges"
+# TODO(manual): hole "Mounting hole"
+"
+`;

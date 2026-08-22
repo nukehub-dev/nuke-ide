@@ -595,3 +595,225 @@ describe('pattern, mirror, and hole feature store support', () => {
         expect(params.diameter).toBe(0.5);
     });
 });
+
+describe('feature reordering', () => {
+    it('accepts a valid permutation that preserves dependency precedence', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        store.addBody('Body 1');
+        store.addFeature(feature('pad1', 'pad'));
+        store.addFeature(feature('pad2', 'pad', ['pad1']));
+        store.addFeature(feature('pad3', 'pad', ['pad2']));
+        const result = store.reorderFeatures(['pad1', 'pad3', 'pad2']);
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('pad3 depends on pad2');
+    });
+
+    it('rejects ids that are not a permutation of the feature list', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        store.addBody('Body 1');
+        store.addFeature(feature('pad1', 'pad'));
+        const result = store.reorderFeatures(['pad1', 'pad2']);
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('permutation');
+    });
+
+    it('reorders features when dependencies remain before dependents', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        store.addBody('Body 1');
+        store.addFeature(feature('pad1', 'pad'));
+        store.addFeature(feature('pad2', 'pad', ['pad1']));
+        const result = store.reorderFeatures(['pad1', 'pad2']);
+        expect(result.success).toBe(true);
+        expect(store.document?.features.map((f) => f.id)).toEqual(['pad1', 'pad2']);
+    });
+});
+
+describe('cascade delete', () => {
+    it('still rejects deletion when dependents exist under error policy', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        store.addBody('Body 1');
+        store.addFeature(feature('pad1', 'pad'));
+        store.addFeature(feature('pad2', 'pad', ['pad1']));
+        const result = store.deleteFeature('pad1', 'error');
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('pad2');
+    });
+
+    it('cascade deletes transitive dependsOn dependents', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        store.addBody('Body 1');
+        store.addFeature(feature('pad1', 'pad'));
+        store.addFeature(feature('pad2', 'pad', ['pad1']));
+        store.addFeature(feature('pad3', 'pad', ['pad2']));
+        const result = store.deleteFeature('pad1', 'cascade');
+        expect(result.success).toBe(true);
+        expect(store.document?.features.map((f) => f.id)).toEqual([]);
+    });
+
+    it('cascade deletes pattern and mirror source dependents', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        store.addBody('Body 1');
+        store.addFeature(feature('pad1', 'pad'));
+        const pattern: FeatureDef = {
+            id: 'pat1',
+            name: 'pat1',
+            type: 'linearPattern',
+            body: 'body-1',
+            params: { source: 'pad1', count: 2, spacing: 1, axis: 'x' },
+            suppressed: false,
+            dependsOn: ['pad1']
+        };
+        store.addFeature(pattern);
+        const result = store.deleteFeature('pad1', 'cascade');
+        expect(result.success).toBe(true);
+        expect(store.document?.features.map((f) => f.id)).toEqual([]);
+    });
+
+    it('blocks deleting a source feature under error policy', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        store.addBody('Body 1');
+        store.addFeature(feature('pad1', 'pad'));
+        const mirror: FeatureDef = {
+            id: 'mir1',
+            name: 'mir1',
+            type: 'mirror',
+            body: 'body-1',
+            params: { source: 'pad1', plane: 'XY' },
+            suppressed: false,
+            dependsOn: ['pad1']
+        };
+        store.addFeature(mirror);
+        const result = store.deleteFeature('pad1', 'error');
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('mir1');
+    });
+});
+
+describe('rename validation', () => {
+    it('rejects empty feature names', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        store.addBody('Body 1');
+        store.addFeature(feature('pad1', 'pad'));
+        const result = store.renameFeature('pad1', '');
+        expect(result.success).toBe(false);
+    });
+
+    it('rejects duplicate feature names', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        store.addBody('Body 1');
+        store.addFeature({ ...feature('pad1', 'pad'), name: 'base' });
+        store.addFeature({ ...feature('pad2', 'pad', ['pad1']), name: 'rim' });
+        const result = store.renameFeature('pad2', 'base');
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('already in use');
+    });
+
+    it('rejects empty body names', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        const add = store.addBody('Body 1');
+        const result = store.renameBody(add.value!, '');
+        expect(result.success).toBe(false);
+    });
+
+    it('rejects duplicate body names', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        const a = store.addBody('Body A');
+        store.addBody('Body B');
+        const result = store.renameBody(a.value!, 'Body B');
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('already in use');
+    });
+});
+
+describe('replaceTopologyRef', () => {
+    function faceFingerprint(center: [number, number, number]) {
+        return { surfaceType: 'plane' as const, area: 10, center, normal: [0, 0, 1] as [number, number, number] };
+    }
+
+    function edgeFingerprint(start: [number, number, number], end: [number, number, number]) {
+        return { curveType: 'line' as const, length: 1, start, end };
+    }
+
+    it('replaces a datum reference fingerprint', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        const ref = faceRef('base', [0, 0, 0]);
+        store.addDatum('face', 0, ref);
+        const datumId = store.document!.datums.find((d) => d.kind === 'face')!.id;
+        const updated = faceFingerprint([1, 2, 3]);
+        const result = store.replaceTopologyRef(`datum.${datumId}.reference`, updated);
+        expect(result.success).toBe(true);
+        const datum = store.document!.datums.find((d) => d.id === datumId)!;
+        expect((datum.reference!.fingerprint as { center: [number, number, number] }).center).toEqual([1, 2, 3]);
+    });
+
+    it('replaces a sketch external reference fingerprint', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        store.upsertSketch(sketch('s1'));
+        store.addExternalRef('s1', faceRef('base'));
+        const updated = faceFingerprint([1, 1, 1]);
+        const result = store.replaceTopologyRef('sketch.s1.externalRefs[0]', updated);
+        expect(result.success).toBe(true);
+        expect((store.document!.sketches[0].externalRefs![0].fingerprint as { center: [number, number, number] }).center).toEqual([
+            1, 1, 1
+        ]);
+    });
+
+    it('replaces a feature edge fingerprint', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        store.addBody('Body 1');
+        const fillet: FeatureDef = {
+            id: 'fillet1',
+            name: 'fillet1',
+            type: 'fillet',
+            body: 'body-1',
+            params: {
+                edges: [{ featureId: 'pad_a', kind: 'edge', fingerprint: edgeFingerprint([0, 0, 0], [1, 0, 0]) }],
+                radius: 0.5
+            },
+            suppressed: false,
+            dependsOn: []
+        };
+        store.addFeature(fillet);
+        const updated = edgeFingerprint([2, 0, 0], [3, 0, 0]);
+        const result = store.replaceTopologyRef('feature.fillet1.params.edges[0]', updated);
+        expect(result.success).toBe(true);
+        const edge = (store.document!.features[0].params as { edges: { fingerprint: { start: [number, number, number] } }[] }).edges[0];
+        expect(edge.fingerprint.start).toEqual([2, 0, 0]);
+    });
+
+    it('rejects malformed paths', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        const result = store.replaceTopologyRef('datum.missing.reference', faceFingerprint([0, 0, 0]));
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('Unknown datum');
+    });
+
+    it('rejects an invalid replacement fingerprint', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        store.addDatum('face', 0, faceRef('base'));
+        const datumId = store.document!.datums.find((d) => d.kind === 'face')!.id;
+        const bad = { surfaceType: 'plane', area: -1, center: [0, 0, 0] } as unknown as {
+            surfaceType: 'plane';
+            area: number;
+            center: [number, number, number];
+        };
+        const result = store.replaceTopologyRef(`datum.${datumId}.reference`, bad);
+        expect(result.success).toBe(false);
+    });
+});

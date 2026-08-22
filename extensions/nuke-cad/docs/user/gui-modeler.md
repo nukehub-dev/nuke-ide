@@ -286,8 +286,9 @@ edits that reshape the body as long as the resolver can still identify the face.
 
 The **Feature Tree** panel shows four sections:
 
-- **Bodies** — one row per body; click to select, click the edit button to
-  rename or change its label. New bodies are added from the document toolbar.
+- **Bodies** — one row per body; click to select, double-click the name (or
+  click the edit button) to rename. New bodies are added from the document
+  toolbar.
 - **Datums** — XY, YZ, XZ, and any offset or face datum planes.
 - **Sketches** — one row per sketch; click to select, click the edit button to
   re-enter sketch mode.
@@ -295,11 +296,34 @@ The **Feature Tree** panel shows four sections:
   (for booleans) the target/tool bodies. Status markers from the last rebuild
   (`built`, `stale`, or `failed`) and reference-resolution badges when
   topological references are ambiguous or unmatched. Each row has actions for
-  suppress, edit parameters, and delete; boolean features cannot be edited.
+  suppress, move up/down, edit parameters, and delete; boolean features cannot
+  be edited.
 
 Suppressed features are omitted from the build and mark downstream features as
-stale. Deleting a feature or body with dependents is rejected until the
-dependencies are removed or edited.
+stale. Deleting a feature with dependents prompts you to either cancel or
+**cascade delete** the feature plus all of its transitive dependents (including
+pattern/mirror `source` references). Reordering with the up/down arrows preserves
+the `dependsOn` precedence rule; invalid moves are rejected with a clear error.
+
+### Reference repair
+
+Topological references sometimes become ambiguous or unmatched after a parametric
+edit. The feature tree shows an **ambiguous** or **unmatched** badge; click the
+badge to open the repair popover. It lists the current fingerprint and the top
+scoring candidate(s) from the rebuilt B-rep. Picking a candidate updates the
+reference fingerprint in place and triggers a rebuild so you can verify the
+repair.
+
+### Export as Python
+
+The document toolbar and feature tree header both offer **Export as Python**.
+This writes a one-way, deterministic build123d-style script from the current
+`.nuke-cad` document: parameters become module-level variables, sketches become
+builder functions, and features are emitted in dependency order. Topology-
+reference-dependent items (face datums, external geometry, fillet/chamfer edges,
+draft/shell faces, and hole placement faces) are emitted as clearly marked
+`# TODO(manual):` comments so nothing is silently dropped. The export is not
+round-trippable; it is intended as readable output for downstream editing.
 
 ## Save and rebuild
 

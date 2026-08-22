@@ -35,6 +35,8 @@ import { injectable, inject } from '@theia/core/shared/inversify';
 import { CommandContribution, CommandRegistry } from '@theia/core/lib/common';
 import { MessageService } from '@theia/core/lib/common/message-service';
 import { WidgetManager, ApplicationShell } from '@theia/core/lib/browser';
+import { FileService } from '@theia/filesystem/lib/browser/file-service';
+import { FileDialogService } from '@theia/filesystem/lib/browser/file-dialog';
 import { NukeCadCommands } from '../commands';
 import { NukeCadBackendService } from '../../common/nuke-cad-protocol';
 import { NukeCadStateManager } from '../state/nuke-cad-state-manager';
@@ -64,6 +66,12 @@ export class NukeCadCommandContribution implements CommandContribution {
 
     @inject(CadDocumentStore)
     protected readonly documentStore: CadDocumentStore;
+
+    @inject(FileService)
+    protected readonly fileService: FileService;
+
+    @inject(FileDialogService)
+    protected readonly fileDialogService: FileDialogService;
 
     registerCommands(commands: CommandRegistry): void {
         commands.registerCommand(NukeCadCommands.OPEN_CAD_VIEWPORT, {
@@ -234,6 +242,29 @@ export class NukeCadCommandContribution implements CommandContribution {
         });
         commands.registerCommand(NukeCadCommands.ADD_FEATURE_GROOVE, {
             execute: () => void addFeature('groove')
+        });
+
+        commands.registerCommand(NukeCadCommands.EDIT_FEATURE, {
+            execute: async (featureId?: string) => {
+                const widget = await this.widgetManager.getWidget<CadViewportWidget>(CadViewportWidget.ID);
+                if (typeof featureId === 'string') {
+                    widget?.startFeatureEdit(featureId);
+                }
+            }
+        });
+
+        commands.registerCommand(NukeCadCommands.EXPORT_PYTHON, {
+            execute: async () => {
+                const widget = await this.widgetManager.getWidget<CadViewportWidget>(CadViewportWidget.ID);
+                if (widget === undefined) {
+                    const newWidget = await this.widgetManager.getOrCreateWidget<CadViewportWidget>(CadViewportWidget.ID);
+                    await this.shell.addWidget(newWidget, { area: 'main' });
+                    await this.shell.activateWidget(newWidget.id);
+                    await newWidget.exportPython();
+                    return;
+                }
+                await widget.exportPython();
+            }
         });
     }
 }

@@ -39,7 +39,13 @@ import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
 import { SketchModeController } from '../../sketch/sketch-mode-controller';
 import { type SketchTool, type ConstraintKind, type SketchStatus } from '../../sketch/sketch-session';
 import { type DatumKind } from '../../sketch/sketch-math';
-import { type SketchDimension, type DimensionKind, type FeatureType, type FeatureParams } from '../../../common/cad-document';
+import {
+    type SketchDimension,
+    type DimensionKind,
+    type FeatureType,
+    type FeatureParams,
+    type FeatureDef
+} from '../../../common/cad-document';
 import { type TopologyRef } from '../../../common/topology-refs';
 import { CadDocumentStore } from '../../document/cad-document-store';
 
@@ -48,6 +54,7 @@ interface CadSketchOverlayProps {
     readonly documentStore: CadDocumentStore;
     readonly setupVisible: boolean;
     readonly featureCreationType?: FeatureType;
+    readonly editFeature?: FeatureDef;
     readonly facePickMode?: 'sketchDatum' | 'externalGeometry';
     readonly dressUpPickMode?: { readonly type: FeatureType; readonly selecting: 'edge' | 'face' };
     readonly holePickMode?: boolean;
@@ -55,7 +62,9 @@ interface CadSketchOverlayProps {
     readonly onExitSketch: () => Promise<void>;
     readonly onStartFeatureCreation: (type: FeatureType) => void;
     readonly onAddFeature: (type: FeatureType, params: FeatureParams) => void;
+    readonly onEditFeature?: (id: string, params: FeatureParams) => void;
     readonly onEditSketch: (sketchId: string) => void;
+    readonly onExportPython?: () => void;
     readonly onCancelFeatureCreation: () => void;
     readonly onStartFacePick: (offset: number) => void;
     readonly onStartExternalGeometryPick: (featureId: string) => void;
@@ -102,6 +111,7 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
         documentStore,
         setupVisible,
         featureCreationType,
+        editFeature,
         facePickMode,
         dressUpPickMode,
         holePickMode,
@@ -109,7 +119,9 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
         onExitSketch,
         onStartFeatureCreation,
         onAddFeature,
+        onEditFeature,
         onEditSketch,
+        onExportPython,
         onCancelFeatureCreation,
         onStartFacePick,
         onStartExternalGeometryPick,
@@ -277,12 +289,14 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
                     onExitSketch={() => void onExitSketch()}
                     onEditSketch={onEditSketch}
                     onStartFeatureCreation={onStartFeatureCreation}
+                    onExportPython={onExportPython}
                 />
             )}
 
             {featureCreationType !== undefined && !active && (
                 <FeatureCreationDialog
                     type={featureCreationType}
+                    editFeature={editFeature}
                     sketchId={documentStore.selection.selectedSketchId}
                     documentStore={documentStore}
                     dressUpPickMode={dressUpPickMode}
@@ -290,6 +304,10 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
                     onCancel={onCancelFeatureCreation}
                     onConfirm={(type, params) => {
                         onAddFeature(type, params);
+                        onCancelFeatureCreation();
+                    }}
+                    onEditFeature={(id, params) => {
+                        onEditFeature?.(id, params);
                         onCancelFeatureCreation();
                     }}
                     onStartDressUpPick={onStartDressUpPick}
@@ -612,6 +630,7 @@ interface DocumentModeToolbarProps {
     readonly onExitSketch: () => void;
     readonly onEditSketch: (sketchId: string) => void;
     readonly onStartFeatureCreation: (type: FeatureType) => void;
+    readonly onExportPython?: () => void;
 }
 
 interface ExternalRefsPanelProps {
@@ -768,6 +787,15 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
                     <span className="codicon codicon-circle-slash" /> Hole
                 </button>
             </Tooltip>
+            <Tooltip content="Export as Python" position="bottom">
+                <button
+                    className="theia-button secondary"
+                    disabled={props.onExportPython === undefined}
+                    onClick={() => props.onExportPython?.()}
+                >
+                    <span className="codicon codicon-code" /> Export Python
+                </button>
+            </Tooltip>
             {doc !== undefined && (
                 <span className="cad-document-name">
                     {doc.name}
@@ -780,12 +808,14 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
 
 interface FeatureCreationDialogProps {
     readonly type: FeatureType;
+    readonly editFeature?: FeatureDef;
     readonly sketchId?: string;
     readonly documentStore: CadDocumentStore;
     readonly dressUpPickMode?: { readonly type: FeatureType; readonly selecting: 'edge' | 'face' };
     readonly holePickMode?: boolean;
     readonly onCancel: () => void;
     readonly onConfirm: (type: FeatureType, params: FeatureParams) => void;
+    readonly onEditFeature?: (id: string, params: FeatureParams) => void;
     readonly onStartDressUpPick: (type: FeatureType, selecting: 'edge' | 'face', callback: (ref: TopologyRef) => void) => void;
     readonly onDressUpPickCancel: () => void;
     readonly onStartHolePick: (callback: (ref: TopologyRef, uv: [number, number]) => void) => void;
@@ -854,6 +884,112 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
     const [holeCountersinkDiameter, setHoleCountersinkDiameter] = React.useState('1.5');
     const [holeCountersinkAngle, setHoleCountersinkAngle] = React.useState('82');
 
+    // Prefill the dialog when editing an existing feature.
+    React.useEffect(() => {
+        const feature = props.editFeature;
+        if (feature === undefined) {
+            return;
+        }
+        const p = feature.params as Record<string, unknown>;
+        const body = doc?.bodies.find((b) => b.id === feature.body);
+        setLabel(body?.label ?? body?.name ?? `${type}_1`);
+        setBodyId(feature.body);
+        setDressUpBodyId(feature.body);
+        setHoleBodyId(feature.body);
+        if (isExtrude) {
+            setLength(p.length !== undefined ? String(p.length) : '1');
+            setAxis((p.axis as 'x' | 'y' | 'z') ?? 'z');
+            setSymmetric(Boolean(p.symmetric));
+        }
+        if (isRevolve) {
+            setAngle(p.angle !== undefined ? String(p.angle) : '90');
+            setAxis((p.axis as 'x' | 'y' | 'z') ?? 'z');
+        }
+        if (isBoolean) {
+            setTargetBody(typeof p.targetBody === 'string' ? p.targetBody : feature.body);
+            setToolBodies(Array.isArray(p.toolBodies) ? (p.toolBodies as string[]) : []);
+            setKeepTools(Boolean(p.keepTools));
+        }
+        if (isDressUp) {
+            const pickedRefs = (p.edges as TopologyRef[] | undefined) ?? (p.faces as TopologyRef[] | undefined) ?? [];
+            setRefs(pickedRefs);
+            if (type === 'fillet') {
+                setFilletRadius(p.radius !== undefined ? String(p.radius) : '1');
+            }
+            if (type === 'chamfer') {
+                if (Array.isArray(p.distances)) {
+                    setChamferMode('twoDistance');
+                    setChamferDistance(String((p.distances as number[])[0] ?? 1));
+                    setChamferDistance2(String((p.distances as number[])[1] ?? 1));
+                } else if (p.angle !== undefined) {
+                    setChamferMode('distanceAngle');
+                    setChamferDistance(p.distance !== undefined ? String(p.distance) : '1');
+                    setChamferAngle(String(p.angle));
+                } else {
+                    setChamferMode('symmetric');
+                    setChamferDistance(p.distance !== undefined ? String(p.distance) : '1');
+                }
+            }
+            if (type === 'draft') {
+                setDraftAngle(p.angle !== undefined ? String(p.angle) : '5');
+                const dir = p.pullDirection as [number, number, number] | undefined;
+                setPullDirection(dir !== undefined ? [String(dir[0]), String(dir[1]), String(dir[2])] : ['0', '0', '1']);
+            }
+            if (type === 'shell') {
+                const faces = (p.faces as TopologyRef[] | undefined) ?? [];
+                setShellAllFaces(faces.length === 0);
+                setShellThickness(p.thickness !== undefined ? String(p.thickness) : '1');
+            }
+        }
+        if (isPattern || isHole) {
+            if (isPattern) {
+                setPatternSource(typeof p.source === 'string' ? p.source : '');
+            }
+            if (type === 'linearPattern') {
+                setPatternCount(p.count !== undefined ? String(p.count) : '2');
+                setPatternSpacing(p.spacing !== undefined ? String(p.spacing) : '1');
+                setPatternAxis((p.axis as 'x' | 'y' | 'z') ?? 'z');
+            }
+            if (type === 'circularPattern') {
+                setPatternCount(p.count !== undefined ? String(p.count) : '2');
+                setPatternAngle(p.angle !== undefined ? String(p.angle) : '360');
+                if (typeof p.axisDatumId === 'string') {
+                    setPatternAxisDatumId(p.axisDatumId);
+                } else {
+                    setPatternAxis((p.axis as 'x' | 'y' | 'z') ?? 'z');
+                    setPatternAxisDatumId('');
+                }
+            }
+            if (type === 'mirror') {
+                if (typeof p.planeDatumId === 'string') {
+                    setMirrorPlaneDatumId(p.planeDatumId);
+                } else {
+                    setMirrorPlane((p.plane as 'XY' | 'YZ' | 'XZ') ?? 'XY');
+                    setMirrorPlaneDatumId('');
+                }
+            }
+        }
+        if (isHole) {
+            setHoleFaceRef(p.face as TopologyRef | undefined);
+            setHoleCenterUv(p.center as [number, number] | undefined);
+            setHoleDiameter(p.diameter !== undefined ? String(p.diameter) : '1');
+            setHoleDepth(p.depth !== undefined ? String(p.depth) : '');
+            if (p.counterboreDiameter !== undefined || p.counterboreDepth !== undefined) {
+                setHoleType('counterbore');
+                setHoleCounterboreDiameter(String(p.counterboreDiameter ?? 1.5));
+                setHoleCounterboreDepth(String(p.counterboreDepth ?? 0.5));
+            } else if (p.countersinkDiameter !== undefined || p.countersinkAngle !== undefined) {
+                setHoleType('countersink');
+                setHoleCountersinkDiameter(String(p.countersinkDiameter ?? 1.5));
+                setHoleCountersinkAngle(String(p.countersinkAngle ?? 82));
+            } else {
+                setHoleType('simple');
+            }
+        }
+        setError(undefined);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [props.editFeature]);
+
     const addRef = React.useCallback((ref: TopologyRef) => {
         setRefs((prev) => [...prev, ref]);
     }, []);
@@ -861,6 +997,17 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
     const selecting = type === 'fillet' || type === 'chamfer' ? 'edge' : 'face';
     const isPicking =
         props.dressUpPickMode !== undefined && props.dressUpPickMode.type === type && props.dressUpPickMode.selecting === selecting;
+
+    const finish = (params: Record<string, unknown>): void => {
+        if (props.editFeature !== undefined && props.onEditFeature !== undefined) {
+            const { bodyId: _bodyId, label: _label, ...featureParams } = params;
+            void _bodyId;
+            void _label;
+            props.onEditFeature(props.editFeature.id, featureParams as FeatureParams);
+        } else {
+            props.onConfirm(type, params as FeatureParams);
+        }
+    };
 
     const submit = (): void => {
         if (!isBoolean && !isDressUp && props.sketchId === undefined) {
@@ -876,7 +1023,7 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                 setError('Select at least one tool body.');
                 return;
             }
-            props.onConfirm(type, { targetBody, toolBodies, keepTools });
+            finish({ targetBody, toolBodies, keepTools });
             return;
         }
         if (isDressUp) {
@@ -951,7 +1098,7 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                 params.faces = shellAllFaces ? [] : refs;
                 params.thickness = thickness;
             }
-            props.onConfirm(type, params as FeatureParams);
+            finish(params);
             return;
         }
         if (isPattern) {
@@ -995,7 +1142,7 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                     params.plane = mirrorPlane;
                 }
             }
-            props.onConfirm(type, params as FeatureParams);
+            finish(params);
             return;
         }
         if (isHole) {
@@ -1051,7 +1198,7 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                 params.countersinkDiameter = csDiameter;
                 params.countersinkAngle = csAngle;
             }
-            props.onConfirm(type, params as FeatureParams);
+            finish(params);
             return;
         }
         if (isExtrude) {
@@ -1061,7 +1208,7 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                 return;
             }
             const effectiveBodyId = bodyId === NEW_BODY_SENTINEL ? undefined : bodyId;
-            props.onConfirm(type, { length: value, axis, symmetric, bodyId: effectiveBodyId, label });
+            finish({ length: value, axis, symmetric, bodyId: effectiveBodyId, label });
         } else if (isRevolve) {
             const value = Number(angle);
             if (!Number.isFinite(value) || value <= 0 || value > 360) {
@@ -1069,7 +1216,7 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                 return;
             }
             const effectiveBodyId = bodyId === NEW_BODY_SENTINEL ? undefined : bodyId;
-            props.onConfirm(type, { axis, angle: value, bodyId: effectiveBodyId, label });
+            finish({ axis, angle: value, bodyId: effectiveBodyId, label });
         }
     };
 
@@ -1180,7 +1327,9 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
 
     return (
         <div className="cad-feature-dialog">
-            <div className="cad-feature-dialog-title">{capitalize(type)}</div>
+            <div className="cad-feature-dialog-title">
+                {props.editFeature !== undefined ? `Edit ${capitalize(type)}` : capitalize(type)}
+            </div>
             {error !== undefined && <div className="cad-feature-dialog-error">{error}</div>}
             {!isBoolean && !isDressUp && !isHole && bodySelector}
             {isDressUp && dressUpBodySelector}
@@ -1512,7 +1661,7 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
             {!isBoolean && labelInput}
             <div className="cad-feature-dialog-actions">
                 <button className="theia-button" onClick={submit}>
-                    <span className="codicon codicon-check" /> Create
+                    <span className="codicon codicon-check" /> {props.editFeature !== undefined ? 'Save' : 'Create'}
                 </button>
                 <button className="theia-button secondary" onClick={props.onCancel}>
                     <span className="codicon codicon-close" /> Cancel

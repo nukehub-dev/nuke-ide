@@ -50,7 +50,7 @@ import {
     migrateNukeCadDocument
 } from '../../common/cad-document';
 import { type FeatureResult, type ReferenceResolutionResult } from '../../common/nuke-cad-protocol';
-import { type TopologyRef } from '../../common/topology-refs';
+import { type TopologyRef, type FaceFingerprint, type EdgeFingerprint, validateTopologyRef } from '../../common/topology-refs';
 
 /** Listener invoked after any mutation that changes the store state. */
 export type DocumentStoreListener = () => void;
@@ -186,6 +186,120 @@ function fingerprintsEqual(
     b: import('../../common/topology-refs').FaceFingerprint | import('../../common/topology-refs').EdgeFingerprint
 ): boolean {
     return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function getSourceFeatureId(feature: FeatureDef): string {
+    const source = (feature.params as Record<string, unknown>).source;
+    return typeof source === 'string' ? source : '';
+}
+
+function collectDependentFeatureIds(doc: NukeCadDocument, id: string): string[] {
+    const dependents: string[] = [];
+    for (const feature of doc.features) {
+        if (feature.dependsOn.includes(id) || getSourceFeatureId(feature) === id) {
+            dependents.push(feature.id);
+        }
+    }
+    return dependents;
+}
+
+interface TopologyRefUpdateResult {
+    success: boolean;
+    error?: string;
+}
+
+function setTopologyRef(ref: TopologyRef, fingerprint: FaceFingerprint | EdgeFingerprint): TopologyRef {
+    return { featureId: ref.featureId, kind: ref.kind, fingerprint: cloneTopologyRef({ ...ref, fingerprint }).fingerprint };
+}
+
+function updateTopologyRefByPath(
+    doc: NukeCadDocument,
+    path: string,
+    fingerprint: FaceFingerprint | EdgeFingerprint
+): TopologyRefUpdateResult {
+    const datumMatch = path.match(/^datum\.([^.]+)\.reference$/);
+    if (datumMatch !== null) {
+        const datumId = datumMatch[1];
+        const datum = doc.datums.find((d) => d.id === datumId);
+        if (datum === undefined) {
+            return { success: false, error: `Unknown datum '${datumId}'` };
+        }
+        if (datum.reference === undefined) {
+            return { success: false, error: `Datum '${datumId}' has no topology reference` };
+        }
+        const updated = setTopologyRef(datum.reference, fingerprint);
+        if (!validateTopologyRef(updated).valid) {
+            return { success: false, error: `Invalid fingerprint for ${path}` };
+        }
+        datum.reference = updated;
+        return { success: true };
+    }
+
+    const sketchExternalMatch = path.match(/^sketch\.([^.]+)\.externalRefs\[(\d+)\]$/);
+    if (sketchExternalMatch !== null) {
+        const sketchId = sketchExternalMatch[1];
+        const index = Number(sketchExternalMatch[2]);
+        const sketch = doc.sketches.find((s) => s.id === sketchId);
+        if (sketch === undefined) {
+            return { success: false, error: `Unknown sketch '${sketchId}'` };
+        }
+        const refs = sketch.externalRefs ?? [];
+        if (index < 0 || index >= refs.length) {
+            return { success: false, error: `Invalid external reference index ${index} on sketch '${sketchId}'` };
+        }
+        const updated = setTopologyRef(refs[index], fingerprint);
+        if (!validateTopologyRef(updated).valid) {
+            return { success: false, error: `Invalid fingerprint for ${path}` };
+        }
+        refs[index] = updated;
+        sketch.externalRefs = refs;
+        return { success: true };
+    }
+
+    const featureArrayMatch = path.match(/^feature\.([^.]+)\.params\.(edges|faces)\[(\d+)\]$/);
+    if (featureArrayMatch !== null) {
+        const featureId = featureArrayMatch[1];
+        const arrayName = featureArrayMatch[2] as 'edges' | 'faces';
+        const index = Number(featureArrayMatch[3]);
+        const feature = doc.features.find((f) => f.id === featureId);
+        if (feature === undefined) {
+            return { success: false, error: `Unknown feature '${featureId}'` };
+        }
+        const params = feature.params as Record<string, unknown>;
+        const refs = params[arrayName] as TopologyRef[] | undefined;
+        if (!Array.isArray(refs) || index < 0 || index >= refs.length) {
+            return { success: false, error: `Invalid ${arrayName}[${index}] on feature '${featureId}'` };
+        }
+        const updated = setTopologyRef(refs[index], fingerprint);
+        if (!validateTopologyRef(updated).valid) {
+            return { success: false, error: `Invalid fingerprint for ${path}` };
+        }
+        refs[index] = updated;
+        return { success: true };
+    }
+
+    const featureFaceMatch = path.match(/^feature\.([^.]+)\.params\.(face|upToFace)$/);
+    if (featureFaceMatch !== null) {
+        const featureId = featureFaceMatch[1];
+        const key = featureFaceMatch[2];
+        const feature = doc.features.find((f) => f.id === featureId);
+        if (feature === undefined) {
+            return { success: false, error: `Unknown feature '${featureId}'` };
+        }
+        const params = feature.params as Record<string, unknown>;
+        const existing = params[key] as TopologyRef | undefined;
+        if (existing === undefined) {
+            return { success: false, error: `Feature '${featureId}' has no ${key} reference` };
+        }
+        const updated = setTopologyRef(existing, fingerprint);
+        if (!validateTopologyRef(updated).valid) {
+            return { success: false, error: `Invalid fingerprint for ${path}` };
+        }
+        params[key] = updated;
+        return { success: true };
+    }
+
+    return { success: false, error: `Unsupported or malformed reference path '${path}'` };
 }
 
 /**
@@ -453,10 +567,16 @@ export class CadDocumentStore {
         if (!check.success) {
             return { success: false, error: check.error, issues: check.issues };
         }
+        if (typeof name !== 'string' || name.length === 0) {
+            return { success: false, error: 'Feature name must be a non-empty string' };
+        }
         const doc = cloneDocument(check.value!);
         const feature = doc.features.find((f) => f.id === id);
         if (feature === undefined) {
             return { success: false, error: `Feature '${id}' not found` };
+        }
+        if (doc.features.some((f) => f.id !== id && f.name === name)) {
+            return { success: false, error: `Feature name '${name}' is already in use` };
         }
         feature.name = name;
         return this.commit(doc);
@@ -480,25 +600,113 @@ export class CadDocumentStore {
     /**
      * Delete a feature from the document.
      *
-     * Rejects when other features explicitly depend on it, listing the
-     * dependent feature ids in the error. Cascading deletion is intentionally
-     * avoided in Tier 1 to prevent accidental model damage.
+     * With the default ``error`` policy, deletion is rejected when other
+     * features explicitly depend on the feature or when a pattern/mirror
+     * feature names it as a ``source``.
+     *
+     * With the ``cascade`` policy, the feature plus its transitive
+     * dependents (``dependsOn`` closure and ``source`` references) are
+     * removed.
      */
-    deleteFeature(id: string): DocumentMutationResult {
+    deleteFeature(id: string, policy: 'error' | 'cascade' = 'error'): DocumentMutationResult {
         const check = this.requireDocument();
         if (!check.success) {
             return { success: false, error: check.error, issues: check.issues };
         }
         const doc = cloneDocument(check.value!);
-        const dependents = doc.features.filter((f) => f.dependsOn.includes(id)).map((f) => f.id);
-        if (dependents.length > 0) {
+        const directDependents = collectDependentFeatureIds(doc, id);
+        if (policy === 'error' && directDependents.length > 0) {
             return {
                 success: false,
-                error: `Cannot delete feature '${id}' because features depend on it: ${dependents.join(', ')}`
+                error: `Cannot delete feature '${id}' because features depend on it: ${directDependents.join(', ')}`
             };
         }
-        doc.features = doc.features.filter((f) => f.id !== id);
+        const removal = new Set<string>([id]);
+        if (policy === 'cascade') {
+            let changed = true;
+            while (changed) {
+                changed = false;
+                for (const feature of doc.features) {
+                    if (removal.has(feature.id)) {
+                        continue;
+                    }
+                    if (feature.dependsOn.some((dep) => removal.has(dep)) || removal.has(getSourceFeatureId(feature))) {
+                        removal.add(feature.id);
+                        changed = true;
+                    }
+                }
+            }
+        }
+        doc.features = doc.features.filter((f) => !removal.has(f.id));
         return this.commit(doc, { clearSelection: { selectedFeatureId: id } });
+    }
+
+    /**
+     * Reorder the feature list.
+     *
+     * The supplied ids must be a permutation of the current feature ids.
+     * Reordering is rejected when any feature's explicit ``dependsOn`` entries
+     * would appear after it in the new order.
+     */
+    reorderFeatures(orderedIds: string[]): DocumentMutationResult {
+        const check = this.requireDocument();
+        if (!check.success) {
+            return { success: false, error: check.error, issues: check.issues };
+        }
+        const doc = cloneDocument(check.value!);
+        const currentIds = new Set(doc.features.map((f) => f.id));
+        if (orderedIds.length !== currentIds.size || orderedIds.some((id) => !currentIds.has(id))) {
+            return { success: false, error: 'Reordered ids must be a permutation of the current feature ids' };
+        }
+        const position = new Map<string, number>();
+        for (let i = 0; i < orderedIds.length; i++) {
+            position.set(orderedIds[i], i);
+        }
+        const violations: string[] = [];
+        for (const id of orderedIds) {
+            const feature = doc.features.find((f) => f.id === id)!;
+            for (const dep of feature.dependsOn) {
+                if ((position.get(dep) ?? -1) > (position.get(id) ?? -1)) {
+                    violations.push(`${id} depends on ${dep}`);
+                }
+            }
+        }
+        if (violations.length > 0) {
+            return {
+                success: false,
+                error: `Cannot reorder: dependencies must precede their dependents (${violations.join('; ')})`
+            };
+        }
+        const featureMap = new Map(doc.features.map((f) => [f.id, f]));
+        doc.features = orderedIds.map((id) => featureMap.get(id)!);
+        return this.commit(doc);
+    }
+
+    /**
+     * Replace the fingerprint of a topology reference identified by its
+     * document path.
+     *
+     * Supported paths:
+     *   - ``datum.<id>.reference``
+     *   - ``sketch.<id>.externalRefs[<i>]``
+     *   - ``feature.<id>.params.edges[<i>]``
+     *   - ``feature.<id>.params.faces[<i>]``
+     *   - ``feature.<id>.params.face``
+     *   - ``feature.<id>.params.upToFace``
+     *
+     * The replacement fingerprint is validated before the document is updated.
+     */
+    replaceTopologyRef(path: string, fingerprint: FaceFingerprint | EdgeFingerprint): DocumentMutationResult {
+        const check = this.requireDocument();
+        if (!check.success) {
+            return { success: false, error: check.error, issues: check.issues };
+        }
+        const doc = cloneDocument(check.value!);
+        const update = updateTopologyRefByPath(doc, path, fingerprint);
+        if (!update.success) {
+            return { success: false, error: update.error };
+        }
+        return this.commit(doc);
     }
 
     /**
@@ -560,10 +768,16 @@ export class CadDocumentStore {
         if (!check.success) {
             return { success: false, error: check.error, issues: check.issues };
         }
+        if (typeof name !== 'string' || name.length === 0) {
+            return { success: false, error: 'Body name must be a non-empty string' };
+        }
         const doc = cloneDocument(check.value!);
         const body = doc.bodies.find((b) => b.id === id);
         if (body === undefined) {
             return { success: false, error: `Body '${id}' not found` };
+        }
+        if (doc.bodies.some((b) => b.id !== id && b.name === name)) {
+            return { success: false, error: `Body name '${name}' is already in use` };
         }
         body.name = name;
         return this.commit(doc);

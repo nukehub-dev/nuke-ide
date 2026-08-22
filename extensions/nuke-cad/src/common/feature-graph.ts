@@ -174,6 +174,10 @@ export class FeatureGraph {
 
     private topologicalSortInternal(ids: Iterable<string>): string[] {
         const idList = [...ids];
+        const indexOf = new Map<string, number>();
+        for (let i = 0; i < idList.length; i++) {
+            indexOf.set(idList[i], i);
+        }
         const inDegree = new Map<string, number>();
         for (const id of idList) {
             inDegree.set(id, 0);
@@ -195,7 +199,9 @@ export class FeatureGraph {
 
         const sorted: string[] = [];
         while (queue.length > 0) {
-            queue.sort();
+            // Document-order tiebreak: always expand the earliest feature in the
+            // supplied list among the current zero-in-degree ids.
+            queue.sort((a, b) => (indexOf.get(a) ?? 0) - (indexOf.get(b) ?? 0));
             const id = queue.shift()!;
             sorted.push(id);
             for (const dependent of this.dependents.get(id) ?? []) {

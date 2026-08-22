@@ -185,6 +185,102 @@
     background: var(--theia-inputValidation-errorBackground, rgba(244, 135, 113, 0.15));
 }
 
+.feature-tree-ref-badge:hover {
+    cursor: pointer;
+    opacity: 0.85;
+}
+
+.feature-tree-rename-input {
+    flex: 1;
+    min-width: 0;
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    border: 1px solid var(--theia-input-border);
+    border-radius: 2px;
+    padding: 2px 4px;
+    font-size: 13px;
+}
+
+.cad-feature-tree-repair-popover {
+    z-index: 1000;
+    min-width: 280px;
+    max-width: 420px;
+    max-height: 400px;
+    overflow: auto;
+    background: var(--theia-editor-background);
+    color: var(--theia-editor-foreground);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 4px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+    padding: 8px;
+}
+
+.cad-feature-tree-repair-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-weight: 600;
+    margin-bottom: 8px;
+}
+
+.cad-feature-tree-repair-group {
+    margin-bottom: 12px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--theia-panel-border);
+}
+
+.cad-feature-tree-repair-group:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+    padding-bottom: 0;
+}
+
+.cad-feature-tree-repair-path {
+    font-family: var(--theia-ui-font-family);
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+    margin-bottom: 4px;
+}
+
+.cad-feature-tree-repair-current {
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+    margin-bottom: 6px;
+}
+
+.cad-feature-tree-repair-candidates {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.cad-feature-tree-repair-candidate {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    justify-content: flex-start;
+    text-align: left;
+    padding: 4px 6px;
+}
+
+.cad-feature-tree-repair-candidate-id {
+    font-family: var(--theia-ui-font-family);
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.cad-feature-tree-repair-candidate-score {
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+}
+
+.cad-feature-tree-repair-candidate-summary {
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+    width: 100%;
+}
+
 .cad-feature-tree-empty {
     flex: 1;
     display: flex;
