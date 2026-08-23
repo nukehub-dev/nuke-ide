@@ -283,7 +283,12 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
     overlapping assembly bodies, and the full DAGMC export path. Drift, e2e, and
     performance coverage live in `tests/python/test_tokamak_document.py` and
     `tests/e2e/test_dagmc_tokamak_document_e2e.py` /
-    `tests/e2e/test_tokamak_performance.py`. The drift test compares per-body
+    `tests/e2e/test_tokamak_performance.py`. Tokamak-scale topological-reference
+    (toponaming) coverage lives in `tests/python/test_tokamak_toponaming.py`: it
+    derives a face `TopologyRef` from the built `pf_coil_1` body via the
+    production fingerprint extraction, attaches a hole feature to an in-memory
+    copy of the document, and asserts the fingerprint resolves `matched` before
+    and after an upstream dimension edit. The drift test compares per-body
     volumes (and face counts for non-spline bodies) against the authoritative
     STEP reference; plasma-facing spline boundaries are approximated with dense
     polylines and therefore checked to a relaxed 1e-3 volume tolerance.
