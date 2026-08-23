@@ -58,7 +58,7 @@ import * as THREE from 'three';
 import { NukeCadBackendService, GeometryBuildResult } from '../../../common/nuke-cad-protocol';
 import { NukeCadStateManager, CadModel, CadSelection } from '../../state/nuke-cad-state-manager';
 import { NukeCadCommands } from '../../commands';
-import { LoadingAnimations, FancyLoadingSpinner } from 'nuke-essentials/lib/theme/browser/components/loading-spinner';
+import { LoadingAnimations } from 'nuke-essentials/lib/theme/browser/components/loading-spinner';
 import { NukeEmptyState, NukeLoadingOverlay } from 'nuke-essentials/lib/theme/browser/components';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
 import { SketchModeController } from '../../sketch/sketch-mode-controller';
@@ -1264,64 +1264,93 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
         return (
             <div className="cad-viewport loading">
                 {banners}
-                <LoadingAnimations />
-                <FancyLoadingSpinner message={props.loadingMessage} subMessage="This may take a moment for large models" />
+                <NukeLoadingOverlay message={props.loadingMessage} subMessage="This may take a moment for large models" />
             </div>
         );
     }
 
-    const documentEmpty = props.tessData === undefined && props.documentStore.hasDocument;
+    const sketchActive = (controller?.isActive ?? false) || props.sketchSetupVisible;
+    const documentEmpty = props.tessData === undefined && props.documentStore.hasDocument && !props.loading;
+    const noDocument = props.tessData === undefined && !props.documentStore.hasDocument && !props.loading;
     const dirtyMarker = props.dirty ? <span className="cad-viewport-dirty-marker" title="Unsaved changes" /> : null;
 
-    if (props.tessData === undefined) {
+    const sketchOverlay = controller !== undefined && (
+        <CadSketchOverlay
+            controller={controller}
+            documentStore={props.documentStore}
+            setupVisible={props.sketchSetupVisible}
+            featureCreationType={props.featureCreationType}
+            editFeature={editFeature}
+            facePickMode={props.facePickMode}
+            dressUpPickMode={props.dressUpPickMode}
+            holePickMode={props.holePickMode}
+            onEnterSketch={props.onEnterSketch}
+            onExitSketch={props.onExitSketch}
+            onStartFeatureCreation={props.onStartFeatureCreation}
+            onAddFeature={props.onAddFeature}
+            onEditFeature={props.onEditFeature}
+            onEditSketch={props.onEditSketch}
+            onExportPython={props.onExportPython}
+            onNewDocument={props.onNewDocument}
+            onSaveDocument={props.onSaveDocument}
+            onRebuildDocument={props.onRebuildDocument}
+            onCancelFeatureCreation={props.onCancelFeatureCreation}
+            onStartFacePick={props.onStartFacePick}
+            onStartExternalGeometryPick={props.onStartExternalGeometryPick}
+            onCancelFacePick={props.onFacePickCancel}
+            onStartDressUpPick={props.onStartDressUpPick}
+            onDressUpPickCancel={props.onDressUpPickCancel}
+            onStartHolePick={props.onStartHolePick}
+            onHolePickCancel={props.onHolePickCancel}
+        />
+    );
+
+    if (sketchActive) {
+        return (
+            <div ref={containerRef} className="cad-viewport empty">
+                {banners}
+                {dirtyMarker}
+                {sketchOverlay}
+            </div>
+        );
+    }
+
+    if (noDocument) {
         return (
             <div ref={containerRef} className="cad-viewport empty">
                 {banners}
                 {dirtyMarker}
                 <LoadingAnimations />
-                <NukeEmptyState
-                    icon="globe"
-                    title="CAD Viewport"
-                    message="Open a build123d/CadQuery script, a STEP/STP/BREP file, or a .nuke-cad document to view and inspect geometry."
-                    hint="Supported formats: .py, .step, .stp, .brep, .nuke-cad"
-                >
-                    <button className="theia-button" onClick={props.onNewDocument}>
-                        <span className="codicon codicon-new-file" /> New Document
-                    </button>
-                    <button className="theia-button secondary open-cad-model-button" onClick={props.onOpenModel}>
-                        <span className="codicon codicon-folder-opened" /> Open CAD Model...
-                    </button>
-                </NukeEmptyState>
-                {controller !== undefined && (
-                    <CadSketchOverlay
-                        controller={controller}
-                        documentStore={props.documentStore}
-                        setupVisible={props.sketchSetupVisible}
-                        featureCreationType={props.featureCreationType}
-                        editFeature={editFeature}
-                        facePickMode={props.facePickMode}
-                        dressUpPickMode={props.dressUpPickMode}
-                        holePickMode={props.holePickMode}
-                        onEnterSketch={props.onEnterSketch}
-                        onExitSketch={props.onExitSketch}
-                        onStartFeatureCreation={props.onStartFeatureCreation}
-                        onAddFeature={props.onAddFeature}
-                        onEditFeature={props.onEditFeature}
-                        onEditSketch={props.onEditSketch}
-                        onExportPython={props.onExportPython}
-                        onNewDocument={props.onNewDocument}
-                        onSaveDocument={props.onSaveDocument}
-                        onRebuildDocument={props.onRebuildDocument}
-                        onCancelFeatureCreation={props.onCancelFeatureCreation}
-                        onStartFacePick={props.onStartFacePick}
-                        onStartExternalGeometryPick={props.onStartExternalGeometryPick}
-                        onCancelFacePick={props.onFacePickCancel}
-                        onStartDressUpPick={props.onStartDressUpPick}
-                        onDressUpPickCancel={props.onDressUpPickCancel}
-                        onStartHolePick={props.onStartHolePick}
-                        onHolePickCancel={props.onHolePickCancel}
-                    />
-                )}
+                <div className="cad-viewport-empty-wrapper">
+                    <NukeEmptyState
+                        icon="globe"
+                        title="CAD Viewport"
+                        message="Open a build123d/CadQuery script, a STEP/STP/BREP file, or a .nuke-cad document to view and inspect geometry."
+                        hint="Supported formats: .py, .step, .stp, .brep, .nuke-cad"
+                    >
+                        <button className="theia-button" onClick={props.onNewDocument}>
+                            <span className="codicon codicon-new-file" /> New Document
+                        </button>
+                        <button className="theia-button secondary open-cad-model-button" onClick={props.onOpenModel}>
+                            <span className="codicon codicon-folder-opened" /> Open CAD Model...
+                        </button>
+                    </NukeEmptyState>
+                </div>
+                {sketchOverlay}
+            </div>
+        );
+    }
+
+    if (documentEmpty) {
+        return (
+            <div ref={containerRef} className="cad-viewport empty">
+                {banners}
+                {dirtyMarker}
+                <div className="cad-viewport-document-hint">
+                    <span className="codicon codicon-info" />
+                    Document mode: use the Feature Tree to add sketches and features, then rebuild.
+                </div>
+                {sketchOverlay}
             </div>
         );
     }
@@ -1331,42 +1360,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             {banners}
             {dirtyMarker}
             {props.loading && <NukeLoadingOverlay message={props.loadingMessage} />}
-            {documentEmpty && (
-                <div className="cad-viewport-document-hint">
-                    <span className="codicon codicon-info" />
-                    Document mode: use the Feature Tree to add sketches and features, then rebuild.
-                </div>
-            )}
-            {controller !== undefined && (
-                <CadSketchOverlay
-                    controller={controller}
-                    documentStore={props.documentStore}
-                    setupVisible={props.sketchSetupVisible}
-                    featureCreationType={props.featureCreationType}
-                    editFeature={editFeature}
-                    facePickMode={props.facePickMode}
-                    dressUpPickMode={props.dressUpPickMode}
-                    holePickMode={props.holePickMode}
-                    onEnterSketch={props.onEnterSketch}
-                    onExitSketch={props.onExitSketch}
-                    onStartFeatureCreation={props.onStartFeatureCreation}
-                    onAddFeature={props.onAddFeature}
-                    onEditFeature={props.onEditFeature}
-                    onEditSketch={props.onEditSketch}
-                    onExportPython={props.onExportPython}
-                    onNewDocument={props.onNewDocument}
-                    onSaveDocument={props.onSaveDocument}
-                    onRebuildDocument={props.onRebuildDocument}
-                    onCancelFeatureCreation={props.onCancelFeatureCreation}
-                    onStartFacePick={props.onStartFacePick}
-                    onStartExternalGeometryPick={props.onStartExternalGeometryPick}
-                    onCancelFacePick={props.onFacePickCancel}
-                    onStartDressUpPick={props.onStartDressUpPick}
-                    onDressUpPickCancel={props.onDressUpPickCancel}
-                    onStartHolePick={props.onStartHolePick}
-                    onHolePickCancel={props.onHolePickCancel}
-                />
-            )}
+            {sketchOverlay}
         </div>
     );
 }

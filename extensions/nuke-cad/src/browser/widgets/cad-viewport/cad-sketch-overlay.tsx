@@ -329,60 +329,18 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
 
             {active && (
                 <>
-                    <div className="cad-sketch-toolbar">
-                        {TOOLS.map(({ tool: t, label, icon }) => (
-                            <Tooltip key={t} content={label} position="right">
-                                <button
-                                    className={`theia-button secondary cad-sketch-tool-button ${tool === t ? 'active' : ''}`}
-                                    onClick={() => controller.setTool(t)}
-                                >
-                                    <span className={`codicon ${icon}`} />
-                                </button>
-                            </Tooltip>
-                        ))}
-                        <Tooltip content="Construction Geometry" position="right">
-                            <button
-                                className={`theia-button secondary cad-sketch-tool-button ${construction ? 'active' : ''}`}
-                                onClick={() => controller.setConstruction(!construction)}
-                            >
-                                <span className="codicon codicon-whole-word" />
-                            </button>
-                        </Tooltip>
-                        <Tooltip content="Toggle Construction on Selection" position="right">
-                            <button
-                                className="theia-button secondary cad-sketch-tool-button"
-                                onClick={() => void controller.toggleConstructionForSelection()}
-                            >
-                                <span className="codicon codicon-edit" />
-                            </button>
-                        </Tooltip>
-                        <Tooltip content="Parameters" position="right">
-                            <button
-                                className={`theia-button secondary cad-sketch-tool-button ${paramsOpen ? 'active' : ''}`}
-                                onClick={() => setParamsOpen(!paramsOpen)}
-                            >
-                                <span className="codicon codicon-symbol-variable" />
-                            </button>
-                        </Tooltip>
-                        <Tooltip content="External Geometry" position="right">
-                            <button
-                                className={`theia-button secondary cad-sketch-tool-button ${facePickMode === 'externalGeometry' ? 'active' : ''}`}
-                                disabled={externalGeometryTarget === undefined}
-                                onClick={() => {
-                                    if (externalGeometryTarget !== undefined) {
-                                        onStartExternalGeometryPick(externalGeometryTarget.id);
-                                    }
-                                }}
-                            >
-                                <span className="codicon codicon-link-external" />
-                            </button>
-                        </Tooltip>
-                        <Tooltip content="Exit Sketch" position="right">
-                            <button className="theia-button secondary cad-sketch-tool-button" onClick={() => void onExitSketch()}>
-                                <span className="codicon codicon-close" />
-                            </button>
-                        </Tooltip>
-                    </div>
+                    <SketchToolbar
+                        controller={controller}
+                        tool={tool}
+                        construction={construction}
+                        paramsOpen={paramsOpen}
+                        setParamsOpen={setParamsOpen}
+                        externalGeometryTarget={externalGeometryTarget}
+                        facePickMode={facePickMode}
+                        onStartExternalGeometryPick={onStartExternalGeometryPick}
+                        onCancelFacePick={onCancelFacePick}
+                        onExitSketch={onExitSketch}
+                    />
 
                     <div className="cad-sketch-constraint-bar">
                         <span className="cad-sketch-constraint-label">Constraint:</span>
@@ -669,203 +627,405 @@ function ExternalRefsPanel(props: ExternalRefsPanelProps): React.ReactElement {
     );
 }
 
+interface ToolbarAction {
+    readonly id: string;
+    readonly label: string;
+    readonly icon: string;
+    readonly disabled: boolean;
+    readonly onClick: () => void;
+}
+
+function useToolbarOverflow(ref: React.RefObject<HTMLDivElement | null>): boolean {
+    const [overflow, setOverflow] = React.useState(false);
+
+    React.useEffect(() => {
+        const el = ref.current;
+        if (el === null) {
+            return undefined;
+        }
+        const update = (): void => {
+            const groups = el.querySelectorAll('.nuke-toolbar-group');
+            const tops = new Set<number>();
+            groups.forEach((g) => tops.add((g as HTMLElement).offsetTop));
+            setOverflow(tops.size > 2);
+        };
+        update();
+        const observer = new ResizeObserver(update);
+        observer.observe(el);
+        return () => observer.disconnect();
+    }, []);
+
+    return overflow;
+}
+
 function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElement {
     const doc = props.documentStore.document;
     const selectedSketchId = props.documentStore.selection.selectedSketchId;
     const sketchSelected = selectedSketchId !== undefined;
     const hasBodies = doc !== undefined && doc.bodies.length > 0;
     const hasSolidProducers = doc !== undefined && doc.features.some((f) => SOLID_PRODUCERS.includes(f.type) && !f.suppressed);
+    const actionsRef = React.useRef<HTMLDivElement>(null);
+    const overflow = useToolbarOverflow(actionsRef);
+    const [moreOpen, setMoreOpen] = React.useState(false);
+
+    const groups: Array<{ label: string; actions: ToolbarAction[] }> = [
+        {
+            label: 'Document',
+            actions: [
+                {
+                    id: 'newDocument',
+                    label: 'New Document',
+                    icon: 'codicon-new-file',
+                    disabled: props.onNewDocument === undefined,
+                    onClick: () => props.onNewDocument?.()
+                },
+                {
+                    id: 'saveDocument',
+                    label: 'Save Document',
+                    icon: 'codicon-save',
+                    disabled: props.onSaveDocument === undefined || !props.documentStore.dirty,
+                    onClick: () => props.onSaveDocument?.()
+                },
+                {
+                    id: 'rebuild',
+                    label: 'Rebuild Geometry',
+                    icon: 'codicon-refresh',
+                    disabled: props.onRebuildDocument === undefined,
+                    onClick: () => props.onRebuildDocument?.()
+                },
+                {
+                    id: 'exportPython',
+                    label: 'Export as Python',
+                    icon: 'codicon-code',
+                    disabled: props.onExportPython === undefined,
+                    onClick: () => props.onExportPython?.()
+                }
+            ]
+        },
+        {
+            label: 'Sketch',
+            actions: [
+                {
+                    id: 'newSketch',
+                    label: 'New Sketch',
+                    icon: 'codicon-add',
+                    disabled: false,
+                    onClick: props.onNewSketch
+                },
+                ...(selectedSketchId !== undefined
+                    ? [
+                          {
+                              id: 'editSketch',
+                              label: 'Edit Selected Sketch',
+                              icon: 'codicon-edit',
+                              disabled: false,
+                              onClick: () => props.onEditSketch(selectedSketchId)
+                          }
+                      ]
+                    : [])
+            ]
+        },
+        {
+            label: 'Additive',
+            actions: [
+                {
+                    id: 'pad',
+                    label: 'Pad (extrude add)',
+                    icon: 'codicon-fold-up',
+                    disabled: !sketchSelected,
+                    onClick: () => props.onStartFeatureCreation('pad')
+                },
+                {
+                    id: 'pocket',
+                    label: 'Pocket (extrude cut)',
+                    icon: 'codicon-fold-down',
+                    disabled: !sketchSelected || !hasBodies,
+                    onClick: () => props.onStartFeatureCreation('pocket')
+                },
+                {
+                    id: 'revolve',
+                    label: 'Revolve',
+                    icon: 'codicon-sync',
+                    disabled: !sketchSelected,
+                    onClick: () => props.onStartFeatureCreation('revolve')
+                },
+                {
+                    id: 'groove',
+                    label: 'Groove',
+                    icon: 'codicon-discard',
+                    disabled: !sketchSelected || !hasBodies,
+                    onClick: () => props.onStartFeatureCreation('groove')
+                }
+            ]
+        },
+        {
+            label: 'Boolean',
+            actions: [
+                {
+                    id: 'booleanFuse',
+                    label: 'Boolean Fuse',
+                    icon: 'codicon-type-hierarchy-sub',
+                    disabled: !hasBodies,
+                    onClick: () => props.onStartFeatureCreation('booleanFuse')
+                },
+                {
+                    id: 'booleanCut',
+                    label: 'Boolean Cut',
+                    icon: 'codicon-type-hierarchy-super',
+                    disabled: !hasBodies,
+                    onClick: () => props.onStartFeatureCreation('booleanCut')
+                },
+                {
+                    id: 'booleanCommon',
+                    label: 'Boolean Common',
+                    icon: 'codicon-intersect',
+                    disabled: !hasBodies,
+                    onClick: () => props.onStartFeatureCreation('booleanCommon')
+                }
+            ]
+        },
+        {
+            label: 'Dress-up',
+            actions: [
+                {
+                    id: 'fillet',
+                    label: 'Fillet',
+                    icon: 'codicon-circle',
+                    disabled: !hasBodies,
+                    onClick: () => props.onStartFeatureCreation('fillet')
+                },
+                {
+                    id: 'chamfer',
+                    label: 'Chamfer',
+                    icon: 'codicon-chrome-minimize',
+                    disabled: !hasBodies,
+                    onClick: () => props.onStartFeatureCreation('chamfer')
+                },
+                {
+                    id: 'draft',
+                    label: 'Draft',
+                    icon: 'codicon-triangle-down',
+                    disabled: !hasBodies,
+                    onClick: () => props.onStartFeatureCreation('draft')
+                },
+                {
+                    id: 'shell',
+                    label: 'Shell',
+                    icon: 'codicon-layers',
+                    disabled: !hasBodies,
+                    onClick: () => props.onStartFeatureCreation('shell')
+                }
+            ]
+        },
+        {
+            label: 'Pattern',
+            actions: [
+                {
+                    id: 'linearPattern',
+                    label: 'Linear Pattern',
+                    icon: 'codicon-copy',
+                    disabled: !hasBodies || !hasSolidProducers,
+                    onClick: () => props.onStartFeatureCreation('linearPattern')
+                },
+                {
+                    id: 'circularPattern',
+                    label: 'Circular Pattern',
+                    icon: 'codicon-issue-reopened',
+                    disabled: !hasBodies || !hasSolidProducers,
+                    onClick: () => props.onStartFeatureCreation('circularPattern')
+                },
+                {
+                    id: 'mirror',
+                    label: 'Mirror',
+                    icon: 'codicon-mirror',
+                    disabled: !hasBodies || !hasSolidProducers,
+                    onClick: () => props.onStartFeatureCreation('mirror')
+                },
+                {
+                    id: 'hole',
+                    label: 'Hole',
+                    icon: 'codicon-circle-slash',
+                    disabled: !hasBodies,
+                    onClick: () => props.onStartFeatureCreation('hole')
+                }
+            ]
+        }
+    ];
 
     return (
-        <NukeToolbar className="cad-document-toolbar">
-            <NukeToolbarGroup label="Document">
-                <Tooltip content="New Document" position="bottom">
-                    <button
-                        className="theia-button secondary"
-                        disabled={props.onNewDocument === undefined}
-                        onClick={() => props.onNewDocument?.()}
-                    >
-                        <span className="codicon codicon-new-file" /> New
-                    </button>
-                </Tooltip>
-                <Tooltip content="Save Document" position="bottom">
-                    <button
-                        className="theia-button secondary"
-                        disabled={props.onSaveDocument === undefined || !props.documentStore.dirty}
-                        onClick={() => props.onSaveDocument?.()}
-                    >
-                        <span className="codicon codicon-save" /> Save
-                    </button>
-                </Tooltip>
-                <Tooltip content="Rebuild Geometry" position="bottom">
-                    <button
-                        className="theia-button secondary"
-                        disabled={props.onRebuildDocument === undefined}
-                        onClick={() => props.onRebuildDocument?.()}
-                    >
-                        <span className="codicon codicon-refresh" /> Rebuild
-                    </button>
-                </Tooltip>
-                <Tooltip content="Export as Python" position="bottom">
-                    <button
-                        className="theia-button secondary"
-                        disabled={props.onExportPython === undefined}
-                        onClick={() => props.onExportPython?.()}
-                    >
-                        <span className="codicon codicon-code" /> Export Python
-                    </button>
-                </Tooltip>
-            </NukeToolbarGroup>
-            <NukeToolbarGroup label="Sketch">
-                <Tooltip content="New Sketch" position="bottom">
-                    <button className="theia-button secondary" onClick={props.onNewSketch}>
-                        <span className="codicon codicon-add" /> Sketch
-                    </button>
-                </Tooltip>
-                {selectedSketchId !== undefined && (
-                    <Tooltip content="Edit Selected Sketch" position="bottom">
-                        <button className="theia-button secondary" onClick={() => props.onEditSketch(selectedSketchId)}>
-                            <span className="codicon codicon-edit" /> Edit Sketch
+        <div className="cad-document-toolbar">
+            <div className="cad-document-toolbar-info">
+                <span className="codicon codicon-file cad-document-toolbar-icon" />
+                <div className="cad-document-toolbar-title">
+                    <span className="cad-document-toolbar-name">{doc?.name ?? 'Untitled'}</span>
+                    {props.documentStore.dirty && <span className="cad-document-toolbar-dirty" title="Unsaved changes" />}
+                </div>
+            </div>
+            <div className="cad-document-toolbar-actions" ref={actionsRef}>
+                <NukeToolbar>
+                    {groups.map((group) => (
+                        <NukeToolbarGroup key={group.label} label={group.label} className="cad-document-toolbar-group">
+                            {group.actions.map((action) => (
+                                <Tooltip key={action.id} content={action.label} position="bottom">
+                                    <button
+                                        className="theia-button secondary cad-document-toolbar-action"
+                                        disabled={action.disabled}
+                                        onClick={action.onClick}
+                                    >
+                                        <span className={`codicon ${action.icon}`} />
+                                        <span className="cad-document-toolbar-action-label">{action.label}</span>
+                                    </button>
+                                </Tooltip>
+                            ))}
+                        </NukeToolbarGroup>
+                    ))}
+                </NukeToolbar>
+            </div>
+            {overflow && (
+                <div className="cad-document-toolbar-more">
+                    <Tooltip content="More actions" position="bottom">
+                        <button
+                            className="theia-button secondary cad-document-toolbar-more-button"
+                            onClick={() => setMoreOpen(!moreOpen)}
+                            aria-expanded={moreOpen}
+                        >
+                            <span className="codicon codicon-ellipsis" />
                         </button>
                     </Tooltip>
-                )}
-            </NukeToolbarGroup>
-            <NukeToolbarGroup label="Additive">
-                <Tooltip content="Pad (extrude add)" position="bottom">
-                    <button
-                        className="theia-button secondary"
-                        disabled={!sketchSelected}
-                        onClick={() => props.onStartFeatureCreation('pad')}
-                    >
-                        <span className="codicon codicon-fold-up" /> Pad
-                    </button>
-                </Tooltip>
-                <Tooltip content="Pocket (extrude cut)" position="bottom">
-                    <button
-                        className="theia-button secondary"
-                        disabled={!sketchSelected || !hasBodies}
-                        onClick={() => props.onStartFeatureCreation('pocket')}
-                    >
-                        <span className="codicon codicon-fold-down" /> Pocket
-                    </button>
-                </Tooltip>
-                <Tooltip content="Revolve" position="bottom">
-                    <button
-                        className="theia-button secondary"
-                        disabled={!sketchSelected}
-                        onClick={() => props.onStartFeatureCreation('revolve')}
-                    >
-                        <span className="codicon codicon-sync" /> Revolve
-                    </button>
-                </Tooltip>
-                <Tooltip content="Groove" position="bottom">
-                    <button
-                        className="theia-button secondary"
-                        disabled={!sketchSelected || !hasBodies}
-                        onClick={() => props.onStartFeatureCreation('groove')}
-                    >
-                        <span className="codicon codicon-discard" /> Groove
-                    </button>
-                </Tooltip>
-            </NukeToolbarGroup>
-            <NukeToolbarGroup label="Boolean">
-                <Tooltip content="Boolean Fuse" position="bottom">
-                    <button
-                        className="theia-button secondary"
-                        disabled={!hasBodies}
-                        onClick={() => props.onStartFeatureCreation('booleanFuse')}
-                    >
-                        <span className="codicon codicon-type-hierarchy-sub" /> Fuse
-                    </button>
-                </Tooltip>
-                <Tooltip content="Boolean Cut" position="bottom">
-                    <button
-                        className="theia-button secondary"
-                        disabled={!hasBodies}
-                        onClick={() => props.onStartFeatureCreation('booleanCut')}
-                    >
-                        <span className="codicon codicon-type-hierarchy-super" /> Cut
-                    </button>
-                </Tooltip>
-                <Tooltip content="Boolean Common" position="bottom">
-                    <button
-                        className="theia-button secondary"
-                        disabled={!hasBodies}
-                        onClick={() => props.onStartFeatureCreation('booleanCommon')}
-                    >
-                        <span className="codicon codicon-intersect" /> Common
-                    </button>
-                </Tooltip>
-            </NukeToolbarGroup>
-            <NukeToolbarGroup label="Dress-up">
-                <Tooltip content="Fillet" position="bottom">
-                    <button className="theia-button secondary" disabled={!hasBodies} onClick={() => props.onStartFeatureCreation('fillet')}>
-                        <span className="codicon codicon-circle" /> Fillet
-                    </button>
-                </Tooltip>
-                <Tooltip content="Chamfer" position="bottom">
-                    <button
-                        className="theia-button secondary"
-                        disabled={!hasBodies}
-                        onClick={() => props.onStartFeatureCreation('chamfer')}
-                    >
-                        <span className="codicon codicon-chrome-minimize" /> Chamfer
-                    </button>
-                </Tooltip>
-                <Tooltip content="Draft" position="bottom">
-                    <button className="theia-button secondary" disabled={!hasBodies} onClick={() => props.onStartFeatureCreation('draft')}>
-                        <span className="codicon codicon-triangle-down" /> Draft
-                    </button>
-                </Tooltip>
-                <Tooltip content="Shell" position="bottom">
-                    <button className="theia-button secondary" disabled={!hasBodies} onClick={() => props.onStartFeatureCreation('shell')}>
-                        <span className="codicon codicon-layers" /> Shell
-                    </button>
-                </Tooltip>
-            </NukeToolbarGroup>
-            <NukeToolbarGroup label="Pattern">
-                <Tooltip content="Linear Pattern" position="bottom">
-                    <button
-                        className="theia-button secondary"
-                        disabled={!hasBodies || !hasSolidProducers}
-                        onClick={() => props.onStartFeatureCreation('linearPattern')}
-                    >
-                        <span className="codicon codicon-copy" /> Linear Pattern
-                    </button>
-                </Tooltip>
-                <Tooltip content="Circular Pattern" position="bottom">
-                    <button
-                        className="theia-button secondary"
-                        disabled={!hasBodies || !hasSolidProducers}
-                        onClick={() => props.onStartFeatureCreation('circularPattern')}
-                    >
-                        <span className="codicon codicon-issue-reopened" /> Circular Pattern
-                    </button>
-                </Tooltip>
-                <Tooltip content="Mirror" position="bottom">
-                    <button
-                        className="theia-button secondary"
-                        disabled={!hasBodies || !hasSolidProducers}
-                        onClick={() => props.onStartFeatureCreation('mirror')}
-                    >
-                        <span className="codicon codicon-mirror" /> Mirror
-                    </button>
-                </Tooltip>
-            </NukeToolbarGroup>
-            <NukeToolbarGroup label="Hole">
-                <Tooltip content="Hole" position="bottom">
-                    <button className="theia-button secondary" disabled={!hasBodies} onClick={() => props.onStartFeatureCreation('hole')}>
-                        <span className="codicon codicon-circle-slash" /> Hole
-                    </button>
-                </Tooltip>
-            </NukeToolbarGroup>
-            {doc !== undefined && (
-                <span className="cad-document-name">
-                    {doc.name}
-                    {props.documentStore.dirty && <span className="cad-document-dirty" />}
-                </span>
+                    {moreOpen && (
+                        <div className="cad-document-toolbar-menu">
+                            {groups.map((group) => (
+                                <div key={group.label} className="cad-document-toolbar-menu-section">
+                                    <div className="cad-document-toolbar-menu-section-title">{group.label}</div>
+                                    {group.actions.map((action) => (
+                                        <button
+                                            key={action.id}
+                                            className="theia-button secondary cad-document-toolbar-menu-item"
+                                            disabled={action.disabled}
+                                            onClick={() => {
+                                                action.onClick();
+                                                setMoreOpen(false);
+                                            }}
+                                        >
+                                            <span className={`codicon ${action.icon}`} />
+                                            {action.label}
+                                        </button>
+                                    ))}
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
             )}
-        </NukeToolbar>
+        </div>
+    );
+}
+
+interface SketchToolbarProps {
+    readonly controller: SketchModeController;
+    readonly tool: SketchTool;
+    readonly construction: boolean;
+    readonly paramsOpen: boolean;
+    readonly setParamsOpen: (value: boolean) => void;
+    readonly externalGeometryTarget?: { readonly id: string };
+    readonly facePickMode?: 'sketchDatum' | 'externalGeometry';
+    readonly onStartExternalGeometryPick: (featureId: string) => void;
+    readonly onCancelFacePick: () => void;
+    readonly onExitSketch: () => Promise<void>;
+}
+
+function SketchToolbar(props: SketchToolbarProps): React.ReactElement {
+    const [collapsed, setCollapsed] = React.useState(false);
+    const {
+        controller,
+        tool,
+        construction,
+        paramsOpen,
+        setParamsOpen,
+        externalGeometryTarget,
+        facePickMode,
+        onStartExternalGeometryPick,
+        onCancelFacePick,
+        onExitSketch
+    } = props;
+
+    if (collapsed) {
+        return (
+            <Tooltip content="Show Sketch Tools" position="right">
+                <button className="theia-button secondary cad-sketch-toolbar-toggle" onClick={() => setCollapsed(false)}>
+                    <span className="codicon codicon-menu" />
+                </button>
+            </Tooltip>
+        );
+    }
+
+    return (
+        <div className="cad-sketch-toolbar">
+            <div className="cad-sketch-toolbar-header">
+                <span className="cad-sketch-toolbar-title">Sketch</span>
+                <Tooltip content="Collapse Sketch Tools" position="right">
+                    <button className="theia-button secondary cad-sketch-toolbar-collapse" onClick={() => setCollapsed(true)}>
+                        <span className="codicon codicon-chevron-left" />
+                    </button>
+                </Tooltip>
+            </div>
+            <div className="cad-sketch-toolbar-body">
+                {TOOLS.map(({ tool: t, label, icon }) => (
+                    <Tooltip key={t} content={label} position="right">
+                        <button
+                            className={`theia-button secondary cad-sketch-tool-button ${tool === t ? 'active' : ''}`}
+                            onClick={() => controller.setTool(t)}
+                        >
+                            <span className={`codicon ${icon}`} />
+                        </button>
+                    </Tooltip>
+                ))}
+                <Tooltip content="Construction Geometry" position="right">
+                    <button
+                        className={`theia-button secondary cad-sketch-tool-button ${construction ? 'active' : ''}`}
+                        onClick={() => controller.setConstruction(!construction)}
+                    >
+                        <span className="codicon codicon-whole-word" />
+                    </button>
+                </Tooltip>
+                <Tooltip content="Toggle Construction on Selection" position="right">
+                    <button
+                        className="theia-button secondary cad-sketch-tool-button"
+                        onClick={() => void controller.toggleConstructionForSelection()}
+                    >
+                        <span className="codicon codicon-edit" />
+                    </button>
+                </Tooltip>
+                <Tooltip content="Parameters" position="right">
+                    <button
+                        className={`theia-button secondary cad-sketch-tool-button ${paramsOpen ? 'active' : ''}`}
+                        onClick={() => setParamsOpen(!paramsOpen)}
+                    >
+                        <span className="codicon codicon-symbol-variable" />
+                    </button>
+                </Tooltip>
+                <Tooltip content="External Geometry" position="right">
+                    <button
+                        className={`theia-button secondary cad-sketch-tool-button ${facePickMode === 'externalGeometry' ? 'active' : ''}`}
+                        disabled={externalGeometryTarget === undefined}
+                        onClick={() => {
+                            if (facePickMode === 'externalGeometry') {
+                                onCancelFacePick();
+                            } else if (externalGeometryTarget !== undefined) {
+                                onStartExternalGeometryPick(externalGeometryTarget.id);
+                            }
+                        }}
+                    >
+                        <span className="codicon codicon-link-external" />
+                    </button>
+                </Tooltip>
+                <Tooltip content="Exit Sketch" position="right">
+                    <button className="theia-button secondary cad-sketch-tool-button" onClick={() => void onExitSketch()}>
+                        <span className="codicon codicon-close" />
+                    </button>
+                </Tooltip>
+            </div>
+        </div>
     );
 }
 

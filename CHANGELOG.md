@@ -385,12 +385,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   volume is reported in `result["warnings"]` so CAD assemblies (e.g., the
   tokamak demo) can build while still alerting callers that need a sealed DAGMC
   model.
+- nuke-cad: **viewport chrome redesign** — the CAD viewport now shows the
+  welcome card only when no document is open; a new document displays a minimal
+  document hint instead. The document toolbar is now a structured header bar
+  (icon + name + dirty indicator on the left, grouped actions on the right)
+  styled after openmc-studio, with a "More" overflow menu when the action groups
+  wrap beyond two rows. The sketch toolbar is now a compact, collapsible
+  vertical panel with a floating toggle to reopen it.
 
 ### Fixed
 
 - nuke-cad: **viewport chrome layout** — the empty-state card no longer clips
-  at narrow widths (border-box sizing, wrapping action row), the rebuild
-  loading indicator is a centered overlay instead of a corner strip, the
+  at narrow widths (border-box sizing, wrapping action row) and stays centered
+  in document mode when the document toolbar/sketch overlay is present, the
+  rebuild loading indicator is a centered overlay instead of a corner strip, the
   document toolbar is grouped by function and wraps instead of overflowing, and
   the feature-creation dialog is a real modal with a backdrop that blocks the
   toolbar behind it. The chrome now builds on shared nuke-essentials
