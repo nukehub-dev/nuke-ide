@@ -86,3 +86,113 @@ def test_build_document_from_gui_pincell_fixture(tmp_path: Path) -> None:
     assert Path(result["stepPath"]).exists()
     assert Path(result["tessPath"]).exists()
     assert all(r["status"] == "built" for r in result["featureResults"])
+
+
+def _rect_primitives(x0: float, y0: float, x1: float, y1: float) -> list:
+    return [
+        {"id": "p1", "type": "point", "x": x0, "y": y0},
+        {"id": "p2", "type": "point", "x": x1, "y": y0},
+        {"id": "p3", "type": "point", "x": x1, "y": y1},
+        {"id": "p4", "type": "point", "x": x0, "y": y1},
+        {"id": "l1", "type": "line", "p1_id": "p1", "p2_id": "p2"},
+        {"id": "l2", "type": "line", "p1_id": "p2", "p2_id": "p3"},
+        {"id": "l3", "type": "line", "p1_id": "p3", "p2_id": "p4"},
+        {"id": "l4", "type": "line", "p1_id": "p4", "p2_id": "p1"},
+    ]
+
+
+def test_build_document_forwards_warnings_and_consumed_bodies(tmp_path: Path) -> None:
+    """Cross-body overlap warnings and boolean-consumed body ids from the feature
+    builder reach the document-build RPC response."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    doc = {
+        "version": 2,
+        "name": "overlap",
+        "parameters": {},
+        "datums": [{"id": "dxy", "kind": "XY", "name": "XY"}],
+        "bodies": [
+            {"id": "body-a", "name": "A"},
+            {"id": "body-b", "name": "B"},
+            {"id": "body-c", "name": "C"},
+        ],
+        "sketches": [
+            {
+                "id": "rect-a",
+                "name": "a",
+                "datumId": "dxy",
+                "primitives": _rect_primitives(0.0, 0.0, 10.0, 10.0),
+                "constraints": [],
+            },
+            {
+                "id": "rect-b",
+                "name": "b",
+                "datumId": "dxy",
+                "primitives": _rect_primitives(30.0, 30.0, 35.0, 35.0),
+                "constraints": [],
+            },
+            {
+                "id": "rect-c",
+                "name": "c",
+                "datumId": "dxy",
+                "primitives": _rect_primitives(5.0, 5.0, 15.0, 15.0),
+                "constraints": [],
+            },
+        ],
+        "features": [
+            {
+                "id": "pad-a",
+                "name": "a",
+                "type": "pad",
+                "sketchId": "rect-a",
+                "body": "body-a",
+                "params": {"length": 5.0},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+            {
+                "id": "pad-b",
+                "name": "b",
+                "type": "pad",
+                "sketchId": "rect-b",
+                "body": "body-b",
+                "params": {"length": 5.0},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+            {
+                "id": "pad-c",
+                "name": "c",
+                "type": "pad",
+                "sketchId": "rect-c",
+                "body": "body-c",
+                "params": {"length": 5.0},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+            {
+                "id": "cut",
+                "name": "cut",
+                "type": "booleanCut",
+                "body": "body-a",
+                "params": {"targetBody": "body-a", "toolBodies": ["body-b"]},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+        ],
+    }
+    doc_path = tmp_path / "overlap.nuke-cad"
+    doc_path.write_text(json.dumps(doc), encoding="utf-8")
+
+    result = geometry_service.build_document(
+        str(doc_path),
+        output_dir=str(tmp_path),
+        export_dagmc=False,
+        export_mesh=False,
+    )
+    assert result["success"] is True, result.get("error", "")
+    # body-b is consumed by the boolean cut and excluded from the assembly.
+    assert result["consumedBodies"] == ["body-b"]
+    # body-a and body-c overlap and are not merged: reported as a warning.
+    overlap_warnings = [w for w in result.get("warnings", []) if "overlap" in w]
+    assert overlap_warnings, result.get("warnings", [])
+    assert any("body-a" in w and "body-c" in w for w in overlap_warnings)

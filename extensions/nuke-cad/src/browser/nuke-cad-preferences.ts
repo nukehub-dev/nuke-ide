@@ -60,6 +60,24 @@ export const NukeCadPreferenceSchema: PreferenceSchema = {
                 'Default faceting tolerance for CAD geometry builds (tessellation and DAGMC export). ' +
                 'Smaller values produce finer meshes at the cost of build time. ' +
                 'Applies to builds started after the change; an explicit per-build tolerance still wins.'
+        },
+        'nukeCad.displayFacetingTolerance': {
+            type: 'number',
+            default: 0.01,
+            exclusiveMinimum: 0,
+            description:
+                'Display-only faceting tolerance used for viewport preview of STEP imports and .nuke-cad documents. ' +
+                'This is deliberately coarser than nukeCad.facetingTolerance so large models open quickly. ' +
+                'DAGMC and FEM mesh exports use nukeCad.facetingTolerance instead.'
+        },
+        'nukeCad.maxDisplayTriangles': {
+            type: 'number',
+            default: 2_000_000,
+            minimum: 1,
+            description:
+                'Soft maximum number of triangles for viewport preview tessellation. ' +
+                'A warning is shown when a display build exceeds this budget. ' +
+                'Does not affect DAGMC or FEM mesh export.'
         }
     }
 };
@@ -68,6 +86,10 @@ export const NukeCadPreferenceSchema: PreferenceSchema = {
 export interface NukeCadConfiguration {
     /** Default faceting tolerance for CAD geometry builds. */
     'nukeCad.facetingTolerance': number;
+    /** Display-only faceting tolerance for viewport preview builds. */
+    'nukeCad.displayFacetingTolerance': number;
+    /** Soft maximum triangle count for viewport preview tessellation. */
+    'nukeCad.maxDisplayTriangles': number;
 }
 
 /** Symbol used to bind the {@link PreferenceContribution} for Nuke CAD. */

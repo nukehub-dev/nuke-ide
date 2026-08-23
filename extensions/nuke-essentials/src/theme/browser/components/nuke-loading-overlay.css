@@ -1,0 +1,15 @@
+/* ============================================================================
+   NukeIDE Loading Overlay
+   ============================================================================ */
+
+.nuke-loading-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 50;
+    pointer-events: auto;
+    background: color-mix(in srgb, var(--theia-editor-background), transparent 40%);
+}
+
+.nuke-loading-overlay.no-dim {
+    background: transparent;
+}

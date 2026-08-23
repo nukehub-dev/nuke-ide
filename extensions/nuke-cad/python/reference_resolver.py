@@ -142,6 +142,10 @@ def _extract_face_fingerprint(face: Any) -> dict[str, Any] | None:
         }
 
         if stype == "plane":
+            # The fingerprint normal is the face's outward normal: REVERSED
+            # faces flip the underlying plane axis. face_plane_origin_normal
+            # (workplane derivation) follows the same convention so frontend
+            # UV projection and backend placement agree.
             direction = surf.Plane().Axis().Direction()
             if face.Orientation() == TopAbs_REVERSED:
                 direction = direction.Reversed()
@@ -461,7 +465,10 @@ def face_plane_origin_normal(
 ) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
     """Return ``(origin, normal)`` for a planar ``TopoDS_Face``.
 
-    Raises ``ValueError`` if the face is not planar.
+    The normal follows the same convention as :func:`_extract_face_fingerprint`:
+    ``TopAbs_REVERSED`` faces report the flipped (outward) normal, so the
+    fingerprint normal, the face workplane, and the frontend UV projection all
+    agree.  Raises ``ValueError`` if the face is not planar.
     """
     _require_ocp()
     surf = BRepAdaptor_Surface(topods_face)
@@ -469,7 +476,10 @@ def face_plane_origin_normal(
         raise ValueError("referenced face is not planar")
     pln = surf.Plane()
     origin = _gp_pnt_to_tuple(pln.Location())
-    normal = _gp_dir_to_tuple(pln.Axis().Direction())
+    direction = pln.Axis().Direction()
+    if topods_face.Orientation() == TopAbs_REVERSED:
+        direction = direction.Reversed()
+    normal = _gp_dir_to_tuple(direction)
     return origin, normal
 
 

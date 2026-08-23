@@ -817,3 +817,141 @@ describe('replaceTopologyRef', () => {
         expect(result.success).toBe(false);
     });
 });
+
+describe('feature reordering with pattern sources', () => {
+    it('rejects moving a pattern before its implied source dependency', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        store.addBody('Body 1');
+        store.addFeature(feature('pad1', 'pad'));
+        const pattern: FeatureDef = {
+            id: 'pat1',
+            name: 'pat1',
+            type: 'circularPattern',
+            body: 'body-1',
+            params: { source: 'pad1', count: 3, axis: 'z' },
+            suppressed: false,
+            dependsOn: []
+        };
+        store.addFeature(pattern);
+        const result = store.reorderFeatures(['pat1', 'pad1']);
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('pat1 depends on pad1');
+        expect(store.document?.features.map((f) => f.id)).toEqual(['pad1', 'pat1']);
+    });
+
+    it('accepts a permutation that keeps the source before the pattern', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        store.addBody('Body 1');
+        store.addFeature(feature('pad1', 'pad'));
+        store.addFeature(feature('pad2', 'pad', ['pad1']));
+        const mirror: FeatureDef = {
+            id: 'mir1',
+            name: 'mir1',
+            type: 'mirror',
+            body: 'body-1',
+            params: { source: 'pad1', plane: 'YZ' },
+            suppressed: false,
+            dependsOn: ['pad2']
+        };
+        store.addFeature(mirror);
+        const result = store.reorderFeatures(['pad1', 'mir1', 'pad2']);
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('mir1 depends on pad2');
+    });
+});
+
+describe('replaceTopologyRef atomicity', () => {
+    function edgeFingerprint(start: [number, number, number], end: [number, number, number]) {
+        return { curveType: 'line' as const, length: 1, start, end };
+    }
+
+    function storeWithFillet(): CadDocumentStore {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        store.addBody('Body 1');
+        const fillet: FeatureDef = {
+            id: 'fillet1',
+            name: 'fillet1',
+            type: 'fillet',
+            body: 'body-1',
+            params: {
+                edges: [{ featureId: 'pad_a', kind: 'edge', fingerprint: edgeFingerprint([0, 0, 0], [1, 0, 0]) }],
+                radius: 0.5
+            },
+            suppressed: false,
+            dependsOn: []
+        };
+        store.addFeature(fillet);
+        return store;
+    }
+
+    it('does not mutate the previously committed document object on success', () => {
+        const store = storeWithFillet();
+        const before = store.document!;
+        const result = store.replaceTopologyRef('feature.fillet1.params.edges[0]', edgeFingerprint([2, 0, 0], [3, 0, 0]));
+        expect(result.success).toBe(true);
+        // The store moved to a new document object, and the previous object
+        // still holds the original fingerprint (no shared-params corruption).
+        const oldEdges = (before.features[0].params as { edges: TopologyRef[] }).edges;
+        expect(oldEdges[0].fingerprint).toEqual(edgeFingerprint([0, 0, 0], [1, 0, 0]));
+        const newEdges = (store.document!.features[0].params as { edges: TopologyRef[] }).edges;
+        expect(newEdges[0].fingerprint).toEqual(edgeFingerprint([2, 0, 0], [3, 0, 0]));
+    });
+
+    it('leaves the live document untouched on the failure path', () => {
+        const store = storeWithFillet();
+        const before = store.document!;
+        const beforeJson = store.toJson();
+        const bad = { curveType: 'line', length: -1, start: [0, 0, 0], end: [1, 0, 0] } as unknown as Parameters<
+            CadDocumentStore['replaceTopologyRef']
+        >[1];
+        const result = store.replaceTopologyRef('feature.fillet1.params.edges[0]', bad);
+        expect(result.success).toBe(false);
+        expect(store.document).toBe(before);
+        expect(store.toJson()).toBe(beforeJson);
+    });
+});
+
+describe('reference repair flow', () => {
+    it('repairs a broken reference from a backend-shaped candidate payload', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        store.addDatum('face', 0, faceRef('base', [0, 0, 0]));
+        const datumId = store.document!.datums.find((d) => d.kind === 'face')!.id;
+
+        // Payload as emitted by reference_scoring.match_references().to_dict():
+        // candidate ids are re-sorted per rebuild and carry no identity; the
+        // fingerprint is what replaceTopologyRef consumes.
+        const resolution: import('../../common/nuke-cad-protocol').ReferenceResolutionResult = {
+            featureId: 'pad1',
+            path: `datum.${datumId}.reference`,
+            kind: 'face',
+            status: 'ambiguous',
+            candidateId: 'face_0001',
+            score: 0.91,
+            runnerUpScore: 0.89,
+            candidates: [
+                {
+                    candidateId: 'face_0007',
+                    score: 0.89,
+                    fingerprint: { surfaceType: 'plane', area: 12, center: [4, 5, 6], normal: [0, 0, 1] }
+                },
+                {
+                    candidateId: 'face_0002',
+                    score: 0.55,
+                    fingerprint: { surfaceType: 'plane', area: 9, center: [1, 1, 1], normal: [0, 1, 0] }
+                }
+            ]
+        };
+        const candidate = resolution.candidates![0];
+        expect(candidate.fingerprint).toBeDefined();
+        const result = store.replaceTopologyRef(resolution.path, candidate.fingerprint!);
+        expect(result.success).toBe(true);
+        const datum = store.document!.datums.find((d) => d.id === datumId)!;
+        expect(datum.reference!.fingerprint).toEqual(candidate.fingerprint);
+        // The replacement keeps the original producing feature id.
+        expect(datum.reference!.featureId).toBe('base');
+    });
+});

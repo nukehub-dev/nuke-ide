@@ -42,7 +42,16 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   TypeScript owns only the types and validation. The builder resolves every
   reference against the referenced predecessor feature's current B-rep and
   returns `matched`/`ambiguous`/`unmatched` status per reference in
-  `referenceResults` so the frontend can render repair affordances.
+  `referenceResults` so the frontend can render repair affordances. Broken
+  (`ambiguous` and `unmatched`) references carry up to 3 repair candidates,
+  each with its full geometric fingerprint; the fingerprint — not the
+  per-rebuild candidate id (`face_0007` style, re-sorted on every build) — is
+  the identity the frontend stores via `CadDocumentStore.replaceTopologyRef`.
+  Planar-face fingerprints report the outward normal (`TopAbs_REVERSED` faces
+  flip the underlying plane axis); face workplane derivation
+  (`face_plane_origin_normal` / `_workplane_from_face`) and the frontend UV
+  projection (`face-picker.ts`, `sketch-math.ts`) follow the same convention,
+  so off-center hole centers and sketch-on-face coordinates agree.
 - Dress-up features (`fillet`, `chamfer`, `draft`, `shell`) operate on the
   accumulated B-rep of a body after its prior features. They store target
   edges or faces as `TopologyRef`s and resolve them through the same
@@ -65,11 +74,17 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   (required for toroidal/poloidal coil assemblies), subtractive sources are
   cut. `linearPattern` uses `count`, `spacing`, and `axis`; `circularPattern`
   uses `count`, optional `angle`, and either `axis` or `axisDatumId`; `mirror`
-  uses either `plane` (`XY`/`YZ`/`XZ`) or `planeDatumId`. The hole wizard stores
+  uses either `plane` (`XY`/`YZ`/`XZ`) or `planeDatumId`. Face datums behind
+  `axisDatumId`/`planeDatumId` resolve against the referenced feature's
+  historical shape (same scope as sketch datums), while the hole placement
+  face resolves against the pattern/hole body's current B-rep. The hole wizard stores
   a single feature record with a face `TopologyRef` and a center `[u, v]` in the
   resolved face's workplane coordinates; the backend expands it internally into
   an extrude-cut plus optional counterbore/countersink geometry. Omitted `depth`
   means through-hole; counterbore and countersink are mutually exclusive.
+  Subtractive features (pocket/groove/hole) whose tool is disjoint from the
+  body fail with a clear "does not intersect" error instead of a silent no-op
+  success.
 - The same-body additive overlap check for single sketch features remains in
   `_combine_additive`; overlapping additive pattern instances are fused by the
   boolean union in `_apply_pattern_or_mirror` instead.
@@ -77,6 +92,14 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   a fatal error. Pure CAD assemblies such as the tokamak demo intentionally
   contain overlapping parts, so the B-rep build completes and callers that
   need a sealed model can inspect `result["warnings"]` before DAGMC export.
+  `geometry_service.build_document` forwards the builder's `warnings` and
+  `consumedBodies` to the RPC response (`GeometryBuildResult.warnings` /
+  `consumedBodies`), and the viewport surfaces the warnings in a dismissible
+  strip in the viewport chrome.
+- Pad/pocket `upToFace`, `upToBody`, and `angle` parameters are
+  schema-accepted and validated (so badges and repair paths work), but the
+  builder does not implement them: it fails the feature with an explicit
+  "not yet supported" error rather than silently ignoring them.
 - Python backend lives in `python/` and is not pip-installed; the IDE spawns
   it as a subprocess via `nuke-core` environment detection.
 - The CAD viewport is a purpose-built three.js widget (documented exception to
@@ -92,20 +115,25 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   sidebar (`CAD Studio → Geometry`).
 - Preferences live in `src/browser/nuke-cad-preferences.ts`.
   `nukeCad.facetingTolerance` (number, default 0.001, exclusiveMinimum 0) is
-  the default faceting tolerance consumed by
-  `NukeCadFrontendService.buildGeometry` on open/rebuild/Open-CAD-Model; an
-  explicit per-call tolerance wins and changes apply to subsequent builds
-  only. It is deliberately separate from openmc-studio's
+  the default faceting tolerance for export-quality builds (script builds and
+  any build with DAGMC or FEM mesh export explicitly enabled); an explicit
+  per-call tolerance wins and changes apply to subsequent builds only. It is
+  deliberately separate from openmc-studio's
   `openmcStudio.defaultFacetingTolerance` — nuke-cad is an optional extension
-  and cannot depend on openmc-studio.
+  and cannot depend on openmc-studio. Viewport-only builds use
+  `nukeCad.displayFacetingTolerance` (default 0.01), which is coarser so large
+  documents open quickly, and `nukeCad.maxDisplayTriangles` (default 2 000 000)
+  triggers a warning when a display tessellation exceeds the budget. DAGMC and
+  FEM export tolerances are unaffected by the display settings.
 - STEP/STP/BREP files open in nuke-cad by default (higher open-handler priority
   than nuke-visualizer); the geometry service reads them through OCP and runs
   the same tessellation pipeline as script builds. The `.py` open-handler
   priority is 50 — below the text editor's 100 — so Python files open in the
   editor by default and reach the CAD viewport via **Open With…**.
-- STEP-source imports skip DAGMC and FEM mesh export by default; the backend
-  enforces `--no-dagmc`/`--no-mesh` on every path (including rebuilds) and
-  `geometry_service.py` exposes opt-in `--dagmc`/`--mesh` flags.
+- STEP-source imports and `.nuke-cad` document opens/rebuilds skip DAGMC and
+  FEM mesh export by default; the backend enforces `--no-dagmc`/`--no-mesh` on
+  every path (including rebuilds) and `geometry_service.py` exposes opt-in
+  `--dagmc`/`--mesh` flags for callers that explicitly request export.
 - User geometry scripts execute in an isolated subprocess with a 120 s default
   timeout (`--script-timeout`); `SystemExit` and unsupported model types are
   reported as structured errors, not process crashes.
@@ -178,7 +206,15 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
     sketch-on-face button, document toolbar, feature-creation dialog, constraint
     value input, dimension labels/popover, parameters panel, external-geometry
     reference list, diagnostics popover (with reference-resolution status), and
-    status line.
+    status line. The chrome builds on the shared nuke-essentials components
+    (`NukeToolbar`/`NukeToolbarGroup` for the document toolbar — grouped
+    Document/Sketch/Additive/Boolean/Dress-up/Pattern/Hole with wrapping;
+    `NukeDialog` for the modal feature-creation dialog; `NukePanel` for the
+    parameters/diagnostics/external-geometry popovers). The viewport widget
+    itself uses `NukeEmptyState` for the empty viewport, `NukeLoadingOverlay`
+    for rebuilds over existing geometry, and renders non-fatal build warnings
+    (`GeometryBuildResult.warnings`, e.g. cross-body overlap) in a dismissible
+    warning strip below the error banner.
 - The geometric constraint solver is client-side only. The document stores
   planegcs-verbatim primitives with solved coordinates; the Python backend never
   re-solves. `src/common/sketch-solver.ts` exports the solver-agnostic
@@ -214,8 +250,10 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
     body's current B-rep. Pattern/mirror features resolve their `source` feature
     and transform copies of its stored tool shape; the hole wizard resolves its
     placement face and expands the record into an extrude-cut plus optional
-    counterbore/countersink geometry. Cycles are rejected with a readable member
-    list.
+    counterbore/countersink geometry. Features targeting a body consumed by a
+    boolean feature are marked `stale` (the guard applies uniformly to
+    dress-up, pattern/mirror/hole, and sketch-solid features). Cycles are
+    rejected with a readable member list.
   - `geometry_service.py` exposes `build_document()` plus a `--from-document`
     CLI flag; it validates references lightly, runs the feature builder, and
     reuses `_process_shape` verbatim so STEP/tessellation/DAGMC/mesh artifacts
@@ -252,7 +290,7 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
 - `.nuke-cad` shell integration:
   - `.nuke-cad` files open in the CAD viewport by default (open-handler priority
     500). The handler parses the JSON, loads it into the document store, and
-    triggers a document build.
+    triggers a viewport-only document build (no DAGMC or FEM mesh export).
   - Document commands: `nuke.cad.newDocument`, `nuke.cad.saveDocument`,
     `nuke.cad.saveDocumentAs`, `nuke.cad.newSketch`, `nuke.cad.exitSketch`, and
     `nuke.cad.openFeatureTree`.
@@ -300,7 +338,7 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   - Face picking is handled by `src/browser/widgets/cad-viewport/face-picker.ts`
     (`raycastFace`, `buildTopologyRef`, `FaceHighlighter`). Edge picking for
     dress-up features is handled by `edge-picker.ts` (`raycastEdge`,
-    `EdgeHighlighter`), which uses `LineSegments2` geometry and an edge topology
+    `EdgeHighlighter`), which uses `THREE.Line` overlays and an edge topology
     map built from the viewport tessellation. The viewport builds one mesh per
     face and stores the geometric fingerprint in `userData`, so the pick path
     reads `userData.faceId` directly without reconstructing a triangle-to-face

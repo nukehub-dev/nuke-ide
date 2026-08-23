@@ -1,0 +1,36 @@
+/* ============================================================================
+   NukeIDE Toolbar (grouped, wrapping)
+   ============================================================================ */
+
+.nuke-toolbar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--nuke-space-1);
+    row-gap: var(--nuke-space-1);
+}
+
+.nuke-toolbar-group {
+    display: flex;
+    align-items: center;
+    flex-wrap: nowrap;
+    gap: 2px;
+}
+
+.nuke-toolbar-group + .nuke-toolbar-group {
+    margin-left: var(--nuke-space-1);
+    padding-left: var(--nuke-space-2);
+    border-left: 1px solid var(--theia-panel-border);
+}
+
+.nuke-toolbar button {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    white-space: nowrap;
+}
+
+.nuke-toolbar button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}

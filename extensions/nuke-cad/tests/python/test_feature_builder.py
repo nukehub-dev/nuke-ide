@@ -2866,3 +2866,509 @@ def test_count_change_invalidates_face_reference() -> None:
     ref = [r for r in result["referenceResults"] if r["path"] == "datum.face-datum.reference"]
     assert by_id["downstream"]["status"] == "failed"
     assert ref and ref[0]["status"] in ("unmatched", "ambiguous")
+
+
+def _point_in_solid(shape: Any, point: tuple[float, float, float]) -> bool:
+    """Classify a world point against a build123d/OCP shape (True = inside).
+
+    The OCCT solid classifier is only reliable on a single Solid, so compounds
+    are classified per solid and OR-ed.
+    """
+    pytest.importorskip("build123d", reason="build123d not installed")
+    from OCP.BRepClass3d import BRepClass3d_SolidClassifier
+    from OCP.gp import gp_Pnt
+    from OCP.TopAbs import TopAbs_IN
+
+    solids = shape.solids()
+    if not solids:
+        wrapped = shape.wrapped if hasattr(shape, "wrapped") else shape
+        return BRepClass3d_SolidClassifier(wrapped, gp_Pnt(*point), 1e-6).State() == TopAbs_IN
+    return any(
+        BRepClass3d_SolidClassifier(solid.wrapped, gp_Pnt(*point), 1e-6).State() == TopAbs_IN
+        for solid in solids
+    )
+
+
+def _bottom_face_predicate() -> Any:
+    """Return a predicate that selects the bottom (-Z) face of an extruded box."""
+
+    def predicate(face: Any) -> bool:
+        return (
+            face.surface_type == "plane"
+            and face.normal is not None
+            and np.isclose(face.normal[2], -1.0)
+        )
+
+    return predicate
+
+
+def test_hole_off_center_on_reversed_face_is_not_mirrored() -> None:
+    """Off-center hole on a box's -Z (TopAbs_REVERSED) face lands at the picked
+    workplane position, not mirrored across the face centroid.
+
+    Regression test: the fingerprint flips the plane normal for REVERSED faces
+    while the workplane derivation historically did not, so off-center hole
+    centers were mirrored in v.
+    """
+    pytest.importorskip("build123d", reason="build123d not installed")
+    import reference_resolver as rr
+    from OCP.TopAbs import TopAbs_REVERSED
+
+    base_doc = _document(
+        [
+            {
+                "id": "base",
+                "name": "base",
+                "type": "pad",
+                "sketchId": "rect",
+                "params": {"length": 5.0},
+                "dependsOn": [],
+                "suppressed": False,
+            }
+        ],
+        sketches=[_rect_sketch(width=10.0, height=10.0)],
+    )
+    base_result = fb.build_document_shape(base_doc)
+    assert base_result["shape"] is not None
+
+    # The bottom face must actually exercise the REVERSED orientation path.
+    fingerprints, entities = rr.extract_face_fingerprints_with_entities(
+        base_result["shape"].wrapped
+    )
+    predicate = _bottom_face_predicate()
+    bottom = next(fp for fp in fingerprints if predicate(fp))
+    assert entities[bottom.candidate_id].Orientation() == TopAbs_REVERSED
+    assert np.allclose(bottom.normal, (0.0, 0.0, -1.0))
+
+    bottom_ref = {"featureId": "base", "kind": "face", "fingerprint": bottom.to_dict()}
+
+    # Face centroid is (5, 5, 0); workplane axes are x=(1,0,0), y=(0,-1,0), so
+    # center [1, 2] maps to world (6, 3, 0) -- not the mirrored (6, 7, 0).
+    doc = _document(
+        [
+            {
+                "id": "base",
+                "name": "base",
+                "type": "pad",
+                "sketchId": "rect",
+                "params": {"length": 5.0},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+            {
+                "id": "hole1",
+                "name": "hole",
+                "type": "hole",
+                "body": "body-1",
+                "params": {"face": bottom_ref, "center": [1.0, 2.0], "diameter": 2.0},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+        ],
+        sketches=[_rect_sketch(width=10.0, height=10.0)],
+    )
+    result = fb.build_document_shape(doc)
+    assert result["shape"] is not None
+    by_id = {r["featureId"]: r for r in result["featureResults"]}
+    assert by_id["hole1"]["status"] == "built", by_id["hole1"].get("error")
+    shape = result["shape"]
+    assert math.isclose(shape.volume, 500.0 - math.pi * 5.0, rel_tol=1e-6)
+    assert not _point_in_solid(shape, (6.0, 3.0, 2.5)), "expected hole void at world (6, 3)"
+    assert _point_in_solid(shape, (6.0, 7.0, 2.5)), "mirrored position must remain solid"
+    assert _point_in_solid(shape, (5.0, 5.0, 2.5)), "face center must remain solid"
+
+
+def test_hole_disjoint_from_body_fails() -> None:
+    """A hole whose tool misses the body is an error, not a no-op success."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    top_ref, _base_doc = _build_base_and_capture_top_face(length=5.0)
+    doc = _document(
+        [
+            {
+                "id": "base",
+                "name": "base",
+                "type": "pad",
+                "sketchId": "rect",
+                "params": {"length": 5.0},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+            {
+                "id": "hole1",
+                "name": "hole",
+                "type": "hole",
+                "body": "body-1",
+                "params": {"face": top_ref, "center": [1000.0, 1000.0], "diameter": 2.0},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+        ],
+        sketches=[_rect_sketch(width=10.0, height=10.0)],
+    )
+    result = fb.build_document_shape(doc)
+    by_id = {r["featureId"]: r for r in result["featureResults"]}
+    assert by_id["hole1"]["status"] == "failed"
+    assert "does not intersect" in by_id["hole1"]["error"].lower()
+
+
+def test_pocket_disjoint_from_body_fails() -> None:
+    """A pocket whose tool misses the body is an error, not a no-op success."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    doc = _document(
+        [
+            {
+                "id": "base",
+                "name": "base",
+                "type": "pad",
+                "sketchId": "rect",
+                "params": {"length": 5.0},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+            {
+                "id": "pocket1",
+                "name": "pocket",
+                "type": "pocket",
+                "sketchId": "far-circle",
+                "params": {"length": 2.0},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+        ],
+        sketches=[
+            _rect_sketch(width=10.0, height=10.0),
+            _circle_sketch(1000, 1000, 3, "far-circle"),
+        ],
+    )
+    result = fb.build_document_shape(doc)
+    by_id = {r["featureId"]: r for r in result["featureResults"]}
+    assert by_id["pocket1"]["status"] == "failed"
+    assert "does not intersect" in by_id["pocket1"]["error"].lower()
+
+
+def test_pad_rejects_unsupported_up_to_face() -> None:
+    """Pad upToFace is validated and resolved but not implemented; the builder
+    must reject it explicitly instead of silently ignoring it."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    top_ref, _base_doc = _build_base_and_capture_top_face(length=5.0)
+    doc = _document(
+        [
+            {
+                "id": "base",
+                "name": "base",
+                "type": "pad",
+                "sketchId": "rect",
+                "params": {"length": 5.0},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+            {
+                "id": "pad2",
+                "name": "pad2",
+                "type": "pad",
+                "sketchId": "rect",
+                "params": {"length": 2.0, "upToFace": top_ref},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+        ],
+        sketches=[_rect_sketch(width=10.0, height=10.0)],
+    )
+    result = fb.build_document_shape(doc)
+    by_id = {r["featureId"]: r for r in result["featureResults"]}
+    assert by_id["pad2"]["status"] == "failed"
+    assert "not yet supported" in by_id["pad2"]["error"].lower()
+    assert "upToFace" in by_id["pad2"]["error"]
+
+
+def test_pad_rejects_unsupported_angle_and_up_to_body() -> None:
+    """Pad angle and upToBody are schema-accepted but unimplemented; reject them."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    for extra in ({"angle": 5.0}, {"upToBody": "body-1"}):
+        doc = _document(
+            [
+                {
+                    "id": "pad",
+                    "name": "pad",
+                    "type": "pad",
+                    "sketchId": "rect",
+                    "params": {"length": 5.0, **extra},
+                    "dependsOn": [],
+                    "suppressed": False,
+                }
+            ],
+            sketches=[_rect_sketch(width=10.0, height=10.0)],
+        )
+        result = fb.build_document_shape(doc)
+        by_id = {r["featureId"]: r for r in result["featureResults"]}
+        assert by_id["pad"]["status"] == "failed", extra
+        assert "not yet supported" in by_id["pad"]["error"].lower()
+
+
+def test_pad_on_consumed_body_is_stale() -> None:
+    """Sketch-solid features on a body consumed by a boolean are guarded like
+    dress-up/pattern features, instead of building geometry that is silently
+    excluded from the assembly."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    rect_b = {
+        "id": "rect-b",
+        "name": "rect-b",
+        "datumId": "dxy",
+        "primitives": [
+            {"id": "p1", "type": "point", "x": 20.0, "y": 0.0},
+            {"id": "p2", "type": "point", "x": 25.0, "y": 0.0},
+            {"id": "p3", "type": "point", "x": 25.0, "y": 5.0},
+            {"id": "p4", "type": "point", "x": 20.0, "y": 5.0},
+            {"id": "l1", "type": "line", "p1_id": "p1", "p2_id": "p2"},
+            {"id": "l2", "type": "line", "p1_id": "p2", "p2_id": "p3"},
+            {"id": "l3", "type": "line", "p1_id": "p3", "p2_id": "p4"},
+            {"id": "l4", "type": "line", "p1_id": "p4", "p2_id": "p1"},
+        ],
+        "constraints": [],
+    }
+    doc = _document(
+        [
+            {
+                "id": "pad-a",
+                "name": "pad a",
+                "type": "pad",
+                "sketchId": "rect",
+                "params": {"length": 5.0},
+                "dependsOn": [],
+                "suppressed": False,
+                "body": "body-a",
+            },
+            {
+                "id": "pad-b",
+                "name": "pad b",
+                "type": "pad",
+                "sketchId": "rect-b",
+                "params": {"length": 5.0},
+                "dependsOn": [],
+                "suppressed": False,
+                "body": "body-b",
+            },
+            {
+                "id": "cut",
+                "name": "cut",
+                "type": "booleanCut",
+                "body": "body-a",
+                "params": {"targetBody": "body-a", "toolBodies": ["body-b"]},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+            {
+                "id": "pad-c",
+                "name": "pad on consumed body",
+                "type": "pad",
+                "sketchId": "rect-b",
+                "params": {"length": 2.0},
+                "dependsOn": [],
+                "suppressed": False,
+                "body": "body-b",
+            },
+        ],
+        sketches=[_rect_sketch(width=10.0, height=10.0), rect_b],
+        bodies=[{"id": "body-a", "name": "A"}, {"id": "body-b", "name": "B"}],
+    )
+    result = fb.build_document_shape(doc)
+    by_id = {r["featureId"]: r for r in result["featureResults"]}
+    assert by_id["cut"]["status"] == "built"
+    assert by_id["pad-c"]["status"] == "stale"
+    assert result["consumedBodies"] == ["body-b"]
+
+
+def test_circular_pattern_axis_datum_on_other_body() -> None:
+    """A circular pattern axis datum referencing another body's face resolves
+    against the referenced feature's historical shape, not the pattern's body."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    rect_b = {
+        "id": "rect-b",
+        "name": "rect-b",
+        "datumId": "dxy",
+        "primitives": [
+            {"id": "p1", "type": "point", "x": 20.0, "y": 0.0},
+            {"id": "p2", "type": "point", "x": 25.0, "y": 0.0},
+            {"id": "p3", "type": "point", "x": 25.0, "y": 5.0},
+            {"id": "p4", "type": "point", "x": 20.0, "y": 5.0},
+            {"id": "l1", "type": "line", "p1_id": "p1", "p2_id": "p2"},
+            {"id": "l2", "type": "line", "p1_id": "p2", "p2_id": "p3"},
+            {"id": "l3", "type": "line", "p1_id": "p3", "p2_id": "p4"},
+            {"id": "l4", "type": "line", "p1_id": "p4", "p2_id": "p1"},
+        ],
+        "constraints": [],
+    }
+    # Capture body-a's top face from an identical preliminary build.
+    base_result = fb.build_document_shape(
+        _document(
+            [
+                {
+                    "id": "pad-a",
+                    "name": "pad a",
+                    "type": "pad",
+                    "sketchId": "rect",
+                    "params": {"length": 5.0},
+                    "dependsOn": [],
+                    "suppressed": False,
+                    "body": "body-a",
+                }
+            ],
+            sketches=[_rect_sketch(width=10.0, height=10.0)],
+            bodies=[{"id": "body-a", "name": "A"}, {"id": "body-b", "name": "B"}],
+        )
+    )
+    assert base_result["shape"] is not None
+    top_ref = _face_ref("pad-a", base_result["shape"].wrapped, _top_face_predicate())
+
+    doc = _document(
+        [
+            {
+                "id": "pad-a",
+                "name": "pad a",
+                "type": "pad",
+                "sketchId": "rect",
+                "params": {"length": 5.0},
+                "dependsOn": [],
+                "suppressed": False,
+                "body": "body-a",
+            },
+            {
+                "id": "pad-b",
+                "name": "pad b",
+                "type": "pad",
+                "sketchId": "rect-b",
+                "params": {"length": 5.0},
+                "dependsOn": [],
+                "suppressed": False,
+                "body": "body-b",
+            },
+            {
+                "id": "pat-b",
+                "name": "circular pattern",
+                "type": "circularPattern",
+                "body": "body-b",
+                "params": {
+                    "source": "pad-b",
+                    "count": 2,
+                    "angle": 360.0,
+                    "axisDatumId": "axis-datum",
+                },
+                "dependsOn": [],
+                "suppressed": False,
+            },
+        ],
+        sketches=[_rect_sketch(width=10.0, height=10.0), rect_b],
+        bodies=[{"id": "body-a", "name": "A"}, {"id": "body-b", "name": "B"}],
+    )
+    doc["datums"].append(
+        {"id": "axis-datum", "kind": "face", "name": "Axis face", "reference": top_ref}
+    )
+    result = fb.build_document_shape(doc)
+    assert result["shape"] is not None
+    by_id = {r["featureId"]: r for r in result["featureResults"]}
+    assert by_id["pat-b"]["status"] == "built", by_id["pat-b"].get("error")
+    ref = [r for r in result["referenceResults"] if r["path"] == "datum.axis-datum.reference"]
+    assert ref and ref[0]["status"] == "matched"
+    # The axis runs through body-a's top face centroid (5, 5, z); the 180-degree
+    # instance of the [20,25]x[0,5] box lands at x in [-15,-10], y in [5,10].
+    assert math.isclose(result["shape"].volume, 500.0 + 2.0 * 125.0, rel_tol=1e-6)
+    assert _point_in_solid(result["shape"], (-12.5, 7.5, 2.5))
+
+
+def test_mirror_plane_datum_on_other_body() -> None:
+    """A mirror plane datum referencing another body's face resolves against the
+    referenced feature's historical shape, not the pattern's body."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    rect_b = {
+        "id": "rect-b",
+        "name": "rect-b",
+        "datumId": "dxy",
+        "primitives": [
+            {"id": "p1", "type": "point", "x": 20.0, "y": 0.0},
+            {"id": "p2", "type": "point", "x": 25.0, "y": 0.0},
+            {"id": "p3", "type": "point", "x": 25.0, "y": 5.0},
+            {"id": "p4", "type": "point", "x": 20.0, "y": 5.0},
+            {"id": "l1", "type": "line", "p1_id": "p1", "p2_id": "p2"},
+            {"id": "l2", "type": "line", "p1_id": "p2", "p2_id": "p3"},
+            {"id": "l3", "type": "line", "p1_id": "p3", "p2_id": "p4"},
+            {"id": "l4", "type": "line", "p1_id": "p4", "p2_id": "p1"},
+        ],
+        "constraints": [],
+    }
+    base_result = fb.build_document_shape(
+        _document(
+            [
+                {
+                    "id": "pad-a",
+                    "name": "pad a",
+                    "type": "pad",
+                    "sketchId": "rect",
+                    "params": {"length": 5.0},
+                    "dependsOn": [],
+                    "suppressed": False,
+                    "body": "body-a",
+                }
+            ],
+            sketches=[_rect_sketch(width=10.0, height=10.0)],
+            bodies=[{"id": "body-a", "name": "A"}, {"id": "body-b", "name": "B"}],
+        )
+    )
+    assert base_result["shape"] is not None
+
+    def plus_x_face(face: Any) -> bool:
+        return (
+            face.surface_type == "plane"
+            and face.normal is not None
+            and np.isclose(face.normal[0], 1.0)
+        )
+
+    side_ref = _face_ref("pad-a", base_result["shape"].wrapped, plus_x_face)
+
+    doc = _document(
+        [
+            {
+                "id": "pad-a",
+                "name": "pad a",
+                "type": "pad",
+                "sketchId": "rect",
+                "params": {"length": 5.0},
+                "dependsOn": [],
+                "suppressed": False,
+                "body": "body-a",
+            },
+            {
+                "id": "pad-b",
+                "name": "pad b",
+                "type": "pad",
+                "sketchId": "rect-b",
+                "params": {"length": 5.0},
+                "dependsOn": [],
+                "suppressed": False,
+                "body": "body-b",
+            },
+            {
+                "id": "mir-b",
+                "name": "mirror",
+                "type": "mirror",
+                "body": "body-b",
+                "params": {"source": "pad-b", "planeDatumId": "plane-datum"},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+        ],
+        sketches=[_rect_sketch(width=10.0, height=10.0), rect_b],
+        bodies=[{"id": "body-a", "name": "A"}, {"id": "body-b", "name": "B"}],
+    )
+    doc["datums"].append(
+        {"id": "plane-datum", "kind": "face", "name": "Mirror face", "reference": side_ref}
+    )
+    result = fb.build_document_shape(doc)
+    assert result["shape"] is not None
+    by_id = {r["featureId"]: r for r in result["featureResults"]}
+    assert by_id["mir-b"]["status"] == "built", by_id["mir-b"].get("error")
+    ref = [r for r in result["referenceResults"] if r["path"] == "datum.plane-datum.reference"]
+    assert ref and ref[0]["status"] == "matched"
+    # The mirror plane is x=10 (body-a's +X face); the [20,25]x[0,5] box mirrors
+    # to x in [-5,0].
+    assert math.isclose(result["shape"].volume, 500.0 + 2.0 * 125.0, rel_tol=1e-6)
+    assert _point_in_solid(result["shape"], (-2.5, 2.5, 2.5))

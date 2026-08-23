@@ -1428,6 +1428,9 @@ def build_document(
             "error": "Document produced no solids; check feature results for failures",
             "scriptPath": str(document_file),
             "featureResults": build_result.get("featureResults", []),
+            "referenceResults": build_result.get("referenceResults", []),
+            "consumedBodies": build_result.get("consumedBodies", []),
+            "warnings": build_result.get("warnings", []),
         }
 
     wrapped = getattr(shape, "wrapped", None)
@@ -1461,7 +1464,10 @@ def build_document(
     )
     result["featureResults"] = build_result.get("featureResults", [])
     result["referenceResults"] = build_result.get("referenceResults", [])
-    result["warnings"] = (result.get("warnings") or []) + manifest_warnings
+    result["consumedBodies"] = build_result.get("consumedBodies", [])
+    result["warnings"] = (
+        (result.get("warnings") or []) + build_result.get("warnings", []) + manifest_warnings
+    )
     return result
 
 

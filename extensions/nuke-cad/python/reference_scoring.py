@@ -30,8 +30,8 @@ DEFAULT_TOLERANCE_SCALE = 1.0
 #: equality is a prerequisite for any plausible match.
 SCORE_THRESHOLD = 0.5
 
-#: Number of top candidates reported for ambiguous references (repair UI uses
-#: these as suggestions).
+#: Number of top candidates reported for ambiguous and unmatched references
+#: (repair UI uses these as suggestions).
 AMBIGUITY_CANDIDATE_COUNT = 3
 
 
@@ -116,14 +116,23 @@ class EdgeFingerprint:
 
 @dataclass(frozen=True)
 class ReferenceCandidate:
-    """A candidate offered for an ambiguous reference repair."""
+    """A candidate offered for an ambiguous or unmatched reference repair.
+
+    ``candidate_id`` is a per-rebuild sort-order id (``face_0007`` style) that
+    is not stable across rebuilds; the ``fingerprint`` is the candidate's real
+    identity and is what the frontend stores when the user picks a replacement.
+    """
 
     candidate_id: str
     score: float
+    fingerprint: FaceFingerprint | EdgeFingerprint | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize the candidate to the RPC response shape."""
-        return {"candidateId": self.candidate_id, "score": self.score}
+        data: dict[str, Any] = {"candidateId": self.candidate_id, "score": self.score}
+        if self.fingerprint is not None:
+            data["fingerprint"] = self.fingerprint.to_dict()
+        return data
 
 
 @dataclass(frozen=True)
@@ -393,7 +402,9 @@ def match_references(
     For every reference the candidates are scored with :func:`score_fingerprint`.
     A reference is ``unmatched`` if its best score is below ``SCORE_THRESHOLD``,
     ``ambiguous`` if the gap between the top two scores is not larger than
-    ``ambiguity_margin``, and ``matched`` otherwise.
+    ``ambiguity_margin``, and ``matched`` otherwise.  Both ``ambiguous`` and
+    ``unmatched`` references carry the top-``AMBIGUITY_CANDIDATE_COUNT``
+    candidates (with fingerprints) so the repair UI can offer replacements.
 
     Candidates are assigned greedily in one-to-one fashion: references are
     processed in descending order of their best score, and each claims the
@@ -483,7 +494,10 @@ def match_references(
             score = round(meta["best_score"], 6)
 
         ambiguity_candidates: list[ReferenceCandidate] | None = None
-        if meta["status"] == "ambiguous":
+        if meta["status"] in ("ambiguous", "unmatched"):
+            # Repair candidates are offered for both ambiguous and unmatched
+            # references: the fingerprint (not the per-rebuild candidate id) is
+            # what the frontend stores as the replacement reference.
             row = scores[i]
             sorted_idx = sorted(
                 range(len(row)),
@@ -493,6 +507,7 @@ def match_references(
                 ReferenceCandidate(
                     candidate_id=candidates[j].candidate_id or "",
                     score=round(row[j], 6),
+                    fingerprint=candidates[j],
                 )
                 for j in sorted_idx[:AMBIGUITY_CANDIDATE_COUNT]
                 if candidates[j].candidate_id

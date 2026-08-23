@@ -1,0 +1,51 @@
+/* ============================================================================
+   NukeIDE Empty State
+   ============================================================================ */
+
+.nuke-empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--nuke-space-3);
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 420px;
+    padding: var(--nuke-space-6);
+    text-align: center;
+    color: var(--theia-foreground);
+    background: var(--theia-editorWidget-background, rgba(100, 100, 100, 0.08));
+    border: 1px solid var(--theia-panel-border);
+    border-radius: var(--nuke-radius-xl);
+}
+
+.nuke-empty-state-icon {
+    font-size: 48px;
+    margin-bottom: var(--nuke-space-1);
+    opacity: 0.5;
+}
+
+.nuke-empty-state-title {
+    font-size: var(--theia-ui-font-size2);
+    font-weight: 600;
+}
+
+.nuke-empty-state-message {
+    font-size: var(--theia-ui-font-size1);
+    line-height: 1.4;
+    opacity: 0.85;
+}
+
+.nuke-empty-state-hint {
+    font-size: var(--theia-ui-font-size0);
+    opacity: 0.6;
+    font-family: var(--theia-ui-font-family);
+}
+
+.nuke-empty-state-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: var(--nuke-space-3);
+    margin-top: var(--nuke-space-2);
+}

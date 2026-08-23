@@ -45,31 +45,31 @@ import {
     FoamCaseRequest,
     FoamCaseResult,
     FoamStlExportRequest,
-    FoamStlExportResult
+    FoamStlExportResult,
+    CadBoundingBox
 } from '../common/nuke-cad-protocol';
 import { NukeCadPreferences } from './nuke-cad-preferences';
+import { computeDisplayTolerance, isDisplayBuild, withTriangleBudgetWarning } from './nuke-cad-display-utils';
 
 @injectable()
 export class NukeCadFrontendService implements NukeCadBackendService {
+    /** Cache of the last successful bounding box per source path for iterative tolerance adaptation. */
+    private readonly lastBoundingBox = new Map<string, CadBoundingBox>();
+
     constructor(
         private readonly proxy: NukeCadBackendService,
         private readonly preferences: NukeCadPreferences
     ) {}
 
     buildGeometry(request: GeometryBuildRequest): Promise<GeometryBuildResult> {
-        // Fall back to the user preference when the caller did not pick a
-        // tolerance explicitly; the preference is read per build so changes
-        // apply to subsequent builds (no live-rebuild). The backend forwards
-        // it to geometry_service.py's --tolerance, which also feeds the DAGMC
-        // export faceting.
-        const tolerance = request.tolerance ?? this.preferences.get('nukeCad.facetingTolerance', 0.001);
-        return this.proxy.buildGeometry({ ...request, tolerance });
+        const sourceType = this.resolveSourceType(request);
+        const tolerance = this.resolveTolerance(request, sourceType);
+        return this.proxy.buildGeometry({ ...request, tolerance }).then((result) => this.postProcessResult(request, result, sourceType));
     }
 
     buildDocument(request: BuildDocumentRequest): Promise<GeometryBuildResult> {
-        // Apply the same faceting-tolerance preference fallback as script builds.
-        const tolerance = request.tolerance ?? this.preferences.get('nukeCad.facetingTolerance', 0.001);
-        return this.proxy.buildDocument({ ...request, tolerance });
+        const tolerance = this.resolveTolerance(request, 'document');
+        return this.proxy.buildDocument({ ...request, tolerance }).then((result) => this.postProcessResult(request, result, 'document'));
     }
 
     runFem(request: FemRunRequest): Promise<FemRunResult> {
@@ -102,5 +102,54 @@ export class NukeCadFrontendService implements NukeCadBackendService {
 
     checkCadEnvironment(): Promise<{ ready: boolean; missing: string[]; missingOptional: string[] }> {
         return this.proxy.checkCadEnvironment();
+    }
+
+    /**
+     * Resolve the source type for a ``buildGeometry`` request from its path or
+     * explicit ``sourceType`` field.
+     */
+    private resolveSourceType(request: GeometryBuildRequest): 'script' | 'step' {
+        const ext = request.scriptPath.split('.').pop()?.toLowerCase();
+        return request.sourceType ?? (ext === 'step' || ext === 'stp' || ext === 'brep' ? 'step' : 'script');
+    }
+
+    /**
+     * Pick the faceting tolerance for a build request.
+     *
+     * Export builds (script builds and any request with ``exportDagmc`` or
+     * ``exportMesh`` set to ``true``) use ``nukeCad.facetingTolerance``.
+     * Display-only builds use ``nukeCad.displayFacetingTolerance``, optionally
+     * adapted by the previous build's bounding box to keep triangle count near
+     * ``nukeCad.maxDisplayTriangles``.
+     */
+    private resolveTolerance(request: GeometryBuildRequest | BuildDocumentRequest, sourceType: 'script' | 'step' | 'document'): number {
+        if (request.tolerance !== undefined) {
+            return request.tolerance;
+        }
+        if (isDisplayBuild(request, sourceType)) {
+            const displayTolerance = this.preferences.get('nukeCad.displayFacetingTolerance', 0.01);
+            const maxTriangles = this.preferences.get('nukeCad.maxDisplayTriangles', 2_000_000);
+            const previousBox = this.lastBoundingBox.get(request.scriptPath);
+            return computeDisplayTolerance(displayTolerance, maxTriangles, previousBox);
+        }
+        return this.preferences.get('nukeCad.facetingTolerance', 0.001);
+    }
+
+    /**
+     * Cache the bounding box of successful builds and attach display-only warnings.
+     */
+    private postProcessResult(
+        request: GeometryBuildRequest | BuildDocumentRequest,
+        result: GeometryBuildResult,
+        sourceType: 'script' | 'step' | 'document'
+    ): GeometryBuildResult {
+        if (result.success && result.boundingBox) {
+            this.lastBoundingBox.set(request.scriptPath, result.boundingBox);
+        }
+        if (isDisplayBuild(request, sourceType) && result.success) {
+            const maxTriangles = this.preferences.get('nukeCad.maxDisplayTriangles', 2_000_000);
+            return withTriangleBudgetWarning(result, maxTriangles);
+        }
+        return result;
     }
 }

@@ -125,7 +125,9 @@ def _workplane_from_face(topods_face: Any, offset: float = 0.0) -> Any:
     The origin is the face centroid so that ``[0, 0]`` in workplane coordinates
     is always at the centre of the face, regardless of where the underlying
     surface's reference point lies. ``offset`` shifts the origin along the face
-    normal.
+    normal. The normal follows the fingerprint convention (outward; REVERSED
+    faces flip the underlying plane axis), so hole ``[u, v]`` centers and
+    sketch-on-face coordinates agree with the frontend projection.
     """
     if bd is None:
         raise FeatureBuilderError("build123d is not available; cannot build face workplane")
@@ -1161,6 +1163,18 @@ def _build_feature_shape(
         raise FeatureBuilderError(f"feature '{feature_id}': sketch '{sketch_id}' produced no faces")
 
     if feature_type in ("pad", "pocket"):
+        # upToFace/upToBody/angle are schema-accepted and validated, but the
+        # builder does not implement them; reject explicitly instead of
+        # silently ignoring them.
+        unsupported = [
+            name for name in ("upToFace", "upToBody", "angle") if params.get(name) is not None
+        ]
+        if unsupported:
+            names = ", ".join(f"'{name}'" for name in unsupported)
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': {feature_type} parameter(s) {names} "
+                "are not yet supported; use a fixed length instead"
+            )
         length = params.get("length")
         if (
             not isinstance(length, (int, float))
@@ -1369,6 +1383,39 @@ def _bbox_overlaps_3d(a_bbox: Any, b_bbox: Any, tolerance: float = 1e-6) -> bool
         and a_bbox.min.Z <= b_bbox.max.Z + tolerance
         and a_bbox.max.Z >= b_bbox.min.Z - tolerance
     )
+
+
+def _require_cut_intersection(body: Any, tool: Any, feature_id: str, feature_type: str) -> None:
+    """Raise when a subtractive tool is disjoint from the body.
+
+    A boolean cut with a disjoint tool silently returns the unchanged body; the
+    pocket/groove/hole contract is that the feature removes material, so a miss
+    is a build error rather than a no-op success.
+    """
+    if bd is None:
+        raise FeatureBuilderError("build123d is not available; cannot check cut intersection")
+    if not _bbox_overlaps_3d(body.bounding_box(), tool.bounding_box()):
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': {feature_type} tool does not intersect the body"
+        )
+    try:
+        common = body & tool
+    except ValueError as exc:
+        if "empty compound" in str(exc).lower():
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': {feature_type} tool does not intersect the body"
+            ) from exc
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': failed to check {feature_type} intersection: {exc}"
+        ) from exc
+    except Exception as exc:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': failed to check {feature_type} intersection: {exc}"
+        ) from exc
+    if common is None or getattr(common, "volume", 0.0) <= 1e-9:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': {feature_type} tool does not intersect the body"
+        )
 
 
 def _combine_additive(a: Any, b: Any, feature_id: str = "<unknown>") -> Any:
@@ -1603,6 +1650,9 @@ def build_document_shape(
             List of per-reference resolution status records.
         ``consumedBodies``
             Set of body ids consumed by boolean operations.
+        ``warnings``
+            Non-fatal issues, e.g. cross-body overlaps reported by
+            ``_check_cross_body_overlap`` (overlap volume included).
     """
     if bd is None:
         raise FeatureBuilderError("build123d is not available; cannot build document shape")
@@ -1865,9 +1915,38 @@ def build_document_shape(
                 continue
 
             refs_with_paths = _collect_topology_refs(feature, datums, sketches)
-            entities, ref_results = _resolve_refs_against_shape(
-                refs_with_paths, previous_body.wrapped, owner_feature_id=feature_id
-            )
+            # Datum references (pattern axis / mirror plane) resolve against the
+            # referenced feature's historical shape, like the sketch path; the
+            # hole placement face resolves against the body's current B-rep.
+            datum_slots = [
+                i for i, (path, _ref) in enumerate(refs_with_paths) if path.startswith("datum.")
+            ]
+            body_slots = [i for i in range(len(refs_with_paths)) if i not in datum_slots]
+            entities: list[Any] = [None] * len(refs_with_paths)
+            resolved_results: list[dict[str, Any] | None] = [None] * len(refs_with_paths)
+            if datum_slots:
+                datum_entities, datum_results = _resolve_document_refs(
+                    [refs_with_paths[i] for i in datum_slots],
+                    feature_shapes,
+                    owner_feature_id=feature_id,
+                )
+                for slot, entity, result in zip(
+                    datum_slots, datum_entities, datum_results, strict=True
+                ):
+                    entities[slot] = entity
+                    resolved_results[slot] = result
+            if body_slots:
+                body_entities, body_results = _resolve_refs_against_shape(
+                    [refs_with_paths[i] for i in body_slots],
+                    previous_body.wrapped,
+                    owner_feature_id=feature_id,
+                )
+                for slot, entity, result in zip(
+                    body_slots, body_entities, body_results, strict=True
+                ):
+                    entities[slot] = entity
+                    resolved_results[slot] = result
+            ref_results = [r for r in resolved_results if r is not None]
             reference_results.extend(ref_results)
             broken = [r for r in ref_results if r["status"] in ("unmatched", "ambiguous")]
             if broken:
@@ -1988,6 +2067,7 @@ def build_document_shape(
                         countersink_diameter=params.get("countersinkDiameter"),
                         countersink_angle=params.get("countersinkAngle"),
                     )
+                    _require_cut_intersection(previous_body, tool, feature_id, feature_type)
                     result_shape = previous_body - tool
 
                 accumulators[body_id] = result_shape
@@ -2008,6 +2088,13 @@ def build_document_shape(
             continue
 
         # Sketch-based solid feature (pad/pocket/revolve/groove).
+        if body_id in consumed_bodies:
+            # The body was consumed by a boolean feature; adding to it would be
+            # silently excluded from the final assembly.
+            feature_results.append({"featureId": feature_id, "bodyId": body_id, "status": "stale"})
+            stale_or_failed.add(feature_id)
+            continue
+
         try:
             tool_shape = _build_feature_shape(
                 feature, datums, sketches, feature_shapes, tool_shapes, reference_results
@@ -2032,6 +2119,7 @@ def build_document_shape(
                     raise FeatureBuilderError(
                         f"feature '{feature_id}': {feature_type} requires an existing solid body"
                     )
+                _require_cut_intersection(previous_body, tool_shape, feature_id, feature_type)
                 accumulators[body_id] = previous_body - tool_shape
             else:
                 raise FeatureBuilderError(

@@ -320,3 +320,47 @@ def test_non_finite_edge_values_score_zero() -> None:
     ref = _edge()
     nan_edge = _edge(start=(float("nan"), 0.0, 0.0))
     assert score_fingerprint(ref, nan_edge) == pytest.approx(0.0)
+
+
+def test_ambiguous_candidates_carry_fingerprints() -> None:
+    """Repair candidates for ambiguous refs include the candidate fingerprint."""
+    ref = _face(candidate_id=None)
+    cand_a = _face(center=(0.1, 0.0, 0.0), candidate_id="face_0001")
+    cand_b = _face(center=(-0.1, 0.0, 0.0), candidate_id="face_0002")
+    result = match_references([ref], [cand_a, cand_b], tolerance_scale=1.0, ambiguity_margin=0.05)
+    match = result.matches[0]
+    assert match.status == "ambiguous"
+    assert match.candidates is not None and len(match.candidates) == 2
+    for candidate in match.candidates:
+        assert candidate.fingerprint is not None
+        data = candidate.to_dict()
+        assert set(data.keys()) == {"candidateId", "score", "fingerprint"}
+        fp = data["fingerprint"]
+        assert fp["surfaceType"] == "plane"
+        assert set(fp.keys()) >= {"surfaceType", "area", "center", "normal"}
+
+
+def test_unmatched_references_get_repair_candidates() -> None:
+    """Unmatched refs also report top candidates so the repair UI can offer
+    replacements; the fingerprint (not the per-rebuild candidate id) is the
+    identity the frontend stores."""
+    ref = _face(surface_type="sphere", radius=3.0)
+    cand_a = _face(candidate_id="face_0001")
+    cand_b = _face(center=(10.0, 0.0, 0.0), candidate_id="face_0002")
+    result = match_references([ref], [cand_a, cand_b], tolerance_scale=1.0, ambiguity_margin=0.05)
+    match = result.matches[0]
+    assert match.status == "unmatched"
+    assert match.candidates is not None and len(match.candidates) == 2
+    # Sorted by descending score; each carries its full fingerprint.
+    scores = [c.score for c in match.candidates]
+    assert scores == sorted(scores, reverse=True)
+    assert all(c.fingerprint is not None for c in match.candidates)
+
+
+def test_matched_references_have_no_candidates() -> None:
+    ref = _face()
+    cand = _face(candidate_id="face_0001")
+    result = match_references([ref], [cand], tolerance_scale=1.0, ambiguity_margin=0.05)
+    match = result.matches[0]
+    assert match.status == "matched"
+    assert match.candidates is None

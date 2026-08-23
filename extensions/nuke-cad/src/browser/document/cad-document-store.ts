@@ -274,7 +274,10 @@ function updateTopologyRefByPath(
         if (!validateTopologyRef(updated).valid) {
             return { success: false, error: `Invalid fingerprint for ${path}` };
         }
-        refs[index] = updated;
+        // Copy-on-write: the cloned feature's params share array values with the
+        // live document, so replacing the element in place would corrupt the
+        // live document if the surrounding commit validation fails.
+        params[arrayName] = refs.map((ref, i) => (i === index ? updated : ref));
         return { success: true };
     }
 
@@ -646,7 +649,8 @@ export class CadDocumentStore {
      *
      * The supplied ids must be a permutation of the current feature ids.
      * Reordering is rejected when any feature's explicit ``dependsOn`` entries
-     * would appear after it in the new order.
+     * or a pattern/mirror feature's implied ``source`` dependency would appear
+     * after it in the new order.
      */
     reorderFeatures(orderedIds: string[]): DocumentMutationResult {
         const check = this.requireDocument();
@@ -665,7 +669,12 @@ export class CadDocumentStore {
         const violations: string[] = [];
         for (const id of orderedIds) {
             const feature = doc.features.find((f) => f.id === id)!;
-            for (const dep of feature.dependsOn) {
+            const dependencies = [...feature.dependsOn];
+            const source = getSourceFeatureId(feature);
+            if (source !== '' && !dependencies.includes(source)) {
+                dependencies.push(source);
+            }
+            for (const dep of dependencies) {
                 if ((position.get(dep) ?? -1) > (position.get(id) ?? -1)) {
                     violations.push(`${id} depends on ${dep}`);
                 }

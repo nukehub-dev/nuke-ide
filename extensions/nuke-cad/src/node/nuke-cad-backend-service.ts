@@ -60,6 +60,99 @@ import {
 import { CAD_HEALTH_PACKAGES } from '../common/packages';
 
 /**
+ * Build the argument list for ``python/geometry_service.py`` from a script/STEP request.
+ *
+ * Exported for unit testing; callers should use {@link NukeCadBackendServiceImpl.buildGeometry}.
+ */
+export function buildGeometryArgs(request: GeometryBuildRequest, scriptPath: string): string[] {
+    const ext = request.scriptPath.split('.').pop()?.toLowerCase();
+    const sourceType = request.sourceType ?? (ext === 'step' || ext === 'stp' || ext === 'brep' ? 'step' : 'script');
+    const args = [scriptPath, request.scriptPath];
+    if (sourceType === 'step') {
+        args.push('--from-step');
+    }
+    if (request.outputDirectory) {
+        args.push('--output-dir', request.outputDirectory);
+    }
+    if (request.tolerance !== undefined) {
+        args.push('--tolerance', String(request.tolerance));
+    }
+    // STEP imports are interactive viewport loads where DAGMC/mesh export is
+    // slow and off by default. Enforce the skip in the backend — not only at
+    // the open call sites — so every code path (e.g. REBUILD_GEOMETRY, which
+    // sends neither flag) is safe. Callers can still opt in with `true`.
+    if (request.exportDagmc === false || (sourceType === 'step' && request.exportDagmc === undefined)) {
+        args.push('--no-dagmc');
+    }
+    if (request.exportMesh === false || (sourceType === 'step' && request.exportMesh === undefined)) {
+        args.push('--no-mesh');
+    }
+    if (request.meshEngine) {
+        args.push('--mesh-engine', request.meshEngine);
+    }
+    if (request.meshSize !== undefined) {
+        args.push('--mesh-size', String(request.meshSize));
+    }
+    if (request.meshMinSize !== undefined) {
+        args.push('--mesh-min-size', String(request.meshMinSize));
+    }
+    if (request.meshMaxSize !== undefined) {
+        args.push('--mesh-max-size', String(request.meshMaxSize));
+    }
+    if (request.meshOrder !== undefined) {
+        args.push('--mesh-order', String(request.meshOrder));
+    }
+    if (request.lengthScale !== undefined) {
+        args.push('--length-scale', String(request.lengthScale));
+    }
+    return args;
+}
+
+/**
+ * Build the argument list for ``python/geometry_service.py --from-document``.
+ *
+ * Document opens and rebuilds are viewport-only operations, so DAGMC and FEM
+ * mesh export are skipped when the caller does not explicitly request them.
+ * Exported for unit testing; callers should use {@link NukeCadBackendServiceImpl.buildDocument}.
+ */
+export function buildDocumentArgs(request: BuildDocumentRequest, scriptPath: string): string[] {
+    const args = [scriptPath, request.scriptPath, '--from-document'];
+    if (request.outputDirectory) {
+        args.push('--output-dir', request.outputDirectory);
+    }
+    if (request.tolerance !== undefined) {
+        args.push('--tolerance', String(request.tolerance));
+    }
+    // Document builds default to viewport-only: skip expensive DAGMC/mesh
+    // export unless the caller explicitly opts in with `true`.
+    if (request.exportDagmc === false || request.exportDagmc === undefined) {
+        args.push('--no-dagmc');
+    }
+    if (request.exportMesh === false || request.exportMesh === undefined) {
+        args.push('--no-mesh');
+    }
+    if (request.meshEngine) {
+        args.push('--mesh-engine', request.meshEngine);
+    }
+    if (request.meshSize !== undefined) {
+        args.push('--mesh-size', String(request.meshSize));
+    }
+    if (request.meshMinSize !== undefined) {
+        args.push('--mesh-min-size', String(request.meshMinSize));
+    }
+    if (request.meshMaxSize !== undefined) {
+        args.push('--mesh-max-size', String(request.meshMaxSize));
+    }
+    if (request.meshOrder !== undefined) {
+        args.push('--mesh-order', String(request.meshOrder));
+    }
+    if (request.lengthScale !== undefined) {
+        args.push('--length-scale', String(request.lengthScale));
+    }
+    return args;
+}
+
+/**
  * Maximum characters of a service's stdout/stderr kept in memory, mirroring
  * openmc-studio's runner. The stdout-JSON services print their one small JSON
  * summary line last, so keeping only the trailing 1 MB preserves the backwards
@@ -130,47 +223,7 @@ export class NukeCadBackendServiceImpl implements NukeCadBackendService {
             };
         }
 
-        const ext = request.scriptPath.split('.').pop()?.toLowerCase();
-        const sourceType = request.sourceType ?? (ext === 'step' || ext === 'stp' || ext === 'brep' ? 'step' : 'script');
-        const args = [scriptPath, request.scriptPath];
-        if (sourceType === 'step') {
-            args.push('--from-step');
-        }
-        if (request.outputDirectory) {
-            args.push('--output-dir', request.outputDirectory);
-        }
-        if (request.tolerance !== undefined) {
-            args.push('--tolerance', String(request.tolerance));
-        }
-        // STEP imports are interactive viewport loads where DAGMC/mesh export is
-        // slow and off by default. Enforce the skip in the backend — not only at
-        // the open call sites — so every code path (e.g. REBUILD_GEOMETRY, which
-        // sends neither flag) is safe. Callers can still opt in with `true`.
-        if (request.exportDagmc === false || (sourceType === 'step' && request.exportDagmc === undefined)) {
-            args.push('--no-dagmc');
-        }
-        if (request.exportMesh === false || (sourceType === 'step' && request.exportMesh === undefined)) {
-            args.push('--no-mesh');
-        }
-        if (request.meshEngine) {
-            args.push('--mesh-engine', request.meshEngine);
-        }
-        if (request.meshSize !== undefined) {
-            args.push('--mesh-size', String(request.meshSize));
-        }
-        if (request.meshMinSize !== undefined) {
-            args.push('--mesh-min-size', String(request.meshMinSize));
-        }
-        if (request.meshMaxSize !== undefined) {
-            args.push('--mesh-max-size', String(request.meshMaxSize));
-        }
-        if (request.meshOrder !== undefined) {
-            args.push('--mesh-order', String(request.meshOrder));
-        }
-        if (request.lengthScale !== undefined) {
-            args.push('--length-scale', String(request.lengthScale));
-        }
-
+        const args = buildGeometryArgs(request, scriptPath);
         return this._spawnJsonService<GeometryBuildResult>(pythonCommand, args, path.dirname(request.scriptPath), request.scriptPath);
     }
 
@@ -197,38 +250,7 @@ export class NukeCadBackendServiceImpl implements NukeCadBackendService {
             };
         }
 
-        const args = [scriptPath, request.scriptPath, '--from-document'];
-        if (request.outputDirectory) {
-            args.push('--output-dir', request.outputDirectory);
-        }
-        if (request.tolerance !== undefined) {
-            args.push('--tolerance', String(request.tolerance));
-        }
-        if (request.exportDagmc === false) {
-            args.push('--no-dagmc');
-        }
-        if (request.exportMesh === false) {
-            args.push('--no-mesh');
-        }
-        if (request.meshEngine) {
-            args.push('--mesh-engine', request.meshEngine);
-        }
-        if (request.meshSize !== undefined) {
-            args.push('--mesh-size', String(request.meshSize));
-        }
-        if (request.meshMinSize !== undefined) {
-            args.push('--mesh-min-size', String(request.meshMinSize));
-        }
-        if (request.meshMaxSize !== undefined) {
-            args.push('--mesh-max-size', String(request.meshMaxSize));
-        }
-        if (request.meshOrder !== undefined) {
-            args.push('--mesh-order', String(request.meshOrder));
-        }
-        if (request.lengthScale !== undefined) {
-            args.push('--length-scale', String(request.lengthScale));
-        }
-
+        const args = buildDocumentArgs(request, scriptPath);
         return this._spawnJsonService<GeometryBuildResult>(pythonCommand, args, path.dirname(request.scriptPath), request.scriptPath);
     }
 

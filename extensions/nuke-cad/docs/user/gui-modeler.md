@@ -310,9 +310,9 @@ the `dependsOn` precedence rule; invalid moves are rejected with a clear error.
 Topological references sometimes become ambiguous or unmatched after a parametric
 edit. The feature tree shows an **ambiguous** or **unmatched** badge; click the
 badge to open the repair popover. It lists the current fingerprint and the top
-scoring candidate(s) from the rebuilt B-rep. Picking a candidate updates the
-reference fingerprint in place and triggers a rebuild so you can verify the
-repair.
+scoring candidate(s) from the rebuilt B-rep — unmatched references also offer up
+to three best candidates. Picking a candidate updates the reference fingerprint
+in place and triggers a rebuild so you can verify the repair.
 
 ### Export as Python
 
@@ -348,7 +348,7 @@ A complete `.nuke-cad` demo model is maintained at
 
 The plasma-facing boundaries in the reference STEP are periodic BSplines. The
 GUI modeler expresses them with dense polylines sampled from the STEP edges
-(chordal approximation, ≤ 64 segments per boundary). DAGMC faceting is chordal
+(chordal approximation, up to 255 segments per boundary). DAGMC faceting is chordal
 anyway, so this is at or below the pipeline's geometric resolution. The drift
 test compares the rebuilt per-body volumes against the STEP reference; spline-
 approximated bodies are held to a 1e-3 relative tolerance, while bodies with only

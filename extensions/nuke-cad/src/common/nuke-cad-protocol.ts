@@ -231,16 +231,21 @@ export interface FeatureResult {
 /** Status of a single topological reference resolution. */
 export type ReferenceResolutionStatus = 'matched' | 'ambiguous' | 'unmatched';
 
-/** A candidate offered for an ambiguous reference repair. */
+/** A candidate offered for an ambiguous or unmatched reference repair. */
 export interface ReferenceResolutionCandidate {
-    /** Stable candidate id from the rebuilt B-rep (e.g. ``face_0003``). */
+    /**
+     * Candidate id from the rebuilt B-rep (e.g. ``face_0003``). Ids are
+     * re-sorted per rebuild and are NOT stable identity; display-only.
+     */
     readonly candidateId: string;
     /** Similarity score in [0, 1]. */
     readonly score: number;
     /**
      * Geometric fingerprint of the candidate, mirroring the stored
-     * {@link TopologyRef} fingerprint shape. The frontend uses this to show
-     * type, center/start-end, area/length, and other key matching fields.
+     * {@link TopologyRef} fingerprint shape. This is the candidate's real
+     * identity: the repair popover passes it to
+     * ``CadDocumentStore.replaceTopologyRef`` to build the replacement
+     * reference. Populated by the backend for every candidate.
      */
     readonly fingerprint?: import('./topology-refs').FaceFingerprint | import('./topology-refs').EdgeFingerprint;
 }
@@ -261,7 +266,7 @@ export interface ReferenceResolutionResult {
     readonly score?: number;
     /** Score of the next-best candidate; meaningful when ``status`` is ``ambiguous``. */
     readonly runnerUpScore?: number;
-    /** Top candidates when ``status`` is ``ambiguous`` (sorted by descending score). */
+    /** Top candidates when ``status`` is ``ambiguous`` or ``unmatched`` (sorted by descending score). */
     readonly candidates?: ReferenceResolutionCandidate[];
 }
 
@@ -289,8 +294,10 @@ export interface GeometryBuildResult {
     readonly triangleCount?: number;
     /** Model bounding box. */
     readonly boundingBox?: CadBoundingBox;
-    /** Diagnostics and non-fatal issues. */
+    /** Diagnostics and non-fatal issues (includes cross-body overlap warnings for document builds). */
     readonly warnings?: string[];
+    /** Body ids consumed by boolean features in a document build (excluded from the final assembly). */
+    readonly consumedBodies?: string[];
     /** Region manifest payload when one exists and is valid. */
     readonly regionManifest?: RegionManifestData;
     /** Mapping of selector -> 1-based solid indices. */

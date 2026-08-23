@@ -367,13 +367,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `mat:fuel/clad/moderator/graveyard` groups) → a real OpenMC run asserting
   zero lost particles. Marked `@pytest.mark.e2e`, env-gated on
   `NUKE_TEST_PYTHON` + `OPENMC_CROSS_SECTIONS`, skipping cleanly otherwise.
+- nuke-essentials: **shared UI components** under
+  `src/theme/browser/components/` — `NukeDialog` (modal shell with backdrop),
+  `NukeToolbar`/`NukeToolbarGroup` (grouped, wrapping toolbars),
+  `NukeEmptyState`, `NukeLoadingOverlay`, `NukePanel` (floating panel chrome),
+  and `NukeSection`/`NukeFormRow` (form layout primitives), exported from the
+  components index with co-located CSS shipped via the theme module.
 
 ### Changed
 
 - nuke-cad: **additive pattern instances fuse** — overlapping instances of
   additive `linearPattern`/`circularPattern`/`mirror` features now union via
-  `_combine_additive` instead of raising an overlap error, matching the behavior
-  expected for coil assemblies.
+  `_apply_pattern_or_mirror` instead of raising an overlap error, matching the
+  behavior expected for coil assemblies.
 - nuke-cad: **cross-body overlap is a warning** — non-consumed bodies that
   overlap in space no longer abort `build_document_shape`; instead the overlap
   volume is reported in `result["warnings"]` so CAD assemblies (e.g., the
@@ -382,6 +388,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- nuke-cad: **viewport chrome layout** — the empty-state card no longer clips
+  at narrow widths (border-box sizing, wrapping action row), the rebuild
+  loading indicator is a centered overlay instead of a corner strip, the
+  document toolbar is grouped by function and wraps instead of overflowing, and
+  the feature-creation dialog is a real modal with a backdrop that blocks the
+  toolbar behind it. The chrome now builds on shared nuke-essentials
+  components (`NukeDialog`, `NukeToolbar`/`NukeToolbarGroup`, `NukeEmptyState`,
+  `NukeLoadingOverlay`, `NukePanel`), and the document toolbar gains
+  New/Save/Rebuild buttons alongside Export Python.
+- nuke-cad: non-fatal build warnings (e.g. cross-body overlap with volumes)
+  are surfaced in the viewport as a dismissible warning strip instead of only
+  reaching the message service.
 - nuke-cad: sketch mode lifecycle hardening — `SketchSession.destroy()` releases
   the solver and clears listeners; `SketchModeController` disposes the session
   and restores the 3D view on exit/teardown; solver and pointer-up errors now
@@ -420,6 +438,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rejects unsupported feature types and missing required parameters (positive
   length for pad/pocket, axis and angle for revolve/groove) before any geometry
   is built.
+- nuke-cad: sketches and holes attached to a reversed-orientation face (e.g. the
+  bottom face of a box) were mirrored across the face. Datum plane extraction now
+  flips the plane normal to the outward convention, and the face-picker fallback
+  X axis matches the solver's deterministic basis.
+- nuke-cad: the topology repair popover shows suggested candidates again —
+  ambiguous references carry per-candidate fingerprints, unmatched references now
+  offer up to three best candidates, and candidate rows are clickable.
+- nuke-cad: the document build response now forwards per-feature warnings and the
+  consumed-body list on successful builds, so partial feature failures surface in
+  the UI.
+- nuke-cad: holes/pockets/grooves whose cut tool is disjoint from the target body
+  now fail with an explicit error instead of silently dropping the cut.
+- nuke-cad: pads/pockets with `upToFace`, `upToBody`, or draft `angle` parameters
+  now fail validation with a "not yet supported" error instead of silently
+  ignoring the parameter.
+- nuke-cad: pads/pockets/revolves/grooves on bodies consumed by a pattern/mirror
+  are now reported `stale`, matching dress-up and pattern features.
+- nuke-cad: pattern/mirror/hole datum references now resolve against the whole
+  document instead of only the target body — an axis datum carried by a patterned
+  instance resolves again.
+- nuke-cad: feature reordering now rejects moving a pattern/mirror above its
+  source feature (implied dependency enforced alongside datum references).
+- nuke-cad: topology repair commits are atomic — a failed commit no longer leaves
+  the document's references half-updated.
+- nuke-cad docs: corrected the sketch boundary segment limit (255), the
+  exported-CAD helix note, and the edge-overlay rendering description.
 
 ### Added
 
@@ -629,6 +673,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `removeAllDuplicates`. The old "disturbed mapping" hard error was replaced by
   geometric signature matching (volume + bbox), so manifest material groups
   (`mat:<name>`) and the auto-created `mat:graveyard` bind correctly.
+- nuke-cad: opening large `.nuke-cad` documents no longer pays for DAGMC and
+  FEM mesh export. Document opens and rebuilds now default to viewport-only
+  builds (`--no-dagmc`/`--no-mesh`), matching STEP imports, while explicit
+  export requests still work. A new display-only faceting tolerance
+  (`nukeCad.displayFacetingTolerance`, default 0.01) and a soft triangle budget
+  (`nukeCad.maxDisplayTriangles`, default 2 000 000) keep viewport tessellation
+  bounded; a warning is added to the build result when the budget is exceeded.
+  DAGMC and FEM export tolerances remain controlled by `nukeCad.facetingTolerance`.
 
 ## [0.1.3] - 2026-07-28
 

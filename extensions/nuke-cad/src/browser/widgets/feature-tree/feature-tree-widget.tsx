@@ -780,11 +780,12 @@ function RepairPopover(props: RepairPopoverProps): React.ReactElement {
                                         key={`${candidate.candidateId}-${index}`}
                                         className="theia-button secondary cad-feature-tree-repair-candidate"
                                         onClick={() => {
+                                            // The fingerprint is the candidate's identity; the
+                                            // per-rebuild candidateId is display-only.
                                             if (candidate.fingerprint !== undefined) {
                                                 props.onRepair(result.path, candidate.fingerprint);
                                             }
                                         }}
-                                        disabled={candidate.fingerprint === undefined}
                                     >
                                         <span className="cad-feature-tree-repair-candidate-id">{candidate.candidateId}</span>
                                         <span className="cad-feature-tree-repair-candidate-score">{candidate.score.toFixed(3)}</span>

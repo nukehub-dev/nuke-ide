@@ -147,7 +147,10 @@ function v3cross(a: Vec3, b: Vec3): Vec3 {
  *
  * The origin is the face centroid plus ``offset`` along the face normal. The
  * X/Y axes are derived deterministically from the normal so sketches placed on
- * the same face share a consistent coordinate system.
+ * the same face share a consistent coordinate system. The basis matches
+ * ``_deterministic_x_dir`` in the Python backend (and the fingerprint normal
+ * convention: outward normals for REVERSED faces), so sketch coordinates map
+ * identically on both sides.
  *
  * @throws Error if the reference fingerprint lacks a planar normal.
  */
@@ -158,8 +161,10 @@ export function buildDatumPlaneFromFace(reference: TopologyRef, offset = 0): Dat
     }
     const center = v3(fp.center[0], fp.center[1], fp.center[2]);
     const normal = v3normalize(v3(fp.normal[0], fp.normal[1], fp.normal[2]));
-    const worldUp = Math.abs(normal.z) < 0.999 ? v3(0, 0, 1) : v3(1, 0, 0);
-    const xAxis = v3normalize(v3cross(worldUp, normal));
+    // Mirrors `_deterministic_x_dir` in python/feature_builder.py: for normals
+    // near world Z the cross product with (0, 0, 1) collapses, so the backend
+    // falls back to world X.
+    const xAxis = Math.abs(normal.z) < 0.999 ? v3normalize(v3cross(v3(0, 0, 1), normal)) : v3(1, 0, 0);
     const yAxis = v3normalize(v3cross(normal, xAxis));
     const origin = v3(center.x + normal.x * offset, center.y + normal.y * offset, center.z + normal.z * offset);
     return {

@@ -182,5 +182,40 @@ describe('sketch-math', () => {
             };
             expect(() => buildDatumPlaneFromFace(reference)).toThrow('normal');
         });
+
+        it('uses the backend basis for near-Z (axis-aligned) face normals', () => {
+            // Matches `_deterministic_x_dir` in python/feature_builder.py: for a
+            // +Z face the basis is x=(1,0,0), y=(0,1,0).
+            const top = buildDatumPlaneFromFace({
+                featureId: 'base',
+                kind: 'face' as const,
+                fingerprint: {
+                    surfaceType: 'plane' as const,
+                    area: 100,
+                    center: [5, 5, 5] as [number, number, number],
+                    normal: [0, 0, 1] as [number, number, number]
+                }
+            });
+            expect(top.xAxis).toEqual({ x: 1, y: 0, z: 0 });
+            expect(top.yAxis).toEqual({ x: 0, y: 1, z: 0 });
+
+            // A -Z (TopAbs_REVERSED) face keeps x=(1,0,0) with y=(0,-1,0), so an
+            // off-center sketch point maps to the same world point the backend
+            // workplane produces (no mirroring).
+            const bottom = buildDatumPlaneFromFace({
+                featureId: 'base',
+                kind: 'face' as const,
+                fingerprint: {
+                    surfaceType: 'plane' as const,
+                    area: 100,
+                    center: [5, 5, 0] as [number, number, number],
+                    normal: [0, 0, -1] as [number, number, number]
+                }
+            });
+            expect(bottom.xAxis).toEqual({ x: 1, y: 0, z: 0 });
+            expect(bottom.yAxis).toEqual({ x: 0, y: -1, z: 0 });
+            const world = sketchToWorld({ x: 1, y: 2 }, bottom);
+            expect(world).toEqual({ x: 6, y: 3, z: 0 });
+        });
     });
 });

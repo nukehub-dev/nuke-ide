@@ -142,7 +142,11 @@ export class NukeCadOpenHandler implements OpenHandler {
             this.documentStore.setUri(uri.toString());
             this.documentStore.markSaved();
             widget.setLoading(true, 'Building CAD geometry...');
-            const buildResult = await this.backendService.buildDocument({ scriptPath: filePath });
+            const buildResult = await this.backendService.buildDocument({
+                scriptPath: filePath,
+                exportDagmc: false,
+                exportMesh: false
+            });
             this.documentStore.setFeatureResults(buildResult.featureResults ?? []);
             if (buildResult.success) {
                 this.stateManager.setModel({ scriptPath: filePath, result: buildResult, manifest: buildResult.regionManifest });

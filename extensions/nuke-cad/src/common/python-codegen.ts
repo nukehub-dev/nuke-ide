@@ -650,6 +650,11 @@ function emitFeature(
             return undefined;
         }
         if (feature.type === 'pad' || feature.type === 'revolve') {
+            // Known divergence: the backend appends additive tools as a Compound
+            // (erroring on same-body overlap in `_combine_additive`), while the
+            // exported script fuses with `+`. Overlapping additive features
+            // therefore export to a script whose geometry differs from a
+            // backend rebuild (which rejects the document).
             return [`${bodyVar} = ${bodyVar} + ${expr} if ${bodyVar} is not None else ${expr}  # ${feature.name}`];
         }
         return [`${bodyVar} = ${bodyVar} - ${expr}  # ${feature.name}`];

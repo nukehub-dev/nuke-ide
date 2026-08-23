@@ -36,6 +36,7 @@
 
 import * as React from '@theia/core/shared/react';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
+import { NukeDialog, NukePanel, NukeToolbar, NukeToolbarGroup } from 'nuke-essentials/lib/theme/browser/components';
 import { SketchModeController } from '../../sketch/sketch-mode-controller';
 import { type SketchTool, type ConstraintKind, type SketchStatus } from '../../sketch/sketch-session';
 import { type DatumKind } from '../../sketch/sketch-math';
@@ -65,6 +66,9 @@ interface CadSketchOverlayProps {
     readonly onEditFeature?: (id: string, params: FeatureParams) => void;
     readonly onEditSketch: (sketchId: string) => void;
     readonly onExportPython?: () => void;
+    readonly onNewDocument?: () => void;
+    readonly onSaveDocument?: () => void;
+    readonly onRebuildDocument?: () => void;
     readonly onCancelFeatureCreation: () => void;
     readonly onStartFacePick: (offset: number) => void;
     readonly onStartExternalGeometryPick: (featureId: string) => void;
@@ -122,6 +126,9 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
         onEditFeature,
         onEditSketch,
         onExportPython,
+        onNewDocument,
+        onSaveDocument,
+        onRebuildDocument,
         onCancelFeatureCreation,
         onStartFacePick,
         onStartExternalGeometryPick,
@@ -290,6 +297,9 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
                     onEditSketch={onEditSketch}
                     onStartFeatureCreation={onStartFeatureCreation}
                     onExportPython={onExportPython}
+                    onNewDocument={onNewDocument}
+                    onSaveDocument={onSaveDocument}
+                    onRebuildDocument={onRebuildDocument}
                 />
             )}
 
@@ -631,6 +641,9 @@ interface DocumentModeToolbarProps {
     readonly onEditSketch: (sketchId: string) => void;
     readonly onStartFeatureCreation: (type: FeatureType) => void;
     readonly onExportPython?: () => void;
+    readonly onNewDocument?: () => void;
+    readonly onSaveDocument?: () => void;
+    readonly onRebuildDocument?: () => void;
 }
 
 interface ExternalRefsPanelProps {
@@ -640,10 +653,7 @@ interface ExternalRefsPanelProps {
 
 function ExternalRefsPanel(props: ExternalRefsPanelProps): React.ReactElement {
     return (
-        <div className="cad-sketch-external-refs">
-            <div className="cad-sketch-external-refs-header">
-                <span>External Geometry</span>
-            </div>
+        <NukePanel title="External Geometry" className="cad-sketch-external-refs">
             {props.refs.map((ref, index) => (
                 <div key={`${ref.featureId}-${index}`} className="cad-sketch-external-ref-row">
                     <span className="cad-sketch-external-ref-kind">{ref.kind}</span>
@@ -655,7 +665,7 @@ function ExternalRefsPanel(props: ExternalRefsPanelProps): React.ReactElement {
                     </Tooltip>
                 </div>
             ))}
-        </div>
+        </NukePanel>
     );
 }
 
@@ -667,142 +677,195 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
     const hasSolidProducers = doc !== undefined && doc.features.some((f) => SOLID_PRODUCERS.includes(f.type) && !f.suppressed);
 
     return (
-        <div className="cad-document-toolbar">
-            <Tooltip content="New Sketch" position="bottom">
-                <button className="theia-button secondary" onClick={props.onNewSketch}>
-                    <span className="codicon codicon-add" /> Sketch
-                </button>
-            </Tooltip>
-            {selectedSketchId !== undefined && (
-                <Tooltip content="Edit Selected Sketch" position="bottom">
-                    <button className="theia-button secondary" onClick={() => props.onEditSketch(selectedSketchId)}>
-                        <span className="codicon codicon-edit" /> Edit Sketch
+        <NukeToolbar className="cad-document-toolbar">
+            <NukeToolbarGroup label="Document">
+                <Tooltip content="New Document" position="bottom">
+                    <button
+                        className="theia-button secondary"
+                        disabled={props.onNewDocument === undefined}
+                        onClick={() => props.onNewDocument?.()}
+                    >
+                        <span className="codicon codicon-new-file" /> New
                     </button>
                 </Tooltip>
-            )}
-            <Tooltip content="Pad (extrude add)" position="bottom">
-                <button className="theia-button secondary" disabled={!sketchSelected} onClick={() => props.onStartFeatureCreation('pad')}>
-                    <span className="codicon codicon-fold-up" /> Pad
-                </button>
-            </Tooltip>
-            <Tooltip content="Pocket (extrude cut)" position="bottom">
-                <button
-                    className="theia-button secondary"
-                    disabled={!sketchSelected || !hasBodies}
-                    onClick={() => props.onStartFeatureCreation('pocket')}
-                >
-                    <span className="codicon codicon-fold-down" /> Pocket
-                </button>
-            </Tooltip>
-            <Tooltip content="Revolve" position="bottom">
-                <button
-                    className="theia-button secondary"
-                    disabled={!sketchSelected}
-                    onClick={() => props.onStartFeatureCreation('revolve')}
-                >
-                    <span className="codicon codicon-sync" /> Revolve
-                </button>
-            </Tooltip>
-            <Tooltip content="Groove" position="bottom">
-                <button
-                    className="theia-button secondary"
-                    disabled={!sketchSelected || !hasBodies}
-                    onClick={() => props.onStartFeatureCreation('groove')}
-                >
-                    <span className="codicon codicon-discard" /> Groove
-                </button>
-            </Tooltip>
-            <Tooltip content="Boolean Fuse" position="bottom">
-                <button
-                    className="theia-button secondary"
-                    disabled={!hasBodies}
-                    onClick={() => props.onStartFeatureCreation('booleanFuse')}
-                >
-                    <span className="codicon codicon-type-hierarchy-sub" /> Fuse
-                </button>
-            </Tooltip>
-            <Tooltip content="Boolean Cut" position="bottom">
-                <button className="theia-button secondary" disabled={!hasBodies} onClick={() => props.onStartFeatureCreation('booleanCut')}>
-                    <span className="codicon codicon-type-hierarchy-super" /> Cut
-                </button>
-            </Tooltip>
-            <Tooltip content="Boolean Common" position="bottom">
-                <button
-                    className="theia-button secondary"
-                    disabled={!hasBodies}
-                    onClick={() => props.onStartFeatureCreation('booleanCommon')}
-                >
-                    <span className="codicon codicon-intersect" /> Common
-                </button>
-            </Tooltip>
-            <Tooltip content="Fillet" position="bottom">
-                <button className="theia-button secondary" disabled={!hasBodies} onClick={() => props.onStartFeatureCreation('fillet')}>
-                    <span className="codicon codicon-circle" /> Fillet
-                </button>
-            </Tooltip>
-            <Tooltip content="Chamfer" position="bottom">
-                <button className="theia-button secondary" disabled={!hasBodies} onClick={() => props.onStartFeatureCreation('chamfer')}>
-                    <span className="codicon codicon-chrome-minimize" /> Chamfer
-                </button>
-            </Tooltip>
-            <Tooltip content="Draft" position="bottom">
-                <button className="theia-button secondary" disabled={!hasBodies} onClick={() => props.onStartFeatureCreation('draft')}>
-                    <span className="codicon codicon-triangle-down" /> Draft
-                </button>
-            </Tooltip>
-            <Tooltip content="Shell" position="bottom">
-                <button className="theia-button secondary" disabled={!hasBodies} onClick={() => props.onStartFeatureCreation('shell')}>
-                    <span className="codicon codicon-layers" /> Shell
-                </button>
-            </Tooltip>
-            <Tooltip content="Linear Pattern" position="bottom">
-                <button
-                    className="theia-button secondary"
-                    disabled={!hasBodies || !hasSolidProducers}
-                    onClick={() => props.onStartFeatureCreation('linearPattern')}
-                >
-                    <span className="codicon codicon-copy" /> Linear Pattern
-                </button>
-            </Tooltip>
-            <Tooltip content="Circular Pattern" position="bottom">
-                <button
-                    className="theia-button secondary"
-                    disabled={!hasBodies || !hasSolidProducers}
-                    onClick={() => props.onStartFeatureCreation('circularPattern')}
-                >
-                    <span className="codicon codicon-issue-reopened" /> Circular Pattern
-                </button>
-            </Tooltip>
-            <Tooltip content="Mirror" position="bottom">
-                <button
-                    className="theia-button secondary"
-                    disabled={!hasBodies || !hasSolidProducers}
-                    onClick={() => props.onStartFeatureCreation('mirror')}
-                >
-                    <span className="codicon codicon-mirror" /> Mirror
-                </button>
-            </Tooltip>
-            <Tooltip content="Hole" position="bottom">
-                <button className="theia-button secondary" disabled={!hasBodies} onClick={() => props.onStartFeatureCreation('hole')}>
-                    <span className="codicon codicon-circle-slash" /> Hole
-                </button>
-            </Tooltip>
-            <Tooltip content="Export as Python" position="bottom">
-                <button
-                    className="theia-button secondary"
-                    disabled={props.onExportPython === undefined}
-                    onClick={() => props.onExportPython?.()}
-                >
-                    <span className="codicon codicon-code" /> Export Python
-                </button>
-            </Tooltip>
+                <Tooltip content="Save Document" position="bottom">
+                    <button
+                        className="theia-button secondary"
+                        disabled={props.onSaveDocument === undefined || !props.documentStore.dirty}
+                        onClick={() => props.onSaveDocument?.()}
+                    >
+                        <span className="codicon codicon-save" /> Save
+                    </button>
+                </Tooltip>
+                <Tooltip content="Rebuild Geometry" position="bottom">
+                    <button
+                        className="theia-button secondary"
+                        disabled={props.onRebuildDocument === undefined}
+                        onClick={() => props.onRebuildDocument?.()}
+                    >
+                        <span className="codicon codicon-refresh" /> Rebuild
+                    </button>
+                </Tooltip>
+                <Tooltip content="Export as Python" position="bottom">
+                    <button
+                        className="theia-button secondary"
+                        disabled={props.onExportPython === undefined}
+                        onClick={() => props.onExportPython?.()}
+                    >
+                        <span className="codicon codicon-code" /> Export Python
+                    </button>
+                </Tooltip>
+            </NukeToolbarGroup>
+            <NukeToolbarGroup label="Sketch">
+                <Tooltip content="New Sketch" position="bottom">
+                    <button className="theia-button secondary" onClick={props.onNewSketch}>
+                        <span className="codicon codicon-add" /> Sketch
+                    </button>
+                </Tooltip>
+                {selectedSketchId !== undefined && (
+                    <Tooltip content="Edit Selected Sketch" position="bottom">
+                        <button className="theia-button secondary" onClick={() => props.onEditSketch(selectedSketchId)}>
+                            <span className="codicon codicon-edit" /> Edit Sketch
+                        </button>
+                    </Tooltip>
+                )}
+            </NukeToolbarGroup>
+            <NukeToolbarGroup label="Additive">
+                <Tooltip content="Pad (extrude add)" position="bottom">
+                    <button
+                        className="theia-button secondary"
+                        disabled={!sketchSelected}
+                        onClick={() => props.onStartFeatureCreation('pad')}
+                    >
+                        <span className="codicon codicon-fold-up" /> Pad
+                    </button>
+                </Tooltip>
+                <Tooltip content="Pocket (extrude cut)" position="bottom">
+                    <button
+                        className="theia-button secondary"
+                        disabled={!sketchSelected || !hasBodies}
+                        onClick={() => props.onStartFeatureCreation('pocket')}
+                    >
+                        <span className="codicon codicon-fold-down" /> Pocket
+                    </button>
+                </Tooltip>
+                <Tooltip content="Revolve" position="bottom">
+                    <button
+                        className="theia-button secondary"
+                        disabled={!sketchSelected}
+                        onClick={() => props.onStartFeatureCreation('revolve')}
+                    >
+                        <span className="codicon codicon-sync" /> Revolve
+                    </button>
+                </Tooltip>
+                <Tooltip content="Groove" position="bottom">
+                    <button
+                        className="theia-button secondary"
+                        disabled={!sketchSelected || !hasBodies}
+                        onClick={() => props.onStartFeatureCreation('groove')}
+                    >
+                        <span className="codicon codicon-discard" /> Groove
+                    </button>
+                </Tooltip>
+            </NukeToolbarGroup>
+            <NukeToolbarGroup label="Boolean">
+                <Tooltip content="Boolean Fuse" position="bottom">
+                    <button
+                        className="theia-button secondary"
+                        disabled={!hasBodies}
+                        onClick={() => props.onStartFeatureCreation('booleanFuse')}
+                    >
+                        <span className="codicon codicon-type-hierarchy-sub" /> Fuse
+                    </button>
+                </Tooltip>
+                <Tooltip content="Boolean Cut" position="bottom">
+                    <button
+                        className="theia-button secondary"
+                        disabled={!hasBodies}
+                        onClick={() => props.onStartFeatureCreation('booleanCut')}
+                    >
+                        <span className="codicon codicon-type-hierarchy-super" /> Cut
+                    </button>
+                </Tooltip>
+                <Tooltip content="Boolean Common" position="bottom">
+                    <button
+                        className="theia-button secondary"
+                        disabled={!hasBodies}
+                        onClick={() => props.onStartFeatureCreation('booleanCommon')}
+                    >
+                        <span className="codicon codicon-intersect" /> Common
+                    </button>
+                </Tooltip>
+            </NukeToolbarGroup>
+            <NukeToolbarGroup label="Dress-up">
+                <Tooltip content="Fillet" position="bottom">
+                    <button className="theia-button secondary" disabled={!hasBodies} onClick={() => props.onStartFeatureCreation('fillet')}>
+                        <span className="codicon codicon-circle" /> Fillet
+                    </button>
+                </Tooltip>
+                <Tooltip content="Chamfer" position="bottom">
+                    <button
+                        className="theia-button secondary"
+                        disabled={!hasBodies}
+                        onClick={() => props.onStartFeatureCreation('chamfer')}
+                    >
+                        <span className="codicon codicon-chrome-minimize" /> Chamfer
+                    </button>
+                </Tooltip>
+                <Tooltip content="Draft" position="bottom">
+                    <button className="theia-button secondary" disabled={!hasBodies} onClick={() => props.onStartFeatureCreation('draft')}>
+                        <span className="codicon codicon-triangle-down" /> Draft
+                    </button>
+                </Tooltip>
+                <Tooltip content="Shell" position="bottom">
+                    <button className="theia-button secondary" disabled={!hasBodies} onClick={() => props.onStartFeatureCreation('shell')}>
+                        <span className="codicon codicon-layers" /> Shell
+                    </button>
+                </Tooltip>
+            </NukeToolbarGroup>
+            <NukeToolbarGroup label="Pattern">
+                <Tooltip content="Linear Pattern" position="bottom">
+                    <button
+                        className="theia-button secondary"
+                        disabled={!hasBodies || !hasSolidProducers}
+                        onClick={() => props.onStartFeatureCreation('linearPattern')}
+                    >
+                        <span className="codicon codicon-copy" /> Linear Pattern
+                    </button>
+                </Tooltip>
+                <Tooltip content="Circular Pattern" position="bottom">
+                    <button
+                        className="theia-button secondary"
+                        disabled={!hasBodies || !hasSolidProducers}
+                        onClick={() => props.onStartFeatureCreation('circularPattern')}
+                    >
+                        <span className="codicon codicon-issue-reopened" /> Circular Pattern
+                    </button>
+                </Tooltip>
+                <Tooltip content="Mirror" position="bottom">
+                    <button
+                        className="theia-button secondary"
+                        disabled={!hasBodies || !hasSolidProducers}
+                        onClick={() => props.onStartFeatureCreation('mirror')}
+                    >
+                        <span className="codicon codicon-mirror" /> Mirror
+                    </button>
+                </Tooltip>
+            </NukeToolbarGroup>
+            <NukeToolbarGroup label="Hole">
+                <Tooltip content="Hole" position="bottom">
+                    <button className="theia-button secondary" disabled={!hasBodies} onClick={() => props.onStartFeatureCreation('hole')}>
+                        <span className="codicon codicon-circle-slash" /> Hole
+                    </button>
+                </Tooltip>
+            </NukeToolbarGroup>
             {doc !== undefined && (
                 <span className="cad-document-name">
                     {doc.name}
                     {props.documentStore.dirty && <span className="cad-document-dirty" />}
                 </span>
             )}
-        </div>
+        </NukeToolbar>
     );
 }
 
@@ -1325,11 +1388,28 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
         </div>
     );
 
+    // A viewport pick (dress-up edges/faces, hole placement face) needs clicks
+    // and Escape to reach the viewport, so the dialog drops its modal backdrop
+    // while a pick is active.
+    const pickActive = isPicking || props.holePickMode === true;
+
     return (
-        <div className="cad-feature-dialog">
-            <div className="cad-feature-dialog-title">
-                {props.editFeature !== undefined ? `Edit ${capitalize(type)}` : capitalize(type)}
-            </div>
+        <NukeDialog
+            title={props.editFeature !== undefined ? `Edit ${capitalize(type)}` : capitalize(type)}
+            onClose={props.onCancel}
+            modal={!pickActive}
+            closeOnEscape={!pickActive}
+            footer={
+                <>
+                    <button className="theia-button" onClick={submit}>
+                        <span className="codicon codicon-check" /> {props.editFeature !== undefined ? 'Save' : 'Create'}
+                    </button>
+                    <button className="theia-button secondary" onClick={props.onCancel}>
+                        <span className="codicon codicon-close" /> Cancel
+                    </button>
+                </>
+            }
+        >
             {error !== undefined && <div className="cad-feature-dialog-error">{error}</div>}
             {!isBoolean && !isDressUp && !isHole && bodySelector}
             {isDressUp && dressUpBodySelector}
@@ -1659,15 +1739,7 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
             )}
             {isBoolean && booleanBodySelectors}
             {!isBoolean && labelInput}
-            <div className="cad-feature-dialog-actions">
-                <button className="theia-button" onClick={submit}>
-                    <span className="codicon codicon-check" /> {props.editFeature !== undefined ? 'Save' : 'Create'}
-                </button>
-                <button className="theia-button secondary" onClick={props.onCancel}>
-                    <span className="codicon codicon-close" /> Cancel
-                </button>
-            </div>
-        </div>
+        </NukeDialog>
     );
 }
 
@@ -1774,13 +1846,7 @@ function ParametersPanel(props: ParametersPanelProps): React.ReactElement {
     };
 
     return (
-        <div className="cad-sketch-parameters-panel">
-            <div className="cad-sketch-parameters-header">
-                <span>Parameters</span>
-                <button className="theia-button secondary" onClick={onClose}>
-                    <span className="codicon codicon-close" />
-                </button>
-            </div>
+        <NukePanel title="Parameters" onClose={onClose} className="cad-sketch-parameters-panel">
             <div className="cad-sketch-parameters-list">
                 {Object.entries(parameters).map(([name, value]) => (
                     <div key={name} className="cad-sketch-parameter-row">
@@ -1853,7 +1919,7 @@ function ParametersPanel(props: ParametersPanelProps): React.ReactElement {
                     <span className="codicon codicon-add" /> Add
                 </button>
             </div>
-        </div>
+        </NukePanel>
     );
 }
 
@@ -1871,13 +1937,7 @@ function DiagnosticsPopover(props: DiagnosticsPopoverProps): React.ReactElement 
     const refCounts = countReferenceResults(referenceResults);
 
     return (
-        <div className="cad-sketch-diagnostics-popover">
-            <div className="cad-sketch-diagnostics-header">
-                <span>Solver Diagnostics</span>
-                <button className="theia-button secondary" onClick={onClose}>
-                    <span className="codicon codicon-close" />
-                </button>
-            </div>
+        <NukePanel title="Solver Diagnostics" onClose={onClose} className="cad-sketch-diagnostics-popover">
             {(refCounts.matched > 0 || refCounts.ambiguous > 0 || refCounts.unmatched > 0) && (
                 <div className="cad-sketch-diagnostics-section">
                     <div className="cad-sketch-diagnostics-title">References</div>
@@ -1943,7 +2003,7 @@ function DiagnosticsPopover(props: DiagnosticsPopoverProps): React.ReactElement 
                 refCounts.matched === 0 &&
                 refCounts.ambiguous === 0 &&
                 refCounts.unmatched === 0 && <div className="cad-sketch-diagnostics-empty">No diagnostics to report.</div>}
-        </div>
+        </NukePanel>
     );
 }
 

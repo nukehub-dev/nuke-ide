@@ -32,6 +32,12 @@ import { ThemeContribution } from './theme-contribution';
 // Import global styles
 import './global-styles.css';
 import './components/searchable-multi-select.css';
+import './components/nuke-dialog.css';
+import './components/nuke-toolbar.css';
+import './components/nuke-empty-state.css';
+import './components/nuke-loading-overlay.css';
+import './components/nuke-panel.css';
+import './components/nuke-form.css';
 
 export default new ContainerModule((bind) => {
     bind(ThemeContribution).toSelf().inSingletonScope();

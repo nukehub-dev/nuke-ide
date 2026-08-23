@@ -222,7 +222,9 @@ def parse_sketch_primitives(primitives: list[dict[str, Any]]) -> list[SketchPrim
 def _build_plane(datum: dict[str, Any]) -> Any:
     """Return a build123d ``Plane`` for a datum definition.
 
-    Raises ``SketchError`` for unsupported datum kinds (e.g. ``face`` datums).
+    Raises ``SketchError`` for datum kinds that need a resolved face workplane
+    (``face`` datums are handled by the feature builder before this is called)
+    or are otherwise unknown.
     """
     if bd is None:
         raise SketchError("build123d is not available; cannot build sketch geometry")
@@ -240,7 +242,10 @@ def _build_plane(datum: dict[str, Any]) -> Any:
         # schema revision will add an explicit base/normal reference.
         return bd.Plane.XY.offset(offset)
     if kind == "face":
-        raise SketchError("'face' datums (sketch-on-face) are not supported yet")
+        raise SketchError(
+            "'face' datums must be resolved to a workplane by the feature builder; "
+            "sketch_builder only handles coordinate datums"
+        )
     raise SketchError(f"unknown datum kind '{kind}'")
 
 

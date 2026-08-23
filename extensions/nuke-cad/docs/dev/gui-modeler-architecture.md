@@ -151,8 +151,10 @@ validation; the Python side owns extraction and scoring.
 - **matched** — the best candidate exceeds `SCORE_THRESHOLD` (0.5) and the gap
   to the runner-up is larger than `ambiguity_margin` (0.05).
 - **ambiguous** — the best candidate exceeds the threshold but the runner-up is
-  close; the result includes a tentative candidate id but the user must repair.
-- **unmatched** — no candidate reaches the threshold.
+  close; the result includes the top candidates (with fingerprints) but the user
+  must repair.
+- **unmatched** — no candidate reaches the threshold; the result still includes
+  up to three best candidates so the user can pick a repair manually.
 
 Candidates are assigned greedily in one-to-one fashion so two ambiguous
 references do not collapse onto the same geometry.

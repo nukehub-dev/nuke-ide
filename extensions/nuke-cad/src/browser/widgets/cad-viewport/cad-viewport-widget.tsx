@@ -59,6 +59,7 @@ import { NukeCadBackendService, GeometryBuildResult } from '../../../common/nuke
 import { NukeCadStateManager, CadModel, CadSelection } from '../../state/nuke-cad-state-manager';
 import { NukeCadCommands } from '../../commands';
 import { LoadingAnimations, FancyLoadingSpinner } from 'nuke-essentials/lib/theme/browser/components/loading-spinner';
+import { NukeEmptyState, NukeLoadingOverlay } from 'nuke-essentials/lib/theme/browser/components';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
 import { SketchModeController } from '../../sketch/sketch-mode-controller';
 import { type DatumKind } from '../../sketch/sketch-math';
@@ -135,6 +136,8 @@ export class CadViewportWidget extends ReactWidget {
     private loading = false;
     private loadingMessage = 'Loading CAD model...';
     private buildError?: string;
+    /** Non-fatal warnings from the last build (e.g. cross-body overlap). */
+    private buildWarnings: string[] = [];
     /** Monotonically increasing token; stale tessellation loads are dropped. */
     private tessLoadToken = 0;
     /** Path of the tessellation currently rendered; used to skip redundant reloads. */
@@ -184,6 +187,11 @@ export class CadViewportWidget extends ReactWidget {
 
     protected readonly dismissBuildError = (): void => {
         this.buildError = undefined;
+        this.update();
+    };
+
+    protected readonly dismissBuildWarnings = (): void => {
+        this.buildWarnings = [];
         this.update();
     };
 
@@ -677,6 +685,7 @@ export class CadViewportWidget extends ReactWidget {
             this.documentStore.setFeatureResults(result.featureResults ?? []);
             this.documentStore.setProjectedPrimitives(result.projectedPrimitives);
             this.documentStore.setReferenceResults(result.referenceResults ?? []);
+            this.buildWarnings = result.warnings ?? [];
             if (result.success) {
                 this.stateManager.setModel({ scriptPath: filePath, result, manifest: result.regionManifest });
                 this.messageService.info(`CAD rebuild: ${result.solidCount ?? 0} solids, ${result.triangleCount ?? 0} triangles`);
@@ -832,6 +841,7 @@ export class CadViewportWidget extends ReactWidget {
             this.tessLoadToken++;
             this.loadingMessage = message;
             this.buildError = undefined;
+            this.buildWarnings = [];
         }
         this.loading = loading;
         this.update();
@@ -950,6 +960,7 @@ export class CadViewportWidget extends ReactWidget {
         this.loading = true;
         this.loadingMessage = sourceType === 'step' ? 'Importing STEP file...' : 'Building CAD geometry...';
         this.buildError = undefined;
+        this.buildWarnings = [];
         this.update();
 
         this.messageService.info(`Loading CAD model: ${filePath}`);
@@ -966,6 +977,7 @@ export class CadViewportWidget extends ReactWidget {
                     result,
                     manifest: result.regionManifest
                 });
+                this.buildWarnings = result.warnings ?? [];
                 this.messageService.info(`Loaded ${result.solidCount ?? 0} solids, ${result.triangleCount ?? 0} triangles`);
             } else {
                 const message = result.error || 'Failed to load CAD model.';
@@ -1016,6 +1028,7 @@ export class CadViewportWidget extends ReactWidget {
                 loadingMessage={this.loadingMessage}
                 tessData={this.tessData}
                 error={this.buildError}
+                warnings={this.buildWarnings}
                 dirty={this.documentStore.dirty}
                 sketchSetupVisible={this.sketchSetupVisible}
                 featureCreationType={this.featureCreationType}
@@ -1024,6 +1037,7 @@ export class CadViewportWidget extends ReactWidget {
                 dressUpPickMode={this.dressUpPickMode}
                 documentStore={this.documentStore}
                 onDismissError={this.dismissBuildError}
+                onDismissWarnings={this.dismissBuildWarnings}
                 onSelect={this.handleViewportSelect}
                 subscribeSelection={this.subscribeSelection}
                 subscribeThemeChange={this.subscribeThemeChange}
@@ -1070,6 +1084,7 @@ interface CadViewportComponentProps {
     readonly loadingMessage: string;
     readonly tessData?: TessData;
     readonly error?: string;
+    readonly warnings: readonly string[];
     readonly dirty: boolean;
     readonly sketchSetupVisible: boolean;
     readonly featureCreationType?: FeatureType;
@@ -1080,6 +1095,7 @@ interface CadViewportComponentProps {
     readonly documentStore: CadDocumentStore;
     readonly messageService: MessageService;
     readonly onDismissError: () => void;
+    readonly onDismissWarnings: () => void;
     readonly onSelect: (selection: CadSelection) => void;
     readonly subscribeSelection: (listener: (selection: CadSelection) => void) => Disposable;
     readonly subscribeThemeChange: (listener: () => void) => Disposable;
@@ -1217,10 +1233,37 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
         </div>
     ) : undefined;
 
+    const warningStrip =
+        props.warnings.length > 0 ? (
+            <div className="cad-viewport-warning-strip">
+                <span className="codicon codicon-warning" />
+                <div className="cad-viewport-warning-list">
+                    {props.warnings.map((warning, index) => (
+                        <div key={index} className="cad-viewport-warning-item">
+                            {warning}
+                        </div>
+                    ))}
+                </div>
+                <Tooltip content="Dismiss" position="left">
+                    <button className="theia-button secondary cad-viewport-error-dismiss" onClick={props.onDismissWarnings}>
+                        <span className="codicon codicon-close" />
+                    </button>
+                </Tooltip>
+            </div>
+        ) : undefined;
+
+    const banners =
+        errorBanner !== undefined || warningStrip !== undefined ? (
+            <div className="cad-viewport-banners">
+                {errorBanner}
+                {warningStrip}
+            </div>
+        ) : undefined;
+
     if (props.loading && props.tessData === undefined) {
         return (
             <div className="cad-viewport loading">
-                {errorBanner}
+                {banners}
                 <LoadingAnimations />
                 <FancyLoadingSpinner message={props.loadingMessage} subMessage="This may take a moment for large models" />
             </div>
@@ -1233,25 +1276,22 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
     if (props.tessData === undefined) {
         return (
             <div ref={containerRef} className="cad-viewport empty">
-                {errorBanner}
+                {banners}
                 {dirtyMarker}
                 <LoadingAnimations />
-                <div className="cad-viewport-empty-panel">
-                    <span className="codicon codicon-globe cad-viewport-empty-icon" />
-                    <div className="cad-viewport-empty-title">CAD Viewport</div>
-                    <div className="cad-viewport-empty-description">
-                        Open a build123d/CadQuery script, a STEP/STP/BREP file, or a .nuke-cad document to view and inspect geometry.
-                    </div>
-                    <div className="cad-viewport-empty-formats">Supported formats: .py, .step, .stp, .brep, .nuke-cad</div>
-                    <div className="cad-viewport-empty-actions">
-                        <button className="theia-button" onClick={props.onNewDocument}>
-                            <span className="codicon codicon-new-file" /> New Document
-                        </button>
-                        <button className="theia-button secondary open-cad-model-button" onClick={props.onOpenModel}>
-                            <span className="codicon codicon-folder-opened" /> Open CAD Model...
-                        </button>
-                    </div>
-                </div>
+                <NukeEmptyState
+                    icon="globe"
+                    title="CAD Viewport"
+                    message="Open a build123d/CadQuery script, a STEP/STP/BREP file, or a .nuke-cad document to view and inspect geometry."
+                    hint="Supported formats: .py, .step, .stp, .brep, .nuke-cad"
+                >
+                    <button className="theia-button" onClick={props.onNewDocument}>
+                        <span className="codicon codicon-new-file" /> New Document
+                    </button>
+                    <button className="theia-button secondary open-cad-model-button" onClick={props.onOpenModel}>
+                        <span className="codicon codicon-folder-opened" /> Open CAD Model...
+                    </button>
+                </NukeEmptyState>
                 {controller !== undefined && (
                     <CadSketchOverlay
                         controller={controller}
@@ -1269,6 +1309,9 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                         onEditFeature={props.onEditFeature}
                         onEditSketch={props.onEditSketch}
                         onExportPython={props.onExportPython}
+                        onNewDocument={props.onNewDocument}
+                        onSaveDocument={props.onSaveDocument}
+                        onRebuildDocument={props.onRebuildDocument}
                         onCancelFeatureCreation={props.onCancelFeatureCreation}
                         onStartFacePick={props.onStartFacePick}
                         onStartExternalGeometryPick={props.onStartExternalGeometryPick}
@@ -1285,14 +1328,9 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
 
     return (
         <div ref={containerRef} className="cad-viewport">
-            {errorBanner}
+            {banners}
             {dirtyMarker}
-            {props.loading && (
-                <div className="cad-viewport-loading-overlay">
-                    <span className="codicon codicon-loading codicon-modifier-spin" />
-                    <span>{props.loadingMessage}</span>
-                </div>
-            )}
+            {props.loading && <NukeLoadingOverlay message={props.loadingMessage} />}
             {documentEmpty && (
                 <div className="cad-viewport-document-hint">
                     <span className="codicon codicon-info" />
@@ -1316,6 +1354,9 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                     onEditFeature={props.onEditFeature}
                     onEditSketch={props.onEditSketch}
                     onExportPython={props.onExportPython}
+                    onNewDocument={props.onNewDocument}
+                    onSaveDocument={props.onSaveDocument}
+                    onRebuildDocument={props.onRebuildDocument}
                     onCancelFeatureCreation={props.onCancelFeatureCreation}
                     onStartFacePick={props.onStartFacePick}
                     onStartExternalGeometryPick={props.onStartExternalGeometryPick}
