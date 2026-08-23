@@ -1593,8 +1593,9 @@ def test_keep_tools_preserves_tool_body_in_final_compound() -> None:
     assert by_id["cut"].get("consumedBodyIds") == []
 
 
-def test_cross_body_overlap_without_boolean_raises() -> None:
-    """Two overlapping bodies that are not merged by a boolean raise FeatureBuilderError."""
+def test_cross_body_overlap_without_boolean_records_warning() -> None:
+    """Two overlapping bodies that are not merged by a boolean are reported as a
+    warning so CAD assemblies (for example the tokamak demo) can still build."""
     pytest.importorskip("build123d", reason="build123d not installed")
     doc = _document(
         [
@@ -1625,8 +1626,9 @@ def test_cross_body_overlap_without_boolean_raises() -> None:
             {"id": "body-right", "name": "right"},
         ],
     )
-    with pytest.raises(fb.FeatureBuilderError, match="overlap"):
-        fb.build_document_shape(doc)
+    result = fb.build_document_shape(doc)
+    assert result["shape"] is not None
+    assert any("overlap" in w for w in result.get("warnings", [])), result.get("warnings", [])
 
 
 def test_reference_resolves_against_body_state_after_pocket() -> None:
@@ -2346,8 +2348,8 @@ def test_pattern_of_pocket_cuts_volume() -> None:
     assert math.isclose(result["shape"].volume, expected, rel_tol=1e-6)
 
 
-def test_linear_pattern_overlap_raises() -> None:
-    """Overlapping pattern instances on an additive source fail via the overlap gate."""
+def test_linear_pattern_overlap_fuses() -> None:
+    """Overlapping additive pattern instances fuse into the source body."""
     pytest.importorskip("build123d", reason="build123d not installed")
     doc = _offset_pad_document(length=5.0)
     doc["features"].append(
@@ -2363,8 +2365,9 @@ def test_linear_pattern_overlap_raises() -> None:
     )
     result = fb.build_document_shape(doc)
     by_id = {r["featureId"]: r for r in result["featureResults"]}
-    assert by_id["lin"]["status"] == "failed"
-    assert "overlap" in by_id["lin"]["error"].lower()
+    assert by_id["lin"]["status"] == "built"
+    # Two fully overlapping copies fuse to the source volume.
+    assert math.isclose(result["shape"].volume, 10.0 * 10.0 * 5.0, rel_tol=1e-6)
 
 
 def test_pattern_source_missing_fails() -> None:

@@ -1083,6 +1083,10 @@ def _validate_document_refs(document: dict[str, Any], source_file: Path) -> dict
             "chamfer",
             "draft",
             "shell",
+            "linearPattern",
+            "circularPattern",
+            "mirror",
+            "hole",
             "booleanFuse",
             "booleanCut",
             "booleanCommon",
@@ -1252,6 +1256,9 @@ def _validate_document_refs(document: dict[str, Any], source_file: Path) -> dict
                         "error": f"Feature '{fid}' (shell) requires a positive thickness",
                         "scriptPath": str(source_file),
                     }
+            continue
+
+        if feature_type in ("linearPattern", "circularPattern", "mirror", "hole"):
             continue
 
         sketch_id = feature.get("sketchId")

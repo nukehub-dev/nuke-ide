@@ -579,6 +579,9 @@ def _extract_gmsh_surface_mesh(
 
         if not triangles:
             warnings.append(f"Face {tag} has no triangles; skipping.")
+            # Drop empty faces so downstream MOAB bookkeeping never references
+            # a surface meshset that does not exist.
+            face_to_volumes.pop(tag, None)
             continue
 
         face_triangles[tag] = np.array(triangles, dtype=np.int32)

@@ -43,6 +43,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   into the face's deterministic workplane coordinates so the 2D `[u, v]` center
   aligns with the backend builder. Counterbore and countersink presets are
   mutually exclusive.
+- nuke-cad: **tokamak demo gate** — added a GUI-path vitest driver
+  (`src/browser/document/gui-build-tokamak.test.ts`) and committed fixture
+  (`tests/e2e/assets/tokamak_with_divertor.nuke-cad`) for a multi-body tokamak
+  assembly. Plasma-facing BSpline boundaries are approximated with dense
+  polylines sampled from the reference STEP. Drift coverage
+  (`tests/python/test_tokamak_document.py`) compares per-body volumes against the
+  authoritative STEP (1e-6 for non-spline bodies, 1e-3 for spline-approximated
+  bodies) and checks face counts for non-spline bodies. DAGMC export coverage
+  (`tests/e2e/test_dagmc_tokamak_document_e2e.py`) and a gated performance test
+  (`tests/e2e/test_tokamak_performance.py`) keep the demo stable.
 - nuke-cad: **new parametric CAD extension** — script-first geometry
   authoring with build123d/CadQuery, live three.js viewport, canonical STEP
   export, JSON tessellation stream, and region manifest validation. Registered
@@ -358,6 +368,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   zero lost particles. Marked `@pytest.mark.e2e`, env-gated on
   `NUKE_TEST_PYTHON` + `OPENMC_CROSS_SECTIONS`, skipping cleanly otherwise.
 
+### Changed
+
+- nuke-cad: **additive pattern instances fuse** — overlapping instances of
+  additive `linearPattern`/`circularPattern`/`mirror` features now union via
+  `_combine_additive` instead of raising an overlap error, matching the behavior
+  expected for coil assemblies.
+- nuke-cad: **cross-body overlap is a warning** — non-consumed bodies that
+  overlap in space no longer abort `build_document_shape`; instead the overlap
+  volume is reported in `result["warnings"]` so CAD assemblies (e.g., the
+  tokamak demo) can build while still alerting callers that need a sealed DAGMC
+  model.
+
 ### Fixed
 
 - nuke-cad: sketch mode lifecycle hardening — `SketchSession.destroy()` releases
@@ -383,6 +405,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   volume-ratio + containment heuristic. Existing graveyards must be explicitly
   flagged with `existing_graveyard_vol_ids` or by naming the STEP
   product/assembly "graveyard".
+- nuke-cad: DAGMC export skips gmsh faces that collapse to zero triangles
+  instead of failing with a missing-surface KeyError on assemblies with very
+  thin or sliver faces (exposed by the tokamak demo).
 - nuke-cad: `pad` and `pocket` now share the same inner-wire semantics — inner
   wires represent removed material, leaving islands for pads and producing
   through-holes for pockets.

@@ -2,6 +2,12 @@
 node_modules
 **/.browser_modules
 
+# Python virtual environments
+.venv/
+
+# Research/scratch artifacts (large generated JSON, throwaway scripts)
+.research/
+
 # Build output (tsc / webpack / electron-builder)
 extensions/*/lib
 applications/*/lib

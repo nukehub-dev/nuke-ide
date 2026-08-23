@@ -334,6 +334,26 @@ round-trippable; it is intended as readable output for downstream editing.
 - Build errors surface in a dismissible banner in the viewport and in the feature
   tree status markers.
 
+## Demo model: tokamak with divertor
+
+A complete `.nuke-cad` demo model is maintained at
+`tests/e2e/assets/tokamak_with_divertor.nuke-cad`. It rebuilds the paramak
+`tokamak_with_pf_tf_magnets_divertor` STEP as a GUI-authored document:
+
+- 22 labeled bodies: TF coils, PF coils and cases, center column, inboard/outboard
+  blankets and first walls, plasma, divertor, and six TF inner legs.
+- Revolved poloidal layers, a rectangular TF coil profile padded toroidally and
+  patterned 7 times over 180°, boolean clipping to the half-model symmetry plane,
+  and a lower divertor volume.
+
+The plasma-facing boundaries in the reference STEP are periodic BSplines. The
+GUI modeler expresses them with dense polylines sampled from the STEP edges
+(chordal approximation, ≤ 64 segments per boundary). DAGMC faceting is chordal
+anyway, so this is at or below the pipeline's geometric resolution. The drift
+test compares the rebuilt per-body volumes against the STEP reference; spline-
+approximated bodies are held to a 1e-3 relative tolerance, while bodies with only
+planar/cylindrical/conical faces are held to 1e-6 plus an exact face-count check.
+
 ## Current limitations
 
 This release supports the core workflow. These features are not implemented yet:

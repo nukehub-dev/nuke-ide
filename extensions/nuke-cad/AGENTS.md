@@ -60,8 +60,9 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   `mirror`, `hole`) extend the same-body feature chain. Patterns and mirror name
   a `source` sketch-based solid feature (`pad`/`pocket`/`revolve`/`groove`) on
   the same body, earlier in document order. The backend stores the source's
-  tool shape and applies transformed copies: additive sources are appended via
-  `_combine_additive` (instance collisions fail fast), subtractive sources are
+  tool shape and applies transformed copies: additive sources are merged with a
+  boolean union so overlapping pattern instances fuse into one solid
+  (required for toroidal/poloidal coil assemblies), subtractive sources are
   cut. `linearPattern` uses `count`, `spacing`, and `axis`; `circularPattern`
   uses `count`, optional `angle`, and either `axis` or `axisDatumId`; `mirror`
   uses either `plane` (`XY`/`YZ`/`XZ`) or `planeDatumId`. The hole wizard stores
@@ -69,6 +70,13 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   resolved face's workplane coordinates; the backend expands it internally into
   an extrude-cut plus optional counterbore/countersink geometry. Omitted `depth`
   means through-hole; counterbore and countersink are mutually exclusive.
+- The same-body additive overlap check for single sketch features remains in
+  `_combine_additive`; overlapping additive pattern instances are fused by the
+  boolean union in `_apply_pattern_or_mirror` instead.
+- Cross-body overlap is reported as a warning (with overlap volume) rather than
+  a fatal error. Pure CAD assemblies such as the tokamak demo intentionally
+  contain overlapping parts, so the B-rep build completes and callers that
+  need a sealed model can inspect `result["warnings"]` before DAGMC export.
 - Python backend lives in `python/` and is not pip-installed; the IDE spawns
   it as a subprocess via `nuke-core` environment detection.
 - The CAD viewport is a purpose-built three.js widget (documented exception to
@@ -229,7 +237,18 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
     for every `TopologyRef` so the feature tree and sketch diagnostics can
     surface broken references.
   - Feature labels map to 1-based solid indices in `selector_map`, feeding the
-    same region-manifest/DAGMC/mesh pipeline used by script builds.
+    same region-manifest/DAGMC/mesh pipeline used for script builds.
+  - The tokamak demo fixture (`tests/e2e/assets/tokamak_with_divertor.nuke-cad`)
+    is authored by the GUI-path vitest driver
+    (`src/browser/document/gui-build-tokamak.test.ts`). It exercises dense
+    polyline sketches, revolve/pad features, circular patterns, boolean clipping,
+    overlapping assembly bodies, and the full DAGMC export path. Drift, e2e, and
+    performance coverage live in `tests/python/test_tokamak_document.py` and
+    `tests/e2e/test_dagmc_tokamak_document_e2e.py` /
+    `tests/e2e/test_tokamak_performance.py`. The drift test compares per-body
+    volumes (and face counts for non-spline bodies) against the authoritative
+    STEP reference; plasma-facing spline boundaries are approximated with dense
+    polylines and therefore checked to a relaxed 1e-3 volume tolerance.
 - `.nuke-cad` shell integration:
   - `.nuke-cad` files open in the CAD viewport by default (open-handler priority
     500). The handler parses the JSON, loads it into the document store, and

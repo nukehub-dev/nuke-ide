@@ -851,14 +851,16 @@ def _apply_pattern_or_mirror(
 ) -> Any:
     """Apply pattern/mirror instances to a body.
 
-    Additive sources append instances via the same-body combine path; subtractive
-    sources cut each instance from the body.
+    Additive sources merge instances into the body with a boolean union so that
+    overlapping pattern instances fuse into a single solid rather than being
+    rejected by the same-body additive overlap guard. Subtractive sources cut
+    each instance from the body.
     """
     _require_build123d()
     if source_type in ("pad", "revolve"):
         result = body
         for instance in instances:
-            result = _combine_additive(result, instance, feature_id)
+            result = result + instance
         return result
     # pocket / groove
     result = body
@@ -1541,10 +1543,18 @@ def _shape_volume(shape: Any) -> float:
         return 0.0
 
 
-def _check_cross_body_overlap(bodies: list[Any], body_ids: list[str]) -> None:
-    """Raise FeatureBuilderError when non-consumed bodies overlap in space."""
+def _check_cross_body_overlap(bodies: list[Any], body_ids: list[str]) -> list[str]:
+    """Detect non-consumed bodies that overlap in space and return warnings.
+
+    Overlapping parts are valid in pure CAD assemblies (for example the tokamak
+    demo model, where toroidal coils intentionally share space with poloidal
+    coils in the STEP source). The builder therefore reports overlaps as
+    warnings instead of failing, so callers that need a sealed model (DAGMC)
+    can inspect them without blocking the B-rep build.
+    """
+    warnings: list[str] = []
     if bd is None:
-        return
+        return warnings
     for i in range(len(bodies)):
         for j in range(i + 1, len(bodies)):
             a = bodies[i]
@@ -1555,14 +1565,23 @@ def _check_cross_body_overlap(bodies: list[Any], body_ids: list[str]) -> None:
                 continue
             try:
                 common = a & b
+            except ValueError as exc:
+                if "empty compound" in str(exc).lower():
+                    continue
+                raise FeatureBuilderError(
+                    f"failed to check overlap between bodies '{body_ids[i]}' and '{body_ids[j]}': {exc}"
+                ) from exc
             except Exception as exc:
                 raise FeatureBuilderError(
                     f"failed to check overlap between bodies '{body_ids[i]}' and '{body_ids[j]}': {exc}"
                 ) from exc
-            if common is not None and getattr(common, "volume", 0.0) > 1e-9:
-                raise FeatureBuilderError(
-                    f"bodies '{body_ids[i]}' and '{body_ids[j]}' overlap but are not merged by a boolean"
+            overlap_volume = getattr(common, "volume", 0.0)
+            if common is not None and overlap_volume > 1e-9:
+                warnings.append(
+                    f"bodies '{body_ids[i]}' and '{body_ids[j]}' overlap "
+                    f"(volume {overlap_volume:.6g} mm³) but are not merged by a boolean"
                 )
+    return warnings
 
 
 def build_document_shape(
@@ -1634,6 +1653,7 @@ def build_document_shape(
     feature_shapes: dict[str, Any] = {}
     tool_shapes: dict[str, Any] = {}
     consumed_bodies: set[str] = set()
+    overlap_warnings: list[str] = []
 
     for feature_id in order:
         feature = feature_map[feature_id]
@@ -2056,9 +2076,10 @@ def build_document_shape(
             "referenceResults": reference_results,
             "consumedBodies": sorted(consumed_bodies),
             "solidBodyIds": [],
+            "warnings": overlap_warnings,
         }
 
-    _check_cross_body_overlap(active_body_shapes, active_body_ids)
+    overlap_warnings = _check_cross_body_overlap(active_body_shapes, active_body_ids)
 
     assembled = (
         final_children[0] if len(final_children) == 1 else bd.Compound(children=final_children)
@@ -2086,4 +2107,5 @@ def build_document_shape(
         "referenceResults": reference_results,
         "consumedBodies": sorted(consumed_bodies),
         "solidBodyIds": solid_body_ids,
+        "warnings": overlap_warnings,
     }
