@@ -111,7 +111,11 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   3D viewport exposes a navigation cluster (bottom-right: ISO/top/front/right
   views, fit, zoom in/out) backed by `fitView`/`zoomView`/`setStandardView` on
   the viewport API; `F` fits the view when no sketch, pick mode, or text field
-  is active.
+  is active. Closing the viewport widget also closes the Model Outline and
+  Feature Tree panels (they have no model to show otherwise). Entering sketch
+  mode on a saved sketch fits the orthographic view to the sketch's bounding
+  box (`SketchModeController.fitSketchView`); fresh sketches keep the default
+  view size.
 - The Model Outline panel (`src/browser/widgets/outline-panel/`, widget ID
   `nuke-cad-outline-panel-widget`, label "Model Outline") lists the active
   model's manifest volumes and surfaces and is read-only — no manifest editing
@@ -422,6 +426,10 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
 
 - Follow repo style: 4-space indent, single quotes, no trailing commas.
 - New source files carry the BSD-2-Clause header.
+- Compact icon buttons in the CAD chrome must reset Theia's `.theia-button`
+  defaults (`min-width: 65px`, 8px left margin) — the grouped reset lives in
+  `cad-viewport.css`; add new compact button classes there or they render
+  65px+ wide and overlap their neighbors.
 - Geometry scripts must define a top-level `model` variable holding a
   build123d Part/Compound, CadQuery Workplane, or OCP TopoDS_Shape.
 - Heavy Python imports must be guarded so the module stays importable in the

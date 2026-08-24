@@ -44,6 +44,7 @@
 import * as React from '@theia/core/shared/react';
 import { injectable, inject, postConstruct } from '@theia/core/shared/inversify';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
+import { Message, WidgetManager } from '@theia/core/lib/browser';
 import { MessageService } from '@theia/core/lib/common/message-service';
 import { CommandService } from '@theia/core/lib/common/command';
 import { Disposable } from '@theia/core/lib/common/disposable';
@@ -132,6 +133,9 @@ export class CadViewportWidget extends ReactWidget {
 
     @inject(MonacoWorkspace)
     protected readonly monacoWorkspace: MonacoWorkspace;
+
+    @inject(WidgetManager)
+    protected readonly widgetManager: WidgetManager;
 
     private tessData?: TessData;
     private loading = false;
@@ -1022,6 +1026,14 @@ export class CadViewportWidget extends ReactWidget {
         }
     }
 
+    /** Closing the viewport also closes its companion panels (stale without a model). */
+    protected override onCloseRequest(msg: Message): void {
+        super.onCloseRequest(msg);
+        for (const id of ['nuke-cad-outline-panel-widget', 'nuke-cad-feature-tree-widget']) {
+            this.widgetManager.getWidgets(id).forEach((w) => w.close());
+        }
+    }
+
     protected render(): React.ReactNode {
         return (
             <CadViewportComponent
@@ -1295,7 +1307,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
     }
 
     const sketchActive = (controller?.isActive ?? false) || props.sketchSetupVisible;
-    const documentEmpty = props.tessData === undefined && props.documentStore.hasDocument && !props.loading;
+    const documentEmpty = props.tessData === undefined && props.documentStore.hasDocument && !props.loading && !sketchActive;
     const noDocument = props.tessData === undefined && !props.documentStore.hasDocument && !props.loading;
     const dirtyMarker = props.dirty ? <span className="cad-viewport-dirty-marker" title="Unsaved changes" /> : null;
 

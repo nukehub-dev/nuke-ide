@@ -252,9 +252,13 @@ function CadOutlinePanelComponent(props: CadOutlinePanelComponentProps): React.R
                                     ? `Open ${props.manifestFileName} in the editor`
                                     : `${props.manifestFileName} does not exist beside the model`
                             }
-                            position="bottom"
+                            position="left"
                         >
-                            <button className="theia-button secondary" onClick={props.onOpenManifest} disabled={!props.manifestExists}>
+                            <button
+                                className="theia-button secondary manifest-button"
+                                onClick={props.onOpenManifest}
+                                disabled={!props.manifestExists}
+                            >
                                 <i className="codicon codicon-json" />
                                 Manifest
                             </button>
@@ -302,6 +306,7 @@ function CadOutlinePanelComponent(props: CadOutlinePanelComponentProps): React.R
                                 key={row.key}
                                 row={row}
                                 selected={selectedSolid !== undefined && row.solidIndices.includes(selectedSolid)}
+                                icon="codicon-nuke-cad-cube"
                                 onSelect={props.onSelect}
                             />
                         ))}
@@ -319,6 +324,7 @@ function CadOutlinePanelComponent(props: CadOutlinePanelComponentProps): React.R
                                     key={row.key}
                                     row={row}
                                     selected={selectedSolid !== undefined && row.solidIndices.includes(selectedSolid)}
+                                    icon="codicon-nuke-cad-datum"
                                     onSelect={props.onSelect}
                                 />
                             ))}
@@ -354,6 +360,7 @@ function OutlineSection(props: OutlineSectionProps): React.ReactElement {
 interface OutlineRowProps {
     readonly row: OutlineRowData;
     readonly selected: boolean;
+    readonly icon: string;
     readonly onSelect: (solidId: number) => void;
 }
 
@@ -372,18 +379,17 @@ function OutlineRow(props: OutlineRowProps): React.ReactElement {
     const tooltipText = mapped
         ? `Solid${props.row.solidIndices.length > 1 ? 's' : ''} ${props.row.solidIndices.join(', ')}`
         : 'Selector not found in the built model';
-    const tooltip = useTooltip(tooltipText, 'right');
+    const tooltip = useTooltip(tooltipText, 'top');
 
     return (
         <>
-            <div
-                ref={ref}
-                className={className}
-                onMouseEnter={tooltip.onMouseEnter}
-                onMouseLeave={tooltip.onMouseLeave}
-                onClick={mapped ? () => props.onSelect(props.row.solidIndices[0]) : undefined}
-            >
-                <span className="outline-row-label">{props.row.label}</span>
+            <div ref={ref} className={className} onClick={mapped ? () => props.onSelect(props.row.solidIndices[0]) : undefined}>
+                <span className="outline-row-label">
+                    <i className={`codicon ${props.icon} outline-row-icon`} />
+                    <span className="outline-row-label-text" onMouseEnter={tooltip.onMouseEnter} onMouseLeave={tooltip.onMouseLeave}>
+                        {props.row.label}
+                    </span>
+                </span>
                 {props.row.tags?.map((tag) => (
                     <span key={tag} className="outline-tag">
                         {tag}

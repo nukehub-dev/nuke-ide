@@ -28,6 +28,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the Feature Tree, Model Outline, and CAD Viewport panels each got a
   distinct custom icon in tab bars and the Nuke Tools sidebar (previously
   three panels shared the same generic icon).
+- nuke-cad: **New Document is disabled while a document is open** — it
+  previously replaced the open document (and its unsaved changes) without
+  confirmation; start a fresh document by closing the current one first. The
+  feature-creation dialog and the Sketch Plane picker use an aligned
+  label/input grid, and the Model Outline header is a compact single-line.
 
 ### Fixed
 
@@ -36,6 +41,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   appeared zoomed in. The viewport now renders through the live camera, and a
   new navigation cluster (ISO/top/front/right views, fit, zoom) plus an `F`
   fit-view shortcut make navigation explicit.
+- nuke-cad: sketch-mode pan and zoom changed the camera without repainting
+  the canvas, so wheel zoom and middle/Shift-drag pan appeared dead; both now
+  repaint and keep the HTML dimension labels anchored. The "Document mode"
+  hint no longer renders underneath sketch-mode controls, and compact CAD
+  buttons (sketch tools, toolbar actions, navigation cluster, warnings
+  toggle) now reset Theia's `.theia-button` `min-width: 65px`, which made
+  24px buttons render 65px+ wide and overlap neighboring controls.
+- nuke-cad: editing an existing sketch opened with the geometry out of
+  frame (only the grid was visible); entering a saved sketch now frames its
+  bounding box. Feature-creation dialog labels no longer clip ("Sourc..."),
+  row tooltips in the Model Outline and Feature Tree anchor to the row label
+  instead of the panel's far edge, and closing the CAD Viewport tab now also
+  closes its Model Outline and Feature Tree panels instead of leaving them
+  showing stale content.
 
 ### Added
 

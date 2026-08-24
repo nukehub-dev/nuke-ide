@@ -155,6 +155,7 @@
 .feature-tree-action {
     padding: 2px 4px;
     min-width: 0;
+    margin-left: 0;
     opacity: 0;
 }
 

@@ -433,12 +433,14 @@ interface DatumRowProps {
 }
 
 function DatumRow(props: DatumRowProps): React.ReactElement {
-    const tooltip = useTooltip(`${props.datum.kind}${props.datum.offset !== undefined ? ` offset ${props.datum.offset}` : ''}`, 'right');
+    const tooltip = useTooltip(`${props.datum.kind}${props.datum.offset !== undefined ? ` offset ${props.datum.offset}` : ''}`, 'top');
     return (
         <>
-            <div className="feature-tree-row datum" onMouseEnter={tooltip.onMouseEnter} onMouseLeave={tooltip.onMouseLeave}>
+            <div className="feature-tree-row datum">
                 <span className="codicon codicon-nuke-cad-datum feature-tree-icon" />
-                <span className="feature-tree-label">{props.datum.name}</span>
+                <span className="feature-tree-label" onMouseEnter={tooltip.onMouseEnter} onMouseLeave={tooltip.onMouseLeave}>
+                    {props.datum.name}
+                </span>
             </div>
             {tooltip.tooltipElement}
         </>
@@ -453,17 +455,14 @@ interface SketchRowProps {
 }
 
 function SketchRow(props: SketchRowProps): React.ReactElement {
-    const tooltip = useTooltip('Click to select, edit to enter sketch mode', 'right');
+    const tooltip = useTooltip('Click to select, edit to enter sketch mode', 'top');
     return (
         <>
-            <div
-                className={`feature-tree-row sketch${props.selected ? ' selected' : ''}`}
-                onClick={props.onSelect}
-                onMouseEnter={tooltip.onMouseEnter}
-                onMouseLeave={tooltip.onMouseLeave}
-            >
+            <div className={`feature-tree-row sketch${props.selected ? ' selected' : ''}`} onClick={props.onSelect}>
                 <span className="codicon codicon-nuke-cad-sketch feature-tree-icon" />
-                <span className="feature-tree-label">{props.sketch.name}</span>
+                <span className="feature-tree-label" onMouseEnter={tooltip.onMouseEnter} onMouseLeave={tooltip.onMouseLeave}>
+                    {props.sketch.name}
+                </span>
                 <Tooltip content="Edit Sketch" position="left">
                     <button
                         className="theia-button secondary feature-tree-action"
@@ -494,15 +493,10 @@ interface BodyRowProps {
 }
 
 function BodyRow(props: BodyRowProps): React.ReactElement {
-    const tooltip = useTooltip('Click to select body; double-click label to rename', 'right');
+    const tooltip = useTooltip('Click to select body; double-click label to rename', 'top');
     return (
         <>
-            <div
-                className={`feature-tree-row body${props.selected ? ' selected' : ''}`}
-                onClick={props.onSelect}
-                onMouseEnter={tooltip.onMouseEnter}
-                onMouseLeave={tooltip.onMouseLeave}
-            >
+            <div className={`feature-tree-row body${props.selected ? ' selected' : ''}`} onClick={props.onSelect}>
                 <span className="codicon codicon-nuke-cad-cube feature-tree-icon" />
                 {props.renaming ? (
                     <InlineRename
@@ -512,7 +506,12 @@ function BodyRow(props: BodyRowProps): React.ReactElement {
                         onCancel={props.onRenameCancel}
                     />
                 ) : (
-                    <span className="feature-tree-label" onDoubleClick={props.onStartRename}>
+                    <span
+                        className="feature-tree-label"
+                        onDoubleClick={props.onStartRename}
+                        onMouseEnter={tooltip.onMouseEnter}
+                        onMouseLeave={tooltip.onMouseLeave}
+                    >
                         {bodyLabelText(props.body)}
                     </span>
                 )}
@@ -563,7 +562,7 @@ function FeatureRow(props: FeatureRowProps): React.ReactElement {
     const status = result?.status ?? 'stale';
     const statusClass = `status-${status}`;
     const statusTooltip = result?.error ?? `${status}`;
-    const tooltip = useTooltip(statusTooltip, 'right');
+    const tooltip = useTooltip(statusTooltip, 'top');
     const ambiguous = referenceResults.filter((r) => r.status === 'ambiguous').length;
     const unmatched = referenceResults.filter((r) => r.status === 'unmatched').length;
     const isBoolean = feature.type === 'booleanFuse' || feature.type === 'booleanCut' || feature.type === 'booleanCommon';
@@ -588,17 +587,17 @@ function FeatureRow(props: FeatureRowProps): React.ReactElement {
 
     return (
         <>
-            <div
-                className={`feature-tree-row feature${props.selected ? ' selected' : ''} ${statusClass}`}
-                onClick={props.onSelect}
-                onMouseEnter={tooltip.onMouseEnter}
-                onMouseLeave={tooltip.onMouseLeave}
-            >
+            <div className={`feature-tree-row feature${props.selected ? ' selected' : ''} ${statusClass}`} onClick={props.onSelect}>
                 <span className={`codicon ${iconForFeature(feature.type)} feature-tree-icon`} />
                 {renaming ? (
                     <InlineRename value={editName} onChange={setEditName} onCommit={commitRename} onCancel={cancelRename} />
                 ) : (
-                    <span className="feature-tree-label" onDoubleClick={() => setRenaming(true)}>
+                    <span
+                        className="feature-tree-label"
+                        onDoubleClick={() => setRenaming(true)}
+                        onMouseEnter={tooltip.onMouseEnter}
+                        onMouseLeave={tooltip.onMouseLeave}
+                    >
                         {feature.name}
                     </span>
                 )}

@@ -358,13 +358,16 @@ export class SketchModeController {
      * Project all dimension labels to screen coordinates for the HTML overlay.
      *
      * The overlay calls this on every render so labels stay anchored during
-     * pan/zoom.
+     * pan/zoom. Labels that would overlap on screen are shifted downward
+     * until they clear — anchors alone can collide when dimensions share
+     * geometry.
      */
     getDimensionLabels(): DimensionLabel[] {
         if (this.session === undefined || this.orthoCamera === undefined) {
             return [];
         }
         const labels: DimensionLabel[] = [];
+        const placed: Array<{ x: number; y: number; w: number; h: number }> = [];
         for (const dimension of this.session.getDimensions()) {
             const anchor = this.computeDimensionAnchor(dimension);
             if (anchor === undefined) {
@@ -372,11 +375,22 @@ export class SketchModeController {
             }
             const world = sketchToWorld(anchor, this.datumPlane);
             const screen = this.worldToScreen(new THREE.Vector3(world.x, world.y, world.z));
+            const text = this.formatDimensionText(dimension);
+            const width = text.length * 7 + 16;
+            const height = 24;
+            let x = screen.x;
+            let y = screen.y;
+            while (
+                placed.some((p) => Math.abs(x - p.x) < (width + p.w) / 2 && Math.abs(y - p.y) < (height + p.h) / 2)
+            ) {
+                y += height + 4;
+            }
+            placed.push({ x, y, w: width, h: height });
             labels.push({
                 id: dimension.id,
-                text: this.formatDimensionText(dimension),
-                x: screen.x,
-                y: screen.y,
+                text,
+                x,
+                y,
                 selected: dimension.id === this.selectedDimensionId
             });
         }
@@ -429,6 +443,9 @@ export class SketchModeController {
 
         await this.createSession(sketchDef, inheritedParameters);
         this.setupCamera();
+        if (sketchDef !== undefined) {
+            this.fitSketchView();
+        }
         this.dimModel(true);
         this.scene.add(this.sketchGroup);
         this.grid.visible = true;
@@ -488,6 +505,74 @@ export class SketchModeController {
         this.orthoCamera.bottom = box.bottom;
         this.orthoCamera.updateProjectionMatrix();
         this.renderCallback();
+    }
+
+    /**
+     * Frame the restored sketch's geometry in the orthographic view.
+     *
+     * The default view size suits a fresh empty sketch; restored sketches can
+     * span hundreds of model units and would render out of frame.
+     */
+    private fitSketchView(padding = 1.2): void {
+        const camera = this.orthoCamera;
+        const session = this.session;
+        if (camera === undefined || session === undefined) {
+            return;
+        }
+        let minX = Infinity;
+        let minY = Infinity;
+        let maxX = -Infinity;
+        let maxY = -Infinity;
+        const grow = (x: number, y: number): void => {
+            if (!Number.isFinite(x) || !Number.isFinite(y)) {
+                return;
+            }
+            minX = Math.min(minX, x);
+            minY = Math.min(minY, y);
+            maxX = Math.max(maxX, x);
+            maxY = Math.max(maxY, y);
+        };
+        for (const primitive of session.getPrimitives()) {
+            if (primitive.type === 'point') {
+                grow(primitive.x, primitive.y);
+            } else if (primitive.type === 'line') {
+                const p1 = session.getPrimitive(primitive.p1Id) as SketchPoint | undefined;
+                const p2 = session.getPrimitive(primitive.p2Id) as SketchPoint | undefined;
+                if (p1 !== undefined) {
+                    grow(p1.x, p1.y);
+                }
+                if (p2 !== undefined) {
+                    grow(p2.x, p2.y);
+                }
+            } else if (primitive.type === 'circle' || primitive.type === 'arc') {
+                const center = session.getPrimitive(primitive.centerId) as SketchPoint | undefined;
+                if (center !== undefined) {
+                    grow(center.x - primitive.radius, center.y - primitive.radius);
+                    grow(center.x + primitive.radius, center.y + primitive.radius);
+                }
+            }
+        }
+        if (!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)) {
+            return;
+        }
+        let requiredW = (maxX - minX) * padding;
+        let requiredH = (maxY - minY) * padding;
+        if (requiredW <= 0 || requiredH <= 0) {
+            return;
+        }
+        const aspect = this.getAspect();
+        if (requiredW / requiredH < aspect) {
+            requiredW = requiredH * aspect;
+        } else {
+            requiredH = requiredW / aspect;
+        }
+        const cx = (minX + maxX) / 2;
+        const cy = (minY + maxY) / 2;
+        camera.left = cx - requiredW / 2;
+        camera.right = cx + requiredW / 2;
+        camera.top = cy + requiredH / 2;
+        camera.bottom = cy - requiredH / 2;
+        camera.updateProjectionMatrix();
     }
 
     private async createSession(sketchDef?: SketchDef, inheritedParameters?: Record<string, number>): Promise<void> {
@@ -961,6 +1046,10 @@ export class SketchModeController {
         this.controls.target.copy(this.toThree(this.datumPlane.origin));
         this.controls.update();
         this.renderSketch();
+        // renderSketch only rebuilds scene children; pan must also repaint the
+        // canvas and reproject the HTML dimension labels.
+        this.emitChange();
+        this.renderCallback();
     }
 
     /** Zoom the orthographic camera around the given screen point. */
@@ -988,6 +1077,10 @@ export class SketchModeController {
         this.orthoCamera.top = this.orthoCamera.bottom + newHeight;
         this.orthoCamera.updateProjectionMatrix();
         this.renderSketch();
+        // renderSketch only rebuilds scene children; zoom must also repaint
+        // the canvas and reproject the HTML dimension labels.
+        this.emitChange();
+        this.renderCallback();
     }
 
     private getOrthoHeight(): number {

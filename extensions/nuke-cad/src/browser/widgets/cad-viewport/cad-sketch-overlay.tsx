@@ -650,7 +650,7 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
                     id: 'newDocument',
                     label: 'New Document',
                     icon: 'codicon-new-file',
-                    disabled: props.onNewDocument === undefined,
+                    disabled: props.onNewDocument === undefined || props.documentStore.hasDocument,
                     onClick: () => props.onNewDocument?.()
                 },
                 {
@@ -873,6 +873,10 @@ interface SketchToolbarProps {
 
 function SketchToolbar(props: SketchToolbarProps): React.ReactElement {
     const [collapsed, setCollapsed] = React.useState(false);
+    const [position, setPosition] = React.useState<{ top: number; left: number } | undefined>();
+    const [menuOpen, setMenuOpen] = React.useState(false);
+    const headerRef = React.useRef<HTMLDivElement>(null);
+    const dragRef = React.useRef<{ startX: number; startY: number; baseTop: number; baseLeft: number } | undefined>(undefined);
     const {
         controller,
         tool,
@@ -886,6 +890,73 @@ function SketchToolbar(props: SketchToolbarProps): React.ReactElement {
         onExitSketch
     } = props;
 
+    const onWindowDragMove = React.useCallback((e: PointerEvent): void => {
+        const drag = dragRef.current;
+        if (drag === undefined) {
+            return;
+        }
+        const maxTop = window.innerHeight - 80;
+        const maxLeft = window.innerWidth - 60;
+        setPosition({
+            top: Math.min(Math.max(drag.baseTop + e.clientY - drag.startY, 0), Math.max(maxTop, 0)),
+            left: Math.min(Math.max(drag.baseLeft + e.clientX - drag.startX, 0), Math.max(maxLeft, 0))
+        });
+    }, []);
+
+    const onWindowDragEnd = React.useCallback((): void => {
+        dragRef.current = undefined;
+        window.removeEventListener('pointermove', onWindowDragMove);
+        window.removeEventListener('pointerup', onWindowDragEnd);
+    }, [onWindowDragMove]);
+
+    React.useEffect(() => {
+        return () => {
+            window.removeEventListener('pointermove', onWindowDragMove);
+            window.removeEventListener('pointerup', onWindowDragEnd);
+        };
+    }, [onWindowDragMove, onWindowDragEnd]);
+
+    const startDrag = (e: React.PointerEvent): void => {
+        if (e.button !== 0 || (e.target as HTMLElement).closest('button') !== null) {
+            return;
+        }
+        const header = headerRef.current;
+        const toolbar = header?.parentElement;
+        if (header === null || toolbar === undefined || toolbar === null || toolbar.offsetParent === null) {
+            return;
+        }
+        const rect = header.getBoundingClientRect();
+        const parentRect = toolbar.offsetParent.getBoundingClientRect();
+        dragRef.current = {
+            startX: e.clientX,
+            startY: e.clientY,
+            baseTop: rect.top - parentRect.top,
+            baseLeft: rect.left - parentRect.left
+        };
+        window.addEventListener('pointermove', onWindowDragMove);
+        window.addEventListener('pointerup', onWindowDragEnd);
+        e.preventDefault();
+    };
+
+    const resetPosition = (): void => {
+        setPosition(undefined);
+        setMenuOpen(false);
+    };
+
+    const openContextMenu = (e: React.MouseEvent): void => {
+        e.preventDefault();
+        setMenuOpen(true);
+    };
+
+    React.useEffect(() => {
+        if (!menuOpen) {
+            return undefined;
+        }
+        const close = (): void => setMenuOpen(false);
+        window.addEventListener('pointerdown', close);
+        return () => window.removeEventListener('pointerdown', close);
+    }, [menuOpen]);
+
     if (collapsed) {
         return (
             <Tooltip content="Show Sketch Tools" position="right">
@@ -897,8 +968,14 @@ function SketchToolbar(props: SketchToolbarProps): React.ReactElement {
     }
 
     return (
-        <div className="cad-sketch-toolbar">
-            <div className="cad-sketch-toolbar-header">
+        <div className="cad-sketch-toolbar" style={position !== undefined ? { top: position.top, left: position.left } : undefined}>
+            <div
+                ref={headerRef}
+                className="cad-sketch-toolbar-header"
+                onPointerDown={startDrag}
+                onDoubleClick={resetPosition}
+                onContextMenu={openContextMenu}
+            >
                 <span className="cad-sketch-toolbar-title">Sketch</span>
                 <Tooltip content="Collapse Sketch Tools" position="right">
                     <button className="theia-button secondary cad-sketch-toolbar-collapse" onClick={() => setCollapsed(true)}>
@@ -962,6 +1039,13 @@ function SketchToolbar(props: SketchToolbarProps): React.ReactElement {
                     </button>
                 </Tooltip>
             </div>
+            {menuOpen && (
+                <div className="cad-sketch-toolbar-context-menu" onPointerDown={(e) => e.stopPropagation()}>
+                    <button className="cad-sketch-toolbar-context-item" onClick={resetPosition}>
+                        <span className="codicon codicon-discard" /> Reset Position
+                    </button>
+                </div>
+            )}
         </div>
     );
 }
@@ -1445,7 +1529,7 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                         ))}
                 </select>
             </label>
-            <label className="cad-feature-dialog-row">
+            <label className="cad-feature-dialog-row check">
                 <input type="checkbox" checked={keepTools} onChange={(e) => setKeepTools(e.target.checked)} />
                 Keep tool bodies
             </label>
@@ -1611,7 +1695,7 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                         Thickness
                         <input type="number" value={shellThickness} onChange={(e) => setShellThickness(e.target.value)} autoFocus />
                     </label>
-                    <label className="cad-feature-dialog-row">
+                    <label className="cad-feature-dialog-row check">
                         <input type="checkbox" checked={shellAllFaces} onChange={(e) => setShellAllFaces(e.target.checked)} />
                         Hollow all faces (closed shell)
                     </label>
@@ -1632,7 +1716,7 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                             <option value="z">Z</option>
                         </select>
                     </label>
-                    <label className="cad-feature-dialog-row">
+                    <label className="cad-feature-dialog-row check">
                         <input type="checkbox" checked={symmetric} onChange={(e) => setSymmetric(e.target.checked)} />
                         Symmetric
                     </label>
