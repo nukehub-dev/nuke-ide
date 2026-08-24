@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   sections are read from and written to `.nuke-ide/` (`.vscode` remains a
   secondary path). Projects configured through `.theia/settings.json` must move
   that file to `.nuke-ide/settings.json` once after updating.
+- **Save Workspace As** defaults to a new `*.nuke-workspace` format (filter
+  label "Nuke workspace") — nuke-essentials rebinds Theia's
+  `WorkspaceFileService`. Existing `*.theia-workspace` and `*.code-workspace`
+  files keep opening as before.
 - nuke-cad: **compact, professional CAD viewport chrome** — the document
   toolbar is now icon-only (tooltips on hover) with a dedicated SVG icon for
   every feature type, and the duplicate `...` overflow menu is gone; the

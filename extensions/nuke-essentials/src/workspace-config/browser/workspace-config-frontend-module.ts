@@ -26,8 +26,11 @@
 
 import { ContainerModule } from '@theia/core/shared/inversify';
 import { PreferenceConfigurations } from '@theia/core/lib/common/preferences';
+import { WorkspaceFileService } from '@theia/workspace/lib/common/workspace-file-service';
 import { NukePreferenceConfigurations } from './nuke-preference-configurations';
+import { NukeWorkspaceFileService } from './nuke-workspace-file-service';
 
 export default new ContainerModule((bind, unbind, isBound, rebind) => {
     rebind(PreferenceConfigurations).to(NukePreferenceConfigurations).inSingletonScope();
+    rebind(WorkspaceFileService).to(NukeWorkspaceFileService).inSingletonScope();
 });
