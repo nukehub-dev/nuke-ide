@@ -15,6 +15,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   sections are read from and written to `.nuke-ide/` (`.vscode` remains a
   secondary path). Projects configured through `.theia/settings.json` must move
   that file to `.nuke-ide/settings.json` once after updating.
+- nuke-cad: **compact, professional CAD viewport chrome** — the document
+  toolbar is now icon-only (tooltips on hover) with a dedicated SVG icon for
+  every feature type, and the duplicate `...` overflow menu is gone; the
+  sketch toolbar uses purpose-drawn icons for each tool and no longer
+  overlaps the constraint bar when collapsed; build warnings collapse to an
+  expandable `N build warning(s)` summary instead of a tall always-open list;
+  the Feature Tree, Model Outline, and CAD Viewport panels each got a
+  distinct custom icon in tab bars and the Nuke Tools sidebar (previously
+  three panels shared the same generic icon).
+
+### Fixed
+
+- nuke-cad: the CAD viewport rendered through a disconnected throwaway
+  camera, so orbiting, zooming, and panning had no visible effect and models
+  appeared zoomed in. The viewport now renders through the live camera, and a
+  new navigation cluster (ISO/top/front/right views, fit, zoom) plus an `F`
+  fit-view shortcut make navigation explicit.
 
 ### Added
 

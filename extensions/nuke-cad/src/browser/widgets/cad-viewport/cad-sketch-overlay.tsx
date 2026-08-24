@@ -80,12 +80,12 @@ interface CadSketchOverlayProps {
 }
 
 const TOOLS: Array<{ tool: SketchTool; label: string; icon: string }> = [
-    { tool: 'select', label: 'Select', icon: 'codicon-symbol-method' },
-    { tool: 'point', label: 'Point', icon: 'codicon-add' },
-    { tool: 'line', label: 'Line', icon: 'codicon-dash' },
-    { tool: 'circle', label: 'Circle', icon: 'codicon-circle-outline' },
-    { tool: 'arc3', label: '3-Point Arc', icon: 'codicon-git-commit' },
-    { tool: 'rectangle', label: 'Rectangle', icon: 'codicon-checklist' }
+    { tool: 'select', label: 'Select', icon: 'codicon-nuke-cad-select' },
+    { tool: 'point', label: 'Point', icon: 'codicon-nuke-cad-point' },
+    { tool: 'line', label: 'Line', icon: 'codicon-nuke-cad-line' },
+    { tool: 'circle', label: 'Circle', icon: 'codicon-nuke-cad-circle' },
+    { tool: 'arc3', label: '3-Point Arc', icon: 'codicon-nuke-cad-arc' },
+    { tool: 'rectangle', label: 'Rectangle', icon: 'codicon-nuke-cad-rectangle' }
 ];
 
 const SOLID_PRODUCERS: FeatureType[] = ['pad', 'pocket', 'revolve', 'groove'];
@@ -635,38 +635,12 @@ interface ToolbarAction {
     readonly onClick: () => void;
 }
 
-function useToolbarOverflow(ref: React.RefObject<HTMLDivElement | null>): boolean {
-    const [overflow, setOverflow] = React.useState(false);
-
-    React.useEffect(() => {
-        const el = ref.current;
-        if (el === null) {
-            return undefined;
-        }
-        const update = (): void => {
-            const groups = el.querySelectorAll('.nuke-toolbar-group');
-            const tops = new Set<number>();
-            groups.forEach((g) => tops.add((g as HTMLElement).offsetTop));
-            setOverflow(tops.size > 2);
-        };
-        update();
-        const observer = new ResizeObserver(update);
-        observer.observe(el);
-        return () => observer.disconnect();
-    }, []);
-
-    return overflow;
-}
-
 function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElement {
     const doc = props.documentStore.document;
     const selectedSketchId = props.documentStore.selection.selectedSketchId;
     const sketchSelected = selectedSketchId !== undefined;
     const hasBodies = doc !== undefined && doc.bodies.length > 0;
     const hasSolidProducers = doc !== undefined && doc.features.some((f) => SOLID_PRODUCERS.includes(f.type) && !f.suppressed);
-    const actionsRef = React.useRef<HTMLDivElement>(null);
-    const overflow = useToolbarOverflow(actionsRef);
-    const [moreOpen, setMoreOpen] = React.useState(false);
 
     const groups: Array<{ label: string; actions: ToolbarAction[] }> = [
         {
@@ -708,7 +682,7 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
                 {
                     id: 'newSketch',
                     label: 'New Sketch',
-                    icon: 'codicon-add',
+                    icon: 'codicon-nuke-cad-sketch',
                     disabled: false,
                     onClick: props.onNewSketch
                 },
@@ -731,28 +705,28 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
                 {
                     id: 'pad',
                     label: 'Pad (extrude add)',
-                    icon: 'codicon-fold-up',
+                    icon: 'codicon-nuke-cad-pad',
                     disabled: !sketchSelected,
                     onClick: () => props.onStartFeatureCreation('pad')
                 },
                 {
                     id: 'pocket',
                     label: 'Pocket (extrude cut)',
-                    icon: 'codicon-fold-down',
+                    icon: 'codicon-nuke-cad-pocket',
                     disabled: !sketchSelected || !hasBodies,
                     onClick: () => props.onStartFeatureCreation('pocket')
                 },
                 {
                     id: 'revolve',
                     label: 'Revolve',
-                    icon: 'codicon-sync',
+                    icon: 'codicon-nuke-cad-revolve',
                     disabled: !sketchSelected,
                     onClick: () => props.onStartFeatureCreation('revolve')
                 },
                 {
                     id: 'groove',
                     label: 'Groove',
-                    icon: 'codicon-discard',
+                    icon: 'codicon-nuke-cad-groove',
                     disabled: !sketchSelected || !hasBodies,
                     onClick: () => props.onStartFeatureCreation('groove')
                 }
@@ -764,21 +738,21 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
                 {
                     id: 'booleanFuse',
                     label: 'Boolean Fuse',
-                    icon: 'codicon-type-hierarchy-sub',
+                    icon: 'codicon-nuke-cad-boolean-fuse',
                     disabled: !hasBodies,
                     onClick: () => props.onStartFeatureCreation('booleanFuse')
                 },
                 {
                     id: 'booleanCut',
                     label: 'Boolean Cut',
-                    icon: 'codicon-type-hierarchy-super',
+                    icon: 'codicon-nuke-cad-boolean-cut',
                     disabled: !hasBodies,
                     onClick: () => props.onStartFeatureCreation('booleanCut')
                 },
                 {
                     id: 'booleanCommon',
                     label: 'Boolean Common',
-                    icon: 'codicon-intersect',
+                    icon: 'codicon-nuke-cad-boolean-common',
                     disabled: !hasBodies,
                     onClick: () => props.onStartFeatureCreation('booleanCommon')
                 }
@@ -790,28 +764,28 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
                 {
                     id: 'fillet',
                     label: 'Fillet',
-                    icon: 'codicon-circle',
+                    icon: 'codicon-nuke-cad-fillet',
                     disabled: !hasBodies,
                     onClick: () => props.onStartFeatureCreation('fillet')
                 },
                 {
                     id: 'chamfer',
                     label: 'Chamfer',
-                    icon: 'codicon-chrome-minimize',
+                    icon: 'codicon-nuke-cad-chamfer',
                     disabled: !hasBodies,
                     onClick: () => props.onStartFeatureCreation('chamfer')
                 },
                 {
                     id: 'draft',
                     label: 'Draft',
-                    icon: 'codicon-triangle-down',
+                    icon: 'codicon-nuke-cad-draft',
                     disabled: !hasBodies,
                     onClick: () => props.onStartFeatureCreation('draft')
                 },
                 {
                     id: 'shell',
                     label: 'Shell',
-                    icon: 'codicon-layers',
+                    icon: 'codicon-nuke-cad-shell',
                     disabled: !hasBodies,
                     onClick: () => props.onStartFeatureCreation('shell')
                 }
@@ -823,28 +797,28 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
                 {
                     id: 'linearPattern',
                     label: 'Linear Pattern',
-                    icon: 'codicon-copy',
+                    icon: 'codicon-nuke-cad-linear-pattern',
                     disabled: !hasBodies || !hasSolidProducers,
                     onClick: () => props.onStartFeatureCreation('linearPattern')
                 },
                 {
                     id: 'circularPattern',
                     label: 'Circular Pattern',
-                    icon: 'codicon-issue-reopened',
+                    icon: 'codicon-nuke-cad-circular-pattern',
                     disabled: !hasBodies || !hasSolidProducers,
                     onClick: () => props.onStartFeatureCreation('circularPattern')
                 },
                 {
                     id: 'mirror',
                     label: 'Mirror',
-                    icon: 'codicon-mirror',
+                    icon: 'codicon-nuke-cad-mirror',
                     disabled: !hasBodies || !hasSolidProducers,
                     onClick: () => props.onStartFeatureCreation('mirror')
                 },
                 {
                     id: 'hole',
                     label: 'Hole',
-                    icon: 'codicon-circle-slash',
+                    icon: 'codicon-nuke-cad-hole',
                     disabled: !hasBodies,
                     onClick: () => props.onStartFeatureCreation('hole')
                 }
@@ -861,7 +835,7 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
                     {props.documentStore.dirty && <span className="cad-document-toolbar-dirty" title="Unsaved changes" />}
                 </div>
             </div>
-            <div className="cad-document-toolbar-actions" ref={actionsRef}>
+            <div className="cad-document-toolbar-actions">
                 <NukeToolbar>
                     {groups.map((group) => (
                         <NukeToolbarGroup key={group.label} label={group.label} className="cad-document-toolbar-group">
@@ -873,7 +847,6 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
                                         onClick={action.onClick}
                                     >
                                         <span className={`codicon ${action.icon}`} />
-                                        <span className="cad-document-toolbar-action-label">{action.label}</span>
                                     </button>
                                 </Tooltip>
                             ))}
@@ -881,42 +854,6 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
                     ))}
                 </NukeToolbar>
             </div>
-            {overflow && (
-                <div className="cad-document-toolbar-more">
-                    <Tooltip content="More actions" position="bottom">
-                        <button
-                            className="theia-button secondary cad-document-toolbar-more-button"
-                            onClick={() => setMoreOpen(!moreOpen)}
-                            aria-expanded={moreOpen}
-                        >
-                            <span className="codicon codicon-ellipsis" />
-                        </button>
-                    </Tooltip>
-                    {moreOpen && (
-                        <div className="cad-document-toolbar-menu">
-                            {groups.map((group) => (
-                                <div key={group.label} className="cad-document-toolbar-menu-section">
-                                    <div className="cad-document-toolbar-menu-section-title">{group.label}</div>
-                                    {group.actions.map((action) => (
-                                        <button
-                                            key={action.id}
-                                            className="theia-button secondary cad-document-toolbar-menu-item"
-                                            disabled={action.disabled}
-                                            onClick={() => {
-                                                action.onClick();
-                                                setMoreOpen(false);
-                                            }}
-                                        >
-                                            <span className={`codicon ${action.icon}`} />
-                                            {action.label}
-                                        </button>
-                                    ))}
-                                </div>
-                            ))}
-                        </div>
-                    )}
-                </div>
-            )}
         </div>
     );
 }
@@ -985,7 +922,7 @@ function SketchToolbar(props: SketchToolbarProps): React.ReactElement {
                         className={`theia-button secondary cad-sketch-tool-button ${construction ? 'active' : ''}`}
                         onClick={() => controller.setConstruction(!construction)}
                     >
-                        <span className="codicon codicon-whole-word" />
+                        <span className="codicon codicon-nuke-cad-construction" />
                     </button>
                 </Tooltip>
                 <Tooltip content="Toggle Construction on Selection" position="right">
@@ -1016,12 +953,12 @@ function SketchToolbar(props: SketchToolbarProps): React.ReactElement {
                             }
                         }}
                     >
-                        <span className="codicon codicon-link-external" />
+                        <span className="codicon codicon-nuke-cad-external-ref" />
                     </button>
                 </Tooltip>
-                <Tooltip content="Exit Sketch" position="right">
+                <Tooltip content="Finish Sketch" position="right">
                     <button className="theia-button secondary cad-sketch-tool-button" onClick={() => void onExitSketch()}>
-                        <span className="codicon codicon-close" />
+                        <span className="codicon codicon-check" />
                     </button>
                 </Tooltip>
             </div>

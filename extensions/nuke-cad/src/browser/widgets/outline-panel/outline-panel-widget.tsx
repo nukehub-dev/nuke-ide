@@ -79,7 +79,7 @@ export class CadOutlinePanelWidget extends ReactWidget {
         this.id = CadOutlinePanelWidget.ID;
         this.title.label = CadOutlinePanelWidget.LABEL;
         this.title.closable = true;
-        this.title.iconClass = 'codicon codicon-list-tree';
+        this.title.iconClass = 'codicon codicon-nuke-cad-outline';
 
         this.selection = this.stateManager.selection;
         this.toDispose.push(this.stateManager.onModelChange(() => this.handleModelChange()));
@@ -239,7 +239,7 @@ function CadOutlinePanelComponent(props: CadOutlinePanelComponentProps): React.R
             <div className="cad-outline-header">
                 <div className="header-info">
                     <h2>
-                        <i className="codicon codicon-list-tree" />
+                        <i className="codicon codicon-nuke-cad-outline" />
                         Model Outline
                     </h2>
                     <p className="header-description">{scriptName ?? 'No CAD model open'}</p>
@@ -265,7 +265,7 @@ function CadOutlinePanelComponent(props: CadOutlinePanelComponentProps): React.R
 
             {!model && (
                 <div className="cad-outline-empty">
-                    <i className="codicon codicon-list-tree" />
+                    <i className="codicon codicon-nuke-cad-outline" />
                     <p>No CAD model is open.</p>
                     <span className="empty-hint">Open a model in the CAD viewport to inspect its volumes and surfaces.</span>
                 </div>

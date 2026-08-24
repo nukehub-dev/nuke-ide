@@ -28,6 +28,20 @@ Studio the same way you would a script build.
 You can also create a `.nuke-cad` file directly in the Explorer; double-clicking
 it opens it in the CAD viewport by default.
 
+## Navigating the 3D viewport
+
+- **Orbit**: left-drag.
+- **Pan**: right-drag.
+- **Zoom**: mouse wheel.
+- **Navigation cluster** (bottom-right of the viewport): `ISO`, `T` (top),
+  `F` (front), and `R` (right) snap to standard views; the remaining buttons
+  fit the model to the window, zoom in, and zoom out.
+- Press `F` to fit the model in view at any time (outside text fields).
+
+Build warnings (for example, intentional cross-body overlaps in assemblies)
+appear as a compact collapsible strip at the top of the viewport: click the
+warning count to expand the full list.
+
 ## Sketch mode walkthrough
 
 ### Enter sketch mode
@@ -117,9 +131,9 @@ which constraints are conflicting or redundant.
 
 - **Pan**: middle-drag or Shift+left-drag.
 - **Zoom**: mouse wheel around the cursor.
-- **Exit**: click the **Exit Sketch** button in the toolbar or run **Exit
-  Sketch** from the Command Palette. The sketch is merged back into the document
-  and the viewport returns to the 3D view.
+- **Exit**: click the **Finish Sketch** button (check icon) at the bottom of the
+  sketch toolbar or run **Exit Sketch** from the Command Palette. The sketch is
+  merged back into the document and the viewport returns to the 3D view.
 
 ## Bodies
 

@@ -54,7 +54,7 @@ export class NukeCadToolsContribution implements NukeToolsContribution {
             sectionOrder: 'b',
             categoryOrder: 'a',
             order: 'a',
-            icon: 'globe',
+            icon: 'nuke-cad-cube',
             description: 'Open the CAD viewport for the active model.'
         });
 
@@ -66,7 +66,7 @@ export class NukeCadToolsContribution implements NukeToolsContribution {
             sectionOrder: 'b',
             categoryOrder: 'a',
             order: 'a1',
-            icon: 'list-tree',
+            icon: 'nuke-cad-outline',
             description: 'Open the model outline and region manifest panel.'
         });
 
@@ -78,7 +78,7 @@ export class NukeCadToolsContribution implements NukeToolsContribution {
             sectionOrder: 'b',
             categoryOrder: 'a',
             order: 'a2',
-            icon: 'list-tree',
+            icon: 'nuke-cad-feature-tree',
             description: 'Open the parametric feature tree for .nuke-cad documents.'
         });
 

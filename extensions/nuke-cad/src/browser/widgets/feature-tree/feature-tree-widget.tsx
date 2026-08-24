@@ -86,7 +86,7 @@ export class CadFeatureTreeWidget extends ReactWidget {
         this.id = CadFeatureTreeWidget.ID;
         this.title.label = CadFeatureTreeWidget.LABEL;
         this.title.closable = true;
-        this.title.iconClass = 'codicon codicon-list-tree';
+        this.title.iconClass = 'codicon codicon-nuke-cad-feature-tree';
 
         this.toDispose.push(Disposable.create(this.documentStore.onChange(() => this.update())));
         this.update();
@@ -274,7 +274,7 @@ function CadFeatureTreeComponent(props: CadFeatureTreeComponentProps): React.Rea
             <div className="cad-feature-tree-header">
                 <div className="header-info">
                     <h2>
-                        <i className="codicon codicon-list-tree" />
+                        <i className="codicon codicon-nuke-cad-feature-tree" />
                         Feature Tree
                     </h2>
                     <p className="header-description">{doc?.name ?? 'No CAD document open'}</p>
@@ -290,7 +290,7 @@ function CadFeatureTreeComponent(props: CadFeatureTreeComponentProps): React.Rea
 
             {!doc && (
                 <div className="cad-feature-tree-empty">
-                    <i className="codicon codicon-list-tree" />
+                    <i className="codicon codicon-nuke-cad-feature-tree" />
                     <p>No CAD document is open.</p>
                     <span className="empty-hint">Create or open a .nuke-cad document to edit its feature tree.</span>
                 </div>
@@ -298,7 +298,7 @@ function CadFeatureTreeComponent(props: CadFeatureTreeComponentProps): React.Rea
 
             {doc && !hasContent && (
                 <div className="cad-feature-tree-empty">
-                    <i className="codicon codicon-circle-outline" />
+                    <i className="codicon codicon-nuke-cad-sketch" />
                     <p>This document is empty.</p>
                     <button className="theia-button" onClick={props.onNewSketch}>
                         <span className="codicon codicon-add" /> New Sketch
@@ -437,7 +437,7 @@ function DatumRow(props: DatumRowProps): React.ReactElement {
     return (
         <>
             <div className="feature-tree-row datum" onMouseEnter={tooltip.onMouseEnter} onMouseLeave={tooltip.onMouseLeave}>
-                <span className="codicon codicon-globe feature-tree-icon" />
+                <span className="codicon codicon-nuke-cad-datum feature-tree-icon" />
                 <span className="feature-tree-label">{props.datum.name}</span>
             </div>
             {tooltip.tooltipElement}
@@ -462,7 +462,7 @@ function SketchRow(props: SketchRowProps): React.ReactElement {
                 onMouseEnter={tooltip.onMouseEnter}
                 onMouseLeave={tooltip.onMouseLeave}
             >
-                <span className="codicon codicon-circle-outline feature-tree-icon" />
+                <span className="codicon codicon-nuke-cad-sketch feature-tree-icon" />
                 <span className="feature-tree-label">{props.sketch.name}</span>
                 <Tooltip content="Edit Sketch" position="left">
                     <button
@@ -503,7 +503,7 @@ function BodyRow(props: BodyRowProps): React.ReactElement {
                 onMouseEnter={tooltip.onMouseEnter}
                 onMouseLeave={tooltip.onMouseLeave}
             >
-                <span className="codicon codicon-circle-outline feature-tree-icon" />
+                <span className="codicon codicon-nuke-cad-cube feature-tree-icon" />
                 {props.renaming ? (
                     <InlineRename
                         value={props.renameValue}
@@ -812,19 +812,35 @@ function RepairPopover(props: RepairPopoverProps): React.ReactElement {
 function iconForFeature(type: string): string {
     switch (type) {
         case 'pad':
-            return 'codicon-fold-up';
+            return 'codicon-nuke-cad-pad';
         case 'pocket':
-            return 'codicon-fold-down';
+            return 'codicon-nuke-cad-pocket';
         case 'revolve':
-            return 'codicon-sync';
+            return 'codicon-nuke-cad-revolve';
         case 'groove':
-            return 'codicon-discard';
+            return 'codicon-nuke-cad-groove';
+        case 'fillet':
+            return 'codicon-nuke-cad-fillet';
+        case 'chamfer':
+            return 'codicon-nuke-cad-chamfer';
+        case 'draft':
+            return 'codicon-nuke-cad-draft';
+        case 'shell':
+            return 'codicon-nuke-cad-shell';
+        case 'linearPattern':
+            return 'codicon-nuke-cad-linear-pattern';
+        case 'circularPattern':
+            return 'codicon-nuke-cad-circular-pattern';
+        case 'mirror':
+            return 'codicon-nuke-cad-mirror';
+        case 'hole':
+            return 'codicon-nuke-cad-hole';
         case 'booleanFuse':
-            return 'codicon-type-hierarchy-sub';
+            return 'codicon-nuke-cad-boolean-fuse';
         case 'booleanCut':
-            return 'codicon-type-hierarchy-super';
+            return 'codicon-nuke-cad-boolean-cut';
         case 'booleanCommon':
-            return 'codicon-intersect';
+            return 'codicon-nuke-cad-boolean-common';
         default:
             return 'codicon-symbol-method';
     }

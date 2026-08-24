@@ -105,6 +105,13 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
 - The CAD viewport is a purpose-built three.js widget (documented exception to
   the "reuse nuke-visualizer" rule); heavy visualization results still route to
   nuke-visualizer. The empty viewport shows an **Open CAD Model...** button.
+  Rendering always goes through `SketchModeController.getActiveCamera()`: the
+  orthographic camera in sketch mode, the live perspective camera otherwise —
+  never a throwaway camera, or orbit/zoom/pan disconnect from the screen. The
+  3D viewport exposes a navigation cluster (bottom-right: ISO/top/front/right
+  views, fit, zoom in/out) backed by `fitView`/`zoomView`/`setStandardView` on
+  the viewport API; `F` fits the view when no sketch, pick mode, or text field
+  is active.
 - The Model Outline panel (`src/browser/widgets/outline-panel/`, widget ID
   `nuke-cad-outline-panel-widget`, label "Model Outline") lists the active
   model's manifest volumes and surfaces and is read-only — no manifest editing
@@ -207,14 +214,27 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
     value input, dimension labels/popover, parameters panel, external-geometry
     reference list, diagnostics popover (with reference-resolution status), and
     status line. The chrome builds on the shared nuke-essentials components
-    (`NukeToolbar`/`NukeToolbarGroup` for the document toolbar — grouped
-    Document/Sketch/Additive/Boolean/Dress-up/Pattern/Hole with wrapping;
-    `NukeDialog` for the modal feature-creation dialog; `NukePanel` for the
-    parameters/diagnostics/external-geometry popovers). The viewport widget
-    itself uses `NukeEmptyState` for the empty viewport, `NukeLoadingOverlay`
-    for rebuilds over existing geometry, and renders non-fatal build warnings
-    (`GeometryBuildResult.warnings`, e.g. cross-body overlap) in a dismissible
-    warning strip below the error banner.
+    (`NukeToolbar`/`NukeToolbarGroup` for the icon-only document toolbar —
+    grouped Document/Sketch/Additive/Boolean/Dress-up/Pattern/Hole with
+    tooltips and wrapping; no duplicate overflow menu — every action stays in
+    its group; `NukeDialog` for the modal feature-creation dialog; `NukePanel`
+    for the parameters/diagnostics/external-geometry popovers). The viewport
+    widget itself uses `NukeEmptyState` for the empty viewport,
+    `NukeLoadingOverlay` for rebuilds over existing geometry, and renders
+    non-fatal build warnings (`GeometryBuildResult.warnings`, e.g. cross-body
+    overlap) in a collapsible warning strip below the error banner: a collapsed
+    `N build warning(s)` summary that expands to the full list, reset to
+    collapsed on each new build.
+- Custom CAD icons live in
+  `src/browser/widgets/cad-viewport/cad-icons.css` as mask-based
+  `codicon-nuke-cad-<name>` classes (16x16, `currentColor` — same technique as
+  Theia file icons). They are used everywhere codicons are: toolbar buttons,
+  feature-tree rows, widget `title.iconClass`, and the Nuke Tools sidebar
+  (whose registry `icon` field takes the bare `nuke-cad-<name>` and renders it
+  through Theia's `codicon()` helper). Keep new glyphs on the documented 16px
+  grid (header comment in the CSS); never substitute a generic codicon for a
+  panel/feature that already has a dedicated `nuke-cad-` icon — distinct
+  panels must stay visually distinct.
 - The geometric constraint solver is client-side only. The document stores
   planegcs-verbatim primitives with solved coordinates; the Python backend never
   re-solves. `src/common/sketch-solver.ts` exports the solver-agnostic

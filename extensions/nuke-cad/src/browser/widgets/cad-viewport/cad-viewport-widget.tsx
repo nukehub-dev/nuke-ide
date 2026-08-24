@@ -70,6 +70,7 @@ import { type TopologyRef } from '../../../common/topology-refs';
 import { FaceHighlighter, type FacePickHit, buildTopologyRef, pointerToNdc, projectHitToFaceUv, raycastFace } from './face-picker';
 import { EdgeHighlighter, type EdgePickHit, buildEdgeLine, buildEdgeTopologyRef, raycastEdge } from './edge-picker';
 import './cad-viewport.css';
+import './cad-icons.css';
 
 interface TessFace {
     readonly faceId: number;
@@ -526,7 +527,7 @@ export class CadViewportWidget extends ReactWidget {
         this.id = CadViewportWidget.ID;
         this.title.label = CadViewportWidget.LABEL;
         this.title.closable = true;
-        this.title.iconClass = 'codicon codicon-globe';
+        this.title.iconClass = 'codicon codicon-nuke-cad-cube';
 
         this.toDispose.push(this.stateManager.onModelChange((model) => this.handleModelChange(model)));
         this.toDispose.push(this.monacoWorkspace.onDidSaveTextDocument((document) => this.onModelScriptSaved(document)));
@@ -1128,6 +1129,7 @@ interface CadViewportComponentProps {
 function CadViewportComponent(props: CadViewportComponentProps): React.ReactElement {
     const containerRef = React.useRef<HTMLDivElement>(null);
     const [controller, setController] = React.useState<SketchModeController | undefined>();
+    const [warningsOpen, setWarningsOpen] = React.useState(false);
     const editFeature = React.useMemo(() => {
         if (props.editingFeatureId === undefined) {
             return undefined;
@@ -1139,6 +1141,9 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
         setFacePickMode?: (mode?: 'sketchDatum' | 'externalGeometry') => void;
         setDressUpPickMode?: (mode?: { type: FeatureType; selecting: 'edge' | 'face' }) => void;
         setHolePickMode?: (active: boolean) => void;
+        fitView?: () => void;
+        zoomView?: (factor: number) => void;
+        setStandardView?: (view: 'iso' | 'top' | 'front' | 'right') => void;
     }>({});
 
     React.useEffect(() => {
@@ -1184,6 +1189,9 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             viewportApi.current.setFacePickMode = api.setFacePickMode;
             viewportApi.current.setDressUpPickMode = api.setDressUpPickMode;
             viewportApi.current.setHolePickMode = api.setHolePickMode;
+            viewportApi.current.fitView = api.fitView;
+            viewportApi.current.zoomView = api.zoomView;
+            viewportApi.current.setStandardView = api.setStandardView;
             api.setFacePickMode(props.facePickMode);
             api.setDressUpPickMode(props.dressUpPickMode);
             api.setHolePickMode(props.holePickMode ?? false);
@@ -1198,6 +1206,9 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             viewportApi.current.setFacePickMode = undefined;
             viewportApi.current.setDressUpPickMode = undefined;
             viewportApi.current.setHolePickMode = undefined;
+            viewportApi.current.fitView = undefined;
+            viewportApi.current.zoomView = undefined;
+            viewportApi.current.setStandardView = undefined;
             cleanup?.();
         };
         // All non-tessData props are stable widget-bound callbacks; the scene is
@@ -1221,6 +1232,12 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
         viewportApi.current.setHolePickMode?.(props.holePickMode ?? false);
     }, [props.holePickMode]);
 
+    React.useEffect(() => {
+        if (props.warnings.length > 0) {
+            setWarningsOpen(false);
+        }
+    }, [props.warnings.length]);
+
     const errorBanner = props.error ? (
         <div className="cad-viewport-error-banner">
             <span className="codicon codicon-error" />
@@ -1236,19 +1253,27 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
     const warningStrip =
         props.warnings.length > 0 ? (
             <div className="cad-viewport-warning-strip">
-                <span className="codicon codicon-warning" />
-                <div className="cad-viewport-warning-list">
-                    {props.warnings.map((warning, index) => (
-                        <div key={index} className="cad-viewport-warning-item">
-                            {warning}
-                        </div>
-                    ))}
-                </div>
-                <Tooltip content="Dismiss" position="left">
-                    <button className="theia-button secondary cad-viewport-error-dismiss" onClick={props.onDismissWarnings}>
-                        <span className="codicon codicon-close" />
+                <div className="cad-viewport-warning-header">
+                    <span className="codicon codicon-warning" />
+                    <button className="theia-button secondary cad-viewport-warning-toggle" onClick={() => setWarningsOpen(!warningsOpen)}>
+                        {`${props.warnings.length} build warning${props.warnings.length === 1 ? '' : 's'}`}
+                        <span className={`codicon ${warningsOpen ? 'codicon-chevron-down' : 'codicon-chevron-right'}`} />
                     </button>
-                </Tooltip>
+                    <Tooltip content="Dismiss" position="left">
+                        <button className="theia-button secondary cad-viewport-error-dismiss" onClick={props.onDismissWarnings}>
+                            <span className="codicon codicon-close" />
+                        </button>
+                    </Tooltip>
+                </div>
+                {warningsOpen && (
+                    <div className="cad-viewport-warning-list">
+                        {props.warnings.map((warning, index) => (
+                            <div key={index} className="cad-viewport-warning-item">
+                                {warning}
+                            </div>
+                        ))}
+                    </div>
+                )}
             </div>
         ) : undefined;
 
@@ -1305,6 +1330,60 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
         />
     );
 
+    const navCluster =
+        props.tessData !== undefined && !sketchActive && !props.loading ? (
+            <div className="cad-viewport-nav">
+                <Tooltip content="Iso view" position="left">
+                    <button
+                        className="theia-button secondary cad-viewport-nav-button cad-viewport-nav-text"
+                        onClick={() => viewportApi.current.setStandardView?.('iso')}
+                    >
+                        ISO
+                    </button>
+                </Tooltip>
+                <Tooltip content="Top view" position="left">
+                    <button
+                        className="theia-button secondary cad-viewport-nav-button cad-viewport-nav-text"
+                        onClick={() => viewportApi.current.setStandardView?.('top')}
+                    >
+                        T
+                    </button>
+                </Tooltip>
+                <Tooltip content="Front view" position="left">
+                    <button
+                        className="theia-button secondary cad-viewport-nav-button cad-viewport-nav-text"
+                        onClick={() => viewportApi.current.setStandardView?.('front')}
+                    >
+                        F
+                    </button>
+                </Tooltip>
+                <Tooltip content="Right view" position="left">
+                    <button
+                        className="theia-button secondary cad-viewport-nav-button cad-viewport-nav-text"
+                        onClick={() => viewportApi.current.setStandardView?.('right')}
+                    >
+                        R
+                    </button>
+                </Tooltip>
+                <span className="cad-viewport-nav-divider" />
+                <Tooltip content="Fit view (F)" position="left">
+                    <button className="theia-button secondary cad-viewport-nav-button" onClick={() => viewportApi.current.fitView?.()}>
+                        <span className="codicon codicon-screen-full" />
+                    </button>
+                </Tooltip>
+                <Tooltip content="Zoom in" position="left">
+                    <button className="theia-button secondary cad-viewport-nav-button" onClick={() => viewportApi.current.zoomView?.(0.8)}>
+                        <span className="codicon codicon-zoom-in" />
+                    </button>
+                </Tooltip>
+                <Tooltip content="Zoom out" position="left">
+                    <button className="theia-button secondary cad-viewport-nav-button" onClick={() => viewportApi.current.zoomView?.(1.25)}>
+                        <span className="codicon codicon-zoom-out" />
+                    </button>
+                </Tooltip>
+            </div>
+        ) : undefined;
+
     if (sketchActive) {
         return (
             <div ref={containerRef} className="cad-viewport empty">
@@ -1360,6 +1439,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             {banners}
             {dirtyMarker}
             {props.loading && <NukeLoadingOverlay message={props.loadingMessage} />}
+            {navCluster}
             {sketchOverlay}
         </div>
     );
@@ -1372,6 +1452,9 @@ interface ViewportApi {
     readonly setFacePickMode: (mode?: 'sketchDatum' | 'externalGeometry') => void;
     readonly setDressUpPickMode: (mode?: { type: FeatureType; selecting: 'edge' | 'face' }) => void;
     readonly setHolePickMode: (active: boolean) => void;
+    readonly fitView: () => void;
+    readonly zoomView: (factor: number) => void;
+    readonly setStandardView: (view: 'iso' | 'top' | 'front' | 'right') => void;
 }
 
 function initViewport(
@@ -1438,6 +1521,8 @@ function initViewport(
     let activeFacePickMode: 'sketchDatum' | 'externalGeometry' | undefined;
     let activeDressUpPickMode: { type: FeatureType; selecting: 'edge' | 'face' } | undefined;
     let activeHolePickMode = initialHolePickMode;
+    let lastCenter = new THREE.Vector3();
+    let lastDiag = 10;
 
     const highlightColor = new THREE.Color(readThemeColor(container, '--theia-focusBorder', '#007fd4'));
     const faceHighlighter = new FaceHighlighter(highlightColor);
@@ -1449,7 +1534,12 @@ function initViewport(
     const renderScene = (): void => {
         renderer.render(scene, controller.getActiveCamera());
     };
-    controller = new SketchModeController(container, scene, renderer, controls, renderScene, { modelGroup, messageService, documentStore });
+    controller = new SketchModeController(container, scene, renderer, controls, renderScene, {
+        modelGroup,
+        messageService,
+        documentStore,
+        mainCamera: camera
+    });
     onControllerReady(controller, camera);
 
     const applyHighlight = (): void => {
@@ -1490,6 +1580,8 @@ function initViewport(
         const bbox = data.boundingBox;
         const center = new THREE.Vector3((bbox.min[0] + bbox.max[0]) / 2, (bbox.min[1] + bbox.max[1]) / 2, (bbox.min[2] + bbox.max[2]) / 2);
         const diag = new THREE.Vector3(bbox.max[0] - bbox.min[0], bbox.max[1] - bbox.min[1], bbox.max[2] - bbox.min[2]).length();
+        lastCenter.copy(center);
+        lastDiag = diag;
         camera.position.copy(center.clone().add(new THREE.Vector3(diag, diag, diag)));
         camera.lookAt(center);
         controls.target.copy(center);
@@ -1524,6 +1616,50 @@ function initViewport(
     };
 
     buildModel(tessData);
+
+    const fitView = (): void => {
+        const direction = camera.position.clone().sub(controls.target);
+        if (direction.length() < 1e-6) {
+            direction.set(1, -1, 1);
+        }
+        direction
+            .normalize()
+            .multiplyScalar(lastDiag * 1.75)
+            .add(lastCenter);
+        camera.position.copy(direction);
+        controls.target.copy(lastCenter);
+        camera.up.set(0, 0, 1);
+        camera.lookAt(lastCenter);
+        controls.update();
+        renderScene();
+    };
+
+    const zoomView = (factor: number): void => {
+        const offset = camera.position.clone().sub(controls.target).multiplyScalar(factor);
+        camera.position.copy(controls.target).add(offset);
+        controls.update();
+        renderScene();
+    };
+
+    const setStandardView = (view: 'iso' | 'top' | 'front' | 'right'): void => {
+        const directions: Record<'iso' | 'top' | 'front' | 'right', [number, number, number]> = {
+            iso: [1, -1, 1],
+            top: [0, 0, 1],
+            front: [0, -1, 0],
+            right: [1, 0, 0]
+        };
+        camera.position.copy(
+            new THREE.Vector3(...directions[view])
+                .normalize()
+                .multiplyScalar(lastDiag * 1.75)
+                .add(lastCenter)
+        );
+        controls.target.copy(lastCenter);
+        camera.up.set(0, 0, 1);
+        camera.lookAt(lastCenter);
+        controls.update();
+        renderScene();
+    };
 
     const ambient = new THREE.AmbientLight(0xffffff, 0.6);
     scene.add(ambient);
@@ -1724,6 +1860,24 @@ function initViewport(
     };
     window.addEventListener('keydown', onKeyDown);
 
+    const onFitKey = (event: KeyboardEvent): void => {
+        if (event.key !== 'f' && event.key !== 'F') {
+            return;
+        }
+        if (controller.isActive || activeFacePickMode !== undefined || activeDressUpPickMode !== undefined || activeHolePickMode) {
+            return;
+        }
+        const target = event.target;
+        if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) {
+            return;
+        }
+        if (target instanceof HTMLElement && target.isContentEditable) {
+            return;
+        }
+        fitView();
+    };
+    window.addEventListener('keydown', onFitKey);
+
     // Fires immediately with the current selection, then on every change.
     const selectionDisposable = subscribeSelection((selection) => {
         currentSelection = selection;
@@ -1778,6 +1932,9 @@ function initViewport(
             }
             renderScene();
         },
+        fitView,
+        zoomView,
+        setStandardView,
         cleanup: () => {
             selectionDisposable.dispose();
             themeDisposable.dispose();
@@ -1790,6 +1947,7 @@ function initViewport(
             renderer.domElement.removeEventListener('pointerup', onPointerUp);
             renderer.domElement.removeEventListener('wheel', onWheel);
             window.removeEventListener('keydown', onKeyDown);
+            window.removeEventListener('keydown', onFitKey);
             controls.removeEventListener('change', renderScene);
             controls.dispose();
             controller.dispose();

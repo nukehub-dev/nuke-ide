@@ -84,13 +84,28 @@
 
 .cad-viewport-warning-strip {
     display: flex;
-    align-items: flex-start;
-    gap: 8px;
+    flex-direction: column;
+    gap: 4px;
     padding: 8px 10px;
     border: 1px solid var(--theia-editorWarning-foreground);
     border-radius: 6px;
     background: var(--theia-inputValidation-warningBackground, var(--theia-editorWidget-background));
     color: var(--theia-editorWarning-foreground);
+}
+
+.cad-viewport-warning-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.cad-viewport-warning-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-right: auto;
+    padding: 1px 6px;
+    font-size: var(--theia-ui-font-size1);
 }
 
 .cad-viewport-warning-list {
@@ -125,16 +140,18 @@
 
 .cad-sketch-toolbar {
     position: absolute;
-    top: 44px;
+    top: 8px;
     left: 8px;
     z-index: 20;
     display: flex;
     flex-direction: column;
     min-width: 40px;
+    max-height: calc(100% - 16px);
     border: 1px solid var(--theia-panel-border);
     border-radius: 6px;
     background: var(--theia-editorWidget-background);
     overflow: hidden;
+    overflow-y: auto;
     pointer-events: auto;
 }
 
@@ -175,7 +192,7 @@
 
 .cad-sketch-toolbar-toggle {
     position: absolute;
-    top: 44px;
+    top: 8px;
     left: 8px;
     z-index: 20;
 }
@@ -252,8 +269,8 @@
 
 .cad-sketch-constraint-bar {
     position: absolute;
-    top: 44px;
-    left: 50px;
+    top: 8px;
+    left: 52px;
     display: flex;
     align-items: center;
     gap: 8px;
@@ -414,7 +431,7 @@
 
 .cad-sketch-parameters-panel {
     position: absolute;
-    top: 44px;
+    top: 8px;
     right: 8px;
     width: 260px;
     max-height: calc(100% - 88px);
@@ -561,7 +578,7 @@
 
 .cad-sketch-external-refs {
     position: absolute;
-    top: 44px;
+    top: 8px;
     right: 8px;
     width: 220px;
     max-height: calc(100% - 88px);
@@ -707,73 +724,14 @@
 .cad-document-toolbar-action {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
-    padding: 4px 8px;
-    font-size: var(--theia-ui-font-size1);
-    white-space: nowrap;
-}
-
-.cad-document-toolbar-more {
-    position: relative;
-    flex-shrink: 0;
-}
-
-.cad-document-toolbar-more-button {
-    display: flex;
-    align-items: center;
     justify-content: center;
-    width: 28px;
-    height: 28px;
+    width: 26px;
+    height: 26px;
     padding: 0;
 }
 
-.cad-document-toolbar-menu {
-    position: absolute;
-    top: calc(100% + 4px);
-    right: 0;
-    z-index: 30;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    min-width: 180px;
-    max-height: 70vh;
-    overflow-y: auto;
-    padding: 10px;
-    border: 1px solid var(--theia-panel-border);
-    border-radius: 6px;
-    background: var(--theia-editorWidget-background);
-    box-shadow:
-        0 4px 6px rgba(0, 0, 0, 0.1),
-        0 2px 4px rgba(0, 0, 0, 0.06);
-}
-
-.cad-document-toolbar-menu-section {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-}
-
-.cad-document-toolbar-menu-section-title {
-    font-size: 10px;
-    font-weight: 600;
-    color: var(--theia-descriptionForeground);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    padding: 0 4px;
-}
-
-.cad-document-toolbar-menu-item {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    justify-content: flex-start;
-    padding: 4px 8px;
-    font-size: var(--theia-ui-font-size1);
-    white-space: nowrap;
-}
-
-.cad-document-toolbar-menu-item .codicon {
-    flex-shrink: 0;
+.cad-document-toolbar-action .codicon {
+    font-size: 16px;
 }
 
 /* Feature creation dialog (shell provided by NukeDialog) */
@@ -857,4 +815,39 @@
 .cad-feature-dialog-ref-row button {
     padding: 2px 4px;
     min-width: 0;
+}
+
+.cad-viewport-nav {
+    position: absolute;
+    bottom: 8px;
+    right: 8px;
+    z-index: 15;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 3px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editorWidget-background);
+}
+
+.cad-viewport-nav-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 24px;
+    height: 22px;
+    padding: 0 4px;
+}
+
+.cad-viewport-nav-text {
+    font-size: 10px;
+    font-weight: 600;
+}
+
+.cad-viewport-nav-divider {
+    width: 1px;
+    height: 16px;
+    margin: 0 3px;
+    background: var(--theia-panel-border);
 }

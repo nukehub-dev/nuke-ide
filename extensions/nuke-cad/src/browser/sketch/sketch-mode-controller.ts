@@ -165,7 +165,7 @@ export class SketchModeController {
     private readonly projectedGroup: THREE.Group;
     private readonly dimensionGroup: THREE.Group;
 
-    private savedCamera?: THREE.PerspectiveCamera;
+    private mainCamera?: THREE.PerspectiveCamera;
     private orthoCamera?: THREE.OrthographicCamera;
     private modelGroup?: THREE.Group;
     private readonly originalModelVisibility = new Map<THREE.Object3D, boolean>();
@@ -209,6 +209,7 @@ export class SketchModeController {
             existingSession?: SketchSession;
             messageService?: MessageService;
             documentStore?: CadDocumentStore;
+            mainCamera?: THREE.PerspectiveCamera;
         } = {}
     ) {
         this.container = container;
@@ -220,6 +221,7 @@ export class SketchModeController {
         this.session = options.existingSession;
         this.disposeSessionOnExit = options.existingSession === undefined;
         this.messageService = options.messageService;
+        this.mainCamera = options.mainCamera;
 
         this.themeColors = this.readThemeColors();
 
@@ -381,9 +383,15 @@ export class SketchModeController {
         return labels;
     }
 
-    /** The camera that should be used for rendering. */
+    /**
+     * The camera that should be used for rendering.
+     *
+     * Sketch mode renders through the orthographic camera; every other state
+     * renders through the viewport's live perspective camera so orbit/zoom/pan
+     * remain connected to what is on screen.
+     */
     getActiveCamera(): THREE.Camera {
-        return this.orthoCamera ?? this.savedCamera ?? new THREE.PerspectiveCamera();
+        return this.orthoCamera ?? this.mainCamera ?? new THREE.PerspectiveCamera();
     }
 
     /**
@@ -413,9 +421,11 @@ export class SketchModeController {
         } else {
             this.datumPlane = buildDatumPlane(kind, offset);
         }
-        this.savedCamera = camera;
         this.savedControlsEnabled = this.controls.enabled;
         this.controls.enabled = false;
+        if (camera !== undefined) {
+            this.mainCamera = camera;
+        }
 
         await this.createSession(sketchDef, inheritedParameters);
         this.setupCamera();
@@ -568,7 +578,6 @@ export class SketchModeController {
     private restoreCamera(): void {
         this.orthoCamera = undefined;
     }
-
     private dimModel(dim: boolean): void {
         if (this.modelGroup === undefined) {
             return;
