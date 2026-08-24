@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Workspace-scope settings now live in `<project>/.nuke-ide/` instead of
+  Theia's default `<project>/.theia/` — nuke-essentials rebinds Theia's
+  `PreferenceConfigurations`, so `settings.json` plus the tasks/launch/snippets
+  sections are read from and written to `.nuke-ide/` (`.vscode` remains a
+  secondary path). Projects configured through `.theia/settings.json` must move
+  that file to `.nuke-ide/settings.json` once after updating.
+
 ### Added
 
 - nuke-cad: **multi-body `.nuke-cad` documents and boolean features** — the
