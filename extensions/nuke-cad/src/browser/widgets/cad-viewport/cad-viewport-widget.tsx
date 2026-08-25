@@ -1934,6 +1934,9 @@ function initViewport(
     const camera = new THREE.PerspectiveCamera(45, width / height, 0.01, 10000);
     camera.name = 'cad-perspective-camera';
     camera.position.set(10, 10, 10);
+    // Z-up world: OrbitControls freezes its orbit pole from camera.up at
+    // construction, so this must precede controls creation.
+    camera.up.set(0, 0, 1);
     camera.lookAt(0, 0, 0);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -1942,7 +1945,7 @@ function initViewport(
     renderer.localClippingEnabled = true;
     container.appendChild(renderer.domElement);
 
-    const controls = new OrbitControlsCtor(camera, renderer.domElement);
+    let controls = new OrbitControlsCtor(camera, renderer.domElement);
     controls.target.set(0, 0, 0);
     controls.update();
 
@@ -2443,16 +2446,40 @@ function initViewport(
         renderScene();
     };
 
+    const VIEW_UP_Z = new THREE.Vector3(0, 0, 1);
+    const VIEW_UP_Y = new THREE.Vector3(0, 1, 0);
+    let controlsUp = VIEW_UP_Z.clone();
+    // OrbitControls freezes its orbit pole from camera.up at construction, so
+    // a view snap that needs a different up re-creates the controls instead of
+    // leaving the camera stranded on the old pole with dead orbit directions.
+    const recreateControls = (up: THREE.Vector3): void => {
+        controls.dispose();
+        camera.up.copy(up);
+        controlsUp = up.clone();
+        controls = new OrbitControlsCtor(camera, renderer.domElement);
+        controls.target.copy(lastCenter);
+        controls.addEventListener('change', renderScene);
+        controls.addEventListener('start', onViewInteractionStart);
+        controls.update();
+    };
+
     const setViewDirection = (dir: [number, number, number]): void => {
         viewName = viewNameForDirection(dir);
+        const viewDir = new THREE.Vector3(...dir).normalize();
         camera.position.copy(
-            new THREE.Vector3(...dir)
-                .normalize()
+            viewDir
+                .clone()
                 .multiplyScalar(lastDiag * 1.75)
                 .add(lastCenter)
         );
+        // Top/bottom views look straight down the Z orbit pole; they re-pole
+        // the controls around Y (map-style) so mouse orbiting stays live.
+        const desiredUp = Math.abs(viewDir.z) > 0.999 ? VIEW_UP_Y : VIEW_UP_Z;
+        if (!controlsUp.equals(desiredUp)) {
+            recreateControls(desiredUp);
+        }
+        camera.up.copy(desiredUp);
         controls.target.copy(lastCenter);
-        camera.up.set(0, 0, 1);
         camera.lookAt(lastCenter);
         controls.update();
         renderScene();

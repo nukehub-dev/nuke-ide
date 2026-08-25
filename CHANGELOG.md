@@ -79,6 +79,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- nuke-cad: **mouse orbiting died after clicking a gizmo axis** — OrbitControls
+  freezes its orbit pole from the camera's up vector at construction, so view
+  snaps left the camera stranded on the pole with dead drag directions (worst
+  on the Front/Back/Top/Bottom handles). Snaps now re-pole the controls
+  (top/bottom orbit map-style around Y), and the gizmo moved below the
+  toolbar with proper clearance instead of touching it.
 - nuke-cad: **exiting a brand-new sketch silently failed** — the sketch session
   was created without the pre-registered document def, so the exit-time save
   failed datum validation (`unknown datum 'XY'`) and kept the user trapped in

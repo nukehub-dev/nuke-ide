@@ -120,9 +120,12 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   (no document-hint flash) and shows a "Starting sketch solver..." overlay.
   The 3D viewport also carries an axis gizmo (top-right SVG,
   updated imperatively from `renderScene` — never from React state; click an
-  axis to snap views, hidden in sketch mode via `setGizmoVisible`) and a
+  axis to snap views — snaps needing a different up re-create the controls
+  because OrbitControls freezes its orbit pole at construction, keeping mouse
+  orbit live after every snap; hidden in sketch mode via `setGizmoVisible`) and a
   wireframe toggle (`setWireframe`) in the navigation cluster. Both the gizmo
-  and the view-label overlay sit **below the document toolbar** (top 52px) —
+  and the view-label overlay sit **below the document toolbar** (gizmo at
+  top 64px, clear of the toolbar; view label at 52px) —
   at the toolbar's z-index the full-width toolbar would cover them. The view
   label (`cad-viewport-view-label`, imperative DOM) shows the active standard
   view (`User` after orbiting, `Top`/`Left`/... after snapping) or

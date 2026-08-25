@@ -126,7 +126,7 @@
 /* Axis navigation gizmo (below the document toolbar, mirrors camera orientation) */
 .cad-viewport-gizmo {
     position: absolute;
-    top: 52px;
+    top: 64px;
     right: 10px;
     z-index: 12;
     width: 68px;
