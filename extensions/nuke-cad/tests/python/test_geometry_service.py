@@ -1,6 +1,7 @@
 """Tests for the nuke-cad geometry service."""
 
 import json
+import math
 from pathlib import Path
 
 import geometry_service
@@ -712,3 +713,90 @@ def test_build_document_with_face_datum_and_external_refs(tmp_path: Path) -> Non
     assert by_path["datum.face.reference"]["featureId"] == "top"
     assert by_path["sketch.top.externalRefs[0]"]["status"] == "matched"
     assert by_path["sketch.top.externalRefs[0]"]["featureId"] == "top"
+
+
+def _load_tess_solids(result: dict) -> list[dict]:
+    tess_data = json.loads(Path(result["tessPath"]).read_text())
+    return tess_data["solids"]
+
+
+def _assert_properties_shape(props: dict) -> None:
+    assert set(props.keys()) == {"volume", "area", "bbox", "centerOfMass"}
+    assert isinstance(props["volume"], float)
+    assert isinstance(props["area"], float)
+    assert set(props["bbox"].keys()) == {"min", "max"}
+    for point in (props["bbox"]["min"], props["bbox"]["max"], props["centerOfMass"]):
+        assert isinstance(point, list)
+        assert len(point) == 3
+        assert all(isinstance(v, float) for v in point)
+
+
+def test_solid_properties_unit_cube(tmp_path: Path) -> None:
+    """A unit cube reports exact mass properties on every solid."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    script = tmp_path / "cube.py"
+    script.write_text("from build123d import *\nmodel = Box(1, 1, 1)\n")
+    result = geometry_service.build_geometry(
+        str(script), output_dir=str(tmp_path), export_dagmc=False, export_mesh=False
+    )
+    assert result["success"] is True, result.get("error", "")
+    solids = _load_tess_solids(result)
+    assert len(solids) == 1
+    for solid in solids:
+        props = solid.get("properties")
+        assert props is not None, f"solid {solid['solidId']} missing properties"
+        _assert_properties_shape(props)
+        assert props["volume"] == pytest.approx(1.0)
+        assert props["area"] == pytest.approx(6.0)
+        assert props["bbox"]["min"] == pytest.approx([-0.5, -0.5, -0.5])
+        assert props["bbox"]["max"] == pytest.approx([0.5, 0.5, 0.5])
+        assert props["centerOfMass"] == pytest.approx([0.0, 0.0, 0.0])
+
+
+def test_solid_properties_cylinder(tmp_path: Path) -> None:
+    """A cylinder matches the analytic V = pi r^2 h and A = 2 pi r h + 2 pi r^2."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    script = tmp_path / "cyl.py"
+    script.write_text("from build123d import *\nmodel = Cylinder(2, 10)\n")
+    result = geometry_service.build_geometry(
+        str(script), output_dir=str(tmp_path), export_dagmc=False, export_mesh=False
+    )
+    assert result["success"] is True, result.get("error", "")
+    solids = _load_tess_solids(result)
+    assert len(solids) == 1
+    props = solids[0].get("properties")
+    assert props is not None, "solid missing properties"
+    _assert_properties_shape(props)
+    assert props["volume"] == pytest.approx(math.pi * 2 * 2 * 10, rel=1e-6)
+    assert props["area"] == pytest.approx(2 * math.pi * 2 * 10 + 2 * math.pi * 2 * 2, rel=1e-6)
+    # Curved-face bboxes come from the triangulation, so allow mesh-level slack.
+    assert props["bbox"]["min"] == pytest.approx([-2.0, -2.0, -5.0], abs=1e-3)
+    assert props["bbox"]["max"] == pytest.approx([2.0, 2.0, 5.0], abs=1e-3)
+    assert props["centerOfMass"] == pytest.approx([0.0, 0.0, 0.0])
+
+
+def test_solid_properties_present_on_every_solid_in_compound(tmp_path: Path) -> None:
+    """Every solid of a multi-solid compound carries its own properties dict."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    script = tmp_path / "boxes.py"
+    script.write_text(
+        "from build123d import *\n"
+        "box1 = Box(10, 10, 10)\n"
+        "box1.label = 'left'\n"
+        "box2 = Pos(10, 0, 0) * Box(10, 10, 10)\n"
+        "box2.label = 'right'\n"
+        "model = Compound(children=[box1, box2])\n"
+    )
+    result = geometry_service.build_geometry(
+        str(script), output_dir=str(tmp_path), export_dagmc=False, export_mesh=False
+    )
+    assert result["success"] is True, result.get("error", "")
+    solids = _load_tess_solids(result)
+    assert len(solids) == 2
+    by_id = {solid["solidId"]: solid.get("properties") for solid in solids}
+    for solid_id, props in by_id.items():
+        assert props is not None, f"solid {solid_id} missing properties"
+        _assert_properties_shape(props)
+        assert props["volume"] == pytest.approx(1000.0)
+    assert by_id[1]["centerOfMass"] == pytest.approx([0.0, 0.0, 0.0])
+    assert by_id[2]["centerOfMass"] == pytest.approx([10.0, 0.0, 0.0])

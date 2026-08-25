@@ -35,8 +35,24 @@ it opens it in the CAD viewport by default.
 - **Zoom**: mouse wheel.
 - **Navigation cluster** (bottom-right of the viewport): `ISO`, `T` (top),
   `F` (front), and `R` (right) snap to standard views; the remaining buttons
-  fit the view, zoom in, zoom out, and cycle shading (**shaded → wireframe →
-  edges-only**).
+  fit the view and zoom in/out.
+- **Shading menu** (navigation cluster): pick **Shaded**, **Shaded +
+  Wireframe**, **Edges only**, or **X-ray**. In X-ray mode a **Ghost opacity**
+  slider (15–60%) controls how transparent bodies render, so interior bodies
+  show through. The active mode survives rebuilds. Edges only hides face
+  fills for a technical-drawing look; face/solid picking is disabled while it
+  is active (the viewport shows a hint).
+- **Measure tool** (document toolbar Inspect group, also on the sketch
+  toolbar): click two points to record a persistent distance label — 3D mode
+  snaps to picked surface points, sketch mode uses the active snap settings.
+  Measurements live in a list popover where individual rows can be deleted;
+  they are viewport-only annotations (never saved into the document) and are
+  cleared when the model rebuilds.
+- **Section plane** (navigation cluster): slices the model open along an X,
+  Y, or Z plane. A popover offers axis buttons, **Flip**, and a slider that
+  slides the plane across the model's bounding box. Sectioning is visual
+  only — exports are unaffected. Click the button again or press `Esc` to
+  exit.
 - **Axis gizmo** (top-right, below the toolbar): mirrors the current camera
   orientation; click an axis handle (or its opposite) to snap to that view.
 - **View label** (top-left, below the toolbar): shows the active view
@@ -83,6 +99,11 @@ The snap engine prioritizes endpoint → midpoint → center → quadrant →
 on-curve → grid. Hovering shows a snap marker; clicks commit the snapped
 position. When a click lands on an existing endpoint or curve, an auto-
 coincident or point-on-object constraint is added automatically.
+
+The **magnet toggle** on the sketch toolbar turns snapping off entirely for
+free placement, and the adjacent **S/M/L** control sets the snap radius
+(6/12/24 px). The status line shows the current snap state (for example
+`Snap: 12px`).
 
 ### Constrain the sketch
 

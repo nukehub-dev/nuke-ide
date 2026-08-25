@@ -77,6 +77,11 @@ interface CadSketchOverlayProps {
     readonly onDressUpPickCancel: () => void;
     readonly onStartHolePick: (callback: (ref: TopologyRef, uv: [number, number]) => void) => void;
     readonly onHolePickCancel: () => void;
+    readonly measureActive?: boolean;
+    readonly measureCount?: number;
+    readonly measureListOpen?: boolean;
+    readonly onToggleMeasure?: () => void;
+    readonly onToggleMeasureList?: () => void;
 }
 
 const TOOLS: Array<{ tool: SketchTool; label: string; icon: string }> = [
@@ -86,6 +91,13 @@ const TOOLS: Array<{ tool: SketchTool; label: string; icon: string }> = [
     { tool: 'circle', label: 'Circle', icon: 'codicon-nuke-cad-circle' },
     { tool: 'arc3', label: '3-Point Arc', icon: 'codicon-nuke-cad-arc' },
     { tool: 'rectangle', label: 'Rectangle', icon: 'codicon-nuke-cad-rectangle' }
+];
+
+/** Snap-radius presets in screen pixels; M matches the session default. */
+const SNAP_RADIUS_PRESETS: ReadonlyArray<{ label: string; px: number }> = [
+    { label: 'S', px: 6 },
+    { label: 'M', px: 12 },
+    { label: 'L', px: 24 }
 ];
 
 const SOLID_PRODUCERS: FeatureType[] = ['pad', 'pocket', 'revolve', 'groove'];
@@ -136,7 +148,12 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
         onStartDressUpPick,
         onDressUpPickCancel,
         onStartHolePick,
-        onHolePickCancel
+        onHolePickCancel,
+        measureActive,
+        measureCount,
+        measureListOpen,
+        onToggleMeasure,
+        onToggleMeasureList
     } = props;
     const [, forceUpdate] = React.useReducer((n) => n + 1, 0);
 
@@ -269,7 +286,8 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
     };
 
     const refCounts = countReferenceResults(relevantRefs);
-    const statusText = buildStatusText(status, refCounts);
+    const snapSummary = controller.isSnapEnabled() ? `Snap: ${controller.getSnapRadiusPx()}px` : 'Snap off';
+    const statusText = buildStatusText(status, refCounts, snapSummary);
     const hasDiagnostics =
         status.conflicting.length > 0 || status.redundant.length > 0 || refCounts.ambiguous > 0 || refCounts.unmatched > 0;
 
@@ -300,6 +318,11 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
                     onNewDocument={onNewDocument}
                     onSaveDocument={onSaveDocument}
                     onRebuildDocument={onRebuildDocument}
+                    measureActive={measureActive}
+                    measureCount={measureCount}
+                    measureListOpen={measureListOpen}
+                    onToggleMeasure={onToggleMeasure}
+                    onToggleMeasureList={onToggleMeasureList}
                 />
             )}
 
@@ -346,6 +369,11 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
                         facePickMode={facePickMode}
                         onStartExternalGeometryPick={onStartExternalGeometryPick}
                         onCancelFacePick={onCancelFacePick}
+                        measureActive={measureActive}
+                        measureCount={measureCount}
+                        measureListOpen={measureListOpen}
+                        onToggleMeasure={onToggleMeasure}
+                        onToggleMeasureList={onToggleMeasureList}
                     />
 
                     <div className="cad-sketch-constraint-bar">
@@ -608,6 +636,11 @@ interface DocumentModeToolbarProps {
     readonly onNewDocument?: () => void;
     readonly onSaveDocument?: () => void;
     readonly onRebuildDocument?: () => void;
+    readonly measureActive?: boolean;
+    readonly measureCount?: number;
+    readonly measureListOpen?: boolean;
+    readonly onToggleMeasure?: () => void;
+    readonly onToggleMeasureList?: () => void;
 }
 
 interface ExternalRefsPanelProps {
@@ -638,6 +671,7 @@ interface ToolbarAction {
     readonly label: string;
     readonly icon: string;
     readonly disabled: boolean;
+    readonly active?: boolean;
     readonly onClick: () => void;
 }
 
@@ -829,6 +863,27 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
                     onClick: () => props.onStartFeatureCreation('hole')
                 }
             ]
+        },
+        {
+            label: 'Inspect',
+            actions: [
+                {
+                    id: 'measure',
+                    label: 'Measure (click two points)',
+                    icon: 'codicon-nuke-cad-measure',
+                    disabled: false,
+                    active: props.measureActive,
+                    onClick: () => props.onToggleMeasure?.()
+                },
+                {
+                    id: 'measureList',
+                    label: `Measurements${props.measureCount ? ` (${props.measureCount})` : ''}`,
+                    icon: 'codicon-list-unordered',
+                    disabled: false,
+                    active: props.measureListOpen,
+                    onClick: () => props.onToggleMeasureList?.()
+                }
+            ]
         }
     ];
 
@@ -848,7 +903,7 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
                             {group.actions.map((action) => (
                                 <Tooltip key={action.id} content={action.label} position="bottom">
                                     <button
-                                        className="theia-button secondary cad-document-toolbar-action"
+                                        className={`theia-button secondary cad-document-toolbar-action ${action.active ? 'active' : ''}`}
                                         disabled={action.disabled}
                                         onClick={action.onClick}
                                     >
@@ -874,6 +929,11 @@ interface SketchToolbarProps {
     readonly facePickMode?: 'sketchDatum' | 'externalGeometry';
     readonly onStartExternalGeometryPick: (featureId: string) => void;
     readonly onCancelFacePick: () => void;
+    readonly measureActive?: boolean;
+    readonly measureCount?: number;
+    readonly measureListOpen?: boolean;
+    readonly onToggleMeasure?: () => void;
+    readonly onToggleMeasureList?: () => void;
 }
 
 function SketchToolbar(props: SketchToolbarProps): React.ReactElement {
@@ -892,8 +952,21 @@ function SketchToolbar(props: SketchToolbarProps): React.ReactElement {
         externalGeometryTarget,
         facePickMode,
         onStartExternalGeometryPick,
-        onCancelFacePick
+        onCancelFacePick,
+        measureActive,
+        measureCount,
+        measureListOpen,
+        onToggleMeasure,
+        onToggleMeasureList
     } = props;
+
+    const snapEnabled = controller.isSnapEnabled();
+    const snapPresetIndex = SNAP_RADIUS_PRESETS.findIndex((p) => p.px === controller.getSnapRadiusPx());
+    const snapPreset = SNAP_RADIUS_PRESETS[snapPresetIndex === -1 ? 1 : snapPresetIndex];
+    const cycleSnapRadius = (): void => {
+        const next = SNAP_RADIUS_PRESETS[(SNAP_RADIUS_PRESETS.indexOf(snapPreset) + 1) % SNAP_RADIUS_PRESETS.length];
+        controller.setSnapRadius(next.px);
+    };
 
     const onWindowDragMove = React.useCallback((e: PointerEvent): void => {
         const drag = dragRef.current;
@@ -1065,6 +1138,35 @@ function SketchToolbar(props: SketchToolbarProps): React.ReactElement {
                         }}
                     >
                         <span className="codicon codicon-nuke-cad-external-ref" />
+                    </button>
+                </Tooltip>
+                <Tooltip content={snapEnabled ? 'Disable Snapping' : 'Enable Snapping'} position="right">
+                    <button
+                        className={`theia-button secondary cad-sketch-tool-button ${snapEnabled ? 'active' : ''}`}
+                        onClick={() => controller.setSnapEnabled(!snapEnabled)}
+                    >
+                        <span className="codicon codicon-nuke-cad-snap" />
+                    </button>
+                </Tooltip>
+                <Tooltip content={`Snap Radius: ${snapPreset.px}px (click to change)`} position="right">
+                    <button className="theia-button secondary cad-sketch-tool-button" onClick={cycleSnapRadius}>
+                        {snapPreset.label}
+                    </button>
+                </Tooltip>
+                <Tooltip content="Measure (click two points)" position="right">
+                    <button
+                        className={`theia-button secondary cad-sketch-tool-button ${measureActive ? 'active' : ''}`}
+                        onClick={() => onToggleMeasure?.()}
+                    >
+                        <span className="codicon codicon-nuke-cad-measure" />
+                    </button>
+                </Tooltip>
+                <Tooltip content={`Measurements${measureCount ? ` (${measureCount})` : ''}`} position="right">
+                    <button
+                        className={`theia-button secondary cad-sketch-tool-button ${measureListOpen ? 'active' : ''}`}
+                        onClick={() => onToggleMeasureList?.()}
+                    >
+                        <span className="codicon codicon-list-unordered" />
                     </button>
                 </Tooltip>
             </div>
@@ -2278,7 +2380,7 @@ function dimensionLabel(kind: DimensionKind): string {
     }
 }
 
-function buildStatusText(status: SketchStatus, referenceCounts?: ReferenceCounts): string {
+function buildStatusText(status: SketchStatus, referenceCounts?: ReferenceCounts, snapSummary?: string): string {
     const parts: string[] = [];
     if (referenceCounts !== undefined) {
         if (referenceCounts.ambiguous > 0) {
@@ -2298,6 +2400,9 @@ function buildStatusText(status: SketchStatus, referenceCounts?: ReferenceCounts
         parts.push('Fully constrained');
     } else {
         parts.push(`${status.dof} degrees of freedom`);
+    }
+    if (snapSummary !== undefined) {
+        parts.push(snapSummary);
     }
     if (status.lastAutoConstraints.length > 0) {
         const kinds = status.lastAutoConstraints.map((a) => a.kind).join(', ');

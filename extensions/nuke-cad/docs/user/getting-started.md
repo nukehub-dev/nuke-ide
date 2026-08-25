@@ -66,6 +66,15 @@ The **Model Outline** panel gives a structured tree view of the active model:
   highlights the whole solid in the viewport, and picking a face/solid in the
   viewport selects the matching row (scrolling it into view and expanding its
   section).
+- **Properties** — when a solid is selected, a properties section shows its
+  volume, area, bounding-box size (dx/dy/dz), center of mass, and face/edge/
+  triangle counts (model units; em-dashes when a value is unavailable). The
+  pin button freezes the current solid's data so it stays visible while the
+  selection changes.
+- **Table view** — the header toggle switches the volume list to a sortable
+  table (Solid, Body label, Volume, Area, Faces, Tris). Click a header to
+  sort; click a row to select that solid in the viewport. Values are model
+  units with SI suffixes.
 - The panel is read-only. Its manifest button opens the model's
   `.regions.json` in the text editor (disabled when no manifest exists).
 

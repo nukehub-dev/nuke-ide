@@ -127,8 +127,24 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   label (`cad-viewport-view-label`, imperative DOM) shows the active standard
   view (`User` after orbiting, `Top`/`Left`/... after snapping) or
   `Sketch — <name>` while sketching (`SketchModeController.getSketchName()`).
-  `setShading('shaded' | 'wireframe' | 'edges')` is the single material-state
-  authority — the nav button cycles it; rebuilds re-apply it. `fitView` frames
+  Shading is a single material-state authority: `setShading(mode)` accepts
+  `shaded`, `shadedWireframe`, `edgesOnly`, or `xray`, and
+  `setGhostOpacity(v)` tunes x-ray transparency; pure helpers live in
+  `shading-modes.ts` and one `applyShading()` applies everything —
+  the nav-cluster popover picks the mode; rebuilds re-apply mode and opacity.
+  Edges-only hides face meshes and disables face/solid picking (hint pill);
+  x-ray ghosts faces at the ghost opacity with edges opaque. A section plane
+  (`setSection({axis, flip, fraction} | undefined)`, pure math in
+  `section-plane.ts`) clips faces and edge lines via
+  `renderer.localClippingEnabled`; it is visual only, slider-driven over the
+  tessellation bounding box, exits on button/Escape, and survives rebuilds
+  through the same `applyShading()` path. The measure tool (pure logic in
+  `measure-tool.ts`) records point-to-point distance annotations from the
+  document toolbar Inspect group or the sketch toolbar — raycast surface
+  points in 3D, snap-aware sketch-plane points in sketch mode — rendered as
+  overlay lines/spheres with imperative HTML labels projected in
+  `renderScene`; measurements are viewport state (never document state) and
+  clear on rebuild or sketch exit. `fitView` frames
   the selected solid when `currentSelection.solidId` is set; `.` and
   double-click-on-solid also fit the selection; `Tab` toggles sketch mode
   (`handleToggleSketchMode`, guarded against pick modes, dialogs, and text
@@ -140,7 +156,26 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   click highlights the whole solid in the viewport; a viewport pick selects the
   row, scrolls it into view, and expands its section. Opened via the
   `nuke.cad.openOutlinePanel` command (right shell area) or the Nuke Tools
-  sidebar (`CAD Studio → Geometry`).
+  sidebar (`CAD Studio → Geometry`). The panel also renders, from the shared
+  per-solid summaries (`SolidSummary` published to `NukeCadStateManager`
+  after tessellation parse; pure helpers in `solid-summaries.ts`): a
+  **Properties** section for the selected solid (volume, area, bbox size,
+  center of mass, face/edge/triangle counts in model units, with a pin
+  toggle) and a **Table view** toggle (sortable Solid/Body label/Volume/Area/
+  Faces/Tris columns driving the same selection sync). Missing data renders
+  as em-dashes so payloads from older builds stay readable.
+- The geometry service attaches optional per-solid inspection properties to
+  every tessellation solid entry — `volume`, `area`, `bbox.min/max`, and
+  `centerOfMass` — computed via OCP `GProp_GProps` + `BRepBndLib` in
+  `_process_shape`'s `_solid_properties` helper. Additive and
+  best-effort: on computation failure the key is omitted and the build path
+  never breaks. Consumers must treat it as optional.
+- Sketch snap behavior is session-scoped and user-toggleable:
+  `SketchSession.setSnapEnabled(on)` / `setSnapRadius(px)` (default 12 px;
+  disabled snapping short-circuits endpoint/center/grid snaps and the
+  auto-coincident/point-on-object constraint paths alike), passed through by
+  `SketchModeController`; the sketch toolbar exposes a magnet toggle plus an
+  S/M/L radius control (6/12/24 px), and the status line reflects the state.
 - Preferences live in `src/browser/nuke-cad-preferences.ts`.
   `nukeCad.facetingTolerance` (number, default 0.001, exclusiveMinimum 0) is
   the default faceting tolerance for export-quality builds (script builds and

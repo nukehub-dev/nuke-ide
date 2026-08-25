@@ -51,6 +51,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   solid selects and frames it, and `.` fits the selection; `Tab` enters/exits
   sketch mode.
 
+### Added
+
+- nuke-cad: **viewport shading menu** — the wireframe toggle becomes a popover
+  with four mutually exclusive modes (**Shaded**, **Shaded + Wireframe**,
+  **Edges only**, **X-ray**) plus a **Ghost opacity** slider (15–60%) for
+  x-ray. The active mode and opacity survive rebuilds; edges-only hides face
+  fills (picking disabled with an on-screen hint) while edges stay opaque.
+- nuke-cad: **measure tool** — click two points in 3D (surface pick) or in
+  sketch mode (snap-aware plane points) to record persistent distance labels;
+  a measurements list popover allows per-row deletion, entries are viewport-
+  only annotations (never stored in the document), and they clear on rebuild.
+- nuke-cad: **section plane** — a navigation-cluster button slices the model
+  along an X/Y/Z plane with flip and a bounding-box slider; visual only,
+  exports unaffected, exits via the button or `Esc`.
+- nuke-cad: **solid properties in Model Outline** — selecting a solid shows a
+  read-only properties section (volume, area, bbox size dx/dy/dz, center of
+  mass, face/edge/triangle counts in model units) computed by the geometry
+  service via OCP mass properties, with a pin toggle to freeze it while the
+  selection changes.
+- nuke-cad: **Model Outline table view** — the volume list gains a list ⇄
+  table toggle with sortable Solid / Body label / Volume / Area / Faces /
+  Tris columns (SI-suffixed model units) and two-way selection sync.
+- nuke-cad: **sketch snap toggles** — a magnet toggle disables snapping for
+  free placement and an S/M/L control sets the snap radius (6/12/24 px,
+  session-scoped); the status line reflects the current snap state.
+
 ### Fixed
 
 - nuke-cad: **exiting a brand-new sketch silently failed** — the sketch session

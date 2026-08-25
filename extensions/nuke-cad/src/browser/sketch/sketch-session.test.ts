@@ -801,4 +801,95 @@ describe('SketchSession', () => {
             expect(result.success).toBe(true);
         });
     });
+
+    describe('snap toggles', () => {
+        it('defaults to enabled with the default pixel radius', async () => {
+            const session = await makeSession('point');
+            expect(session.isSnapEnabled()).toBe(true);
+            expect(session.getSnapRadiusPx()).toBe(SketchSession.DEFAULT_SNAP_RADIUS_PX);
+        });
+
+        it('places points freely when disabled', async () => {
+            const session = await makeSession('point');
+            await session.click({ x: 0, y: 0 });
+            session.setSnapEnabled(false);
+            expect(session.isSnapEnabled()).toBe(false);
+            // With snap on, this click would land on the existing point via
+            // endpoint snap and add a coincident auto-constraint.
+            await session.click({ x: 0.05, y: 0.05 });
+            const points = session.getPrimitives().filter((p) => p.type === 'point') as SketchPoint[];
+            expect(points).toHaveLength(2);
+            expect(points[1].x).toBeCloseTo(0.05, 10);
+            expect(points[1].y).toBeCloseTo(0.05, 10);
+            expect(session.getConstraints().filter((c) => c.kind === 'coincident')).toHaveLength(0);
+        });
+
+        it('keeps grid snapping inert while disabled', async () => {
+            const session = await makeSession('point');
+            session.setSnapEnabled(false);
+            await session.click({ x: 0.42, y: 0.77 });
+            const placed = point(session, session.getPrimitiveIds()[0]);
+            // Grid pitch is 1; grid snapping would round both coordinates.
+            expect(placed.x).toBeCloseTo(0.42, 10);
+            expect(placed.y).toBeCloseTo(0.77, 10);
+        });
+
+        it('restores snapping when re-enabled', async () => {
+            const session = await makeSession('point');
+            await session.click({ x: 0, y: 0 });
+            session.setSnapEnabled(false);
+            await session.click({ x: 0.1, y: 0.1 });
+            expect(session.getConstraints().filter((c) => c.kind === 'coincident')).toHaveLength(0);
+
+            session.setSnapEnabled(true);
+            await session.click({ x: -0.08, y: 0.08 });
+            expect(session.getConstraints().filter((c) => c.kind === 'coincident')).toHaveLength(1);
+            const points = session.getPrimitives().filter((p) => p.type === 'point') as SketchPoint[];
+            const last = points[points.length - 1];
+            expect(last.x).toBeCloseTo(0, 10);
+            expect(last.y).toBeCloseTo(0, 10);
+        });
+
+        it('scales the effective snap reach with the pixel radius', async () => {
+            const session = await makeSession('point');
+            // Seed a non-grid-aligned point; disableSnap bypasses the engine.
+            await session.click({ x: 3.6, y: 0.2 }, { disableSnap: true });
+
+            // Default 12px maps to a 0.25 model-unit reach: 0.28 away stays
+            // free and falls through to the integer grid.
+            const far = session.hover({ x: 3.88, y: 0.2 }) as Extract<SketchPreview, { type: 'point' }>;
+            expect(far.point.x).toBeCloseTo(4, 10);
+            expect(far.point.y).toBeCloseTo(0, 10);
+
+            session.setSnapRadius(24); // double reach: the same probe now snaps
+            expect(session.getSnapRadiusPx()).toBe(24);
+            const near = session.hover({ x: 3.88, y: 0.2 }) as Extract<SketchPreview, { type: 'point' }>;
+            expect(near.point.x).toBeCloseTo(3.6, 10);
+            expect(near.point.y).toBeCloseTo(0.2, 10);
+
+            session.setSnapRadius(SketchSession.DEFAULT_SNAP_RADIUS_PX);
+            const back = session.hover({ x: 3.88, y: 0.2 }) as Extract<SketchPreview, { type: 'point' }>;
+            expect(back.point.x).toBeCloseTo(4, 10);
+            expect(back.point.y).toBeCloseTo(0, 10);
+        });
+
+        it('rejects invalid radii and keeps the previous value', async () => {
+            const session = await makeSession('select');
+            expect(() => session.setSnapRadius(0)).toThrow();
+            expect(() => session.setSnapRadius(-3)).toThrow();
+            expect(() => session.setSnapRadius(Number.NaN)).toThrow();
+            expect(session.getSnapRadiusPx()).toBe(SketchSession.DEFAULT_SNAP_RADIUS_PX);
+        });
+
+        it('notifies listeners when snap state changes', async () => {
+            const session = await makeSession('select');
+            let changes = 0;
+            session.onChange(() => changes++);
+            session.setSnapEnabled(false);
+            session.setSnapEnabled(false); // same value: no duplicate emit
+            session.setSnapRadius(24);
+            session.setSnapEnabled(true);
+            expect(changes).toBe(3);
+        });
+    });
 });

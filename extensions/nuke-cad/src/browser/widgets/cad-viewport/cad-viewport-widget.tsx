@@ -57,19 +57,59 @@ import { MonacoEditorModel } from '@theia/monaco/lib/browser/monaco-editor-model
 import * as THREE from 'three';
 
 import { NukeCadBackendService, GeometryBuildResult } from '../../../common/nuke-cad-protocol';
-import { NukeCadStateManager, CadModel, CadSelection } from '../../state/nuke-cad-state-manager';
+import { NukeCadStateManager, CadModel, CadSelection, TessSolidProperties } from '../../state/nuke-cad-state-manager';
+import { buildSolidSummaries } from '../outline-panel/solid-summaries';
 import { NukeCadCommands } from '../../commands';
 import { LoadingAnimations } from 'nuke-essentials/lib/theme/browser/components/loading-spinner';
 import { NukeEmptyState, NukeLoadingOverlay } from 'nuke-essentials/lib/theme/browser/components';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
 import { SketchModeController } from '../../sketch/sketch-mode-controller';
-import { type DatumKind } from '../../sketch/sketch-math';
+import {
+    defaultSketchViewSize,
+    intersectRayPlane,
+    pixelRadiusToModelUnits,
+    sketchToWorld,
+    worldToSketch,
+    type DatumKind
+} from '../../sketch/sketch-math';
+import { createSnapConfig, snap } from '../../sketch/snap';
 import { CadSketchOverlay } from './cad-sketch-overlay';
 import { CadDocumentStore, createSketchId, createFeatureId, computeDependsOn } from '../../document/cad-document-store';
 import { type SketchDef, type FeatureDef, type FeatureType, type FeatureParams } from '../../../common/cad-document';
 import { type TopologyRef } from '../../../common/topology-refs';
 import { FaceHighlighter, type FacePickHit, buildTopologyRef, pointerToNdc, projectHitToFaceUv, raycastFace } from './face-picker';
 import { EdgeHighlighter, type EdgePickHit, buildEdgeLine, buildEdgeTopologyRef, raycastEdge } from './edge-picker';
+import {
+    DEFAULT_GHOST_OPACITY,
+    GHOST_OPACITY_MAX,
+    GHOST_OPACITY_MIN,
+    GHOST_OPACITY_STEP,
+    SHADING_MODES,
+    clampGhostOpacity,
+    meshShadingFlags,
+    type ShadingMode
+} from './shading-modes';
+import {
+    DEFAULT_SECTION_FRACTION,
+    SECTION_AXES,
+    clampSectionFraction,
+    sectionPlaneFromBox,
+    sectionStatusLabel,
+    type SectionAxis,
+    type SectionState
+} from './section-plane';
+import {
+    MEASURE_CLEAR_NOTE,
+    createMeasureSegment,
+    formatMeasureDistance,
+    measureDistance,
+    nextMeasureId,
+    projectMeasurePoint,
+    type MeasureKind,
+    type MeasurePoint3D,
+    type MeasureSegment,
+    type MeasureViewState
+} from './measure-tool';
 import './cad-viewport.css';
 import './cad-icons.css';
 
@@ -93,6 +133,7 @@ interface TessSolid {
     readonly bodyId?: string;
     readonly faces: TessFace[];
     readonly edges: TessEdge[];
+    readonly properties?: TessSolidProperties;
 }
 
 interface TessData {
@@ -176,6 +217,20 @@ export class CadViewportWidget extends ReactWidget {
     private dressUpPickCallback?: (ref: TopologyRef) => void;
     /** Active hole face-pick mode and the callback that receives the picked face. */
     private holePickMode?: { callback: (ref: TopologyRef, uv: [number, number]) => void };
+    /** True while the viewport section plane is engaged. */
+    private sectionActive = false;
+
+    /** Toggle viewport section mode (nav-cluster button). */
+    protected readonly handleSetSectionActive = (active: boolean): void => {
+        this.sectionActive = active;
+        this.update();
+    };
+
+    /** Escape inside the viewport exited section mode; sync the chrome. */
+    protected readonly handleExitSection = (): void => {
+        this.sectionActive = false;
+        this.update();
+    };
 
     /**
      * Stable callbacks handed to the React component so the three.js scene is
@@ -894,6 +949,7 @@ export class CadViewportWidget extends ReactWidget {
             this.tessData = undefined;
             this.loadedTessPath = undefined;
             this.loading = false;
+            this.stateManager.setSolidSummaries([]);
             this.update();
             return;
         }
@@ -908,6 +964,7 @@ export class CadViewportWidget extends ReactWidget {
         this.loading = true;
         this.loadingMessage = 'Loading CAD model...';
         this.buildError = undefined;
+        this.stateManager.setSolidSummaries([]);
         this.update();
         this.loadTessellation(tessPath, token).catch((err) => {
             console.error('[CadViewport] Failed to load tessellation:', err);
@@ -926,6 +983,7 @@ export class CadViewportWidget extends ReactWidget {
         }
         this.tessData = JSON.parse(content.value.toString()) as TessData;
         this.loadedTessPath = path;
+        this.stateManager.setSolidSummaries(buildSolidSummaries(this.tessData.solids));
         this.loading = false;
         this.update();
     }
@@ -1116,6 +1174,9 @@ export class CadViewportWidget extends ReactWidget {
                 onHolePick={this.handleHolePick}
                 onHolePickCancel={this.handleHolePickCancel}
                 holePickMode={this.holePickMode !== undefined}
+                sectionActive={this.sectionActive}
+                onSetSectionActive={this.handleSetSectionActive}
+                onExitSection={this.handleExitSection}
                 messageService={this.messageService}
             />
         );
@@ -1136,6 +1197,7 @@ interface CadViewportComponentProps {
     readonly facePickMode?: 'sketchDatum' | 'externalGeometry';
     readonly dressUpPickMode?: { readonly type: FeatureType; readonly selecting: 'edge' | 'face' };
     readonly holePickMode?: boolean;
+    readonly sectionActive: boolean;
     readonly documentStore: CadDocumentStore;
     readonly messageService: MessageService;
     readonly onDismissError: () => void;
@@ -1168,13 +1230,26 @@ interface CadViewportComponentProps {
     readonly onStartHolePick: (callback: (ref: TopologyRef, uv: [number, number]) => void) => void;
     readonly onHolePick: (hit: FacePickHit) => void;
     readonly onHolePickCancel: () => void;
+    readonly onSetSectionActive: (active: boolean) => void;
+    readonly onExitSection: () => void;
 }
 
 function CadViewportComponent(props: CadViewportComponentProps): React.ReactElement {
     const containerRef = React.useRef<HTMLDivElement>(null);
     const [controller, setController] = React.useState<SketchModeController | undefined>();
     const [shadingMode, setShadingMode] = React.useState<ShadingMode>('shaded');
+    const [ghostOpacity, setGhostOpacity] = React.useState(DEFAULT_GHOST_OPACITY);
+    const [shadingMenuOpen, setShadingMenuOpen] = React.useState(false);
+    const [sectionAxis, setSectionAxis] = React.useState<SectionAxis>('z');
+    const [sectionFlip, setSectionFlip] = React.useState(false);
+    const [sectionFraction, setSectionFraction] = React.useState(DEFAULT_SECTION_FRACTION);
     const [warningsOpen, setWarningsOpen] = React.useState(false);
+    const [measureActive, setMeasureActive] = React.useState(false);
+    const [measurements, setMeasurements] = React.useState<MeasureSegment[]>([]);
+    const [measurePending, setMeasurePending] = React.useState<MeasurePoint3D | undefined>();
+    const [measureListOpen, setMeasureListOpen] = React.useState(false);
+    const measurePendingRef = React.useRef<MeasurePoint3D | undefined>(undefined);
+    const prevMeasureSketchRef = React.useRef(false);
     const editFeature = React.useMemo(() => {
         if (props.editingFeatureId === undefined) {
             return undefined;
@@ -1190,8 +1265,99 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
         zoomView?: (factor: number) => void;
         setStandardView?: (view: 'iso' | 'top' | 'front' | 'right') => void;
         setShading?: (mode: ShadingMode) => void;
+        setGhostOpacity?: (value: number) => void;
+        setSection?: (section?: SectionState) => void;
         setGizmoVisible?: (visible: boolean) => void;
+        updateMeasureState?: (state: MeasureViewState) => void;
     }>({});
+
+    const measureMode: MeasureKind =
+        (controller?.isActive ?? false) || props.sketchSetupVisible || props.sketchEntering ? 'sketch' : 'model3d';
+
+    const handleMeasureDeactivate = React.useCallback((): void => {
+        measurePendingRef.current = undefined;
+        setMeasurePending(undefined);
+        setMeasureActive(false);
+        setMeasureListOpen(false);
+    }, []);
+
+    // Read at click time without becoming a dependency of handleMeasurePoint:
+    // the capture mode decides which lifecycle bucket a segment lands in.
+    const sketchModeRef = React.useRef<MeasureKind>('model3d');
+    sketchModeRef.current = measureMode;
+
+    const handleMeasurePoint = React.useCallback((point: MeasurePoint3D): void => {
+        const pending = measurePendingRef.current;
+        if (pending === undefined) {
+            measurePendingRef.current = point;
+            setMeasurePending(point);
+            return;
+        }
+        measurePendingRef.current = undefined;
+        setMeasurePending(undefined);
+        const segment = createMeasureSegment(nextMeasureId(), sketchModeRef.current, pending, point);
+        setMeasurements((prev) => [...prev, segment]);
+    }, []);
+
+    const handleToggleMeasure = React.useCallback((): void => {
+        measurePendingRef.current = undefined;
+        setMeasurePending(undefined);
+        setMeasureActive((prev) => !prev);
+    }, []);
+
+    const handleToggleMeasureList = React.useCallback((): void => {
+        setMeasureListOpen((prev) => !prev);
+    }, []);
+
+    const handleMeasureDelete = React.useCallback((id: string): void => {
+        setMeasurements((prev) => prev.filter((segment) => segment.id !== id));
+    }, []);
+
+    const handleMeasureClear = React.useCallback((): void => {
+        setMeasurements([]);
+    }, []);
+
+    React.useEffect(() => {
+        viewportApi.current.updateMeasureState?.({
+            active: measureActive,
+            mode: measureMode,
+            segments: measurements,
+            pending: measurePending
+        });
+    }, [measureActive, measureMode, measurements, measurePending, controller]);
+
+    React.useEffect(() => {
+        if (shadingMode === 'edgesOnly') {
+            handleMeasureDeactivate();
+        }
+    }, [shadingMode, handleMeasureDeactivate]);
+
+    React.useEffect(() => {
+        if (props.featureCreationType !== undefined) {
+            handleMeasureDeactivate();
+        }
+    }, [props.featureCreationType, handleMeasureDeactivate]);
+
+    React.useEffect(() => {
+        const sketchNow = measureMode === 'sketch';
+        if (sketchNow && !prevMeasureSketchRef.current) {
+            handleMeasureDeactivate();
+        }
+        if (!sketchNow && prevMeasureSketchRef.current) {
+            setMeasurements((prev) => prev.filter((segment) => segment.kind !== 'sketch'));
+        }
+        prevMeasureSketchRef.current = sketchNow;
+    }, [measureMode, handleMeasureDeactivate]);
+
+    React.useEffect(() => {
+        // A rebuild replaces the tessellation; measurements reference the old
+        // surface and are session state only, so they never survive it.
+        measurePendingRef.current = undefined;
+        setMeasurePending(undefined);
+        setMeasurements([]);
+    }, [props.tessData]);
+
+    const modeMeasurements = measurements.filter((segment) => segment.kind === measureMode);
 
     React.useEffect(() => {
         const container = containerRef.current;
@@ -1226,6 +1392,9 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                 props.holePickMode ?? false,
                 props.messageService,
                 props.onToggleSketchMode,
+                props.onExitSection,
+                handleMeasurePoint,
+                handleMeasureDeactivate,
                 OrbitControls
             );
             if (disposed) {
@@ -1241,7 +1410,10 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             viewportApi.current.zoomView = api.zoomView;
             viewportApi.current.setStandardView = api.setStandardView;
             viewportApi.current.setShading = api.setShading;
+            viewportApi.current.setGhostOpacity = api.setGhostOpacity;
+            viewportApi.current.setSection = api.setSection;
             viewportApi.current.setGizmoVisible = api.setGizmoVisible;
+            viewportApi.current.updateMeasureState = api.updateMeasureState;
             api.setFacePickMode(props.facePickMode);
             api.setDressUpPickMode(props.dressUpPickMode);
             api.setHolePickMode(props.holePickMode ?? false);
@@ -1260,7 +1432,10 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             viewportApi.current.zoomView = undefined;
             viewportApi.current.setStandardView = undefined;
             viewportApi.current.setShading = undefined;
+            viewportApi.current.setGhostOpacity = undefined;
+            viewportApi.current.setSection = undefined;
             viewportApi.current.setGizmoVisible = undefined;
+            viewportApi.current.updateMeasureState = undefined;
             cleanup?.();
         };
         // All non-tessData props are stable widget-bound callbacks; the scene is
@@ -1283,6 +1458,12 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
     React.useEffect(() => {
         viewportApi.current.setHolePickMode?.(props.holePickMode ?? false);
     }, [props.holePickMode]);
+
+    React.useEffect(() => {
+        viewportApi.current.setSection?.(
+            props.sectionActive ? { axis: sectionAxis, flip: sectionFlip, fraction: sectionFraction } : undefined
+        );
+    }, [props.sectionActive, sectionAxis, sectionFlip, sectionFraction, controller]);
 
     React.useEffect(() => {
         if (props.warnings.length > 0) {
@@ -1383,84 +1564,201 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             onDressUpPickCancel={props.onDressUpPickCancel}
             onStartHolePick={props.onStartHolePick}
             onHolePickCancel={props.onHolePickCancel}
+            measureActive={measureActive}
+            measureCount={modeMeasurements.length}
+            measureListOpen={measureListOpen}
+            onToggleMeasure={handleToggleMeasure}
+            onToggleMeasureList={handleToggleMeasureList}
         />
     );
 
+    const activeShading = SHADING_MODES.find((mode) => mode.id === shadingMode) ?? SHADING_MODES[0];
+    const sectionLabel = sectionStatusLabel({ axis: sectionAxis, flip: sectionFlip, fraction: sectionFraction });
+    const statusHints = [
+        shadingMode === 'edgesOnly' ? 'Edges-only: face/solid picking disabled' : undefined,
+        props.sectionActive ? `Section: ${sectionLabel} — Esc to exit` : undefined,
+        measureActive && shadingMode === 'edgesOnly' && measureMode === 'model3d'
+            ? 'Measure: point picking disabled by edges-only shading'
+            : undefined,
+        measureActive
+            ? measurePending === undefined
+                ? 'Measure: click the first point'
+                : 'Measure: click the second point (Enter/Esc ends the tool)'
+            : undefined
+    ].filter((hint): hint is string => hint !== undefined);
+
     const navCluster =
         props.tessData !== undefined && !sketchActive && !props.loading ? (
-            <div className="cad-viewport-nav">
-                <Tooltip content="Iso view" position="left">
-                    <button
-                        className="theia-button secondary cad-viewport-nav-button cad-viewport-nav-text"
-                        onClick={() => viewportApi.current.setStandardView?.('iso')}
-                    >
-                        ISO
-                    </button>
-                </Tooltip>
-                <Tooltip content="Top view" position="left">
-                    <button
-                        className="theia-button secondary cad-viewport-nav-button cad-viewport-nav-text"
-                        onClick={() => viewportApi.current.setStandardView?.('top')}
-                    >
-                        T
-                    </button>
-                </Tooltip>
-                <Tooltip content="Front view" position="left">
-                    <button
-                        className="theia-button secondary cad-viewport-nav-button cad-viewport-nav-text"
-                        onClick={() => viewportApi.current.setStandardView?.('front')}
-                    >
-                        F
-                    </button>
-                </Tooltip>
-                <Tooltip content="Right view" position="left">
-                    <button
-                        className="theia-button secondary cad-viewport-nav-button cad-viewport-nav-text"
-                        onClick={() => viewportApi.current.setStandardView?.('right')}
-                    >
-                        R
-                    </button>
-                </Tooltip>
-                <span className="cad-viewport-nav-divider" />
-                <Tooltip content="Fit view (F) / selection (.)" position="left">
-                    <button className="theia-button secondary cad-viewport-nav-button" onClick={() => viewportApi.current.fitView?.()}>
-                        <span className="codicon codicon-screen-full" />
-                    </button>
-                </Tooltip>
-                <Tooltip content="Zoom in" position="left">
-                    <button className="theia-button secondary cad-viewport-nav-button" onClick={() => viewportApi.current.zoomView?.(0.8)}>
-                        <span className="codicon codicon-zoom-in" />
-                    </button>
-                </Tooltip>
-                <Tooltip content="Zoom out" position="left">
-                    <button className="theia-button secondary cad-viewport-nav-button" onClick={() => viewportApi.current.zoomView?.(1.25)}>
-                        <span className="codicon codicon-zoom-out" />
-                    </button>
-                </Tooltip>
-                <span className="cad-viewport-nav-divider" />
-                <Tooltip content={`Shading: ${shadingMode} (click to cycle)`} position="left">
-                    <button
-                        className={`theia-button secondary cad-viewport-nav-button ${shadingMode !== 'shaded' ? 'active' : ''}`}
-                        onClick={() => {
-                            const order: ShadingMode[] = ['shaded', 'wireframe', 'edges'];
-                            const next = order[(order.indexOf(shadingMode) + 1) % order.length];
-                            setShadingMode(next);
-                            viewportApi.current.setShading?.(next);
-                        }}
-                    >
-                        <span
-                            className={`codicon ${
-                                shadingMode === 'shaded'
-                                    ? 'codicon-eye'
-                                    : shadingMode === 'wireframe'
-                                      ? 'codicon-circuit-board'
-                                      : 'codicon-nuke-cad-edges'
-                            }`}
-                        />
-                    </button>
-                </Tooltip>
-            </div>
+            <>
+                <div className="cad-viewport-nav">
+                    <Tooltip content="Iso view" position="left">
+                        <button
+                            className="theia-button secondary cad-viewport-nav-button cad-viewport-nav-text"
+                            onClick={() => viewportApi.current.setStandardView?.('iso')}
+                        >
+                            ISO
+                        </button>
+                    </Tooltip>
+                    <Tooltip content="Top view" position="left">
+                        <button
+                            className="theia-button secondary cad-viewport-nav-button cad-viewport-nav-text"
+                            onClick={() => viewportApi.current.setStandardView?.('top')}
+                        >
+                            T
+                        </button>
+                    </Tooltip>
+                    <Tooltip content="Front view" position="left">
+                        <button
+                            className="theia-button secondary cad-viewport-nav-button cad-viewport-nav-text"
+                            onClick={() => viewportApi.current.setStandardView?.('front')}
+                        >
+                            F
+                        </button>
+                    </Tooltip>
+                    <Tooltip content="Right view" position="left">
+                        <button
+                            className="theia-button secondary cad-viewport-nav-button cad-viewport-nav-text"
+                            onClick={() => viewportApi.current.setStandardView?.('right')}
+                        >
+                            R
+                        </button>
+                    </Tooltip>
+                    <span className="cad-viewport-nav-divider" />
+                    <Tooltip content="Fit view (F) / selection (.)" position="left">
+                        <button className="theia-button secondary cad-viewport-nav-button" onClick={() => viewportApi.current.fitView?.()}>
+                            <span className="codicon codicon-screen-full" />
+                        </button>
+                    </Tooltip>
+                    <Tooltip content="Zoom in" position="left">
+                        <button
+                            className="theia-button secondary cad-viewport-nav-button"
+                            onClick={() => viewportApi.current.zoomView?.(0.8)}
+                        >
+                            <span className="codicon codicon-zoom-in" />
+                        </button>
+                    </Tooltip>
+                    <Tooltip content="Zoom out" position="left">
+                        <button
+                            className="theia-button secondary cad-viewport-nav-button"
+                            onClick={() => viewportApi.current.zoomView?.(1.25)}
+                        >
+                            <span className="codicon codicon-zoom-out" />
+                        </button>
+                    </Tooltip>
+                    <span className="cad-viewport-nav-divider" />
+                    <Tooltip content={`Shading: ${activeShading.label}`} position="left">
+                        <button
+                            className={`theia-button secondary cad-viewport-nav-button ${shadingMode !== 'shaded' ? 'active' : ''}`}
+                            onClick={() => setShadingMenuOpen(!shadingMenuOpen)}
+                        >
+                            <span className={`codicon ${activeShading.icon}`} />
+                        </button>
+                    </Tooltip>
+                    <span className="cad-viewport-nav-divider" />
+                    <Tooltip content="Section view" position="left">
+                        <button
+                            className={`theia-button secondary cad-viewport-nav-button ${props.sectionActive ? 'active' : ''}`}
+                            onClick={() => props.onSetSectionActive(!props.sectionActive)}
+                        >
+                            <span className="codicon codicon-nuke-cad-section" />
+                        </button>
+                    </Tooltip>
+                </div>
+                {shadingMenuOpen && (
+                    <div className="cad-viewport-nav-popover">
+                        {SHADING_MODES.map((mode) => (
+                            <Tooltip
+                                key={mode.id}
+                                content={mode.id === 'edgesOnly' ? `${mode.label} (face picking disabled)` : mode.label}
+                                position="left"
+                            >
+                                <button
+                                    className={`cad-viewport-shading-item${mode.id === shadingMode ? ' active' : ''}`}
+                                    onClick={() => {
+                                        setShadingMode(mode.id);
+                                        viewportApi.current.setShading?.(mode.id);
+                                    }}
+                                >
+                                    <span className={`codicon ${mode.icon}`} />
+                                    <span className="cad-viewport-shading-label">{mode.label}</span>
+                                    {mode.id === shadingMode && <span className="codicon codicon-check" />}
+                                </button>
+                            </Tooltip>
+                        ))}
+                        {shadingMode === 'xray' && (
+                            <label className="cad-viewport-ghost-row">
+                                Ghost
+                                <input
+                                    type="range"
+                                    min={GHOST_OPACITY_MIN}
+                                    max={GHOST_OPACITY_MAX}
+                                    step={GHOST_OPACITY_STEP}
+                                    value={ghostOpacity}
+                                    onChange={(event) => {
+                                        const value = Number(event.target.value);
+                                        setGhostOpacity(value);
+                                        viewportApi.current.setGhostOpacity?.(value);
+                                    }}
+                                />
+                                <span>{Math.round(ghostOpacity * 100)}%</span>
+                            </label>
+                        )}
+                    </div>
+                )}
+                {props.sectionActive && (
+                    <div className="cad-viewport-section-popover">
+                        <div className="cad-viewport-section-row">
+                            {SECTION_AXES.map((axis) => (
+                                <Tooltip key={axis.id} content={`${axis.label} axis`} position="left">
+                                    <button
+                                        className={`cad-viewport-section-axis${axis.id === sectionAxis ? ' active' : ''}`}
+                                        onClick={() => setSectionAxis(axis.id)}
+                                    >
+                                        {axis.label}
+                                    </button>
+                                </Tooltip>
+                            ))}
+                            <Tooltip content="Keep the other half" position="top">
+                                <button
+                                    className={`cad-viewport-section-flip${sectionFlip ? ' active' : ''}`}
+                                    onClick={() => setSectionFlip(!sectionFlip)}
+                                >
+                                    Flip
+                                </button>
+                            </Tooltip>
+                        </div>
+                        <label className="cad-viewport-section-slider-row">
+                            Offset
+                            <input
+                                type="range"
+                                min={0}
+                                max={100}
+                                step={1}
+                                value={Math.round(sectionFraction * 100)}
+                                onChange={(event) => setSectionFraction(clampSectionFraction(Number(event.target.value) / 100))}
+                            />
+                            <span>{Math.round(sectionFraction * 100)}%</span>
+                        </label>
+                    </div>
+                )}
+                {statusHints.length > 0 && (
+                    <div className="cad-viewport-shading-hint">
+                        <span className="codicon codicon-info" />
+                        {statusHints.join(' · ')}
+                    </div>
+                )}
+            </>
         ) : undefined;
+
+    const measureListPopover = measureListOpen ? (
+        <MeasureListPopover
+            className={measureMode === 'sketch' ? 'cad-sketch-measure-popover' : 'cad-viewport-measure-popover'}
+            segments={modeMeasurements}
+            onDelete={handleMeasureDelete}
+            onClear={handleMeasureClear}
+            onClose={() => setMeasureListOpen(false)}
+        />
+    ) : undefined;
 
     if (sketchActive) {
         return (
@@ -1469,6 +1767,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                 {dirtyMarker}
                 {props.sketchEntering && <NukeLoadingOverlay message="Starting sketch solver..." />}
                 {sketchOverlay}
+                {measureListPopover}
             </div>
         );
     }
@@ -1519,12 +1818,60 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             {dirtyMarker}
             {props.loading && <NukeLoadingOverlay message={props.loadingMessage} />}
             {navCluster}
+            {measureListPopover}
             {sketchOverlay}
         </div>
     );
 }
 
-export type ShadingMode = 'shaded' | 'wireframe' | 'edges';
+interface MeasureListPopoverProps {
+    readonly className: string;
+    readonly segments: readonly MeasureSegment[];
+    readonly onDelete: (id: string) => void;
+    readonly onClear: () => void;
+    readonly onClose: () => void;
+}
+
+function MeasureListPopover(props: MeasureListPopoverProps): React.ReactElement {
+    return (
+        <div className={props.className}>
+            <div className="cad-measure-header">
+                <span className="cad-measure-title">Measurements</span>
+                <span className="cad-measure-badge">{props.segments.length}</span>
+                <Tooltip content="Close" position="left">
+                    <button className="theia-button secondary cad-measure-row-remove" onClick={props.onClose}>
+                        <span className="codicon codicon-close" />
+                    </button>
+                </Tooltip>
+            </div>
+            {props.segments.length === 0 ? (
+                <div className="cad-measure-empty">Click two points to measure a distance.</div>
+            ) : (
+                <div className="cad-measure-list">
+                    {props.segments.map((segment) => (
+                        <div key={segment.id} className="cad-measure-row">
+                            <span className="cad-measure-value">{formatMeasureDistance(segment.distance)}</span>
+                            <Tooltip content="Delete measurement" position="left">
+                                <button
+                                    className="theia-button secondary cad-measure-row-remove"
+                                    onClick={() => props.onDelete(segment.id)}
+                                >
+                                    <span className="codicon codicon-close" />
+                                </button>
+                            </Tooltip>
+                        </div>
+                    ))}
+                </div>
+            )}
+            <div className="cad-measure-footer">
+                <button className="theia-button secondary cad-measure-clear" disabled={props.segments.length === 0} onClick={props.onClear}>
+                    Clear All
+                </button>
+                <span className="cad-measure-note">{MEASURE_CLEAR_NOTE}</span>
+            </div>
+        </div>
+    );
+}
 
 interface ViewportApi {
     readonly controller: SketchModeController;
@@ -1537,7 +1884,10 @@ interface ViewportApi {
     readonly zoomView: (factor: number) => void;
     readonly setStandardView: (view: 'iso' | 'top' | 'front' | 'right') => void;
     readonly setShading: (mode: ShadingMode) => void;
+    readonly setGhostOpacity: (value: number) => void;
+    readonly setSection: (section?: SectionState) => void;
     readonly setGizmoVisible: (visible: boolean) => void;
+    readonly updateMeasureState: (state: MeasureViewState) => void;
 }
 
 function initViewport(
@@ -1559,6 +1909,9 @@ function initViewport(
     initialHolePickMode: boolean,
     messageService: MessageService,
     onToggleSketchMode: () => void,
+    onExitSection: () => void,
+    onMeasurePoint: (point: MeasurePoint3D) => void,
+    onMeasureDeactivate: () => void,
     OrbitControlsCtor: new (
         camera: THREE.Camera,
         domElement: HTMLElement
@@ -1586,6 +1939,7 @@ function initViewport(
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(width, height);
     renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.localClippingEnabled = true;
     container.appendChild(renderer.domElement);
 
     const controls = new OrbitControlsCtor(camera, renderer.domElement);
@@ -1607,8 +1961,12 @@ function initViewport(
     let activeHolePickMode = initialHolePickMode;
     let lastCenter = new THREE.Vector3();
     let lastDiag = 10;
-    // Declared before buildModel runs: the mesh creation reads it immediately.
+    // Declared before buildModel runs: applyShading reads both immediately.
     let shading: ShadingMode = 'shaded';
+    let ghostOpacity = DEFAULT_GHOST_OPACITY;
+    // Section mode: plane recomputed from this tessellation's bounding box.
+    let currentTessData: TessData | undefined = tessData;
+    let activeSection: SectionState | undefined;
 
     const highlightColor = new THREE.Color(readThemeColor(container, '--theia-focusBorder', '#007fd4'));
     const faceHighlighter = new FaceHighlighter(highlightColor);
@@ -1723,11 +2081,190 @@ function initViewport(
         viewLabel.style.display = visible ? '' : 'none';
     };
 
+    // Measure tool overlays: measurement lines and endpoint spheres live in a
+    // scene-level group (never the model group, so rebuilds don't dispose them
+    // implicitly), and their distance labels are imperative DOM positioned on
+    // every renderScene exactly like the gizmo and view label — no React state,
+    // no animation loop.
+    const MEASURE_MARKER_PX = 6;
+    const measureGroup = new THREE.Group();
+    measureGroup.name = 'cad-measure-layer';
+    measureGroup.visible = false;
+    scene.add(measureGroup);
+    const measureLabelLayer = document.createElement('div');
+    measureLabelLayer.className = 'cad-measure-label-layer';
+    container.appendChild(measureLabelLayer);
+
+    const measureLineMaterial = new THREE.LineBasicMaterial({ depthTest: false, transparent: true, opacity: 0.95 });
+    measureLineMaterial.color = highlightColor;
+    const measureSphereMaterial = new THREE.MeshBasicMaterial({ depthTest: false, transparent: true, opacity: 0.9 });
+    measureSphereMaterial.color = highlightColor;
+    const measureSphereGeometry = new THREE.SphereGeometry(1, 12, 8);
+
+    interface MeasureVisual {
+        segment: MeasureSegment;
+        line: THREE.Line;
+        sphereA: THREE.Mesh;
+        sphereB: THREE.Mesh;
+        label: HTMLDivElement;
+    }
+    const measureVisuals = new Map<string, MeasureVisual>();
+    let measureState: MeasureViewState = { active: false, mode: 'model3d', segments: [] };
+    let measureHover: MeasurePoint3D | undefined;
+
+    const pendingLineGeometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
+    const pendingLine = new THREE.Line(pendingLineGeometry, measureLineMaterial);
+    pendingLine.name = 'cad-measure-pending-line';
+    pendingLine.renderOrder = 999;
+    pendingLine.visible = false;
+    measureGroup.add(pendingLine);
+    const pendingMarker = new THREE.Mesh(measureSphereGeometry, measureSphereMaterial);
+    pendingMarker.name = 'cad-measure-pending-marker';
+    pendingMarker.renderOrder = 1000;
+    pendingMarker.visible = false;
+    measureGroup.add(pendingMarker);
+    const pendingLabel = document.createElement('div');
+    pendingLabel.className = 'cad-measure-label cad-measure-label-pending';
+    pendingLabel.style.display = 'none';
+    measureLabelLayer.appendChild(pendingLabel);
+
+    const setMeasureLinePoints = (line: THREE.Line, a: MeasurePoint3D, b: MeasurePoint3D): void => {
+        const attribute = line.geometry.getAttribute('position') as THREE.BufferAttribute | undefined;
+        if (attribute === undefined || attribute.count !== 2) {
+            line.geometry.dispose();
+            line.geometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(...a), new THREE.Vector3(...b)]);
+            return;
+        }
+        attribute.setXYZ(0, a[0], a[1], a[2]);
+        attribute.setXYZ(1, b[0], b[1], b[2]);
+        attribute.needsUpdate = true;
+    };
+    setMeasureLinePoints(pendingLine, [0, 0, 0], [0, 0, 0]);
+
+    const createMeasureVisual = (segment: MeasureSegment): MeasureVisual => {
+        const line = new THREE.Line(new THREE.BufferGeometry(), measureLineMaterial);
+        setMeasureLinePoints(line, segment.a, segment.b);
+        line.renderOrder = 999;
+        const sphereA = new THREE.Mesh(measureSphereGeometry, measureSphereMaterial);
+        sphereA.position.set(segment.a[0], segment.a[1], segment.a[2]);
+        sphereA.renderOrder = 1000;
+        const sphereB = new THREE.Mesh(measureSphereGeometry, measureSphereMaterial);
+        sphereB.position.set(segment.b[0], segment.b[1], segment.b[2]);
+        sphereB.renderOrder = 1000;
+        const label = document.createElement('div');
+        label.className = 'cad-measure-label';
+        label.textContent = formatMeasureDistance(segment.distance);
+        measureLabelLayer.appendChild(label);
+        measureGroup.add(line, sphereA, sphereB);
+        return { segment, line, sphereA, sphereB, label };
+    };
+
+    const disposeMeasureVisual = (visual: MeasureVisual): void => {
+        visual.line.removeFromParent();
+        visual.line.geometry.dispose();
+        visual.sphereA.removeFromParent();
+        visual.sphereB.removeFromParent();
+        visual.label.remove();
+    };
+
+    /** Reconcile the overlay objects with the pushed state (called per state change, not per frame). */
+    const syncMeasureObjects = (): void => {
+        const modeSegments = measureState.segments.filter((segment) => segment.kind === measureState.mode);
+        const presentIds = new Set(modeSegments.map((segment) => segment.id));
+        for (const [id, visual] of [...measureVisuals]) {
+            if (!presentIds.has(id)) {
+                disposeMeasureVisual(visual);
+                measureVisuals.delete(id);
+            }
+        }
+        for (const segment of modeSegments) {
+            const existing = measureVisuals.get(segment.id);
+            if (existing === undefined) {
+                measureVisuals.set(segment.id, createMeasureVisual(segment));
+            } else if (existing.segment !== segment) {
+                existing.segment = segment;
+                setMeasureLinePoints(existing.line, segment.a, segment.b);
+                existing.sphereA.position.set(segment.a[0], segment.a[1], segment.a[2]);
+                existing.sphereB.position.set(segment.b[0], segment.b[1], segment.b[2]);
+                existing.label.textContent = formatMeasureDistance(segment.distance);
+            }
+        }
+        const hasPending = measureState.active && measureState.pending !== undefined;
+        pendingLine.visible = false;
+        pendingMarker.visible = false;
+        pendingLabel.style.display = 'none';
+        if (hasPending) {
+            const pendingPoint = measureState.pending as MeasurePoint3D;
+            pendingMarker.position.set(pendingPoint[0], pendingPoint[1], pendingPoint[2]);
+            pendingMarker.visible = true;
+            if (measureHover !== undefined) {
+                setMeasureLinePoints(pendingLine, pendingPoint, measureHover);
+                pendingLine.visible = true;
+            }
+        }
+        measureGroup.visible = measureState.active || modeSegments.length > 0;
+        measureLabelLayer.style.display = measureGroup.visible ? '' : 'none';
+    };
+
+    const measureViewProjection = new THREE.Matrix4();
+    const updateMeasureOverlays = (): void => {
+        if (!measureGroup.visible) {
+            return;
+        }
+        const cam = controller.getActiveCamera();
+        const rectWidth = container.clientWidth || 1;
+        const rectHeight = container.clientHeight || 1;
+        const viewProjection = measureViewProjection.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse).elements;
+        const isOrtho = (cam as unknown as { isOrthographicCamera?: boolean }).isOrthographicCamera === true;
+        const markerScaleFor = (anchor: MeasurePoint3D): number => {
+            if (isOrtho) {
+                const ortho = cam as THREE.OrthographicCamera;
+                return MEASURE_MARKER_PX / Math.max(rectHeight / Math.max(ortho.top - ortho.bottom, 1e-9), 1e-9);
+            }
+            const perspective = cam as THREE.PerspectiveCamera;
+            const distance = Math.max(camera.position.distanceTo(new THREE.Vector3(anchor[0], anchor[1], anchor[2])), 1e-6);
+            const pxPerUnit = rectHeight / (2 * Math.tan(((perspective.fov ?? 45) * Math.PI) / 360) * distance);
+            return MEASURE_MARKER_PX / Math.max(pxPerUnit, 1e-9);
+        };
+        for (const visual of measureVisuals.values()) {
+            const mid = projectMeasurePoint(visual.segment.midpoint, viewProjection, rectWidth, rectHeight);
+            visual.label.textContent = formatMeasureDistance(visual.segment.distance);
+            visual.label.style.left = `${mid.x}px`;
+            visual.label.style.top = `${mid.y}px`;
+            visual.label.style.display = mid.visible ? '' : 'none';
+            for (const [sphere, point] of [
+                [visual.sphereA, visual.segment.a],
+                [visual.sphereB, visual.segment.b]
+            ] as Array<[THREE.Mesh, MeasurePoint3D]>) {
+                const screen = projectMeasurePoint(point, viewProjection, rectWidth, rectHeight);
+                sphere.visible = screen.visible;
+                const scale = markerScaleFor(point);
+                sphere.scale.set(scale, scale, scale);
+            }
+        }
+        if (measureState.active && measureState.pending !== undefined) {
+            const pendingPoint = measureState.pending as MeasurePoint3D;
+            const anchor = measureHover ?? pendingPoint;
+            const screen = projectMeasurePoint(anchor, viewProjection, rectWidth, rectHeight);
+            pendingLabel.style.left = `${screen.x}px`;
+            pendingLabel.style.top = `${screen.y}px`;
+            pendingLabel.style.display = screen.visible ? '' : 'none';
+            const text =
+                measureHover !== undefined ? formatMeasureDistance(measureDistance(pendingPoint, measureHover)) : 'Pick second point';
+            if (pendingLabel.textContent !== text) {
+                pendingLabel.textContent = text;
+            }
+            const scale = markerScaleFor(pendingPoint);
+            pendingMarker.scale.set(scale, scale, scale);
+        }
+    };
+
     let controller: SketchModeController;
     const renderScene = (): void => {
         renderer.render(scene, controller.getActiveCamera());
         updateGizmo();
         updateViewLabel();
+        updateMeasureOverlays();
     };
     controller = new SketchModeController(container, scene, renderer, controls, renderScene, {
         modelGroup,
@@ -1751,7 +2288,39 @@ function initViewport(
         renderScene();
     };
 
+    // Single source of truth for all material fiddling: shading-mode changes,
+    // ghost-opacity changes, section changes, and fresh rebuilds funnel through
+    // here so the active mode, opacity, and clipping plane survive model rebuilds.
+    const computeSectionPlanes = (): THREE.Plane[] | null => {
+        if (activeSection === undefined || currentTessData === undefined) {
+            return null;
+        }
+        const plane = sectionPlaneFromBox(activeSection, currentTessData.boundingBox);
+        return [new THREE.Plane(new THREE.Vector3(...plane.normal), plane.constant)];
+    };
+    const applyShading = (): void => {
+        const clippingPlanes = computeSectionPlanes();
+        for (const mesh of meshes) {
+            const flags = meshShadingFlags(shading, ghostOpacity);
+            mesh.visible = flags.faceVisible;
+            const material = mesh.material as THREE.MeshStandardMaterial;
+            material.wireframe = flags.wireframe;
+            material.transparent = flags.transparent;
+            material.opacity = flags.opacity;
+            material.depthWrite = flags.depthWrite;
+            material.clippingPlanes = clippingPlanes;
+            material.needsUpdate = true;
+        }
+        for (const line of edgeLines) {
+            const lineMaterial = line.material as THREE.LineBasicMaterial;
+            lineMaterial.clippingPlanes = clippingPlanes;
+            lineMaterial.needsUpdate = true;
+        }
+        applyHighlight();
+    };
+
     const buildModel = (data?: TessData): void => {
+        currentTessData = data;
         for (const mesh of meshes) {
             modelGroup.remove(mesh);
             mesh.geometry.dispose();
@@ -1768,7 +2337,7 @@ function initViewport(
         edgeHighlighter.clear();
 
         if (data === undefined) {
-            applyHighlight();
+            applyShading();
             return;
         }
 
@@ -1791,9 +2360,7 @@ function initViewport(
                     metalness: 0.1,
                     side: THREE.DoubleSide
                 });
-                material.wireframe = shading === 'wireframe';
                 const mesh = new THREE.Mesh(geometry, material);
-                mesh.visible = shading !== 'edges';
                 mesh.userData = {
                     solidId: solid.solidId,
                     faceId: face.faceId,
@@ -1809,7 +2376,7 @@ function initViewport(
                 edgeLines.push(line);
             }
         }
-        applyHighlight();
+        applyShading();
     };
 
     buildModel(tessData);
@@ -1901,15 +2468,16 @@ function initViewport(
         setViewDirection(directions[view]);
     };
 
-    const applyShading = (): void => {
-        for (const mesh of meshes) {
-            mesh.visible = shading !== 'edges';
-            (mesh.material as THREE.MeshStandardMaterial).wireframe = shading === 'wireframe';
-        }
-        renderScene();
-    };
     const setShading = (mode: ShadingMode): void => {
         shading = mode;
+        applyShading();
+    };
+    const setGhostOpacity = (value: number): void => {
+        ghostOpacity = clampGhostOpacity(value);
+        applyShading();
+    };
+    const setSection = (section?: SectionState): void => {
+        activeSection = section ?? undefined;
         applyShading();
     };
 
@@ -1933,8 +2501,57 @@ function initViewport(
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
 
+    /**
+     * Map a pointer position to a point on the sketch plane for measurement,
+     * mirroring SketchModeController's pointer mapping and reusing the active
+     * session's snap settings through its public accessors.
+     */
+    const measureSketchPoint = (clientX: number, clientY: number): MeasurePoint3D | undefined => {
+        const plane = controller.getDatumPlane();
+        const cam = controller.getActiveCamera();
+        const rect = renderer.domElement.getBoundingClientRect();
+        const ndc = pointerToNdc(clientX, clientY, rect);
+        const origin = new THREE.Vector3(ndc.x, ndc.y, -1).unproject(cam);
+        const target = new THREE.Vector3(ndc.x, ndc.y, 1).unproject(cam);
+        const direction = target.sub(origin).normalize();
+        const hit = intersectRayPlane(
+            { origin: { x: origin.x, y: origin.y, z: origin.z }, direction: { x: direction.x, y: direction.y, z: direction.z } },
+            plane
+        );
+        if (hit === undefined) {
+            return undefined;
+        }
+        const raw = worldToSketch(hit, plane);
+        const ortho = cam as THREE.OrthographicCamera;
+        const isOrtho = (ortho as unknown as { isOrthographicCamera?: boolean }).isOrthographicCamera === true;
+        const orthoHeight = isOrtho ? ortho.top - ortho.bottom : defaultSketchViewSize();
+        const radius = pixelRadiusToModelUnits(controller.getSnapRadiusPx(), orthoHeight, rect.height || 1);
+        const snapped = snap(
+            raw,
+            controller.getSession()?.getPrimitives() ?? [],
+            createSnapConfig({ enabled: controller.isSnapEnabled(), radius, gridPitch: 1 })
+        );
+        const world = sketchToWorld(snapped.point, plane);
+        return [world.x, world.y, world.z];
+    };
+
     const onClick = (event: MouseEvent) => {
         if (controller.isActive) {
+            return;
+        }
+        if (measureState.active && measureState.mode === 'model3d') {
+            if (shading === 'edgesOnly') {
+                // Faces are hidden under edges-only shading; the hint pill explains why clicks no-op.
+                return;
+            }
+            const rect = renderer.domElement.getBoundingClientRect();
+            const ndc = pointerToNdc(event.clientX, event.clientY, rect);
+            const hit = raycastFace(meshes, raycaster, ndc, camera);
+            if (hit !== undefined && hit.point !== undefined) {
+                measureHover = undefined;
+                onMeasurePoint([hit.point.x, hit.point.y, hit.point.z]);
+                renderScene();
+            }
             return;
         }
         const rect = renderer.domElement.getBoundingClientRect();
@@ -1947,7 +2564,8 @@ function initViewport(
                     onEdgePick(hit);
                 }
             } else {
-                const hit = raycastFace(meshes, raycaster, ndc, camera);
+                // Faces are hidden under edges-only shading; face picking no-ops.
+                const hit = shading === 'edgesOnly' ? undefined : raycastFace(meshes, raycaster, ndc, camera);
                 if (hit !== undefined) {
                     faceHighlighter.clear();
                     onFacePickDressUp(hit);
@@ -1956,7 +2574,7 @@ function initViewport(
             return;
         }
         if (activeHolePickMode) {
-            const hit = raycastFace(meshes, raycaster, ndc, camera);
+            const hit = shading === 'edgesOnly' ? undefined : raycastFace(meshes, raycaster, ndc, camera);
             if (hit !== undefined) {
                 faceHighlighter.clear();
                 onHolePick(hit);
@@ -1964,7 +2582,7 @@ function initViewport(
             return;
         }
         if (activeFacePickMode !== undefined) {
-            const hit = raycastFace(meshes, raycaster, ndc, camera);
+            const hit = shading === 'edgesOnly' ? undefined : raycastFace(meshes, raycaster, ndc, camera);
             if (hit !== undefined) {
                 faceHighlighter.clear();
                 onFacePick(hit);
@@ -1974,7 +2592,9 @@ function initViewport(
         pointer.x = ndc.x;
         pointer.y = ndc.y;
         raycaster.setFromCamera(pointer, camera);
-        const intersects = raycaster.intersectObjects(meshes, false);
+        // Edges-only shading hides the face meshes; solid/face picking no-ops
+        // and every click degrades to an empty-space click.
+        const intersects = shading === 'edgesOnly' ? [] : raycaster.intersectObjects(meshes, false);
         if (intersects.length > 0) {
             const data = intersects[0].object.userData;
             onSelect({ solidId: data.solidId as number, faceId: data.faceId as number });
@@ -1994,7 +2614,7 @@ function initViewport(
         pointer.x = ndc.x;
         pointer.y = ndc.y;
         raycaster.setFromCamera(pointer, camera);
-        const intersects = raycaster.intersectObjects(meshes, false);
+        const intersects = shading === 'edgesOnly' ? [] : raycaster.intersectObjects(meshes, false);
         if (intersects.length > 0) {
             const data = intersects[0].object.userData;
             onSelect({ solidId: data.solidId as number, faceId: data.faceId as number });
@@ -2005,6 +2625,18 @@ function initViewport(
 
     const onPickPointerMove = (event: PointerEvent): void => {
         if (controller.isActive) {
+            return;
+        }
+        if (measureState.active && measureState.mode === 'model3d') {
+            if (shading === 'edgesOnly') {
+                measureHover = undefined;
+            } else {
+                const rect = renderer.domElement.getBoundingClientRect();
+                const ndc = pointerToNdc(event.clientX, event.clientY, rect);
+                const hit = raycastFace(meshes, raycaster, ndc, camera);
+                measureHover = hit?.point !== undefined ? [hit.point.x, hit.point.y, hit.point.z] : undefined;
+            }
+            renderScene();
             return;
         }
         const rect = renderer.domElement.getBoundingClientRect();
@@ -2020,7 +2652,7 @@ function initViewport(
             return;
         }
         if (activeDressUpPickMode?.selecting === 'face') {
-            const hit = raycastFace(meshes, raycaster, ndc, camera);
+            const hit = shading === 'edgesOnly' ? undefined : raycastFace(meshes, raycaster, ndc, camera);
             if (hit !== undefined) {
                 faceHighlighter.highlight(hit.mesh);
             } else {
@@ -2030,7 +2662,7 @@ function initViewport(
             return;
         }
         if (activeHolePickMode) {
-            const hit = raycastFace(meshes, raycaster, ndc, camera);
+            const hit = shading === 'edgesOnly' ? undefined : raycastFace(meshes, raycaster, ndc, camera);
             if (hit !== undefined) {
                 faceHighlighter.highlight(hit.mesh);
             } else {
@@ -2040,7 +2672,7 @@ function initViewport(
             return;
         }
         if (activeFacePickMode !== undefined) {
-            const hit = raycastFace(meshes, raycaster, ndc, camera);
+            const hit = shading === 'edgesOnly' ? undefined : raycastFace(meshes, raycaster, ndc, camera);
             if (hit !== undefined) {
                 faceHighlighter.highlight(hit.mesh);
             } else {
@@ -2072,10 +2704,29 @@ function initViewport(
         if (!controller.isActive) {
             return;
         }
+        if (measureState.active && measureState.mode === 'sketch') {
+            // Left clicks feed the measure tool; pan gestures still reach the sketch controller.
+            if (event.button === 0 && !event.shiftKey) {
+                const point = measureSketchPoint(event.clientX, event.clientY);
+                if (point !== undefined) {
+                    measureHover = undefined;
+                    onMeasurePoint(point);
+                    renderScene();
+                }
+                return;
+            }
+            controller.onPointerDown(event.clientX, event.clientY, event.shiftKey, event.button);
+            return;
+        }
         controller.onPointerDown(event.clientX, event.clientY, event.shiftKey, event.button);
     };
     const onSketchPointerMove = (event: PointerEvent): void => {
         if (!controller.isActive) {
+            return;
+        }
+        if (measureState.active && measureState.mode === 'sketch') {
+            measureHover = measureSketchPoint(event.clientX, event.clientY);
+            renderScene();
             return;
         }
         controller.onPointerMove(event.clientX, event.clientY);
@@ -2121,6 +2772,24 @@ function initViewport(
                 event.preventDefault();
                 faceHighlighter.clear();
                 onFacePickCancel();
+            }
+            return;
+        }
+        // Measure sits below the pick modes in the escape chain but above the
+        // sketch session: while measuring, Enter/Escape end the tool instead of
+        // cancelling a sketch operation. Text fields keep their keys.
+        if (measureState.active) {
+            if (event.key === 'Escape' || event.key === 'Enter') {
+                const target = event.target;
+                const isTextField =
+                    target instanceof HTMLInputElement ||
+                    target instanceof HTMLTextAreaElement ||
+                    target instanceof HTMLSelectElement ||
+                    (target instanceof HTMLElement && target.isContentEditable);
+                if (!isTextField) {
+                    event.preventDefault();
+                    onMeasureDeactivate();
+                }
             }
             return;
         }
@@ -2174,6 +2843,29 @@ function initViewport(
         onToggleSketchMode();
     };
     window.addEventListener('keydown', onTabKey);
+
+    // Escape exits section mode unless a pick mode, sketch session, dialog, or
+    // text field consumes the key first (same guards as the fit/tab keys).
+    const onSectionEscapeKey = (event: KeyboardEvent): void => {
+        if (event.key !== 'Escape' || activeSection === undefined) {
+            return;
+        }
+        if (controller.isActive || activeFacePickMode !== undefined || activeDressUpPickMode !== undefined || activeHolePickMode) {
+            return;
+        }
+        const target = event.target;
+        if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) {
+            return;
+        }
+        if (target instanceof HTMLElement && target.isContentEditable) {
+            return;
+        }
+        event.preventDefault();
+        activeSection = undefined;
+        applyShading();
+        onExitSection();
+    };
+    window.addEventListener('keydown', onSectionEscapeKey);
 
     // Fires immediately with the current selection, then on every change.
     const selectionDisposable = subscribeSelection((selection) => {
@@ -2233,10 +2925,30 @@ function initViewport(
         zoomView,
         setStandardView,
         setShading,
+        setGhostOpacity,
+        setSection,
         setGizmoVisible,
+        updateMeasureState: (state) => {
+            measureState = state;
+            if (!state.active) {
+                measureHover = undefined;
+            }
+            syncMeasureObjects();
+            renderScene();
+        },
         cleanup: () => {
             gizmo.remove();
             viewLabel.remove();
+            measureLabelLayer.remove();
+            scene.remove(measureGroup);
+            for (const visual of measureVisuals.values()) {
+                visual.line.geometry.dispose();
+            }
+            measureVisuals.clear();
+            pendingLine.geometry.dispose();
+            measureSphereGeometry.dispose();
+            measureLineMaterial.dispose();
+            measureSphereMaterial.dispose();
             selectionDisposable.dispose();
             themeDisposable.dispose();
             resizeObserver.disconnect();
@@ -2251,6 +2963,7 @@ function initViewport(
             window.removeEventListener('keydown', onKeyDown);
             window.removeEventListener('keydown', onFitKey);
             window.removeEventListener('keydown', onTabKey);
+            window.removeEventListener('keydown', onSectionEscapeKey);
             controls.removeEventListener('start', onViewInteractionStart);
             controls.removeEventListener('change', renderScene);
             controls.dispose();

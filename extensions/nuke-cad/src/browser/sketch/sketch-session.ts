@@ -366,12 +366,17 @@ function arcAnglesFromThreePoints(center: Point2, start: Point2, mid: Point2, en
  * Create with {@link SketchSession.create} or restore with {@link SketchSession.fromSketchDef}.
  */
 export class SketchSession {
+    /** Default snap search radius in screen pixels (the viewport's historical value). */
+    static readonly DEFAULT_SNAP_RADIUS_PX = 12;
+
     private readonly solver: SketchSolver;
     private readonly id: string;
     private name: string;
     private datumId: string;
     private readonly snapConfig: SnapConfig;
     private readonly autoConstraintAngleThresholdDeg: number;
+    private snapEnabled = true;
+    private snapRadiusPx = SketchSession.DEFAULT_SNAP_RADIUS_PX;
 
     private readonly primitives = new Map<string, SketchPrimitive & PrimitiveMeta>();
     private readonly constraints = new Map<string, ConstraintRecord>();
@@ -572,6 +577,44 @@ export class SketchSession {
     /** Datum plane id the sketch lives on. */
     getDatumId(): string {
         return this.datumId;
+    }
+
+    /** True when pointer snapping is enabled for this session. */
+    isSnapEnabled(): boolean {
+        return this.snapEnabled;
+    }
+
+    /** Enable or disable snapping; disabled means free pointer placement. */
+    setSnapEnabled(on: boolean): void {
+        if (this.snapEnabled === on) {
+            return;
+        }
+        this.snapEnabled = on;
+        this.emitChange();
+    }
+
+    /** Current snap search radius in screen pixels. */
+    getSnapRadiusPx(): number {
+        return this.snapRadiusPx;
+    }
+
+    /**
+     * Set the snap search radius in screen pixels.
+     *
+     * The model-space snap reach scales proportionally to
+     * {@link DEFAULT_SNAP_RADIUS_PX}, so larger values grab nearby geometry
+     * from farther away.
+     */
+    setSnapRadius(px: number): void {
+        finite(px, 'Snap radius');
+        if (px <= 0) {
+            throw new Error(`Snap radius must be positive, got ${px}`);
+        }
+        if (this.snapRadiusPx === px) {
+            return;
+        }
+        this.snapRadiusPx = px;
+        this.emitChange();
     }
 
     /** Current tool. */
@@ -1076,7 +1119,9 @@ export class SketchSession {
     }
 
     private applySnap(raw: Point2, disableSnap?: boolean): SnapResult {
-        const config = disableSnap ? { ...this.snapConfig, enabled: false } : this.snapConfig;
+        const enabled = this.snapEnabled && !disableSnap;
+        const scale = this.snapRadiusPx / SketchSession.DEFAULT_SNAP_RADIUS_PX;
+        const config: SnapConfig = { ...this.snapConfig, enabled, radius: this.snapConfig.radius * scale };
         return snap(raw, this.getPrimitives(), config);
     }
 

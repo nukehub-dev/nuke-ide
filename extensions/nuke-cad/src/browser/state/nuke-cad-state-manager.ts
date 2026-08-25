@@ -50,16 +50,41 @@ export interface CadSelection {
     readonly faceId?: number;
 }
 
+/**
+ * Optional per-solid geometric properties attached by newer tessellation
+ * payloads (older backends omit the key entirely). Values are in model units.
+ */
+export interface TessSolidProperties {
+    readonly volume?: number;
+    readonly area?: number;
+    readonly bbox?: { readonly min: number[]; readonly max: number[] };
+    readonly centerOfMass?: number[];
+}
+
+/** Lightweight per-solid summary extracted from the tessellation payload. */
+export interface SolidSummary {
+    readonly solidId: number;
+    readonly bodyId?: string;
+    readonly faceCount: number;
+    readonly edgeCount: number;
+    readonly triangleCount: number;
+    readonly properties?: TessSolidProperties;
+}
+
 @injectable()
 export class NukeCadStateManager {
     private _model?: CadModel;
     private _selection: CadSelection = {};
+    private _solidSummaries: readonly SolidSummary[] = [];
 
     private readonly onModelChangeEmitter = new Emitter<CadModel | undefined>();
     readonly onModelChange: Event<CadModel | undefined> = this.onModelChangeEmitter.event;
 
     private readonly onSelectionChangeEmitter = new Emitter<CadSelection>();
     readonly onSelectionChange: Event<CadSelection> = this.onSelectionChangeEmitter.event;
+
+    private readonly onSolidSummariesChangeEmitter = new Emitter<readonly SolidSummary[]>();
+    readonly onSolidSummariesChange: Event<readonly SolidSummary[]> = this.onSolidSummariesChangeEmitter.event;
 
     get model(): CadModel | undefined {
         return this._model;
@@ -81,5 +106,15 @@ export class NukeCadStateManager {
     setSelection(selection: CadSelection): void {
         this._selection = selection;
         this.onSelectionChangeEmitter.fire(selection);
+    }
+
+    get solidSummaries(): readonly SolidSummary[] {
+        return this._solidSummaries;
+    }
+
+    /** Called by the viewport after each tessellation parse; [] clears stale data. */
+    setSolidSummaries(summaries: readonly SolidSummary[]): void {
+        this._solidSummaries = summaries;
+        this.onSolidSummariesChangeEmitter.fire(summaries);
     }
 }

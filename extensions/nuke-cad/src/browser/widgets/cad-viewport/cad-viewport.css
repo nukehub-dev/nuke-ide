@@ -276,8 +276,13 @@
 .cad-sketch-tool-button,
 .cad-document-toolbar-action,
 .cad-viewport-nav-button,
+.cad-viewport-shading-item,
+.cad-viewport-section-axis,
+.cad-viewport-section-flip,
 .cad-viewport-warning-toggle,
 .cad-viewport-error-dismiss,
+.cad-measure-row-remove,
+.cad-measure-clear,
 .cad-sketch-parameter-actions button,
 .cad-feature-dialog-ref-row button {
     min-width: 0;
@@ -843,6 +848,11 @@
     padding: 0;
 }
 
+.cad-document-toolbar-action.active {
+    background: var(--theia-focusBorder);
+    color: var(--theia-button-foreground);
+}
+
 .cad-document-toolbar-action .codicon {
     font-size: 16px;
 }
@@ -959,6 +969,10 @@
     padding: 0 4px;
 }
 
+.cad-viewport-nav-button.active {
+    color: var(--theia-focusBorder);
+}
+
 .cad-viewport-nav-text {
     font-size: 10px;
     font-weight: 600;
@@ -969,4 +983,301 @@
     height: 16px;
     margin: 0 3px;
     background: var(--theia-panel-border);
+}
+
+/* Shading-mode popover (anchored above the navigation cluster) */
+.cad-viewport-nav-popover {
+    position: absolute;
+    bottom: 42px;
+    right: 8px;
+    z-index: 16;
+    display: flex;
+    flex-direction: column;
+    min-width: 180px;
+    padding: 4px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editorWidget-background);
+    box-shadow:
+        0 4px 6px rgba(0, 0, 0, 0.1),
+        0 2px 4px rgba(0, 0, 0, 0.06);
+}
+
+.cad-viewport-shading-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: 4px 8px;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--theia-foreground);
+    font-size: var(--theia-ui-font-size1);
+    text-align: left;
+    cursor: pointer;
+}
+
+.cad-viewport-shading-item:hover {
+    background: var(--theia-list-hoverBackground);
+}
+
+.cad-viewport-shading-item.active {
+    color: var(--theia-focusBorder);
+}
+
+.cad-viewport-shading-label {
+    flex: 1;
+    white-space: nowrap;
+}
+
+.cad-viewport-ghost-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 4px;
+    padding: 6px 8px 2px;
+    border-top: 1px solid var(--theia-panel-border);
+    font-size: var(--theia-ui-font-size0);
+    cursor: default;
+}
+
+.cad-viewport-ghost-row input[type='range'] {
+    flex: 1;
+    min-width: 80px;
+}
+
+/* Section-mode popover (anchored above the navigation cluster) */
+.cad-viewport-section-popover {
+    position: absolute;
+    bottom: 42px;
+    right: 8px;
+    z-index: 16;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 180px;
+    padding: 8px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editorWidget-background);
+    box-shadow:
+        0 4px 6px rgba(0, 0, 0, 0.1),
+        0 2px 4px rgba(0, 0, 0, 0.06);
+}
+
+.cad-viewport-section-axis,
+.cad-viewport-section-flip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 24px;
+    height: 22px;
+    padding: 0 6px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 4px;
+    background: transparent;
+    color: var(--theia-foreground);
+    font-size: 10px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.cad-viewport-section-axis:hover,
+.cad-viewport-section-flip:hover {
+    background: var(--theia-list-hoverBackground);
+}
+
+.cad-viewport-section-axis.active,
+.cad-viewport-section-flip.active {
+    border-color: var(--theia-focusBorder);
+    color: var(--theia-focusBorder);
+}
+
+.cad-viewport-section-slider-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 2px;
+    padding: 6px 2px 2px;
+    border-top: 1px solid var(--theia-panel-border);
+    font-size: var(--theia-ui-font-size0);
+    cursor: default;
+}
+
+.cad-viewport-section-slider-row input[type='range'] {
+    flex: 1;
+    min-width: 80px;
+}
+
+/* Edges-only status hint (bottom-center pill, like the document hint) */
+.cad-viewport-shading-hint {
+    position: absolute;
+    bottom: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 14;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editorWidget-background);
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size1);
+    pointer-events: none;
+}
+
+/* Measure tool overlays */
+
+.cad-measure-label-layer {
+    position: absolute;
+    inset: 0;
+    z-index: 12;
+    overflow: hidden;
+    pointer-events: none;
+}
+
+.cad-measure-label {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    padding: 1px 6px;
+    border: 1px solid var(--theia-focusBorder);
+    border-radius: 4px;
+    background: var(--theia-editorWidget-background);
+    color: var(--theia-foreground);
+    font-size: var(--theia-ui-font-size0);
+    white-space: nowrap;
+    pointer-events: none;
+}
+
+.cad-measure-label-pending {
+    color: var(--theia-focusBorder);
+    opacity: 0.9;
+}
+
+/* Measurements popover in 3D document mode (below the document toolbar) */
+.cad-viewport-measure-popover {
+    position: absolute;
+    top: 60px;
+    right: 8px;
+    z-index: 16;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 220px;
+    max-width: 300px;
+    padding: 8px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editorWidget-background);
+    box-shadow:
+        0 4px 6px rgba(0, 0, 0, 0.1),
+        0 2px 4px rgba(0, 0, 0, 0.06);
+}
+
+/* Measurements popover in sketch mode (right of the floating sketch toolbar) */
+.cad-sketch-measure-popover {
+    position: absolute;
+    top: 8px;
+    left: 56px;
+    z-index: 21;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 220px;
+    max-width: 300px;
+    padding: 8px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editorWidget-background);
+    box-shadow:
+        0 4px 6px rgba(0, 0, 0, 0.1),
+        0 2px 4px rgba(0, 0, 0, 0.06);
+}
+
+.cad-measure-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.cad-measure-title {
+    flex: 1;
+    font-size: var(--theia-ui-font-size1);
+    font-weight: 600;
+}
+
+.cad-measure-badge {
+    min-width: 18px;
+    padding: 0 5px;
+    border-radius: 9px;
+    background: var(--theia-focusBorder);
+    color: var(--theia-button-foreground);
+    font-size: var(--theia-ui-font-size0);
+    line-height: 16px;
+    text-align: center;
+}
+
+.cad-measure-list {
+    display: flex;
+    flex-direction: column;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.cad-measure-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 2px;
+    border-radius: 4px;
+    font-size: var(--theia-ui-font-size1);
+}
+
+.cad-measure-row:hover {
+    background: var(--theia-list-hoverBackground);
+}
+
+.cad-measure-value {
+    flex: 1;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.cad-measure-row-remove {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+}
+
+.cad-measure-empty {
+    font-size: var(--theia-ui-font-size1);
+    color: var(--theia-descriptionForeground);
+    padding: 4px 2px;
+}
+
+.cad-measure-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-top: 2px;
+    padding-top: 6px;
+    border-top: 1px solid var(--theia-panel-border);
+}
+
+.cad-measure-clear {
+    padding: 2px 8px;
+    font-size: var(--theia-ui-font-size0);
+}
+
+.cad-measure-note {
+    font-size: var(--theia-ui-font-size0);
+    color: var(--theia-descriptionForeground);
+    text-align: right;
 }

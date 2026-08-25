@@ -48,7 +48,17 @@ import { FileService } from '@theia/filesystem/lib/browser/file-service';
 import { URI } from '@theia/core/lib/common/uri';
 
 import { RegionManifestData } from '../../../common/nuke-cad-protocol';
-import { NukeCadStateManager, CadModel, CadSelection } from '../../state/nuke-cad-state-manager';
+import { NukeCadStateManager, CadModel, CadSelection, SolidSummary } from '../../state/nuke-cad-state-manager';
+import {
+    bboxSize,
+    compareSolidRows,
+    formatQuantity,
+    formatSi,
+    formatVec3,
+    MISSING_VALUE,
+    SolidSortKey,
+    SolidTableRow
+} from './solid-summaries';
 import { Tooltip, useTooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
 import './outline-panel.css';
 
@@ -70,6 +80,7 @@ export class CadOutlinePanelWidget extends ReactWidget {
     protected readonly fileService: FileService;
 
     private selection: CadSelection = {};
+    private summaries: readonly SolidSummary[] = [];
     private manifestExists = false;
     /** Monotonically increasing token; stale manifest-existence probes are dropped. */
     private manifestCheckToken = 0;
@@ -82,10 +93,17 @@ export class CadOutlinePanelWidget extends ReactWidget {
         this.title.iconClass = 'codicon codicon-nuke-cad-outline';
 
         this.selection = this.stateManager.selection;
+        this.summaries = this.stateManager.solidSummaries;
         this.toDispose.push(this.stateManager.onModelChange(() => this.handleModelChange()));
         this.toDispose.push(
             this.stateManager.onSelectionChange((selection) => {
                 this.selection = selection;
+                this.update();
+            })
+        );
+        this.toDispose.push(
+            this.stateManager.onSolidSummariesChange((summaries) => {
+                this.summaries = summaries;
                 this.update();
             })
         );
@@ -151,6 +169,7 @@ export class CadOutlinePanelWidget extends ReactWidget {
             <CadOutlinePanelComponent
                 model={this.stateManager.model}
                 selection={this.selection}
+                summaries={this.summaries}
                 manifestExists={this.manifestExists}
                 manifestFileName={this.manifestFileName}
                 onSelect={(solidId) => this.stateManager.setSelection({ solidId })}
@@ -198,24 +217,65 @@ function buildSurfaceRows(manifest: RegionManifestData, selectorMap: Record<stri
     }));
 }
 
+/** First manifest label per solid index (positional ``mat_<id>`` when unmapped). */
+function buildSolidLabelMap(model: CadModel | undefined): Map<number, string> {
+    const map = new Map<number, string>();
+    if (!model) {
+        return map;
+    }
+    for (const row of buildVolumeRows(model)) {
+        for (const solidIndex of row.solidIndices) {
+            if (!map.has(solidIndex)) {
+                map.set(solidIndex, row.label);
+            }
+        }
+    }
+    return map;
+}
+
+/** Union of manifest solids and tessellated solids, labeled for the table view. */
+function buildSolidTableRows(model: CadModel | undefined, summaries: readonly SolidSummary[]): SolidTableRow[] {
+    const labelBySolid = buildSolidLabelMap(model);
+    const summaryById = new Map(summaries.map((summary) => [summary.solidId, summary]));
+    const solidIds = new Set<number>([...labelBySolid.keys(), ...summaries.map((summary) => summary.solidId)]);
+    return Array.from(solidIds)
+        .sort((a, b) => a - b)
+        .map((solidId) => ({
+            solidId,
+            label: labelBySolid.get(solidId) ?? `mat_${solidId}`,
+            summary: summaryById.get(solidId)
+        }));
+}
+
 interface CadOutlinePanelComponentProps {
     readonly model?: CadModel;
     readonly selection: CadSelection;
+    readonly summaries: readonly SolidSummary[];
     readonly manifestExists: boolean;
     readonly manifestFileName: string;
     readonly onSelect: (solidId: number) => void;
     readonly onOpenManifest: () => void;
 }
 
+/** A pinned properties snapshot: summary plus its resolved body label. */
+interface SolidPropertiesEntry {
+    readonly summary: SolidSummary;
+    readonly label: string;
+}
+
 function CadOutlinePanelComponent(props: CadOutlinePanelComponentProps): React.ReactElement {
     const [volumesCollapsed, setVolumesCollapsed] = React.useState(false);
     const [surfacesCollapsed, setSurfacesCollapsed] = React.useState(false);
+    const [viewMode, setViewMode] = React.useState<'list' | 'table'>('list');
+    const [sort, setSort] = React.useState<{ key: SolidSortKey; descending: boolean }>({ key: 'solidId', descending: false });
+    const [pinnedEntry, setPinnedEntry] = React.useState<SolidPropertiesEntry | undefined>(undefined);
 
     const model = props.model;
     const selectedSolid = props.selection.solidId;
     const selectorMap = model?.result.selectorMap ?? {};
     const volumeRows = model ? buildVolumeRows(model) : [];
     const surfaceRows = model?.manifest ? buildSurfaceRows(model.manifest, selectorMap) : [];
+    const summaries = props.summaries;
 
     // A viewport pick expands the collapsed section holding the matching row.
     React.useEffect(() => {
@@ -230,6 +290,31 @@ function CadOutlinePanelComponent(props: CadOutlinePanelComponentProps): React.R
         }
         // Row lists are derived from the model; only the selection drives expansion.
     }, [selectedSolid]);
+
+    const labelBySolid = buildSolidLabelMap(model);
+    const followEntry: SolidPropertiesEntry | undefined = (() => {
+        if (selectedSolid === undefined) {
+            return undefined;
+        }
+        const summary = summaries.find((candidate) => candidate.solidId === selectedSolid);
+        return summary ? { summary, label: labelBySolid.get(summary.solidId) ?? `mat_${summary.solidId}` } : undefined;
+    })();
+    const displayEntry = pinnedEntry ?? followEntry;
+
+    const handleTogglePin = (): void => {
+        if (pinnedEntry) {
+            setPinnedEntry(undefined);
+        } else if (followEntry) {
+            setPinnedEntry(followEntry);
+        }
+    };
+
+    const handleSort = (key: SolidSortKey): void => {
+        setSort((previous) => ({ key, descending: previous.key === key ? !previous.descending : false }));
+    };
+
+    const tableRows =
+        viewMode === 'table' ? buildSolidTableRows(model, summaries).sort((a, b) => compareSolidRows(a, b, sort.key, sort.descending)) : [];
 
     const scriptName = model?.scriptPath.split(/[\\/]/).pop();
     const warnings = model?.result.warnings ?? [];
@@ -246,6 +331,14 @@ function CadOutlinePanelComponent(props: CadOutlinePanelComponentProps): React.R
                 </div>
                 {model && (
                     <div className="header-actions">
+                        <Tooltip content={viewMode === 'list' ? 'Show as spreadsheet table' : 'Show as list'} position="left">
+                            <button
+                                className="theia-button secondary view-toggle-button"
+                                onClick={() => setViewMode(viewMode === 'list' ? 'table' : 'list')}
+                            >
+                                <i className={`codicon ${viewMode === 'list' ? 'codicon-table' : 'codicon-list-tree'}`} />
+                            </button>
+                        </Tooltip>
                         <Tooltip
                             content={
                                 props.manifestExists
@@ -295,43 +388,168 @@ function CadOutlinePanelComponent(props: CadOutlinePanelComponentProps): React.R
                         </div>
                     )}
 
-                    <OutlineSection
-                        title="Volumes"
-                        count={volumeRows.length}
-                        collapsed={volumesCollapsed}
-                        onToggle={() => setVolumesCollapsed(!volumesCollapsed)}
-                    >
-                        {volumeRows.map((row) => (
-                            <OutlineRow
-                                key={row.key}
-                                row={row}
-                                selected={selectedSolid !== undefined && row.solidIndices.includes(selectedSolid)}
-                                icon="codicon-nuke-cad-cube"
-                                onSelect={props.onSelect}
-                            />
-                        ))}
-                    </OutlineSection>
+                    {displayEntry && (
+                        <PropertiesSection entry={displayEntry} pinned={pinnedEntry !== undefined} onTogglePin={handleTogglePin} />
+                    )}
 
-                    {surfaceRows.length > 0 && (
-                        <OutlineSection
-                            title="Surfaces"
-                            count={surfaceRows.length}
-                            collapsed={surfacesCollapsed}
-                            onToggle={() => setSurfacesCollapsed(!surfacesCollapsed)}
-                        >
-                            {surfaceRows.map((row) => (
-                                <OutlineRow
-                                    key={row.key}
-                                    row={row}
-                                    selected={selectedSolid !== undefined && row.solidIndices.includes(selectedSolid)}
-                                    icon="codicon-nuke-cad-datum"
-                                    onSelect={props.onSelect}
-                                />
-                            ))}
-                        </OutlineSection>
+                    {viewMode === 'list' ? (
+                        <>
+                            <OutlineSection
+                                title="Volumes"
+                                count={volumeRows.length}
+                                collapsed={volumesCollapsed}
+                                onToggle={() => setVolumesCollapsed(!volumesCollapsed)}
+                            >
+                                {volumeRows.map((row) => (
+                                    <OutlineRow
+                                        key={row.key}
+                                        row={row}
+                                        selected={selectedSolid !== undefined && row.solidIndices.includes(selectedSolid)}
+                                        icon="codicon-nuke-cad-cube"
+                                        onSelect={props.onSelect}
+                                    />
+                                ))}
+                            </OutlineSection>
+
+                            {surfaceRows.length > 0 && (
+                                <OutlineSection
+                                    title="Surfaces"
+                                    count={surfaceRows.length}
+                                    collapsed={surfacesCollapsed}
+                                    onToggle={() => setSurfacesCollapsed(!surfacesCollapsed)}
+                                >
+                                    {surfaceRows.map((row) => (
+                                        <OutlineRow
+                                            key={row.key}
+                                            row={row}
+                                            selected={selectedSolid !== undefined && row.solidIndices.includes(selectedSolid)}
+                                            icon="codicon-nuke-cad-datum"
+                                            onSelect={props.onSelect}
+                                        />
+                                    ))}
+                                </OutlineSection>
+                            )}
+                        </>
+                    ) : (
+                        <SolidTable
+                            rows={tableRows}
+                            sort={sort}
+                            onSort={handleSort}
+                            selectedSolid={selectedSolid}
+                            onSelect={props.onSelect}
+                        />
                     )}
                 </div>
             )}
+        </div>
+    );
+}
+
+interface PropertiesSectionProps {
+    readonly entry: SolidPropertiesEntry;
+    readonly pinned: boolean;
+    readonly onTogglePin: () => void;
+}
+
+function PropertiesSection(props: PropertiesSectionProps): React.ReactElement {
+    const summary = props.entry.summary;
+    const properties = summary.properties;
+    const size = bboxSize(properties);
+
+    return (
+        <div className="outline-section properties-section">
+            <div className="category-header properties-header">
+                <i className="codicon codicon-info" />
+                <span>Properties</span>
+                <Tooltip
+                    content={
+                        props.pinned
+                            ? 'Unpin — follow the current selection again'
+                            : 'Pin — keep these properties visible when the selection clears'
+                    }
+                    position="left"
+                >
+                    <button className={`pin-button${props.pinned ? ' pinned' : ''}`} onClick={props.onTogglePin}>
+                        <i className={`codicon ${props.pinned ? 'codicon-pinned' : 'codicon-pin'}`} />
+                    </button>
+                </Tooltip>
+            </div>
+            <div className="properties-grid">
+                <span className="prop-label">Body</span>
+                <span className="prop-value" title={props.entry.label}>
+                    {props.entry.label}
+                </span>
+                <span className="prop-label">Solid</span>
+                <span className="prop-value">{summary.solidId}</span>
+                <span className="prop-label">Volume</span>
+                <span className="prop-value">{formatQuantity(properties?.volume, 'u³')}</span>
+                <span className="prop-label">Area</span>
+                <span className="prop-value">{formatQuantity(properties?.area, 'u²')}</span>
+                <span className="prop-label">Size dx × dy × dz</span>
+                <span className="prop-value">
+                    {size ? `${formatSi(size[0])} × ${formatSi(size[1])} × ${formatSi(size[2])} u` : MISSING_VALUE}
+                </span>
+                <span className="prop-label">Center of mass</span>
+                <span className="prop-value">{formatVec3(properties?.centerOfMass, 'u')}</span>
+                <span className="prop-label">Faces</span>
+                <span className="prop-value">{summary.faceCount}</span>
+                <span className="prop-label">Edges</span>
+                <span className="prop-value">{summary.edgeCount}</span>
+                <span className="prop-label">Triangles</span>
+                <span className="prop-value">{summary.triangleCount}</span>
+            </div>
+            <p className="properties-units-hint">Quantities use SI prefixes in model units.</p>
+        </div>
+    );
+}
+
+const TABLE_COLUMNS: ReadonlyArray<{ readonly key: SolidSortKey; readonly label: string }> = [
+    { key: 'solidId', label: 'Solid' },
+    { key: 'label', label: 'Body label' },
+    { key: 'volume', label: 'Volume' },
+    { key: 'area', label: 'Area' },
+    { key: 'faceCount', label: 'Faces' },
+    { key: 'triangleCount', label: 'Tris' }
+];
+
+interface SolidTableProps {
+    readonly rows: readonly SolidTableRow[];
+    readonly sort: { readonly key: SolidSortKey; readonly descending: boolean };
+    readonly onSort: (key: SolidSortKey) => void;
+    readonly selectedSolid?: number;
+    readonly onSelect: (solidId: number) => void;
+}
+
+function SolidTable(props: SolidTableProps): React.ReactElement {
+    return (
+        <div className="outline-table">
+            <div className="outline-table-head">
+                {TABLE_COLUMNS.map((column) => (
+                    <button key={column.key} className="outline-table-th" onClick={() => props.onSort(column.key)}>
+                        <span className="outline-table-th-label">{column.label}</span>
+                        {props.sort.key === column.key && (
+                            <i className={`codicon codicon-chevron-${props.sort.descending ? 'down' : 'up'}`} />
+                        )}
+                    </button>
+                ))}
+            </div>
+            {props.rows.map((row) => (
+                <div
+                    key={row.solidId}
+                    className={`outline-table-tr${props.selectedSolid === row.solidId ? ' selected' : ''}`}
+                    onClick={() => props.onSelect(row.solidId)}
+                >
+                    <span className="outline-table-cell num">{row.solidId}</span>
+                    <span className="outline-table-cell label" title={row.label}>
+                        {row.label}
+                    </span>
+                    <span className="outline-table-cell num">{formatQuantity(row.summary?.properties?.volume, 'u³')}</span>
+                    <span className="outline-table-cell num">{formatQuantity(row.summary?.properties?.area, 'u²')}</span>
+                    <span className="outline-table-cell num">{row.summary ? row.summary.faceCount : MISSING_VALUE}</span>
+                    <span className="outline-table-cell num">{row.summary ? row.summary.triangleCount : MISSING_VALUE}</span>
+                </div>
+            ))}
+            {props.rows.length === 0 && <div className="outline-table-empty">No mesh data loaded for this model yet.</div>}
         </div>
     );
 }

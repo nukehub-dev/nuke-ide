@@ -602,6 +602,10 @@ def _tessellate_shape(
         solid_entry: dict[str, Any] = {"solidId": solid_id, "faces": faces, "edges": edges}
         if body_id is not None:
             solid_entry["bodyId"] = body_id
+        try:
+            solid_entry["properties"] = _solid_properties(solid)
+        except Exception:
+            pass
         solids.append(solid_entry)
         solid_id += 1
         solid_exp.Next()
@@ -649,6 +653,35 @@ def _bounding_box(shape: object) -> dict[str, list[float]]:
     brep_bnd_lib_add(BRepBndLib, shape, bbox)
     xmin, ymin, zmin, xmax, ymax, zmax = bbox.Get()
     return {"min": [xmin, ymin, zmin], "max": [xmax, ymax, zmax]}
+
+
+def _solid_properties(solid: object) -> dict[str, Any]:
+    """Return selection-panel mass properties (volume, area, bbox, center of mass)."""
+    from OCP.Bnd import Bnd_Box
+    from OCP.BRepBndLib import BRepBndLib
+    from OCP.BRepGProp import BRepGProp
+    from OCP.GProp import GProp_GProps
+
+    volume_props = GProp_GProps()
+    BRepGProp.VolumeProperties_s(solid, volume_props)
+    surface_props = GProp_GProps()
+    BRepGProp.SurfaceProperties_s(solid, surface_props)
+
+    box = Bnd_Box()
+    box.SetGap(0.0)
+    brep_bnd_lib_add(BRepBndLib, solid, box)
+    xmin, ymin, zmin, xmax, ymax, zmax = box.Get()
+
+    com = volume_props.CentreOfMass()
+    return {
+        "volume": float(volume_props.Mass()),
+        "area": float(surface_props.Mass()),
+        "bbox": {
+            "min": [float(xmin), float(ymin), float(zmin)],
+            "max": [float(xmax), float(ymax), float(zmax)],
+        },
+        "centerOfMass": [float(com.X()), float(com.Y()), float(com.Z())],
+    }
 
 
 def _load_manifest(script_path: Path) -> tuple[RegionManifest | None, list[str]]:

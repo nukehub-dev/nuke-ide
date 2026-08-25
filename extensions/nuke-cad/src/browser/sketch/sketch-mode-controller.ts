@@ -701,6 +701,28 @@ export class SketchModeController {
         this.emitChange();
     }
 
+    /** Enable or disable snapping for the active session (no-op without one). */
+    setSnapEnabled(on: boolean): void {
+        this.session?.setSnapEnabled(on);
+        this.emitChange();
+    }
+
+    /** True when snapping is enabled; defaults to true without a session. */
+    isSnapEnabled(): boolean {
+        return this.session?.isSnapEnabled() ?? true;
+    }
+
+    /** Set the snap search radius in screen pixels (no-op without a session). */
+    setSnapRadius(px: number): void {
+        this.session?.setSnapRadius(px);
+        this.emitChange();
+    }
+
+    /** Current snap search radius in screen pixels. */
+    getSnapRadiusPx(): number {
+        return this.session?.getSnapRadiusPx() ?? SketchSession.DEFAULT_SNAP_RADIUS_PX;
+    }
+
     /** Toggle the construction flag on the current selection. */
     async toggleConstructionForSelection(): Promise<void> {
         if (this.session === undefined || this.selectedIds.size === 0) {
@@ -993,8 +1015,8 @@ export class SketchModeController {
     }
 
     private computeSnap(raw: Point2): SnapResult {
-        const radius = pixelRadiusToModelUnits(12, this.getOrthoHeight(), this.container.clientHeight);
-        return snap(raw, this.session?.getPrimitives() ?? [], createSnapConfig({ radius, gridPitch: 1 }));
+        const radius = pixelRadiusToModelUnits(this.getSnapRadiusPx(), this.getOrthoHeight(), this.container.clientHeight);
+        return snap(raw, this.session?.getPrimitives() ?? [], createSnapConfig({ enabled: this.isSnapEnabled(), radius, gridPitch: 1 }));
     }
 
     private pointerToSketch(clientX: number, clientY: number): Point2 | undefined {

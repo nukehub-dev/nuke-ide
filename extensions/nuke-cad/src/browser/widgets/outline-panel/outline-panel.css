@@ -70,6 +70,16 @@
     font-size: 11px;
 }
 
+.cad-outline-header .view-toggle-button {
+    min-width: 0;
+    margin-left: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2px 6px;
+    font-size: 12px;
+}
+
 .cad-outline-content {
     flex: 1;
     overflow: auto;
@@ -256,4 +266,145 @@
 
 .cad-outline-empty .empty-hint {
     font-size: 12px;
+}
+
+/* V7: read-only properties of the selected (or pinned) solid */
+.properties-section {
+    margin-bottom: 16px;
+}
+
+.cad-outline-panel .properties-header {
+    cursor: default;
+}
+
+.pin-button {
+    margin-left: auto;
+    background: transparent;
+    border: none;
+    padding: 1px 4px;
+    display: inline-flex;
+    align-items: center;
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+    cursor: pointer;
+}
+
+.pin-button:hover {
+    color: var(--theia-foreground);
+}
+
+.pin-button.pinned {
+    color: var(--theia-focusBorder);
+}
+
+.properties-grid {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 2px 12px;
+    padding: 4px 8px;
+    font-size: 12px;
+}
+
+.properties-grid .prop-label {
+    color: var(--theia-descriptionForeground);
+    white-space: nowrap;
+}
+
+.properties-grid .prop-value {
+    font-family: var(--theia-code-font-family);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.properties-units-hint {
+    margin: 6px 8px 0;
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+}
+
+/* V10: spreadsheet table view */
+.outline-table {
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 4px;
+    overflow: hidden;
+    font-size: 12px;
+    user-select: none;
+}
+
+.outline-table-head,
+.outline-table-tr {
+    display: grid;
+    grid-template-columns: 40px minmax(70px, 1.3fr) repeat(2, minmax(56px, 1fr)) 44px 44px;
+    gap: 8px;
+    align-items: center;
+    padding: 3px 8px;
+}
+
+.outline-table-head {
+    background: var(--theia-titleBar-activeBackground);
+    border-bottom: 1px solid var(--theia-panel-border);
+}
+
+.outline-table-th {
+    background: transparent;
+    border: none;
+    padding: 0;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    text-align: left;
+    color: var(--theia-descriptionForeground);
+    cursor: pointer;
+}
+
+.outline-table-th:hover {
+    color: var(--theia-foreground);
+}
+
+.outline-table-th-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.outline-table-tr {
+    cursor: pointer;
+}
+
+.outline-table-tr + .outline-table-tr {
+    border-top: 1px solid var(--theia-panel-border);
+}
+
+.outline-table-tr:hover {
+    background: var(--theia-list-hoverBackground);
+}
+
+.outline-table-tr.selected {
+    background: var(--theia-list-activeSelectionBackground);
+    color: var(--theia-list-activeSelectionForeground);
+}
+
+.outline-table-cell {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.outline-table-cell.num {
+    font-family: var(--theia-code-font-family);
+    font-size: 11px;
+    text-align: right;
+}
+
+.outline-table-empty {
+    padding: 10px 8px;
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
 }

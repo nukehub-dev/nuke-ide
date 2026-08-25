@@ -24,9 +24,8 @@
 // POSSIBILITY OF SUCH DAMAGE.
 // *****************************************************************************
 
-import { inject, injectable, named } from '@theia/core/shared/inversify';
-import { ContributionProvider } from '@theia/core/lib/common/contribution-provider';
-import { PreferenceConfiguration, PreferenceConfigurations } from '@theia/core/lib/common/preferences';
+import { injectable } from '@theia/core/shared/inversify';
+import { PreferenceConfigurations } from '@theia/core/lib/common/preferences';
 
 /**
  * Workspace-scope configuration folder override.
@@ -41,14 +40,6 @@ import { PreferenceConfiguration, PreferenceConfigurations } from '@theia/core/l
  */
 @injectable()
 export class NukePreferenceConfigurations extends PreferenceConfigurations {
-    constructor(
-        @inject(ContributionProvider)
-        @named(PreferenceConfiguration)
-        provider: ContributionProvider<PreferenceConfiguration>
-    ) {
-        super(provider);
-    }
-
     override getPaths(): string[] {
         return ['.nuke-ide', '.vscode'];
     }
