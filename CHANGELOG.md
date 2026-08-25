@@ -39,14 +39,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **Finish Sketch** pill at the top-center of the viewport (previously an
   unlabeled check icon at the bottom of the toolbar). Dimension labels no
   longer overlap each other — colliding labels shift apart automatically.
-  Inspired by Blender's viewport: an **axis navigation gizmo** (top-right,
+  Also adds an **axis navigation gizmo** (top-right,
   mirrors the camera; click X/Y/Z or their negatives to snap views) and a
   **wireframe** shading toggle in the navigation cluster. Starting a sketch
   shows a "Starting sketch solver..." overlay while the solver loads instead
   of flashing back to document mode.
+- nuke-cad: **viewport inspection polish** — a view label overlay (top-left)
+  shows the current standard view or the active sketch name; the shading
+  button now cycles **shaded → wireframe → edges-only**; fit (`F` or the nav
+  button) frames the selected solid when one is active, double-clicking a
+  solid selects and frames it, and `.` fits the selection; `Tab` enters/exits
+  sketch mode.
 
 ### Fixed
 
+- nuke-cad: **exiting a brand-new sketch silently failed** — the sketch session
+  was created without the pre-registered document def, so the exit-time save
+  failed datum validation (`unknown datum 'XY'`) and kept the user trapped in
+  sketch mode behind an error notification. New sketches now round-trip their
+  id, datum, and name through the session; Tab and the Finish Sketch pill both
+  exit reliably.
 - nuke-cad: the CAD viewport rendered through a disconnected throwaway
   camera, so orbiting, zooming, and panning had no visible effect and models
   appeared zoomed in. The viewport now renders through the live camera, and a

@@ -123,10 +123,10 @@
     word-break: break-word;
 }
 
-/* Axis navigation gizmo (top-right, mirrors camera orientation) */
+/* Axis navigation gizmo (below the document toolbar, mirrors camera orientation) */
 .cad-viewport-gizmo {
     position: absolute;
-    top: 10px;
+    top: 52px;
     right: 10px;
     z-index: 12;
     width: 68px;
@@ -141,6 +141,21 @@
 .cad-viewport-gizmo circle[data-dir] {
     pointer-events: all;
     cursor: pointer;
+}
+
+/* View label overlay (top-left, e.g. "User view" / "Sketch — Sketch 1") */
+.cad-viewport-view-label {
+    position: absolute;
+    top: 52px;
+    left: 10px;
+    z-index: 12;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: var(--theia-editorWidget-background);
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size0);
+    pointer-events: none;
+    opacity: 0.85;
 }
 
 /* Sketch mode overlay */

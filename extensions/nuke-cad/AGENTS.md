@@ -118,10 +118,21 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   view size. `sketchEntering` covers the solver-WASM load window between
   **Start Sketch** and an active session: the widget treats it as sketch mode
   (no document-hint flash) and shows a "Starting sketch solver..." overlay.
-  The 3D viewport also carries a Blender-style axis gizmo (top-right SVG,
+  The 3D viewport also carries an axis gizmo (top-right SVG,
   updated imperatively from `renderScene` — never from React state; click an
   axis to snap views, hidden in sketch mode via `setGizmoVisible`) and a
-  wireframe toggle (`setWireframe`) in the navigation cluster.
+  wireframe toggle (`setWireframe`) in the navigation cluster. Both the gizmo
+  and the view-label overlay sit **below the document toolbar** (top 52px) —
+  at the toolbar's z-index the full-width toolbar would cover them. The view
+  label (`cad-viewport-view-label`, imperative DOM) shows the active standard
+  view (`User` after orbiting, `Top`/`Left`/... after snapping) or
+  `Sketch — <name>` while sketching (`SketchModeController.getSketchName()`).
+  `setShading('shaded' | 'wireframe' | 'edges')` is the single material-state
+  authority — the nav button cycles it; rebuilds re-apply it. `fitView` frames
+  the selected solid when `currentSelection.solidId` is set; `.` and
+  double-click-on-solid also fit the selection; `Tab` toggles sketch mode
+  (`handleToggleSketchMode`, guarded against pick modes, dialogs, and text
+  fields).
 - The Model Outline panel (`src/browser/widgets/outline-panel/`, widget ID
   `nuke-cad-outline-panel-widget`, label "Model Outline") lists the active
   model's manifest volumes and surfaces and is read-only — no manifest editing

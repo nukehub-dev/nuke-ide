@@ -216,6 +216,18 @@ export class CadViewportWidget extends ReactWidget {
 
     protected readonly handleExitSketch = (): Promise<void> => this.doExitSketch();
 
+    /** Tab toggles sketch mode. */
+    protected readonly handleToggleSketchMode = (): void => {
+        if (this.sketchEntering) {
+            return;
+        }
+        if (this.sketchController?.isActive) {
+            void this.handleExitSketch();
+        } else if (this.documentStore.hasDocument && !this.loading && !this.sketchSetupVisible) {
+            this.startSketchSetup();
+        }
+    };
+
     protected readonly handleNewDocument = (): void => {
         this.documentStore.createDocument('Untitled');
         this.editingSketchId = undefined;
@@ -778,7 +790,11 @@ export class CadViewportWidget extends ReactWidget {
                 kind,
                 offset,
                 this.sketchCamera,
-                existingSketch !== undefined ? sketchDef : undefined,
+                // Always restore from the def (even for brand-new sketches): the
+                // session must round-trip the pre-registered id and datumId, or
+                // the exit-time upsert fails validation and traps the user in
+                // sketch mode.
+                sketchDef,
                 inheritedParameters,
                 reference
             );
@@ -1074,6 +1090,7 @@ export class CadViewportWidget extends ReactWidget {
                 onControllerReady={this.handleControllerReady}
                 onEnterSketch={this.handleEnterSketch}
                 onExitSketch={this.handleExitSketch}
+                onToggleSketchMode={this.handleToggleSketchMode}
                 onStartFeatureCreation={(type) => this.startFeatureCreation(type)}
                 onAddFeature={this.handleAddFeature}
                 onEditFeature={this.handleEditFeature}
@@ -1133,6 +1150,7 @@ interface CadViewportComponentProps {
     readonly onControllerReady: (controller: SketchModeController, camera: THREE.PerspectiveCamera) => void;
     readonly onEnterSketch: (kind: DatumKind, offset: number) => void;
     readonly onExitSketch: () => Promise<void>;
+    readonly onToggleSketchMode: () => void;
     readonly onStartFeatureCreation: (type: FeatureType) => void;
     readonly onAddFeature: (type: FeatureType, params: FeatureParams) => void;
     readonly onEditFeature: (id: string, params: FeatureParams) => void;
@@ -1155,7 +1173,7 @@ interface CadViewportComponentProps {
 function CadViewportComponent(props: CadViewportComponentProps): React.ReactElement {
     const containerRef = React.useRef<HTMLDivElement>(null);
     const [controller, setController] = React.useState<SketchModeController | undefined>();
-    const [wireframeOn, setWireframeOn] = React.useState(false);
+    const [shadingMode, setShadingMode] = React.useState<ShadingMode>('shaded');
     const [warningsOpen, setWarningsOpen] = React.useState(false);
     const editFeature = React.useMemo(() => {
         if (props.editingFeatureId === undefined) {
@@ -1171,7 +1189,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
         fitView?: () => void;
         zoomView?: (factor: number) => void;
         setStandardView?: (view: 'iso' | 'top' | 'front' | 'right') => void;
-        setWireframe?: (on: boolean) => void;
+        setShading?: (mode: ShadingMode) => void;
         setGizmoVisible?: (visible: boolean) => void;
     }>({});
 
@@ -1207,6 +1225,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                 props.onHolePickCancel,
                 props.holePickMode ?? false,
                 props.messageService,
+                props.onToggleSketchMode,
                 OrbitControls
             );
             if (disposed) {
@@ -1221,7 +1240,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             viewportApi.current.fitView = api.fitView;
             viewportApi.current.zoomView = api.zoomView;
             viewportApi.current.setStandardView = api.setStandardView;
-            viewportApi.current.setWireframe = api.setWireframe;
+            viewportApi.current.setShading = api.setShading;
             viewportApi.current.setGizmoVisible = api.setGizmoVisible;
             api.setFacePickMode(props.facePickMode);
             api.setDressUpPickMode(props.dressUpPickMode);
@@ -1240,7 +1259,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             viewportApi.current.fitView = undefined;
             viewportApi.current.zoomView = undefined;
             viewportApi.current.setStandardView = undefined;
-            viewportApi.current.setWireframe = undefined;
+            viewportApi.current.setShading = undefined;
             viewportApi.current.setGizmoVisible = undefined;
             cleanup?.();
         };
@@ -1403,7 +1422,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                     </button>
                 </Tooltip>
                 <span className="cad-viewport-nav-divider" />
-                <Tooltip content="Fit view (F)" position="left">
+                <Tooltip content="Fit view (F) / selection (.)" position="left">
                     <button className="theia-button secondary cad-viewport-nav-button" onClick={() => viewportApi.current.fitView?.()}>
                         <span className="codicon codicon-screen-full" />
                     </button>
@@ -1419,16 +1438,25 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                     </button>
                 </Tooltip>
                 <span className="cad-viewport-nav-divider" />
-                <Tooltip content="Wireframe" position="left">
+                <Tooltip content={`Shading: ${shadingMode} (click to cycle)`} position="left">
                     <button
-                        className={`theia-button secondary cad-viewport-nav-button ${wireframeOn ? 'active' : ''}`}
+                        className={`theia-button secondary cad-viewport-nav-button ${shadingMode !== 'shaded' ? 'active' : ''}`}
                         onClick={() => {
-                            const next = !wireframeOn;
-                            setWireframeOn(next);
-                            viewportApi.current.setWireframe?.(next);
+                            const order: ShadingMode[] = ['shaded', 'wireframe', 'edges'];
+                            const next = order[(order.indexOf(shadingMode) + 1) % order.length];
+                            setShadingMode(next);
+                            viewportApi.current.setShading?.(next);
                         }}
                     >
-                        <span className="codicon codicon-circuit-board" />
+                        <span
+                            className={`codicon ${
+                                shadingMode === 'shaded'
+                                    ? 'codicon-eye'
+                                    : shadingMode === 'wireframe'
+                                      ? 'codicon-circuit-board'
+                                      : 'codicon-nuke-cad-edges'
+                            }`}
+                        />
                     </button>
                 </Tooltip>
             </div>
@@ -1496,6 +1524,8 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
     );
 }
 
+export type ShadingMode = 'shaded' | 'wireframe' | 'edges';
+
 interface ViewportApi {
     readonly controller: SketchModeController;
     readonly cleanup: () => void;
@@ -1506,7 +1536,7 @@ interface ViewportApi {
     readonly fitView: () => void;
     readonly zoomView: (factor: number) => void;
     readonly setStandardView: (view: 'iso' | 'top' | 'front' | 'right') => void;
-    readonly setWireframe: (on: boolean) => void;
+    readonly setShading: (mode: ShadingMode) => void;
     readonly setGizmoVisible: (visible: boolean) => void;
 }
 
@@ -1528,6 +1558,7 @@ function initViewport(
     onHolePickCancel: () => void,
     initialHolePickMode: boolean,
     messageService: MessageService,
+    onToggleSketchMode: () => void,
     OrbitControlsCtor: new (
         camera: THREE.Camera,
         domElement: HTMLElement
@@ -1576,7 +1607,8 @@ function initViewport(
     let activeHolePickMode = initialHolePickMode;
     let lastCenter = new THREE.Vector3();
     let lastDiag = 10;
-    let wireframe = false;
+    // Declared before buildModel runs: the mesh creation reads it immediately.
+    let shading: ShadingMode = 'shaded';
 
     const highlightColor = new THREE.Color(readThemeColor(container, '--theia-focusBorder', '#007fd4'));
     const faceHighlighter = new FaceHighlighter(highlightColor);
@@ -1584,7 +1616,7 @@ function initViewport(
     const edgeHighlighter = new EdgeHighlighter(highlightColor);
     edgeHighlighter.attach(modelGroup);
 
-    // Axis navigation gizmo (Blender-style): an SVG overlay that mirrors the
+    // Axis navigation gizmo: an SVG overlay that mirrors the
     // camera orientation and snaps to the clicked axis view. Updated directly
     // from renderScene — no React state, so orbiting causes no re-renders.
     const gizmo = document.createElement('div');
@@ -1648,14 +1680,54 @@ function initViewport(
             setViewDirection(dir.split(',').map(Number) as [number, number, number]);
         }
     });
+    // View label overlay: like the gizmo,
+    // updated imperatively from renderScene — never React state.
+    const viewLabel = document.createElement('div');
+    viewLabel.className = 'cad-viewport-view-label';
+    container.appendChild(viewLabel);
+    let viewName = 'User';
+    let lastViewLabelText = '';
+    // Maps a normalized camera direction to its standard-view name.
+    const viewNameForDirection = (dir: [number, number, number]): string => {
+        const v = new THREE.Vector3(...dir).normalize();
+        const tol = 0.001;
+        if (v.x > 1 - tol) {
+            return 'Right';
+        }
+        if (v.x < -(1 - tol)) {
+            return 'Left';
+        }
+        if (v.y > 1 - tol) {
+            return 'Back';
+        }
+        if (v.y < -(1 - tol)) {
+            return 'Front';
+        }
+        if (v.z > 1 - tol) {
+            return 'Top';
+        }
+        if (v.z < -(1 - tol)) {
+            return 'Bottom';
+        }
+        return 'Iso';
+    };
+    const updateViewLabel = (): void => {
+        const text = controller.isActive ? `Sketch — ${controller.getSketchName()}` : `${viewName} view`;
+        if (text !== lastViewLabelText) {
+            lastViewLabelText = text;
+            viewLabel.textContent = text;
+        }
+    };
     const setGizmoVisible = (visible: boolean): void => {
         gizmo.style.display = visible ? '' : 'none';
+        viewLabel.style.display = visible ? '' : 'none';
     };
 
     let controller: SketchModeController;
     const renderScene = (): void => {
         renderer.render(scene, controller.getActiveCamera());
         updateGizmo();
+        updateViewLabel();
     };
     controller = new SketchModeController(container, scene, renderer, controls, renderScene, {
         modelGroup,
@@ -1719,8 +1791,9 @@ function initViewport(
                     metalness: 0.1,
                     side: THREE.DoubleSide
                 });
-                material.wireframe = wireframe;
+                material.wireframe = shading === 'wireframe';
                 const mesh = new THREE.Mesh(geometry, material);
+                mesh.visible = shading !== 'edges';
                 mesh.userData = {
                     solidId: solid.solidId,
                     faceId: face.faceId,
@@ -1741,7 +1814,46 @@ function initViewport(
 
     buildModel(tessData);
 
+    /** Fit the camera to one solid's bounding box along the current view direction. */
+    const fitToSolid = (solidId: number): void => {
+        const box = new THREE.Box3();
+        let found = false;
+        for (const mesh of meshes) {
+            if (mesh.userData.solidId !== solidId) {
+                continue;
+            }
+            if (mesh.geometry.boundingBox === null) {
+                mesh.geometry.computeBoundingBox();
+            }
+            box.expandByObject(mesh);
+            found = true;
+        }
+        if (!found) {
+            return;
+        }
+        const center = box.getCenter(new THREE.Vector3());
+        const diag = box.getSize(new THREE.Vector3()).length();
+        const direction = camera.position.clone().sub(controls.target);
+        if (direction.length() < 1e-6) {
+            direction.set(1, -1, 1);
+        }
+        camera.position.copy(
+            direction
+                .normalize()
+                .multiplyScalar(diag * 1.75)
+                .add(center)
+        );
+        controls.target.copy(center);
+        camera.lookAt(center);
+        controls.update();
+        renderScene();
+    };
+
     const fitView = (): void => {
+        if (currentSelection.solidId !== undefined) {
+            fitToSolid(currentSelection.solidId);
+            return;
+        }
         const direction = camera.position.clone().sub(controls.target);
         if (direction.length() < 1e-6) {
             direction.set(1, -1, 1);
@@ -1752,7 +1864,6 @@ function initViewport(
             .add(lastCenter);
         camera.position.copy(direction);
         controls.target.copy(lastCenter);
-        camera.up.set(0, 0, 1);
         camera.lookAt(lastCenter);
         controls.update();
         renderScene();
@@ -1766,6 +1877,7 @@ function initViewport(
     };
 
     const setViewDirection = (dir: [number, number, number]): void => {
+        viewName = viewNameForDirection(dir);
         camera.position.copy(
             new THREE.Vector3(...dir)
                 .normalize()
@@ -1789,12 +1901,16 @@ function initViewport(
         setViewDirection(directions[view]);
     };
 
-    const setWireframe = (on: boolean): void => {
-        wireframe = on;
+    const applyShading = (): void => {
         for (const mesh of meshes) {
-            (mesh.material as THREE.MeshStandardMaterial).wireframe = wireframe;
+            mesh.visible = shading !== 'edges';
+            (mesh.material as THREE.MeshStandardMaterial).wireframe = shading === 'wireframe';
         }
         renderScene();
+    };
+    const setShading = (mode: ShadingMode): void => {
+        shading = mode;
+        applyShading();
     };
 
     const ambient = new THREE.AmbientLight(0xffffff, 0.6);
@@ -1807,6 +1923,12 @@ function initViewport(
     // selection changes, the theme changes, or the container resizes. No
     // animation loop runs while the widget is idle, hidden, or detached.
     controls.addEventListener('change', renderScene);
+    // Any manual orbit/zoom/pan leaves the standard views; the label picks the
+    // change up on the next render (OrbitControls fires 'change' throughout).
+    const onViewInteractionStart = (): void => {
+        viewName = 'User';
+    };
+    controls.addEventListener('start', onViewInteractionStart);
 
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
@@ -1861,6 +1983,25 @@ function initViewport(
         }
     };
     renderer.domElement.addEventListener('click', onClick);
+
+    // Double-click a solid to select it and frame it.
+    const onDblClick = (event: MouseEvent): void => {
+        if (controller.isActive || activeFacePickMode !== undefined || activeDressUpPickMode !== undefined || activeHolePickMode) {
+            return;
+        }
+        const rect = renderer.domElement.getBoundingClientRect();
+        const ndc = pointerToNdc(event.clientX, event.clientY, rect);
+        pointer.x = ndc.x;
+        pointer.y = ndc.y;
+        raycaster.setFromCamera(pointer, camera);
+        const intersects = raycaster.intersectObjects(meshes, false);
+        if (intersects.length > 0) {
+            const data = intersects[0].object.userData;
+            onSelect({ solidId: data.solidId as number, faceId: data.faceId as number });
+            fitToSolid(data.solidId as number);
+        }
+    };
+    renderer.domElement.addEventListener('dblclick', onDblClick);
 
     const onPickPointerMove = (event: PointerEvent): void => {
         if (controller.isActive) {
@@ -1997,7 +2138,7 @@ function initViewport(
     window.addEventListener('keydown', onKeyDown);
 
     const onFitKey = (event: KeyboardEvent): void => {
-        if (event.key !== 'f' && event.key !== 'F') {
+        if (event.key !== 'f' && event.key !== 'F' && event.key !== '.') {
             return;
         }
         if (controller.isActive || activeFacePickMode !== undefined || activeDressUpPickMode !== undefined || activeHolePickMode) {
@@ -2013,6 +2154,26 @@ function initViewport(
         fitView();
     };
     window.addEventListener('keydown', onFitKey);
+
+    // Tab toggles sketch mode (enter when idle, exit while sketching).
+    const onTabKey = (event: KeyboardEvent): void => {
+        if (event.key !== 'Tab') {
+            return;
+        }
+        if (activeFacePickMode !== undefined || activeDressUpPickMode !== undefined || activeHolePickMode) {
+            return;
+        }
+        const target = event.target;
+        if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) {
+            return;
+        }
+        if (target instanceof HTMLElement && target.isContentEditable) {
+            return;
+        }
+        event.preventDefault();
+        onToggleSketchMode();
+    };
+    window.addEventListener('keydown', onTabKey);
 
     // Fires immediately with the current selection, then on every change.
     const selectionDisposable = subscribeSelection((selection) => {
@@ -2071,14 +2232,16 @@ function initViewport(
         fitView,
         zoomView,
         setStandardView,
-        setWireframe,
+        setShading,
         setGizmoVisible,
         cleanup: () => {
             gizmo.remove();
+            viewLabel.remove();
             selectionDisposable.dispose();
             themeDisposable.dispose();
             resizeObserver.disconnect();
             renderer.domElement.removeEventListener('click', onClick);
+            renderer.domElement.removeEventListener('dblclick', onDblClick);
             renderer.domElement.removeEventListener('pointermove', onPickPointerMove);
             renderer.domElement.removeEventListener('contextmenu', onContextMenu);
             renderer.domElement.removeEventListener('pointerdown', onPointerDown);
@@ -2087,6 +2250,8 @@ function initViewport(
             renderer.domElement.removeEventListener('wheel', onWheel);
             window.removeEventListener('keydown', onKeyDown);
             window.removeEventListener('keydown', onFitKey);
+            window.removeEventListener('keydown', onTabKey);
+            controls.removeEventListener('start', onViewInteractionStart);
             controls.removeEventListener('change', renderScene);
             controls.dispose();
             controller.dispose();

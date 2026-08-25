@@ -35,11 +35,17 @@ it opens it in the CAD viewport by default.
 - **Zoom**: mouse wheel.
 - **Navigation cluster** (bottom-right of the viewport): `ISO`, `T` (top),
   `F` (front), and `R` (right) snap to standard views; the remaining buttons
-  fit the model to the window, zoom in, zoom out, and toggle **wireframe**
-  shading.
-- **Axis gizmo** (top-right): mirrors the current camera orientation; click an
-  axis handle (or its opposite) to snap to that view.
-- Press `F` to fit the model in view at any time (outside text fields).
+  fit the view, zoom in, zoom out, and cycle shading (**shaded → wireframe →
+  edges-only**).
+- **Axis gizmo** (top-right, below the toolbar): mirrors the current camera
+  orientation; click an axis handle (or its opposite) to snap to that view.
+- **View label** (top-left, below the toolbar): shows the active view
+  (`User view` after orbiting, `Top view` after snapping) or the active sketch.
+- **Fit**: `F` or the fit button frames the whole model; with a solid selected
+  it frames that selection instead — `.` and double-clicking a solid also fit
+  the selection.
+- Press `Tab` to enter sketch mode and `Tab` again to leave it; the labeled
+  **Finish Sketch** pill at the top-center does the same.
 
 Build warnings (for example, intentional cross-body overlaps in assemblies)
 appear as a compact collapsible strip at the top of the viewport: click the

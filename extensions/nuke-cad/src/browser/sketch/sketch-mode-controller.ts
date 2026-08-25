@@ -167,6 +167,7 @@ export class SketchModeController {
 
     private mainCamera?: THREE.PerspectiveCamera;
     private orthoCamera?: THREE.OrthographicCamera;
+    private activeSketchName = 'Sketch';
     private modelGroup?: THREE.Group;
     private readonly originalModelVisibility = new Map<THREE.Object3D, boolean>();
 
@@ -293,6 +294,11 @@ export class SketchModeController {
     /** Current active tool. */
     getTool(): SketchTool {
         return this.session?.getTool() ?? 'select';
+    }
+
+    /** Display name of the active sketch (for the viewport view label). */
+    getSketchName(): string {
+        return this.activeSketchName;
     }
 
     /** Current solver status. */
@@ -433,6 +439,7 @@ export class SketchModeController {
         } else {
             this.datumPlane = buildDatumPlane(kind, offset);
         }
+        this.activeSketchName = sketchDef?.name ?? 'Sketch';
         this.savedControlsEnabled = this.controls.enabled;
         this.controls.enabled = false;
         if (camera !== undefined) {
@@ -466,6 +473,7 @@ export class SketchModeController {
         this.drag = undefined;
         this.dragFramePending = false;
         this.selectedIds.clear();
+        this.activeSketchName = 'Sketch';
         this.sketchGroup.removeFromParent();
         this.grid.visible = false;
         this.dimModel(false);
