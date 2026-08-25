@@ -146,7 +146,7 @@
 /* View label overlay (top-left, e.g. "User view" / "Sketch — Sketch 1") */
 .cad-viewport-view-label {
     position: absolute;
-    top: 52px;
+    top: 64px;
     left: 10px;
     z-index: 12;
     padding: 2px 8px;
@@ -173,9 +173,59 @@
     pointer-events: auto;
 }
 
+/*
+ * Shared theming for every bare form control in the sketch overlay chrome
+ * (constraint value box, datum picker, feature dialog, parameters panel,
+ * dimension popover): unclassed inputs/selects otherwise keep the UA's white
+ * background in dark themes. Selects carrying Theia's .theia-select are
+ * excluded — @theia/core styles those with the dropdown variables.
+ */
+.cad-sketch-overlay input[type='text'],
+.cad-sketch-overlay input[type='number'],
+.cad-sketch-overlay select:not(.theia-select),
+.cad-sketch-overlay textarea {
+    padding: 3px 6px;
+    border: 1px solid var(--theia-input-border);
+    border-radius: 2px;
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    font-family: var(--theia-ui-font-family);
+    font-size: var(--theia-ui-font-size1);
+}
+
+.cad-sketch-overlay input[type='text']::placeholder,
+.cad-sketch-overlay input[type='number']::placeholder {
+    color: var(--theia-input-placeholderForeground);
+}
+
+.cad-sketch-overlay input[type='text']:focus,
+.cad-sketch-overlay input[type='number']:focus,
+.cad-sketch-overlay select:not(.theia-select):focus,
+.cad-sketch-overlay textarea:focus {
+    outline: none;
+    border-color: var(--theia-focusBorder);
+}
+
+.cad-sketch-overlay input[type='checkbox'] {
+    width: auto;
+    accent-color: var(--theia-button-background);
+}
+
+/* No CSS-reachable dark/light signal exists for the native spinner glyphs;
+   drop them instead of shipping light-only arrows on themed fields. */
+.cad-sketch-overlay input[type='number'] {
+    appearance: textfield;
+    -moz-appearance: textfield;
+}
+
+/*
+ * Default spot sits a full row below the top chrome (constraint select centered,
+ * Finish Sketch pill right) so the horizontal tool strip clears both at init;
+ * dragged positions override this inline.
+ */
 .cad-sketch-toolbar {
     position: absolute;
-    top: 8px;
+    top: 64px;
     left: 8px;
     z-index: 20;
     display: flex;
@@ -248,13 +298,15 @@
     text-transform: uppercase;
 }
 
-/* Wrap into columns so the body fills the header-driven panel width instead of
-   leaving a dead background column right of the tool buttons. */
+/*
+ * One tool per row: the buttons' tooltips anchor to their right, so a wrapped
+ * second column would put a sibling button exactly under every tooltip. A
+ * single column lets each chip land on the panel margin/canvas instead.
+ */
 .cad-sketch-toolbar-body {
     display: flex;
-    flex-flow: row wrap;
-    justify-content: center;
-    align-content: start;
+    flex-direction: column;
+    align-items: center;
     gap: 4px;
     padding: 6px;
 }
@@ -292,7 +344,12 @@
     margin-left: 0;
 }
 
-.cad-sketch-toolbar-toggle {
+/*
+ * Positioned box carrying the collapsed toggle's default and dragged spot. The
+ * button stays in flow inside it so the Tooltip wrapper hugs the button and its
+ * tooltip anchors to the toggle instead of the overlay's full-width context.
+ */
+.cad-sketch-toolbar-toggle-anchor {
     position: absolute;
     top: 8px;
     left: 8px;
@@ -313,31 +370,25 @@
     color: var(--theia-button-foreground);
 }
 
-.cad-sketch-finish-button {
+/*
+ * Top-right anchor box for the Finish Sketch pill. The pill stays in flow
+ * inside it so the Tooltip wrapper hugs the button and its tooltip anchors to
+ * the pill instead of the overlay's full-width positioning context.
+ */
+.cad-sketch-finish-anchor {
     position: absolute;
     top: 8px;
-    left: 50%;
-    transform: translateX(-50%);
+    right: 8px;
     z-index: 21;
+}
+
+.cad-sketch-finish-button {
     display: flex;
     align-items: center;
     gap: 6px;
     padding: 3px 12px;
     font-size: var(--theia-ui-font-size1);
     white-space: nowrap;
-}
-
-/*
- * The global theme lifts .theia-button with translateY on hover/active, which
- * would replace this pill's centering translateX and make it jump sideways;
- * keep the centering in both states.
- */
-.cad-sketch-overlay .cad-sketch-finish-button:hover {
-    transform: translateX(-50%) translateY(-1px);
-}
-
-.cad-sketch-overlay .cad-sketch-finish-button:active {
-    transform: translateX(-50%);
 }
 
 .cad-sketch-toolbar-toggle {
@@ -358,6 +409,15 @@
     border-radius: 8px;
     background: var(--theia-editorWidget-background);
     color: var(--theia-foreground);
+    pointer-events: auto;
+}
+
+/* While picking the datum face, the picker card must not block viewport clicks. */
+.cad-sketch-datum-picker.picking {
+    pointer-events: none;
+}
+
+.cad-sketch-datum-picker.picking button {
     pointer-events: auto;
 }
 
@@ -402,12 +462,12 @@
 }
 
 /*
- * Centered under the Finish Sketch pill so the default top-left spot of the
- * floating (and draggable) sketch toolbar never covers it.
+ * Owns the top-center chrome slot (the Finish Sketch pill moved to the
+ * top-right anchor); the sketch toolbar's default spot starts below this row.
  */
 .cad-sketch-constraint-bar {
     position: absolute;
-    top: 44px;
+    top: 8px;
     left: 50%;
     transform: translateX(-50%);
     display: flex;
@@ -505,22 +565,27 @@
 .cad-sketch-dimension-label {
     position: absolute;
     transform: translate(-50%, -50%);
-    padding: 2px 6px;
+    padding: 2px 8px;
     border: 1px solid var(--theia-panel-border);
     border-radius: 4px;
     background: var(--theia-editorWidget-background);
     color: var(--theia-foreground);
     font-size: var(--theia-ui-font-size1);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
     pointer-events: auto;
     cursor: pointer;
     user-select: none;
     white-space: nowrap;
 }
 
+.cad-sketch-dimension-label:hover,
+.cad-sketch-dimension-label.pinned {
+    border-color: var(--theia-focusBorder);
+}
+
 .cad-sketch-dimension-label.selected {
     border-color: var(--theia-focusBorder);
-    color: var(--theia-button-foreground);
-    background: var(--theia-focusBorder);
+    color: var(--theia-focusBorder);
 }
 
 .cad-sketch-dimension-popover {
@@ -558,10 +623,6 @@
     min-width: 100px;
 }
 
-.cad-sketch-dimension-popover-row input[type='checkbox'] {
-    width: auto;
-}
-
 .cad-sketch-dimension-popover-actions {
     display: flex;
     gap: 6px;
@@ -570,7 +631,8 @@
 
 .cad-sketch-parameters-panel {
     position: absolute;
-    top: 8px;
+    /* Below the top-right Finish Sketch pill. */
+    top: 48px;
     right: 8px;
     width: 260px;
     max-height: calc(100% - 88px);
@@ -693,6 +755,12 @@
     opacity: 0.7;
 }
 
+/*
+ * Pick-mode banners float over the viewport but must never block picking: the
+ * box itself is click-through and only the Cancel button takes pointer events.
+ * width:max-content keeps the label on one line; max-width re-wraps it sanely
+ * on narrow viewports instead of squeezing to one word per line.
+ */
 .cad-sketch-face-pick-banner {
     position: absolute;
     top: 50%;
@@ -708,6 +776,12 @@
     background: var(--theia-editorWidget-background);
     color: var(--theia-foreground);
     font-size: var(--theia-ui-font-size1);
+    width: max-content;
+    max-width: min(480px, calc(100% - 32px));
+    pointer-events: none;
+}
+
+.cad-sketch-face-pick-banner button {
     pointer-events: auto;
 }
 
@@ -717,7 +791,8 @@
 
 .cad-sketch-external-refs {
     position: absolute;
-    top: 8px;
+    /* Below the top-right Finish Sketch pill. */
+    top: 48px;
     right: 8px;
     width: 220px;
     max-height: calc(100% - 88px);
@@ -1150,6 +1225,53 @@
     pointer-events: none;
 }
 
+/* Sketch keyboard-shortcuts cheat sheet (right of the floating sketch toolbar) */
+.cad-sketch-shortcuts-popover {
+    position: absolute;
+    top: 64px;
+    left: 56px;
+    z-index: 22;
+    width: 300px;
+    max-height: calc(100% - 88px);
+    overflow-y: auto;
+}
+
+.cad-sketch-shortcuts-section + .cad-sketch-shortcuts-section {
+    margin-top: 10px;
+}
+
+.cad-sketch-shortcuts-title {
+    margin-bottom: 3px;
+    font-size: var(--theia-ui-font-size0);
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--theia-descriptionForeground);
+}
+
+.cad-sketch-shortcuts-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    font-size: var(--theia-ui-font-size1);
+}
+
+.cad-sketch-shortcuts-row > :last-child {
+    color: var(--theia-descriptionForeground);
+    text-align: right;
+}
+
+.cad-sketch-shortcuts-key {
+    flex-shrink: 0;
+    min-width: 20px;
+    padding: 1px 6px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 3px;
+    background: var(--theia-input-background);
+    font-size: var(--theia-ui-font-size0);
+    text-align: center;
+}
+
 /* Measure tool overlays */
 
 .cad-measure-label-layer {
@@ -1198,10 +1320,10 @@
         0 2px 4px rgba(0, 0, 0, 0.06);
 }
 
-/* Measurements popover in sketch mode (right of the floating sketch toolbar) */
+/* Measurements popover in sketch mode (on the floating sketch toolbar's row) */
 .cad-sketch-measure-popover {
     position: absolute;
-    top: 8px;
+    top: 64px;
     left: 56px;
     z-index: 21;
     display: flex;

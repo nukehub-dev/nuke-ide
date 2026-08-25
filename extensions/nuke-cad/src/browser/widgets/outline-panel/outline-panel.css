@@ -255,7 +255,10 @@
 }
 
 .cad-outline-empty > i {
-    font-size: 40px;
+    width: 32px;
+    height: 32px;
+    -webkit-mask-size: 32px 32px;
+    mask-size: 32px 32px;
     opacity: 0.3;
 }
 

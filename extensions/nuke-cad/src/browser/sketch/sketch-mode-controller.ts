@@ -69,6 +69,9 @@ export interface DimensionLabel {
     x: number;
     y: number;
     selected: boolean;
+
+    /** True when the user dragged the label to a persistent screen-space spot. */
+    pinned: boolean;
 }
 
 /** Distance threshold in pixels for clicking a dimension label. */
@@ -146,7 +149,11 @@ export class SketchModeController {
     private lastPointer?: Point2;
     private lastSnap?: SnapResult;
     private selectedDimensionId?: string;
-    private labelDrag?: { dimensionId: string; startOffset: [number, number]; startPointer: Point2 };
+    /** Primitive id currently shown with the subtle hover highlight (Select tool only). */
+    private hoverPrimitiveId?: string;
+    private labelDrag?: { dimensionId: string; startOffset: [number, number]; startClient: Point2 };
+    /** User label offsets in screen pixels, keyed by dimension id; session state, never stored in the document. */
+    private readonly labelUserOffsets = new Map<string, [number, number]>();
     private panState?: { startCamera: THREE.OrthographicCamera; startPointer: Point2 };
     private status: SketchStatus = {
         dof: 0,
@@ -161,6 +168,7 @@ export class SketchModeController {
     private readonly previewObject: THREE.Group;
     private readonly snapMarker: THREE.Points;
     private readonly selectionMarker: THREE.Group;
+    private readonly hoverMarker: THREE.Group;
     private readonly committedGroup: THREE.Group;
     private readonly projectedGroup: THREE.Group;
     private readonly dimensionGroup: THREE.Group;
@@ -238,6 +246,8 @@ export class SketchModeController {
         this.previewObject.name = 'sketch-preview';
         this.selectionMarker = new THREE.Group();
         this.selectionMarker.name = 'sketch-selection';
+        this.hoverMarker = new THREE.Group();
+        this.hoverMarker.name = 'sketch-hover';
 
         this.grid = this.buildGrid();
         this.grid.visible = false;
@@ -247,6 +257,7 @@ export class SketchModeController {
         this.sketchGroup.add(this.dimensionGroup);
         this.sketchGroup.add(this.previewObject);
         this.sketchGroup.add(this.selectionMarker);
+        this.sketchGroup.add(this.hoverMarker);
 
         const snapGeometry = new THREE.BufferGeometry();
         snapGeometry.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0], 3));
@@ -364,9 +375,10 @@ export class SketchModeController {
      * Project all dimension labels to screen coordinates for the HTML overlay.
      *
      * The overlay calls this on every render so labels stay anchored during
-     * pan/zoom. Labels that would overlap on screen are shifted downward
-     * until they clear — anchors alone can collide when dimensions share
-     * geometry.
+     * pan/zoom. Labels the user dragged carry a persistent screen-space offset
+     * and sit exactly where they were dropped (pinned); unpinned labels shift
+     * downward until they clear their placed siblings. Offsets of dimensions
+     * that no longer exist are pruned.
      */
     getDimensionLabels(): DimensionLabel[] {
         if (this.session === undefined || this.orthoCamera === undefined) {
@@ -374,7 +386,9 @@ export class SketchModeController {
         }
         const labels: DimensionLabel[] = [];
         const placed: Array<{ x: number; y: number; w: number; h: number }> = [];
+        const liveIds = new Set<string>();
         for (const dimension of this.session.getDimensions()) {
+            liveIds.add(dimension.id);
             const anchor = this.computeDimensionAnchor(dimension);
             if (anchor === undefined) {
                 continue;
@@ -382,12 +396,18 @@ export class SketchModeController {
             const world = sketchToWorld(anchor, this.datumPlane);
             const screen = this.worldToScreen(new THREE.Vector3(world.x, world.y, world.z));
             const text = this.formatDimensionText(dimension);
-            const width = text.length * 7 + 16;
+            const width = text.length * 7 + 20;
             const height = 24;
+            const userOffset = this.labelUserOffsets.get(dimension.id);
             let x = screen.x;
             let y = screen.y;
-            while (placed.some((p) => Math.abs(x - p.x) < (width + p.w) / 2 && Math.abs(y - p.y) < (height + p.h) / 2)) {
-                y += height + 4;
+            if (userOffset !== undefined) {
+                x += userOffset[0];
+                y += userOffset[1];
+            } else {
+                while (placed.some((p) => Math.abs(x - p.x) < (width + p.w) / 2 && Math.abs(y - p.y) < (height + p.h) / 2)) {
+                    y += height + 4;
+                }
             }
             placed.push({ x, y, w: width, h: height });
             labels.push({
@@ -395,8 +415,14 @@ export class SketchModeController {
                 text,
                 x,
                 y,
-                selected: dimension.id === this.selectedDimensionId
+                selected: dimension.id === this.selectedDimensionId,
+                pinned: userOffset !== undefined
             });
+        }
+        for (const id of this.labelUserOffsets.keys()) {
+            if (!liveIds.has(id)) {
+                this.labelUserOffsets.delete(id);
+            }
         }
         return labels;
     }
@@ -472,7 +498,9 @@ export class SketchModeController {
         this.session = undefined;
         this.drag = undefined;
         this.dragFramePending = false;
+        this.labelUserOffsets.clear();
         this.selectedIds.clear();
+        this.hoverPrimitiveId = undefined;
         this.activeSketchName = 'Sketch';
         this.sketchGroup.removeFromParent();
         this.grid.visible = false;
@@ -690,6 +718,7 @@ export class SketchModeController {
     /** Switch the active sketch tool. */
     setTool(tool: SketchTool): void {
         this.constraintInput = undefined;
+        this.clearHoverHighlight();
         this.session?.setTool(tool);
         this.renderPreview();
         this.emitChange();
@@ -791,6 +820,14 @@ export class SketchModeController {
         if (this.session === undefined) {
             return;
         }
+        if (this.labelDrag !== undefined) {
+            const dx = clientX - this.labelDrag.startClient.x;
+            const dy = clientY - this.labelDrag.startClient.y;
+            this.labelUserOffsets.set(this.labelDrag.dimensionId, [this.labelDrag.startOffset[0] + dx, this.labelDrag.startOffset[1] + dy]);
+            this.emitChange();
+            this.renderCallback();
+            return;
+        }
         const sketchPoint = this.pointerToSketch(clientX, clientY);
         if (sketchPoint === undefined) {
             return;
@@ -801,17 +838,6 @@ export class SketchModeController {
 
         if (this.panState !== undefined) {
             this.panTo(sketchPoint);
-            return;
-        }
-        if (this.labelDrag !== undefined) {
-            const dx = sketchPoint.x - this.labelDrag.startPointer.x;
-            const dy = sketchPoint.y - this.labelDrag.startPointer.y;
-            const dimension = this.session.getDimension(this.labelDrag.dimensionId);
-            if (dimension !== undefined) {
-                dimension.labelOffset = [this.labelDrag.startOffset[0] + dx, this.labelDrag.startOffset[1] + dy];
-            }
-            this.renderDimensions();
-            this.renderCallback();
             return;
         }
         if (this.drag !== undefined) {
@@ -829,6 +855,7 @@ export class SketchModeController {
             }
         } else {
             this.renderPreview();
+            this.updateHoverHighlight();
         }
         this.updateSnapMarker(snapped);
     }
@@ -872,8 +899,8 @@ export class SketchModeController {
                 this.renderSelection();
                 this.labelDrag = {
                     dimensionId: labelId,
-                    startOffset: [...(this.session.getDimension(labelId)?.labelOffset ?? [0, 0])] as [number, number],
-                    startPointer: sketchPoint
+                    startOffset: [...(this.labelUserOffsets.get(labelId) ?? [0, 0])],
+                    startClient: { x: clientX, y: clientY }
                 };
                 this.renderDimensions();
                 this.emitChange();
@@ -883,6 +910,10 @@ export class SketchModeController {
 
             const pointId = this.draggablePointAt(snapResult);
             if (pointId !== undefined) {
+                // Grabbing an endpoint/center also selects the owning primitive(s)
+                // so a press (even without movement) gives visible feedback.
+                this.selectOwnedPrimitives(pointId, shiftKey);
+                this.clearHoverHighlight();
                 this.drag = { pointIds: [pointId] };
                 this.session.beginDrag([pointId]);
                 this.session.dragTo(snapResult.point).catch((err) => {
@@ -948,9 +979,27 @@ export class SketchModeController {
         });
     }
 
-    /** Escape key handler. */
+    /**
+     * Escape key handler, in priority order: cancel the in-progress entity or
+     * constraint pick, else clear the selection, else fall back to the Select
+     * tool so Esc always leads back to a known state.
+     */
     onEscape(): void {
-        this.cancel();
+        if (this.constraintInput !== undefined || this.session?.isInProgress() === true) {
+            this.cancel();
+            return;
+        }
+        if (this.selectedIds.size > 0 || this.selectedDimensionId !== undefined) {
+            this.selectedIds.clear();
+            this.selectedDimensionId = undefined;
+            this.renderSelection();
+            this.renderDimensions();
+            this.emitChange();
+            return;
+        }
+        if (this.session !== undefined && this.session.getTool() !== 'select') {
+            this.setTool('select');
+        }
     }
 
     private handleSelectClick(snap: SnapResult, shiftKey: boolean): void {
@@ -1012,6 +1061,133 @@ export class SketchModeController {
             return snap.pointId;
         }
         return undefined;
+    }
+
+    /** Primitive ids whose geometry references the given point (the point itself when none). */
+    private ownedPrimitiveIds(pointId: string): string[] {
+        if (this.session === undefined) {
+            return [];
+        }
+        const owned = this.session
+            .getPrimitives()
+            .filter(
+                (p) =>
+                    p.id !== pointId &&
+                    ((p.type === 'line' && (p.p1Id === pointId || p.p2Id === pointId)) ||
+                        (p.type === 'circle' && p.centerId === pointId) ||
+                        (p.type === 'arc' && (p.centerId === pointId || p.startId === pointId || p.endId === pointId)))
+            )
+            .map((p) => p.id);
+        return owned.length > 0 ? owned : [pointId];
+    }
+
+    private selectOwnedPrimitives(pointId: string, shiftKey: boolean): void {
+        const ownedIds = this.ownedPrimitiveIds(pointId);
+        this.selectedDimensionId = undefined;
+        if (shiftKey) {
+            const allSelected = ownedIds.every((id) => this.selectedIds.has(id));
+            for (const id of ownedIds) {
+                if (allSelected) {
+                    this.selectedIds.delete(id);
+                } else {
+                    this.selectedIds.add(id);
+                }
+            }
+        } else if (!ownedIds.every((id) => this.selectedIds.has(id))) {
+            this.selectedIds.clear();
+            for (const id of ownedIds) {
+                this.selectedIds.add(id);
+            }
+        }
+        this.renderSelection();
+        this.renderDimensions();
+        this.emitChange();
+    }
+
+    /** Map a snap result to the primitive a Select-tool hover/click should highlight. */
+    private hoveredPrimitiveId(snapResult: SnapResult): string | undefined {
+        if (snapResult.sourceId === undefined) {
+            return undefined;
+        }
+        if (snapResult.kind === 'endpoint') {
+            // Endpoint snaps report the raw point primitive; prefer the owning shape.
+            return this.ownedPrimitiveIds(snapResult.sourceId)[0];
+        }
+        return snapResult.sourceId;
+    }
+
+    private updateHoverHighlight(): void {
+        const id =
+            this.session !== undefined && this.lastSnap !== undefined && this.session.getTool() === 'select'
+                ? this.hoveredPrimitiveId(this.lastSnap)
+                : undefined;
+        if (id === this.hoverPrimitiveId) {
+            return;
+        }
+        this.hoverPrimitiveId = id;
+        this.renderHoverMarker();
+    }
+
+    private clearHoverHighlight(): void {
+        if (this.hoverPrimitiveId === undefined) {
+            return;
+        }
+        this.hoverPrimitiveId = undefined;
+        this.renderHoverMarker();
+    }
+
+    /** Subtle translucent outline under the pointer; rides the existing repaint path. */
+    private renderHoverMarker(): void {
+        while (this.hoverMarker.children.length > 0) {
+            const child = this.hoverMarker.children[0];
+            this.hoverMarker.remove(child);
+            if (child instanceof THREE.Line || child instanceof THREE.Points) {
+                child.geometry.dispose();
+                if (Array.isArray(child.material)) {
+                    for (const m of child.material) {
+                        m.dispose();
+                    }
+                } else {
+                    child.material.dispose();
+                }
+            }
+        }
+        if (this.session === undefined || this.hoverPrimitiveId === undefined) {
+            return;
+        }
+        const primitive = this.session.getPrimitive(this.hoverPrimitiveId);
+        if (primitive === undefined) {
+            return;
+        }
+        const color = this.themeColors.selected;
+        const z = 0.0035;
+        if (primitive.type === 'point') {
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.Float32BufferAttribute([primitive.x, primitive.y, z], 3));
+            const material = new THREE.PointsMaterial({ color, size: 8, sizeAttenuation: false, transparent: true, opacity: 0.45 });
+            this.hoverMarker.add(new THREE.Points(geometry, material));
+        } else if (primitive.type === 'line') {
+            const p1 = this.session.getPrimitive(primitive.p1Id) as SketchPoint | undefined;
+            const p2 = this.session.getPrimitive(primitive.p2Id) as SketchPoint | undefined;
+            if (p1 === undefined || p2 === undefined) {
+                return;
+            }
+            const geometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(p1.x, p1.y, z), new THREE.Vector3(p2.x, p2.y, z)]);
+            const material = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.45 });
+            this.hoverMarker.add(new THREE.Line(geometry, material));
+        } else if (primitive.type === 'circle' || primitive.type === 'arc') {
+            const center = this.session.getPrimitive(primitive.centerId) as SketchPoint | undefined;
+            if (center === undefined) {
+                return;
+            }
+            const geometry =
+                primitive.type === 'circle'
+                    ? this.circleGeometry(center, primitive.radius, z)
+                    : this.arcGeometry(center, primitive.radius, primitive.startAngle, primitive.endAngle, z);
+            const material = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.45 });
+            this.hoverMarker.add(new THREE.Line(geometry, material));
+        }
+        this.renderCallback();
     }
 
     private computeSnap(raw: Point2): SnapResult {

@@ -108,6 +108,20 @@ export type SketchPrimitive = SolverSketchPrimitive & { construction: boolean };
 /** Tools supported by the sketch session. */
 export type SketchTool = 'select' | 'point' | 'line' | 'circle' | 'arc3' | 'rectangle';
 
+/**
+ * Single-key tool shortcuts routed by the CAD viewport while a sketch session
+ * is active and the viewport holds focus. Keys avoid the reserved bindings
+ * (Delete/Backspace/Escape/Tab and the 3D-only F/.).
+ */
+export const SKETCH_TOOL_SHORTCUTS: Readonly<Record<string, SketchTool>> = {
+    s: 'select',
+    l: 'line',
+    c: 'circle',
+    a: 'arc3',
+    r: 'rectangle',
+    p: 'point'
+};
+
 /** Constraint kinds exposed by the UI-facing constraint API. */
 export type ConstraintKind =
     | 'coincident'
@@ -620,6 +634,11 @@ export class SketchSession {
     /** Current tool. */
     getTool(): SketchTool {
         return this.tool;
+    }
+
+    /** True while an entity is mid-placement (Esc's first escape hatch). */
+    isInProgress(): boolean {
+        return this.inProgress !== undefined;
     }
 
     /** Subscribe to sketch change events. Returns an unsubscribe function. */

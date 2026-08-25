@@ -61,7 +61,7 @@ it opens it in the CAD viewport by default.
   it frames that selection instead — `.` and double-clicking a solid also fit
   the selection.
 - Press `Tab` to enter sketch mode and `Tab` again to leave it; the labeled
-  **Finish Sketch** pill at the top-center does the same.
+  **Finish Sketch** pill at the top-right does the same.
 
 Build warnings (for example, intentional cross-body overlaps in assemblies)
 appear as a compact collapsible strip at the top of the viewport: click the
@@ -85,15 +85,18 @@ grays out the 3D model, and shows a sketch grid.
 
 ### Draw with snap and auto-constraints
 
-The sketch toolbar has six tools:
+The sketch toolbar has six tools (press the letter, or use the keyboard icon
+on the toolbar header for the full cheat sheet — shortcuts apply while the
+viewport has focus):
 
-- **Select** — select/drag primitives and dimension labels.
-- **Point** — place a standalone point.
-- **Line** — two clicks; near-horizontal or near-vertical lines automatically
-  get a horizontal/vertical constraint (within the angle threshold).
-- **Circle** — center click, then radius click.
-- **3-Point Arc** — start, midpoint, end.
-- **Rectangle** — two opposite corners; creates four lines.
+- **Select** (`S`) — select/drag primitives and dimension labels.
+- **Point** (`P`) — place a standalone point.
+- **Line** (`L`) — two clicks; near-horizontal or near-vertical lines
+  automatically get a horizontal/vertical constraint (within the angle
+  threshold).
+- **Circle** (`C`) — center click, then radius click.
+- **3-Point Arc** (`A`) — start, midpoint, end.
+- **Rectangle** (`R`) — two opposite corners; creates four lines.
 
 The snap engine prioritizes endpoint → midpoint → center → quadrant →
 on-curve → grid. Hovering shows a snap marker; clicks commit the snapped
@@ -107,7 +110,7 @@ free placement, and the adjacent **S/M/L** control sets the snap radius
 
 ### Constrain the sketch
 
-Use the **Constraint** dropdown (top-center, below the Finish Sketch pill) to
+Use the **Constraint** dropdown (top-center of the viewport) to
 add geometric constraints:
 
 - Coincident, fix, horizontal, vertical
@@ -131,11 +134,18 @@ Open the **Parameters** panel from the toolbar to add, edit, or remove sketch-
 local parameters. Parameters bound to a driving dimension cannot be removed
 until the dimension is unbound.
 
-### Drag
+### Select, drag, and delete
 
-In select mode, drag a point to reshape the sketch interactively. The solver
-applies temporary constraints during the drag and re-solves; the geometry updates
-live. Dropped points keep their solved coordinates.
+With the **Select** tool, click a primitive (or a dimension label) to select
+it — Shift+click adds to the selection, clicking empty space clears it, and
+hovering outlines the primitive under the cursor. Drag a selected point to
+reshape the sketch interactively: the solver applies temporary constraints
+during the drag and re-solves, and the geometry updates live. Press
+Delete/Backspace to remove the selection (deleting a point cascades to its
+primitive). Escape works stepwise: it cancels the entity being drawn first,
+then clears the selection, and finally returns you to the Select tool from
+any drawing tool. The status line reminds you of these bindings while Select
+is active.
 
 ### External geometry
 
@@ -162,15 +172,17 @@ which constraints are conflicting or redundant.
 
 - **Pan**: middle-drag or Shift+left-drag.
 - **Zoom**: mouse wheel around the cursor.
-- **Exit**: click the **Finish Sketch** pill at the top-center of the viewport,
+- **Exit**: click the **Finish Sketch** pill at the top-right of the viewport,
   or run **Exit Sketch** from the Command Palette. The sketch is merged back
   into the document and the viewport returns to the 3D view.
 
 The sketch toolbar floats and can be dragged anywhere in the canvas by its
 **SKETCH** header (the collapsed hamburger drags too). Right-click or
 double-click it and choose **Reset Position** to put it back in the corner.
-Dimension labels shift apart automatically when they would overlap; you can
-still drag individual labels to fine-tune their placement.
+Dimension labels shift apart automatically when they would overlap; drag a
+label to pin it to a spot of your choosing — pinned labels keep their
+placement while you zoom and pan, and unpinned labels keep auto-shifting.
+Deleting the dimension clears its pin.
 
 ## Bodies
 

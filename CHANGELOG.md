@@ -79,6 +79,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The startup splash screen now shows real loading progress instead of a
+  timed animation** — the bar previously ran on fake random-timer stages and
+  wiped itself after 15 seconds, leaving a blank screen (and a still-loading
+  file tree) whenever the app was served over a slow connection. Progress now
+  tracks actual events: bytes received while downloading the app (Resource
+  Timing API, with live "N MB received" counts on slow connections), bundle
+  execution, Theia attaching the workbench shell, and Theia's own reveal step
+  as the 100% signal. The splash stays up until the IDE is really there, and
+  never blanks out on a timer.
 - nuke-cad: **mouse orbiting died after clicking a gizmo axis** — OrbitControls
   freezes its orbit pole from the camera's up vector at construction, so view
   snaps left the camera stranded on the pole with dead drag directions (worst
@@ -99,6 +108,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-cad: opening a CAD model now reveals the Model Outline and Feature
   Tree panels automatically (mirroring the existing close-with-viewport
   behavior).
+- nuke-cad: **sketch chrome placement pass** — the Finish Sketch pill moved
+  to the top-right (its tooltip and the collapsed toolbar's tooltip now
+  anchor to the button instead of the viewport's top-left), the constraint
+  bar owns top-center, the sketch toolbar defaults below the chrome row so
+  it never overlaps at init, and the collapsed toolbar is draggable again.
+- nuke-cad: **dimension labels are pinnable** — dragging a label gives it a
+  persistent screen-space offset that survives zoom/pan and opts it out of
+  the auto-deconflict shift (session state; deleting the dimension clears
+  it). The dimension value popover input now follows the dark theme, and
+  label hover/selected styling is calmer (accent border instead of full
+  orange fill). The 3D view label moved below the top bar like the gizmo.
+- nuke-cad: **saving a new CAD document no longer omits the `.nuke-cad`
+  extension** — the save dialog defaults to it and the chosen path is
+  normalized before writing.
+- nuke-cad: **sketch selection is discoverable and fully wired** — Escape now
+  clears the selection (previously it only cancelled the in-progress
+  entity), keyboard Delete/Backspace/Escape no longer leak from open text
+  fields, primitives outline on hover, clicking near an endpoint selects its
+  primitive, and the status line shows the select/drag/delete bindings while
+  the Select tool is active.
+- nuke-cad: pick-mode banners (datum, external geometry, dress-up, hole) are
+  now click-through — faces under the banner can be picked — and wrap their
+  text properly instead of collapsing one word per line.
+- nuke-cad: overlay form controls (Parameters panel, feature dialog,
+  datum picker, constraint inputs, checkboxes, selects) now follow the dark
+  theme via shared `--theia-input-*` styling instead of rendering white.
+- nuke-cad: the Model Outline and Feature Tree empty-state icons render at a
+  readable size instead of a fixed 16px glyph.
+- nuke-cad: **sketch tool shortcuts and a keyboard cheat sheet** — `S`/`L`/
+  `C`/`A`/`R`/`P` switch to select/line/circle/arc/rectangle/point, and
+  Escape falls through (cancel entity → clear selection → back to Select),
+  so there is always an obvious way back to select mode. A keyboard icon on
+  the sketch toolbar opens a cheat-sheet popover listing all bindings.
+- nuke-cad: viewport keyboard shortcuts are now scoped to viewport focus —
+  the canvas container takes focus on click and Theia's own shortcuts keep
+  working whenever focus is in an editor or another panel.
+- nuke-cad: sketch toolbar tooltips no longer render on top of the tool
+  buttons (the palette is single-column so chips land beside the panel), and
+  tool tooltips show their shortcut letter (e.g. "Line (L)").
 - nuke-cad: **exiting a brand-new sketch silently failed** — the sketch session
   was created without the pre-registered document def, so the exit-time save
   failed datum validation (`unknown datum 'XY'`) and kept the user trapped in

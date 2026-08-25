@@ -64,6 +64,7 @@ import { LoadingAnimations } from 'nuke-essentials/lib/theme/browser/components/
 import { NukeEmptyState, NukeLoadingOverlay } from 'nuke-essentials/lib/theme/browser/components';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
 import { SketchModeController } from '../../sketch/sketch-mode-controller';
+import { SKETCH_TOOL_SHORTCUTS } from '../../sketch/sketch-session';
 import {
     defaultSketchViewSize,
     intersectRayPlane,
@@ -73,6 +74,7 @@ import {
     type DatumKind
 } from '../../sketch/sketch-math';
 import { createSnapConfig, snap } from '../../sketch/snap';
+import { ensureNukeCadExtension } from './cad-save-path';
 import { CadSketchOverlay } from './cad-sketch-overlay';
 import { CadDocumentStore, createSketchId, createFeatureId, computeDependsOn } from '../../document/cad-document-store';
 import { type SketchDef, type FeatureDef, type FeatureType, type FeatureParams } from '../../../common/cad-document';
@@ -651,13 +653,16 @@ export class CadViewportWidget extends ReactWidget {
         }
         let uri = this.documentStore.uri !== undefined && !forceDialog ? new URI(this.documentStore.uri) : undefined;
         if (uri === undefined) {
+            const existingUri = this.documentStore.uri !== undefined ? new URI(this.documentStore.uri) : undefined;
             uri = await this.fileDialogService.showSaveDialog({
                 title: 'Save CAD Document',
+                inputValue: existingUri?.path.base ?? `${doc.name}.nuke-cad`,
                 filters: { 'CAD Document': ['nuke-cad'] }
             });
             if (uri === undefined) {
                 return;
             }
+            uri = uri.withPath(ensureNukeCadExtension(uri.path.toString()));
         }
         const json = this.documentStore.toJson();
         if (json === undefined) {
@@ -1538,7 +1543,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
 
     if (props.loading && props.tessData === undefined) {
         return (
-            <div ref={containerRef} className="cad-viewport loading">
+            <div ref={containerRef} tabIndex={-1} className="cad-viewport loading">
                 {banners}
                 <NukeLoadingOverlay message={props.loadingMessage} subMessage="This may take a moment for large models" />
             </div>
@@ -1775,7 +1780,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
 
     if (sketchActive) {
         return (
-            <div ref={containerRef} className="cad-viewport empty">
+            <div ref={containerRef} tabIndex={-1} className="cad-viewport empty">
                 {banners}
                 {dirtyMarker}
                 {props.sketchEntering && <NukeLoadingOverlay message="Starting sketch solver..." />}
@@ -1787,7 +1792,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
 
     if (noDocument) {
         return (
-            <div ref={containerRef} className="cad-viewport empty">
+            <div ref={containerRef} tabIndex={-1} className="cad-viewport empty">
                 {banners}
                 {dirtyMarker}
                 <LoadingAnimations />
@@ -1813,7 +1818,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
 
     if (documentEmpty) {
         return (
-            <div ref={containerRef} className="cad-viewport empty">
+            <div ref={containerRef} tabIndex={-1} className="cad-viewport empty">
                 {banners}
                 {dirtyMarker}
                 <div className="cad-viewport-document-hint">
@@ -1826,7 +1831,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
     }
 
     return (
-        <div ref={containerRef} className="cad-viewport">
+        <div ref={containerRef} tabIndex={-1} className="cad-viewport">
             {banners}
             {dirtyMarker}
             {props.loading && <NukeLoadingOverlay message={props.loadingMessage} />}
@@ -2792,7 +2797,26 @@ function initViewport(
     renderer.domElement.addEventListener('pointerup', onPointerUp);
     renderer.domElement.addEventListener('wheel', onWheel, { passive: false });
 
+    // Viewport-scoped keyboard handling: the window keydown handlers below only
+    // fire while focus sits inside the viewport container (the canvas and every
+    // overlay control live inside it), so Theia's own shortcuts keep working
+    // when an editor or another widget holds focus. Clicking a blank spot of
+    // the viewport pulls focus onto the container; clicking an interactive
+    // control lets the browser focus that control, which stays in the container.
+    const viewportHasFocus = (): boolean => container.contains(document.activeElement);
+    const onContainerPointerDown = (event: PointerEvent): void => {
+        const target = event.target;
+        if (target instanceof Element && target.closest('button, input, select, textarea, a[href], [tabindex]')) {
+            return;
+        }
+        container.focus({ preventScroll: true });
+    };
+    container.addEventListener('pointerdown', onContainerPointerDown);
+
     const onKeyDown = (event: KeyboardEvent): void => {
+        if (!viewportHasFocus()) {
+            return;
+        }
         if (activeDressUpPickMode !== undefined) {
             if (event.key === 'Escape') {
                 event.preventDefault();
@@ -2839,17 +2863,37 @@ function initViewport(
         if (!controller.isActive) {
             return;
         }
+        // Text fields (constraint value box, dimension editor, parameters panel)
+        // consume Delete/Backspace/Escape; never route them to the sketch session.
+        const target = event.target;
+        if (
+            target instanceof HTMLInputElement ||
+            target instanceof HTMLTextAreaElement ||
+            target instanceof HTMLSelectElement ||
+            (target instanceof HTMLElement && target.isContentEditable)
+        ) {
+            return;
+        }
         if (event.key === 'Delete' || event.key === 'Backspace') {
             event.preventDefault();
             controller.onDeleteKey();
         } else if (event.key === 'Escape') {
             event.preventDefault();
             controller.onEscape();
+        } else if (!event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey) {
+            const tool = SKETCH_TOOL_SHORTCUTS[event.key.toLowerCase()];
+            if (tool !== undefined) {
+                event.preventDefault();
+                controller.setTool(tool);
+            }
         }
     };
     window.addEventListener('keydown', onKeyDown);
 
     const onFitKey = (event: KeyboardEvent): void => {
+        if (!viewportHasFocus()) {
+            return;
+        }
         if (event.key !== 'f' && event.key !== 'F' && event.key !== '.') {
             return;
         }
@@ -2869,6 +2913,9 @@ function initViewport(
 
     // Tab toggles sketch mode (enter when idle, exit while sketching).
     const onTabKey = (event: KeyboardEvent): void => {
+        if (!viewportHasFocus()) {
+            return;
+        }
         if (event.key !== 'Tab') {
             return;
         }
@@ -2890,6 +2937,9 @@ function initViewport(
     // Escape exits section mode unless a pick mode, sketch session, dialog, or
     // text field consumes the key first (same guards as the fit/tab keys).
     const onSectionEscapeKey = (event: KeyboardEvent): void => {
+        if (!viewportHasFocus()) {
+            return;
+        }
         if (event.key !== 'Escape' || activeSection === undefined) {
             return;
         }
@@ -3007,6 +3057,7 @@ function initViewport(
             window.removeEventListener('keydown', onFitKey);
             window.removeEventListener('keydown', onTabKey);
             window.removeEventListener('keydown', onSectionEscapeKey);
+            container.removeEventListener('pointerdown', onContainerPointerDown);
             controls.removeEventListener('start', onViewInteractionStart);
             controls.removeEventListener('change', renderScene);
             controls.dispose();

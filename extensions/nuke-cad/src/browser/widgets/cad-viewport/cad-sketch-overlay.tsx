@@ -84,13 +84,13 @@ interface CadSketchOverlayProps {
     readonly onToggleMeasureList?: () => void;
 }
 
-const TOOLS: Array<{ tool: SketchTool; label: string; icon: string }> = [
-    { tool: 'select', label: 'Select', icon: 'codicon-nuke-cad-select' },
-    { tool: 'point', label: 'Point', icon: 'codicon-nuke-cad-point' },
-    { tool: 'line', label: 'Line', icon: 'codicon-nuke-cad-line' },
-    { tool: 'circle', label: 'Circle', icon: 'codicon-nuke-cad-circle' },
-    { tool: 'arc3', label: '3-Point Arc', icon: 'codicon-nuke-cad-arc' },
-    { tool: 'rectangle', label: 'Rectangle', icon: 'codicon-nuke-cad-rectangle' }
+const TOOLS: Array<{ tool: SketchTool; label: string; icon: string; key: string }> = [
+    { tool: 'select', label: 'Select', icon: 'codicon-nuke-cad-select', key: 'S' },
+    { tool: 'point', label: 'Point', icon: 'codicon-nuke-cad-point', key: 'P' },
+    { tool: 'line', label: 'Line', icon: 'codicon-nuke-cad-line', key: 'L' },
+    { tool: 'circle', label: 'Circle', icon: 'codicon-nuke-cad-circle', key: 'C' },
+    { tool: 'arc3', label: '3-Point Arc', icon: 'codicon-nuke-cad-arc', key: 'A' },
+    { tool: 'rectangle', label: 'Rectangle', icon: 'codicon-nuke-cad-rectangle', key: 'R' }
 ];
 
 /** Snap-radius presets in screen pixels; M matches the session default. */
@@ -287,7 +287,9 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
 
     const refCounts = countReferenceResults(relevantRefs);
     const snapSummary = controller.isSnapEnabled() ? `Snap: ${controller.getSnapRadiusPx()}px` : 'Snap off';
-    const statusText = buildStatusText(status, refCounts, snapSummary);
+    const selectHint =
+        active && tool === 'select' && constraintInput === undefined ? 'Click: select · Drag: move · Del: delete · Esc: clear' : undefined;
+    const statusText = buildStatusText(status, refCounts, snapSummary, selectHint);
     const hasDiagnostics =
         status.conflicting.length > 0 || status.redundant.length > 0 || refCounts.ambiguous > 0 || refCounts.unmatched > 0;
 
@@ -352,12 +354,14 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
 
             {active && (
                 <>
-                    <Tooltip content="Exit sketch mode and merge the sketch into the document" position="bottom">
-                        <button className="theia-button cad-sketch-finish-button" onClick={() => void onExitSketch()}>
-                            <span className="codicon codicon-check" />
-                            Finish Sketch
-                        </button>
-                    </Tooltip>
+                    <div className="cad-sketch-finish-anchor">
+                        <Tooltip content="Exit sketch mode and merge the sketch into the document" position="bottom">
+                            <button className="theia-button cad-sketch-finish-button" onClick={() => void onExitSketch()}>
+                                <span className="codicon codicon-check" />
+                                Finish Sketch
+                            </button>
+                        </Tooltip>
+                    </div>
 
                     <SketchToolbar
                         controller={controller}
@@ -488,7 +492,7 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
                     {dimensionLabels.map((label) => (
                         <div
                             key={label.id}
-                            className={`cad-sketch-dimension-label ${label.selected ? 'selected' : ''}`}
+                            className={`cad-sketch-dimension-label ${label.selected ? 'selected' : ''} ${label.pinned ? 'pinned' : ''}`}
                             style={{ left: label.x, top: label.y }}
                             onClick={(e) => {
                                 e.stopPropagation();
@@ -569,7 +573,7 @@ interface DatumPickerProps {
 function DatumPicker(props: DatumPickerProps): React.ReactElement {
     const picking = props.facePickMode === 'sketchDatum';
     return (
-        <div className="cad-sketch-datum-picker">
+        <div className={`cad-sketch-datum-picker${picking ? ' picking' : ''}`}>
             <div className="cad-sketch-datum-title">Sketch Plane</div>
             {picking ? (
                 <div className="cad-sketch-face-pick-banner">
@@ -940,6 +944,7 @@ function SketchToolbar(props: SketchToolbarProps): React.ReactElement {
     const [collapsed, setCollapsed] = React.useState(false);
     const [position, setPosition] = React.useState<{ top: number; left: number } | undefined>();
     const [menuOpen, setMenuOpen] = React.useState(false);
+    const [shortcutsOpen, setShortcutsOpen] = React.useState(false);
     const dragAnchorRef = React.useRef<HTMLElement | null>(null);
     const dragRef = React.useRef<{ startX: number; startY: number; baseTop: number; baseLeft: number } | undefined>(undefined);
     const dragMovedRef = React.useRef(false);
@@ -998,7 +1003,13 @@ function SketchToolbar(props: SketchToolbarProps): React.ReactElement {
     }, [onWindowDragMove, onWindowDragEnd]);
 
     const startDrag = (e: React.PointerEvent): void => {
-        if (e.button !== 0 || (e.target as HTMLElement).closest('button') !== null) {
+        if (e.button !== 0) {
+            return;
+        }
+        // The collapsed toggle is itself the drag handle; every other button
+        // inside the anchor still excludes dragging.
+        const button = (e.target as HTMLElement).closest('button');
+        if (button !== null && !button.classList.contains('cad-sketch-toolbar-toggle')) {
             return;
         }
         const el = dragAnchorRef.current;
@@ -1038,29 +1049,52 @@ function SketchToolbar(props: SketchToolbarProps): React.ReactElement {
         return () => window.removeEventListener('pointerdown', close);
     }, [menuOpen]);
 
+    React.useEffect(() => {
+        if (!shortcutsOpen) {
+            return undefined;
+        }
+        const close = (): void => setShortcutsOpen(false);
+        const onKey = (e: KeyboardEvent): void => {
+            if (e.key === 'Escape') {
+                e.stopPropagation();
+                close();
+            }
+        };
+        window.addEventListener('pointerdown', close);
+        window.addEventListener('keydown', onKey, true);
+        return () => {
+            window.removeEventListener('pointerdown', close);
+            window.removeEventListener('keydown', onKey, true);
+        };
+    }, [shortcutsOpen]);
+
     if (collapsed) {
         return (
             <>
-                <Tooltip content="Show Sketch Tools" position="right">
-                    <button
-                        ref={(el) => {
-                            dragAnchorRef.current = el;
-                        }}
-                        className="theia-button secondary cad-sketch-toolbar-toggle"
-                        style={position !== undefined ? { top: position.top, left: position.left } : undefined}
-                        onClick={() => {
-                            if (!dragMovedRef.current) {
-                                setCollapsed(false);
-                            }
-                            dragMovedRef.current = false;
-                        }}
-                        onPointerDown={startDrag}
-                        onDoubleClick={resetPosition}
-                        onContextMenu={openContextMenu}
-                    >
-                        <span className="codicon codicon-menu" />
-                    </button>
-                </Tooltip>
+                <div
+                    className="cad-sketch-toolbar-toggle-anchor"
+                    style={position !== undefined ? { top: position.top, left: position.left } : undefined}
+                    ref={(el) => {
+                        dragAnchorRef.current = el;
+                    }}
+                    onPointerDown={startDrag}
+                    onDoubleClick={resetPosition}
+                    onContextMenu={openContextMenu}
+                >
+                    <Tooltip content="Show Sketch Tools" position="right">
+                        <button
+                            className="theia-button secondary cad-sketch-toolbar-toggle"
+                            onClick={() => {
+                                if (!dragMovedRef.current) {
+                                    setCollapsed(false);
+                                }
+                                dragMovedRef.current = false;
+                            }}
+                        >
+                            <span className="codicon codicon-menu" />
+                        </button>
+                    </Tooltip>
+                </div>
                 {menuOpen && (
                     <div className="cad-sketch-toolbar-context-menu" onPointerDown={(e) => e.stopPropagation()}>
                         <button className="cad-sketch-toolbar-context-item" onClick={resetPosition}>
@@ -1073,110 +1107,188 @@ function SketchToolbar(props: SketchToolbarProps): React.ReactElement {
     }
 
     return (
-        <div className="cad-sketch-toolbar" style={position !== undefined ? { top: position.top, left: position.left } : undefined}>
-            <div
-                ref={(el) => {
-                    dragAnchorRef.current = el;
-                }}
-                className="cad-sketch-toolbar-header"
-                onPointerDown={startDrag}
-                onDoubleClick={resetPosition}
-                onContextMenu={openContextMenu}
-            >
-                <span className="cad-sketch-toolbar-title">Sketch</span>
-                <Tooltip content="Collapse Sketch Tools" position="right">
-                    <button className="theia-button secondary cad-sketch-toolbar-collapse" onClick={() => setCollapsed(true)}>
-                        <span className="codicon codicon-chevron-left" />
-                    </button>
-                </Tooltip>
-            </div>
-            <div className="cad-sketch-toolbar-body">
-                {TOOLS.map(({ tool: t, label, icon }) => (
-                    <Tooltip key={t} content={label} position="right">
+        <>
+            <div className="cad-sketch-toolbar" style={position !== undefined ? { top: position.top, left: position.left } : undefined}>
+                <div
+                    ref={(el) => {
+                        dragAnchorRef.current = el;
+                    }}
+                    className="cad-sketch-toolbar-header"
+                    onPointerDown={startDrag}
+                    onDoubleClick={resetPosition}
+                    onContextMenu={openContextMenu}
+                >
+                    <span className="cad-sketch-toolbar-title">Sketch</span>
+                    <Tooltip content="Keyboard Shortcuts" position="right">
                         <button
-                            className={`theia-button secondary cad-sketch-tool-button ${tool === t ? 'active' : ''}`}
-                            onClick={() => controller.setTool(t)}
+                            className={`theia-button secondary cad-sketch-tool-button ${shortcutsOpen ? 'active' : ''}`}
+                            onClick={() => setShortcutsOpen(!shortcutsOpen)}
                         >
-                            <span className={`codicon ${icon}`} />
+                            <span className="codicon codicon-nuke-cad-keyboard" />
                         </button>
                     </Tooltip>
-                ))}
-                <Tooltip content="Construction Geometry" position="right">
-                    <button
-                        className={`theia-button secondary cad-sketch-tool-button ${construction ? 'active' : ''}`}
-                        onClick={() => controller.setConstruction(!construction)}
-                    >
-                        <span className="codicon codicon-nuke-cad-construction" />
-                    </button>
-                </Tooltip>
-                <Tooltip content="Toggle Construction on Selection" position="right">
-                    <button
-                        className="theia-button secondary cad-sketch-tool-button"
-                        onClick={() => void controller.toggleConstructionForSelection()}
-                    >
-                        <span className="codicon codicon-edit" />
-                    </button>
-                </Tooltip>
-                <Tooltip content="Parameters" position="right">
-                    <button
-                        className={`theia-button secondary cad-sketch-tool-button ${paramsOpen ? 'active' : ''}`}
-                        onClick={() => setParamsOpen(!paramsOpen)}
-                    >
-                        <span className="codicon codicon-symbol-variable" />
-                    </button>
-                </Tooltip>
-                <Tooltip content="External Geometry" position="right">
-                    <button
-                        className={`theia-button secondary cad-sketch-tool-button ${facePickMode === 'externalGeometry' ? 'active' : ''}`}
-                        disabled={externalGeometryTarget === undefined}
-                        onClick={() => {
-                            if (facePickMode === 'externalGeometry') {
-                                onCancelFacePick();
-                            } else if (externalGeometryTarget !== undefined) {
-                                onStartExternalGeometryPick(externalGeometryTarget.id);
-                            }
-                        }}
-                    >
-                        <span className="codicon codicon-nuke-cad-external-ref" />
-                    </button>
-                </Tooltip>
-                <Tooltip content={snapEnabled ? 'Disable Snapping' : 'Enable Snapping'} position="right">
-                    <button
-                        className={`theia-button secondary cad-sketch-tool-button ${snapEnabled ? 'active' : ''}`}
-                        onClick={() => controller.setSnapEnabled(!snapEnabled)}
-                    >
-                        <span className="codicon codicon-nuke-cad-snap" />
-                    </button>
-                </Tooltip>
-                <Tooltip content={`Snap Radius: ${snapPreset.px}px (click to change)`} position="right">
-                    <button className="theia-button secondary cad-sketch-tool-button" onClick={cycleSnapRadius}>
-                        {snapPreset.label}
-                    </button>
-                </Tooltip>
-                <Tooltip content="Measure (click two points)" position="right">
-                    <button
-                        className={`theia-button secondary cad-sketch-tool-button ${measureActive ? 'active' : ''}`}
-                        onClick={() => onToggleMeasure?.()}
-                    >
-                        <span className="codicon codicon-nuke-cad-measure" />
-                    </button>
-                </Tooltip>
-                <Tooltip content={`Measurements${measureCount ? ` (${measureCount})` : ''}`} position="right">
-                    <button
-                        className={`theia-button secondary cad-sketch-tool-button ${measureListOpen ? 'active' : ''}`}
-                        onClick={() => onToggleMeasureList?.()}
-                    >
-                        <span className="codicon codicon-list-unordered" />
-                    </button>
-                </Tooltip>
-            </div>
-            {menuOpen && (
-                <div className="cad-sketch-toolbar-context-menu" onPointerDown={(e) => e.stopPropagation()}>
-                    <button className="cad-sketch-toolbar-context-item" onClick={resetPosition}>
-                        <span className="codicon codicon-discard" /> Reset Position
-                    </button>
+                    <Tooltip content="Collapse Sketch Tools" position="right">
+                        <button className="theia-button secondary cad-sketch-toolbar-collapse" onClick={() => setCollapsed(true)}>
+                            <span className="codicon codicon-chevron-left" />
+                        </button>
+                    </Tooltip>
                 </div>
-            )}
+                <div className="cad-sketch-toolbar-body">
+                    {TOOLS.map(({ tool: t, label, icon, key }) => (
+                        <Tooltip key={t} content={`${label} (${key})`} position="right">
+                            <button
+                                className={`theia-button secondary cad-sketch-tool-button ${tool === t ? 'active' : ''}`}
+                                onClick={() => controller.setTool(t)}
+                            >
+                                <span className={`codicon ${icon}`} />
+                            </button>
+                        </Tooltip>
+                    ))}
+                    <Tooltip content="Construction Geometry" position="right">
+                        <button
+                            className={`theia-button secondary cad-sketch-tool-button ${construction ? 'active' : ''}`}
+                            onClick={() => controller.setConstruction(!construction)}
+                        >
+                            <span className="codicon codicon-nuke-cad-construction" />
+                        </button>
+                    </Tooltip>
+                    <Tooltip content="Toggle Construction on Selection" position="right">
+                        <button
+                            className="theia-button secondary cad-sketch-tool-button"
+                            onClick={() => void controller.toggleConstructionForSelection()}
+                        >
+                            <span className="codicon codicon-edit" />
+                        </button>
+                    </Tooltip>
+                    <Tooltip content="Parameters" position="right">
+                        <button
+                            className={`theia-button secondary cad-sketch-tool-button ${paramsOpen ? 'active' : ''}`}
+                            onClick={() => setParamsOpen(!paramsOpen)}
+                        >
+                            <span className="codicon codicon-symbol-variable" />
+                        </button>
+                    </Tooltip>
+                    <Tooltip content="External Geometry" position="right">
+                        <button
+                            className={`theia-button secondary cad-sketch-tool-button ${facePickMode === 'externalGeometry' ? 'active' : ''}`}
+                            disabled={externalGeometryTarget === undefined}
+                            onClick={() => {
+                                if (facePickMode === 'externalGeometry') {
+                                    onCancelFacePick();
+                                } else if (externalGeometryTarget !== undefined) {
+                                    onStartExternalGeometryPick(externalGeometryTarget.id);
+                                }
+                            }}
+                        >
+                            <span className="codicon codicon-nuke-cad-external-ref" />
+                        </button>
+                    </Tooltip>
+                    <Tooltip content={snapEnabled ? 'Disable Snapping' : 'Enable Snapping'} position="right">
+                        <button
+                            className={`theia-button secondary cad-sketch-tool-button ${snapEnabled ? 'active' : ''}`}
+                            onClick={() => controller.setSnapEnabled(!snapEnabled)}
+                        >
+                            <span className="codicon codicon-nuke-cad-snap" />
+                        </button>
+                    </Tooltip>
+                    <Tooltip content={`Snap Radius: ${snapPreset.px}px (click to change)`} position="right">
+                        <button className="theia-button secondary cad-sketch-tool-button" onClick={cycleSnapRadius}>
+                            {snapPreset.label}
+                        </button>
+                    </Tooltip>
+                    <Tooltip content="Measure (click two points)" position="right">
+                        <button
+                            className={`theia-button secondary cad-sketch-tool-button ${measureActive ? 'active' : ''}`}
+                            onClick={() => onToggleMeasure?.()}
+                        >
+                            <span className="codicon codicon-nuke-cad-measure" />
+                        </button>
+                    </Tooltip>
+                    <Tooltip content={`Measurements${measureCount ? ` (${measureCount})` : ''}`} position="right">
+                        <button
+                            className={`theia-button secondary cad-sketch-tool-button ${measureListOpen ? 'active' : ''}`}
+                            onClick={() => onToggleMeasureList?.()}
+                        >
+                            <span className="codicon codicon-list-unordered" />
+                        </button>
+                    </Tooltip>
+                </div>
+                {menuOpen && (
+                    <div className="cad-sketch-toolbar-context-menu" onPointerDown={(e) => e.stopPropagation()}>
+                        <button className="cad-sketch-toolbar-context-item" onClick={resetPosition}>
+                            <span className="codicon codicon-discard" /> Reset Position
+                        </button>
+                    </div>
+                )}
+            </div>
+            {shortcutsOpen && <SketchShortcutsPopover onClose={() => setShortcutsOpen(false)} />}
+        </>
+    );
+}
+
+interface SketchShortcutsPopoverProps {
+    readonly onClose: () => void;
+}
+
+function SketchShortcutsPopover(props: SketchShortcutsPopoverProps): React.ReactElement {
+    return (
+        <div className="cad-sketch-shortcuts-popover" onPointerDown={(e) => e.stopPropagation()}>
+            <NukePanel title="Keyboard Shortcuts" onClose={props.onClose}>
+                <div className="cad-sketch-shortcuts-section">
+                    <div className="cad-sketch-shortcuts-title">Tools</div>
+                    {TOOLS.map(({ label, key }) => (
+                        <div key={label} className="cad-sketch-shortcuts-row">
+                            <span className="cad-sketch-shortcuts-key">{key}</span>
+                            <span>{label}</span>
+                        </div>
+                    ))}
+                </div>
+                <div className="cad-sketch-shortcuts-section">
+                    <div className="cad-sketch-shortcuts-title">Select tool</div>
+                    <div className="cad-sketch-shortcuts-row">
+                        <span className="cad-sketch-shortcuts-key">Click</span>
+                        <span>Select entity</span>
+                    </div>
+                    <div className="cad-sketch-shortcuts-row">
+                        <span className="cad-sketch-shortcuts-key">Shift+Click</span>
+                        <span>Add / remove from selection</span>
+                    </div>
+                    <div className="cad-sketch-shortcuts-row">
+                        <span className="cad-sketch-shortcuts-key">Drag</span>
+                        <span>Move point</span>
+                    </div>
+                    <div className="cad-sketch-shortcuts-row">
+                        <span className="cad-sketch-shortcuts-key">Del</span>
+                        <span>Delete selection</span>
+                    </div>
+                    <div className="cad-sketch-shortcuts-row">
+                        <span className="cad-sketch-shortcuts-key">Esc</span>
+                        <span>Cancel · clear · back to Select</span>
+                    </div>
+                </div>
+                <div className="cad-sketch-shortcuts-section">
+                    <div className="cad-sketch-shortcuts-title">Snapping</div>
+                    <div className="cad-sketch-shortcuts-row">
+                        <span className="cad-sketch-shortcuts-key">Magnet</span>
+                        <span>Toggle snapping</span>
+                    </div>
+                    <div className="cad-sketch-shortcuts-row">
+                        <span className="cad-sketch-shortcuts-key">S / M / L</span>
+                        <span>Snap radius 6 / 12 / 24 px</span>
+                    </div>
+                </div>
+                <div className="cad-sketch-shortcuts-section">
+                    <div className="cad-sketch-shortcuts-title">Sketch mode</div>
+                    <div className="cad-sketch-shortcuts-row">
+                        <span className="cad-sketch-shortcuts-key">Tab</span>
+                        <span>Enter / exit sketch mode</span>
+                    </div>
+                    <div className="cad-sketch-shortcuts-row">
+                        <span className="cad-sketch-shortcuts-key">Finish Sketch</span>
+                        <span>Exit and merge into the document</span>
+                    </div>
+                </div>
+            </NukePanel>
         </div>
     );
 }
@@ -2380,8 +2492,11 @@ function dimensionLabel(kind: DimensionKind): string {
     }
 }
 
-function buildStatusText(status: SketchStatus, referenceCounts?: ReferenceCounts, snapSummary?: string): string {
+function buildStatusText(status: SketchStatus, referenceCounts?: ReferenceCounts, snapSummary?: string, selectHint?: string): string {
     const parts: string[] = [];
+    if (selectHint !== undefined) {
+        parts.push(selectHint);
+    }
     if (referenceCounts !== undefined) {
         if (referenceCounts.ambiguous > 0) {
             parts.push(`${referenceCounts.ambiguous} ambiguous ref${referenceCounts.ambiguous === 1 ? '' : 's'}`);

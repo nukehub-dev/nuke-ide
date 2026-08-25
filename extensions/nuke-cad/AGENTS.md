@@ -111,7 +111,11 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   3D viewport exposes a navigation cluster (bottom-right: ISO/top/front/right
   views, fit, zoom in/out) backed by `fitView`/`zoomView`/`setStandardView` on
   the viewport API; `F` fits the view when no sketch, pick mode, or text field
-  is active. Closing the viewport widget also closes the Model Outline and
+  is active. Viewport key handlers are scoped to the viewport: the container
+  is focusable (`tabindex="-1"`, focused on pointerdown) and every window
+  keydown handler early-returns unless the container contains
+  `document.activeElement`, so Theia's own shortcuts keep working whenever
+  focus is elsewhere. Closing the viewport widget also closes the Model Outline and
   Feature Tree panels (they have no model to show otherwise); opening a CAD
   model reveals them again automatically. Entering sketch
   mode on a saved sketch fits the orthographic view to the sketch's bounding
@@ -127,7 +131,7 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   loaded via `setGizmoVisible`; the view label follows the same visibility) and a
   wireframe toggle (`setWireframe`) in the navigation cluster. Both the gizmo
   and the view-label overlay sit **below the document toolbar** (gizmo at
-  top 64px, clear of the toolbar; view label at 52px) —
+  top 64px, clear of the toolbar; view label at 64px) —
   at the toolbar's z-index the full-width toolbar would cover them. The view
   label (`cad-viewport-view-label`, imperative DOM) shows the active standard
   view (`User` after orbiting, `Top`/`Left`/... after snapping) or
@@ -273,13 +277,26 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
     sketch toolbar (including external-geometry tool), datum picker with
     sketch-on-face button, document toolbar, feature-creation dialog, constraint
     value input, dimension labels/popover (labels auto-shift apart when their
-    screen projections would overlap), parameters panel, external-geometry
+    screen projections would overlap; a dragged label pins a session-scoped
+    screen offset that survives zoom/pan and opts out of auto-shift),
+    parameters panel, external-geometry
     reference list, diagnostics popover (with reference-resolution status), and
-    status line. The sketch toolbar is a floating draggable panel: drag by its
+    status line (leads with `Click: select · Drag: move · Del: delete ·
+Esc: clear` while the Select tool is active and no constraint pick is in
+    progress). Sketch tools have single-key shortcuts (S select, L line,
+    C circle, A arc, R rectangle, P point; guarded against pick modes,
+    dialogs, measure, text fields, and modifier keys), and Escape falls
+    through: cancel in-progress entity, else clear selection, else return to
+    the Select tool. A keyboard cheat-sheet popover on the toolbar header
+    lists the bindings. The sketch toolbar is a floating draggable panel: drag by its
     header (or the collapsed toggle), right-click/double-click for Reset
     Position; the dragged position persists across collapse/expand. Exiting
-    sketch mode is the labeled **Finish Sketch** pill at the top-center of the
-    viewport. The chrome builds on the shared nuke-essentials components
+    sketch mode is the labeled **Finish Sketch** pill at the top-right of the
+    viewport (the constraint bar owns top-center). Dimension labels are
+    session-state draggable: a dragged label pins a screen-space offset that
+    survives zoom/pan and opts out of the auto-deconflict shift; offsets die
+    with the sketch session or the dimension. The chrome builds on the shared
+    nuke-essentials components
     (`NukeToolbar`/`NukeToolbarGroup` for the icon-only document toolbar —
     grouped Document/Sketch/Additive/Boolean/Dress-up/Pattern/Hole with
     tooltips and wrapping; no duplicate overflow menu — every action stays in
@@ -384,7 +401,9 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
     triggers a viewport-only document build (no DAGMC or FEM mesh export).
   - Document commands: `nuke.cad.newDocument`, `nuke.cad.saveDocument`,
     `nuke.cad.saveDocumentAs`, `nuke.cad.newSketch`, `nuke.cad.exitSketch`, and
-    `nuke.cad.openFeatureTree`.
+    `nuke.cad.openFeatureTree`. Save/Save-As enforce the `.nuke-cad`
+    extension: the dialog defaults to it and the chosen path is normalized
+    through `ensureNukeCadExtension` (`cad-save-path.ts`) before writing.
   - The **Feature Tree** panel (`src/browser/widgets/feature-tree/`, widget ID
     `nuke-cad-feature-tree-widget`, label "Feature Tree") lists bodies, datums,
     sketches, and features in document order with selection, suppression toggle,
@@ -419,7 +438,9 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   - The **Sketch Plane** picker exposes an **On Face…** button that puts the
     viewport into face-pick mode. Hover highlights the candidate face; a click
     creates a `face` datum and enters sketch mode on it. Right-click or Escape
-    cancels the pick.
+    cancels the pick. All pick-mode banners (datum, external geometry,
+    dress-up, hole) are click-through (`pointer-events: none` except their
+    Cancel button) so faces under the banner stay pickable.
   - Inside sketch mode, the **External Geometry** tool picks the most recent
     non-suppressed solid-producing feature as the reference target and enters
     face-pick mode. Clicking a face or edge of that body adds a `TopologyRef`

@@ -42,6 +42,7 @@
 .codicon-nuke-cad-external-ref,
 .codicon-nuke-cad-snap,
 .codicon-nuke-cad-measure,
+.codicon-nuke-cad-keyboard,
 .codicon-nuke-cad-edges,
 .codicon-nuke-cad-section {
     display: inline-block;
@@ -241,6 +242,12 @@
 .codicon-nuke-cad-measure {
     -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linejoin='round' stroke-linecap='round'%3E%3Cpath d='M2.2 10.2 10.2 2.2l3.6 3.6-8 8Z'/%3E%3Cpath d='M5.4 7l1.6 1.6M7.4 5l1.6 1.6M9.4 3l1.6 1.6'/%3E%3C/svg%3E");
     mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linejoin='round' stroke-linecap='round'%3E%3Cpath d='M2.2 10.2 10.2 2.2l3.6 3.6-8 8Z'/%3E%3Cpath d='M5.4 7l1.6 1.6M7.4 5l1.6 1.6M9.4 3l1.6 1.6'/%3E%3C/svg%3E");
+}
+
+/* Key caps over a space bar — sketch keyboard shortcuts. */
+.codicon-nuke-cad-keyboard {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='1.5' y='4' width='13' height='8.5' rx='1'/%3E%3Cpath d='M4 6.7h.01M6.7 6.7h.01M9.3 6.7h.01M12 6.7h.01M4 9h.01M12 9h.01M5.5 10.5h5'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='1.5' y='4' width='13' height='8.5' rx='1'/%3E%3Cpath d='M4 6.7h.01M6.7 6.7h.01M9.3 6.7h.01M12 6.7h.01M4 9h.01M12 9h.01M5.5 10.5h5'/%3E%3C/svg%3E");
 }
 
 /* Isometric cube with dashed slicing plane — Section view. */
