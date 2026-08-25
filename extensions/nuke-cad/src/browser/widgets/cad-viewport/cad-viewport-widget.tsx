@@ -155,6 +155,8 @@ export class CadViewportWidget extends ReactWidget {
 
     /** True while the datum picker is waiting for the user to choose a plane. */
     sketchSetupVisible = false;
+    /** True while the sketch solver is loading (Start Sketch clicked, session not active yet). */
+    sketchEntering = false;
     /** True while a feature creation dialog is open. */
     featureCreationType?: FeatureType;
     /** Id of the feature being edited, when the dialog is in edit mode. */
@@ -207,6 +209,7 @@ export class CadViewportWidget extends ReactWidget {
 
     protected readonly handleEnterSketch = (kind: DatumKind, offset: number): void => {
         this.sketchSetupVisible = false;
+        this.sketchEntering = true;
         this.update();
         void this.doEnterSketch(kind, offset);
     };
@@ -726,6 +729,7 @@ export class CadViewportWidget extends ReactWidget {
                     this.showBuildError(datumResult.error || 'Failed to create datum.');
                     this.messageService.error(datumResult.error || 'Failed to create datum.');
                     this.sketchSetupVisible = false;
+                    this.sketchEntering = false;
                     this.facePickMode = undefined;
                     this.update();
                     return;
@@ -736,6 +740,7 @@ export class CadViewportWidget extends ReactWidget {
         if (datumId === undefined) {
             this.showBuildError(`Could not resolve datum for ${kind} offset ${offset}`);
             this.messageService.error(`Could not resolve datum for ${kind} offset ${offset}`);
+            this.sketchEntering = false;
             this.sketchSetupVisible = false;
             this.facePickMode = undefined;
             this.update();
@@ -758,6 +763,7 @@ export class CadViewportWidget extends ReactWidget {
             const result = this.documentStore.upsertSketch(sketchDef);
             if (!result.success) {
                 this.showBuildError(result.error || 'Failed to register new sketch.');
+                this.sketchEntering = false;
                 this.messageService.error(result.error || 'Failed to register new sketch.');
                 this.sketchSetupVisible = false;
                 this.facePickMode = undefined;
@@ -781,9 +787,15 @@ export class CadViewportWidget extends ReactWidget {
             this.showBuildError(`Failed to start sketch solver: ${message}`);
             this.messageService.error(`Failed to start sketch solver: ${message}`);
             this.sketchSetupVisible = false;
+            this.sketchEntering = false;
             this.facePickMode = undefined;
             this.editingSketchId = undefined;
             this.update();
+        } finally {
+            if (this.sketchEntering) {
+                this.sketchEntering = false;
+                this.update();
+            }
         }
     }
 
@@ -1044,6 +1056,7 @@ export class CadViewportWidget extends ReactWidget {
                 warnings={this.buildWarnings}
                 dirty={this.documentStore.dirty}
                 sketchSetupVisible={this.sketchSetupVisible}
+                sketchEntering={this.sketchEntering}
                 featureCreationType={this.featureCreationType}
                 editingFeatureId={this.editingFeatureId}
                 facePickMode={this.facePickMode}
@@ -1100,6 +1113,7 @@ interface CadViewportComponentProps {
     readonly warnings: readonly string[];
     readonly dirty: boolean;
     readonly sketchSetupVisible: boolean;
+    readonly sketchEntering: boolean;
     readonly featureCreationType?: FeatureType;
     readonly editingFeatureId?: string;
     readonly facePickMode?: 'sketchDatum' | 'externalGeometry';
@@ -1141,6 +1155,7 @@ interface CadViewportComponentProps {
 function CadViewportComponent(props: CadViewportComponentProps): React.ReactElement {
     const containerRef = React.useRef<HTMLDivElement>(null);
     const [controller, setController] = React.useState<SketchModeController | undefined>();
+    const [wireframeOn, setWireframeOn] = React.useState(false);
     const [warningsOpen, setWarningsOpen] = React.useState(false);
     const editFeature = React.useMemo(() => {
         if (props.editingFeatureId === undefined) {
@@ -1156,6 +1171,8 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
         fitView?: () => void;
         zoomView?: (factor: number) => void;
         setStandardView?: (view: 'iso' | 'top' | 'front' | 'right') => void;
+        setWireframe?: (on: boolean) => void;
+        setGizmoVisible?: (visible: boolean) => void;
     }>({});
 
     React.useEffect(() => {
@@ -1204,6 +1221,8 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             viewportApi.current.fitView = api.fitView;
             viewportApi.current.zoomView = api.zoomView;
             viewportApi.current.setStandardView = api.setStandardView;
+            viewportApi.current.setWireframe = api.setWireframe;
+            viewportApi.current.setGizmoVisible = api.setGizmoVisible;
             api.setFacePickMode(props.facePickMode);
             api.setDressUpPickMode(props.dressUpPickMode);
             api.setHolePickMode(props.holePickMode ?? false);
@@ -1221,6 +1240,8 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             viewportApi.current.fitView = undefined;
             viewportApi.current.zoomView = undefined;
             viewportApi.current.setStandardView = undefined;
+            viewportApi.current.setWireframe = undefined;
+            viewportApi.current.setGizmoVisible = undefined;
             cleanup?.();
         };
         // All non-tessData props are stable widget-bound callbacks; the scene is
@@ -1306,7 +1327,11 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
         );
     }
 
-    const sketchActive = (controller?.isActive ?? false) || props.sketchSetupVisible;
+    const sketchActive = (controller?.isActive ?? false) || props.sketchSetupVisible || props.sketchEntering;
+
+    React.useEffect(() => {
+        viewportApi.current.setGizmoVisible?.(!sketchActive);
+    }, [sketchActive, controller]);
     const documentEmpty = props.tessData === undefined && props.documentStore.hasDocument && !props.loading && !sketchActive;
     const noDocument = props.tessData === undefined && !props.documentStore.hasDocument && !props.loading;
     const dirtyMarker = props.dirty ? <span className="cad-viewport-dirty-marker" title="Unsaved changes" /> : null;
@@ -1393,6 +1418,19 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                         <span className="codicon codicon-zoom-out" />
                     </button>
                 </Tooltip>
+                <span className="cad-viewport-nav-divider" />
+                <Tooltip content="Wireframe" position="left">
+                    <button
+                        className={`theia-button secondary cad-viewport-nav-button ${wireframeOn ? 'active' : ''}`}
+                        onClick={() => {
+                            const next = !wireframeOn;
+                            setWireframeOn(next);
+                            viewportApi.current.setWireframe?.(next);
+                        }}
+                    >
+                        <span className="codicon codicon-circuit-board" />
+                    </button>
+                </Tooltip>
             </div>
         ) : undefined;
 
@@ -1401,6 +1439,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             <div ref={containerRef} className="cad-viewport empty">
                 {banners}
                 {dirtyMarker}
+                {props.sketchEntering && <NukeLoadingOverlay message="Starting sketch solver..." />}
                 {sketchOverlay}
             </div>
         );
@@ -1467,6 +1506,8 @@ interface ViewportApi {
     readonly fitView: () => void;
     readonly zoomView: (factor: number) => void;
     readonly setStandardView: (view: 'iso' | 'top' | 'front' | 'right') => void;
+    readonly setWireframe: (on: boolean) => void;
+    readonly setGizmoVisible: (visible: boolean) => void;
 }
 
 function initViewport(
@@ -1535,6 +1576,7 @@ function initViewport(
     let activeHolePickMode = initialHolePickMode;
     let lastCenter = new THREE.Vector3();
     let lastDiag = 10;
+    let wireframe = false;
 
     const highlightColor = new THREE.Color(readThemeColor(container, '--theia-focusBorder', '#007fd4'));
     const faceHighlighter = new FaceHighlighter(highlightColor);
@@ -1542,9 +1584,78 @@ function initViewport(
     const edgeHighlighter = new EdgeHighlighter(highlightColor);
     edgeHighlighter.attach(modelGroup);
 
+    // Axis navigation gizmo (Blender-style): an SVG overlay that mirrors the
+    // camera orientation and snaps to the clicked axis view. Updated directly
+    // from renderScene — no React state, so orbiting causes no re-renders.
+    const gizmo = document.createElement('div');
+    gizmo.className = 'cad-viewport-gizmo';
+    container.appendChild(gizmo);
+    const gizmoRadius = 26;
+    const gizmoAxes: Array<{ dir: THREE.Vector3; label: string }> = [
+        { dir: new THREE.Vector3(1, 0, 0), label: 'X' },
+        { dir: new THREE.Vector3(0, 1, 0), label: 'Y' },
+        { dir: new THREE.Vector3(0, 0, 1), label: 'Z' }
+    ];
+    const updateGizmo = (): void => {
+        const size = gizmoRadius * 2 + 16;
+        const c = size / 2;
+        const inverse = camera.quaternion.clone().invert();
+        const handles = gizmoAxes
+            .flatMap(({ dir, label }) => [
+                {
+                    v: dir.clone().applyQuaternion(inverse),
+                    label,
+                    d: dir.toArray() as [number, number, number],
+                    positive: true
+                },
+                {
+                    v: dir.clone().negate().applyQuaternion(inverse),
+                    label,
+                    d: dir.clone().negate().toArray() as [number, number, number],
+                    positive: false
+                }
+            ])
+            .map((h) => ({
+                ...h,
+                x: c + h.v.x * gizmoRadius,
+                y: c - h.v.y * gizmoRadius,
+                depth: h.v.z
+            }))
+            .sort((a, b) => a.depth - b.depth);
+        const parts: string[] = [];
+        for (const h of handles) {
+            if (h.positive) {
+                parts.push(
+                    `<line x1='${c}' y1='${c}' x2='${h.x.toFixed(1)}' y2='${h.y.toFixed(1)}' stroke='var(--theia-descriptionForeground)' stroke-width='1.2'/>`
+                );
+            }
+        }
+        for (const h of handles) {
+            const fill = h.positive ? 'var(--theia-focusBorder)' : 'var(--theia-editorWidget-background)';
+            const textFill = h.positive ? 'var(--theia-button-foreground)' : 'var(--theia-descriptionForeground)';
+            const r = h.positive ? 8 : 6.5;
+            parts.push(
+                `<circle cx='${h.x.toFixed(1)}' cy='${h.y.toFixed(1)}' r='${r}' fill='${fill}' stroke='var(--theia-descriptionForeground)' stroke-width='1' data-dir='${h.d.join(',')}'/>` +
+                    `<text x='${h.x.toFixed(1)}' y='${(h.y + 3).toFixed(1)}' text-anchor='middle' font-size='8' fill='${textFill}' style='pointer-events:none'>${h.label}</text>`
+            );
+        }
+        gizmo.innerHTML = `<svg width='${size}' height='${size}' viewBox='0 0 ${size} ${size}'>${parts.join('')}</svg>`;
+    };
+    gizmo.addEventListener('click', (event) => {
+        const target = event.target as HTMLElement | null;
+        const dir = target?.dataset?.dir;
+        if (dir !== undefined) {
+            setViewDirection(dir.split(',').map(Number) as [number, number, number]);
+        }
+    });
+    const setGizmoVisible = (visible: boolean): void => {
+        gizmo.style.display = visible ? '' : 'none';
+    };
+
     let controller: SketchModeController;
     const renderScene = (): void => {
         renderer.render(scene, controller.getActiveCamera());
+        updateGizmo();
     };
     controller = new SketchModeController(container, scene, renderer, controls, renderScene, {
         modelGroup,
@@ -1608,6 +1719,7 @@ function initViewport(
                     metalness: 0.1,
                     side: THREE.DoubleSide
                 });
+                material.wireframe = wireframe;
                 const mesh = new THREE.Mesh(geometry, material);
                 mesh.userData = {
                     solidId: solid.solidId,
@@ -1653,15 +1765,9 @@ function initViewport(
         renderScene();
     };
 
-    const setStandardView = (view: 'iso' | 'top' | 'front' | 'right'): void => {
-        const directions: Record<'iso' | 'top' | 'front' | 'right', [number, number, number]> = {
-            iso: [1, -1, 1],
-            top: [0, 0, 1],
-            front: [0, -1, 0],
-            right: [1, 0, 0]
-        };
+    const setViewDirection = (dir: [number, number, number]): void => {
         camera.position.copy(
-            new THREE.Vector3(...directions[view])
+            new THREE.Vector3(...dir)
                 .normalize()
                 .multiplyScalar(lastDiag * 1.75)
                 .add(lastCenter)
@@ -1670,6 +1776,24 @@ function initViewport(
         camera.up.set(0, 0, 1);
         camera.lookAt(lastCenter);
         controls.update();
+        renderScene();
+    };
+
+    const setStandardView = (view: 'iso' | 'top' | 'front' | 'right'): void => {
+        const directions: Record<'iso' | 'top' | 'front' | 'right', [number, number, number]> = {
+            iso: [1, -1, 1],
+            top: [0, 0, 1],
+            front: [0, -1, 0],
+            right: [1, 0, 0]
+        };
+        setViewDirection(directions[view]);
+    };
+
+    const setWireframe = (on: boolean): void => {
+        wireframe = on;
+        for (const mesh of meshes) {
+            (mesh.material as THREE.MeshStandardMaterial).wireframe = wireframe;
+        }
         renderScene();
     };
 
@@ -1947,7 +2071,10 @@ function initViewport(
         fitView,
         zoomView,
         setStandardView,
+        setWireframe,
+        setGizmoVisible,
         cleanup: () => {
+            gizmo.remove();
             selectionDisposable.dispose();
             themeDisposable.dispose();
             resizeObserver.disconnect();

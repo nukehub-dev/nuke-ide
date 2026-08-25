@@ -380,9 +380,7 @@ export class SketchModeController {
             const height = 24;
             let x = screen.x;
             let y = screen.y;
-            while (
-                placed.some((p) => Math.abs(x - p.x) < (width + p.w) / 2 && Math.abs(y - p.y) < (height + p.h) / 2)
-            ) {
+            while (placed.some((p) => Math.abs(x - p.x) < (width + p.w) / 2 && Math.abs(y - p.y) < (height + p.h) / 2)) {
                 y += height + 4;
             }
             placed.push({ x, y, w: width, h: height });

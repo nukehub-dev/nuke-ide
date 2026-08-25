@@ -33,6 +33,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   confirmation; start a fresh document by closing the current one first. The
   feature-creation dialog and the Sketch Plane picker use an aligned
   label/input grid, and the Model Outline header is a compact single-line.
+- nuke-cad: **sketch-mode usability round** — the sketch toolbar (and its
+  collapsed toggle) is now draggable anywhere in the canvas; right-click or
+  double-click it for **Reset Position**. Exiting sketch mode is a labeled
+  **Finish Sketch** pill at the top-center of the viewport (previously an
+  unlabeled check icon at the bottom of the toolbar). Dimension labels no
+  longer overlap each other — colliding labels shift apart automatically.
+  Inspired by Blender's viewport: an **axis navigation gizmo** (top-right,
+  mirrors the camera; click X/Y/Z or their negatives to snap views) and a
+  **wireframe** shading toggle in the navigation cluster. Starting a sketch
+  shows a "Starting sketch solver..." overlay while the solver loads instead
+  of flashing back to document mode.
 
 ### Fixed
 

@@ -123,6 +123,26 @@
     word-break: break-word;
 }
 
+/* Axis navigation gizmo (top-right, mirrors camera orientation) */
+.cad-viewport-gizmo {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 12;
+    width: 68px;
+    height: 68px;
+    pointer-events: none;
+}
+
+.cad-viewport-gizmo svg {
+    pointer-events: none;
+}
+
+.cad-viewport-gizmo circle[data-dir] {
+    pointer-events: all;
+    cursor: pointer;
+}
+
 /* Sketch mode overlay */
 
 .cad-sketch-overlay {
@@ -268,6 +288,24 @@
 .cad-sketch-tool-button.active {
     background: var(--theia-focusBorder);
     color: var(--theia-button-foreground);
+}
+
+.cad-sketch-finish-button {
+    position: absolute;
+    top: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 21;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 12px;
+    font-size: var(--theia-ui-font-size1);
+    white-space: nowrap;
+}
+
+.cad-sketch-toolbar-toggle {
+    cursor: grab;
 }
 
 .cad-sketch-datum-picker {

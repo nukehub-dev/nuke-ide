@@ -115,7 +115,13 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   Feature Tree panels (they have no model to show otherwise). Entering sketch
   mode on a saved sketch fits the orthographic view to the sketch's bounding
   box (`SketchModeController.fitSketchView`); fresh sketches keep the default
-  view size.
+  view size. `sketchEntering` covers the solver-WASM load window between
+  **Start Sketch** and an active session: the widget treats it as sketch mode
+  (no document-hint flash) and shows a "Starting sketch solver..." overlay.
+  The 3D viewport also carries a Blender-style axis gizmo (top-right SVG,
+  updated imperatively from `renderScene` — never from React state; click an
+  axis to snap views, hidden in sketch mode via `setGizmoVisible`) and a
+  wireframe toggle (`setWireframe`) in the navigation cluster.
 - The Model Outline panel (`src/browser/widgets/outline-panel/`, widget ID
   `nuke-cad-outline-panel-widget`, label "Model Outline") lists the active
   model's manifest volumes and surfaces and is read-only — no manifest editing
@@ -215,9 +221,14 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   - `src/browser/widgets/cad-viewport/cad-sketch-overlay.tsx` — React UI chrome:
     sketch toolbar (including external-geometry tool), datum picker with
     sketch-on-face button, document toolbar, feature-creation dialog, constraint
-    value input, dimension labels/popover, parameters panel, external-geometry
+    value input, dimension labels/popover (labels auto-shift apart when their
+    screen projections would overlap), parameters panel, external-geometry
     reference list, diagnostics popover (with reference-resolution status), and
-    status line. The chrome builds on the shared nuke-essentials components
+    status line. The sketch toolbar is a floating draggable panel: drag by its
+    header (or the collapsed toggle), right-click/double-click for Reset
+    Position; the dragged position persists across collapse/expand. Exiting
+    sketch mode is the labeled **Finish Sketch** pill at the top-center of the
+    viewport. The chrome builds on the shared nuke-essentials components
     (`NukeToolbar`/`NukeToolbarGroup` for the icon-only document toolbar —
     grouped Document/Sketch/Additive/Boolean/Dress-up/Pattern/Hole with
     tooltips and wrapping; no duplicate overflow menu — every action stays in

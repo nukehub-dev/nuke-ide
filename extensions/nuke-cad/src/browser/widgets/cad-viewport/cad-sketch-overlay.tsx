@@ -329,6 +329,13 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
 
             {active && (
                 <>
+                    <Tooltip content="Exit sketch mode and merge the sketch into the document" position="bottom">
+                        <button className="theia-button cad-sketch-finish-button" onClick={() => void onExitSketch()}>
+                            <span className="codicon codicon-check" />
+                            Finish Sketch
+                        </button>
+                    </Tooltip>
+
                     <SketchToolbar
                         controller={controller}
                         tool={tool}
@@ -339,7 +346,6 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
                         facePickMode={facePickMode}
                         onStartExternalGeometryPick={onStartExternalGeometryPick}
                         onCancelFacePick={onCancelFacePick}
-                        onExitSketch={onExitSketch}
                     />
 
                     <div className="cad-sketch-constraint-bar">
@@ -868,15 +874,15 @@ interface SketchToolbarProps {
     readonly facePickMode?: 'sketchDatum' | 'externalGeometry';
     readonly onStartExternalGeometryPick: (featureId: string) => void;
     readonly onCancelFacePick: () => void;
-    readonly onExitSketch: () => Promise<void>;
 }
 
 function SketchToolbar(props: SketchToolbarProps): React.ReactElement {
     const [collapsed, setCollapsed] = React.useState(false);
     const [position, setPosition] = React.useState<{ top: number; left: number } | undefined>();
     const [menuOpen, setMenuOpen] = React.useState(false);
-    const headerRef = React.useRef<HTMLDivElement>(null);
+    const dragAnchorRef = React.useRef<HTMLElement | null>(null);
     const dragRef = React.useRef<{ startX: number; startY: number; baseTop: number; baseLeft: number } | undefined>(undefined);
+    const dragMovedRef = React.useRef(false);
     const {
         controller,
         tool,
@@ -886,14 +892,16 @@ function SketchToolbar(props: SketchToolbarProps): React.ReactElement {
         externalGeometryTarget,
         facePickMode,
         onStartExternalGeometryPick,
-        onCancelFacePick,
-        onExitSketch
+        onCancelFacePick
     } = props;
 
     const onWindowDragMove = React.useCallback((e: PointerEvent): void => {
         const drag = dragRef.current;
         if (drag === undefined) {
             return;
+        }
+        if (Math.abs(e.clientX - drag.startX) > 3 || Math.abs(e.clientY - drag.startY) > 3) {
+            dragMovedRef.current = true;
         }
         const maxTop = window.innerHeight - 80;
         const maxLeft = window.innerWidth - 60;
@@ -920,12 +928,12 @@ function SketchToolbar(props: SketchToolbarProps): React.ReactElement {
         if (e.button !== 0 || (e.target as HTMLElement).closest('button') !== null) {
             return;
         }
-        const header = headerRef.current;
-        const toolbar = header?.parentElement;
-        if (header === null || toolbar === undefined || toolbar === null || toolbar.offsetParent === null) {
+        const el = dragAnchorRef.current;
+        const toolbar = el?.parentElement;
+        if (el === null || toolbar === undefined || toolbar === null || toolbar.offsetParent === null) {
             return;
         }
-        const rect = header.getBoundingClientRect();
+        const rect = el.getBoundingClientRect();
         const parentRect = toolbar.offsetParent.getBoundingClientRect();
         dragRef.current = {
             startX: e.clientX,
@@ -959,18 +967,44 @@ function SketchToolbar(props: SketchToolbarProps): React.ReactElement {
 
     if (collapsed) {
         return (
-            <Tooltip content="Show Sketch Tools" position="right">
-                <button className="theia-button secondary cad-sketch-toolbar-toggle" onClick={() => setCollapsed(false)}>
-                    <span className="codicon codicon-menu" />
-                </button>
-            </Tooltip>
+            <>
+                <Tooltip content="Show Sketch Tools" position="right">
+                    <button
+                        ref={(el) => {
+                            dragAnchorRef.current = el;
+                        }}
+                        className="theia-button secondary cad-sketch-toolbar-toggle"
+                        style={position !== undefined ? { top: position.top, left: position.left } : undefined}
+                        onClick={() => {
+                            if (!dragMovedRef.current) {
+                                setCollapsed(false);
+                            }
+                            dragMovedRef.current = false;
+                        }}
+                        onPointerDown={startDrag}
+                        onDoubleClick={resetPosition}
+                        onContextMenu={openContextMenu}
+                    >
+                        <span className="codicon codicon-menu" />
+                    </button>
+                </Tooltip>
+                {menuOpen && (
+                    <div className="cad-sketch-toolbar-context-menu" onPointerDown={(e) => e.stopPropagation()}>
+                        <button className="cad-sketch-toolbar-context-item" onClick={resetPosition}>
+                            <span className="codicon codicon-discard" /> Reset Position
+                        </button>
+                    </div>
+                )}
+            </>
         );
     }
 
     return (
         <div className="cad-sketch-toolbar" style={position !== undefined ? { top: position.top, left: position.left } : undefined}>
             <div
-                ref={headerRef}
+                ref={(el) => {
+                    dragAnchorRef.current = el;
+                }}
                 className="cad-sketch-toolbar-header"
                 onPointerDown={startDrag}
                 onDoubleClick={resetPosition}
@@ -1031,11 +1065,6 @@ function SketchToolbar(props: SketchToolbarProps): React.ReactElement {
                         }}
                     >
                         <span className="codicon codicon-nuke-cad-external-ref" />
-                    </button>
-                </Tooltip>
-                <Tooltip content="Finish Sketch" position="right">
-                    <button className="theia-button secondary cad-sketch-tool-button" onClick={() => void onExitSketch()}>
-                        <span className="codicon codicon-check" />
                     </button>
                 </Tooltip>
             </div>

@@ -35,7 +35,10 @@ it opens it in the CAD viewport by default.
 - **Zoom**: mouse wheel.
 - **Navigation cluster** (bottom-right of the viewport): `ISO`, `T` (top),
   `F` (front), and `R` (right) snap to standard views; the remaining buttons
-  fit the model to the window, zoom in, and zoom out.
+  fit the model to the window, zoom in, zoom out, and toggle **wireframe**
+  shading.
+- **Axis gizmo** (top-right): mirrors the current camera orientation; click an
+  axis handle (or its opposite) to snap to that view.
 - Press `F` to fit the model in view at any time (outside text fields).
 
 Build warnings (for example, intentional cross-body overlaps in assemblies)
@@ -131,9 +134,15 @@ which constraints are conflicting or redundant.
 
 - **Pan**: middle-drag or Shift+left-drag.
 - **Zoom**: mouse wheel around the cursor.
-- **Exit**: click the **Finish Sketch** button (check icon) at the bottom of the
-  sketch toolbar or run **Exit Sketch** from the Command Palette. The sketch is
-  merged back into the document and the viewport returns to the 3D view.
+- **Exit**: click the **Finish Sketch** pill at the top-center of the viewport,
+  or run **Exit Sketch** from the Command Palette. The sketch is merged back
+  into the document and the viewport returns to the 3D view.
+
+The sketch toolbar floats and can be dragged anywhere in the canvas by its
+**SKETCH** header (the collapsed hamburger drags too). Right-click or
+double-click it and choose **Reset Position** to put it back in the corner.
+Dimension labels shift apart automatically when they would overlap; you can
+still drag individual labels to fine-tune their placement.
 
 ## Bodies
 
