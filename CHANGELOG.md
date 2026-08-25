@@ -85,6 +85,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   on the Front/Back/Top/Bottom handles). Snaps now re-pole the controls
   (top/bottom orbit map-style around Y), and the gizmo moved below the
   toolbar with proper clearance instead of touching it.
+- nuke-cad: **reopening a CAD model showed a stale "Untitled" empty state
+  instead of a loader** — a React hooks-order violation in the viewport widget
+  wiped the widget's subtree during loading transitions; hooks now run
+  unconditionally, viewport initialization survives first-paint-during-load,
+  and an in-flight tessellation read no longer clears the loading state early.
+- nuke-cad: the axis gizmo and view label no longer render in the empty
+  viewport (they were meaningless without a model).
+- nuke-cad: the floating sketch toolbar no longer covers the constraint
+  input (the constraint bar moved to top-center below the Finish Sketch
+  pill), the toolbar panel no longer keeps dead space to the right of its
+  tool column, and the Finish Sketch pill no longer jumps sideways on hover.
+- nuke-cad: opening a CAD model now reveals the Model Outline and Feature
+  Tree panels automatically (mirroring the existing close-with-viewport
+  behavior).
 - nuke-cad: **exiting a brand-new sketch silently failed** — the sketch session
   was created without the pre-registered document def, so the exit-time save
   failed datum validation (`unknown datum 'XY'`) and kept the user trapped in

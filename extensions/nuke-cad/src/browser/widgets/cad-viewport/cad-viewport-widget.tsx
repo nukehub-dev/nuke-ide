@@ -186,6 +186,8 @@ export class CadViewportWidget extends ReactWidget {
     private buildWarnings: string[] = [];
     /** Monotonically increasing token; stale tessellation loads are dropped. */
     private tessLoadToken = 0;
+    /** True between starting a tessellation load and its token-guarded completion. */
+    private tessLoadInFlight = false;
     /** Path of the tessellation currently rendered; used to skip redundant reloads. */
     private loadedTessPath?: string;
     private saveRebuildTimer?: ReturnType<typeof setTimeout>;
@@ -919,6 +921,10 @@ export class CadViewportWidget extends ReactWidget {
             this.update();
             return;
         }
+        // A saved/opened document or no document at all resets the untitled marker.
+        if (this.title.label !== CadViewportWidget.LABEL) {
+            this.title.label = CadViewportWidget.LABEL;
+        }
         this.update();
     }
 
@@ -927,16 +933,21 @@ export class CadViewportWidget extends ReactWidget {
         if (loading) {
             // Invalidate any in-flight tessellation load; a rebuild supersedes it.
             this.tessLoadToken++;
+            this.tessLoadInFlight = false;
             this.loadingMessage = message;
             this.buildError = undefined;
             this.buildWarnings = [];
         }
-        this.loading = loading;
+        // Callers clear their own spinner when the build resolves, but the
+        // viewport stays in the loading state until the requested
+        // tessellation is parsed and on screen.
+        this.loading = loading || this.tessLoadInFlight;
         this.update();
     }
 
     /** Surface a build failure as a dismissible banner inside the viewport. */
     showBuildError(message: string): void {
+        this.tessLoadInFlight = false;
         this.loading = false;
         this.buildError = message;
         this.update();
@@ -945,6 +956,7 @@ export class CadViewportWidget extends ReactWidget {
     private handleModelChange(model: CadModel | undefined): void {
         const tessPath = model?.result.tessPath;
         const token = ++this.tessLoadToken;
+        this.tessLoadInFlight = false;
         if (!tessPath) {
             this.tessData = undefined;
             this.loadedTessPath = undefined;
@@ -966,9 +978,11 @@ export class CadViewportWidget extends ReactWidget {
         this.buildError = undefined;
         this.stateManager.setSolidSummaries([]);
         this.update();
+        this.tessLoadInFlight = true;
         this.loadTessellation(tessPath, token).catch((err) => {
             console.error('[CadViewport] Failed to load tessellation:', err);
             if (token === this.tessLoadToken) {
+                this.tessLoadInFlight = false;
                 this.loading = false;
                 this.buildError = err instanceof Error ? err.message : String(err);
                 this.update();
@@ -984,6 +998,7 @@ export class CadViewportWidget extends ReactWidget {
         this.tessData = JSON.parse(content.value.toString()) as TessData;
         this.loadedTessPath = path;
         this.stateManager.setSolidSummaries(buildSolidSummaries(this.tessData.solids));
+        this.tessLoadInFlight = false;
         this.loading = false;
         this.update();
     }
@@ -1048,11 +1063,7 @@ export class CadViewportWidget extends ReactWidget {
 
         const sourceType: 'script' | 'step' = ext === '.py' ? 'script' : 'step';
 
-        this.loading = true;
-        this.loadingMessage = sourceType === 'step' ? 'Importing STEP file...' : 'Building CAD geometry...';
-        this.buildError = undefined;
-        this.buildWarnings = [];
-        this.update();
+        this.setLoading(true, sourceType === 'step' ? 'Importing STEP file...' : 'Building CAD geometry...');
 
         this.messageService.info(`Loading CAD model: ${filePath}`);
         try {
@@ -1080,16 +1091,12 @@ export class CadViewportWidget extends ReactWidget {
             this.buildError = message;
             this.messageService.error(message);
         } finally {
-            this.loading = false;
-            this.update();
+            this.setLoading(false);
         }
     }
 
     private async openDocumentModel(uri: URI, filePath: string): Promise<void> {
-        this.loading = true;
-        this.loadingMessage = 'Loading CAD document...';
-        this.buildError = undefined;
-        this.update();
+        this.setLoading(true, 'Loading CAD document...');
         try {
             const content = await this.fileService.read(uri);
             const json = JSON.parse(content.value.toString()) as unknown;
@@ -1107,8 +1114,7 @@ export class CadViewportWidget extends ReactWidget {
             this.buildError = message;
             this.messageService.error(message);
         } finally {
-            this.loading = false;
-            this.update();
+            this.setLoading(false);
         }
     }
 
@@ -1471,6 +1477,18 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
         }
     }, [props.warnings.length]);
 
+    // All hooks must run on every render: the loading branch below returns
+    // early, so nothing that calls a hook may sit after it.
+    const sketchActive = (controller?.isActive ?? false) || props.sketchSetupVisible || props.sketchEntering;
+    const hasTessellation = props.tessData !== undefined;
+
+    // Gizmo and view label are imperative overlays; they are meaningless
+    // without geometry, so stay hidden in the empty/loading/document-only
+    // states and in sketch mode, and show once a build's tessellation lands.
+    React.useEffect(() => {
+        viewportApi.current.setGizmoVisible?.(hasTessellation && !sketchActive);
+    }, [hasTessellation, sketchActive, controller]);
+
     const errorBanner = props.error ? (
         <div className="cad-viewport-error-banner">
             <span className="codicon codicon-error" />
@@ -1520,18 +1538,13 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
 
     if (props.loading && props.tessData === undefined) {
         return (
-            <div className="cad-viewport loading">
+            <div ref={containerRef} className="cad-viewport loading">
                 {banners}
                 <NukeLoadingOverlay message={props.loadingMessage} subMessage="This may take a moment for large models" />
             </div>
         );
     }
 
-    const sketchActive = (controller?.isActive ?? false) || props.sketchSetupVisible || props.sketchEntering;
-
-    React.useEffect(() => {
-        viewportApi.current.setGizmoVisible?.(!sketchActive);
-    }, [sketchActive, controller]);
     const documentEmpty = props.tessData === undefined && props.documentStore.hasDocument && !props.loading && !sketchActive;
     const noDocument = props.tessData === undefined && !props.documentStore.hasDocument && !props.loading;
     const dirtyMarker = props.dirty ? <span className="cad-viewport-dirty-marker" title="Unsaved changes" /> : null;
@@ -1982,6 +1995,8 @@ function initViewport(
     // from renderScene — no React state, so orbiting causes no re-renders.
     const gizmo = document.createElement('div');
     gizmo.className = 'cad-viewport-gizmo';
+    // Hidden until a tessellation is on screen; setGizmoVisible owns visibility.
+    gizmo.style.display = 'none';
     container.appendChild(gizmo);
     const gizmoRadius = 26;
     const gizmoAxes: Array<{ dir: THREE.Vector3; label: string }> = [
@@ -2045,6 +2060,7 @@ function initViewport(
     // updated imperatively from renderScene — never React state.
     const viewLabel = document.createElement('div');
     viewLabel.className = 'cad-viewport-view-label';
+    viewLabel.style.display = 'none';
     container.appendChild(viewLabel);
     let viewName = 'User';
     let lastViewLabelText = '';

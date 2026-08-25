@@ -107,7 +107,8 @@ free placement, and the adjacent **S/M/L** control sets the snap radius
 
 ### Constrain the sketch
 
-Use the **Constraint** dropdown in the overlay to add geometric constraints:
+Use the **Constraint** dropdown (top-center, below the Finish Sketch pill) to
+add geometric constraints:
 
 - Coincident, fix, horizontal, vertical
 - Parallel, perpendicular, tangent

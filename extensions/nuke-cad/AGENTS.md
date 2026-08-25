@@ -112,7 +112,8 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   views, fit, zoom in/out) backed by `fitView`/`zoomView`/`setStandardView` on
   the viewport API; `F` fits the view when no sketch, pick mode, or text field
   is active. Closing the viewport widget also closes the Model Outline and
-  Feature Tree panels (they have no model to show otherwise). Entering sketch
+  Feature Tree panels (they have no model to show otherwise); opening a CAD
+  model reveals them again automatically. Entering sketch
   mode on a saved sketch fits the orthographic view to the sketch's bounding
   box (`SketchModeController.fitSketchView`); fresh sketches keep the default
   view size. `sketchEntering` covers the solver-WASM load window between
@@ -122,7 +123,8 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   updated imperatively from `renderScene` — never from React state; click an
   axis to snap views — snaps needing a different up re-create the controls
   because OrbitControls freezes its orbit pole at construction, keeping mouse
-  orbit live after every snap; hidden in sketch mode via `setGizmoVisible`) and a
+  orbit live after every snap; hidden in sketch mode and whenever no model is
+  loaded via `setGizmoVisible`; the view label follows the same visibility) and a
   wireframe toggle (`setWireframe`) in the navigation cluster. Both the gizmo
   and the view-label overlay sit **below the document toolbar** (gizmo at
   top 64px, clear of the toolbar; view label at 52px) —

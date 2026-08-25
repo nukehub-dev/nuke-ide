@@ -194,8 +194,8 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 6px;
-    padding: 4px 6px;
+    gap: 4px;
+    padding: 3px 5px;
     border-bottom: 1px solid var(--theia-panel-border);
     background: var(--theia-titleBar-activeBackground);
     cursor: grab;
@@ -242,16 +242,19 @@
 }
 
 .cad-sketch-toolbar-title {
-    font-size: var(--theia-ui-font-size1);
+    font-size: var(--theia-ui-font-size0);
     font-weight: 600;
     color: var(--theia-foreground);
     text-transform: uppercase;
-    letter-spacing: 0.5px;
 }
 
+/* Wrap into columns so the body fills the header-driven panel width instead of
+   leaving a dead background column right of the tool buttons. */
 .cad-sketch-toolbar-body {
     display: flex;
-    flex-direction: column;
+    flex-flow: row wrap;
+    justify-content: center;
+    align-content: start;
     gap: 4px;
     padding: 6px;
 }
@@ -324,6 +327,19 @@
     white-space: nowrap;
 }
 
+/*
+ * The global theme lifts .theia-button with translateY on hover/active, which
+ * would replace this pill's centering translateX and make it jump sideways;
+ * keep the centering in both states.
+ */
+.cad-sketch-overlay .cad-sketch-finish-button:hover {
+    transform: translateX(-50%) translateY(-1px);
+}
+
+.cad-sketch-overlay .cad-sketch-finish-button:active {
+    transform: translateX(-50%);
+}
+
 .cad-sketch-toolbar-toggle {
     cursor: grab;
 }
@@ -385,10 +401,15 @@
     justify-content: flex-end;
 }
 
+/*
+ * Centered under the Finish Sketch pill so the default top-left spot of the
+ * floating (and draggable) sketch toolbar never covers it.
+ */
 .cad-sketch-constraint-bar {
     position: absolute;
-    top: 8px;
-    left: 56px;
+    top: 44px;
+    left: 50%;
+    transform: translateX(-50%);
     display: flex;
     align-items: center;
     gap: 8px;

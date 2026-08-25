@@ -44,6 +44,8 @@ import { NukeCadBackendService } from '../../common/nuke-cad-protocol';
 import { NukeCadStateManager } from '../state/nuke-cad-state-manager';
 import { CadDocumentStore } from '../document/cad-document-store';
 import { CadViewportWidget } from '../widgets/cad-viewport/cad-viewport-widget';
+import { CadOutlinePanelWidget } from '../widgets/outline-panel/outline-panel-widget';
+import { CadFeatureTreeWidget } from '../widgets/feature-tree/feature-tree-widget';
 
 @injectable()
 export class NukeCadOpenHandler implements OpenHandler {
@@ -98,6 +100,7 @@ export class NukeCadOpenHandler implements OpenHandler {
 
         const widget = await this.widgetManager.getOrCreateWidget<CadViewportWidget>(CadViewportWidget.ID);
         await this.shell.addWidget(widget, { area: 'main' });
+        await this.revealModelPanels();
         await this.shell.activateWidget(widget.id);
 
         if (ext === '.nuke-cad') {
@@ -127,6 +130,23 @@ export class NukeCadOpenHandler implements OpenHandler {
             this.messageService.error(message);
         } finally {
             widget.setLoading(false);
+        }
+    }
+
+    /**
+     * Mirrors the `nuke.cad.openOutlinePanel` / `nuke.cad.openFeatureTree` command
+     * handlers (right shell area). Attached panels are only revealed so no duplicate
+     * widget appears; both panels tolerate a missing model while geometry builds.
+     */
+    private async revealModelPanels(): Promise<void> {
+        for (const id of [CadOutlinePanelWidget.ID, CadFeatureTreeWidget.ID]) {
+            const panel = await this.widgetManager.getOrCreateWidget(id);
+            if (!panel.isAttached) {
+                await this.shell.addWidget(panel, { area: 'right' });
+                await this.shell.activateWidget(panel.id);
+            } else {
+                await this.shell.revealWidget(panel.id);
+            }
         }
     }
 

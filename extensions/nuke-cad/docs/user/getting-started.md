@@ -56,8 +56,10 @@ missing materials are reported as warnings.
 
 The **Model Outline** panel gives a structured tree view of the active model:
 
-- Open it with the **Open Model Outline** command, or from the Nuke Tools
-  sidebar under `CAD Studio → Geometry`. It docks in the right panel area.
+- Open it with the **Open Model Outline** command, from the Nuke Tools
+  sidebar under `CAD Studio → Geometry`, or just open a CAD model — the
+  panel (and the Feature Tree) reveal themselves automatically. It docks in
+  the right panel area.
 - Volumes are listed with their manifest name, material, and tags; surfaces
   with their name and role. Sections are collapsible and carry count badges,
   and build warnings appear in a box at the top. Models without a manifest
