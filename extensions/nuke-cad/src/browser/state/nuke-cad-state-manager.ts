@@ -46,8 +46,18 @@ export interface CadModel {
 }
 
 export interface CadSelection {
+    /**
+     * Primary (last-clicked) solid; drives the properties panel and
+     * fit-to-selection. Undefined when the selection is empty.
+     */
     readonly solidId?: number;
+    /** Precise face of the primary solid from a viewport pick, if any. */
     readonly faceId?: number;
+    /**
+     * Additional highlighted solids (Ctrl/Cmd-click multi-select in the Model
+     * Outline). Always includes ``solidId`` when present; ignored when absent.
+     */
+    readonly solidIds?: readonly number[];
 }
 
 /**
@@ -76,6 +86,8 @@ export class NukeCadStateManager {
     private _model?: CadModel;
     private _selection: CadSelection = {};
     private _solidSummaries: readonly SolidSummary[] = [];
+    /** Solids hidden by the Model Outline hide/isolate actions (viewport state). */
+    private _hiddenSolidIds: readonly number[] = [];
 
     private readonly onModelChangeEmitter = new Emitter<CadModel | undefined>();
     readonly onModelChange: Event<CadModel | undefined> = this.onModelChangeEmitter.event;
@@ -85,6 +97,9 @@ export class NukeCadStateManager {
 
     private readonly onSolidSummariesChangeEmitter = new Emitter<readonly SolidSummary[]>();
     readonly onSolidSummariesChange: Event<readonly SolidSummary[]> = this.onSolidSummariesChangeEmitter.event;
+
+    private readonly onHiddenSolidsChangeEmitter = new Emitter<readonly number[]>();
+    readonly onHiddenSolidsChange: Event<readonly number[]> = this.onHiddenSolidsChangeEmitter.event;
 
     get model(): CadModel | undefined {
         return this._model;
@@ -96,6 +111,9 @@ export class NukeCadStateManager {
 
     setModel(model: CadModel | undefined): void {
         this._model = model;
+        // Solid indices are positional and can shuffle between builds; stale
+        // hide state would silently mask the wrong geometry.
+        this._hiddenSolidIds = [];
         this.onModelChangeEmitter.fire(model);
     }
 
@@ -116,5 +134,19 @@ export class NukeCadStateManager {
     setSolidSummaries(summaries: readonly SolidSummary[]): void {
         this._solidSummaries = summaries;
         this.onSolidSummariesChangeEmitter.fire(summaries);
+    }
+
+    get hiddenSolidIds(): readonly number[] {
+        return this._hiddenSolidIds;
+    }
+
+    isSolidHidden(solidId: number): boolean {
+        return this._hiddenSolidIds.includes(solidId);
+    }
+
+    /** Replace the hidden-solids set (viewport applies it on change). */
+    setHiddenSolidIds(ids: readonly number[]): void {
+        this._hiddenSolidIds = ids;
+        this.onHiddenSolidsChangeEmitter.fire(ids);
     }
 }

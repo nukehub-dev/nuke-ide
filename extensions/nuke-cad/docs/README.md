@@ -25,7 +25,7 @@ build123d/CadQuery         GUI sketcher + feature tree
 
 - Geometry service: script execution, STEP export, viewport tessellation stream, region manifest validation.
 - GUI modeler: `.nuke-cad` parametric documents with sketcher, constraints, dimensions, feature tree, and document-level parameters.
-- Model Outline panel: read-only tree of manifest volumes/surfaces with two-way viewport picking sync.
+- Model Outline panel: read-only tree of manifest volumes/surfaces with two-way viewport picking sync, Ctrl/Cmd multi-select, hide/isolate actions, and one-click fuse fixes for cross-body overlap warnings.
 - DAGMC export: gmsh OCC imprint/merge, named material groups, auto-graveyard.
 - FEM meshing: gmsh HXT volume meshing (or the optional netgen engine), ExodusII/CalculiX/VTK export, mesh quality report.
 - FEM analysis (CalculiX): input-deck writer, boundary-condition/material UI, `ccx` runner with timeout and Stop/cancel, FRD-to-VTK conversion.

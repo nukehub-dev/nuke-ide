@@ -55,7 +55,7 @@ Parametric CAD / meshing / FEM extension with two authoring modes.
 - Script mode: author geometry with build123d or CadQuery (Python scripts) or open existing STEP/STP/BREP files
 - GUI document mode: `.nuke-cad` parametric documents with a sketcher, constraints, dimensions, feature tree, and document-level parameters
 - Live three.js viewport with face/solid picking and an **Open CAD Model...** button
-- Model Outline panel: manifest volume/surface tree with two-way viewport picking sync
+- Model Outline panel: manifest volume/surface tree with two-way viewport picking sync, multi-select, hide/isolate, and overlap-warning fuse fixes
 - Feature Tree panel for `.nuke-cad` documents: datums, sketches, features, suppression, and build-status markers
 - Canonical STEP export and JSON region manifest
 - DAGMC export with gmsh OCC imprint/merge and named `mat:<name>` groups

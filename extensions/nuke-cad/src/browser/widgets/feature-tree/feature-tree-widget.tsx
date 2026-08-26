@@ -45,6 +45,7 @@ import { CommandService } from '@theia/core/lib/common/command';
 import { ConfirmDialog } from '@theia/core/lib/browser/dialogs';
 import { NukeCadCommands } from '../../commands';
 import { CadDocumentStore } from '../../document/cad-document-store';
+import { NukeCadStateManager } from '../../state/nuke-cad-state-manager';
 import { type NukeCadDocument, type BodyDef, type FeatureDef, type SketchDef, type DatumPlane } from '../../../common/cad-document';
 import { type FeatureResult } from '../../../common/nuke-cad-protocol';
 import { type DocumentSelection } from '../../document/cad-document-store';
@@ -81,6 +82,9 @@ export class CadFeatureTreeWidget extends ReactWidget {
     @inject(CadDocumentStore)
     protected readonly documentStore: CadDocumentStore;
 
+    @inject(NukeCadStateManager)
+    protected readonly stateManager: NukeCadStateManager;
+
     @postConstruct()
     protected init(): void {
         this.id = CadFeatureTreeWidget.ID;
@@ -92,6 +96,22 @@ export class CadFeatureTreeWidget extends ReactWidget {
         this.update();
     }
 
+    /**
+     * Highlight a body's solids in the viewport (shared state manager), so
+     * clicking a body or feature row shows which geometry it owns. A no-op
+     * while the body has no tessellated solids (nothing built yet).
+     */
+    protected highlightBodyInViewport(bodyId: string | undefined): void {
+        if (bodyId === undefined) {
+            return;
+        }
+        const solidIds = this.stateManager.solidSummaries.filter((s) => s.bodyId === bodyId).map((s) => s.solidId);
+        if (solidIds.length === 0) {
+            return;
+        }
+        this.stateManager.setSelection({ solidId: solidIds[0], solidIds });
+    }
+
     protected render(): React.ReactNode {
         return (
             <CadFeatureTreeComponent
@@ -100,8 +120,14 @@ export class CadFeatureTreeWidget extends ReactWidget {
                 featureResults={this.documentStore.featureResults}
                 referenceResults={this.documentStore.getReferenceResults()}
                 onSelectSketch={(id) => this.documentStore.selectSketch(id)}
-                onSelectFeature={(id) => this.documentStore.selectFeature(id)}
-                onSelectBody={(id) => this.documentStore.selectBody(id)}
+                onSelectFeature={(id) => {
+                    this.documentStore.selectFeature(id);
+                    this.highlightBodyInViewport(this.documentStore.document?.features.find((f) => f.id === id)?.body);
+                }}
+                onSelectBody={(id) => {
+                    this.documentStore.selectBody(id);
+                    this.highlightBodyInViewport(id);
+                }}
                 onToggleSuppressed={(id, value) => this.handleToggleSuppressed(id, value)}
                 onDeleteFeature={(id) => void this.handleDeleteFeature(id)}
                 onRenameFeature={(id, name) => this.handleRenameFeature(id, name)}

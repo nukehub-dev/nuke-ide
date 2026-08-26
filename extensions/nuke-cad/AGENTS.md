@@ -95,7 +95,10 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   `geometry_service.build_document` forwards the builder's `warnings` and
   `consumedBodies` to the RPC response (`GeometryBuildResult.warnings` /
   `consumedBodies`), and the viewport surfaces the warnings in a dismissible
-  strip in the viewport chrome.
+  strip in the viewport chrome. For document models the Model Outline's
+  warnings box offers a one-click **Fuse** auto-fix per overlap warning
+  (appends a `booleanFuse` merging the pair, then rebuilds); assemblies that
+  overlap intentionally can simply keep the warnings.
 - Pad/pocket `upToFace`, `upToBody`, and `angle` parameters are
   schema-accepted and validated (so badges and repair paths work), but the
   builder does not implement them: it fails the feature with an explicit
@@ -153,17 +156,33 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   points in 3D, snap-aware sketch-plane points in sketch mode — rendered as
   overlay lines/spheres with imperative HTML labels projected in
   `renderScene`; measurements are viewport state (never document state) and
-  clear on rebuild or sketch exit. `fitView` frames
-  the selected solid when `currentSelection.solidId` is set; `.` and
-  double-click-on-solid also fit the selection; `Tab` toggles sketch mode
-  (`handleToggleSketchMode`, guarded against pick modes, dialogs, and text
-  fields).
+   clear on rebuild or sketch exit. `fitView` frames
+   the selected solid when `currentSelection.solidId` is set; `.` and
+   double-click-on-solid also fit the selection; `Tab` toggles sketch mode
+   (`handleToggleSketchMode`, guarded against pick modes, dialogs, and text
+   fields). Selection highlighting is multi-solid aware:
+   `CadSelection.solidIds` (Ctrl/Cmd multi-select in the Model Outline, or a
+   Feature Tree body/feature click mapping to all of the body's solids)
+   highlights every solid in the set; `solidId` stays the primary (properties
+   panel, fit-to-selection). The Model Outline's hide/isolate actions publish
+   a hidden-solids set through `NukeCadStateManager.setHiddenSolidIds` —
+   viewport state, never document state; the viewport applies it in
+   `applyShading` (face meshes and edge lines) and excludes hidden solids from
+   every picking path (`pickableMeshes()` / `pickableEdgeLines()`; three.js
+   never renders invisible objects but its raycaster still hits them, so the
+   pick pool filters explicitly). The set clears on `setModel` because solid
+   indices are positional and can shuffle between builds.
 - The Model Outline panel (`src/browser/widgets/outline-panel/`, widget ID
   `nuke-cad-outline-panel-widget`, label "Model Outline") lists the active
   model's manifest volumes and surfaces and is read-only — no manifest editing
   UI. Picking syncs both ways through the shared `NukeCadStateManager`: row
-  click highlights the whole solid in the viewport; a viewport pick selects the
-  row, scrolls it into view, and expands its section. Opened via the
+  click highlights the whole solid in the viewport (Ctrl/Cmd-click toggles it
+  in a multi-selection, pure helpers in `outline-interactions.ts`); a viewport
+  pick selects the row, scrolls it into view, and expands its section. Each
+  mapped row has hover actions to **Hide** (toggle its solids) or **Isolate**
+  (hide all other mapped solids); a **Show all** button appears in the header
+  while solids are hidden, and hidden rows render dimmed with an eye-closed
+  marker. Opened via the
   `nuke.cad.openOutlinePanel` command (right shell area) or the Nuke Tools
   sidebar (`CAD Studio → Geometry`). The panel also renders, from the shared
   per-solid summaries (`SolidSummary` published to `NukeCadStateManager`
@@ -171,8 +190,15 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   **Properties** section for the selected solid (volume, area, bbox size,
   center of mass, face/edge/triangle counts in model units, with a pin
   toggle) and a **Table view** toggle (sortable Solid/Body label/Volume/Area/
-  Faces/Tris columns driving the same selection sync). Missing data renders
-  as em-dashes so payloads from older builds stay readable.
+  Faces/Tris columns driving the same selection sync, Ctrl/Cmd-click
+  multi-select included). Missing data renders
+  as em-dashes so payloads from older builds stay readable. The panel's
+  **Build warnings** box parses cross-body overlap warnings
+  (`parseOverlapWarning`) and, when the model was built from an open
+  `.nuke-cad` document containing both bodies, renders a **Fuse** button per
+  warning that appends a `booleanFuse` feature (`buildFuseFeature`: target
+  tip + tool tip as `dependsOn`, `keepTools: false`) and triggers a rebuild —
+  script/STEP models have no document to fix and get no button.
 - The geometry service attaches optional per-solid inspection properties to
   every tessellation solid entry — `volume`, `area`, `bbox.min/max`, and
   `centerOfMass` — computed via OCP `GProp_GProps` + `BRepBndLib` in
@@ -418,7 +444,11 @@ Esc: clear` while the Select tool is active and no constraint pick is in
     `nuke-cad-feature-tree-widget`, label "Feature Tree") lists bodies, datums,
     sketches, and features in document order with selection, suppression toggle,
     edit, delete, build-status markers, and lightweight reference-resolution
-    badges (`ambiguous`/`unmatched`) from the last rebuild. Boolean features show
+    badges (`ambiguous`/`unmatched`) from the last rebuild. Clicking a body or
+    feature row also highlights the body's tessellated solids in the viewport
+    (via `NukeCadStateManager`, mapping `bodyId` through the shared
+    `SolidSummary` list); a no-op while the body has no built solids. Boolean
+    features show
     their target body and tool bodies inline. The panel supports inline rename
     for bodies and features, up/down reorder with dependency-precedence
     validation, and a cascade-delete policy that prompts when deleting a feature

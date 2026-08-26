@@ -53,6 +53,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- nuke-cad: **Model Outline interactivity round** — `Ctrl`/`Cmd`-click rows
+  (list and table view) to build a multi-selection; every selected solid
+  highlights in the viewport while the last-clicked one drives the Properties
+  panel and fit-to-selection. Hover actions on each volume row **Hide** its
+  solids or **Isolate** it (hide all others), hidden rows render dimmed with
+  an eye-closed marker, and a **Show all** button appears in the header while
+  anything is hidden (hiding is viewport-only and resets when another model
+  loads). Cross-body overlap warnings in the Build warnings box now carry a
+  one-click **Fuse** fix for document models: it appends a `booleanFuse`
+  feature merging the offending pair and rebuilds, clearing the warning.
+  Feature Tree body/feature rows also highlight the body's solids in the
+  viewport.
 - nuke-cad: **viewport shading menu** — the wireframe toggle becomes a popover
   with four mutually exclusive modes (**Shaded**, **Shaded + Wireframe**,
   **Edges only**, **X-ray**) plus a **Ghost opacity** slider (15–60%) for

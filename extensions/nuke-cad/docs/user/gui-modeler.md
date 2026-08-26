@@ -65,7 +65,9 @@ it opens it in the CAD viewport by default.
 
 Build warnings (for example, intentional cross-body overlaps in assemblies)
 appear as a compact collapsible strip at the top of the viewport: click the
-warning count to expand the full list.
+warning count to expand the full list. The Model Outline's warnings box adds a
+one-click **Fuse** fix for overlap warnings in document mode — see
+*Getting started → Model Outline panel*.
 
 ## Sketch mode walkthrough
 
@@ -355,14 +357,15 @@ edits that reshape the body as long as the resolver can still identify the face.
 
 The **Feature Tree** panel shows four sections:
 
-- **Bodies** — one row per body; click to select, double-click the name (or
-  click the edit button) to rename. New bodies are added from the document
-  toolbar.
+- **Bodies** — one row per body; click to select (the body's solids highlight
+  in the viewport), double-click the name (or click the edit button) to
+  rename. New bodies are added from the document toolbar.
 - **Datums** — XY, YZ, XZ, and any offset or face datum planes.
 - **Sketches** — one row per sketch; click to select, click the edit button to
   re-enter sketch mode.
 - **Features** — one row per feature in build order, showing its target body and
-  (for booleans) the target/tool bodies. Status markers from the last rebuild
+  (for booleans) the target/tool bodies. Clicking a feature highlights its
+  body's solids in the viewport. Status markers from the last rebuild
   (`built`, `stale`, or `failed`) and reference-resolution badges when
   topological references are ambiguous or unmatched. Each row has actions for
   suppress, move up/down, edit parameters, and delete; boolean features cannot

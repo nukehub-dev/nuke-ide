@@ -43,12 +43,16 @@ import * as React from '@theia/core/shared/react';
 import { injectable, inject, postConstruct } from '@theia/core/shared/inversify';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { MessageService } from '@theia/core/lib/common/message-service';
+import { CommandService } from '@theia/core/lib/common/command';
 import { OpenerService } from '@theia/core/lib/browser/opener-service';
 import { FileService } from '@theia/filesystem/lib/browser/file-service';
 import { URI } from '@theia/core/lib/common/uri';
 
 import { RegionManifestData } from '../../../common/nuke-cad-protocol';
+import { type NukeCadDocument } from '../../../common/cad-document';
 import { NukeCadStateManager, CadModel, CadSelection, SolidSummary } from '../../state/nuke-cad-state-manager';
+import { CadDocumentStore, createFeatureId } from '../../document/cad-document-store';
+import { NukeCadCommands } from '../../commands';
 import {
     bboxSize,
     compareSolidRows,
@@ -59,6 +63,7 @@ import {
     SolidSortKey,
     SolidTableRow
 } from './solid-summaries';
+import { buildFuseFeature, parseOverlapWarning, selectionSolidIds, toggleSolidSelection } from './outline-interactions';
 import { Tooltip, useTooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
 import './outline-panel.css';
 
@@ -79,8 +84,15 @@ export class CadOutlinePanelWidget extends ReactWidget {
     @inject(FileService)
     protected readonly fileService: FileService;
 
+    @inject(CadDocumentStore)
+    protected readonly documentStore: CadDocumentStore;
+
+    @inject(CommandService)
+    protected readonly commandService: CommandService;
+
     private selection: CadSelection = {};
     private summaries: readonly SolidSummary[] = [];
+    private hiddenSolidIds: readonly number[] = [];
     private manifestExists = false;
     /** Monotonically increasing token; stale manifest-existence probes are dropped. */
     private manifestCheckToken = 0;
@@ -94,6 +106,7 @@ export class CadOutlinePanelWidget extends ReactWidget {
 
         this.selection = this.stateManager.selection;
         this.summaries = this.stateManager.solidSummaries;
+        this.hiddenSolidIds = this.stateManager.hiddenSolidIds;
         this.toDispose.push(this.stateManager.onModelChange(() => this.handleModelChange()));
         this.toDispose.push(
             this.stateManager.onSelectionChange((selection) => {
@@ -104,6 +117,12 @@ export class CadOutlinePanelWidget extends ReactWidget {
         this.toDispose.push(
             this.stateManager.onSolidSummariesChange((summaries) => {
                 this.summaries = summaries;
+                this.update();
+            })
+        );
+        this.toDispose.push(
+            this.stateManager.onHiddenSolidsChange((ids) => {
+                this.hiddenSolidIds = ids;
                 this.update();
             })
         );
@@ -164,15 +183,50 @@ export class CadOutlinePanelWidget extends ReactWidget {
         }
     }
 
+    /**
+     * Row/pick selection sync. A plain click selects one solid; Ctrl/Cmd-click
+     * adds to (or removes from) the multi-selection.
+     */
+    private handleSelect(solidId: number, additive: boolean): void {
+        this.selection = additive ? toggleSolidSelection(this.stateManager.selection, solidId, true) : { solidId };
+        this.stateManager.setSelection(this.selection);
+    }
+
+    /**
+     * Auto-fix one cross-body overlap warning: append a ``booleanFuse`` feature
+     * merging ``bodyB`` into ``bodyA`` and rebuild the document.
+     */
+    protected async handleFuseBodies(bodyA: string, bodyB: string): Promise<void> {
+        const doc = this.documentStore.document;
+        if (doc === undefined) {
+            return;
+        }
+        const feature = buildFuseFeature(doc, bodyA, bodyB, createFeatureId());
+        if (feature === undefined) {
+            this.messageService.error(`Cannot fuse '${bodyA}' and '${bodyB}': not both bodies of the open document.`);
+            return;
+        }
+        const result = this.documentStore.addFeature(feature);
+        if (!result.success) {
+            this.messageService.error(result.error || 'Failed to add fuse feature.');
+            return;
+        }
+        await this.commandService.executeCommand(NukeCadCommands.REBUILD_GEOMETRY.id);
+    }
+
     protected render(): React.ReactNode {
         return (
             <CadOutlinePanelComponent
                 model={this.stateManager.model}
                 selection={this.selection}
                 summaries={this.summaries}
+                hiddenSolidIds={this.hiddenSolidIds}
+                document={this.documentStore.document}
                 manifestExists={this.manifestExists}
                 manifestFileName={this.manifestFileName}
-                onSelect={(solidId) => this.stateManager.setSelection({ solidId })}
+                onSelect={(solidId, additive) => this.handleSelect(solidId, additive)}
+                onSetHiddenSolids={(ids) => this.stateManager.setHiddenSolidIds(ids)}
+                onFuseBodies={(bodyA, bodyB) => void this.handleFuseBodies(bodyA, bodyB)}
                 onOpenManifest={() => this.openManifest()}
             />
         );
@@ -251,9 +305,14 @@ interface CadOutlinePanelComponentProps {
     readonly model?: CadModel;
     readonly selection: CadSelection;
     readonly summaries: readonly SolidSummary[];
+    readonly hiddenSolidIds: readonly number[];
+    /** Open `.nuke-cad` document, when the model was built from one (enables the fuse auto-fix). */
+    readonly document?: NukeCadDocument;
     readonly manifestExists: boolean;
     readonly manifestFileName: string;
-    readonly onSelect: (solidId: number) => void;
+    readonly onSelect: (solidId: number, additive: boolean) => void;
+    readonly onSetHiddenSolids: (ids: readonly number[]) => void;
+    readonly onFuseBodies: (bodyA: string, bodyB: string) => void;
     readonly onOpenManifest: () => void;
 }
 
@@ -318,6 +377,42 @@ function CadOutlinePanelComponent(props: CadOutlinePanelComponentProps): React.R
 
     const scriptName = model?.scriptPath.split(/[\\/]/).pop();
     const warnings = model?.result.warnings ?? [];
+    const hiddenIds = props.hiddenSolidIds;
+
+    /** Every solid id the rows map to; the pool the isolate action hides from. */
+    const allMappedSolidIds = React.useMemo(() => {
+        const ids = new Set<number>();
+        for (const row of [...volumeRows, ...surfaceRows]) {
+            for (const solidIndex of row.solidIndices) {
+                ids.add(solidIndex);
+            }
+        }
+        return [...ids];
+    }, [volumeRows, surfaceRows]);
+
+    const setRowHidden = (row: OutlineRowData, hidden: boolean): void => {
+        const hiddenSet = new Set(hiddenIds);
+        for (const solidIndex of row.solidIndices) {
+            if (hidden) {
+                hiddenSet.add(solidIndex);
+            } else {
+                hiddenSet.delete(solidIndex);
+            }
+        }
+        props.onSetHiddenSolids([...hiddenSet]);
+    };
+
+    const isolateRow = (row: OutlineRowData): void => {
+        const keep = new Set(row.solidIndices);
+        props.onSetHiddenSolids(allMappedSolidIds.filter((id) => !keep.has(id)));
+    };
+
+    const showAllSolids = (): void => {
+        props.onSetHiddenSolids([]);
+    };
+
+    const isRowHidden = (row: OutlineRowData): boolean =>
+        row.solidIndices.length > 0 && row.solidIndices.every((id) => hiddenIds.includes(id));
 
     return (
         <div className="cad-outline-panel">
@@ -331,6 +426,13 @@ function CadOutlinePanelComponent(props: CadOutlinePanelComponentProps): React.R
                 </div>
                 {model && (
                     <div className="header-actions">
+                        {hiddenIds.length > 0 && (
+                            <Tooltip content={`Show all solids (${hiddenIds.length} hidden)`} position="left">
+                                <button className="theia-button secondary view-toggle-button" onClick={showAllSolids}>
+                                    <i className="codicon codicon-eye" />
+                                </button>
+                            </Tooltip>
+                        )}
                         <Tooltip content={viewMode === 'list' ? 'Show as spreadsheet table' : 'Show as list'} position="left">
                             <button
                                 className="theia-button secondary view-toggle-button"
@@ -375,9 +477,32 @@ function CadOutlinePanelComponent(props: CadOutlinePanelComponentProps): React.R
                             <i className="codicon codicon-warning" />
                             <div className="warning-content">
                                 <strong>Build warnings</strong>
-                                {warnings.map((warning, index) => (
-                                    <p key={index}>{warning}</p>
-                                ))}
+                                {warnings.map((warning, index) => {
+                                    const pair = parseOverlapWarning(warning);
+                                    const fixable =
+                                        pair !== undefined &&
+                                        props.document !== undefined &&
+                                        buildFuseFeature(props.document, pair.bodyA, pair.bodyB, 'outline-fuse-probe') !== undefined;
+                                    return (
+                                        <p key={index} className="warning-line">
+                                            <span>{warning}</span>
+                                            {fixable && pair !== undefined && (
+                                                <Tooltip
+                                                    content={`Add a booleanFuse feature merging '${pair.bodyB}' into '${pair.bodyA}' and rebuild`}
+                                                    position="left"
+                                                >
+                                                    <button
+                                                        className="theia-button secondary warning-fix-button"
+                                                        onClick={() => props.onFuseBodies(pair.bodyA, pair.bodyB)}
+                                                    >
+                                                        <i className="codicon codicon-nuke-cad-boolean-fuse" />
+                                                        Fuse
+                                                    </button>
+                                                </Tooltip>
+                                            )}
+                                        </p>
+                                    );
+                                })}
                             </div>
                         </div>
                     )}
@@ -404,9 +529,12 @@ function CadOutlinePanelComponent(props: CadOutlinePanelComponentProps): React.R
                                     <OutlineRow
                                         key={row.key}
                                         row={row}
-                                        selected={selectedSolid !== undefined && row.solidIndices.includes(selectedSolid)}
+                                        selected={selectionSolidIds(props.selection).some((id) => row.solidIndices.includes(id))}
+                                        hidden={isRowHidden(row)}
                                         icon="codicon-nuke-cad-cube"
                                         onSelect={props.onSelect}
+                                        onToggleHidden={() => setRowHidden(row, !isRowHidden(row))}
+                                        onIsolate={() => isolateRow(row)}
                                     />
                                 ))}
                             </OutlineSection>
@@ -422,9 +550,12 @@ function CadOutlinePanelComponent(props: CadOutlinePanelComponentProps): React.R
                                         <OutlineRow
                                             key={row.key}
                                             row={row}
-                                            selected={selectedSolid !== undefined && row.solidIndices.includes(selectedSolid)}
+                                            selected={selectionSolidIds(props.selection).some((id) => row.solidIndices.includes(id))}
+                                            hidden={isRowHidden(row)}
                                             icon="codicon-nuke-cad-datum"
                                             onSelect={props.onSelect}
+                                            onToggleHidden={() => setRowHidden(row, !isRowHidden(row))}
+                                            onIsolate={() => isolateRow(row)}
                                         />
                                     ))}
                                 </OutlineSection>
@@ -435,7 +566,7 @@ function CadOutlinePanelComponent(props: CadOutlinePanelComponentProps): React.R
                             rows={tableRows}
                             sort={sort}
                             onSort={handleSort}
-                            selectedSolid={selectedSolid}
+                            selectedSolids={selectionSolidIds(props.selection)}
                             onSelect={props.onSelect}
                         />
                     )}
@@ -516,8 +647,8 @@ interface SolidTableProps {
     readonly rows: readonly SolidTableRow[];
     readonly sort: { readonly key: SolidSortKey; readonly descending: boolean };
     readonly onSort: (key: SolidSortKey) => void;
-    readonly selectedSolid?: number;
-    readonly onSelect: (solidId: number) => void;
+    readonly selectedSolids: readonly number[];
+    readonly onSelect: (solidId: number, additive: boolean) => void;
 }
 
 function SolidTable(props: SolidTableProps): React.ReactElement {
@@ -536,8 +667,8 @@ function SolidTable(props: SolidTableProps): React.ReactElement {
             {props.rows.map((row) => (
                 <div
                     key={row.solidId}
-                    className={`outline-table-tr${props.selectedSolid === row.solidId ? ' selected' : ''}`}
-                    onClick={() => props.onSelect(row.solidId)}
+                    className={`outline-table-tr${props.selectedSolids.includes(row.solidId) ? ' selected' : ''}`}
+                    onClick={(e) => props.onSelect(row.solidId, e.ctrlKey || e.metaKey)}
                 >
                     <span className="outline-table-cell num">{row.solidId}</span>
                     <span className="outline-table-cell label" title={row.label}>
@@ -578,8 +709,11 @@ function OutlineSection(props: OutlineSectionProps): React.ReactElement {
 interface OutlineRowProps {
     readonly row: OutlineRowData;
     readonly selected: boolean;
+    readonly hidden: boolean;
     readonly icon: string;
-    readonly onSelect: (solidId: number) => void;
+    readonly onSelect: (solidId: number, additive: boolean) => void;
+    readonly onToggleHidden: () => void;
+    readonly onIsolate: () => void;
 }
 
 function OutlineRow(props: OutlineRowProps): React.ReactElement {
@@ -593,15 +727,19 @@ function OutlineRow(props: OutlineRowProps): React.ReactElement {
         }
     }, [props.selected]);
 
-    const className = `outline-row${props.selected ? ' selected' : ''}${mapped ? '' : ' unmapped'}`;
+    const className = `outline-row${props.selected ? ' selected' : ''}${props.hidden ? ' hidden' : ''}${mapped ? '' : ' unmapped'}`;
     const tooltipText = mapped
-        ? `Solid${props.row.solidIndices.length > 1 ? 's' : ''} ${props.row.solidIndices.join(', ')}`
+        ? `Solid${props.row.solidIndices.length > 1 ? 's' : ''} ${props.row.solidIndices.join(', ')} — click to select, Ctrl/Cmd-click to multi-select`
         : 'Selector not found in the built model';
     const tooltip = useTooltip(tooltipText, 'top');
 
     return (
         <>
-            <div ref={ref} className={className} onClick={mapped ? () => props.onSelect(props.row.solidIndices[0]) : undefined}>
+            <div
+                ref={ref}
+                className={className}
+                onClick={mapped ? (e) => props.onSelect(props.row.solidIndices[0], e.ctrlKey || e.metaKey) : undefined}
+            >
                 <span className="outline-row-label">
                     <i className={`codicon ${props.icon} outline-row-icon`} />
                     <span className="outline-row-label-text" onMouseEnter={tooltip.onMouseEnter} onMouseLeave={tooltip.onMouseLeave}>
@@ -614,6 +752,33 @@ function OutlineRow(props: OutlineRowProps): React.ReactElement {
                     </span>
                 ))}
                 {props.row.detail && <span className="outline-row-detail">{props.row.detail}</span>}
+                {props.hidden && <span className="codicon codicon-eye-closed outline-row-hidden-indicator" />}
+                {mapped && (
+                    <span className="outline-row-actions">
+                        <Tooltip content={props.hidden ? 'Show' : 'Hide'} position="left">
+                            <button
+                                className="theia-button secondary outline-row-action"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    props.onToggleHidden();
+                                }}
+                            >
+                                <span className={`codicon codicon-${props.hidden ? 'eye' : 'eye-closed'}`} />
+                            </button>
+                        </Tooltip>
+                        <Tooltip content="Hide others (isolate)" position="left">
+                            <button
+                                className="theia-button secondary outline-row-action"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    props.onIsolate();
+                                }}
+                            >
+                                <span className="codicon codicon-filter" />
+                            </button>
+                        </Tooltip>
+                    </span>
+                )}
                 {!mapped && <span className="codicon codicon-warning outline-row-warning" />}
             </div>
             {tooltip.tooltipElement}

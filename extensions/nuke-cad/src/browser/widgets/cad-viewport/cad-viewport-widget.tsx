@@ -250,6 +250,11 @@ export class CadViewportWidget extends ReactWidget {
         return this.stateManager.onSelectionChange(listener);
     };
 
+    protected readonly subscribeHiddenSolids = (listener: (ids: readonly number[]) => void): Disposable => {
+        listener(this.stateManager.hiddenSolidIds);
+        return this.stateManager.onHiddenSolidsChange(listener);
+    };
+
     protected readonly subscribeThemeChange = (listener: () => void): Disposable => this.themeService.onDidColorThemeChange(listener);
 
     protected readonly dismissBuildError = (): void => {
@@ -1152,6 +1157,7 @@ export class CadViewportWidget extends ReactWidget {
                 onDismissWarnings={this.dismissBuildWarnings}
                 onSelect={this.handleViewportSelect}
                 subscribeSelection={this.subscribeSelection}
+                subscribeHiddenSolids={this.subscribeHiddenSolids}
                 subscribeThemeChange={this.subscribeThemeChange}
                 onOpenModel={() => this.openModel()}
                 onNewDocument={this.handleNewDocument}
@@ -1216,6 +1222,7 @@ interface CadViewportComponentProps {
     readonly onDismissWarnings: () => void;
     readonly onSelect: (selection: CadSelection) => void;
     readonly subscribeSelection: (listener: (selection: CadSelection) => void) => Disposable;
+    readonly subscribeHiddenSolids: (listener: (ids: readonly number[]) => void) => Disposable;
     readonly subscribeThemeChange: (listener: () => void) => Disposable;
     readonly onOpenModel: () => void;
     readonly onNewDocument: () => void;
@@ -1391,6 +1398,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                 props.documentStore,
                 props.onSelect,
                 props.subscribeSelection,
+                props.subscribeHiddenSolids,
                 props.subscribeThemeChange,
                 props.onControllerReady,
                 props.onFacePick,
@@ -1918,6 +1926,7 @@ function initViewport(
     documentStore: CadDocumentStore,
     onSelect: (selection: CadSelection) => void,
     subscribeSelection: (listener: (selection: CadSelection) => void) => Disposable,
+    subscribeHiddenSolids: (listener: (ids: readonly number[]) => void) => Disposable,
     subscribeThemeChange: (listener: () => void) => Disposable,
     onControllerReady: (controller: SketchModeController, camera: THREE.PerspectiveCamera) => void,
     onFacePick: (hit: FacePickHit) => void,
@@ -1981,6 +1990,9 @@ function initViewport(
     let meshes: THREE.Mesh[] = [];
     let edgeLines: THREE.Line[] = [];
     let currentSelection: CadSelection = {};
+    // Solids hidden through the Model Outline hide/isolate actions; cleared on
+    // every new model (solid indices are positional and can shuffle).
+    let hiddenSolidIds = new Set<number>();
     let activeFacePickMode: 'sketchDatum' | 'externalGeometry' | undefined;
     let activeDressUpPickMode: { type: FeatureType; selecting: 'edge' | 'face' } | undefined;
     let activeHolePickMode = initialHolePickMode;
@@ -2303,13 +2315,13 @@ function initViewport(
     onControllerReady(controller, camera);
 
     const applyHighlight = (): void => {
+        const highlightIds = currentSelection.solidIds ?? (currentSelection.solidId !== undefined ? [currentSelection.solidId] : []);
         for (const mesh of meshes) {
             const data = mesh.userData;
             // A selection with only a solidId (outline-panel row click) highlights
             // every face of the solid; a viewport pick stays face-precise.
             const isSelected =
-                currentSelection.solidId !== undefined &&
-                data.solidId === currentSelection.solidId &&
+                highlightIds.includes(data.solidId as number) &&
                 (currentSelection.faceId === undefined || data.faceId === currentSelection.faceId);
             (mesh.material as THREE.MeshStandardMaterial).color.copy(isSelected ? selectedColor : baseColor);
         }
@@ -2330,7 +2342,7 @@ function initViewport(
         const clippingPlanes = computeSectionPlanes();
         for (const mesh of meshes) {
             const flags = meshShadingFlags(shading, ghostOpacity);
-            mesh.visible = flags.faceVisible;
+            mesh.visible = flags.faceVisible && !hiddenSolidIds.has(mesh.userData.solidId as number);
             const material = mesh.material as THREE.MeshStandardMaterial;
             material.wireframe = flags.wireframe;
             material.transparent = flags.transparent;
@@ -2340,12 +2352,22 @@ function initViewport(
             material.needsUpdate = true;
         }
         for (const line of edgeLines) {
+            line.visible = !hiddenSolidIds.has(line.userData.solidId as number);
             const lineMaterial = line.material as THREE.LineBasicMaterial;
             lineMaterial.clippingPlanes = clippingPlanes;
             lineMaterial.needsUpdate = true;
         }
         applyHighlight();
     };
+
+    /**
+     * Raycast targets that respect the current shading mode and the hidden
+     * solids set: three.js renders invisible objects never, but its raycaster
+     * still hits them, so picking must filter explicitly.
+     */
+    const pickableMeshes = (): THREE.Mesh[] =>
+        shading === 'edgesOnly' ? [] : meshes.filter((mesh) => !hiddenSolidIds.has(mesh.userData.solidId as number));
+    const pickableEdgeLines = (): THREE.Line[] => edgeLines.filter((line) => !hiddenSolidIds.has(line.userData.solidId as number));
 
     const buildModel = (data?: TessData): void => {
         currentTessData = data;
@@ -2598,7 +2620,7 @@ function initViewport(
             }
             const rect = renderer.domElement.getBoundingClientRect();
             const ndc = pointerToNdc(event.clientX, event.clientY, rect);
-            const hit = raycastFace(meshes, raycaster, ndc, camera);
+            const hit = raycastFace(pickableMeshes(), raycaster, ndc, camera);
             if (hit !== undefined && hit.point !== undefined) {
                 measureHover = undefined;
                 onMeasurePoint([hit.point.x, hit.point.y, hit.point.z]);
@@ -2610,14 +2632,14 @@ function initViewport(
         const ndc = pointerToNdc(event.clientX, event.clientY, rect);
         if (activeDressUpPickMode !== undefined) {
             if (activeDressUpPickMode.selecting === 'edge') {
-                const hit = raycastEdge(edgeLines, raycaster, ndc, camera);
+                const hit = raycastEdge(pickableEdgeLines(), raycaster, ndc, camera);
                 if (hit !== undefined) {
                     edgeHighlighter.clear();
                     onEdgePick(hit);
                 }
             } else {
                 // Faces are hidden under edges-only shading; face picking no-ops.
-                const hit = shading === 'edgesOnly' ? undefined : raycastFace(meshes, raycaster, ndc, camera);
+                const hit = raycastFace(pickableMeshes(), raycaster, ndc, camera);
                 if (hit !== undefined) {
                     faceHighlighter.clear();
                     onFacePickDressUp(hit);
@@ -2626,7 +2648,7 @@ function initViewport(
             return;
         }
         if (activeHolePickMode) {
-            const hit = shading === 'edgesOnly' ? undefined : raycastFace(meshes, raycaster, ndc, camera);
+            const hit = raycastFace(pickableMeshes(), raycaster, ndc, camera);
             if (hit !== undefined) {
                 faceHighlighter.clear();
                 onHolePick(hit);
@@ -2634,7 +2656,7 @@ function initViewport(
             return;
         }
         if (activeFacePickMode !== undefined) {
-            const hit = shading === 'edgesOnly' ? undefined : raycastFace(meshes, raycaster, ndc, camera);
+            const hit = raycastFace(pickableMeshes(), raycaster, ndc, camera);
             if (hit !== undefined) {
                 faceHighlighter.clear();
                 onFacePick(hit);
@@ -2644,9 +2666,9 @@ function initViewport(
         pointer.x = ndc.x;
         pointer.y = ndc.y;
         raycaster.setFromCamera(pointer, camera);
-        // Edges-only shading hides the face meshes; solid/face picking no-ops
-        // and every click degrades to an empty-space click.
-        const intersects = shading === 'edgesOnly' ? [] : raycaster.intersectObjects(meshes, false);
+        // Hidden solids and edges-only shading remove their meshes from the
+        // pick pool; a click on them degrades to an empty-space click.
+        const intersects = raycaster.intersectObjects(pickableMeshes(), false);
         if (intersects.length > 0) {
             const data = intersects[0].object.userData;
             onSelect({ solidId: data.solidId as number, faceId: data.faceId as number });
@@ -2666,7 +2688,7 @@ function initViewport(
         pointer.x = ndc.x;
         pointer.y = ndc.y;
         raycaster.setFromCamera(pointer, camera);
-        const intersects = shading === 'edgesOnly' ? [] : raycaster.intersectObjects(meshes, false);
+        const intersects = raycaster.intersectObjects(pickableMeshes(), false);
         if (intersects.length > 0) {
             const data = intersects[0].object.userData;
             onSelect({ solidId: data.solidId as number, faceId: data.faceId as number });
@@ -2685,7 +2707,7 @@ function initViewport(
             } else {
                 const rect = renderer.domElement.getBoundingClientRect();
                 const ndc = pointerToNdc(event.clientX, event.clientY, rect);
-                const hit = raycastFace(meshes, raycaster, ndc, camera);
+                const hit = raycastFace(pickableMeshes(), raycaster, ndc, camera);
                 measureHover = hit?.point !== undefined ? [hit.point.x, hit.point.y, hit.point.z] : undefined;
             }
             renderScene();
@@ -2694,7 +2716,7 @@ function initViewport(
         const rect = renderer.domElement.getBoundingClientRect();
         const ndc = pointerToNdc(event.clientX, event.clientY, rect);
         if (activeDressUpPickMode?.selecting === 'edge') {
-            const hit = raycastEdge(edgeLines, raycaster, ndc, camera);
+            const hit = raycastEdge(pickableEdgeLines(), raycaster, ndc, camera);
             if (hit !== undefined) {
                 edgeHighlighter.highlight(hit.line);
             } else {
@@ -2704,7 +2726,7 @@ function initViewport(
             return;
         }
         if (activeDressUpPickMode?.selecting === 'face') {
-            const hit = shading === 'edgesOnly' ? undefined : raycastFace(meshes, raycaster, ndc, camera);
+            const hit = raycastFace(pickableMeshes(), raycaster, ndc, camera);
             if (hit !== undefined) {
                 faceHighlighter.highlight(hit.mesh);
             } else {
@@ -2714,7 +2736,7 @@ function initViewport(
             return;
         }
         if (activeHolePickMode) {
-            const hit = shading === 'edgesOnly' ? undefined : raycastFace(meshes, raycaster, ndc, camera);
+            const hit = raycastFace(pickableMeshes(), raycaster, ndc, camera);
             if (hit !== undefined) {
                 faceHighlighter.highlight(hit.mesh);
             } else {
@@ -2724,7 +2746,7 @@ function initViewport(
             return;
         }
         if (activeFacePickMode !== undefined) {
-            const hit = shading === 'edgesOnly' ? undefined : raycastFace(meshes, raycaster, ndc, camera);
+            const hit = raycastFace(pickableMeshes(), raycaster, ndc, camera);
             if (hit !== undefined) {
                 faceHighlighter.highlight(hit.mesh);
             } else {
@@ -2970,6 +2992,13 @@ function initViewport(
         applyHighlight();
     });
 
+    // Fires immediately with the current hidden set, then on every change;
+    // applyShading re-applies visibility and re-renders.
+    const hiddenSolidsDisposable = subscribeHiddenSolids((ids) => {
+        hiddenSolidIds = new Set(ids);
+        applyShading();
+    });
+
     const themeDisposable = subscribeThemeChange(() => {
         scene.background = new THREE.Color(readThemeColor(container, '--theia-editor-background', '#1e1e1e'));
         baseColor.set(readThemeColor(container, '--theia-foreground', '#cccccc'));
@@ -3047,6 +3076,7 @@ function initViewport(
             measureLineMaterial.dispose();
             measureSphereMaterial.dispose();
             selectionDisposable.dispose();
+            hiddenSolidsDisposable.dispose();
             themeDisposable.dispose();
             resizeObserver.disconnect();
             renderer.domElement.removeEventListener('click', onClick);

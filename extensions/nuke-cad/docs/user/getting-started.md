@@ -67,7 +67,15 @@ The **Model Outline** panel gives a structured tree view of the active model:
 - Picking is synced with the viewport in both directions: clicking a row
   highlights the whole solid in the viewport, and picking a face/solid in the
   viewport selects the matching row (scrolling it into view and expanding its
-  section).
+  section). `Ctrl`/`Cmd`-click a row (or a table row) to add it to a
+  multi-selection — every selected solid highlights in the viewport, and the
+  most recently clicked one drives the Properties section and fit-to-selection.
+- **Hide / Isolate** — hovering a mapped row reveals two actions: the eye
+  toggles the row's solids in the viewport, and the filter button **isolates**
+  it (hides every other solid). Hidden rows stay listed, dimmed with an
+  eye-closed marker, and a **Show all** button appears in the panel header
+  while anything is hidden. Hiding is viewport-only — it never changes the
+  document or exports, and it resets when a different model loads.
 - **Properties** — when a solid is selected, a properties section shows its
   volume, area, bounding-box size (dx/dy/dz), center of mass, and face/edge/
   triangle counts (model units; em-dashes when a value is unavailable). The
@@ -75,8 +83,15 @@ The **Model Outline** panel gives a structured tree view of the active model:
   selection changes.
 - **Table view** — the header toggle switches the volume list to a sortable
   table (Solid, Body label, Volume, Area, Faces, Tris). Click a header to
-  sort; click a row to select that solid in the viewport. Values are model
-  units with SI suffixes.
+  sort; click a row to select that solid in the viewport (`Ctrl`/`Cmd`-click
+  multi-selects). Values are model units with SI suffixes.
+- **Build warnings** — cross-body overlap warnings (`bodies 'x' and 'y'
+  overlap … but are not merged by a boolean`) carry a **Fuse** button when the
+  model was built from an open `.nuke-cad` document. Clicking it appends a
+  `booleanFuse` feature that merges the overlapping pair and rebuilds, which
+  clears that warning. Assemblies that overlap on purpose can keep the
+  warnings — they never block a build. Script and STEP-imported models have no
+  document to edit, so no button is offered.
 - The panel is read-only. Its manifest button opens the model's
   `.regions.json` in the text editor (disabled when no manifest exists).
 
