@@ -299,16 +299,28 @@
 }
 
 /*
- * One tool per row: the buttons' tooltips anchor to their right, so a wrapped
- * second column would put a sibling button exactly under every tooltip. A
- * single column lets each chip land on the panel margin/canvas instead.
+ * Compact two-column grouped grid: drawing tools / modify & constraint tools /
+ * inspect lists, separated by thin rules. Tooltips anchor below the buttons
+ * (position="bottom"; header buttons use "top") so chips never sit on top of
+ * the neighbouring column.
  */
 .cad-sketch-toolbar-body {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 4px;
-    padding: 6px;
+    display: grid;
+    grid-template-columns: repeat(2, 28px);
+    justify-content: center;
+    gap: 3px 4px;
+    padding: 5px 6px;
+}
+
+.cad-sketch-toolbar-group {
+    display: contents;
+}
+
+.cad-sketch-toolbar-separator {
+    grid-column: 1 / -1;
+    height: 1px;
+    margin: 2px 1px;
+    background: var(--theia-panel-border);
 }
 
 .cad-sketch-toolbar-toggle,
@@ -365,9 +377,44 @@
     padding: 0;
 }
 
-.cad-sketch-tool-button.active {
+.cad-sketch-tool-button.active,
+.cad-sketch-tool-button.theia-button.secondary.active {
     background: var(--theia-focusBorder);
     color: var(--theia-button-foreground);
+    border-color: var(--theia-focusBorder);
+}
+
+.cad-document-toolbar-action.active,
+.cad-document-toolbar-action.theia-button.secondary.active {
+    background: var(--theia-focusBorder);
+    color: var(--theia-button-foreground);
+    border-color: var(--theia-focusBorder);
+}
+
+/*
+ * Shared shell for the draggable floating panels (popover wrappers around
+ * NukePanel): the absolutely positioned wrapper owns placement — its class
+ * carries the default anchor, drag.js inline style overrides it while dragged
+ * — and the inner panel fills it.
+ */
+.cad-sketch-draggable {
+    position: absolute;
+    display: flex;
+}
+
+.cad-sketch-draggable > .nuke-panel {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+}
+
+.cad-sketch-draggable .nuke-panel-header {
+    cursor: grab;
+    user-select: none;
+}
+
+.cad-sketch-draggable .nuke-panel-header:active {
+    cursor: grabbing;
 }
 
 /*
@@ -630,7 +677,6 @@
 }
 
 .cad-sketch-parameters-panel {
-    position: absolute;
     /* Below the top-right Finish Sketch pill. */
     top: 48px;
     right: 8px;
@@ -701,7 +747,6 @@
 }
 
 .cad-sketch-diagnostics-popover {
-    position: absolute;
     bottom: 40px;
     left: 8px;
     min-width: 260px;
@@ -790,7 +835,6 @@
 }
 
 .cad-sketch-external-refs {
-    position: absolute;
     /* Below the top-right Finish Sketch pill. */
     top: 48px;
     right: 8px;
@@ -1225,15 +1269,13 @@
     pointer-events: none;
 }
 
-/* Sketch keyboard-shortcuts cheat sheet (right of the floating sketch toolbar) */
+/* Sketch keyboard-shortcuts cheat sheet (draggable, right of the floating sketch toolbar) */
 .cad-sketch-shortcuts-popover {
-    position: absolute;
     top: 64px;
     left: 56px;
     z-index: 22;
     width: 300px;
     max-height: calc(100% - 88px);
-    overflow-y: auto;
 }
 
 .cad-sketch-shortcuts-section + .cad-sketch-shortcuts-section {
@@ -1344,6 +1386,12 @@
     display: flex;
     align-items: center;
     gap: 6px;
+    cursor: grab;
+    user-select: none;
+}
+
+.cad-measure-header:active {
+    cursor: grabbing;
 }
 
 .cad-measure-title {

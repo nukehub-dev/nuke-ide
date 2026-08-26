@@ -49,6 +49,22 @@ import {
 } from '../../../common/cad-document';
 import { type TopologyRef } from '../../../common/topology-refs';
 import { CadDocumentStore } from '../../document/cad-document-store';
+import { type DragTargetFilter, type DraggablePanelApi, headerRegionTarget, useDraggablePanel } from './draggable-panel';
+
+/** Presses on the sketch toolbar's header pick it up; the collapsed toggle doubles as a handle. */
+const TOOLBAR_DRAG_TARGET: DragTargetFilter = (target) => {
+    const button = target.closest('button');
+    if (target.closest('.cad-sketch-toolbar-toggle-anchor') !== null) {
+        return button === null || button.classList.contains('cad-sketch-toolbar-toggle');
+    }
+    return target.closest('.cad-sketch-toolbar-header') !== null && button === null;
+};
+
+/** Double-click/right-click resets from the same regions, header buttons included. */
+const TOOLBAR_RESET_TARGET: DragTargetFilter = (target) =>
+    target.closest('.cad-sketch-toolbar-toggle-anchor') !== null || target.closest('.cad-sketch-toolbar-header') !== null;
+
+const NUKE_PANEL_HEADER_TARGET = headerRegionTarget('.nuke-panel-header');
 
 interface CadSketchOverlayProps {
     readonly controller: SketchModeController;
@@ -192,6 +208,26 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
     const [editDimValue, setEditDimValue] = React.useState('');
     const [editDimDriving, setEditDimDriving] = React.useState(true);
     const [paramErrors, setParamErrors] = React.useState<Record<string, string>>({});
+
+    // Popover placements are session state: dragged offsets survive closing and
+    // reopening a panel, reset when the sketch session ends, never hit storage.
+    const paramsDrag = useDraggablePanel({ canDrag: NUKE_PANEL_HEADER_TARGET, canResetFrom: NUKE_PANEL_HEADER_TARGET });
+    const diagnosticsDrag = useDraggablePanel({ canDrag: NUKE_PANEL_HEADER_TARGET, canResetFrom: NUKE_PANEL_HEADER_TARGET });
+    const externalRefsDrag = useDraggablePanel({ canDrag: NUKE_PANEL_HEADER_TARGET, canResetFrom: NUKE_PANEL_HEADER_TARGET });
+    const shortcutsDrag = useDraggablePanel({ canDrag: NUKE_PANEL_HEADER_TARGET, canResetFrom: NUKE_PANEL_HEADER_TARGET });
+    const { resetPosition: resetParamsPosition } = paramsDrag;
+    const { resetPosition: resetDiagnosticsPosition } = diagnosticsDrag;
+    const { resetPosition: resetExternalRefsPosition } = externalRefsDrag;
+    const { resetPosition: resetShortcutsPosition } = shortcutsDrag;
+
+    React.useEffect(() => {
+        if (!active) {
+            resetParamsPosition();
+            resetDiagnosticsPosition();
+            resetExternalRefsPosition();
+            resetShortcutsPosition();
+        }
+    }, [active, resetParamsPosition, resetDiagnosticsPosition, resetExternalRefsPosition, resetShortcutsPosition]);
 
     const needsValue =
         constraintInput !== undefined &&
@@ -369,6 +405,7 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
                         construction={construction}
                         paramsOpen={paramsOpen}
                         setParamsOpen={setParamsOpen}
+                        shortcutsDrag={shortcutsDrag}
                         externalGeometryTarget={externalGeometryTarget}
                         facePickMode={facePickMode}
                         onStartExternalGeometryPick={onStartExternalGeometryPick}
@@ -470,6 +507,7 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
 
                     {externalRefs.length > 0 && (
                         <ExternalRefsPanel
+                            drag={externalRefsDrag}
                             refs={externalRefs}
                             onRemove={(index) => {
                                 if (sketchId === undefined) {
@@ -521,6 +559,7 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
 
                     {paramsOpen && session !== undefined && (
                         <ParametersPanel
+                            drag={paramsDrag}
                             parameters={session.getParameters()}
                             dimensions={dimensions}
                             errors={paramErrors}
@@ -536,6 +575,7 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
 
                     {diagnosticsOpen && (
                         <DiagnosticsPopover
+                            drag={diagnosticsDrag}
                             status={status}
                             constraints={session?.getConstraints() ?? []}
                             referenceResults={relevantRefs}
@@ -647,14 +687,50 @@ interface DocumentModeToolbarProps {
     readonly onToggleMeasureList?: () => void;
 }
 
+interface DraggableNukePanelProps {
+    readonly drag: DraggablePanelApi;
+    readonly className?: string;
+    readonly title: React.ReactNode;
+    readonly onClose?: () => void;
+    /** Stop pointerdown propagation (outside-click closers) after the drag handler ran. */
+    readonly haltPointerPropagation?: boolean;
+    readonly children: React.ReactNode;
+}
+
+/** NukePanel wrapped in the shared draggable shell: the wrapper owns placement, the header drags. */
+function DraggableNukePanel(props: DraggableNukePanelProps): React.ReactElement {
+    const { drag } = props;
+    return (
+        <div
+            ref={drag.panelRef}
+            {...drag.handleProps}
+            onPointerDown={
+                props.haltPointerPropagation === true
+                    ? (event) => {
+                          drag.handleProps.onPointerDown(event);
+                          event.stopPropagation();
+                      }
+                    : drag.handleProps.onPointerDown
+            }
+            className={props.className !== undefined ? `cad-sketch-draggable ${props.className}` : 'cad-sketch-draggable'}
+            style={drag.style}
+        >
+            <NukePanel title={props.title} onClose={props.onClose}>
+                {props.children}
+            </NukePanel>
+        </div>
+    );
+}
+
 interface ExternalRefsPanelProps {
     readonly refs: readonly import('../../../common/topology-refs').TopologyRef[];
     readonly onRemove: (index: number) => void;
+    readonly drag: DraggablePanelApi;
 }
 
 function ExternalRefsPanel(props: ExternalRefsPanelProps): React.ReactElement {
     return (
-        <NukePanel title="External Geometry" className="cad-sketch-external-refs">
+        <DraggableNukePanel drag={props.drag} className="cad-sketch-external-refs" title="External Geometry">
             {props.refs.map((ref, index) => (
                 <div key={`${ref.featureId}-${index}`} className="cad-sketch-external-ref-row">
                     <span className="cad-sketch-external-ref-kind">{ref.kind}</span>
@@ -666,7 +742,7 @@ function ExternalRefsPanel(props: ExternalRefsPanelProps): React.ReactElement {
                     </Tooltip>
                 </div>
             ))}
-        </NukePanel>
+        </DraggableNukePanel>
     );
 }
 
@@ -929,6 +1005,7 @@ interface SketchToolbarProps {
     readonly construction: boolean;
     readonly paramsOpen: boolean;
     readonly setParamsOpen: (value: boolean) => void;
+    readonly shortcutsDrag: DraggablePanelApi;
     readonly externalGeometryTarget?: { readonly id: string };
     readonly facePickMode?: 'sketchDatum' | 'externalGeometry';
     readonly onStartExternalGeometryPick: (featureId: string) => void;
@@ -942,18 +1019,15 @@ interface SketchToolbarProps {
 
 function SketchToolbar(props: SketchToolbarProps): React.ReactElement {
     const [collapsed, setCollapsed] = React.useState(false);
-    const [position, setPosition] = React.useState<{ top: number; left: number } | undefined>();
     const [menuOpen, setMenuOpen] = React.useState(false);
     const [shortcutsOpen, setShortcutsOpen] = React.useState(false);
-    const dragAnchorRef = React.useRef<HTMLElement | null>(null);
-    const dragRef = React.useRef<{ startX: number; startY: number; baseTop: number; baseLeft: number } | undefined>(undefined);
-    const dragMovedRef = React.useRef(false);
     const {
         controller,
         tool,
         construction,
         paramsOpen,
         setParamsOpen,
+        shortcutsDrag,
         externalGeometryTarget,
         facePickMode,
         onStartExternalGeometryPick,
@@ -964,6 +1038,7 @@ function SketchToolbar(props: SketchToolbarProps): React.ReactElement {
         onToggleMeasure,
         onToggleMeasureList
     } = props;
+    const drag = useDraggablePanel({ canDrag: TOOLBAR_DRAG_TARGET, canResetFrom: TOOLBAR_RESET_TARGET, resetOnContextMenu: false });
 
     const snapEnabled = controller.isSnapEnabled();
     const snapPresetIndex = SNAP_RADIUS_PRESETS.findIndex((p) => p.px === controller.getSnapRadiusPx());
@@ -973,65 +1048,8 @@ function SketchToolbar(props: SketchToolbarProps): React.ReactElement {
         controller.setSnapRadius(next.px);
     };
 
-    const onWindowDragMove = React.useCallback((e: PointerEvent): void => {
-        const drag = dragRef.current;
-        if (drag === undefined) {
-            return;
-        }
-        if (Math.abs(e.clientX - drag.startX) > 3 || Math.abs(e.clientY - drag.startY) > 3) {
-            dragMovedRef.current = true;
-        }
-        const maxTop = window.innerHeight - 80;
-        const maxLeft = window.innerWidth - 60;
-        setPosition({
-            top: Math.min(Math.max(drag.baseTop + e.clientY - drag.startY, 0), Math.max(maxTop, 0)),
-            left: Math.min(Math.max(drag.baseLeft + e.clientX - drag.startX, 0), Math.max(maxLeft, 0))
-        });
-    }, []);
-
-    const onWindowDragEnd = React.useCallback((): void => {
-        dragRef.current = undefined;
-        window.removeEventListener('pointermove', onWindowDragMove);
-        window.removeEventListener('pointerup', onWindowDragEnd);
-    }, [onWindowDragMove]);
-
-    React.useEffect(() => {
-        return () => {
-            window.removeEventListener('pointermove', onWindowDragMove);
-            window.removeEventListener('pointerup', onWindowDragEnd);
-        };
-    }, [onWindowDragMove, onWindowDragEnd]);
-
-    const startDrag = (e: React.PointerEvent): void => {
-        if (e.button !== 0) {
-            return;
-        }
-        // The collapsed toggle is itself the drag handle; every other button
-        // inside the anchor still excludes dragging.
-        const button = (e.target as HTMLElement).closest('button');
-        if (button !== null && !button.classList.contains('cad-sketch-toolbar-toggle')) {
-            return;
-        }
-        const el = dragAnchorRef.current;
-        const toolbar = el?.parentElement;
-        if (el === null || toolbar === undefined || toolbar === null || toolbar.offsetParent === null) {
-            return;
-        }
-        const rect = el.getBoundingClientRect();
-        const parentRect = toolbar.offsetParent.getBoundingClientRect();
-        dragRef.current = {
-            startX: e.clientX,
-            startY: e.clientY,
-            baseTop: rect.top - parentRect.top,
-            baseLeft: rect.left - parentRect.left
-        };
-        window.addEventListener('pointermove', onWindowDragMove);
-        window.addEventListener('pointerup', onWindowDragEnd);
-        e.preventDefault();
-    };
-
     const resetPosition = (): void => {
-        setPosition(undefined);
+        drag.resetPosition();
         setMenuOpen(false);
     };
 
@@ -1053,7 +1071,11 @@ function SketchToolbar(props: SketchToolbarProps): React.ReactElement {
         if (!shortcutsOpen) {
             return undefined;
         }
-        const close = (): void => setShortcutsOpen(false);
+        const close = (): void => {
+            if (!shortcutsDrag.isDragging()) {
+                setShortcutsOpen(false);
+            }
+        };
         const onKey = (e: KeyboardEvent): void => {
             if (e.key === 'Escape') {
                 e.stopPropagation();
@@ -1066,29 +1088,26 @@ function SketchToolbar(props: SketchToolbarProps): React.ReactElement {
             window.removeEventListener('pointerdown', close);
             window.removeEventListener('keydown', onKey, true);
         };
-    }, [shortcutsOpen]);
+    }, [shortcutsOpen, shortcutsDrag]);
 
     if (collapsed) {
         return (
             <>
                 <div
+                    ref={drag.panelRef}
+                    {...drag.handleProps}
                     className="cad-sketch-toolbar-toggle-anchor"
-                    style={position !== undefined ? { top: position.top, left: position.left } : undefined}
-                    ref={(el) => {
-                        dragAnchorRef.current = el;
-                    }}
-                    onPointerDown={startDrag}
-                    onDoubleClick={resetPosition}
+                    style={drag.style}
                     onContextMenu={openContextMenu}
                 >
-                    <Tooltip content="Show Sketch Tools" position="right">
+                    <Tooltip content="Show Sketch Tools" position="bottom">
                         <button
                             className="theia-button secondary cad-sketch-toolbar-toggle"
                             onClick={() => {
-                                if (!dragMovedRef.current) {
+                                if (!drag.dragMovedRef.current) {
                                     setCollapsed(false);
                                 }
-                                dragMovedRef.current = false;
+                                drag.dragMovedRef.current = false;
                             }}
                         >
                             <span className="codicon codicon-menu" />
@@ -1108,18 +1127,16 @@ function SketchToolbar(props: SketchToolbarProps): React.ReactElement {
 
     return (
         <>
-            <div className="cad-sketch-toolbar" style={position !== undefined ? { top: position.top, left: position.left } : undefined}>
-                <div
-                    ref={(el) => {
-                        dragAnchorRef.current = el;
-                    }}
-                    className="cad-sketch-toolbar-header"
-                    onPointerDown={startDrag}
-                    onDoubleClick={resetPosition}
-                    onContextMenu={openContextMenu}
-                >
+            <div
+                ref={drag.panelRef}
+                {...drag.handleProps}
+                className="cad-sketch-toolbar"
+                style={drag.style}
+                onContextMenu={openContextMenu}
+            >
+                <div className="cad-sketch-toolbar-header">
                     <span className="cad-sketch-toolbar-title">Sketch</span>
-                    <Tooltip content="Keyboard Shortcuts" position="right">
+                    <Tooltip content="Keyboard Shortcuts" position="top">
                         <button
                             className={`theia-button secondary cad-sketch-tool-button ${shortcutsOpen ? 'active' : ''}`}
                             onClick={() => setShortcutsOpen(!shortcutsOpen)}
@@ -1127,91 +1144,99 @@ function SketchToolbar(props: SketchToolbarProps): React.ReactElement {
                             <span className="codicon codicon-nuke-cad-keyboard" />
                         </button>
                     </Tooltip>
-                    <Tooltip content="Collapse Sketch Tools" position="right">
+                    <Tooltip content="Collapse Sketch Tools" position="top">
                         <button className="theia-button secondary cad-sketch-toolbar-collapse" onClick={() => setCollapsed(true)}>
                             <span className="codicon codicon-chevron-left" />
                         </button>
                     </Tooltip>
                 </div>
                 <div className="cad-sketch-toolbar-body">
-                    {TOOLS.map(({ tool: t, label, icon, key }) => (
-                        <Tooltip key={t} content={`${label} (${key})`} position="right">
+                    <div className="cad-sketch-toolbar-group">
+                        {TOOLS.map(({ tool: t, label, icon, key }) => (
+                            <Tooltip key={t} content={`${label} (${key})`} position="bottom">
+                                <button
+                                    className={`theia-button secondary cad-sketch-tool-button ${tool === t ? 'active' : ''}`}
+                                    onClick={() => controller.setTool(t)}
+                                >
+                                    <span className={`codicon ${icon}`} />
+                                </button>
+                            </Tooltip>
+                        ))}
+                    </div>
+                    <div className="cad-sketch-toolbar-separator" />
+                    <div className="cad-sketch-toolbar-group">
+                        <Tooltip content="Construction Geometry" position="bottom">
                             <button
-                                className={`theia-button secondary cad-sketch-tool-button ${tool === t ? 'active' : ''}`}
-                                onClick={() => controller.setTool(t)}
+                                className={`theia-button secondary cad-sketch-tool-button ${construction ? 'active' : ''}`}
+                                onClick={() => controller.setConstruction(!construction)}
                             >
-                                <span className={`codicon ${icon}`} />
+                                <span className="codicon codicon-nuke-cad-construction" />
                             </button>
                         </Tooltip>
-                    ))}
-                    <Tooltip content="Construction Geometry" position="right">
-                        <button
-                            className={`theia-button secondary cad-sketch-tool-button ${construction ? 'active' : ''}`}
-                            onClick={() => controller.setConstruction(!construction)}
-                        >
-                            <span className="codicon codicon-nuke-cad-construction" />
-                        </button>
-                    </Tooltip>
-                    <Tooltip content="Toggle Construction on Selection" position="right">
-                        <button
-                            className="theia-button secondary cad-sketch-tool-button"
-                            onClick={() => void controller.toggleConstructionForSelection()}
-                        >
-                            <span className="codicon codicon-edit" />
-                        </button>
-                    </Tooltip>
-                    <Tooltip content="Parameters" position="right">
-                        <button
-                            className={`theia-button secondary cad-sketch-tool-button ${paramsOpen ? 'active' : ''}`}
-                            onClick={() => setParamsOpen(!paramsOpen)}
-                        >
-                            <span className="codicon codicon-symbol-variable" />
-                        </button>
-                    </Tooltip>
-                    <Tooltip content="External Geometry" position="right">
-                        <button
-                            className={`theia-button secondary cad-sketch-tool-button ${facePickMode === 'externalGeometry' ? 'active' : ''}`}
-                            disabled={externalGeometryTarget === undefined}
-                            onClick={() => {
-                                if (facePickMode === 'externalGeometry') {
-                                    onCancelFacePick();
-                                } else if (externalGeometryTarget !== undefined) {
-                                    onStartExternalGeometryPick(externalGeometryTarget.id);
-                                }
-                            }}
-                        >
-                            <span className="codicon codicon-nuke-cad-external-ref" />
-                        </button>
-                    </Tooltip>
-                    <Tooltip content={snapEnabled ? 'Disable Snapping' : 'Enable Snapping'} position="right">
-                        <button
-                            className={`theia-button secondary cad-sketch-tool-button ${snapEnabled ? 'active' : ''}`}
-                            onClick={() => controller.setSnapEnabled(!snapEnabled)}
-                        >
-                            <span className="codicon codicon-nuke-cad-snap" />
-                        </button>
-                    </Tooltip>
-                    <Tooltip content={`Snap Radius: ${snapPreset.px}px (click to change)`} position="right">
-                        <button className="theia-button secondary cad-sketch-tool-button" onClick={cycleSnapRadius}>
-                            {snapPreset.label}
-                        </button>
-                    </Tooltip>
-                    <Tooltip content="Measure (click two points)" position="right">
-                        <button
-                            className={`theia-button secondary cad-sketch-tool-button ${measureActive ? 'active' : ''}`}
-                            onClick={() => onToggleMeasure?.()}
-                        >
-                            <span className="codicon codicon-nuke-cad-measure" />
-                        </button>
-                    </Tooltip>
-                    <Tooltip content={`Measurements${measureCount ? ` (${measureCount})` : ''}`} position="right">
-                        <button
-                            className={`theia-button secondary cad-sketch-tool-button ${measureListOpen ? 'active' : ''}`}
-                            onClick={() => onToggleMeasureList?.()}
-                        >
-                            <span className="codicon codicon-list-unordered" />
-                        </button>
-                    </Tooltip>
+                        <Tooltip content="Toggle Construction on Selection" position="bottom">
+                            <button
+                                className="theia-button secondary cad-sketch-tool-button"
+                                onClick={() => void controller.toggleConstructionForSelection()}
+                            >
+                                <span className="codicon codicon-edit" />
+                            </button>
+                        </Tooltip>
+                        <Tooltip content="External Geometry" position="bottom">
+                            <button
+                                className={`theia-button secondary cad-sketch-tool-button ${facePickMode === 'externalGeometry' ? 'active' : ''}`}
+                                disabled={externalGeometryTarget === undefined}
+                                onClick={() => {
+                                    if (facePickMode === 'externalGeometry') {
+                                        onCancelFacePick();
+                                    } else if (externalGeometryTarget !== undefined) {
+                                        onStartExternalGeometryPick(externalGeometryTarget.id);
+                                    }
+                                }}
+                            >
+                                <span className="codicon codicon-nuke-cad-external-ref" />
+                            </button>
+                        </Tooltip>
+                        <Tooltip content={snapEnabled ? 'Disable Snapping' : 'Enable Snapping'} position="bottom">
+                            <button
+                                className={`theia-button secondary cad-sketch-tool-button ${snapEnabled ? 'active' : ''}`}
+                                onClick={() => controller.setSnapEnabled(!snapEnabled)}
+                            >
+                                <span className="codicon codicon-nuke-cad-snap" />
+                            </button>
+                        </Tooltip>
+                        <Tooltip content={`Snap Radius: ${snapPreset.px}px (click to change)`} position="bottom">
+                            <button className="theia-button secondary cad-sketch-tool-button" onClick={cycleSnapRadius}>
+                                {snapPreset.label}
+                            </button>
+                        </Tooltip>
+                    </div>
+                    <div className="cad-sketch-toolbar-separator" />
+                    <div className="cad-sketch-toolbar-group">
+                        <Tooltip content="Parameters" position="bottom">
+                            <button
+                                className={`theia-button secondary cad-sketch-tool-button ${paramsOpen ? 'active' : ''}`}
+                                onClick={() => setParamsOpen(!paramsOpen)}
+                            >
+                                <span className="codicon codicon-symbol-variable" />
+                            </button>
+                        </Tooltip>
+                        <Tooltip content="Measure (click two points)" position="bottom">
+                            <button
+                                className={`theia-button secondary cad-sketch-tool-button ${measureActive ? 'active' : ''}`}
+                                onClick={() => onToggleMeasure?.()}
+                            >
+                                <span className="codicon codicon-nuke-cad-measure" />
+                            </button>
+                        </Tooltip>
+                        <Tooltip content={`Measurements${measureCount ? ` (${measureCount})` : ''}`} position="bottom">
+                            <button
+                                className={`theia-button secondary cad-sketch-tool-button ${measureListOpen ? 'active' : ''}`}
+                                onClick={() => onToggleMeasureList?.()}
+                            >
+                                <span className="codicon codicon-list-unordered" />
+                            </button>
+                        </Tooltip>
+                    </div>
                 </div>
                 {menuOpen && (
                     <div className="cad-sketch-toolbar-context-menu" onPointerDown={(e) => e.stopPropagation()}>
@@ -1221,75 +1246,80 @@ function SketchToolbar(props: SketchToolbarProps): React.ReactElement {
                     </div>
                 )}
             </div>
-            {shortcutsOpen && <SketchShortcutsPopover onClose={() => setShortcutsOpen(false)} />}
+            {shortcutsOpen && <SketchShortcutsPopover drag={shortcutsDrag} onClose={() => setShortcutsOpen(false)} />}
         </>
     );
 }
 
 interface SketchShortcutsPopoverProps {
+    readonly drag: DraggablePanelApi;
     readonly onClose: () => void;
 }
 
 function SketchShortcutsPopover(props: SketchShortcutsPopoverProps): React.ReactElement {
     return (
-        <div className="cad-sketch-shortcuts-popover" onPointerDown={(e) => e.stopPropagation()}>
-            <NukePanel title="Keyboard Shortcuts" onClose={props.onClose}>
-                <div className="cad-sketch-shortcuts-section">
-                    <div className="cad-sketch-shortcuts-title">Tools</div>
-                    {TOOLS.map(({ label, key }) => (
-                        <div key={label} className="cad-sketch-shortcuts-row">
-                            <span className="cad-sketch-shortcuts-key">{key}</span>
-                            <span>{label}</span>
-                        </div>
-                    ))}
+        <DraggableNukePanel
+            drag={props.drag}
+            className="cad-sketch-shortcuts-popover"
+            haltPointerPropagation
+            title="Keyboard Shortcuts"
+            onClose={props.onClose}
+        >
+            <div className="cad-sketch-shortcuts-section">
+                <div className="cad-sketch-shortcuts-title">Tools</div>
+                {TOOLS.map(({ label, key }) => (
+                    <div key={label} className="cad-sketch-shortcuts-row">
+                        <span className="cad-sketch-shortcuts-key">{key}</span>
+                        <span>{label}</span>
+                    </div>
+                ))}
+            </div>
+            <div className="cad-sketch-shortcuts-section">
+                <div className="cad-sketch-shortcuts-title">Select tool</div>
+                <div className="cad-sketch-shortcuts-row">
+                    <span className="cad-sketch-shortcuts-key">Click</span>
+                    <span>Select entity</span>
                 </div>
-                <div className="cad-sketch-shortcuts-section">
-                    <div className="cad-sketch-shortcuts-title">Select tool</div>
-                    <div className="cad-sketch-shortcuts-row">
-                        <span className="cad-sketch-shortcuts-key">Click</span>
-                        <span>Select entity</span>
-                    </div>
-                    <div className="cad-sketch-shortcuts-row">
-                        <span className="cad-sketch-shortcuts-key">Shift+Click</span>
-                        <span>Add / remove from selection</span>
-                    </div>
-                    <div className="cad-sketch-shortcuts-row">
-                        <span className="cad-sketch-shortcuts-key">Drag</span>
-                        <span>Move point</span>
-                    </div>
-                    <div className="cad-sketch-shortcuts-row">
-                        <span className="cad-sketch-shortcuts-key">Del</span>
-                        <span>Delete selection</span>
-                    </div>
-                    <div className="cad-sketch-shortcuts-row">
-                        <span className="cad-sketch-shortcuts-key">Esc</span>
-                        <span>Cancel · clear · back to Select</span>
-                    </div>
+                <div className="cad-sketch-shortcuts-row">
+                    <span className="cad-sketch-shortcuts-key">Shift+Click</span>
+                    <span>Add / remove from selection</span>
                 </div>
-                <div className="cad-sketch-shortcuts-section">
-                    <div className="cad-sketch-shortcuts-title">Snapping</div>
-                    <div className="cad-sketch-shortcuts-row">
-                        <span className="cad-sketch-shortcuts-key">Magnet</span>
-                        <span>Toggle snapping</span>
-                    </div>
-                    <div className="cad-sketch-shortcuts-row">
-                        <span className="cad-sketch-shortcuts-key">S / M / L</span>
-                        <span>Snap radius 6 / 12 / 24 px</span>
-                    </div>
+                <div className="cad-sketch-shortcuts-row">
+                    <span className="cad-sketch-shortcuts-key">Drag</span>
+                    <span>Move point</span>
                 </div>
-                <div className="cad-sketch-shortcuts-section">
-                    <div className="cad-sketch-shortcuts-title">Sketch mode</div>
-                    <div className="cad-sketch-shortcuts-row">
-                        <span className="cad-sketch-shortcuts-key">Tab</span>
-                        <span>Enter / exit sketch mode</span>
-                    </div>
-                    <div className="cad-sketch-shortcuts-row">
-                        <span className="cad-sketch-shortcuts-key">Finish Sketch</span>
-                        <span>Exit and merge into the document</span>
-                    </div>
+                <div className="cad-sketch-shortcuts-row">
+                    <span className="cad-sketch-shortcuts-key">Del</span>
+                    <span>Delete selection</span>
                 </div>
-            </NukePanel>
-        </div>
+                <div className="cad-sketch-shortcuts-row">
+                    <span className="cad-sketch-shortcuts-key">Esc</span>
+                    <span>Cancel · clear · back to Select</span>
+                </div>
+            </div>
+            <div className="cad-sketch-shortcuts-section">
+                <div className="cad-sketch-shortcuts-title">Snapping</div>
+                <div className="cad-sketch-shortcuts-row">
+                    <span className="cad-sketch-shortcuts-key">Magnet</span>
+                    <span>Toggle snapping</span>
+                </div>
+                <div className="cad-sketch-shortcuts-row">
+                    <span className="cad-sketch-shortcuts-key">S / M / L</span>
+                    <span>Snap radius 6 / 12 / 24 px</span>
+                </div>
+            </div>
+            <div className="cad-sketch-shortcuts-section">
+                <div className="cad-sketch-shortcuts-title">Sketch mode</div>
+                <div className="cad-sketch-shortcuts-row">
+                    <span className="cad-sketch-shortcuts-key">Tab</span>
+                    <span>Enter / exit sketch mode</span>
+                </div>
+                <div className="cad-sketch-shortcuts-row">
+                    <span className="cad-sketch-shortcuts-key">Finish Sketch</span>
+                    <span>Exit and merge into the document</span>
+                </div>
+            </div>
+        </DraggableNukePanel>
     );
 }
 
@@ -2224,6 +2254,7 @@ function DimensionEditPopover(props: DimensionEditPopoverProps): React.ReactElem
 }
 
 interface ParametersPanelProps {
+    drag: DraggablePanelApi;
     parameters: Record<string, number>;
     dimensions: SketchDimension[];
     errors: Record<string, string>;
@@ -2270,7 +2301,7 @@ function ParametersPanel(props: ParametersPanelProps): React.ReactElement {
     };
 
     return (
-        <NukePanel title="Parameters" onClose={onClose} className="cad-sketch-parameters-panel">
+        <DraggableNukePanel drag={props.drag} className="cad-sketch-parameters-panel" title="Parameters" onClose={onClose}>
             <div className="cad-sketch-parameters-list">
                 {Object.entries(parameters).map(([name, value]) => (
                     <div key={name} className="cad-sketch-parameter-row">
@@ -2343,11 +2374,12 @@ function ParametersPanel(props: ParametersPanelProps): React.ReactElement {
                     <span className="codicon codicon-add" /> Add
                 </button>
             </div>
-        </NukePanel>
+        </DraggableNukePanel>
     );
 }
 
 interface DiagnosticsPopoverProps {
+    drag: DraggablePanelApi;
     status: SketchStatus;
     constraints: Array<{ id: string; kind: ConstraintKind; targetIds: string[] }>;
     referenceResults: import('../../../common/nuke-cad-protocol').ReferenceResolutionResult[];
@@ -2361,7 +2393,7 @@ function DiagnosticsPopover(props: DiagnosticsPopoverProps): React.ReactElement 
     const refCounts = countReferenceResults(referenceResults);
 
     return (
-        <NukePanel title="Solver Diagnostics" onClose={onClose} className="cad-sketch-diagnostics-popover">
+        <DraggableNukePanel drag={props.drag} className="cad-sketch-diagnostics-popover" title="Solver Diagnostics" onClose={onClose}>
             {(refCounts.matched > 0 || refCounts.ambiguous > 0 || refCounts.unmatched > 0) && (
                 <div className="cad-sketch-diagnostics-section">
                     <div className="cad-sketch-diagnostics-title">References</div>
@@ -2427,7 +2459,7 @@ function DiagnosticsPopover(props: DiagnosticsPopoverProps): React.ReactElement 
                 refCounts.matched === 0 &&
                 refCounts.ambiguous === 0 &&
                 refCounts.unmatched === 0 && <div className="cad-sketch-diagnostics-empty">No diagnostics to report.</div>}
-        </NukePanel>
+        </DraggableNukePanel>
     );
 }
 

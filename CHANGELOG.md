@@ -147,6 +147,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-cad: sketch toolbar tooltips no longer render on top of the tool
   buttons (the palette is single-column so chips land beside the panel), and
   tool tooltips show their shortcut letter (e.g. "Line (L)").
+- nuke-cad: **shared draggable panels** — the sketch toolbar's drag behavior
+  is extracted into a shared hook and applied to the Parameters, Solver
+  Diagnostics, External Geometry, Keyboard Shortcuts, and Measurements
+  panels: drag by the header, right-click/double-click the header to reset,
+  positions persist for the session, and panels are clamped inside the
+  canvas so they can no longer be dragged under Theia's sidebar.
+- nuke-cad: the sketch toolbar body is a grouped two-column grid (draw /
+  modify & constraint / lists) — roughly half the previous height — and the
+  active tool button is clearly highlighted (accent background) in both the
+  sketch and document toolbars.
 - nuke-cad: **exiting a brand-new sketch silently failed** — the sketch session
   was created without the pre-registered document def, so the exit-time save
   failed datum validation (`unknown datum 'XY'`) and kept the user trapped in

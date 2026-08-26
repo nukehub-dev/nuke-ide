@@ -290,7 +290,17 @@ Esc: clear` while the Select tool is active and no constraint pick is in
     the Select tool. A keyboard cheat-sheet popover on the toolbar header
     lists the bindings. The sketch toolbar is a floating draggable panel: drag by its
     header (or the collapsed toggle), right-click/double-click for Reset
-    Position; the dragged position persists across collapse/expand. Exiting
+    Position; the dragged position persists across collapse/expand. Dragging
+    is shared, not per-panel: `draggable-panel.ts` owns the hook
+    (`useDraggablePanel`), the header-region gates, and `clampPanelPosition`
+    (panels stay inside the canvas; a 32px header sliver stays reachable when
+    the panel exceeds it). The toolbar, Parameters, Solver Diagnostics,
+    External Geometry, Keyboard Shortcuts, and Measurements panels all drag
+    by their headers with the same reset grammar; the feature-creation modal
+    and the dimension value popover stay anchored. The toolbar body is a
+    grouped two-column grid (draw / modify & constraint / lists) with
+    `active`-state tool buttons (accent background via the
+    `.theia-button.secondary`-beating specificity rules in cad-viewport.css). Exiting
     sketch mode is the labeled **Finish Sketch** pill at the top-right of the
     viewport (the constraint bar owns top-center). Dimension labels are
     session-state draggable: a dragged label pins a screen-space offset that

@@ -179,6 +179,12 @@ which constraints are conflicting or redundant.
 The sketch toolbar floats and can be dragged anywhere in the canvas by its
 **SKETCH** header (the collapsed hamburger drags too). Right-click or
 double-click it and choose **Reset Position** to put it back in the corner.
+The other sketch panels — Parameters, Solver Diagnostics, External Geometry,
+Keyboard Shortcuts, and Measurements — drag the same way: grab the panel
+header to move it, right-click or double-click the header to reset it to its
+default spot. Panels always stay inside the canvas. The toolbar body groups
+its buttons into two columns (draw / modify & constraint / lists), and the
+active tool is highlighted.
 Dimension labels shift apart automatically when they would overlap; drag a
 label to pin it to a spot of your choosing — pinned labels keep their
 placement while you zoom and pan, and unpinned labels keep auto-shifting.

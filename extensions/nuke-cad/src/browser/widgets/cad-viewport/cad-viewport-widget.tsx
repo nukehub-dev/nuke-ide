@@ -112,6 +112,7 @@ import {
     type MeasureSegment,
     type MeasureViewState
 } from './measure-tool';
+import { headerRegionTarget, useDraggablePanel } from './draggable-panel';
 import './cad-viewport.css';
 import './cad-icons.css';
 
@@ -1850,10 +1851,13 @@ interface MeasureListPopoverProps {
     readonly onClose: () => void;
 }
 
+const MEASURE_HEADER_TARGET = headerRegionTarget('.cad-measure-header');
+
 function MeasureListPopover(props: MeasureListPopoverProps): React.ReactElement {
+    const drag = useDraggablePanel({ canDrag: MEASURE_HEADER_TARGET, canResetFrom: MEASURE_HEADER_TARGET });
     return (
-        <div className={props.className}>
-            <div className="cad-measure-header">
+        <div className={props.className} ref={drag.panelRef} style={drag.style}>
+            <div className="cad-measure-header" {...drag.handleProps}>
                 <span className="cad-measure-title">Measurements</span>
                 <span className="cad-measure-badge">{props.segments.length}</span>
                 <Tooltip content="Close" position="left">
