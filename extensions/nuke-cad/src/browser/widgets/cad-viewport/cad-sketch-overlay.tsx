@@ -49,7 +49,15 @@ import {
 } from '../../../common/cad-document';
 import { type TopologyRef } from '../../../common/topology-refs';
 import { CadDocumentStore } from '../../document/cad-document-store';
-import { type DragTargetFilter, type DraggablePanelApi, headerRegionTarget, useDraggablePanel } from './draggable-panel';
+import {
+    type DragTargetFilter,
+    type DraggablePanelApi,
+    headerRegionTarget,
+    useDraggablePanel,
+    clampPanelPosition
+} from './draggable-panel';
+import { type DocumentTemplate } from '../../../common/document-templates';
+import { validRelations, type SketchEntityType } from './constraint-relations';
 
 /** Presses on the sketch toolbar's header pick it up; the collapsed toggle doubles as a handle. */
 const TOOLBAR_DRAG_TARGET: DragTargetFilter = (target) => {
@@ -75,6 +83,9 @@ interface CadSketchOverlayProps {
     readonly facePickMode?: 'sketchDatum' | 'externalGeometry';
     readonly dressUpPickMode?: { readonly type: FeatureType; readonly selecting: 'edge' | 'face' };
     readonly holePickMode?: boolean;
+    readonly shortcutBar?: { readonly mode: 'document' | 'sketch'; readonly anchor: { readonly x: number; readonly y: number } };
+    readonly sketchAutoDimension: boolean;
+    readonly templates: ReadonlyArray<DocumentTemplate>;
     readonly onEnterSketch: (kind: DatumKind, offset: number) => void;
     readonly onExitSketch: () => Promise<void>;
     readonly onStartFeatureCreation: (type: FeatureType) => void;
@@ -98,6 +109,7 @@ interface CadSketchOverlayProps {
     readonly measureListOpen?: boolean;
     readonly onToggleMeasure?: () => void;
     readonly onToggleMeasureList?: () => void;
+    readonly onCloseShortcutBar: () => void;
 }
 
 const TOOLS: Array<{ tool: SketchTool; label: string; icon: string; key: string }> = [
@@ -147,6 +159,8 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
         facePickMode,
         dressUpPickMode,
         holePickMode,
+        shortcutBar,
+        sketchAutoDimension,
         onEnterSketch,
         onExitSketch,
         onStartFeatureCreation,
@@ -169,7 +183,8 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
         measureCount,
         measureListOpen,
         onToggleMeasure,
-        onToggleMeasureList
+        onToggleMeasureList,
+        onCloseShortcutBar
     } = props;
     const [, forceUpdate] = React.useReducer((n) => n + 1, 0);
 
@@ -181,6 +196,10 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
             b();
         };
     }, [controller, documentStore, forceUpdate]);
+
+    React.useEffect(() => {
+        controller.setAutoDimensionEnabled(sketchAutoDimension);
+    }, [controller, sketchAutoDimension]);
 
     const active = controller.isActive;
     const tool = controller.getTool();
@@ -324,7 +343,9 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
     const refCounts = countReferenceResults(relevantRefs);
     const snapSummary = controller.isSnapEnabled() ? `Snap: ${controller.getSnapRadiusPx()}px` : 'Snap off';
     const selectHint =
-        active && tool === 'select' && constraintInput === undefined ? 'Click: select · Drag: move · Del: delete · Esc: clear' : undefined;
+        active && tool === 'select' && constraintInput === undefined
+            ? 'Click: select · Ctrl+Click: multi-select / relations · Q: shortcut bar · Del: delete · Esc: clear'
+            : undefined;
     const statusText = buildStatusText(status, refCounts, snapSummary, selectHint);
     const hasDiagnostics =
         status.conflicting.length > 0 || status.redundant.length > 0 || refCounts.ambiguous > 0 || refCounts.unmatched > 0;
@@ -385,6 +406,19 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
                     onDressUpPickCancel={onDressUpPickCancel}
                     onStartHolePick={onStartHolePick}
                     onHolePickCancel={onHolePickCancel}
+                />
+            )}
+
+            {shortcutBar !== undefined && (
+                <ContextShortcutBar
+                    mode={shortcutBar.mode}
+                    anchor={shortcutBar.anchor}
+                    documentStore={documentStore}
+                    controller={controller}
+                    onNewDocument={onNewDocument}
+                    onNewSketch={() => onEnterSketch('XY', 0)}
+                    onStartFeatureCreation={onStartFeatureCreation}
+                    onClose={onCloseShortcutBar}
                 />
             )}
 
@@ -527,6 +561,8 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
                         <div className="cad-sketch-status cad-sketch-status-error">{constraintInput.error}</div>
                     )}
 
+                    <AutoDimensionInput controller={controller} />
+
                     {dimensionLabels.map((label) => (
                         <div
                             key={label.id}
@@ -556,6 +592,8 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
                             onClose={closeDimensionEdit}
                         />
                     )}
+
+                    <ConstraintContextPopover controller={controller} />
 
                     {paramsOpen && session !== undefined && (
                         <ParametersPanel
@@ -1281,8 +1319,8 @@ function SketchShortcutsPopover(props: SketchShortcutsPopoverProps): React.React
                     <span>Select entity</span>
                 </div>
                 <div className="cad-sketch-shortcuts-row">
-                    <span className="cad-sketch-shortcuts-key">Shift+Click</span>
-                    <span>Add / remove from selection</span>
+                    <span className="cad-sketch-shortcuts-key">Ctrl+Click</span>
+                    <span>Multi-select; two entities opens relation popover</span>
                 </div>
                 <div className="cad-sketch-shortcuts-row">
                     <span className="cad-sketch-shortcuts-key">Drag</span>
@@ -1306,6 +1344,13 @@ function SketchShortcutsPopover(props: SketchShortcutsPopoverProps): React.React
                 <div className="cad-sketch-shortcuts-row">
                     <span className="cad-sketch-shortcuts-key">S / M / L</span>
                     <span>Snap radius 6 / 12 / 24 px</span>
+                </div>
+            </div>
+            <div className="cad-sketch-shortcuts-section">
+                <div className="cad-sketch-shortcuts-title">Context shortcut bar</div>
+                <div className="cad-sketch-shortcuts-row">
+                    <span className="cad-sketch-shortcuts-key">Q</span>
+                    <span>Open context shortcut bar at cursor (document / sketch)</span>
                 </div>
             </div>
             <div className="cad-sketch-shortcuts-section">
@@ -2601,4 +2646,347 @@ function findExternalGeometryTargetFeature(
         }
     }
     return undefined;
+}
+
+interface AutoDimensionInputProps {
+    readonly controller: SketchModeController;
+}
+
+function AutoDimensionInput(props: AutoDimensionInputProps): React.ReactElement | null {
+    const { controller } = props;
+    const [value, setValue] = React.useState('');
+    const inputRef = React.useRef<HTMLInputElement>(null);
+    const inputState = controller.getAutoDimensionInput();
+
+    React.useEffect(() => {
+        setValue('');
+    }, [inputState?.primitiveId]);
+
+    React.useEffect(() => {
+        if (inputState !== undefined) {
+            inputRef.current?.focus();
+            inputRef.current?.select();
+        }
+    }, [inputState]);
+
+    if (inputState === undefined) {
+        return null;
+    }
+
+    const label = inputState.kind === 'line' ? 'Length' : 'Radius';
+    const apply = (): void => {
+        const trimmed = value.trim();
+        if (trimmed === '') {
+            return;
+        }
+        const num = Number(trimmed);
+        const effective = Number.isFinite(num) ? num : trimmed;
+        void controller.applyAutoDimension(effective);
+    };
+    const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
+        if (e.key === 'Enter') {
+            apply();
+        } else if (e.key === 'Escape') {
+            controller.cancelAutoDimension();
+        }
+    };
+
+    return (
+        <div
+            className="cad-sketch-auto-dimension"
+            style={{ left: inputState.screenX, top: inputState.screenY }}
+            onPointerDown={(e) => e.stopPropagation()}
+        >
+            <label>
+                {label}
+                <input
+                    ref={inputRef}
+                    type="text"
+                    value={value}
+                    placeholder="value or param"
+                    onChange={(e) => setValue(e.target.value)}
+                    onKeyDown={onKeyDown}
+                    autoFocus
+                />
+            </label>
+            <button className="theia-button secondary" onClick={apply}>
+                <span className="codicon codicon-check" />
+            </button>
+            <button className="theia-button secondary" onClick={() => controller.cancelAutoDimension()}>
+                <span className="codicon codicon-close" />
+            </button>
+        </div>
+    );
+}
+
+interface ConstraintContextPopoverProps {
+    readonly controller: SketchModeController;
+}
+
+function ConstraintContextPopover(props: ConstraintContextPopoverProps): React.ReactElement | null {
+    const { controller } = props;
+    const popover = controller.getConstraintPopover();
+    const session = controller.getSession();
+
+    if (popover === undefined || session === undefined) {
+        return null;
+    }
+
+    const primitiveA = session.getPrimitive(popover.idA);
+    const primitiveB = session.getPrimitive(popover.idB);
+    if (primitiveA === undefined || primitiveB === undefined) {
+        return null;
+    }
+
+    const typeA = primitiveTypeToEntityType(primitiveA.type);
+    const typeB = primitiveTypeToEntityType(primitiveB.type);
+    if (typeA === undefined || typeB === undefined) {
+        return null;
+    }
+
+    const relations = validRelations(typeA, typeB);
+    if (relations.length === 0) {
+        return null;
+    }
+
+    const relationLabels: Record<ConstraintKind, string> = {
+        coincident: 'Coincident',
+        fix: 'Fix',
+        horizontal: 'Horizontal',
+        vertical: 'Vertical',
+        parallel: 'Parallel',
+        perpendicular: 'Perpendicular',
+        tangent: 'Tangent',
+        equal: 'Equal',
+        concentric: 'Concentric',
+        distance: 'Distance',
+        angle: 'Angle',
+        radius: 'Radius',
+        symmetry: 'Symmetry',
+        pointOnObject: 'Point on Object'
+    };
+
+    return (
+        <div
+            className="cad-sketch-constraint-popover"
+            style={{ left: popover.screenX, top: popover.screenY }}
+            onPointerDown={(e) => e.stopPropagation()}
+        >
+            {relations.map((kind) => (
+                <button
+                    key={kind}
+                    className="theia-button secondary cad-sketch-constraint-popover-item"
+                    onClick={() => {
+                        void controller.applyConstraintPopover(kind);
+                    }}
+                >
+                    {relationLabels[kind]}
+                </button>
+            ))}
+        </div>
+    );
+}
+
+function primitiveTypeToEntityType(type: string): SketchEntityType | undefined {
+    if (type === 'point') {
+        return 'point';
+    }
+    if (type === 'line') {
+        return 'line';
+    }
+    if (type === 'circle') {
+        return 'circle';
+    }
+    if (type === 'arc') {
+        return 'arc';
+    }
+    return undefined;
+}
+
+interface ContextShortcutBarProps {
+    readonly mode: 'document' | 'sketch';
+    readonly anchor: { readonly x: number; readonly y: number };
+    readonly documentStore: CadDocumentStore;
+    readonly controller: SketchModeController;
+    readonly onNewDocument?: () => void;
+    readonly onNewSketch: () => void;
+    readonly onStartFeatureCreation: (type: FeatureType) => void;
+    readonly onClose: () => void;
+}
+
+function ContextShortcutBar(props: ContextShortcutBarProps): React.ReactElement {
+    const { mode, anchor, documentStore, controller, onNewDocument, onNewSketch, onStartFeatureCreation, onClose } = props;
+    const barRef = React.useRef<HTMLDivElement>(null);
+    const [position, setPosition] = React.useState<{ x: number; y: number }>(anchor);
+
+    React.useEffect(() => {
+        const bar = barRef.current;
+        if (bar === null) {
+            setPosition({ x: anchor.x, y: anchor.y });
+            return;
+        }
+        const rect = bar.getBoundingClientRect();
+        const parent =
+            bar.offsetParent instanceof HTMLElement ? bar.offsetParent.getBoundingClientRect() : { left: 0, top: 0, width: 0, height: 0 };
+        const parentWidth = parent.width > 0 ? parent.width : window.innerWidth;
+        const parentHeight = parent.height > 0 ? parent.height : window.innerHeight;
+        const clamped = clampPanelPosition(anchor.x, anchor.y, rect.width, rect.height, parentWidth, parentHeight, 24);
+        setPosition({ x: clamped.left, y: clamped.top });
+    }, [anchor]);
+
+    React.useEffect(() => {
+        const close = (): void => onClose();
+        const onKey = (e: KeyboardEvent): void => {
+            if (e.key === 'Escape') {
+                e.stopPropagation();
+                close();
+            }
+        };
+        window.addEventListener('pointerdown', close);
+        window.addEventListener('keydown', onKey, true);
+        return () => {
+            window.removeEventListener('pointerdown', close);
+            window.removeEventListener('keydown', onKey, true);
+        };
+    }, [onClose]);
+
+    const active = controller.isActive;
+
+    const execute = (action: () => void): void => {
+        action();
+        onClose();
+    };
+
+    const doc = documentStore.document;
+    const selectedSketchId = documentStore.selection.selectedSketchId;
+    const sketchSelected = selectedSketchId !== undefined;
+    const hasBodies = doc !== undefined && doc.bodies.length > 0;
+
+    const sketchEntries = (
+        <>
+            {TOOLS.map((t) => (
+                <Tooltip key={t.tool} content={`${t.label} (${t.key})`} position="bottom">
+                    <button
+                        className={`theia-button secondary cad-shortcut-bar-button ${controller.getTool() === t.tool ? 'active' : ''}`}
+                        onClick={() => execute(() => controller.setTool(t.tool))}
+                    >
+                        <span className={`codicon ${t.icon}`} />
+                    </button>
+                </Tooltip>
+            ))}
+            <span className="cad-shortcut-bar-divider" />
+            <Tooltip content={`Construction geometry (${controller.getConstruction() ? 'on' : 'off'})`} position="bottom">
+                <button
+                    className={`theia-button secondary cad-shortcut-bar-button ${controller.getConstruction() ? 'active' : ''}`}
+                    onClick={() => execute(() => controller.setConstruction(!controller.getConstruction()))}
+                >
+                    <span className="codicon codicon-nuke-cad-construction" />
+                </button>
+            </Tooltip>
+        </>
+    );
+
+    const documentEntries = (
+        <>
+            <Tooltip content="New Document" position="bottom">
+                <button
+                    className="theia-button secondary cad-shortcut-bar-button"
+                    disabled={onNewDocument === undefined || documentStore.hasDocument}
+                    onClick={() => execute(() => onNewDocument?.())}
+                >
+                    <span className="codicon codicon-new-file" />
+                </button>
+            </Tooltip>
+            <Tooltip content="New Sketch" position="bottom">
+                <button className="theia-button secondary cad-shortcut-bar-button" onClick={() => execute(onNewSketch)}>
+                    <span className="codicon codicon-nuke-cad-sketch" />
+                </button>
+            </Tooltip>
+            <span className="cad-shortcut-bar-divider" />
+            {(['pad', 'pocket', 'revolve', 'groove'] as FeatureType[]).map((type) => (
+                <Tooltip key={type} content={capitalize(type)} position="bottom">
+                    <button
+                        className="theia-button secondary cad-shortcut-bar-button"
+                        disabled={!sketchSelected || ((type === 'pocket' || type === 'groove') && !hasBodies)}
+                        onClick={() => execute(() => onStartFeatureCreation(type))}
+                    >
+                        <span className={`codicon codicon-nuke-cad-${type}`} />
+                    </button>
+                </Tooltip>
+            ))}
+            <span className="cad-shortcut-bar-divider" />
+            {(['fillet', 'chamfer', 'draft', 'shell'] as FeatureType[]).map((type) => (
+                <Tooltip key={type} content={capitalize(type)} position="bottom">
+                    <button
+                        className="theia-button secondary cad-shortcut-bar-button"
+                        disabled={!hasBodies}
+                        onClick={() => execute(() => onStartFeatureCreation(type))}
+                    >
+                        <span className={`codicon codicon-nuke-cad-${type}`} />
+                    </button>
+                </Tooltip>
+            ))}
+            <span className="cad-shortcut-bar-divider" />
+            {(['linearPattern', 'circularPattern', 'mirror', 'hole'] as FeatureType[]).map((type) => (
+                <Tooltip key={type} content={capitalize(type)} position="bottom">
+                    <button
+                        className="theia-button secondary cad-shortcut-bar-button"
+                        disabled={!hasBodies}
+                        onClick={() => execute(() => onStartFeatureCreation(type))}
+                    >
+                        <span
+                            className={`codicon codicon-nuke-cad-${type === 'hole' ? 'hole' : type.replace(/[A-Z]/g, (c) => '-' + c.toLowerCase())}`}
+                        />
+                    </button>
+                </Tooltip>
+            ))}
+        </>
+    );
+
+    return (
+        <div
+            ref={barRef}
+            className="cad-shortcut-bar"
+            style={{ left: position.x, top: position.y }}
+            onPointerDown={(e) => e.stopPropagation()}
+        >
+            {active && mode === 'sketch' ? sketchEntries : documentEntries}
+        </div>
+    );
+}
+
+interface DocumentTemplatePickerProps {
+    readonly templates: ReadonlyArray<DocumentTemplate>;
+    readonly onSelect: (templateId: string) => void;
+    readonly onCancel: () => void;
+}
+
+export function DocumentTemplatePicker(props: DocumentTemplatePickerProps): React.ReactElement {
+    const { templates, onSelect, onCancel } = props;
+    return (
+        <NukeDialog title="New Document" onClose={onCancel}>
+            <div className="cad-template-picker">
+                <div className="cad-template-list">
+                    {templates.map((template) => (
+                        <button key={template.id} className="cad-template-item" onClick={() => onSelect(template.id)}>
+                            <span className="cad-template-name">{template.name}</span>
+                            <span className="cad-template-description">{template.description}</span>
+                            {Object.keys(template.parameters).length > 0 && (
+                                <span className="cad-template-params">
+                                    {Object.entries(template.parameters)
+                                        .map(([name, value]) => `${name}=${value}`)
+                                        .join(', ')}
+                                </span>
+                            )}
+                        </button>
+                    ))}
+                </div>
+                <div className="cad-template-picker-actions">
+                    <button className="theia-button secondary" onClick={onCancel}>
+                        Cancel
+                    </button>
+                </div>
+            </div>
+        </NukeDialog>
+    );
 }

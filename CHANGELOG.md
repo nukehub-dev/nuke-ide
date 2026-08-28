@@ -88,8 +88,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-cad: **sketch snap toggles** — a magnet toggle disables snapping for
   free placement and an S/M/L control sets the snap radius (6/12/24 px,
   session-scoped); the status line reflects the current snap state.
+- nuke-cad: **context shortcut bar (`Q`)** — press `Q` in the viewport to open a
+  transient cursor-anchored toolbar: sketch tools in sketch mode, feature-creation
+  actions in document mode. Closes on click, `Escape`, or pointer leaving the
+  viewport.
+- nuke-cad: **constraint relation popover** — `Ctrl`+click selecting exactly two
+  sketch entities opens a popover listing the valid geometric relations for the
+  pair (coincident, parallel, perpendicular, equal, tangent, concentric); clicking
+  a relation applies it through the existing constraint path.
+- nuke-cad: **auto-dimension on entity creation** — new preference
+  `nukeCad.sketchAutoDimension` (default false). When enabled, completing a line,
+  circle, or 3-point arc opens an inline input to immediately create a driving
+  distance or radius dimension; `Escape` dismisses without dimensioning.
+- nuke-cad: **document templates on New Document** — **New CAD Document** now opens
+  a compact picker with **Empty document**, **Pincell starter (cm)**, and
+  **Tokamak starter (cm)** presets. The chosen template's parameters are merged
+  over the empty v2 document; no template metadata is stored in the document.
 
 ### Fixed
+
+- nuke-cad: **the CAD viewport now adapts to light themes** — the model body
+  previously used the theme foreground color, which is near-black in light
+  themes and rendered the model as a silhouette on the light background, and
+  the B-rep edge lines were always white (invisible on white). On light
+  editor backgrounds the body switches to a mid steel tone and edges to dark
+  slate; dark themes keep the established look. Theme switches re-color the
+  loaded model live.
+
+- nuke-cad: **giant circle over the model when using the measure tool** — the
+  viewport painted the frame before updating the measure overlays, so the frame
+  right after a click showed the marker spheres at their initial unit scale
+  (one world-unit radius, larger than the whole model) and render-on-demand
+  kept that stale frame until the next pointer move. Overlays now update before
+  the paint, with the camera matrices refreshed first.
 
 - **The startup splash screen now shows real loading progress instead of a
   timed animation** — the bar previously ran on fake random-timer stages and

@@ -1,5 +1,5 @@
 import { test, expect, Page } from '@playwright/test';
-import { collectErrors, waitForWorkbench, runCommand } from './helpers';
+import { collectErrors, waitForWorkbench, runCommand, closeAllEditors } from './helpers';
 
 /**
  * GUI regression snapshots for the nuke-cad chrome:
@@ -32,23 +32,27 @@ test('tokamak nuke-cad fixture loading overlay is centered', async ({ page }) =>
     await page.goto('/');
     await waitForWorkbench(page);
 
-    await openFileByQuickOpen(page, 'tokamak_with_divertor.nuke-cad');
+    // Trigger the file open but do not wait for the quick-input to close, so we
+    // can snapshot the loading overlay before the backend build finishes.
+    await openFileByQuickOpen(page, 'tokamak_with_divertor.nuke-cad', false);
 
-    const viewport = page.locator('.cad-viewport').first();
-    await expect(viewport).toBeVisible({ timeout: 30_000 });
+    const overlay = page.locator('.nuke-loading-overlay').first();
+    await expect(overlay).toBeVisible({ timeout: 30_000 });
+    await expect(overlay).toContainText(/^(Loading|Building|Rebuilding)/);
+    await overlay.screenshot({ path: 'test-results/tokamak-cad-loading.png' });
 
-    await page.waitForTimeout(2000);
-    await viewport.screenshot({ path: 'test-results/tokamak-cad-loading.png' });
-
-    // Spot-check that the message text is centered (x within 30 %..70 % of viewport).
-    const messageRect = await page.evaluate(() => {
-        const el = Array.from(document.querySelectorAll('*')).find(
-            (e) => e.children.length === 0 && (e.textContent ?? '').trim().startsWith('Building')
-        );
-        return el ? el.getBoundingClientRect() : null;
+    // Spot-check that the message text is centered (x within 20 % of viewport center).
+    const [messageRect, viewportRect] = await page.evaluate(() => {
+        const overlayEl = document.querySelector('.nuke-loading-overlay');
+        const viewportEl = overlayEl?.closest('.cad-viewport');
+        const msgEl = overlayEl
+            ? Array.from(overlayEl.querySelectorAll('*')).find(
+                  (e) => e.children.length === 0 && /^(Loading|Building|Rebuilding)/.test((e.textContent ?? '').trim())
+              )
+            : null;
+        return [msgEl?.getBoundingClientRect() ?? null, viewportEl?.getBoundingClientRect() ?? null];
     });
     expect(messageRect, 'loading message not found').not.toBeNull();
-    const viewportRect = await viewport.boundingBox();
     expect(viewportRect, 'viewport bounding box').not.toBeNull();
     const center = messageRect!.x + messageRect!.width / 2;
     const viewportCenter = viewportRect!.x + viewportRect!.width / 2;
@@ -64,9 +68,16 @@ test('document-mode header toolbar renders with grouped actions and hides welcom
     await page.goto('/');
     await waitForWorkbench(page);
 
+    // Start from a clean workbench so New CAD Document is enabled.
+    await closeAllEditors(page);
     await runCommand(page, 'New CAD Document');
     const viewport = page.locator('.cad-viewport').first();
     await expect(viewport).toBeVisible({ timeout: 30_000 });
+
+    // The new document command now opens the template picker.
+    const templatePicker = page.locator('.cad-template-picker').first();
+    await expect(templatePicker).toBeVisible({ timeout: 10_000 });
+    await templatePicker.locator('button', { hasText: 'Empty document' }).first().click();
 
     // After creating a document the welcome card should be hidden and the
     // document-mode hint should be shown instead.
@@ -79,19 +90,20 @@ test('document-mode header toolbar renders with grouped actions and hides welcom
     const toolbar = page.locator('.cad-document-toolbar').first();
     await expect(toolbar).toBeVisible({ timeout: 10_000 });
     await expect(toolbar.locator('.cad-document-toolbar-name')).toContainText('Untitled');
-    await expect(toolbar.locator('.nuke-toolbar-group')).toHaveCount(6);
+    await expect(toolbar.locator('.nuke-toolbar-group')).toHaveCount(7);
     await expect(toolbar.locator('[role="group"][aria-label="Document"]')).toBeVisible();
     await expect(toolbar.locator('[role="group"][aria-label="Sketch"]')).toBeVisible();
     await expect(toolbar.locator('[role="group"][aria-label="Additive"]')).toBeVisible();
     await expect(toolbar.locator('[role="group"][aria-label="Boolean"]')).toBeVisible();
     await expect(toolbar.locator('[role="group"][aria-label="Dress-up"]')).toBeVisible();
     await expect(toolbar.locator('[role="group"][aria-label="Pattern"]')).toBeVisible();
+    await expect(toolbar.locator('[role="group"][aria-label="Inspect"]')).toBeVisible();
 
     await viewport.screenshot({ path: 'test-results/cad-viewport-document-toolbar.png' });
 
     // Pad is disabled until a sketch is selected; verify the toolbar state is
     // sensible and no dialog opens when a disabled feature button is clicked.
-    const padButton = toolbar.locator('button', { hasText: 'Pad' }).first();
+    const padButton = toolbar.locator('button:has(.codicon-nuke-cad-pad)').first();
     await expect(padButton).toBeVisible();
     await expect(padButton).toBeDisabled();
     await padButton.click({ force: true });
@@ -101,7 +113,100 @@ test('document-mode header toolbar renders with grouped actions and hides welcom
     expect(severe, `unexpected severe errors:\n${severe.join('\n')}`).toEqual([]);
 });
 
-async function openFileByQuickOpen(page: Page, name: string): Promise<void> {
+test('Q shortcut bar opens in document mode and closes on Escape', async ({ page }) => {
+    const errors = collectErrors(page);
+    await page.goto('/');
+    await waitForWorkbench(page);
+
+    // Start from a clean workbench so New CAD Document is enabled.
+    await closeAllEditors(page);
+    await runCommand(page, 'New CAD Document');
+    const viewport = page.locator('.cad-viewport').first();
+    await expect(viewport).toBeVisible({ timeout: 30_000 });
+
+    const templatePicker = page.locator('.cad-template-picker').first();
+    await expect(templatePicker).toBeVisible({ timeout: 10_000 });
+    await templatePicker.locator('button', { hasText: 'Empty document' }).first().click();
+    await expect(viewport.locator('.cad-viewport-document-hint')).toBeVisible({ timeout: 10_000 });
+
+    // Focus the viewport container so the container-scoped Q handler fires.
+    await viewport
+        .locator('canvas')
+        .first()
+        .click({ position: { x: 200, y: 200 } });
+    await viewport.focus();
+    await page.waitForTimeout(100);
+    await page.keyboard.press('q');
+
+    const shortcutBar = viewport.locator('.cad-shortcut-bar').first();
+    await expect(shortcutBar).toBeVisible({ timeout: 10_000 });
+    // Document-mode bar exposes feature creation actions (Pad is disabled without a sketch).
+    await expect(shortcutBar.locator('button .codicon-new-file').first()).toBeVisible();
+    await expect(shortcutBar.locator('button .codicon-nuke-cad-sketch').first()).toBeVisible();
+    const padButton = shortcutBar.locator('button:has(.codicon-nuke-cad-pad)').first();
+    await expect(padButton).toBeDisabled();
+
+    await page.keyboard.press('Escape');
+    await expect(shortcutBar).toBeHidden();
+
+    const severe = errors.filter((e) => !e.includes('l10n') && !e.includes('localization bundles'));
+    expect(severe, `unexpected severe errors:\n${severe.join('\n')}`).toEqual([]);
+});
+
+test('Q shortcut bar opens in sketch mode and closes on Escape', async ({ page }) => {
+    const errors = collectErrors(page);
+    await page.goto('/');
+    await waitForWorkbench(page);
+
+    // Start from a clean workbench so New CAD Document is enabled.
+    await closeAllEditors(page);
+    await runCommand(page, 'New CAD Document');
+    const viewport = page.locator('.cad-viewport').first();
+    await expect(viewport).toBeVisible({ timeout: 30_000 });
+
+    const templatePicker = page.locator('.cad-template-picker').first();
+    await expect(templatePicker).toBeVisible({ timeout: 10_000 });
+    await templatePicker.locator('button', { hasText: 'Empty document' }).first().click();
+    await expect(viewport.locator('.cad-viewport-document-hint')).toBeVisible({ timeout: 10_000 });
+
+    // Start a new sketch on the XY plane.
+    await runCommand(page, 'New Sketch');
+    const datumPicker = viewport.locator('.cad-sketch-datum-picker').first();
+    await expect(datumPicker).toBeVisible({ timeout: 10_000 });
+    await datumPicker.locator('button', { hasText: 'Start Sketch' }).first().click();
+    await expect(viewport.locator('.cad-sketch-finish-button')).toBeVisible({ timeout: 30_000 });
+
+    // Focus the viewport container and open the sketch shortcut bar.
+    await viewport
+        .locator('canvas')
+        .first()
+        .click({ position: { x: 200, y: 200 } });
+    await viewport.focus();
+    await page.waitForTimeout(100);
+    await page.keyboard.press('q');
+
+    const shortcutBar = viewport.locator('.cad-shortcut-bar').first();
+    await expect(shortcutBar).toBeVisible({ timeout: 10_000 });
+    // Sketch-mode bar exposes the six sketch tools.
+    for (const icon of [
+        'codicon-nuke-cad-select',
+        'codicon-nuke-cad-point',
+        'codicon-nuke-cad-line',
+        'codicon-nuke-cad-circle',
+        'codicon-nuke-cad-arc',
+        'codicon-nuke-cad-rectangle'
+    ]) {
+        await expect(shortcutBar.locator(`button .${icon}`).first()).toBeVisible();
+    }
+
+    await page.keyboard.press('Escape');
+    await expect(shortcutBar).toBeHidden();
+
+    const severe = errors.filter((e) => !e.includes('l10n') && !e.includes('localization bundles'));
+    expect(severe, `unexpected severe errors:\n${severe.join('\n')}`).toEqual([]);
+});
+
+async function openFileByQuickOpen(page: Page, name: string, waitForClose = true): Promise<void> {
     await page.locator('#theia-app-shell').click({ position: { x: 10, y: 10 } });
     await page.keyboard.press('Control+P');
     const input = page.locator('.quick-input-widget input');
@@ -110,5 +215,7 @@ async function openFileByQuickOpen(page: Page, name: string): Promise<void> {
     const row = page.locator('.quick-input-widget .monaco-list-row', { hasText: name }).first();
     await expect(row).toBeVisible({ timeout: 30_000 });
     await row.click();
-    await expect(input).toBeHidden();
+    if (waitForClose) {
+        await expect(input).toBeHidden();
+    }
 }

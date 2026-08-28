@@ -75,11 +75,14 @@ import {
 } from '../../sketch/sketch-math';
 import { createSnapConfig, snap } from '../../sketch/snap';
 import { ensureNukeCadExtension } from './cad-save-path';
-import { CadSketchOverlay } from './cad-sketch-overlay';
+import { CadSketchOverlay, DocumentTemplatePicker } from './cad-sketch-overlay';
 import { CadDocumentStore, createSketchId, createFeatureId, computeDependsOn } from '../../document/cad-document-store';
+import { NukeCadPreferences } from '../../nuke-cad-preferences';
+import { DOCUMENT_TEMPLATES } from '../../../common/document-templates';
 import { type SketchDef, type FeatureDef, type FeatureType, type FeatureParams } from '../../../common/cad-document';
 import { type TopologyRef } from '../../../common/topology-refs';
 import { FaceHighlighter, type FacePickHit, buildTopologyRef, pointerToNdc, projectHitToFaceUv, raycastFace } from './face-picker';
+import { cadViewportColors } from './viewport-colors';
 import { EdgeHighlighter, type EdgePickHit, buildEdgeLine, buildEdgeTopologyRef, raycastEdge } from './edge-picker';
 import {
     DEFAULT_GHOST_OPACITY,
@@ -180,6 +183,9 @@ export class CadViewportWidget extends ReactWidget {
 
     @inject(WidgetManager)
     protected readonly widgetManager: WidgetManager;
+
+    @inject(NukeCadPreferences)
+    protected readonly preferences: NukeCadPreferences;
 
     private tessData?: TessData;
     private loading = false;
@@ -293,9 +299,24 @@ export class CadViewportWidget extends ReactWidget {
         }
     };
 
+    /** True while the document template picker is open. */
+    templatePickerOpen = false;
+
     protected readonly handleNewDocument = (): void => {
-        this.documentStore.createDocument('Untitled');
+        this.templatePickerOpen = true;
+        this.update();
+    };
+
+    protected readonly handleCreateDocument = (templateId: string): void => {
+        this.documentStore.createDocument('Untitled', templateId);
         this.editingSketchId = undefined;
+        this.templatePickerOpen = false;
+        this.update();
+    };
+
+    protected readonly handleCancelTemplatePicker = (): void => {
+        this.templatePickerOpen = false;
+        this.update();
     };
 
     protected readonly handleSaveDocument = (): Promise<void> => this.saveDocument(false);
@@ -1153,6 +1174,9 @@ export class CadViewportWidget extends ReactWidget {
                 facePickMode={this.facePickMode}
                 dressUpPickMode={this.dressUpPickMode}
                 documentStore={this.documentStore}
+                templatePickerOpen={this.templatePickerOpen}
+                sketchAutoDimension={this.preferences['nukeCad.sketchAutoDimension']}
+                templates={DOCUMENT_TEMPLATES}
                 onDismissError={this.dismissBuildError}
                 onDismissWarnings={this.dismissBuildWarnings}
                 onSelect={this.handleViewportSelect}
@@ -1161,6 +1185,8 @@ export class CadViewportWidget extends ReactWidget {
                 subscribeThemeChange={this.subscribeThemeChange}
                 onOpenModel={() => this.openModel()}
                 onNewDocument={this.handleNewDocument}
+                onCreateDocument={this.handleCreateDocument}
+                onCancelTemplatePicker={this.handleCancelTemplatePicker}
                 onSaveDocument={this.handleSaveDocument}
                 onRebuildDocument={this.handleRebuildDocument}
                 onControllerReady={this.handleControllerReady}
@@ -1218,6 +1244,9 @@ interface CadViewportComponentProps {
     readonly sectionActive: boolean;
     readonly documentStore: CadDocumentStore;
     readonly messageService: MessageService;
+    readonly templatePickerOpen: boolean;
+    readonly sketchAutoDimension: boolean;
+    readonly templates: ReadonlyArray<import('../../../common/document-templates').DocumentTemplate>;
     readonly onDismissError: () => void;
     readonly onDismissWarnings: () => void;
     readonly onSelect: (selection: CadSelection) => void;
@@ -1226,6 +1255,8 @@ interface CadViewportComponentProps {
     readonly subscribeThemeChange: (listener: () => void) => Disposable;
     readonly onOpenModel: () => void;
     readonly onNewDocument: () => void;
+    readonly onCreateDocument: (templateId: string) => void;
+    readonly onCancelTemplatePicker: () => void;
     readonly onSaveDocument: () => void;
     readonly onRebuildDocument: () => void;
     readonly onControllerReady: (controller: SketchModeController, camera: THREE.PerspectiveCamera) => void;
@@ -1267,6 +1298,9 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
     const [measurements, setMeasurements] = React.useState<MeasureSegment[]>([]);
     const [measurePending, setMeasurePending] = React.useState<MeasurePoint3D | undefined>();
     const [measureListOpen, setMeasureListOpen] = React.useState(false);
+    const [shortcutBar, setShortcutBar] = React.useState<
+        { readonly mode: 'document' | 'sketch'; readonly anchor: { readonly x: number; readonly y: number } } | undefined
+    >(undefined);
     const measurePendingRef = React.useRef<MeasurePoint3D | undefined>(undefined);
     const prevMeasureSketchRef = React.useRef(false);
     const editFeature = React.useMemo(() => {
@@ -1275,6 +1309,8 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
         }
         return props.documentStore.document?.features.find((f) => f.id === props.editingFeatureId);
     }, [props.editingFeatureId, props.documentStore.document?.features]);
+    const closeShortcutBar = React.useCallback((): void => setShortcutBar(undefined), []);
+
     const viewportApi = React.useRef<{
         updateModel?: (tessData?: TessData) => void;
         setFacePickMode?: (mode?: 'sketchDatum' | 'externalGeometry') => void;
@@ -1288,6 +1324,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
         setSection?: (section?: SectionState) => void;
         setGizmoVisible?: (visible: boolean) => void;
         updateMeasureState?: (state: MeasureViewState) => void;
+        setAutoDimensionEnabled?: (enabled: boolean) => void;
     }>({});
 
     const measureMode: MeasureKind =
@@ -1415,6 +1452,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                 props.onExitSection,
                 handleMeasurePoint,
                 handleMeasureDeactivate,
+                (mode, anchor) => setShortcutBar({ mode, anchor }),
                 OrbitControls
             );
             if (disposed) {
@@ -1434,6 +1472,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             viewportApi.current.setSection = api.setSection;
             viewportApi.current.setGizmoVisible = api.setGizmoVisible;
             viewportApi.current.updateMeasureState = api.updateMeasureState;
+            viewportApi.current.setAutoDimensionEnabled = api.setAutoDimensionEnabled;
             api.setFacePickMode(props.facePickMode);
             api.setDressUpPickMode(props.dressUpPickMode);
             api.setHolePickMode(props.holePickMode ?? false);
@@ -1456,6 +1495,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             viewportApi.current.setSection = undefined;
             viewportApi.current.setGizmoVisible = undefined;
             viewportApi.current.updateMeasureState = undefined;
+            viewportApi.current.setAutoDimensionEnabled = undefined;
             cleanup?.();
         };
         // All non-tessData props are stable widget-bound callbacks; the scene is
@@ -1484,6 +1524,10 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             props.sectionActive ? { axis: sectionAxis, flip: sectionFlip, fraction: sectionFraction } : undefined
         );
     }, [props.sectionActive, sectionAxis, sectionFlip, sectionFraction, controller]);
+
+    React.useEffect(() => {
+        viewportApi.current.setAutoDimensionEnabled?.(props.sketchAutoDimension);
+    }, [props.sketchAutoDimension, controller]);
 
     React.useEffect(() => {
         if (props.warnings.length > 0) {
@@ -1573,6 +1617,9 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             facePickMode={props.facePickMode}
             dressUpPickMode={props.dressUpPickMode}
             holePickMode={props.holePickMode}
+            shortcutBar={shortcutBar}
+            sketchAutoDimension={props.sketchAutoDimension}
+            templates={props.templates}
             onEnterSketch={props.onEnterSketch}
             onExitSketch={props.onExitSketch}
             onStartFeatureCreation={props.onStartFeatureCreation}
@@ -1596,8 +1643,20 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             measureListOpen={measureListOpen}
             onToggleMeasure={handleToggleMeasure}
             onToggleMeasureList={handleToggleMeasureList}
+            onCloseShortcutBar={closeShortcutBar}
         />
     );
+
+    const templatePicker = props.templatePickerOpen ? (
+        <DocumentTemplatePicker
+            templates={props.templates}
+            onSelect={(id) => {
+                props.onCreateDocument(id);
+                setShortcutBar(undefined);
+            }}
+            onCancel={props.onCancelTemplatePicker}
+        />
+    ) : undefined;
 
     const activeShading = SHADING_MODES.find((mode) => mode.id === shadingMode) ?? SHADING_MODES[0];
     const sectionLabel = sectionStatusLabel({ axis: sectionAxis, flip: sectionFlip, fraction: sectionFraction });
@@ -1794,6 +1853,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                 {dirtyMarker}
                 {props.sketchEntering && <NukeLoadingOverlay message="Starting sketch solver..." />}
                 {sketchOverlay}
+                {templatePicker}
                 {measureListPopover}
             </div>
         );
@@ -1821,6 +1881,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                     </NukeEmptyState>
                 </div>
                 {sketchOverlay}
+                {templatePicker}
             </div>
         );
     }
@@ -1835,6 +1896,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                     Document mode: use the Feature Tree to add sketches and features, then rebuild.
                 </div>
                 {sketchOverlay}
+                {templatePicker}
             </div>
         );
     }
@@ -1847,6 +1909,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             {navCluster}
             {measureListPopover}
             {sketchOverlay}
+            {templatePicker}
         </div>
     );
 }
@@ -1918,6 +1981,7 @@ interface ViewportApi {
     readonly setSection: (section?: SectionState) => void;
     readonly setGizmoVisible: (visible: boolean) => void;
     readonly updateMeasureState: (state: MeasureViewState) => void;
+    readonly setAutoDimensionEnabled: (enabled: boolean) => void;
 }
 
 function initViewport(
@@ -1943,6 +2007,7 @@ function initViewport(
     onExitSection: () => void,
     onMeasurePoint: (point: MeasurePoint3D) => void,
     onMeasureDeactivate: () => void,
+    onShortcutBarRequest: (mode: 'document' | 'sketch', anchor: { x: number; y: number }) => void,
     OrbitControlsCtor: new (
         camera: THREE.Camera,
         domElement: HTMLElement
@@ -1961,6 +2026,7 @@ function initViewport(
     const scene = new THREE.Scene();
     const background = readThemeColor(container, '--theia-editor-background', '#1e1e1e');
     scene.background = new THREE.Color(background);
+    const viewportColors = cadViewportColors(background, readThemeColor(container, '--theia-foreground', '#cccccc'));
 
     const camera = new THREE.PerspectiveCamera(45, width / height, 0.01, 10000);
     camera.name = 'cad-perspective-camera';
@@ -1984,7 +2050,8 @@ function initViewport(
     modelGroup.name = 'cad-model';
     scene.add(modelGroup);
 
-    const baseColor = new THREE.Color(readThemeColor(container, '--theia-foreground', '#cccccc'));
+    const baseColor = new THREE.Color(viewportColors.body);
+    const edgeColor = new THREE.Color(viewportColors.edges);
     const selectedColor = new THREE.Color(readThemeColor(container, '--theia-focusBorder', '#007fd4'));
 
     let meshes: THREE.Mesh[] = [];
@@ -2004,6 +2071,8 @@ function initViewport(
     // Section mode: plane recomputed from this tessellation's bounding box.
     let currentTessData: TessData | undefined = tessData;
     let activeSection: SectionState | undefined;
+    /** Last pointer position inside the container, used to anchor the Q shortcut bar. */
+    let lastPointerPosition = { x: container.clientWidth / 2, y: container.clientHeight / 2 };
 
     const highlightColor = new THREE.Color(readThemeColor(container, '--theia-focusBorder', '#007fd4'));
     const faceHighlighter = new FaceHighlighter(highlightColor);
@@ -2301,10 +2370,16 @@ function initViewport(
 
     let controller: SketchModeController;
     const renderScene = (): void => {
-        renderer.render(scene, controller.getActiveCamera());
+        const cam = controller.getActiveCamera();
+        // Camera matrices must be fresh before the overlay projection math, and
+        // the overlays must be updated BEFORE the paint: with render-on-demand
+        // there is no next frame to correct a stale one, so painting first would
+        // flash newly created measure markers at their initial unit scale.
+        cam.updateMatrixWorld();
+        updateMeasureOverlays();
+        renderer.render(scene, cam);
         updateGizmo();
         updateViewLabel();
-        updateMeasureOverlays();
     };
     controller = new SketchModeController(container, scene, renderer, controls, renderScene, {
         modelGroup,
@@ -2422,6 +2497,7 @@ function initViewport(
             }
             for (const edge of solid.edges) {
                 const line = buildEdgeLine(solid.solidId, edge);
+                (line.material as THREE.LineBasicMaterial).color.set(edgeColor);
                 modelGroup.add(line);
                 edgeLines.push(line);
             }
@@ -2774,7 +2850,13 @@ function initViewport(
     };
     renderer.domElement.addEventListener('contextmenu', onContextMenu);
 
+    const updateLastPointerPosition = (event: PointerEvent | MouseEvent): void => {
+        const rect = container.getBoundingClientRect();
+        lastPointerPosition = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    };
+
     const onPointerDown = (event: PointerEvent): void => {
+        updateLastPointerPosition(event);
         if (!controller.isActive) {
             return;
         }
@@ -2789,12 +2871,13 @@ function initViewport(
                 }
                 return;
             }
-            controller.onPointerDown(event.clientX, event.clientY, event.shiftKey, event.button);
+            controller.onPointerDown(event.clientX, event.clientY, event.ctrlKey || event.metaKey, event.shiftKey, event.button);
             return;
         }
-        controller.onPointerDown(event.clientX, event.clientY, event.shiftKey, event.button);
+        controller.onPointerDown(event.clientX, event.clientY, event.ctrlKey || event.metaKey, event.shiftKey, event.button);
     };
     const onSketchPointerMove = (event: PointerEvent): void => {
+        updateLastPointerPosition(event);
         if (!controller.isActive) {
             return;
         }
@@ -2886,6 +2969,23 @@ function initViewport(
             }
             return;
         }
+        // Q shortcut bar: available in both document and sketch mode when no
+        // transient tool or text field is active and no modifier is held.
+        if (event.key === 'q' || event.key === 'Q') {
+            const target = event.target;
+            const isTextField =
+                target instanceof HTMLInputElement ||
+                target instanceof HTMLTextAreaElement ||
+                target instanceof HTMLSelectElement ||
+                (target instanceof HTMLElement && target.isContentEditable);
+            if (!isTextField && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey) {
+                event.preventDefault();
+                const mode = controller.isActive ? 'sketch' : 'document';
+                onShortcutBarRequest(mode, { ...lastPointerPosition });
+            }
+            return;
+        }
+
         if (!controller.isActive) {
             return;
         }
@@ -3000,8 +3100,14 @@ function initViewport(
     });
 
     const themeDisposable = subscribeThemeChange(() => {
-        scene.background = new THREE.Color(readThemeColor(container, '--theia-editor-background', '#1e1e1e'));
-        baseColor.set(readThemeColor(container, '--theia-foreground', '#cccccc'));
+        const nextBackground = readThemeColor(container, '--theia-editor-background', '#1e1e1e');
+        scene.background = new THREE.Color(nextBackground);
+        const nextColors = cadViewportColors(nextBackground, readThemeColor(container, '--theia-foreground', '#cccccc'));
+        baseColor.set(nextColors.body);
+        edgeColor.set(nextColors.edges);
+        for (const line of edgeLines) {
+            (line.material as THREE.LineBasicMaterial).color.set(edgeColor);
+        }
         selectedColor.set(readThemeColor(container, '--theia-focusBorder', '#007fd4'));
         applyHighlight();
         controller.refreshThemeColors();
@@ -3054,6 +3160,9 @@ function initViewport(
         setGhostOpacity,
         setSection,
         setGizmoVisible,
+        setAutoDimensionEnabled: (enabled) => {
+            controller.setAutoDimensionEnabled(enabled);
+        },
         updateMeasureState: (state) => {
             measureState = state;
             if (!state.active) {

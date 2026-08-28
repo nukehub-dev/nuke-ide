@@ -38,7 +38,6 @@
  */
 
 import {
-    NUKE_CAD_SCHEMA_VERSION,
     type NukeCadDocument,
     type BodyDef,
     type SketchDef,
@@ -49,6 +48,7 @@ import {
     validateNukeCadDocument,
     migrateNukeCadDocument
 } from '../../common/cad-document';
+import { applyDocumentTemplate, createEmptyNukeCadDocument } from '../../common/document-templates';
 import { type FeatureResult, type ReferenceResolutionResult } from '../../common/nuke-cad-protocol';
 import { type TopologyRef, type FaceFingerprint, type EdgeFingerprint, validateTopologyRef } from '../../common/topology-refs';
 
@@ -93,22 +93,6 @@ let idCounter = 0;
 
 function nextId(prefix: string): string {
     return `${prefix}-${++idCounter}`;
-}
-
-function emptyDocument(name: string): NukeCadDocument {
-    return {
-        version: NUKE_CAD_SCHEMA_VERSION,
-        name,
-        parameters: {},
-        datums: [
-            { id: 'datum-xy', kind: 'XY', name: 'XY Plane' },
-            { id: 'datum-yz', kind: 'YZ', name: 'YZ Plane' },
-            { id: 'datum-xz', kind: 'XZ', name: 'XZ Plane' }
-        ],
-        bodies: [],
-        sketches: [],
-        features: []
-    };
 }
 
 function cloneDocument(doc: NukeCadDocument): NukeCadDocument {
@@ -378,10 +362,12 @@ export class CadDocumentStore {
      * Create a new empty document with the given name.
      *
      * The new document contains the three canonical datum planes (XY, YZ, XZ)
-     * and no sketches, bodies, or features. It is not marked dirty.
+     * and no sketches, bodies, or features. It is not marked dirty. When
+     * ``templateId`` is supplied the matching built-in template's parameters are
+     * merged over the empty document.
      */
-    createDocument(name: string): DocumentMutationResult {
-        const document = emptyDocument(name);
+    createDocument(name: string, templateId?: string): DocumentMutationResult {
+        const document = applyDocumentTemplate(createEmptyNukeCadDocument(name), templateId ?? 'empty');
         const validation = validateNukeCadDocument(document);
         if (!validation.valid) {
             return { success: false, error: formatIssues(validation.issues), issues: validation.issues };

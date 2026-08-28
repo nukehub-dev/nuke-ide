@@ -114,7 +114,10 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   3D viewport exposes a navigation cluster (bottom-right: ISO/top/front/right
   views, fit, zoom in/out) backed by `fitView`/`zoomView`/`setStandardView` on
   the viewport API; `F` fits the view when no sketch, pick mode, or text field
-  is active. Viewport key handlers are scoped to the viewport: the container
+  is active. Pressing `Q` inside the viewport opens a transient context shortcut
+  bar anchored at the cursor: sketch tools when a sketch session is active,
+  feature-creation actions otherwise; it closes on click, Escape, or pointer
+  leaving the viewport. Viewport key handlers are scoped to the viewport: the container
   is focusable (`tabindex="-1"`, focused on pointerdown) and every window
   keydown handler early-returns unless the container contains
   `document.activeElement`, so Theia's own shortcuts keep working whenever
@@ -139,6 +142,11 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   label (`cad-viewport-view-label`, imperative DOM) shows the active standard
   view (`User` after orbiting, `Top`/`Left`/... after snapping) or
   `Sketch — <name>` while sketching (`SketchModeController.getSketchName()`).
+  Model colors are theme-adaptive (`viewport-colors.ts`): the face albedo
+  follows `--theia-foreground` on dark themes but switches to a fixed steel
+  tone on light editor backgrounds (a light theme's foreground is near-black
+  and silhouettes the model), and edge lines flip from white to dark slate;
+  theme changes re-color the loaded model live.
   Shading is a single material-state authority: `setShading(mode)` accepts
   `shaded`, `shadedWireframe`, `edgesOnly`, or `xray`, and
   `setGhostOpacity(v)` tunes x-ray transparency; pure helpers live in
@@ -155,23 +163,27 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   document toolbar Inspect group or the sketch toolbar — raycast surface
   points in 3D, snap-aware sketch-plane points in sketch mode — rendered as
   overlay lines/spheres with imperative HTML labels projected in
-  `renderScene`; measurements are viewport state (never document state) and
-   clear on rebuild or sketch exit. `fitView` frames
-   the selected solid when `currentSelection.solidId` is set; `.` and
-   double-click-on-solid also fit the selection; `Tab` toggles sketch mode
-   (`handleToggleSketchMode`, guarded against pick modes, dialogs, and text
-   fields). Selection highlighting is multi-solid aware:
-   `CadSelection.solidIds` (Ctrl/Cmd multi-select in the Model Outline, or a
-   Feature Tree body/feature click mapping to all of the body's solids)
-   highlights every solid in the set; `solidId` stays the primary (properties
-   panel, fit-to-selection). The Model Outline's hide/isolate actions publish
-   a hidden-solids set through `NukeCadStateManager.setHiddenSolidIds` —
-   viewport state, never document state; the viewport applies it in
-   `applyShading` (face meshes and edge lines) and excludes hidden solids from
-   every picking path (`pickableMeshes()` / `pickableEdgeLines()`; three.js
-   never renders invisible objects but its raycaster still hits them, so the
-   pick pool filters explicitly). The set clears on `setModel` because solid
-   indices are positional and can shuffle between builds.
+  `renderScene`. Overlay updates must run BEFORE `renderer.render` inside
+  `renderScene` (with a fresh `cam.updateMatrixWorld()`): render-on-demand has
+  no next frame to correct a stale paint, so painting first flashes new
+  measure markers at their initial unit scale. Measurements are viewport
+  state (never document state) and
+  clear on rebuild or sketch exit. `fitView` frames
+  the selected solid when `currentSelection.solidId` is set; `.` and
+  double-click-on-solid also fit the selection; `Tab` toggles sketch mode
+  (`handleToggleSketchMode`, guarded against pick modes, dialogs, and text
+  fields). Selection highlighting is multi-solid aware:
+  `CadSelection.solidIds` (Ctrl/Cmd multi-select in the Model Outline, or a
+  Feature Tree body/feature click mapping to all of the body's solids)
+  highlights every solid in the set; `solidId` stays the primary (properties
+  panel, fit-to-selection). The Model Outline's hide/isolate actions publish
+  a hidden-solids set through `NukeCadStateManager.setHiddenSolidIds` —
+  viewport state, never document state; the viewport applies it in
+  `applyShading` (face meshes and edge lines) and excludes hidden solids from
+  every picking path (`pickableMeshes()` / `pickableEdgeLines()`; three.js
+  never renders invisible objects but its raycaster still hits them, so the
+  pick pool filters explicitly). The set clears on `setModel` because solid
+  indices are positional and can shuffle between builds.
 - The Model Outline panel (`src/browser/widgets/outline-panel/`, widget ID
   `nuke-cad-outline-panel-widget`, label "Model Outline") lists the active
   model's manifest volumes and surfaces and is read-only — no manifest editing
@@ -307,13 +319,18 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
     screen offset that survives zoom/pan and opts out of auto-shift),
     parameters panel, external-geometry
     reference list, diagnostics popover (with reference-resolution status), and
-    status line (leads with `Click: select · Drag: move · Del: delete ·
-Esc: clear` while the Select tool is active and no constraint pick is in
-    progress). Sketch tools have single-key shortcuts (S select, L line,
-    C circle, A arc, R rectangle, P point; guarded against pick modes,
-    dialogs, measure, text fields, and modifier keys), and Escape falls
-    through: cancel in-progress entity, else clear selection, else return to
-    the Select tool. A keyboard cheat-sheet popover on the toolbar header
+    status line (leads with `Click: select · Ctrl+Click: multi-select / relations
+· Q: shortcut bar · Del: delete · Esc: clear` while the Select tool is active
+    and no constraint pick is in progress). Sketch tools have single-key shortcuts
+    (S select, L line, C circle, A arc, R rectangle, P point; guarded against pick
+    modes, dialogs, measure, text fields, and modifier keys), and Escape falls
+    through: dismiss auto-dimension / constraint popover, cancel in-progress entity,
+    clear selection, return to the Select tool. Ctrl+click selecting exactly two
+    entities opens a constraint relation popover listing the valid geometric
+    relations for the pair (`constraint-relations.ts`). The auto-dimension
+    preference (`nukeCad.sketchAutoDimension`, default false) shows an inline
+    value input after completing a line, circle, or arc; Enter creates a driving
+    dimension, Escape dismisses. A keyboard cheat-sheet popover on the toolbar header
     lists the bindings. The sketch toolbar is a floating draggable panel: drag by its
     header (or the collapsed toggle), right-click/double-click for Reset
     Position; the dragged position persists across collapse/expand. Dragging
@@ -437,7 +454,10 @@ Esc: clear` while the Select tool is active and no constraint pick is in
     triggers a viewport-only document build (no DAGMC or FEM mesh export).
   - Document commands: `nuke.cad.newDocument`, `nuke.cad.saveDocument`,
     `nuke.cad.saveDocumentAs`, `nuke.cad.newSketch`, `nuke.cad.exitSketch`, and
-    `nuke.cad.openFeatureTree`. Save/Save-As enforce the `.nuke-cad`
+    `nuke.cad.openFeatureTree`. `newDocument` opens a compact template picker
+    (`DOCUMENT_TEMPLATES` in `src/common/document-templates.ts`) that merges the
+    chosen preset's parameters over an empty v2 document; "Empty document" preserves
+    today's behavior. Save/Save-As enforce the `.nuke-cad`
     extension: the dialog defaults to it and the chosen path is normalized
     through `ensureNukeCadExtension` (`cad-save-path.ts`) before writing.
   - The **Feature Tree** panel (`src/browser/widgets/feature-tree/`, widget ID

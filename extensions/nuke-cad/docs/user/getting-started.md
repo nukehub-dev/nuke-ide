@@ -86,7 +86,7 @@ The **Model Outline** panel gives a structured tree view of the active model:
   sort; click a row to select that solid in the viewport (`Ctrl`/`Cmd`-click
   multi-selects). Values are model units with SI suffixes.
 - **Build warnings** — cross-body overlap warnings (`bodies 'x' and 'y'
-  overlap … but are not merged by a boolean`) carry a **Fuse** button when the
+overlap … but are not merged by a boolean`) carry a **Fuse** button when the
   model was built from an open `.nuke-cad` document. Clicking it appends a
   `booleanFuse` feature that merges the overlapping pair and rebuilds, which
   clears that warning. Assemblies that overlap on purpose can keep the

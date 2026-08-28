@@ -93,6 +93,18 @@ describe('CadDocumentStore', () => {
         expect(store.dirty).toBe(false);
     });
 
+    it('creates a document from a template', () => {
+        const store = new CadDocumentStore();
+        const result = store.createDocument('pincell', 'pincell');
+        expect(result.success).toBe(true);
+        expect(store.document?.parameters).toEqual({
+            fuelRadius: 0.4,
+            cladRadius: 0.5,
+            pitch: 1.26
+        });
+        expect(store.document?.datums).toHaveLength(3);
+    });
+
     it('loads a valid document and surfaces validation issues', () => {
         const store = new CadDocumentStore();
         const doc = minimalDoc();

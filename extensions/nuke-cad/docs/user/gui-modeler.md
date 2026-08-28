@@ -21,9 +21,14 @@ Studio the same way you would a script build.
 
 1. Run **New CAD Document** from the Command Palette or the Nuke Tools sidebar
    (`CAD Studio → Geometry`).
-2. Save the new document with **Save CAD Document As...** to give it a name and
+2. Pick a template in the dialog:
+   - **Empty document** — the default, no preset parameters.
+   - **Pincell starter (cm)** — pre-fills `fuelRadius`, `cladRadius`,
+     and `pitch` for a lattice pincell.
+   - **Tokamak starter (cm)** — pre-fills `major_radius` and `minor_radius`.
+3. Save the new document with **Save CAD Document As...** to give it a name and
    location.
-3. The empty document contains three canonical datum planes: XY, YZ, and XZ.
+4. The empty document contains three canonical datum planes: XY, YZ, and XZ.
 
 You can also create a `.nuke-cad` file directly in the Explorer; double-clicking
 it opens it in the CAD viewport by default.
@@ -67,7 +72,7 @@ Build warnings (for example, intentional cross-body overlaps in assemblies)
 appear as a compact collapsible strip at the top of the viewport: click the
 warning count to expand the full list. The Model Outline's warnings box adds a
 one-click **Fuse** fix for overlap warnings in document mode — see
-*Getting started → Model Outline panel*.
+_Getting started → Model Outline panel_.
 
 ## Sketch mode walkthrough
 
@@ -148,6 +153,29 @@ primitive). Escape works stepwise: it cancels the entity being drawn first,
 then clears the selection, and finally returns you to the Select tool from
 any drawing tool. The status line reminds you of these bindings while Select
 is active.
+
+### Speed-modeling interactions
+
+A few shortcuts speed up repetitive drawing and feature creation:
+
+- **Context shortcut bar (`Q`)** — press `Q` anywhere in the viewport to open a
+  small floating toolbar at the cursor. In sketch mode it lists the six sketch
+  tools plus the construction-geometry toggle; in document mode it lists
+  feature-creation actions (New Sketch, Pad, Pocket, Revolve, Groove, Fillet,
+  Chamfer, Draft, Shell, Linear/Circular Pattern, Mirror, Hole). Click an item
+  to execute and close the bar; press `Escape` or move the pointer outside the
+  viewport to close without action.
+- **Constraint relation popover** — in sketch mode, hold `Ctrl` and click a
+  second entity to select exactly two primitives. A popover appears at the
+  cursor listing the geometric relations valid for that pair (for example,
+  parallel/perpendicular/equal for two lines, tangent for a line and a circle).
+  Click a relation to apply it; the popover closes on `Escape`, click-away, or
+  when the selection changes to anything other than two entities.
+- **Auto-dimension on creation** — enable `nukeCad.sketchAutoDimension` in
+  preferences. When active, finishing a line, circle, or 3-point arc opens a
+  small inline input near the cursor. Type a value or parameter name and press
+  `Enter` to create a driving dimension immediately; press `Escape` to skip it.
+  Rectangle and point are not auto-dimensioned.
 
 ### External geometry
 

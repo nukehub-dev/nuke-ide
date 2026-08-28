@@ -78,6 +78,13 @@ export const NukeCadPreferenceSchema: PreferenceSchema = {
                 'Soft maximum number of triangles for viewport preview tessellation. ' +
                 'A warning is shown when a display build exceeds this budget. ' +
                 'Does not affect DAGMC or FEM mesh export.'
+        },
+        'nukeCad.sketchAutoDimension': {
+            type: 'boolean',
+            default: false,
+            description:
+                'Show an inline value input after drawing a line, circle, or arc in sketch mode. ' +
+                'Pressing Enter creates a driving dimension; Escape dismisses without dimensioning.'
         }
     }
 };
@@ -90,6 +97,8 @@ export interface NukeCadConfiguration {
     'nukeCad.displayFacetingTolerance': number;
     /** Soft maximum triangle count for viewport preview tessellation. */
     'nukeCad.maxDisplayTriangles': number;
+    /** When true, sketch entity completion prompts for an immediate driving dimension. */
+    'nukeCad.sketchAutoDimension': boolean;
 }
 
 /** Symbol used to bind the {@link PreferenceContribution} for Nuke CAD. */

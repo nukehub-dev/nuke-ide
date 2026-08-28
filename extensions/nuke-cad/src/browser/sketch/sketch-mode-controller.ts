@@ -149,6 +149,13 @@ export class SketchModeController {
     private lastPointer?: Point2;
     private lastSnap?: SnapResult;
     private selectedDimensionId?: string;
+    /** Pending auto-dimension state after creating a line/circle/arc. */
+    private autoDimensionState?: { primitiveId: string; kind: 'line' | 'circle' | 'arc'; screenX: number; screenY: number };
+    private autoDimensionEnabled = false;
+    /** Pending two-entity constraint popover state. */
+    private constraintPopover?: { idA: string; idB: string; screenX: number; screenY: number };
+    /** Last pointer position in screen coordinates, used to anchor transient popovers. */
+    private lastClientPosition?: { x: number; y: number };
     /** Primitive id currently shown with the subtle hover highlight (Select tool only). */
     private hoverPrimitiveId?: string;
     private labelDrag?: { dimensionId: string; startOffset: [number, number]; startClient: Point2 };
@@ -330,6 +337,92 @@ export class SketchModeController {
     /** Currently selected dimension id, if any. */
     getSelectedDimension(): string | undefined {
         return this.selectedDimensionId;
+    }
+
+    /** Enable or disable the auto-dimension-on-creation preference. */
+    setAutoDimensionEnabled(on: boolean): void {
+        if (this.autoDimensionEnabled === on) {
+            return;
+        }
+        this.autoDimensionEnabled = on;
+        if (!on) {
+            this.autoDimensionState = undefined;
+        }
+        this.emitChange();
+    }
+
+    /** Pending auto-dimension input state, if any. */
+    getAutoDimensionInput(): { primitiveId: string; kind: 'line' | 'circle' | 'arc'; screenX: number; screenY: number } | undefined {
+        return this.autoDimensionState;
+    }
+
+    /** Apply the user-entered value to the pending auto-dimension. */
+    async applyAutoDimension(value: number | string): Promise<void> {
+        const state = this.autoDimensionState;
+        if (state === undefined || this.session === undefined) {
+            return;
+        }
+        if (typeof value === 'string' && value.trim() === '') {
+            return;
+        }
+        let targetIds: string[];
+        let kind: ConstraintKind;
+        if (state.kind === 'line') {
+            const line = this.session.getPrimitive(state.primitiveId);
+            if (line?.type !== 'line') {
+                this.autoDimensionState = undefined;
+                this.emitChange();
+                return;
+            }
+            targetIds = [line.p1Id, line.p2Id];
+            kind = 'distance';
+        } else {
+            targetIds = [state.primitiveId];
+            kind = 'radius';
+        }
+        const result = await this.session.addConstraint(kind, targetIds, value, {
+            direction: kind === 'distance' ? 'point-point' : undefined
+        });
+        this.autoDimensionState = undefined;
+        if (!result.success) {
+            this.messageService?.error(result.error ?? 'Failed to create dimension.');
+        }
+        this.emitChange();
+    }
+
+    /** Dismiss the pending auto-dimension without creating a dimension. */
+    cancelAutoDimension(): void {
+        if (this.autoDimensionState !== undefined) {
+            this.autoDimensionState = undefined;
+            this.emitChange();
+        }
+    }
+
+    /** Active two-entity constraint popover state, if any. */
+    getConstraintPopover(): { idA: string; idB: string; screenX: number; screenY: number } | undefined {
+        return this.constraintPopover;
+    }
+
+    /** Apply a relation from the constraint context popover. */
+    async applyConstraintPopover(kind: ConstraintKind): Promise<void> {
+        const popover = this.constraintPopover;
+        if (popover === undefined || this.session === undefined) {
+            return;
+        }
+        const result = await this.session.addConstraint(kind, [popover.idA, popover.idB]);
+        this.constraintPopover = undefined;
+        if (!result.success) {
+            this.messageService?.error(result.error ?? 'Failed to apply constraint.');
+        }
+        this.emitChange();
+    }
+
+    /** Dismiss the constraint context popover without applying a relation. */
+    dismissConstraintPopover(): void {
+        if (this.constraintPopover !== undefined) {
+            this.constraintPopover = undefined;
+            this.emitChange();
+        }
     }
 
     /** Select a dimension (deselects primitives). */
@@ -817,6 +910,7 @@ export class SketchModeController {
 
     /** Pointer move handler. */
     onPointerMove(clientX: number, clientY: number): void {
+        this.lastClientPosition = { x: clientX, y: clientY };
         if (this.session === undefined) {
             return;
         }
@@ -861,7 +955,8 @@ export class SketchModeController {
     }
 
     /** Pointer down handler. */
-    onPointerDown(clientX: number, clientY: number, shiftKey: boolean, button = 0): void {
+    onPointerDown(clientX: number, clientY: number, multiSelect: boolean, panModifier: boolean, button = 0): void {
+        this.lastClientPosition = { x: clientX, y: clientY };
         if (this.session === undefined) {
             return;
         }
@@ -873,8 +968,8 @@ export class SketchModeController {
         this.lastSnap = this.computeSnap(sketchPoint);
         const snapResult = this.lastSnap;
 
-        // Middle button or shift-left starts a pan.
-        if (button === 1 || (button === 0 && shiftKey)) {
+        // Middle button or shift-left starts a pan; Ctrl/Cmd is reserved for multi-select.
+        if (button === 1 || (button === 0 && panModifier)) {
             this.beginPan(sketchPoint);
             return;
         }
@@ -883,7 +978,7 @@ export class SketchModeController {
         }
 
         if (this.constraintInput !== undefined) {
-            this.handleConstraintClick(snapResult, shiftKey).catch((err) => {
+            this.handleConstraintClick(snapResult, multiSelect).catch((err) => {
                 console.error('[SketchMode] constraint click failed:', err);
             });
             return;
@@ -896,6 +991,8 @@ export class SketchModeController {
             if (labelId !== undefined) {
                 this.selectedDimensionId = labelId;
                 this.selectedIds.clear();
+                this.autoDimensionState = undefined;
+                this.constraintPopover = undefined;
                 this.renderSelection();
                 this.labelDrag = {
                     dimensionId: labelId,
@@ -912,7 +1009,7 @@ export class SketchModeController {
             if (pointId !== undefined) {
                 // Grabbing an endpoint/center also selects the owning primitive(s)
                 // so a press (even without movement) gives visible feedback.
-                this.selectOwnedPrimitives(pointId, shiftKey);
+                this.selectOwnedPrimitives(pointId, multiSelect);
                 this.clearHoverHighlight();
                 this.drag = { pointIds: [pointId] };
                 this.session.beginDrag([pointId]);
@@ -921,7 +1018,7 @@ export class SketchModeController {
                 });
             } else {
                 this.selectedDimensionId = undefined;
-                this.handleSelectClick(snapResult, shiftKey);
+                this.handleSelectClick(snapResult, multiSelect);
                 this.renderDimensions();
             }
         }
@@ -956,6 +1053,7 @@ export class SketchModeController {
         const tool = this.session.getTool();
         if (tool !== 'select' && this.lastPointer !== undefined) {
             const snapped = this.lastSnap?.point ?? this.lastPointer;
+            const beforeIds = new Set(this.session.getPrimitiveIds());
             try {
                 await this.session.click(snapped);
             } catch (err) {
@@ -963,7 +1061,28 @@ export class SketchModeController {
                 console.error('[SketchMode] click failed:', err);
                 this.messageService?.error(`Sketch click failed: ${message}`);
             }
+            this.maybeStartAutoDimension(beforeIds);
         }
+    }
+
+    private maybeStartAutoDimension(beforeIds: Set<string>): void {
+        if (!this.autoDimensionEnabled || this.session === undefined || this.lastClientPosition === undefined) {
+            return;
+        }
+        const newPrimitive = this.session
+            .getPrimitives()
+            .find((p) => !beforeIds.has(p.id) && (p.type === 'line' || p.type === 'circle' || p.type === 'arc'));
+        if (newPrimitive === undefined) {
+            return;
+        }
+        this.autoDimensionState = {
+            primitiveId: newPrimitive.id,
+            kind: newPrimitive.type as 'line' | 'circle' | 'arc',
+            screenX: this.lastClientPosition.x,
+            screenY: this.lastClientPosition.y
+        };
+        this.constraintPopover = undefined;
+        this.emitChange();
     }
 
     /** Delete key handler. */
@@ -980,11 +1099,21 @@ export class SketchModeController {
     }
 
     /**
-     * Escape key handler, in priority order: cancel the in-progress entity or
-     * constraint pick, else clear the selection, else fall back to the Select
-     * tool so Esc always leads back to a known state.
+     * Escape key handler, in priority order:
+     * 1. dismiss transient overlay states (auto-dimension, constraint popover),
+     * 2. cancel the in-progress entity or constraint pick,
+     * 3. clear the selection,
+     * 4. fall back to the Select tool so Esc always leads back to a known state.
      */
     onEscape(): void {
+        if (this.autoDimensionState !== undefined) {
+            this.cancelAutoDimension();
+            return;
+        }
+        if (this.constraintPopover !== undefined) {
+            this.dismissConstraintPopover();
+            return;
+        }
         if (this.constraintInput !== undefined || this.session?.isInProgress() === true) {
             this.cancel();
             return;
@@ -992,6 +1121,7 @@ export class SketchModeController {
         if (this.selectedIds.size > 0 || this.selectedDimensionId !== undefined) {
             this.selectedIds.clear();
             this.selectedDimensionId = undefined;
+            this.constraintPopover = undefined;
             this.renderSelection();
             this.renderDimensions();
             this.emitChange();
@@ -1002,13 +1132,13 @@ export class SketchModeController {
         }
     }
 
-    private handleSelectClick(snap: SnapResult, shiftKey: boolean): void {
+    private handleSelectClick(snap: SnapResult, multiSelect: boolean): void {
         const targetId = snap.sourceId;
         if (targetId === undefined) {
-            if (!shiftKey) {
+            if (!multiSelect) {
                 this.selectedIds.clear();
             }
-        } else if (shiftKey) {
+        } else if (multiSelect) {
             if (this.selectedIds.has(targetId)) {
                 this.selectedIds.delete(targetId);
             } else {
@@ -1018,8 +1148,23 @@ export class SketchModeController {
             this.selectedIds.clear();
             this.selectedIds.add(targetId);
         }
+        this.updateConstraintPopover(multiSelect);
         this.renderSelection();
         this.emitChange();
+    }
+
+    private updateConstraintPopover(multiSelect: boolean): void {
+        if (!multiSelect || this.selectedIds.size !== 2) {
+            this.constraintPopover = undefined;
+            return;
+        }
+        const [idA, idB] = [...this.selectedIds];
+        this.constraintPopover = {
+            idA,
+            idB,
+            screenX: this.lastClientPosition?.x ?? 0,
+            screenY: this.lastClientPosition?.y ?? 0
+        };
     }
 
     private async handleConstraintClick(snap: SnapResult, _shiftKey: boolean): Promise<void> {
@@ -1081,10 +1226,10 @@ export class SketchModeController {
         return owned.length > 0 ? owned : [pointId];
     }
 
-    private selectOwnedPrimitives(pointId: string, shiftKey: boolean): void {
+    private selectOwnedPrimitives(pointId: string, multiSelect: boolean): void {
         const ownedIds = this.ownedPrimitiveIds(pointId);
         this.selectedDimensionId = undefined;
-        if (shiftKey) {
+        if (multiSelect) {
             const allSelected = ownedIds.every((id) => this.selectedIds.has(id));
             for (const id of ownedIds) {
                 if (allSelected) {
@@ -1099,6 +1244,7 @@ export class SketchModeController {
                 this.selectedIds.add(id);
             }
         }
+        this.updateConstraintPopover(multiSelect);
         this.renderSelection();
         this.renderDimensions();
         this.emitChange();

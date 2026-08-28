@@ -27,6 +27,18 @@ export async function waitForWorkbench(page: Page): Promise<void> {
 }
 
 /**
+ * Close all open editor tabs so subsequent tests start from a clean workbench
+ * state. Uses Theia's "Close All Tabs" command when any tabs are present.
+ */
+export async function closeAllEditors(page: Page): Promise<void> {
+    const tabs = page.locator('.p-TabBar-tab');
+    if ((await tabs.count()) === 0) {
+        return;
+    }
+    await runCommand(page, 'Close All Tabs');
+}
+
+/**
  * Execute a command via the Command Palette (Ctrl+Shift+P — F1 is a browser
  * help shortcut in headless Chromium and never reaches Theia). `label` is
  * matched as an exact quick-pick row label.

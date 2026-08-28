@@ -597,6 +597,52 @@ describe('SketchSession', () => {
             expect(dimensions[0].driving).toBe(true);
         });
 
+        it('auto-dimension flow: line completion followed by distance constraint creates a driving length dimension', async () => {
+            const session = await makeSession('line');
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 10, y: 0 });
+            const line = session.getPrimitives().filter((p) => p.type === 'line')[0] as SketchLine;
+
+            expect(session.getDimensions()).toHaveLength(0);
+
+            const result = await session.addConstraint('distance', [line.p1Id, line.p2Id], 7, { direction: 'point-point' });
+            expect(result.success).toBe(true);
+
+            const dimensions = session.getDimensions();
+            expect(dimensions).toHaveLength(1);
+            expect(dimensions[0].kind).toBe('distance');
+            expect(dimensions[0].value).toBeCloseTo(7, 10);
+            expect(dimensions[0].driving).toBe(true);
+        });
+
+        it('auto-dimension flow: circle completion followed by radius constraint creates a driving radius dimension', async () => {
+            const session = await makeSession('circle');
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 5, y: 0 });
+            const circleId = session.getPrimitives().filter((p) => p.type === 'circle')[0].id;
+
+            expect(session.getDimensions()).toHaveLength(0);
+
+            const result = await session.addConstraint('radius', [circleId], 3);
+            expect(result.success).toBe(true);
+
+            const dimensions = session.getDimensions();
+            expect(dimensions).toHaveLength(1);
+            expect(dimensions[0].kind).toBe('radius');
+            expect(dimensions[0].value).toBeCloseTo(3, 10);
+            expect(dimensions[0].driving).toBe(true);
+        });
+
+        it('auto-dimension flow: no dimension is created when the input is dismissed', async () => {
+            const session = await makeSession('line');
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 10, y: 0 });
+
+            // Simulate the dismiss path: the entity exists but no constraint was applied.
+            expect(session.getPrimitives().filter((p) => p.type === 'line')).toHaveLength(1);
+            expect(session.getDimensions()).toHaveLength(0);
+        });
+
         it('creates a diameter dimension via addDimension', async () => {
             const session = await makeSession('circle');
             await session.click({ x: 0, y: 0 });
