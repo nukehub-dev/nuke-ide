@@ -39,7 +39,7 @@
     "@theia/ai-codex": "1.74.1",
     "@theia/ai-copilot": "1.74.1",
     "@theia/ai-core": "1.74.1",
-    "@theia/ai-core-ui": "1.74.1",
+    "@theia/ai-core-ui": "1.75.0",
     "@theia/ai-editor": "1.74.1",
     "@theia/ai-google": "1.74.1",
     "@theia/ai-history": "1.74.1",
