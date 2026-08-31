@@ -13470,9 +13470,9 @@ supports-preserve-symlinks-flag@^1.0.0:
   integrity sha512-ot0WnXS9fgdkgIcePe6RHNk1WA8+muPa6cSjeR3V8K27q9BB1rTE3R1p7Hv0z1ZyAc8s6Vvv8DIyWf681MAt0w==
 
 systeminformation@^5.32.0:
-  version "5.32.0"
-  resolved "https://registry.yarnpkg.com/systeminformation/-/systeminformation-5.32.0.tgz#062e03e413cf32525fc58093f55905c6088b5677"
-  integrity sha512-7gfXs43T91miPxxTTtrYitotR/8MPsI2gy3XgUMs6kmOE/JCVqZp6nJpx4XkSutoSqDh6+Y2ovvb2A3RQCR+8w==
+  version "5.33.5"
+  resolved "https://registry.yarnpkg.com/systeminformation/-/systeminformation-5.33.5.tgz#85db4ec5553dcd15e17d0ed2690fa67786a3ff40"
+  integrity sha512-0v8l1CwFOAjfkv6ynpMrv3YGjH0M7PWCpZwusr8J1TEoQFPK7WXO6gbeAiandaWoh7vbMdnFtDqVotJVnLJtIg==
 
 syswide-cas@^5.3.0:
   version "5.3.0"
