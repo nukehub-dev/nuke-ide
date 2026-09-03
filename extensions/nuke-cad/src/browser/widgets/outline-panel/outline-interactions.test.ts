@@ -27,7 +27,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { buildFuseFeature, bodyTipFeature, parseOverlapWarning, selectionSolidIds, toggleSolidSelection } from './outline-interactions';
-import { type NukeCadDocument, type FeatureDef, validateNukeCadDocument } from '../../../common/cad-document';
+import { NUKE_CAD_SCHEMA_VERSION, type NukeCadDocument, type FeatureDef, validateNukeCadDocument } from '../../../common/cad-document';
 
 function feature(id: string, type: FeatureDef['type'], body: string, dependsOn: string[] = [], suppressed = false): FeatureDef {
     const params: Record<string, unknown> = type === 'pad' || type === 'pocket' ? { length: 1 } : {};
@@ -36,7 +36,7 @@ function feature(id: string, type: FeatureDef['type'], body: string, dependsOn: 
 
 function makeDocument(features: FeatureDef[]): NukeCadDocument {
     return {
-        version: 2,
+        version: NUKE_CAD_SCHEMA_VERSION,
         name: 'test',
         parameters: {},
         datums: [{ id: 'datum-xy', kind: 'XY', name: 'XY' }],
@@ -45,7 +45,8 @@ function makeDocument(features: FeatureDef[]): NukeCadDocument {
             { id: 'body-2', name: 'Body 2' }
         ],
         sketches: [],
-        features
+        features,
+        curves: []
     };
 }
 

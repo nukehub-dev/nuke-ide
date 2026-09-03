@@ -43,14 +43,24 @@ import { Disposable } from '@theia/core/lib/common/disposable';
 import { MessageService } from '@theia/core/lib/common/message-service';
 import { CommandService } from '@theia/core/lib/common/command';
 import { ConfirmDialog } from '@theia/core/lib/browser/dialogs';
+import { FileDialogService } from '@theia/filesystem/lib/browser/file-dialog';
+import { FileService } from '@theia/filesystem/lib/browser/file-service';
 import { NukeCadCommands } from '../../commands';
 import { CadDocumentStore } from '../../document/cad-document-store';
 import { NukeCadStateManager } from '../../state/nuke-cad-state-manager';
-import { type NukeCadDocument, type BodyDef, type FeatureDef, type SketchDef, type DatumPlane } from '../../../common/cad-document';
+import {
+    type NukeCadDocument,
+    type BodyDef,
+    type FeatureDef,
+    type SketchDef,
+    type DatumPlane,
+    type CurveDef
+} from '../../../common/cad-document';
 import { type FeatureResult } from '../../../common/nuke-cad-protocol';
 import { type DocumentSelection } from '../../document/cad-document-store';
 import { type TopologyRef } from '../../../common/topology-refs';
 import { Tooltip, useTooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
+import { CurveDialog } from './curve-dialog';
 import './feature-tree.css';
 
 function getSourceFeatureId(feature: FeatureDef): string {
@@ -78,6 +88,12 @@ export class CadFeatureTreeWidget extends ReactWidget {
 
     @inject(CommandService)
     protected readonly commandService: CommandService;
+
+    @inject(FileDialogService)
+    protected readonly fileDialogService: FileDialogService;
+
+    @inject(FileService)
+    protected readonly fileService: FileService;
 
     @inject(CadDocumentStore)
     protected readonly documentStore: CadDocumentStore;
@@ -138,6 +154,13 @@ export class CadFeatureTreeWidget extends ReactWidget {
                 onNewSketch={() => this.commandService.executeCommand(NukeCadCommands.NEW_SKETCH.id)}
                 onEditFeature={(id) => this.commandService.executeCommand(NukeCadCommands.EDIT_FEATURE.id, id)}
                 onExportPython={() => void this.commandService.executeCommand(NukeCadCommands.EXPORT_PYTHON.id)}
+                fileDialogService={this.fileDialogService}
+                fileService={this.fileService}
+                onAddCurve={(def) => this.handleAddCurve(def)}
+                onUpdateCurve={(id, def) => this.handleUpdateCurve(id, def)}
+                onRenameCurve={(id, name) => this.handleRenameCurve(id, name)}
+                onDeleteCurve={(id) => this.handleDeleteCurve(id)}
+                onSelectCurve={(id) => this.handleSelectCurve(id)}
                 onStartFeatureCreation={(type) => {
                     const command = commandForFeatureType(type);
                     if (command !== undefined) {
@@ -198,6 +221,38 @@ export class CadFeatureTreeWidget extends ReactWidget {
         }
     }
 
+    private handleAddCurve(def: CurveDef): void {
+        const result = this.documentStore.addCurve(def);
+        if (!result.success) {
+            this.messageService.error(result.error || 'Failed to add curve.');
+        }
+    }
+
+    private handleUpdateCurve(id: string, def: CurveDef): void {
+        const result = this.documentStore.updateCurve(id, def);
+        if (!result.success) {
+            this.messageService.error(result.error || 'Failed to update curve.');
+        }
+    }
+
+    private handleRenameCurve(id: string, name: string): void {
+        const result = this.documentStore.renameCurve(id, name);
+        if (!result.success) {
+            this.messageService.error(result.error || 'Failed to rename curve.');
+        }
+    }
+
+    private handleDeleteCurve(id: string): void {
+        const result = this.documentStore.deleteCurve(id);
+        if (!result.success) {
+            this.messageService.error(result.error || 'Failed to delete curve.');
+        }
+    }
+
+    private handleSelectCurve(id: string | undefined): void {
+        this.documentStore.selectCurve(id);
+    }
+
     private handleReorderFeatures(orderedIds: string[]): void {
         const result = this.documentStore.reorderFeatures(orderedIds);
         if (!result.success) {
@@ -239,14 +294,25 @@ interface CadFeatureTreeComponentProps {
     readonly onEditFeature: (id: string) => void;
     readonly onNewSketch: () => void;
     readonly onExportPython?: () => void;
+    readonly fileDialogService: FileDialogService;
+    readonly fileService: FileService;
+    readonly onAddCurve: (def: CurveDef) => void;
+    readonly onUpdateCurve: (id: string, def: CurveDef) => void;
+    readonly onRenameCurve: (id: string, name: string) => void;
+    readonly onDeleteCurve: (id: string) => void;
+    readonly onSelectCurve: (id: string | undefined) => void;
     readonly onStartFeatureCreation: (type: FeatureDef['type']) => void;
 }
 
 function CadFeatureTreeComponent(props: CadFeatureTreeComponentProps): React.ReactElement {
     const doc = props.document;
     const hasContent =
-        doc !== undefined && (doc.datums.length > 0 || doc.sketches.length > 0 || doc.bodies.length > 0 || doc.features.length > 0);
+        doc !== undefined &&
+        (doc.datums.length > 0 || doc.sketches.length > 0 || doc.curves.length > 0 || doc.bodies.length > 0 || doc.features.length > 0);
     const [renamingId, setRenamingId] = React.useState<string | undefined>();
+    const [curveDialog, setCurveDialog] = React.useState<
+        { readonly mode: 'create' } | { readonly mode: 'edit'; readonly curve: CurveDef } | undefined
+    >();
     const [renameValue, setRenameValue] = React.useState('');
     const [repairPopover, setRepairPopover] = React.useState<
         | {
@@ -352,6 +418,33 @@ function CadFeatureTreeComponent(props: CadFeatureTreeComponentProps): React.Rea
                         ))}
                     </TreeSection>
 
+                    <TreeSection
+                        title="Curves"
+                        count={doc.curves.length}
+                        action={
+                            <Tooltip content="New Curve" position="left">
+                                <button
+                                    className="theia-button secondary feature-tree-section-action"
+                                    onClick={() => setCurveDialog({ mode: 'create' })}
+                                >
+                                    <span className="codicon codicon-add" />
+                                </button>
+                            </Tooltip>
+                        }
+                    >
+                        {doc.curves.map((curve) => (
+                            <CurveRow
+                                key={curve.id}
+                                curve={curve}
+                                selected={props.selection.selectedCurveId === curve.id}
+                                onSelect={() => props.onSelectCurve(curve.id)}
+                                onEdit={() => setCurveDialog({ mode: 'edit', curve })}
+                                onRename={(name) => props.onRenameCurve(curve.id, name)}
+                                onDelete={() => props.onDeleteCurve(curve.id)}
+                            />
+                        ))}
+                    </TreeSection>
+
                     <TreeSection title="Bodies" count={doc.bodies.length}>
                         {doc.bodies.map((body) => (
                             <BodyRow
@@ -404,6 +497,23 @@ function CadFeatureTreeComponent(props: CadFeatureTreeComponentProps): React.Rea
                     onClose={() => setRepairPopover(undefined)}
                 />
             )}
+            {curveDialog !== undefined && doc !== undefined && (
+                <CurveDialog
+                    document={doc}
+                    curve={curveDialog.mode === 'edit' ? curveDialog.curve : undefined}
+                    fileDialogService={props.fileDialogService}
+                    fileService={props.fileService}
+                    onClose={() => setCurveDialog(undefined)}
+                    onSubmit={(def) => {
+                        if (curveDialog.mode === 'edit') {
+                            props.onUpdateCurve(curveDialog.curve.id, def);
+                        } else {
+                            props.onAddCurve(def);
+                        }
+                        setCurveDialog(undefined);
+                    }}
+                />
+            )}
         </div>
     );
 }
@@ -412,16 +522,20 @@ interface TreeSectionProps {
     readonly title: string;
     readonly count: number;
     readonly children: React.ReactNode;
+    readonly action?: React.ReactNode;
 }
 
 function TreeSection(props: TreeSectionProps): React.ReactElement {
     const [collapsed, setCollapsed] = React.useState(false);
     return (
         <div className="feature-tree-section">
-            <div className="category-header" onClick={() => setCollapsed(!collapsed)}>
-                <i className={`codicon codicon-chevron-${collapsed ? 'right' : 'down'}`} />
-                <span>{props.title}</span>
-                <span className="count-badge">{props.count}</span>
+            <div className="category-header">
+                <span className="category-header-main" onClick={() => setCollapsed(!collapsed)}>
+                    <i className={`codicon codicon-chevron-${collapsed ? 'right' : 'down'}`} />
+                    <span>{props.title}</span>
+                    <span className="count-badge">{props.count}</span>
+                </span>
+                {props.action}
             </div>
             {!collapsed && <div className="feature-tree-rows">{props.children}</div>}
         </div>
@@ -551,6 +665,83 @@ function BodyRow(props: BodyRowProps): React.ReactElement {
                             }}
                         >
                             <span className="codicon codicon-edit" />
+                        </button>
+                    </Tooltip>
+                )}
+            </div>
+            {tooltip.tooltipElement}
+        </>
+    );
+}
+
+interface CurveRowProps {
+    readonly curve: CurveDef;
+    readonly selected: boolean;
+    readonly onSelect: () => void;
+    readonly onEdit: () => void;
+    readonly onRename: (name: string) => void;
+    readonly onDelete: () => void;
+}
+
+function CurveRow(props: CurveRowProps): React.ReactElement {
+    const { curve } = props;
+    const tooltip = useTooltip(`${curve.samples.length} samples · ${curve.source.kind}`, 'top');
+    const [renaming, setRenaming] = React.useState(false);
+    const [editName, setEditName] = React.useState(curve.name);
+
+    const commitRename = (): void => {
+        const name = editName.trim();
+        if (name.length > 0 && name !== curve.name) {
+            props.onRename(name);
+        }
+        setRenaming(false);
+    };
+
+    const cancelRename = (): void => {
+        setEditName(curve.name);
+        setRenaming(false);
+    };
+
+    return (
+        <>
+            <div className={`feature-tree-row curve${props.selected ? ' selected' : ''}`} onClick={props.onSelect}>
+                <span className="codicon codicon-nuke-cad-curve feature-tree-icon" />
+                {renaming ? (
+                    <InlineRename value={editName} onChange={setEditName} onCommit={commitRename} onCancel={cancelRename} />
+                ) : (
+                    <span
+                        className="feature-tree-label"
+                        onDoubleClick={() => setRenaming(true)}
+                        onMouseEnter={tooltip.onMouseEnter}
+                        onMouseLeave={tooltip.onMouseLeave}
+                    >
+                        {curve.name}
+                    </span>
+                )}
+                <span className="feature-tree-kind-chip">{curve.source.kind}</span>
+                {!renaming && (
+                    <Tooltip content="Edit Curve" position="left">
+                        <button
+                            className="theia-button secondary feature-tree-action"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                props.onEdit();
+                            }}
+                        >
+                            <span className="codicon codicon-edit" />
+                        </button>
+                    </Tooltip>
+                )}
+                {!renaming && (
+                    <Tooltip content="Delete" position="left">
+                        <button
+                            className="theia-button secondary feature-tree-action"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                props.onDelete();
+                            }}
+                        >
+                            <span className="codicon codicon-trash" />
                         </button>
                     </Tooltip>
                 )}

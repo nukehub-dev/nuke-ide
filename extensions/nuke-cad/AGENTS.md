@@ -18,7 +18,7 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
 - TypeScript side follows `extensions/AGENTS.md` with `src/browser/`,
   `src/node/`, and `src/common/`.
 - `.nuke-cad` JSON document schema lives in `src/common/cad-document.ts`
-  (version 2 today). Validate with `validateNukeCadDocument`; migrate with
+  (version 3 today). Validate with `validateNukeCadDocument`; migrate with
   `migrateNukeCadDocument`. Future migrations register steps in `MIGRATIONS`
   and bump `NUKE_CAD_SCHEMA_VERSION`.
 - Sketch solver adapter: `src/common/sketch-solver.ts` exports the solver-agnostic
@@ -288,7 +288,7 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
     sketches, and features; `geometry_service.py` runs `build_document()` and
     feeds the same `_process_shape` so STEP, tessellation, DAGMC, and mesh
     artifacts are authoring-mode-agnostic.
-- `.nuke-cad` document schema lives in `src/common/cad-document.ts` (version 2).
+- `.nuke-cad` document schema lives in `src/common/cad-document.ts` (version 3).
   Validate with `validateNukeCadDocument`; migrate with
   `migrateNukeCadDocument`. The document store
   (`src/browser/document/cad-document-store.ts`) holds the active document,
@@ -296,12 +296,31 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   sketch/feature selection, body selection, and per-feature build results.
   Sketch-local parameters are merged into document-level parameters when a sketch
   is saved.
-- `.nuke-cad` v2 introduces **bodies** and **boolean features**. Every solid
-  feature (`pad`/`pocket`/`revolve`/`groove`) targets a body id; boolean
-  features (`booleanFuse`/`booleanCut`/`booleanCommon`) consume one target body
-  and one or more tool bodies. Bodies carry an optional `label` that maps to the
-  region manifest / `selector_map` for DAGMC and mesh export. The v1→v2 migration
-  creates a single implicit body for each legacy feature.
+- `.nuke-cad` v2 introduced **bodies** and **boolean features**; v3 adds a
+  top-level **`curves`** array. Every solid feature (`pad`/`pocket`/`revolve`/
+  `groove`) targets a body id; boolean features (`booleanFuse`/`booleanCut`/
+  `booleanCommon`) consume one target body and one or more tool bodies. Bodies
+  carry an optional `label` that maps to the region manifest / `selector_map`
+  for DAGMC and mesh export. The v1→v2 migration creates a single implicit body
+  for each legacy feature; the v2→v3 migration adds an empty `curves` array.
+- **3D curves** are lightweight polylines stored in `curves`. Each curve has an
+  `id`, `name`, `source` recipe, and `samples` array of `[x, y, z]` points.
+  Sources may be `points` (explicit samples), `parametric` (expressions for
+  `x(t)`, `y(t)`, `z(t)` sampled uniformly over `[tStart, tEnd]`), or `fourier`
+  (cos/sin coefficients sampled over `[0, 2π)`). The expression mini-language
+  lives in `src/common/expression.ts`; the document store resamples parametric
+  and Fourier curves when they are added or edited. Closed curves repeat the
+  first sample exactly at the end of `samples` — the Fourier sampler always
+  does this (the series is periodic) and the parametric sampler does it when
+  the expressions meet at both ends — so the backend's proximity check marks
+  the wire closed. Curves are rendered in the
+  viewport as line segments, listed in the Feature Tree under a **CURVES**
+  section, and exported to Python as `bd.Spline` calls. The Python backend
+  (`python/curve_builder.py`) fits B-spline wires: `points` sources are
+  approximated with a tolerance derived from sample spacing, while parametric
+  and Fourier sources are interpolated; closed curves are detected from
+  first/last sample proximity relative to the average sample spacing and built
+  as periodic wires.
 - Sketch mode is split into three layers so each has a single responsibility:
   - `src/browser/sketch/sketch-session.ts` — pure TypeScript controller that
     owns tool state, snap, auto-constraints, constraint/dimension management,
@@ -410,10 +429,16 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
     boolean feature are marked `stale` (the guard applies uniformly to
     dress-up, pattern/mirror/hole, and sketch-solid features). Cycles are
     rejected with a readable member list.
+  - `python/curve_builder.py` fits a B-spline wire through each curve's stored
+    sample polyline. `points` sources are approximated with a tolerance derived
+    from sample spacing; parametric and Fourier sources are interpolated.
+    Closed curves are detected from first/last sample proximity and built as
+    periodic wires; the result is included in the tessellation output as a
+    `curves` array alongside solids.
   - `geometry_service.py` exposes `build_document()` plus a `--from-document`
-    CLI flag; it validates references lightly, runs the feature builder, and
-    reuses `_process_shape` verbatim so STEP/tessellation/DAGMC/mesh artifacts
-    match script builds.
+    CLI flag; it validates references lightly, runs the feature builder, builds
+    any curves, and reuses `_process_shape` verbatim so STEP/tessellation/DAGMC/
+    mesh artifacts match script builds.
   - The first release performs a full document rebuild on every `buildDocument`
     call. Per-feature shape caching is deferred until the modeler needs it.
   - Datum support includes `XY`/`YZ`/`XZ`/`offset`/`face`. `offset` datums are
@@ -456,26 +481,29 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
     `nuke.cad.saveDocumentAs`, `nuke.cad.newSketch`, `nuke.cad.exitSketch`, and
     `nuke.cad.openFeatureTree`. `newDocument` opens a compact template picker
     (`DOCUMENT_TEMPLATES` in `src/common/document-templates.ts`) that merges the
-    chosen preset's parameters over an empty v2 document; "Empty document" preserves
+    chosen preset's parameters over an empty v3 document; "Empty document" preserves
     today's behavior. Save/Save-As enforce the `.nuke-cad`
     extension: the dialog defaults to it and the chosen path is normalized
     through `ensureNukeCadExtension` (`cad-save-path.ts`) before writing.
   - The **Feature Tree** panel (`src/browser/widgets/feature-tree/`, widget ID
     `nuke-cad-feature-tree-widget`, label "Feature Tree") lists bodies, datums,
-    sketches, and features in document order with selection, suppression toggle,
-    edit, delete, build-status markers, and lightweight reference-resolution
+    sketches, features, and curves in document order with selection, suppression
+    toggle, edit, delete, build-status markers, and lightweight reference-resolution
     badges (`ambiguous`/`unmatched`) from the last rebuild. Clicking a body or
     feature row also highlights the body's tessellated solids in the viewport
     (via `NukeCadStateManager`, mapping `bodyId` through the shared
     `SolidSummary` list); a no-op while the body has no built solids. Boolean
     features show
-    their target body and tool bodies inline. The panel supports inline rename
-    for bodies and features, up/down reorder with dependency-precedence
-    validation, and a cascade-delete policy that prompts when deleting a feature
-    that later pattern/mirror features use as a `source`. A reference-repair
-    popover lists resolution candidates with fingerprint comparison for each
-    broken `TopologyRef` so users can pick a replacement or leave the reference
-    unmatched for manual repair.
+    their target body and tool bodies inline. The **CURVES** section lists each
+    curve row with inline rename/delete and a dialog (`curve-dialog.tsx`) for
+    editing the source recipe; selecting a curve highlights its polyline in the
+    viewport. The panel supports inline rename for bodies, features, and curves,
+    up/down reorder with dependency-precedence validation, and a cascade-delete
+    policy that prompts when deleting a feature that later pattern/mirror
+    features use as a `source`. A reference-repair popover lists resolution
+    candidates with fingerprint comparison for each broken `TopologyRef` so
+    users can pick a replacement or leave the reference unmatched for manual
+    repair.
   - The **Edit Parameters** flow reopens the feature-creation dialog for an
     existing feature, prefilled with its current parameters, and updates the
     document on confirmation.
@@ -491,6 +519,7 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
     solid (never the sketch), boolean tools are combined before the operation,
     and contained sketch profiles (any nesting depth) are holes emitted with
     `bd.Mode.SUBTRACT` — matching the backend's outer/inner-wire pairing.
+    Curves are emitted as `bd.Spline` calls over their sample point lists.
     Topology-reference-dependent items (face datums, external geometry,
     fillet/chamfer edges, draft/shell faces, hole placement) are emitted as
     `# TODO(manual):` comments, never silently dropped.

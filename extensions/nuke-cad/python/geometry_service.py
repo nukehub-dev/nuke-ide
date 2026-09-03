@@ -70,6 +70,14 @@ except Exception:
     sketch_builder = None  # type: ignore
     HAS_SKETCH_BUILDER = False
 
+try:
+    import curve_builder  # noqa: E402
+
+    HAS_CURVE_BUILDER = True
+except Exception:
+    curve_builder = None  # type: ignore
+    HAS_CURVE_BUILDER = False
+
 # DAGMC export is optional; failure is reported but does not break STEP/tessellation.
 try:
     import dagmc_export
@@ -713,8 +721,37 @@ def _artifact_paths(out_dir: Path, stem: str) -> dict[str, Path]:
     }
 
 
+def _curve_bounding_box(points: list[list[float]]) -> dict[str, list[float]]:
+    """Return the axis-aligned bounding box of a point list."""
+    if not points:
+        return {"min": [0.0, 0.0, 0.0], "max": [0.0, 0.0, 0.0]}
+    xs = [p[0] for p in points]
+    ys = [p[1] for p in points]
+    zs = [p[2] for p in points]
+    return {"min": [min(xs), min(ys), min(zs)], "max": [max(xs), max(ys), max(zs)]}
+
+
+def _merge_bounding_boxes(
+    a: dict[str, list[float]], b: dict[str, list[float]]
+) -> dict[str, list[float]]:
+    return {
+        "min": [min(a["min"][i], b["min"][i]) for i in range(3)],
+        "max": [max(a["max"][i], b["max"][i]) for i in range(3)],
+    }
+
+
+def _curve_tess_entry(curve_id: str, result: dict[str, Any]) -> dict[str, Any]:
+    """Build the frontend tessellation entry for a single curve."""
+    return {
+        "id": curve_id,
+        "name": result.get("name", curve_id),
+        "points": result["points"],
+        "closed": result["closed"],
+    }
+
+
 def _process_shape(
-    shape: object,
+    shape: object | None,
     source_file: Path,
     out_dir: Path,
     stem: str,
@@ -731,14 +768,18 @@ def _process_shape(
     manifest: RegionManifest | None = None,
     length_scale: float = 1.0,
     body_ids: list[str] | None = None,
+    curve_results: dict[str, dict[str, Any]] | None = None,
 ) -> dict:
     """Tessellate ``shape`` and write canonical artifacts.
 
     This is the shared backend of both script-based builds and STEP imports.
-    Returns the stdout-JSON result dict.
+    Returns the stdout-JSON result dict. When ``shape`` is ``None`` and
+    ``curve_results`` is provided, only the curve tessellation is produced.
     """
     selector_map = selector_map or {}
+    curve_results = curve_results or {}
     paths = _artifact_paths(out_dir, stem)
+    has_solids = shape is not None
 
     result: dict = {
         "success": False,
@@ -764,40 +805,57 @@ def _process_shape(
     }
 
     # ------------------------------------------------------------------
-    # 1. Write canonical STEP (skip if it would overwrite the input STEP).
+    # 1. Write canonical STEP (skip if it would overwrite the input STEP
+    #    or if there is no solid geometry).
     # ------------------------------------------------------------------
-    try:
-        if paths["step"].resolve() == source_file.resolve():
-            _print_progress(f"Reusing input STEP: {paths['step']}")
-        else:
-            _print_progress(f"Writing STEP: {paths['step']}")
-            _write_step(shape, paths["step"])
-    except Exception as exc:
-        result["error"] = str(exc)
-        result["traceback"] = traceback.format_exc()
-        return result
+    if has_solids:
+        try:
+            if paths["step"].resolve() == source_file.resolve():
+                _print_progress(f"Reusing input STEP: {paths['step']}")
+            else:
+                _print_progress(f"Writing STEP: {paths['step']}")
+                _write_step(shape, paths["step"])
+        except Exception as exc:
+            result["error"] = str(exc)
+            result["traceback"] = traceback.format_exc()
+            return result
 
     # ------------------------------------------------------------------
     # 2. Tessellate and write viewport stream.
     # ------------------------------------------------------------------
-    _print_progress("Tessellating B-rep")
-    try:
-        solids = _tessellate_shape(shape, tolerance, body_ids=body_ids)
-    except Exception as exc:
-        result["error"] = f"Tessellation failed: {exc}"
-        result["traceback"] = traceback.format_exc()
-        return result
+    solids: list[dict] = []
+    if has_solids:
+        _print_progress("Tessellating B-rep")
+        try:
+            solids = _tessellate_shape(shape, tolerance, body_ids=body_ids)
+        except Exception as exc:
+            result["error"] = f"Tessellation failed: {exc}"
+            result["traceback"] = traceback.format_exc()
+            return result
 
-    bbox = _bounding_box(shape)
+    bbox: dict[str, list[float]] | None = None
+    if has_solids:
+        bbox = _bounding_box(shape)
+    for _curve_id, curve_result in curve_results.items():
+        curve_bbox = _curve_bounding_box(curve_result["points"])
+        bbox = curve_bbox if bbox is None else _merge_bounding_boxes(bbox, curve_bbox)
+    if bbox is None:
+        bbox = {"min": [0.0, 0.0, 0.0], "max": [0.0, 0.0, 0.0]}
+
     total_triangles = sum(len(face["triangles"]) for solid in solids for face in solid["faces"])
     total_faces = sum(len(solid["faces"]) for solid in solids)
 
-    tess_data = {
+    tess_data: dict[str, Any] = {
         "version": 1,
         "tolerance": tolerance,
         "boundingBox": bbox,
         "solids": solids,
     }
+    if curve_results:
+        tess_data["curves"] = [
+            _curve_tess_entry(curve_id, curve_result)
+            for curve_id, curve_result in curve_results.items()
+        ]
     try:
         paths["tess"].write_text(json.dumps(tess_data), encoding="utf-8")
     except Exception as exc:
@@ -819,7 +877,7 @@ def _process_shape(
     # ------------------------------------------------------------------
     # 4. Export DAGMC .h5m.
     # ------------------------------------------------------------------
-    if export_dagmc:
+    if export_dagmc and has_solids:
         _print_progress(f"Exporting DAGMC: {paths['h5m']}")
         try:
             if HAS_DAGMC_EXPORT and dagmc_export is not None:
@@ -847,7 +905,7 @@ def _process_shape(
     # ------------------------------------------------------------------
     # 5. Export FEM volume mesh.
     # ------------------------------------------------------------------
-    if export_mesh:
+    if export_mesh and has_solids:
         _print_progress(f"Exporting FEM mesh: {paths['msh']}")
         try:
             if HAS_MESH_SERVICE and mesh_service is not None:
@@ -1076,6 +1134,18 @@ def _migrate_v1_to_v2(document: dict[str, Any]) -> dict[str, Any]:
     migrated["version"] = 2
     migrated["bodies"] = bodies
     migrated["features"] = features
+    return migrated
+
+
+def _migrate_v2_to_v3(document: dict[str, Any]) -> dict[str, Any]:
+    """Migrate a v2 ``.nuke-cad` document to v3 in memory.
+
+    Mirrors the TypeScript migration: adds an empty ``curves`` array.
+    The original document dict is not modified.
+    """
+    migrated = dict(document)
+    migrated["version"] = 3
+    migrated["curves"] = []
     return migrated
 
 
@@ -1352,6 +1422,38 @@ def _validate_document_refs(document: dict[str, Any], source_file: Path) -> dict
                     "scriptPath": str(source_file),
                 }
 
+    for i, curve in enumerate(document.get("curves", [])):
+        if not isinstance(curve, dict):
+            return {
+                "success": False,
+                "error": f"Curve[{i}] must be an object",
+                "scriptPath": str(source_file),
+            }
+        cid = curve.get("id", f"[{i}]")
+        samples = curve.get("samples", [])
+        if not isinstance(samples, list) or len(samples) < 4:
+            return {
+                "success": False,
+                "error": f"Curve '{cid}' must have at least 4 samples",
+                "scriptPath": str(source_file),
+            }
+        for j, point in enumerate(samples):
+            if not isinstance(point, (list, tuple)) or len(point) != 3:
+                return {
+                    "success": False,
+                    "error": f"Curve '{cid}' sample[{j}] must be [x, y, z]",
+                    "scriptPath": str(source_file),
+                }
+            if not all(
+                isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+                for v in point
+            ):
+                return {
+                    "success": False,
+                    "error": f"Curve '{cid}' sample[{j}] must contain finite numbers",
+                    "scriptPath": str(source_file),
+                }
+
     return None
 
 
@@ -1423,19 +1525,24 @@ def build_document(
         }
 
     version = document.get("version")
-    if version not in (1, 2):
+    if version not in (1, 2, 3):
         return {
             "success": False,
-            "error": f"Unsupported .nuke-cad schema version {version!r}; expected 1 or 2",
+            "error": f"Unsupported .nuke-cad schema version {version!r}; expected 1, 2, or 3",
             "scriptPath": str(document_file),
         }
 
     if version == 1:
         document = _migrate_v1_to_v2(document)
+    if document.get("version") == 2:
+        document = _migrate_v2_to_v3(document)
 
     ref_error = _validate_document_refs(document, document_file)
     if ref_error is not None:
         return ref_error
+
+    curves = document.get("curves", [])
+    has_curves = isinstance(curves, list) and len(curves) > 0
 
     _print_progress("Building document features")
     try:
@@ -1455,7 +1562,7 @@ def build_document(
         }
 
     shape = build_result.get("shape")
-    if shape is None:
+    if shape is None and not has_curves:
         return {
             "success": False,
             "error": "Document produced no solids; check feature results for failures",
@@ -1466,14 +1573,32 @@ def build_document(
             "warnings": build_result.get("warnings", []),
         }
 
-    wrapped = getattr(shape, "wrapped", None)
-    if wrapped is None:
-        return {
-            "success": False,
-            "error": "Document produced an unrecognized shape type",
-            "scriptPath": str(document_file),
-            "featureResults": build_result.get("featureResults", []),
-        }
+    curve_results: dict[str, dict[str, Any]] = {}
+    if has_curves:
+        if not HAS_CURVE_BUILDER or curve_builder is None:
+            return {
+                "success": False,
+                "error": "Document contains curves but the curve builder (OCP) is not available",
+                "scriptPath": str(document_file),
+            }
+        _print_progress("Building curves")
+        try:
+            curve_results = curve_builder.build_curves(document)
+        except curve_builder.CurveBuildError as exc:
+            return {
+                "success": False,
+                "error": str(exc),
+                "scriptPath": str(document_file),
+            }
+        except Exception as exc:
+            return {
+                "success": False,
+                "error": f"Curve build failed: {exc}",
+                "traceback": traceback.format_exc(),
+                "scriptPath": str(document_file),
+            }
+
+    wrapped = getattr(shape, "wrapped", None) if shape is not None else None
 
     manifest, manifest_warnings = _load_manifest(document_file)
     result = _process_shape(
@@ -1494,6 +1619,7 @@ def build_document(
         manifest=manifest,
         length_scale=length_scale,
         body_ids=build_result.get("solidBodyIds"),
+        curve_results=curve_results,
     )
     result["featureResults"] = build_result.get("featureResults", [])
     result["referenceResults"] = build_result.get("referenceResults", [])

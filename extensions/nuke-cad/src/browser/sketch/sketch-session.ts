@@ -2242,7 +2242,8 @@ export class SketchSession {
             datums: [{ id: this.datumId, kind: 'XY', name: this.datumId }],
             bodies: [],
             sketches: [this.toSketchDef()],
-            features: []
+            features: [],
+            curves: []
         };
         const result = validateNukeCadDocument(doc);
         return { valid: result.valid, issues: result.issues.map((i) => `${i.path}: ${i.message}`) };

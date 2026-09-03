@@ -381,6 +381,47 @@ planar face of an existing body.
 The placement face is stored as a `TopologyRef`, so the hole survives parametric
 edits that reshape the body as long as the resolver can still identify the face.
 
+## 3D curves
+
+Curves are lightweight 3D polylines stored in the `.nuke-cad` document. They are
+useful for centerlines, coil paths, or any geometry that is not a solid body but
+needs to be visualized and exported.
+
+### Adding and editing curves
+
+1. Open the Feature Tree and click the **+** button in the **CURVES** section
+   header.
+2. In the curve dialog, choose the source type:
+   - **Points** — paste or type an explicit list of `[x, y, z]` samples, or
+     **Load from file** to read them from a CSV/whitespace-separated text file.
+   - **Parametric** — enter expressions for `x(t)`, `y(t)`, and `z(t)`, plus the
+     `t` range and sample count. The expression editor supports the same
+     arithmetic, functions, and constants used elsewhere in Nuke CAD
+     (`+ - * / ^`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `sqrt`, `abs`,
+     `exp`, `log`, `min`, `max`, `pi`, `e`) and resolves document parameters by
+     name.
+   - **Fourier** — enter the toroidal mode number `nfp`, harmonic order, and
+     cos/sin coefficients for each spatial axis. The series is sampled uniformly
+     over `[0, 2π)`.
+3. Click **OK**. The curve is resampled from the source recipe and added to the
+   document.
+
+### Curve behavior
+
+- Curves appear in the Feature Tree under the **CURVES** section. Selecting a
+  curve highlights its polyline in the viewport.
+- You can rename or delete a curve from its row in the Feature Tree.
+- Curves are independent of solid bodies: they do not participate in boolean
+  operations or feature dependencies.
+- A curve whose last sample meets the first is built as a closed periodic
+  wire; parametric and Fourier loops close automatically, while a points list
+  closes by repeating the first point at the end.
+- **Export as Python** writes each curve as a `bd.Spline` call over its sample
+  points.
+- The geometry service builds a B-spline wire for each curve and includes it in
+  the tessellation output, so curves render in the viewport even when the
+  document contains no solid bodies.
+
 ## Feature tree
 
 The **Feature Tree** panel shows four sections:

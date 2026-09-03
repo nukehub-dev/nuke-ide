@@ -45,10 +45,13 @@ import {
     type FeatureParams,
     type DatumKind,
     type ValidationIssue,
+    type CurveDef,
+    type CurveSource,
     validateNukeCadDocument,
     migrateNukeCadDocument
 } from '../../common/cad-document';
 import { applyDocumentTemplate, createEmptyNukeCadDocument } from '../../common/document-templates';
+import { sampleFourier, sampleParametric } from '../../common/expression';
 import { type FeatureResult, type ReferenceResolutionResult } from '../../common/nuke-cad-protocol';
 import { type TopologyRef, type FaceFingerprint, type EdgeFingerprint, validateTopologyRef } from '../../common/topology-refs';
 
@@ -75,6 +78,8 @@ export interface DocumentSelection {
     readonly selectedFeatureId?: string;
     /** Id of the selected body, if any. */
     readonly selectedBodyId?: string;
+    /** Id of the selected curve, if any. */
+    readonly selectedCurveId?: string;
 }
 
 interface StoreState {
@@ -95,6 +100,36 @@ function nextId(prefix: string): string {
     return `${prefix}-${++idCounter}`;
 }
 
+function cloneCurve(curve: CurveDef): CurveDef {
+    return {
+        id: curve.id,
+        name: curve.name,
+        source: cloneCurveSource(curve.source),
+        samples: curve.samples.map((p) => [p[0], p[1], p[2]])
+    };
+}
+
+function cloneCurveSource(source: CurveSource): CurveSource {
+    if (source.kind === 'points') {
+        return { kind: 'points' };
+    }
+    if (source.kind === 'parametric') {
+        return { ...source };
+    }
+    return {
+        kind: 'fourier',
+        nfp: source.nfp,
+        order: source.order,
+        cosX: [...source.cosX],
+        sinX: [...source.sinX],
+        cosY: [...source.cosY],
+        sinY: [...source.sinY],
+        cosZ: [...source.cosZ],
+        sinZ: [...source.sinZ],
+        sampleCount: source.sampleCount
+    };
+}
+
 function cloneDocument(doc: NukeCadDocument): NukeCadDocument {
     return {
         version: doc.version,
@@ -110,7 +145,8 @@ function cloneDocument(doc: NukeCadDocument): NukeCadDocument {
             dimensions: s.dimensions !== undefined ? s.dimensions.map((d) => ({ ...d })) : undefined,
             externalRefs: s.externalRefs !== undefined ? s.externalRefs.map((r) => cloneTopologyRef(r)) : undefined
         })),
-        features: doc.features.map((f) => ({ ...f, params: { ...f.params }, dependsOn: [...f.dependsOn], body: f.body }))
+        features: doc.features.map((f) => ({ ...f, params: { ...f.params }, dependsOn: [...f.dependsOn], body: f.body })),
+        curves: doc.curves.map((c) => cloneCurve(c))
     };
 }
 
@@ -170,6 +206,28 @@ function fingerprintsEqual(
     b: import('../../common/topology-refs').FaceFingerprint | import('../../common/topology-refs').EdgeFingerprint
 ): boolean {
     return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function buildCurveSamples(
+    source: CurveSource,
+    parameters: Record<string, number>
+): { samples: [number, number, number][]; error?: string } {
+    try {
+        if (source.kind === 'points') {
+            return { samples: [] };
+        }
+        if (source.kind === 'parametric') {
+            return { samples: sampleParametric(source, parameters) as [number, number, number][] };
+        }
+        return { samples: sampleFourier(source) as [number, number, number][] };
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return { samples: [], error: message };
+    }
+}
+
+function curveNameInUse(doc: NukeCadDocument, name: string, excludeId?: string): boolean {
+    return doc.curves.some((c) => c.name === name && c.id !== excludeId);
 }
 
 function getSourceFeatureId(feature: FeatureDef): string {
@@ -822,6 +880,129 @@ export class CadDocumentStore {
     }
 
     /**
+     * Add a 3D curve to the document.
+     *
+     * For ``points`` sources the supplied samples are used directly. For
+     * ``parametric`` and ``fourier`` sources the store resamples the source on
+     * the current document parameters.
+     */
+    addCurve(def: CurveDef): DocumentMutationResult<string> {
+        const check = this.requireDocument();
+        if (!check.success) {
+            return { success: false, error: check.error, issues: check.issues };
+        }
+        if (typeof def.name !== 'string' || def.name.length === 0) {
+            return { success: false, error: 'Curve name must be a non-empty string' };
+        }
+        const doc = cloneDocument(check.value!);
+        if (curveNameInUse(doc, def.name)) {
+            return { success: false, error: `Curve name '${def.name}' is already in use` };
+        }
+        const id = typeof def.id === 'string' && def.id.length > 0 && !doc.curves.some((c) => c.id === def.id) ? def.id : createCurveId();
+        let samples: [number, number, number][];
+        if (def.source.kind === 'points') {
+            samples = def.samples.map((p) => [p[0], p[1], p[2]]);
+        } else {
+            const result = buildCurveSamples(def.source, doc.parameters);
+            if (result.error !== undefined) {
+                return { success: false, error: result.error };
+            }
+            samples = result.samples;
+        }
+        if (samples.length < 4) {
+            return { success: false, error: `Curve '${def.name}' must have at least 4 samples` };
+        }
+        doc.curves = [...doc.curves, { ...def, id, samples }];
+        const commitResult = this.commit(doc, { selectCurve: id });
+        if (!commitResult.success) {
+            return { success: false, error: commitResult.error, issues: commitResult.issues };
+        }
+        return { success: true, value: id };
+    }
+
+    /**
+     * Update an existing curve's source and resample it.
+     *
+     * The curve id is preserved even when the supplied definition carries a
+     * different id.
+     */
+    updateCurve(id: string, def: CurveDef): DocumentMutationResult {
+        const check = this.requireDocument();
+        if (!check.success) {
+            return { success: false, error: check.error, issues: check.issues };
+        }
+        if (typeof def.name !== 'string' || def.name.length === 0) {
+            return { success: false, error: 'Curve name must be a non-empty string' };
+        }
+        const doc = cloneDocument(check.value!);
+        const index = doc.curves.findIndex((c) => c.id === id);
+        if (index < 0) {
+            return { success: false, error: `Curve '${id}' not found` };
+        }
+        if (curveNameInUse(doc, def.name, id)) {
+            return { success: false, error: `Curve name '${def.name}' is already in use` };
+        }
+        let samples: [number, number, number][];
+        if (def.source.kind === 'points') {
+            samples = def.samples.map((p) => [p[0], p[1], p[2]]);
+        } else {
+            const result = buildCurveSamples(def.source, doc.parameters);
+            if (result.error !== undefined) {
+                return { success: false, error: result.error };
+            }
+            samples = result.samples;
+        }
+        if (samples.length < 4) {
+            return { success: false, error: `Curve '${def.name}' must have at least 4 samples` };
+        }
+        doc.curves = doc.curves.map((c, i) => (i === index ? { ...def, id, samples } : c));
+        return this.commit(doc, { selectCurve: id });
+    }
+
+    /** Rename an existing curve. */
+    renameCurve(id: string, name: string): DocumentMutationResult {
+        const check = this.requireDocument();
+        if (!check.success) {
+            return { success: false, error: check.error, issues: check.issues };
+        }
+        if (typeof name !== 'string' || name.length === 0) {
+            return { success: false, error: 'Curve name must be a non-empty string' };
+        }
+        const doc = cloneDocument(check.value!);
+        if (!doc.curves.some((c) => c.id === id)) {
+            return { success: false, error: `Curve '${id}' not found` };
+        }
+        if (curveNameInUse(doc, name, id)) {
+            return { success: false, error: `Curve name '${name}' is already in use` };
+        }
+        doc.curves = doc.curves.map((c) => (c.id === id ? { ...c, name } : c));
+        return this.commit(doc);
+    }
+
+    /** Delete a curve from the document. */
+    deleteCurve(id: string): DocumentMutationResult {
+        const check = this.requireDocument();
+        if (!check.success) {
+            return { success: false, error: check.error, issues: check.issues };
+        }
+        const doc = cloneDocument(check.value!);
+        if (!doc.curves.some((c) => c.id === id)) {
+            return { success: false, error: `Curve '${id}' not found` };
+        }
+        doc.curves = doc.curves.filter((c) => c.id !== id);
+        return this.commit(doc, { clearSelection: { selectedCurveId: id } });
+    }
+
+    /** Set the selected curve id. */
+    selectCurve(id: string | undefined): void {
+        this.state = {
+            ...this.state,
+            selection: { ...this.state.selection, selectedCurveId: id }
+        };
+        this.emitChange();
+    }
+
+    /**
      * Add a datum plane to the document.
      *
      * Face datums that reference the same face fingerprint and offset are reused
@@ -993,9 +1174,10 @@ export class CadDocumentStore {
     private commit(
         doc: NukeCadDocument,
         options?: {
-            clearSelection?: { selectedSketchId?: string; selectedFeatureId?: string; selectedBodyId?: string };
+            clearSelection?: { selectedSketchId?: string; selectedFeatureId?: string; selectedBodyId?: string; selectedCurveId?: string };
             selectFeature?: string;
             selectBody?: string;
+            selectCurve?: string;
         }
     ): DocumentMutationResult {
         const validation = validateNukeCadDocument(doc);
@@ -1018,11 +1200,20 @@ export class CadDocumentStore {
         if (options?.clearSelection?.selectedBodyId !== undefined && selection.selectedBodyId === options.clearSelection.selectedBodyId) {
             selection = { ...selection, selectedBodyId: undefined };
         }
+        if (
+            options?.clearSelection?.selectedCurveId !== undefined &&
+            selection.selectedCurveId === options.clearSelection.selectedCurveId
+        ) {
+            selection = { ...selection, selectedCurveId: undefined };
+        }
         if (options?.selectFeature !== undefined) {
             selection = { ...selection, selectedFeatureId: options.selectFeature };
         }
         if (options?.selectBody !== undefined) {
             selection = { ...selection, selectedBodyId: options.selectBody };
+        }
+        if (options?.selectCurve !== undefined) {
+            selection = { ...selection, selectedCurveId: options.selectCurve };
         }
         this.state = { ...this.state, document: doc, dirty: true, selection };
         this.emitChange();
@@ -1078,6 +1269,16 @@ export function createFeatureId(): string {
  */
 export function createBodyId(): string {
     return nextId('body');
+}
+
+/**
+ * Return a new unique id for a curve.
+ *
+ * Callers may override the generated id; this helper is provided for
+ * convenience in UI code.
+ */
+export function createCurveId(): string {
+    return nextId('curve');
 }
 
 /**

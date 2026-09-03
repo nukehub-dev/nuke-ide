@@ -147,6 +147,7 @@ interface TessData {
     readonly tolerance: number;
     readonly boundingBox: { readonly min: number[]; readonly max: number[] };
     readonly solids: TessSolid[];
+    readonly curves?: import('../../../common/nuke-cad-protocol').TessCurve[];
 }
 
 @injectable()
@@ -1173,6 +1174,7 @@ export class CadViewportWidget extends ReactWidget {
                 editingFeatureId={this.editingFeatureId}
                 facePickMode={this.facePickMode}
                 dressUpPickMode={this.dressUpPickMode}
+                selectedCurveId={this.documentStore.selection.selectedCurveId}
                 documentStore={this.documentStore}
                 templatePickerOpen={this.templatePickerOpen}
                 sketchAutoDimension={this.preferences['nukeCad.sketchAutoDimension']}
@@ -1241,6 +1243,7 @@ interface CadViewportComponentProps {
     readonly facePickMode?: 'sketchDatum' | 'externalGeometry';
     readonly dressUpPickMode?: { readonly type: FeatureType; readonly selecting: 'edge' | 'face' };
     readonly holePickMode?: boolean;
+    readonly selectedCurveId?: string;
     readonly sectionActive: boolean;
     readonly documentStore: CadDocumentStore;
     readonly messageService: MessageService;
@@ -1313,6 +1316,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
 
     const viewportApi = React.useRef<{
         updateModel?: (tessData?: TessData) => void;
+        updateSelectedCurve?: (curveId: string | undefined) => void;
         setFacePickMode?: (mode?: 'sketchDatum' | 'externalGeometry') => void;
         setDressUpPickMode?: (mode?: { type: FeatureType; selecting: 'edge' | 'face' }) => void;
         setHolePickMode?: (active: boolean) => void;
@@ -1461,6 +1465,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             }
             cleanup = api.cleanup;
             viewportApi.current.updateModel = api.updateModel;
+            viewportApi.current.updateSelectedCurve = api.updateSelectedCurve;
             viewportApi.current.setFacePickMode = api.setFacePickMode;
             viewportApi.current.setDressUpPickMode = api.setDressUpPickMode;
             viewportApi.current.setHolePickMode = api.setHolePickMode;
@@ -1484,6 +1489,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
         return () => {
             disposed = true;
             viewportApi.current.updateModel = undefined;
+            viewportApi.current.updateSelectedCurve = undefined;
             viewportApi.current.setFacePickMode = undefined;
             viewportApi.current.setDressUpPickMode = undefined;
             viewportApi.current.setHolePickMode = undefined;
@@ -1518,6 +1524,10 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
     React.useEffect(() => {
         viewportApi.current.setHolePickMode?.(props.holePickMode ?? false);
     }, [props.holePickMode]);
+
+    React.useEffect(() => {
+        viewportApi.current.updateSelectedCurve?.(props.selectedCurveId);
+    }, [props.selectedCurveId, controller]);
 
     React.useEffect(() => {
         viewportApi.current.setSection?.(
@@ -1970,6 +1980,7 @@ interface ViewportApi {
     readonly controller: SketchModeController;
     readonly cleanup: () => void;
     readonly updateModel: (tessData?: TessData) => void;
+    readonly updateSelectedCurve: (curveId: string | undefined) => void;
     readonly setFacePickMode: (mode?: 'sketchDatum' | 'externalGeometry') => void;
     readonly setDressUpPickMode: (mode?: { type: FeatureType; selecting: 'edge' | 'face' }) => void;
     readonly setHolePickMode: (active: boolean) => void;
@@ -2056,6 +2067,8 @@ function initViewport(
 
     let meshes: THREE.Mesh[] = [];
     let edgeLines: THREE.Line[] = [];
+    let curveLines: THREE.Line[] = [];
+    let selectedCurveId: string | undefined;
     let currentSelection: CadSelection = {};
     // Solids hidden through the Model Outline hide/isolate actions; cleared on
     // every new model (solid indices are positional and can shuffle).
@@ -2389,6 +2402,13 @@ function initViewport(
     });
     onControllerReady(controller, camera);
 
+    const applyCurveHighlight = (): void => {
+        for (const line of curveLines) {
+            const isSelected = line.userData.curveId === selectedCurveId;
+            (line.material as THREE.LineBasicMaterial).color.copy(isSelected ? selectedColor : edgeColor);
+        }
+    };
+
     const applyHighlight = (): void => {
         const highlightIds = currentSelection.solidIds ?? (currentSelection.solidId !== undefined ? [currentSelection.solidId] : []);
         for (const mesh of meshes) {
@@ -2400,6 +2420,7 @@ function initViewport(
                 (currentSelection.faceId === undefined || data.faceId === currentSelection.faceId);
             (mesh.material as THREE.MeshStandardMaterial).color.copy(isSelected ? selectedColor : baseColor);
         }
+        applyCurveHighlight();
         renderScene();
     };
 
@@ -2458,6 +2479,12 @@ function initViewport(
             (line.material as THREE.Material).dispose();
         }
         edgeLines = [];
+        for (const line of curveLines) {
+            modelGroup.remove(line);
+            line.geometry.dispose();
+            (line.material as THREE.Material).dispose();
+        }
+        curveLines = [];
         faceHighlighter.clear();
         edgeHighlighter.clear();
 
@@ -2502,7 +2529,16 @@ function initViewport(
                 edgeLines.push(line);
             }
         }
+        if (data.curves !== undefined) {
+            for (const curve of data.curves) {
+                const line = buildCurveLine(curve);
+                (line.material as THREE.LineBasicMaterial).color.set(edgeColor);
+                modelGroup.add(line);
+                curveLines.push(line);
+            }
+        }
         applyShading();
+        applyCurveHighlight();
     };
 
     buildModel(tessData);
@@ -2742,6 +2778,9 @@ function initViewport(
         pointer.x = ndc.x;
         pointer.y = ndc.y;
         raycaster.setFromCamera(pointer, camera);
+        // Clicking a solid (or empty space) clears any curve selection so the
+        // viewport does not show two active selections.
+        documentStore.selectCurve(undefined);
         // Hidden solids and edges-only shading remove their meshes from the
         // pick pool; a click on them degrades to an empty-space click.
         const intersects = raycaster.intersectObjects(pickableMeshes(), false);
@@ -3131,6 +3170,11 @@ function initViewport(
     return {
         controller,
         updateModel: buildModel,
+        updateSelectedCurve: (curveId) => {
+            selectedCurveId = curveId;
+            applyCurveHighlight();
+            renderScene();
+        },
         setFacePickMode: (mode) => {
             activeFacePickMode = mode;
             if (mode === undefined) {
@@ -3219,6 +3263,10 @@ function initViewport(
                 line.geometry.dispose();
                 (line.material as THREE.Material).dispose();
             }
+            for (const line of curveLines) {
+                line.geometry.dispose();
+                (line.material as THREE.Material).dispose();
+            }
         }
     };
 }
@@ -3243,6 +3291,22 @@ function buildFaceGeometry(face: TessFace): THREE.BufferGeometry {
     geometry.setIndex(new THREE.BufferAttribute(indices, 1));
     geometry.computeVertexNormals();
     return geometry;
+}
+
+function buildCurveLine(curve: import('../../../common/nuke-cad-protocol').TessCurve): THREE.Line {
+    const geometry = new THREE.BufferGeometry();
+    const points = curve.points;
+    const positions = new Float32Array(points.length * 3);
+    for (let i = 0; i < points.length; i++) {
+        positions[i * 3] = points[i][0];
+        positions[i * 3 + 1] = points[i][1];
+        positions[i * 3 + 2] = points[i][2];
+    }
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    const material = new THREE.LineBasicMaterial({ transparent: true, opacity: 0.95, linewidth: 2 });
+    const line = new THREE.Line(geometry, material);
+    line.userData = { curveId: curve.id, name: curve.name, closed: curve.closed };
+    return line;
 }
 
 function readThemeColor(element: HTMLElement, variable: string, fallback: string): string {

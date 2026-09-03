@@ -28,7 +28,7 @@
 /**
  * Data-only document templates for the New Document picker.
  *
- * Templates are shallow parameter presets merged over an empty v2 document at
+ * Templates are shallow parameter presets merged over an empty v3 document at
  * creation time. No template metadata is stored in the document itself.
  *
  * @module nuke-cad/common
@@ -87,7 +87,7 @@ export function getDocumentTemplate(id: string): DocumentTemplate | undefined {
     return DOCUMENT_TEMPLATES.find((t) => t.id === id);
 }
 
-/** Create a fresh empty v2 document with the canonical datum planes. */
+/** Create a fresh empty v3 document with the canonical datum planes. */
 export function createEmptyNukeCadDocument(name: string): NukeCadDocument {
     return {
         version: NUKE_CAD_SCHEMA_VERSION,
@@ -100,7 +100,8 @@ export function createEmptyNukeCadDocument(name: string): NukeCadDocument {
         ],
         bodies: [],
         sketches: [],
-        features: []
+        features: [],
+        curves: []
     };
 }
 

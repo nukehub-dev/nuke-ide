@@ -16,6 +16,7 @@
       "name": "moderator"
     }
   ],
+  "curves": [],
   "datums": [
     {
       "id": "datum-xy",
@@ -384,5 +385,5 @@
       ]
     }
   ],
-  "version": 2
+  "version": 3
 }

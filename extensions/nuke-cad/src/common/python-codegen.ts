@@ -50,7 +50,7 @@
  * @module nuke-cad/common
  */
 
-import { type NukeCadDocument, type SketchDef, type FeatureDef, type DatumPlane } from './cad-document';
+import { type NukeCadDocument, type SketchDef, type FeatureDef, type DatumPlane, type CurveSource } from './cad-document';
 import { FeatureGraph } from './feature-graph';
 import { type TopologyRef, type FaceFingerprint, type EdgeFingerprint } from './topology-refs';
 
@@ -139,6 +139,25 @@ export function generatePythonScript(doc: NukeCadDocument): string {
         }
     }
     lines.push('');
+
+    lines.push('# Curves');
+    const curveVarById = new Map<string, string>();
+    for (const curve of doc.curves) {
+        const varName = uniqueCurveVarName(curve.name, curveVarById);
+        curveVarById.set(curve.id, varName);
+        const sourceComment = curveSourceComment(curve.source);
+        if (sourceComment !== undefined) {
+            lines.push(`# ${sourceComment}`);
+        }
+        const pointsVar = `${varName}_points`;
+        lines.push(`${pointsVar} = [${curve.samples.map((p) => tuple(p as [number, number, number])).join(', ')}]`);
+        lines.push(`${varName} = bd.Spline(*${pointsVar})  # ${curve.name}`);
+        lines.push('');
+    }
+    if (doc.curves.length === 0) {
+        lines.push('# No curves defined.');
+        lines.push('');
+    }
 
     if (manualFeatures.length > 0) {
         lines.push('# -----------------------------------------------------------------------------');
@@ -817,6 +836,27 @@ function emitManualTodo(feature: FeatureDef): string[] {
         lines.push(`#   ${key}: ${serialized}`);
     }
     return lines;
+}
+
+function uniqueCurveVarName(name: string, existing: Map<string, string>): string {
+    const base = sanitizeIdentifier(`curve_${name}`);
+    let candidate = base;
+    let index = 1;
+    const values = new Set(existing.values());
+    while (values.has(candidate)) {
+        candidate = `${base}_${index++}`;
+    }
+    return candidate;
+}
+
+function curveSourceComment(source: CurveSource): string | undefined {
+    if (source.kind === 'points') {
+        return undefined;
+    }
+    if (source.kind === 'parametric') {
+        return `source: parametric x=${source.x} y=${source.y} z=${source.z} tStart=${source.tStart} tEnd=${source.tEnd} sampleCount=${source.sampleCount}`;
+    }
+    return `source: fourier nfp=${source.nfp} order=${source.order}`;
 }
 
 // Re-export for consumers that want to reuse the ordering logic.

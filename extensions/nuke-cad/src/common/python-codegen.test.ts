@@ -146,7 +146,8 @@ function sampleDocument(): NukeCadDocument {
             { id: 'body_b', name: 'Pin', label: 'pin' }
         ],
         sketches: [sketchA, sketchB],
-        features: [padA, padB, booleanCut, fillet, pattern, hole]
+        features: [padA, padB, booleanCut, fillet, pattern, hole],
+        curves: []
     };
 }
 
@@ -351,7 +352,8 @@ describe('generatePythonScript runtime emission', () => {
                     suppressed: false,
                     dependsOn: ['circ_full']
                 }
-            ]
+            ],
+            curves: []
         };
     }
 
@@ -401,5 +403,82 @@ describe('generatePythonScript runtime emission', () => {
         const script = generatePythonScript(doc);
         expect(script).toContain('# suppressed: pad feature "pad_arc" (excluded from the build)');
         expect(script).not.toContain('bd.extrude(sketch_Arc_sk_arc()');
+    });
+});
+
+describe('generatePythonScript curve emission', () => {
+    function curveDocument(): NukeCadDocument {
+        return {
+            version: NUKE_CAD_SCHEMA_VERSION,
+            name: 'curves',
+            parameters: {},
+            datums: [{ id: 'xy', kind: 'XY', name: 'XY' }],
+            bodies: [],
+            sketches: [],
+            features: [],
+            curves: [
+                {
+                    id: 'c1',
+                    name: 'Helix',
+                    source: {
+                        kind: 'parametric',
+                        x: 'cos(t)',
+                        y: 'sin(t)',
+                        z: 't',
+                        tStart: 0,
+                        tEnd: 1,
+                        sampleCount: 8
+                    },
+                    samples: [
+                        [1, 0, 0],
+                        [0, 1, 0.125],
+                        [-1, 0, 0.25],
+                        [0, -1, 0.375],
+                        [1, 0, 0.5]
+                    ]
+                },
+                {
+                    id: 'c2',
+                    name: 'W7X coil',
+                    source: { kind: 'points' },
+                    samples: [
+                        [0, 0, 0],
+                        [1, 0, 0],
+                        [1, 1, 0],
+                        [0, 1, 0]
+                    ]
+                }
+            ]
+        };
+    }
+
+    it('emits a Spline for each curve', () => {
+        const script = generatePythonScript(curveDocument());
+        expect(script).toContain('# Curves');
+        expect(script).toContain('curve_Helix = bd.Spline(*curve_Helix_points)');
+        expect(script).toContain('curve_W7X_coil = bd.Spline(*curve_W7X_coil_points)');
+    });
+
+    it('emits the sample point list as a Python list of tuples', () => {
+        const script = generatePythonScript(curveDocument());
+        expect(script).toContain('curve_Helix_points = [');
+        expect(script).toContain('(1, 0, 0)');
+    });
+
+    it('includes a source comment for parametric and fourier curves', () => {
+        const script = generatePythonScript(curveDocument());
+        expect(script).toContain('# source: parametric x=cos(t) y=sin(t) z=t');
+    });
+
+    it('does not include a source comment for points curves', () => {
+        const script = generatePythonScript(curveDocument());
+        expect(script).not.toMatch(/source:.*points/);
+    });
+
+    it('emits the no-curves comment when the curves array is empty', () => {
+        const doc = curveDocument();
+        doc.curves = [];
+        const script = generatePythonScript(doc);
+        expect(script).toContain('# No curves defined.');
     });
 });

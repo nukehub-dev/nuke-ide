@@ -67,7 +67,8 @@ function makeDocument(): NukeCadDocument {
                 suppressed: false,
                 dependsOn: []
             }
-        ]
+        ],
+        curves: []
     };
 }
 
@@ -495,7 +496,8 @@ describe('dress-up feature validation', () => {
                     suppressed: false,
                     dependsOn: []
                 }
-            ]
+            ],
+            curves: []
         };
     }
 
@@ -676,7 +678,8 @@ describe('pattern, mirror, and hole validation', () => {
                     suppressed: false,
                     dependsOn: []
                 }
-            ]
+            ],
+            curves: []
         };
     }
 
@@ -859,5 +862,286 @@ describe('pattern, mirror, and hole validation', () => {
         expect(result.issues.some((i) => i.path === 'features[1].params.face')).toBe(true);
         expect(result.issues.some((i) => i.path === 'features[1].params.center')).toBe(true);
         expect(result.issues.some((i) => i.path === 'features[1].params.diameter')).toBe(true);
+    });
+});
+
+describe('curve validation', () => {
+    function makeBaseDocument(): NukeCadDocument {
+        return {
+            version: NUKE_CAD_SCHEMA_VERSION,
+            name: 'curves',
+            parameters: {},
+            datums: [{ id: 'xy', kind: 'XY', name: 'XY' }],
+            bodies: [],
+            sketches: [],
+            features: [],
+            curves: []
+        };
+    }
+
+    function samplePoints(): [number, number, number][] {
+        const pts: [number, number, number][] = [];
+        for (let i = 0; i < 8; i++) {
+            pts.push([Math.cos(i), Math.sin(i), 0]);
+        }
+        return pts;
+    }
+
+    it('accepts a points-sourced curve', () => {
+        const doc = makeBaseDocument();
+        doc.curves.push({ id: 'c1', name: 'Helix', source: { kind: 'points' }, samples: samplePoints() });
+        const result = validateNukeCadDocument(doc);
+        expect(result.valid).toBe(true);
+        expect(result.issues).toHaveLength(0);
+    });
+
+    it('accepts a parametric-sourced curve', () => {
+        const doc = makeBaseDocument();
+        doc.curves.push({
+            id: 'c1',
+            name: 'Helix',
+            source: {
+                kind: 'parametric',
+                x: 'cos(t)',
+                y: 'sin(t)',
+                z: 't',
+                tStart: 0,
+                tEnd: 1,
+                sampleCount: 16
+            },
+            samples: samplePoints()
+        });
+        const result = validateNukeCadDocument(doc);
+        expect(result.valid).toBe(true);
+        expect(result.issues).toHaveLength(0);
+    });
+
+    it('accepts a fourier-sourced curve', () => {
+        const doc = makeBaseDocument();
+        doc.curves.push({
+            id: 'c1',
+            name: 'Fourier circle',
+            source: {
+                kind: 'fourier',
+                nfp: 1,
+                order: 1,
+                cosX: [0, 1],
+                sinX: [0, 0],
+                cosY: [0, 0],
+                sinY: [0, 1],
+                cosZ: [0, 0],
+                sinZ: [0, 0],
+                sampleCount: 64
+            },
+            samples: samplePoints()
+        });
+        const result = validateNukeCadDocument(doc);
+        expect(result.valid).toBe(true);
+        expect(result.issues).toHaveLength(0);
+    });
+
+    it('accepts a fourier source with shorter sin arrays', () => {
+        const doc = makeBaseDocument();
+        doc.curves.push({
+            id: 'c1',
+            name: 'Fourier with truncated sin terms',
+            source: {
+                kind: 'fourier',
+                nfp: 1,
+                order: 2,
+                cosX: [0, 1, 0],
+                sinX: [0],
+                cosY: [0, 0, 0],
+                sinY: [0, 1],
+                cosZ: [0, 0, 0],
+                sinZ: [],
+                sampleCount: 64
+            },
+            samples: samplePoints()
+        });
+        const result = validateNukeCadDocument(doc);
+        expect(result.valid).toBe(true);
+        expect(result.issues).toHaveLength(0);
+    });
+
+    it('rejects a fourier source with coefficient arrays longer than order + 1', () => {
+        const doc = makeBaseDocument();
+        doc.curves.push({
+            id: 'c1',
+            name: 'Bad',
+            source: {
+                kind: 'fourier',
+                nfp: 1,
+                order: 1,
+                cosX: [0, 1],
+                sinX: [0, 0],
+                cosY: [0, 0],
+                sinY: [0, 1, 0],
+                cosZ: [0, 0],
+                sinZ: [0, 0],
+                sampleCount: 64
+            },
+            samples: samplePoints()
+        });
+        const result = validateNukeCadDocument(doc);
+        expect(result.valid).toBe(false);
+        expect(result.issues.some((i) => i.path === 'curves[0].source.sinY')).toBe(true);
+    });
+
+    it('rejects a curve with duplicate id', () => {
+        const doc = makeBaseDocument();
+        doc.curves.push({ id: 'c1', name: 'A', source: { kind: 'points' }, samples: samplePoints() });
+        doc.curves.push({ id: 'c1', name: 'B', source: { kind: 'points' }, samples: samplePoints() });
+        const result = validateNukeCadDocument(doc);
+        expect(result.valid).toBe(false);
+        expect(result.issues.some((i) => i.message.includes("duplicate id 'c1'"))).toBe(true);
+    });
+
+    it('rejects malformed parametric source fields', () => {
+        const doc = makeBaseDocument();
+        doc.curves.push({
+            id: 'c1',
+            name: 'Bad',
+            source: {
+                kind: 'parametric',
+                x: '',
+                y: '0',
+                z: '0',
+                tStart: 1,
+                tEnd: 1,
+                sampleCount: 4
+            },
+            samples: samplePoints()
+        });
+        const result = validateNukeCadDocument(doc);
+        expect(result.valid).toBe(false);
+        expect(result.issues.some((i) => i.path === 'curves[0].source.x')).toBe(true);
+        expect(result.issues.some((i) => i.path === 'curves[0].source.tEnd')).toBe(true);
+        expect(result.issues.some((i) => i.path === 'curves[0].source.sampleCount')).toBe(true);
+    });
+
+    it('rejects malformed fourier source fields', () => {
+        const doc = makeBaseDocument();
+        doc.curves.push({
+            id: 'c1',
+            name: 'Bad',
+            source: {
+                kind: 'fourier',
+                nfp: 0,
+                order: -1,
+                cosX: [0],
+                sinX: [0],
+                cosY: [0],
+                sinY: [0],
+                cosZ: [0],
+                sinZ: [0],
+                sampleCount: 4
+            },
+            samples: samplePoints()
+        });
+        const result = validateNukeCadDocument(doc);
+        expect(result.valid).toBe(false);
+        expect(result.issues.some((i) => i.path === 'curves[0].source.nfp')).toBe(true);
+        expect(result.issues.some((i) => i.path === 'curves[0].source.order')).toBe(true);
+        expect(result.issues.some((i) => i.path === 'curves[0].source.sampleCount')).toBe(true);
+    });
+
+    it('rejects too few curve samples', () => {
+        const doc = makeBaseDocument();
+        doc.curves.push({
+            id: 'c1',
+            name: 'Short',
+            source: { kind: 'points' },
+            samples: [
+                [0, 0, 0],
+                [1, 0, 0],
+                [2, 0, 0]
+            ]
+        });
+        const result = validateNukeCadDocument(doc);
+        expect(result.valid).toBe(false);
+        expect(result.issues.some((i) => i.path === 'curves[0].samples')).toBe(true);
+    });
+
+    it('rejects non-finite curve samples', () => {
+        const doc = makeBaseDocument();
+        doc.curves.push({
+            id: 'c1',
+            name: 'Bad',
+            source: { kind: 'points' },
+            samples: [
+                [0, 0, 0],
+                [1, 0, 0],
+                [2, NaN, 0],
+                [3, 0, 0]
+            ]
+        });
+        const result = validateNukeCadDocument(doc);
+        expect(result.valid).toBe(false);
+        expect(result.issues.some((i) => i.path === 'curves[0].samples[2][1]')).toBe(true);
+    });
+
+    it('requires curves to be an array', () => {
+        const doc = makeBaseDocument();
+        (doc as unknown as { curves: string }).curves = 'not-an-array';
+        const result = validateNukeCadDocument(doc);
+        expect(result.valid).toBe(false);
+        expect(result.issues.some((i) => i.path === 'curves')).toBe(true);
+    });
+});
+
+describe('v2 to v3 migration', () => {
+    it('adds an empty curves array to a v2 document', () => {
+        const v2 = {
+            version: 2,
+            name: 'v2-doc',
+            parameters: {},
+            datums: [{ id: 'xy', kind: 'XY', name: 'XY' }],
+            bodies: [{ id: 'body-1', name: 'Body' }],
+            sketches: [],
+            features: []
+        };
+        const result = migrateNukeCadDocument(v2);
+        expect(result.migratedFrom).toBe(2);
+        expect(result.document.version).toBe(NUKE_CAD_SCHEMA_VERSION);
+        expect(result.document.curves).toEqual([]);
+    });
+
+    it('preserves all v2 fields during migration', () => {
+        const v2 = {
+            version: 2,
+            name: 'v2-doc',
+            parameters: { width: 10 },
+            datums: [{ id: 'xy', kind: 'XY', name: 'XY' }],
+            bodies: [{ id: 'body-1', name: 'Body', label: 'base' }],
+            sketches: [
+                {
+                    id: 'sketch1',
+                    name: 'Profile',
+                    datumId: 'xy',
+                    primitives: [],
+                    constraints: [],
+                    parameters: {}
+                }
+            ],
+            features: [
+                {
+                    id: 'pad1',
+                    name: 'Pad',
+                    type: 'pad',
+                    body: 'body-1',
+                    sketchId: 'sketch1',
+                    params: { length: 2 },
+                    suppressed: false,
+                    dependsOn: []
+                }
+            ]
+        };
+        const result = migrateNukeCadDocument(v2);
+        expect(result.document.name).toBe('v2-doc');
+        expect(result.document.parameters).toEqual({ width: 10 });
+        expect(result.document.bodies).toHaveLength(1);
+        expect(result.document.sketches).toHaveLength(1);
+        expect(result.document.features).toHaveLength(1);
     });
 });

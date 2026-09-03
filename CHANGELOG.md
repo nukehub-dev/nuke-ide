@@ -103,7 +103,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-cad: **document templates on New Document** — **New CAD Document** now opens
   a compact picker with **Empty document**, **Pincell starter (cm)**, and
   **Tokamak starter (cm)** presets. The chosen template's parameters are merged
-  over the empty v2 document; no template metadata is stored in the document.
+  over the empty v3 document; no template metadata is stored in the document.
+- nuke-cad: **3D curves** — `.nuke-cad` documents now store a top-level `curves`
+  array (schema v3). Curves can be defined by explicit points, parametric
+  expressions (`x(t)`, `y(t)`, `z(t)`), or Fourier coefficients; the document
+  store resamples parametric and Fourier sources on add/edit. Curves render as
+  viewport polylines, appear in the Feature Tree under a **CURVES** section with
+  inline rename/delete and a source editor dialog, and export to Python as
+  `bd.Spline` calls. The Python backend (`python/curve_builder.py`) fits
+  B-spline wires and includes them in the tessellation output. Curves whose
+  endpoints meet (parametric/Fourier loops close automatically; a points list
+  closes by repeating its first point) are detected as closed and built as
+  periodic wires.
 
 ### Fixed
 

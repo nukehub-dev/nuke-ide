@@ -56,6 +56,9 @@ for _k in range(1, 3):
 #   center: [0.5,0.5]
 #   diameter: 0.2
 
+# Curves
+# No curves defined.
+
 # -----------------------------------------------------------------------------
 # Features requiring manual repair before the exported script is runnable
 # -----------------------------------------------------------------------------

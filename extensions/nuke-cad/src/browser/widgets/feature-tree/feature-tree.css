@@ -310,3 +310,93 @@
 .cad-feature-tree-empty .empty-hint {
     font-size: 12px;
 }
+
+.category-header-main {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+}
+
+.feature-tree-section-action {
+    padding: 2px 4px;
+    min-width: 0;
+    margin-left: 4px;
+    opacity: 0.7;
+}
+
+.feature-tree-section-action:hover {
+    opacity: 1;
+}
+
+.feature-tree-kind-chip {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 1px 6px;
+    border-radius: 8px;
+    text-transform: none;
+    white-space: nowrap;
+    color: var(--theia-badge-foreground);
+    background: var(--theia-badge-background);
+}
+
+.cad-curve-dialog {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 360px;
+}
+
+.cad-curve-dialog-error {
+    color: var(--theia-editorError-foreground);
+    background: var(--theia-inputValidation-errorBackground, rgba(244, 135, 113, 0.15));
+    padding: 8px;
+    border-radius: 4px;
+    font-size: 13px;
+}
+
+.cad-curve-dialog-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 13px;
+}
+
+.cad-curve-dialog-row.stacked {
+    flex: 1;
+}
+
+.cad-curve-dialog-row input,
+.cad-curve-dialog-row select,
+.cad-curve-dialog-row textarea {
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    border: 1px solid var(--theia-input-border);
+    border-radius: 2px;
+    padding: 4px 6px;
+    font-size: 13px;
+}
+
+.cad-curve-dialog-row input:focus,
+.cad-curve-dialog-row select:focus,
+.cad-curve-dialog-row textarea:focus {
+    outline: 1px solid var(--theia-focusBorder);
+}
+
+.cad-curve-dialog-textarea {
+    font-family: var(--theia-ui-font-family);
+    resize: vertical;
+}
+
+.cad-curve-dialog-row-group {
+    display: flex;
+    gap: 12px;
+}
+
+.cad-curve-dialog-row-group .cad-curve-dialog-row {
+    flex: 1;
+}
+
+.cad-curve-dialog-load {
+    align-self: flex-start;
+}

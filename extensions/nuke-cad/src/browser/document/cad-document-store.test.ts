@@ -39,6 +39,7 @@ function minimalDoc(overrides?: Partial<NukeCadDocument>): NukeCadDocument {
         bodies: [{ id: 'body-1', name: 'Body 1' }],
         sketches: [],
         features: [],
+        curves: [],
         ...overrides
     };
 }
@@ -965,5 +966,212 @@ describe('reference repair flow', () => {
         expect(datum.reference!.fingerprint).toEqual(candidate.fingerprint);
         // The replacement keeps the original producing feature id.
         expect(datum.reference!.featureId).toBe('base');
+    });
+});
+
+describe('curve operations', () => {
+    function circleSamples(count: number): [number, number, number][] {
+        const pts: [number, number, number][] = [];
+        for (let i = 0; i < count; i++) {
+            const theta = (2 * Math.PI * i) / count;
+            pts.push([Math.cos(theta), Math.sin(theta), 0]);
+        }
+        return pts;
+    }
+
+    function pointsCurve(id: string, name: string): import('../../common/cad-document').CurveDef {
+        return {
+            id,
+            name,
+            source: { kind: 'points' },
+            samples: circleSamples(8)
+        };
+    }
+
+    it('adds a points-sourced curve', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        const result = store.addCurve(pointsCurve('c1', 'Circle'));
+        expect(result.success).toBe(true);
+        expect(store.document?.curves).toHaveLength(1);
+        expect(store.document?.curves[0].name).toBe('Circle');
+        expect(store.selection.selectedCurveId).toBe(result.value);
+    });
+
+    it('rejects duplicate curve names', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        store.addCurve(pointsCurve('c1', 'Circle'));
+        const result = store.addCurve(pointsCurve('c2', 'Circle'));
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('already in use');
+    });
+
+    it('rejects curves with fewer than 4 samples', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        const result = store.addCurve({
+            id: 'c1',
+            name: 'Short',
+            source: { kind: 'points' },
+            samples: [
+                [0, 0, 0],
+                [1, 0, 0],
+                [2, 0, 0]
+            ]
+        });
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('at least 4 samples');
+    });
+
+    it('resamples a parametric curve on add', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        const result = store.addCurve({
+            id: 'c1',
+            name: 'Helix',
+            source: {
+                kind: 'parametric',
+                x: 'cos(t)',
+                y: 'sin(t)',
+                z: 't',
+                tStart: 0,
+                tEnd: 1,
+                sampleCount: 16
+            },
+            samples: []
+        });
+        expect(result.success).toBe(true);
+        expect(store.document?.curves[0].samples).toHaveLength(16);
+    });
+
+    it('resamples a parametric curve using document parameters', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        store.setParameter('radius', 3);
+        store.addCurve({
+            id: 'c1',
+            name: 'Scaled',
+            source: {
+                kind: 'parametric',
+                x: 'radius * cos(t)',
+                y: 'radius * sin(t)',
+                z: '0',
+                tStart: 0,
+                tEnd: 2 * Math.PI,
+                sampleCount: 16
+            },
+            samples: []
+        });
+        const samples = store.document!.curves[0].samples;
+        expect(samples[0][0]).toBeCloseTo(3, 10);
+    });
+
+    it('reports errors from invalid parametric expressions', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        const result = store.addCurve({
+            id: 'c1',
+            name: 'Bad',
+            source: {
+                kind: 'parametric',
+                x: 'unknown + 1',
+                y: '0',
+                z: '0',
+                tStart: 0,
+                tEnd: 1,
+                sampleCount: 8
+            },
+            samples: []
+        });
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('Unknown identifier');
+    });
+
+    it('updates an existing curve and preserves its id', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        store.addCurve(pointsCurve('c1', 'Circle'));
+        const result = store.updateCurve('c1', {
+            id: 'ignored',
+            name: 'Renamed Circle',
+            source: { kind: 'points' },
+            samples: circleSamples(12)
+        });
+        expect(result.success).toBe(true);
+        expect(store.document?.curves[0].id).toBe('c1');
+        expect(store.document?.curves[0].name).toBe('Renamed Circle');
+        expect(store.document?.curves[0].samples).toHaveLength(12);
+    });
+
+    it('rejects updating a non-existent curve', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        const result = store.updateCurve('missing', pointsCurve('c1', 'Circle'));
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('not found');
+    });
+
+    it('renames a curve', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        store.addCurve(pointsCurve('c1', 'Circle'));
+        const result = store.renameCurve('c1', 'Loop');
+        expect(result.success).toBe(true);
+        expect(store.document?.curves[0].name).toBe('Loop');
+    });
+
+    it('rejects empty curve names', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        store.addCurve(pointsCurve('c1', 'Circle'));
+        const result = store.renameCurve('c1', '');
+        expect(result.success).toBe(false);
+    });
+
+    it('rejects renaming to a duplicate curve name', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        store.addCurve(pointsCurve('c1', 'Circle'));
+        store.addCurve(pointsCurve('c2', 'Loop'));
+        const result = store.renameCurve('c2', 'Circle');
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('already in use');
+    });
+
+    it('deletes a curve and clears its selection', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        store.addCurve(pointsCurve('c1', 'Circle'));
+        store.selectCurve('c1');
+        const result = store.deleteCurve('c1');
+        expect(result.success).toBe(true);
+        expect(store.document?.curves).toHaveLength(0);
+        expect(store.selection.selectedCurveId).toBeUndefined();
+    });
+
+    it('rejects deleting a non-existent curve', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        const result = store.deleteCurve('missing');
+        expect(result.success).toBe(false);
+    });
+
+    it('tracks curve selection', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        store.selectCurve('c1');
+        expect(store.selection.selectedCurveId).toBe('c1');
+        store.selectCurve(undefined);
+        expect(store.selection.selectedCurveId).toBeUndefined();
+    });
+
+    it('notifies listeners on curve mutations', () => {
+        const store = new CadDocumentStore();
+        let count = 0;
+        store.onChange(() => count++);
+        store.createDocument('test');
+        store.addCurve(pointsCurve('c1', 'Circle'));
+        expect(count).toBeGreaterThan(0);
     });
 });

@@ -33,13 +33,17 @@
  * bodies. Version 1 documents are migrated automatically by adding one body per
  * additive feature and assigning subtractive features to the appropriate body.
  *
+ * Version 3 adds a top-level ``curves`` array. Each curve stores its source
+ * recipe (points, parametric expressions, or Fourier coefficients) plus a dense
+ * polyline of samples that the backend consumes directly.
+ *
  * @module nuke-cad/common
  */
 
 import { validateTopologyRef, type TopologyRef } from './topology-refs';
 
 /** Current `.nuke-cad` schema version. */
-export const NUKE_CAD_SCHEMA_VERSION = 2;
+export const NUKE_CAD_SCHEMA_VERSION = 3;
 
 /** Supported datum plane kinds. */
 export type DatumKind = 'XY' | 'YZ' | 'XZ' | 'offset' | 'face';
@@ -112,6 +116,50 @@ export interface BodyDef {
     name: string;
     /** Optional region-manifest label applied to all solids of this body. */
     label?: string;
+}
+
+/** A single point in 3D space used for curve samples. */
+export type CurvePoint = readonly [number, number, number];
+
+/** Source recipe for a curve defined by an explicit point list. */
+export interface PointsCurveSource {
+    readonly kind: 'points';
+}
+
+/** Source recipe for a parametric curve sampled uniformly in ``t``. */
+export interface ParametricCurveSource {
+    readonly kind: 'parametric';
+    readonly x: string;
+    readonly y: string;
+    readonly z: string;
+    readonly tStart: number;
+    readonly tEnd: number;
+    readonly sampleCount: number;
+}
+
+/** Source recipe for a Fourier-series curve sampled uniformly in ``theta``. */
+export interface FourierCurveSource {
+    readonly kind: 'fourier';
+    readonly nfp: number;
+    readonly order: number;
+    readonly cosX: readonly number[];
+    readonly sinX: readonly number[];
+    readonly cosY: readonly number[];
+    readonly sinY: readonly number[];
+    readonly cosZ: readonly number[];
+    readonly sinZ: readonly number[];
+    readonly sampleCount: number;
+}
+
+/** Source description that produced a curve's stored samples. */
+export type CurveSource = PointsCurveSource | ParametricCurveSource | FourierCurveSource;
+
+/** A 3D curve stored in the document. */
+export interface CurveDef {
+    readonly id: string;
+    readonly name: string;
+    readonly source: CurveSource;
+    readonly samples: readonly CurvePoint[];
 }
 
 /** Feature types for solid features. */
@@ -286,6 +334,7 @@ export interface NukeCadDocument {
     bodies: BodyDef[];
     sketches: SketchDef[];
     features: FeatureDef[];
+    curves: CurveDef[];
 }
 
 /** A single validation issue. */
@@ -780,6 +829,113 @@ function validateFeatureParams(ctx: MutableValidationContext, path: string, type
     }
 }
 
+function validateCurvePoint(ctx: MutableValidationContext, path: string, point: unknown): boolean {
+    if (!Array.isArray(point) || point.length !== 3) {
+        issue(ctx, path, 'curve sample must be a [x, y, z] tuple');
+        return false;
+    }
+    for (const [i, v] of point.entries()) {
+        if (!isFiniteNumber(v)) {
+            issue(ctx, `${path}[${i}]`, 'curve sample coordinate must be finite');
+            return false;
+        }
+    }
+    return true;
+}
+
+function validateNumberArray(
+    ctx: MutableValidationContext,
+    path: string,
+    value: unknown,
+    expectedLength: number | undefined,
+    allowShorter = false
+): void {
+    if (!Array.isArray(value)) {
+        issue(ctx, path, 'expected an array of finite numbers');
+        return;
+    }
+    if (expectedLength !== undefined && (allowShorter ? value.length > expectedLength : value.length !== expectedLength)) {
+        issue(ctx, path, `expected array of length ${allowShorter ? 'at most ' : ''}${expectedLength}, got ${value.length}`);
+        return;
+    }
+    for (const [i, v] of value.entries()) {
+        if (!isFiniteNumber(v)) {
+            issue(ctx, `${path}[${i}]`, 'coefficient must be a finite number');
+        }
+    }
+}
+
+function validateCurve(ctx: MutableValidationContext, curve: CurveDef, index: number): void {
+    const path = `curves[${index}]`;
+    requireId(ctx, `${path}.id`, curve.id);
+    if (!isString(curve.name)) {
+        issue(ctx, `${path}.name`, 'name must be a string');
+    }
+    if (!isPlainObject(curve.source)) {
+        issue(ctx, `${path}.source`, 'source must be an object');
+    } else {
+        const source = curve.source as Record<string, unknown>;
+        const kind = source.kind;
+        if (kind !== 'points' && kind !== 'parametric' && kind !== 'fourier') {
+            issue(ctx, `${path}.source.kind`, `unknown curve source kind '${kind}'`);
+        }
+        if (kind === 'parametric') {
+            for (const expr of ['x', 'y', 'z'] as const) {
+                if (!isString(source[expr]) || (source[expr] as string).length === 0) {
+                    issue(ctx, `${path}.source.${expr}`, 'parametric expression must be a non-empty string');
+                }
+            }
+            if (!isFiniteNumber(source.tStart)) {
+                issue(ctx, `${path}.source.tStart`, 'tStart must be a finite number');
+            }
+            if (!isFiniteNumber(source.tEnd)) {
+                issue(ctx, `${path}.source.tEnd`, 'tEnd must be a finite number');
+            }
+            if (isFiniteNumber(source.tStart) && isFiniteNumber(source.tEnd) && (source.tEnd as number) <= (source.tStart as number)) {
+                issue(ctx, `${path}.source.tEnd`, 'tEnd must be greater than tStart');
+            }
+            const count = source.sampleCount;
+            if (!Number.isInteger(count) || (count as number) < 8 || (count as number) > 4096) {
+                issue(ctx, `${path}.source.sampleCount`, 'sampleCount must be an integer in [8, 4096]');
+            }
+        }
+        if (kind === 'fourier') {
+            const nfp = source.nfp;
+            if (!Number.isInteger(nfp) || (nfp as number) < 1) {
+                issue(ctx, `${path}.source.nfp`, 'nfp must be a positive integer');
+            }
+            const order = source.order;
+            if (!Number.isInteger(order) || (order as number) < 0) {
+                issue(ctx, `${path}.source.order`, 'order must be a non-negative integer');
+            }
+            const expectedLength = Number.isInteger(order) ? (order as number) + 1 : undefined;
+            validateNumberArray(ctx, `${path}.source.cosX`, source.cosX, expectedLength);
+            validateNumberArray(ctx, `${path}.source.cosY`, source.cosY, expectedLength);
+            validateNumberArray(ctx, `${path}.source.cosZ`, source.cosZ, expectedLength);
+            // sin arrays may be shorter than order + 1; missing entries read as 0.
+            for (const arr of ['sinX', 'sinY', 'sinZ'] as const) {
+                if (source[arr] !== undefined) {
+                    validateNumberArray(ctx, `${path}.source.${arr}`, source[arr], expectedLength, true);
+                }
+            }
+            const count = source.sampleCount;
+            if (!Number.isInteger(count) || (count as number) < 32 || (count as number) > 4096) {
+                issue(ctx, `${path}.source.sampleCount`, 'sampleCount must be an integer in [32, 4096]');
+            }
+        }
+    }
+    if (!Array.isArray(curve.samples)) {
+        issue(ctx, `${path}.samples`, 'samples must be an array of curve points');
+    } else {
+        if (curve.samples.length < 4) {
+            issue(ctx, `${path}.samples`, 'curve must have at least 4 samples');
+        }
+        for (const [i, point] of curve.samples.entries()) {
+            validateCurvePoint(ctx, `${path}.samples[${i}]`, point);
+        }
+    }
+}
+
 /**
  * Validate a `.nuke-cad` document.
  *
@@ -842,6 +998,13 @@ export function validateNukeCadDocument(doc: NukeCadDocument): ValidationResult 
     } else {
         for (const [i, feature] of doc.features.entries()) {
             validateFeature(ctx, feature as FeatureDef, i);
+        }
+    }
+    if (!Array.isArray(doc.curves)) {
+        issue(ctx, 'curves', 'curves must be an array');
+    } else {
+        for (const [i, curve] of doc.curves.entries()) {
+            validateCurve(ctx, curve as CurveDef, i);
         }
     }
 
@@ -1006,7 +1169,16 @@ function migrateV1ToV2(doc: NukeCadDocument): NukeCadDocument {
         datums: Array.isArray(doc.datums) ? (doc.datums as DatumPlane[]) : [],
         bodies,
         sketches: Array.isArray(doc.sketches) ? (doc.sketches as SketchDef[]) : [],
-        features
+        features,
+        curves: []
+    };
+}
+
+function migrateV2ToV3(doc: NukeCadDocument): NukeCadDocument {
+    return {
+        ...doc,
+        version: 3,
+        curves: []
     };
 }
 
@@ -1016,7 +1188,8 @@ function migrateV1ToV2(doc: NukeCadDocument): NukeCadDocument {
  * Registers migration steps in {@link MIGRATIONS} keyed by the version they
  * upgrade from. Version 1 documents are migrated to version 2 by creating one
  * body per additive feature and assigning subtractive features to the
- * appropriate body.
+ * appropriate body. Version 2 documents are migrated to version 3 by adding an
+ * empty ``curves`` array.
  */
 export function migrateNukeCadDocument(json: unknown): NukeCadMigrationResult {
     if (!isPlainObject(json)) {
@@ -1033,7 +1206,8 @@ export function migrateNukeCadDocument(json: unknown): NukeCadMigrationResult {
         throw new Error(`Unsupported .nuke-cad schema version ${version} (this build supports up to ${NUKE_CAD_SCHEMA_VERSION})`);
     }
     const steps: Record<number, (doc: NukeCadDocument) => NukeCadDocument> = {
-        1: migrateV1ToV2
+        1: migrateV1ToV2,
+        2: migrateV2ToV3
     };
     let current = json as unknown as NukeCadDocument;
     let guard = 0;

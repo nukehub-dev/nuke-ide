@@ -41,6 +41,14 @@ export interface CadBoundingBox {
     readonly max: number[];
 }
 
+/** A single 3D curve in the viewport tessellation stream. */
+export interface TessCurve {
+    readonly id: string;
+    readonly name: string;
+    readonly points: number[][];
+    readonly closed: boolean;
+}
+
 /** Mesh quality report returned by the meshing service. */
 export interface MeshQualityReport {
     readonly elementCount: number;

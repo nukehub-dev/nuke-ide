@@ -52,8 +52,9 @@ def _load_fixture() -> dict:
 
 def test_gui_pincell_fixture_is_valid_json() -> None:
     doc = _load_fixture()
-    assert doc.get("version") == 2
+    assert doc.get("version") == 3
     assert doc.get("name") == "pincell"
+    assert isinstance(doc.get("curves"), list)
     body_labels = {b.get("label") for b in doc.get("bodies", [])}
     assert "fuel" in body_labels
     assert "clad" in body_labels
