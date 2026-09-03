@@ -92,7 +92,7 @@ grays out the 3D model, and shows a sketch grid.
 
 ### Draw with snap and auto-constraints
 
-The sketch toolbar has six tools (press the letter, or use the keyboard icon
+The sketch toolbar has eight tools (press the letter, or use the keyboard icon
 on the toolbar header for the full cheat sheet — shortcuts apply while the
 viewport has focus):
 
@@ -104,6 +104,14 @@ viewport has focus):
 - **Circle** (`C`) — center click, then radius click.
 - **3-Point Arc** (`A`) — start, midpoint, end.
 - **Rectangle** (`R`) — two opposite corners; creates four lines.
+- **Ellipse** (`E`) — center click, major-axis endpoint click, then a third
+  click whose perpendicular distance to the major axis sets the minor radius.
+  An equal-radius third click is rejected with a hint (use the Circle tool
+  instead); a minor radius above the major radius is clamped with a hint.
+- **B-spline** (`B`) — click to place control polygon poles; the curve is
+  drawn through the polygon (clamped, interpolating the first and last pole).
+  Press **Enter** or **double-click** to finish (two or more poles; a lone
+  pole is discarded), or **Escape** to cancel.
 
 The snap engine prioritizes endpoint → midpoint → center → quadrant →
 on-curve → grid. Hovering shows a snap marker; clicks commit the snapped
@@ -128,6 +136,12 @@ add geometric constraints:
 Most constraints are applied by selecting the required number of primitives.
 `distance`, `radius`, and `angle` additionally ask for a numeric value or
 parameter name.
+
+Curve-level constraints (horizontal/vertical, tangent, equal, concentric,
+point-on-object, radius/diameter) apply to lines, circles, and arcs. Ellipses
+and B-splines only accept point-level constraints on their points — the
+ellipse center/focus and the B-spline poles are ordinary sketch points, so
+coincident, fix, distance, and symmetry work on them.
 
 ### Dimension and parameters
 
@@ -159,7 +173,7 @@ is active.
 A few shortcuts speed up repetitive drawing and feature creation:
 
 - **Context shortcut bar (`Q`)** — press `Q` anywhere in the viewport to open a
-  small floating toolbar at the cursor. In sketch mode it lists the six sketch
+  small floating toolbar at the cursor. In sketch mode it lists the eight sketch
   tools plus the construction-geometry toggle; in document mode it lists
   feature-creation actions (New Sketch, Pad, Pocket, Revolve, Groove, Fillet,
   Chamfer, Draft, Shell, Linear/Circular Pattern, Mirror, Hole). Click an item
@@ -175,7 +189,7 @@ A few shortcuts speed up repetitive drawing and feature creation:
   preferences. When active, finishing a line, circle, or 3-point arc opens a
   small inline input near the cursor. Type a value or parameter name and press
   `Enter` to create a driving dimension immediately; press `Escape` to skip it.
-  Rectangle and point are not auto-dimensioned.
+  Rectangle, point, ellipse, and B-spline are not auto-dimensioned.
 
 ### External geometry
 

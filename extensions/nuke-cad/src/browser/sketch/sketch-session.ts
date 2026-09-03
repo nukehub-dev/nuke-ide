@@ -42,6 +42,7 @@ import {
     type SketchLine,
     type SketchCircle,
     type SketchArc,
+    type SketchEllipse,
     type TemporaryConstraint,
     type SolverResult
 } from '../../common/sketch-solver';
@@ -54,6 +55,7 @@ import {
     type DimensionKind
 } from '../../common/cad-document';
 import { snap, createSnapConfig, type Point2, type SnapConfig, type SnapResult } from './snap';
+import { clampedUniformKnots } from '../../common/sketch-curves';
 import { type TopologyRef } from '../../common/topology-refs';
 
 function clonePoint3(p: import('../../common/topology-refs').Point3): import('../../common/topology-refs').Point3 {
@@ -106,12 +108,12 @@ function cloneTopologyRef(ref: TopologyRef): TopologyRef {
 export type SketchPrimitive = SolverSketchPrimitive & { construction: boolean };
 
 /** Tools supported by the sketch session. */
-export type SketchTool = 'select' | 'point' | 'line' | 'circle' | 'arc3' | 'rectangle';
+export type SketchTool = 'select' | 'point' | 'line' | 'circle' | 'arc3' | 'rectangle' | 'ellipse' | 'bspline';
 
 /**
  * Single-key tool shortcuts routed by the CAD viewport while a sketch session
  * is active and the viewport holds focus. Keys avoid the reserved bindings
- * (Delete/Backspace/Escape/Tab and the 3D-only F/.).
+ * (Delete/Backspace/Escape/Tab, the 3D-only F/., and Q for the shortcut bar).
  */
 export const SKETCH_TOOL_SHORTCUTS: Readonly<Record<string, SketchTool>> = {
     s: 'select',
@@ -119,7 +121,9 @@ export const SKETCH_TOOL_SHORTCUTS: Readonly<Record<string, SketchTool>> = {
     c: 'circle',
     a: 'arc3',
     r: 'rectangle',
-    p: 'point'
+    p: 'point',
+    e: 'ellipse',
+    b: 'bspline'
 };
 
 /** Constraint kinds exposed by the UI-facing constraint API. */
@@ -167,6 +171,11 @@ export interface SketchStatus {
     fullyConstrained: boolean;
     /** Auto-constraints produced by the last user action. */
     lastAutoConstraints: AutoConstraintFeedback[];
+    /**
+     * Transient user-facing hint (for example invalid gesture input such as
+     * equal ellipse radii); cleared by the next user action.
+     */
+    hint?: string;
 }
 
 /** A committed constraint record tracked by the session. */
@@ -192,7 +201,9 @@ export type SketchPreview =
     | { type: 'line'; p1: Point2; p2: Point2 }
     | { type: 'circle'; center: Point2; radius: number }
     | { type: 'arc'; center: Point2; radius: number; startAngle: number; endAngle: number }
-    | { type: 'rectangle'; p1: Point2; p2: Point2 };
+    | { type: 'rectangle'; p1: Point2; p2: Point2 }
+    | { type: 'ellipse'; center: Point2; focus1: Point2; radmin: number }
+    | { type: 'bspline'; poles: Point2[] };
 
 /** Options for creating or restoring a session. */
 export interface SketchSessionOptions {
@@ -288,7 +299,22 @@ interface InProgressRectangle {
     p1: Point2;
 }
 
-type InProgressState = InProgressLine | InProgressCircle | InProgressArc3 | InProgressRectangle;
+interface InProgressEllipse {
+    tool: 'ellipse';
+    stage: 1 | 2 | 3;
+    centerId: string;
+    center: Point2;
+    majorId?: string;
+    major?: Point2;
+}
+
+interface InProgressBSpline {
+    tool: 'bspline';
+    poleIds: string[];
+    poles: Point2[];
+}
+
+type InProgressState = InProgressLine | InProgressCircle | InProgressArc3 | InProgressRectangle | InProgressEllipse | InProgressBSpline;
 
 interface DragState {
     pointIds: string[];
@@ -518,6 +544,28 @@ export class SketchSession {
                     Number(raw.end_angle ?? raw.endAngle),
                     String(raw.start_id ?? raw.startId),
                     String(raw.end_id ?? raw.endId),
+                    Boolean(raw.construction)
+                );
+            } else if (raw.type === 'ellipse') {
+                session.addEllipseInternal(
+                    id,
+                    String(raw.c_id ?? raw.centerId),
+                    String(raw.focus1_id ?? raw.focus1Id),
+                    Number(raw.radmin),
+                    Boolean(raw.construction)
+                );
+            } else if (raw.type === 'bspline') {
+                const poleIds = (raw.pole_ids ?? raw.poleIds ?? []) as unknown[];
+                const weights = (raw.weights ?? []) as unknown[];
+                const knots = (raw.knots ?? []) as unknown[];
+                const mult = (raw.mult ?? []) as unknown[];
+                session.addBSplineInternal(
+                    id,
+                    poleIds.map(String),
+                    weights.map(Number),
+                    knots.map(Number),
+                    mult.map(Number),
+                    Number(raw.degree),
                     Boolean(raw.construction)
                 );
             }
@@ -834,6 +882,13 @@ export class SketchSession {
             }
         } else if (this.inProgress.tool === 'rectangle') {
             ids.push(this.inProgress.p1Id);
+        } else if (this.inProgress.tool === 'ellipse') {
+            ids.push(this.inProgress.centerId);
+            if (this.inProgress.majorId !== undefined) {
+                ids.push(this.inProgress.majorId);
+            }
+        } else if (this.inProgress.tool === 'bspline') {
+            ids.push(...this.inProgress.poleIds);
         }
         for (const id of ids) {
             this.removePrimitiveAndConstraints(id);
@@ -843,11 +898,15 @@ export class SketchSession {
     /**
      * Commit the current in-progress entity if applicable.
      *
-     * All current tools finish automatically on their final click; this method
-     * resets the last-action auto-constraint feedback for callers that want an
-     * explicit finish gesture.
+     * All closed-form tools finish automatically on their final click; the
+     * B-spline tool finishes here (Enter / double-click) once at least two
+     * poles are placed. The method also resets the last-action
+     * auto-constraint feedback.
      */
-    finish(): void {
+    async finish(): Promise<void> {
+        if (this.inProgress !== undefined && this.inProgress.tool === 'bspline') {
+            await this.commitBSpline(this.inProgress, []);
+        }
         this.status = { ...this.status, lastAutoConstraints: [] };
     }
 
@@ -855,6 +914,8 @@ export class SketchSession {
     async click(raw: Point2, modifiers?: { disableSnap?: boolean }): Promise<void> {
         const snapped = this.applySnap(raw, modifiers?.disableSnap);
         const auto: AutoConstraintFeedback[] = [];
+        // A new action supersedes any transient gesture hint.
+        this.status = { ...this.status, hint: undefined };
 
         switch (this.tool) {
             case 'select':
@@ -1003,7 +1064,120 @@ export class SketchSession {
                 }
                 break;
             }
+            case 'ellipse': {
+                if (this.inProgress === undefined || this.inProgress.tool !== 'ellipse') {
+                    const centerId = this.addPointForTool(snapped, auto);
+                    this.inProgress = { tool: 'ellipse', stage: 1, centerId, center: snapped.point };
+                    this.status = { ...this.status, lastAutoConstraints: auto };
+                    this.emitChange();
+                } else if (this.inProgress.stage === 1) {
+                    const center = this.inProgress.center;
+                    if (Math.hypot(snapped.point.x - center.x, snapped.point.y - center.y) < 1e-9) {
+                        this.status = { ...this.status, lastAutoConstraints: [] };
+                        this.emitChange();
+                        return;
+                    }
+                    const majorId = this.addPointForTool(snapped, auto);
+                    this.inProgress = {
+                        tool: 'ellipse',
+                        stage: 2,
+                        centerId: this.inProgress.centerId,
+                        center,
+                        majorId,
+                        major: snapped.point
+                    };
+                    this.status = { ...this.status, lastAutoConstraints: auto };
+                    this.emitChange();
+                } else {
+                    const { center, centerId, majorId, major } = this.inProgress;
+                    if (majorId === undefined || major === undefined) {
+                        return;
+                    }
+                    const majorRadius = Math.hypot(major.x - center.x, major.y - center.y);
+                    // Minor radius: the pointer's perpendicular distance to the
+                    // major-axis line.
+                    const axisLength = Math.hypot(major.x - center.x, major.y - center.y);
+                    const nx = -(major.y - center.y) / axisLength;
+                    const ny = (major.x - center.x) / axisLength;
+                    const minorRaw = Math.abs((snapped.point.x - center.x) * nx + (snapped.point.y - center.y) * ny) || 1e-9;
+                    if (Math.abs(minorRaw - majorRadius) / majorRadius < 1e-6) {
+                        // An equal-radius "ellipse" is a circle; keep the gesture
+                        // alive and point the user at the right tool.
+                        this.status = {
+                            ...this.status,
+                            lastAutoConstraints: [],
+                            hint: 'Equal radii make a circle — use the Circle tool (C) instead'
+                        };
+                        this.emitChange();
+                        return;
+                    }
+                    const clampedMinor = Math.min(Math.max(minorRaw, 1e-9), majorRadius * (1 - 1e-9));
+                    const hint =
+                        Math.abs(clampedMinor - minorRaw) > 1e-12 * Math.max(1, minorRaw)
+                            ? 'Minor radius clamped below the major radius'
+                            : undefined;
+                    const focal = Math.sqrt(majorRadius * majorRadius - clampedMinor * clampedMinor);
+                    const focus1 = {
+                        x: center.x + ((major.x - center.x) / axisLength) * focal,
+                        y: center.y + ((major.y - center.y) / axisLength) * focal
+                    };
+                    const focus1Id = this.nextId('point');
+                    this.addPointInternal(focus1Id, focus1.x, focus1.y, false);
+                    const ellipseId = this.nextId('ellipse');
+                    this.addEllipseInternal(ellipseId, centerId, focus1Id, clampedMinor, false);
+                    this.inProgress = undefined;
+                    await this.commit(auto);
+                    this.status = { ...this.status, hint };
+                    this.emitChange();
+                }
+                break;
+            }
+            case 'bspline': {
+                const point = snapped.point;
+                if (this.inProgress === undefined || this.inProgress.tool !== 'bspline') {
+                    const poleId = this.addPointForTool(snapped, auto);
+                    this.inProgress = { tool: 'bspline', poleIds: [poleId], poles: [point] };
+                    this.status = { ...this.status, lastAutoConstraints: auto };
+                    this.emitChange();
+                } else {
+                    const last = this.inProgress.poles[this.inProgress.poles.length - 1];
+                    if (Math.hypot(point.x - last.x, point.y - last.y) < 1e-12) {
+                        this.status = { ...this.status, lastAutoConstraints: [] };
+                        this.emitChange();
+                        return;
+                    }
+                    const poleId = this.addPointForTool(snapped, auto);
+                    this.inProgress = {
+                        tool: 'bspline',
+                        poleIds: [...this.inProgress.poleIds, poleId],
+                        poles: [...this.inProgress.poles, point]
+                    };
+                    this.status = { ...this.status, lastAutoConstraints: auto };
+                    this.emitChange();
+                }
+                break;
+            }
         }
+    }
+
+    /** Finish a B-spline gesture: build the curve through the placed poles. */
+    private async commitBSpline(state: InProgressBSpline, auto: AutoConstraintFeedback[]): Promise<void> {
+        if (state.poleIds.length < 2) {
+            // A lone pole is not a curve; drop it like a cancelled gesture.
+            this.clearInProgressPoints();
+            this.inProgress = undefined;
+            this.status = { ...this.status, lastAutoConstraints: [] };
+            this.emitChange();
+            return;
+        }
+        const degree = Math.min(3, state.poleIds.length - 1);
+        const { knots, mult } = clampedUniformKnots(state.poleIds.length, degree);
+        const weights = state.poleIds.map(() => 1);
+        const bsplineId = this.nextId('bspline');
+        this.addBSplineInternal(bsplineId, state.poleIds, weights, knots, mult, degree, false);
+        this.inProgress = undefined;
+        await this.commit(auto);
+        this.emitChange();
     }
 
     private createRectangle(p1: Point2, p2: Point2, p1Id: string, p2Id: string, _auto: AutoConstraintFeedback[]): string[] {
@@ -1098,7 +1272,14 @@ export class SketchSession {
         const snapped = this.applySnap(raw, modifiers?.disableSnap);
 
         if (this.inProgress === undefined) {
-            if (this.tool === 'point' || this.tool === 'line' || this.tool === 'arc3' || this.tool === 'rectangle') {
+            if (
+                this.tool === 'point' ||
+                this.tool === 'line' ||
+                this.tool === 'arc3' ||
+                this.tool === 'rectangle' ||
+                this.tool === 'ellipse' ||
+                this.tool === 'bspline'
+            ) {
                 return { type: 'point', point: snapped.point };
             }
             return { type: 'none' };
@@ -1134,6 +1315,39 @@ export class SketchSession {
             return { type: 'rectangle', p1: this.inProgress.p1, p2: snapped.point };
         }
 
+        if (this.inProgress.tool === 'ellipse') {
+            const { center, major } = this.inProgress;
+            if (this.inProgress.stage === 1) {
+                return { type: 'line', p1: center, p2: snapped.point };
+            }
+            if (major === undefined) {
+                return { type: 'point', point: snapped.point };
+            }
+            const majorRadius = Math.hypot(major.x - center.x, major.y - center.y);
+            const axisLength = majorRadius;
+            const nx = -(major.y - center.y) / axisLength;
+            const ny = (major.x - center.x) / axisLength;
+            const minorRaw = Math.abs((snapped.point.x - center.x) * nx + (snapped.point.y - center.y) * ny) || 1e-9;
+            if (Math.abs(minorRaw - majorRadius) / majorRadius < 1e-6) {
+                return { type: 'point', point: snapped.point };
+            }
+            const minor = Math.min(Math.max(minorRaw, 1e-9), majorRadius * (1 - 1e-9));
+            const focal = Math.sqrt(majorRadius * majorRadius - minor * minor);
+            return {
+                type: 'ellipse',
+                center,
+                focus1: {
+                    x: center.x + ((major.x - center.x) / axisLength) * focal,
+                    y: center.y + ((major.y - center.y) / axisLength) * focal
+                },
+                radmin: minor
+            };
+        }
+
+        if (this.inProgress.tool === 'bspline') {
+            return { type: 'bspline', poles: [...this.inProgress.poles, snapped.point] };
+        }
+
         return { type: 'none' };
     }
 
@@ -1156,7 +1370,8 @@ export class SketchSession {
             conflicting: result.conflicting,
             redundant: result.redundant,
             fullyConstrained: result.dof === 0,
-            lastAutoConstraints: this.status.lastAutoConstraints
+            lastAutoConstraints: this.status.lastAutoConstraints,
+            hint: this.status.hint
         };
         this.refreshDimensionValues();
     }
@@ -1271,6 +1486,41 @@ export class SketchSession {
         finite(endAngle, `Arc '${id}' endAngle`);
         this.solver.addArc(id, centerId, radius, startAngle, endAngle, startId, endId, { construction });
         this.primitives.set(id, { type: 'arc', id, centerId, radius, startAngle, endAngle, startId, endId, construction });
+    }
+
+    private addEllipseInternal(id: string, centerId: string, focus1Id: string, radmin: number, construction: boolean): void {
+        finite(radmin, `Ellipse '${id}' radmin`);
+        if (radmin <= 0) {
+            throw new Error(`Ellipse '${id}' radmin must be positive, got ${radmin}`);
+        }
+        this.solver.addEllipse(id, centerId, focus1Id, radmin, { construction });
+        this.primitives.set(id, { type: 'ellipse', id, centerId, focus1Id, radmin, construction });
+    }
+
+    private addBSplineInternal(
+        id: string,
+        poleIds: string[],
+        weights: number[],
+        knots: number[],
+        mult: number[],
+        degree: number,
+        construction: boolean
+    ): void {
+        if (poleIds.length < 2) {
+            throw new Error(`BSpline '${id}' needs at least 2 poles, got ${poleIds.length}`);
+        }
+        this.solver.addBSpline(id, poleIds, weights, knots, mult, degree, false, { construction });
+        this.primitives.set(id, {
+            type: 'bspline',
+            id,
+            poleIds: [...poleIds],
+            weights: [...weights],
+            knots: [...knots],
+            mult: [...mult],
+            degree,
+            periodic: false,
+            construction
+        });
     }
 
     /**
@@ -1562,8 +1812,12 @@ export class SketchSession {
         const arity = (expected: number): string | undefined =>
             targetIds.length === expected ? undefined : `${kind} requires exactly ${expected} primitive(s), got ${targetIds.length}`;
 
-        const typeOf = (id: string): 'point' | 'line' | 'circle' | 'arc' | undefined => this.primitives.get(id)?.type;
-        const requireType = (ids: string[], types: Array<'point' | 'line' | 'circle' | 'arc'>): string | undefined => {
+        const typeOf = (id: string): 'point' | 'line' | 'circle' | 'arc' | 'ellipse' | 'bspline' | undefined =>
+            this.primitives.get(id)?.type;
+        const requireType = (
+            ids: string[],
+            types: Array<'point' | 'line' | 'circle' | 'arc' | 'ellipse' | 'bspline'>
+        ): string | undefined => {
             for (const id of ids) {
                 const t = typeOf(id);
                 if (t === undefined) {
@@ -1723,6 +1977,10 @@ export class SketchSession {
                 } else if (other.type === 'circle' && other.centerId === id) {
                     result.add(otherId);
                 } else if (other.type === 'arc' && (other.centerId === id || other.startId === id || other.endId === id)) {
+                    result.add(otherId);
+                } else if (other.type === 'ellipse' && (other.centerId === id || other.focus1Id === id)) {
+                    result.add(otherId);
+                } else if (other.type === 'bspline' && other.poleIds.includes(id)) {
                     result.add(otherId);
                 }
             }
@@ -1904,6 +2162,18 @@ export class SketchSession {
                 obj.end_angle = arc.endAngle;
                 obj.start_id = p.startId;
                 obj.end_id = p.endId;
+            } else if (p.type === 'ellipse') {
+                const ellipse = (solved as SketchEllipse | undefined) ?? p;
+                obj.c_id = p.centerId;
+                obj.focus1_id = p.focus1Id;
+                obj.radmin = ellipse.radmin;
+            } else if (p.type === 'bspline') {
+                obj.pole_ids = [...p.poleIds];
+                obj.weights = [...p.weights];
+                obj.knots = [...p.knots];
+                obj.mult = [...p.mult];
+                obj.degree = p.degree;
+                obj.periodic = p.periodic;
             }
             primitives.push(obj);
         }

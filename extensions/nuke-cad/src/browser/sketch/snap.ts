@@ -34,9 +34,18 @@
  * @module nuke-cad/browser/sketch
  */
 
-import type { SketchPrimitive, SketchPoint, SketchLine, SketchCircle, SketchArc } from '../../common/sketch-solver';
+import type {
+    SketchPrimitive,
+    SketchPoint,
+    SketchLine,
+    SketchCircle,
+    SketchArc,
+    SketchEllipse,
+    SketchBSpline
+} from '../../common/sketch-solver';
+import { sharedEllipsePolyline, sharedBSplinePolyline, nearestPolylinePoint } from '../../common/sketch-curves';
 
-export type { SketchPrimitive, SketchPoint, SketchLine, SketchCircle, SketchArc };
+export type { SketchPrimitive, SketchPoint, SketchLine, SketchCircle, SketchArc, SketchEllipse, SketchBSpline };
 
 /** A 2D point in sketch-local coordinates. */
 export interface Point2 {
@@ -89,6 +98,8 @@ interface ClassifiedPrimitives {
     lines: SketchLine[];
     circles: SketchCircle[];
     arcs: SketchArc[];
+    ellipses: SketchEllipse[];
+    bsplines: SketchBSpline[];
     centerPointIds: Set<string>;
 }
 
@@ -97,6 +108,8 @@ function classify(primitives: readonly SketchPrimitive[]): ClassifiedPrimitives 
     const lines: SketchLine[] = [];
     const circles: SketchCircle[] = [];
     const arcs: SketchArc[] = [];
+    const ellipses: SketchEllipse[] = [];
+    const bsplines: SketchBSpline[] = [];
     const centerPointIds = new Set<string>();
 
     for (const p of primitives) {
@@ -110,9 +123,14 @@ function classify(primitives: readonly SketchPrimitive[]): ClassifiedPrimitives 
         } else if (p.type === 'arc') {
             arcs.push(p);
             centerPointIds.add(p.centerId);
+        } else if (p.type === 'ellipse') {
+            ellipses.push(p);
+            centerPointIds.add(p.centerId);
+        } else if (p.type === 'bspline') {
+            bsplines.push(p);
         }
     }
-    return { pointMap, lines, circles, arcs, centerPointIds };
+    return { pointMap, lines, circles, arcs, ellipses, bsplines, centerPointIds };
 }
 
 function dist2(a: Point2, b: Point2): number {
@@ -173,10 +191,11 @@ function isAngleOnArc(angle: number, startAngle: number, endAngle: number): bool
 }
 
 function snapEndpoint(raw: Point2, classified: ClassifiedPrimitives, radius: number): SnapResult | undefined {
-    const { pointMap, lines, arcs, centerPointIds } = classified;
+    const { pointMap, lines, arcs, bsplines, centerPointIds } = classified;
     let best: { point: Point2; id: string; distance: number } | undefined;
 
-    // Endpoint snaps include line/arc endpoints and standalone points that are not circle/arc centers.
+    // Endpoint snaps include line/arc endpoints, bspline end poles, and
+    // standalone points that are not circle/arc/ellipse centers.
     const endpointIds = new Set<string>();
     for (const line of lines) {
         endpointIds.add(line.p1Id);
@@ -185,6 +204,10 @@ function snapEndpoint(raw: Point2, classified: ClassifiedPrimitives, radius: num
     for (const arc of arcs) {
         endpointIds.add(arc.startId);
         endpointIds.add(arc.endId);
+    }
+    for (const bspline of bsplines) {
+        endpointIds.add(bspline.poleIds[0]);
+        endpointIds.add(bspline.poleIds[bspline.poleIds.length - 1]);
     }
     for (const [id, point] of pointMap) {
         if (endpointIds.has(id) || !centerPointIds.has(id)) {
@@ -226,7 +249,7 @@ function snapMidpoint(raw: Point2, classified: ClassifiedPrimitives, radius: num
 function snapCenter(raw: Point2, classified: ClassifiedPrimitives, radius: number): SnapResult | undefined {
     let best: { point: Point2; primitiveId: string; centerId: string; distance: number } | undefined;
 
-    const candidates = [...classified.circles, ...classified.arcs];
+    const candidates = [...classified.circles, ...classified.arcs, ...classified.ellipses];
     for (const primitive of candidates) {
         const center = classified.pointMap.get(primitive.centerId);
         if (center === undefined) {
@@ -319,6 +342,49 @@ function snapOnCurve(raw: Point2, classified: ClassifiedPrimitives, radius: numb
         if (distance <= radius && (best === undefined || distance < best.distance)) {
             best = { point: nearest, id: arc.id, distance };
         }
+    }
+
+    for (const ellipse of classified.ellipses) {
+        const center = classified.pointMap.get(ellipse.centerId);
+        const focus1 = classified.pointMap.get(ellipse.focus1Id);
+        if (center === undefined || focus1 === undefined) {
+            continue;
+        }
+        const nearest = nearestPolylinePoint(raw, sharedEllipsePolyline(center, focus1, ellipse.radmin));
+        if (nearest === undefined || nearest.distance > radius || (best !== undefined && nearest.distance >= best.distance)) {
+            continue;
+        }
+        best = { point: nearest.point, id: ellipse.id, distance: nearest.distance };
+    }
+
+    for (const bspline of classified.bsplines) {
+        const poles: Point2[] = [];
+        let valid = true;
+        for (const poleId of bspline.poleIds) {
+            const pole = classified.pointMap.get(poleId);
+            if (pole === undefined) {
+                valid = false;
+                break;
+            }
+            poles.push(pole);
+        }
+        if (!valid || poles.length < bspline.degree + 1) {
+            continue;
+        }
+        const nearest = nearestPolylinePoint(raw, sharedBSplinePolyline(poles, bspline.knots, bspline.mult, bspline.degree));
+        if (nearest === undefined || nearest.distance > radius) {
+            continue;
+        }
+        // End poles have their own endpoint snap at higher priority.
+        const startPole = poles[0];
+        const endPole = poles[poles.length - 1];
+        if (dist2(nearest.point, startPole) < 1e-12 || dist2(nearest.point, endPole) < 1e-12) {
+            continue;
+        }
+        if (best !== undefined && nearest.distance >= best.distance) {
+            continue;
+        }
+        best = { point: nearest.point, id: bspline.id, distance: nearest.distance };
     }
 
     if (best === undefined) {

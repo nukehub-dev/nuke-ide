@@ -52,6 +52,14 @@
  *   like the backend's outer/inner-wire pairing: sorted by area descending,
  *   a profile whose reference point lies inside an already-accepted outer
  *   profile is a hole and is emitted with `bd.Mode.SUBTRACT`.
+ * - Ellipses become `bd.Ellipse(x_radius, y_radius, rotation=deg)` under
+ *   `bd.Locations(center)` — same face-emitting pattern as circles.
+ * - B-spline segments keep their authored control polygon: `bd.Spline`
+ *   interpolates through points and cannot express it, so loops containing a
+ *   B-spline are emitted as an explicit `bd.make_face([...])` edge list using
+ *   the module-level `_bspline_edge` helper (raw OCP `Geom_BSplineCurve`).
+ *   Construction B-splines degrade the sketch to `# TODO(manual):`, as do
+ *   periodic or non-unit-weight B-splines (both rejected by the backend).
  *
  * @module nuke-cad/common
  */
@@ -59,6 +67,7 @@
 import { type NukeCadDocument, type SketchDef, type FeatureDef, type DatumPlane, type CurveSource } from './cad-document';
 import { FeatureGraph } from './feature-graph';
 import { type TopologyRef, type FaceFingerprint, type EdgeFingerprint } from './topology-refs';
+import { ellipseAxes, sampleBSplineCurve } from './sketch-curves';
 
 const INDENT = '    ';
 const RAD_TO_DEG = 180 / Math.PI;
@@ -73,6 +82,11 @@ export function generatePythonScript(doc: NukeCadDocument): string {
     lines.push('');
     lines.push('import build123d as bd');
     lines.push('');
+
+    if (documentUsesBSpline(doc)) {
+        lines.push(...bsplineHelperLines());
+        lines.push('');
+    }
 
     const parameterNames = Object.keys(doc.parameters).sort();
     if (parameterNames.length > 0) {
@@ -185,6 +199,44 @@ function formatNumber(value: number): string {
     return JSON.stringify(value);
 }
 
+/** True when any sketch carries a non-construction B-spline primitive. */
+function documentUsesBSpline(doc: NukeCadDocument): boolean {
+    return doc.sketches.some((sketch) =>
+        sketch.primitives.some((p) => String(p.type) === 'bspline' && !Boolean(getField(p, 'construction')))
+    );
+}
+
+/**
+ * Module-level helper emitted once whenever a sketch uses a B-spline edge.
+ * `bd.Spline` interpolates through points, so it cannot express control-polygon
+ * B-splines; the curve is built from raw OCP objects instead. The helper is a
+ * plain function (not a build123d "object"), so generated loops pass its result
+ * inside an explicit `bd.make_face([...])` edge list.
+ */
+function bsplineHelperLines(): string[] {
+    return [
+        'def _bspline_edge(poles, knots, mults, degree):',
+        '    """build123d Edge from a clamped non-periodic B-spline (unit weights)."""',
+        '    from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeEdge',
+        '    from OCP.Geom import Geom_BSplineCurve',
+        '    from OCP.gp import gp_Pnt',
+        '    from OCP.TColgp import TColgp_Array1OfPnt',
+        '    from OCP.TColStd import TColStd_Array1OfInteger, TColStd_Array1OfReal',
+        '',
+        '    pole_array = TColgp_Array1OfPnt(1, len(poles))',
+        '    for index, (x, y) in enumerate(poles, start=1):',
+        '        pole_array.SetValue(index, gp_Pnt(x, y, 0))',
+        '    knot_array = TColStd_Array1OfReal(1, len(knots))',
+        '    for index, value in enumerate(knots, start=1):',
+        '        knot_array.SetValue(index, float(value))',
+        '    mult_array = TColStd_Array1OfInteger(1, len(mults))',
+        '    for index, value in enumerate(mults, start=1):',
+        '        mult_array.SetValue(index, int(value))',
+        '    curve = Geom_BSplineCurve(pole_array, knot_array, mult_array, int(degree), False)',
+        '    return bd.Edge(BRepBuilderAPI_MakeEdge(curve).Edge())'
+    ];
+}
+
 function sanitizeIdentifier(name: string): string {
     let result = name.replace(/[^a-zA-Z0-9_]+/g, '_');
     if (/^[0-9]/.test(result)) {
@@ -238,16 +290,21 @@ function getField(obj: Record<string, unknown>, ...names: string[]): unknown {
 
 interface SegmentPrim {
     id: string;
-    kind: 'line' | 'arc';
-    /** Point id at the start of the segment (arc: at `startAngle`). */
+    kind: 'line' | 'arc' | 'bspline';
+    /** Point id at the start of the segment (arc: at `startAngle`; bspline: first pole). */
     p1: string;
-    /** Point id at the end of the segment (arc: at `endAngle`). */
+    /** Point id at the end of the segment (arc: at `endAngle`; bspline: last pole). */
     p2: string;
     center?: [number, number];
     radius?: number;
     /** Radians, CCW-positive from the +x axis (planegcs convention). */
     startAngle?: number;
     endAngle?: number;
+    /** bspline control polygon in sketch-local coordinates. */
+    poles?: [number, number][];
+    knots?: number[];
+    mult?: number[];
+    degree?: number;
 }
 
 interface CirclePrim {
@@ -256,10 +313,21 @@ interface CirclePrim {
     radius: number;
 }
 
+/** A full ellipse profile, stored as analytic axes (derived from the planegcs focus form). */
+interface EllipsePrim {
+    id: string;
+    center: [number, number];
+    major: number;
+    minor: number;
+    /** Major-axis rotation from +x, degrees. */
+    rotation: number;
+}
+
 interface ParsedSketch {
     points: Map<string, [number, number]>;
     segments: SegmentPrim[];
     circles: CirclePrim[];
+    ellipses: EllipsePrim[];
     /** Human-readable comment lines for construction primitives. */
     constructionComments: string[];
 }
@@ -278,6 +346,7 @@ function parseSketchPrimitives(sketch: SketchDef): ParsedSketch | undefined {
 
     const segments: SegmentPrim[] = [];
     const circles: CirclePrim[] = [];
+    const ellipses: EllipsePrim[] = [];
     const constructionComments: string[] = [];
     for (const p of sketch.primitives) {
         const id = String(p.id);
@@ -332,9 +401,78 @@ function parseSketchPrimitives(sketch: SketchDef): ParsedSketch | undefined {
             } else {
                 segments.push({ id, kind: 'arc', p1, p2, center, radius, startAngle, endAngle });
             }
+        } else if (type === 'ellipse') {
+            const center = points.get(String(getField(p, 'c_id', 'centerId')));
+            const focus1 = points.get(String(getField(p, 'focus1_id', 'focus1Id')));
+            const radmin = Number(getField(p, 'radmin'));
+            if (center === undefined || focus1 === undefined || !Number.isFinite(radmin)) {
+                return undefined;
+            }
+            if (construction) {
+                constructionComments.push(
+                    `# construction ellipse center=${tuple(center)} focus=${tuple(focus1)} radmin=${formatNumber(radmin)}`
+                );
+            } else {
+                const axes = ellipseAxes({ x: center[0], y: center[1] }, { x: focus1[0], y: focus1[1] }, radmin);
+                ellipses.push({
+                    id,
+                    center,
+                    major: axes.major,
+                    minor: axes.minor,
+                    rotation: axes.phi * RAD_TO_DEG
+                });
+            }
+        } else if (type === 'bspline') {
+            const poleIds = getField(p, 'pole_ids', 'poleIds');
+            if (!Array.isArray(poleIds) || poleIds.length < 2) {
+                return undefined;
+            }
+            const weights = getField(p, 'weights');
+            const knots = getField(p, 'knots');
+            const mult = getField(p, 'mult');
+            const degree = Number(getField(p, 'degree'));
+            const periodic = Boolean(getField(p, 'periodic'));
+            if (
+                !Array.isArray(weights) ||
+                !Array.isArray(knots) ||
+                !Array.isArray(mult) ||
+                !Number.isInteger(degree) ||
+                periodic ||
+                poleIds.length < degree + 1 ||
+                weights.length !== poleIds.length ||
+                knots.length !== mult.length ||
+                (weights as unknown[]).some((w) => Number(w) !== 1)
+            ) {
+                return undefined;
+            }
+            const poleCoords: [number, number][] = [];
+            for (const poleId of poleIds as unknown[]) {
+                const coord = points.get(String(poleId));
+                if (coord === undefined) {
+                    return undefined;
+                }
+                poleCoords.push(coord);
+            }
+            if (!knots.every((k) => Number.isFinite(Number(k))) || !mult.every((m) => Number.isInteger(Number(m)))) {
+                return undefined;
+            }
+            if (construction) {
+                constructionComments.push(`# construction bspline poles=${poleCoords.map(tuple).join(', ')}`);
+            } else {
+                segments.push({
+                    id,
+                    kind: 'bspline',
+                    p1: String(poleIds[0]),
+                    p2: String(poleIds[poleIds.length - 1]),
+                    poles: poleCoords,
+                    knots: knots.map(Number),
+                    mult: mult.map(Number),
+                    degree
+                });
+            }
         }
     }
-    return { points, segments, circles, constructionComments };
+    return { points, segments, circles, ellipses, constructionComments };
 }
 
 /** Group segments into closed loops by shared endpoint point ids (union-find). */
@@ -388,6 +526,19 @@ function sampleSegment(seg: SegmentPrim, from: string, points: Map<string, [numb
     const start = points.get(from)!;
     if (seg.kind === 'line') {
         return [start];
+    }
+    if (seg.kind === 'bspline') {
+        let samples = sampleBSplineCurve(
+            seg.poles!.map(([x, y]) => ({ x, y })),
+            seg.knots!,
+            seg.mult!,
+            seg.degree!,
+            ARC_SAMPLES
+        );
+        if (from !== seg.p1) {
+            samples = [...samples].reverse();
+        }
+        return samples.slice(0, -1).map((p) => [p.x, p.y]);
     }
     const samples: [number, number][] = [];
     const forward = from === seg.p1;
@@ -462,14 +613,16 @@ function pointInPolygon(point: [number, number], polygon: [number, number][]): b
 }
 
 /**
- * A closed sketch profile: a line/arc loop (with its chord-approximated
- * polygon) or a full circle. Mirrors the backend's wire classification: each
- * profile carries an area and a reference point used for containment tests.
+ * A closed sketch profile: a line/arc/B-spline loop (with its
+ * chord-approximated polygon) or a full circle/ellipse. Mirrors the backend's
+ * wire classification: each profile carries an area and a reference point used
+ * for containment tests.
  */
 interface Profile {
-    kind: 'loop' | 'circle';
+    kind: 'loop' | 'circle' | 'ellipse';
     loop?: SegmentPrim[];
     circle?: CirclePrim;
+    ellipse?: EllipsePrim;
     polygon?: [number, number][];
     area: number;
     testPoint: [number, number];
@@ -481,6 +634,16 @@ function profileContainsPoint(profile: Profile, point: [number, number]): boolea
         const dx = point[0] - circle.center[0];
         const dy = point[1] - circle.center[1];
         return Math.sqrt(dx * dx + dy * dy) < circle.radius - 1e-9;
+    }
+    if (profile.kind === 'ellipse') {
+        // Coarse containment via the analytic axes; only used to pair holes.
+        const ellipse = profile.ellipse!;
+        const phi = (ellipse.rotation * Math.PI) / 180;
+        const dx = point[0] - ellipse.center[0];
+        const dy = point[1] - ellipse.center[1];
+        const lx = dx * Math.cos(-phi) - dy * Math.sin(-phi);
+        const ly = dx * Math.sin(-phi) + dy * Math.cos(-phi);
+        return (lx * lx) / (ellipse.major * ellipse.major) + (ly * ly) / (ellipse.minor * ellipse.minor) < 1 - 1e-9;
     }
     return profile.polygon !== undefined && pointInPolygon(point, profile.polygon);
 }
@@ -509,6 +672,12 @@ function emitSegmentLine(seg: SegmentPrim, points: Map<string, [number, number]>
     if (seg.kind === 'line') {
         return `${indent}bd.Line(${tuple(points.get(seg.p1)!)}, ${tuple(points.get(seg.p2)!)})`;
     }
+    if (seg.kind === 'bspline') {
+        const poles = `[${seg.poles!.map(tuple).join(', ')}]`;
+        const knots = `[${seg.knots!.map(formatNumber).join(', ')}]`;
+        const mult = `[${seg.mult!.join(', ')}]`;
+        return `${indent}_bspline_edge(${poles}, ${knots}, ${mult}, ${seg.degree})`;
+    }
     const startDeg = seg.startAngle! * RAD_TO_DEG;
     const sweepDeg = (seg.endAngle! - seg.startAngle!) * RAD_TO_DEG;
     return (
@@ -523,6 +692,28 @@ function emitProfile(profile: Profile, subtract: boolean, points: Map<string, [n
         const mode = subtract ? ', mode=bd.Mode.SUBTRACT' : '';
         lines.push(`${INDENT}${INDENT}with bd.Locations(${tuple(circle.center)}):`);
         lines.push(`${INDENT}${INDENT}${INDENT}bd.Circle(${formatNumber(circle.radius)}${mode})`);
+        return;
+    }
+    if (profile.kind === 'ellipse') {
+        const ellipse = profile.ellipse!;
+        const mode = subtract ? ', mode=bd.Mode.SUBTRACT' : '';
+        lines.push(`${INDENT}${INDENT}with bd.Locations(${tuple(ellipse.center)}):`);
+        lines.push(
+            `${INDENT}${INDENT}${INDENT}bd.Ellipse(${formatNumber(ellipse.major)}, ${formatNumber(ellipse.minor)}, ` +
+                `rotation=${formatNumber(ellipse.rotation)}${mode})`
+        );
+        return;
+    }
+    const mode = subtract ? ', mode=bd.Mode.SUBTRACT' : '';
+    if (profile.loop!.some((seg) => seg.kind === 'bspline')) {
+        // B-spline edges come from the OCP-based `_bspline_edge` helper, which
+        // the BuildLine context cannot capture; pass the explicit edge list to
+        // make_face instead (the helper is emitted at module scope).
+        lines.push(`${INDENT}${INDENT}bd.make_face([`);
+        for (const seg of profile.loop!) {
+            lines.push(`${emitSegmentLine(seg, points, INDENT + INDENT + INDENT)},`);
+        }
+        lines.push(`${INDENT}${INDENT}]${mode})`);
         return;
     }
     lines.push(`${INDENT}${INDENT}with bd.BuildLine():`);
@@ -548,7 +739,7 @@ function emitSketchFunction(
     }
 
     const parsed = parseSketchPrimitives(sketch);
-    if (parsed === undefined || (parsed.segments.length === 0 && parsed.circles.length === 0)) {
+    if (parsed === undefined || (parsed.segments.length === 0 && parsed.circles.length === 0 && parsed.ellipses.length === 0)) {
         return {
             buildable: false,
             lines: [`# TODO(manual): sketch "${sketch.name}" has no exportable solved geometry.`]
@@ -578,6 +769,14 @@ function emitSketchFunction(
             circle,
             area: Math.PI * circle.radius * circle.radius,
             testPoint: circle.center
+        });
+    }
+    for (const ellipse of parsed.ellipses) {
+        profiles.push({
+            kind: 'ellipse',
+            ellipse,
+            area: Math.PI * ellipse.major * ellipse.minor,
+            testPoint: ellipse.center
         });
     }
     const { outers, holes } = classifyProfiles(profiles);

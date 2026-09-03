@@ -25,7 +25,15 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   `SketchSolver` interface and the `PlanegcsSketchSolver` implementation. No
   other source file imports `@salusoft89/planegcs` directly. The dependency is
   pinned exact in `package.json`; vendoring the LGPL-2.0-or-later WASM is the
-  documented fallback if the npm package stalls.
+  documented fallback if the npm package stalls. Curve-level constraints
+  (horizontal, radius, tangency, point-on-object, …) intentionally apply to
+  lines/circles/arcs only; ellipses and B-splines accept point-level
+  constraints on their points (center/focus/poles) but never curve-level
+  ones, even though PlaneGCS has native ellipse/B-spline constraint types.
+  Ellipse and B-spline evaluation for rendering, snapping, and codegen
+  (analytic ellipse polyline, De Boor sampling, clamped-uniform knots) lives
+  in `src/common/sketch-curves.ts`, shared by the browser sketch layer and
+  `src/common/python-codegen.ts`.
 - Feature recompute planner: `src/common/feature-graph.ts` builds the feature
   dependency DAG from explicit `dependsOn` edges, computes topological order,
   rejects cycles with readable member lists, and produces a minimal dirty-subtree
@@ -388,10 +396,16 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
     status line (leads with `Click: select · Ctrl+Click: multi-select / relations
 · Q: shortcut bar · Del: delete · Esc: clear` while the Select tool is active
     and no constraint pick is in progress). Sketch tools have single-key shortcuts
-    (S select, L line, C circle, A arc, R rectangle, P point; guarded against pick
-    modes, dialogs, measure, text fields, and modifier keys), and Escape falls
+    (S select, L line, C circle, A arc, R rectangle, P point, E ellipse, B
+    B-spline; guarded against pick modes, dialogs, measure, text fields, and
+    modifier keys), and Escape falls
     through: dismiss auto-dimension / constraint popover, cancel in-progress entity,
-    clear selection, return to the Select tool. Ctrl+click selecting exactly two
+    clear selection, return to the Select tool. The B-spline tool finishes on
+    Enter or double-click (`SketchSession.finish()`, committing at two or more
+    poles) and a lone pole is discarded. The ellipse tool rejects an equal-radius
+    third click (that would be a circle) and clamps a minor radius above the
+    major radius, reporting both through the transient `SketchStatus.hint`
+    status line. Ctrl+click selecting exactly two
     entities opens a constraint relation popover listing the valid geometric
     relations for the pair (`constraint-relations.ts`). The auto-dimension
     preference (`nukeCad.sketchAutoDimension`, default false) shows an inline
@@ -457,6 +471,16 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   - `arc`: `c_id` (alias `centerId`), `radius`, `start_angle` (alias
     `startAngle`), `end_angle` (alias `endAngle`), `start_id` (alias
     `startId`), `end_id` (alias `endId`). Angles are stored in radians.
+  - `ellipse`: `c_id` (alias `centerId`), `focus1_id` (alias `focus1Id`),
+    `radmin`. Stored the way PlaneGCS models it: the focus sets the major-axis
+    direction and focal distance, so the major semi-axis is
+    `sqrt(radmin² + |c − f1|²)` and `radmin` is the minor semi-axis.
+  - `bspline`: `pole_ids` (alias `poleIds`), `weights`, `knots`, `mult`,
+    `degree`, `periodic`. Control-polygon form with OpenCASCADE compressed
+    knots; the invariant is `sum(mult) == len(pole_ids) + degree + 1`
+    (clamped non-periodic). Only unit weights and `periodic: false` are
+    buildable; clamped knots make the curve interpolate the first and last
+    pole, so those poles double as wire endpoints.
 - `.nuke-cad` document build path (headless backend):
   - `python/sketch_builder.py` consumes the solved sketch primitives stored in
     the document and emits build123d `Face` objects on the sketch datum plane.
@@ -571,6 +595,15 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
     solid (never the sketch), boolean tools are combined before the operation,
     and contained sketch profiles (any nesting depth) are holes emitted with
     `bd.Mode.SUBTRACT` — matching the backend's outer/inner-wire pairing.
+    Ellipses become `bd.Ellipse(x_radius, y_radius, rotation=deg)` under
+    `bd.Locations(center)`. B-spline segments keep their authored control
+    polygon: loops containing one are emitted as an explicit
+    `bd.make_face([...])` edge list (no `bd.BuildLine` capture) using the
+    module-level `_bspline_edge` helper (raw OCP `Geom_BSplineCurve`), because
+    `bd.Spline` interpolates through points and cannot express control-polygon
+    curves; periodic or non-unit-weight B-splines degrade the sketch to
+    `# TODO(manual):`. The helper is emitted once after the imports whenever
+    any non-construction B-spline exists.
     Curves are emitted as `bd.Spline` calls over their sample point lists,
     before the bodies/features blocks (sweep/pipe reference the curve vars).
     Sweep/pipe features emit `bd.sweep(...)`: the section is repositioned to

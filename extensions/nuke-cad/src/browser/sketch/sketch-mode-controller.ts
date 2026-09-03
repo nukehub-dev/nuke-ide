@@ -41,6 +41,7 @@ import { MessageService } from '@theia/core/lib/common/message-service';
 import { SketchSession, type SketchTool, type ConstraintKind, type SketchStatus, type ConstraintRecord } from './sketch-session';
 import { PlanegcsSketchSolver, type SketchPrimitive, type SketchPoint } from '../../common/sketch-solver';
 import { getPlanegcsWasmUrl } from './planegcs-wasm-url';
+import { sharedEllipsePolyline, sharedBSplinePolyline } from '../../common/sketch-curves';
 import {
     buildDatumPlane,
     buildDatumPlaneFromFace,
@@ -677,6 +678,14 @@ export class SketchModeController {
                     grow(center.x - primitive.radius, center.y - primitive.radius);
                     grow(center.x + primitive.radius, center.y + primitive.radius);
                 }
+            } else if (primitive.type === 'ellipse') {
+                for (const point of this.ellipsePolyline(primitive) ?? []) {
+                    grow(point.x, point.y);
+                }
+            } else if (primitive.type === 'bspline') {
+                for (const point of this.bsplinePolylines(primitive)?.curve ?? []) {
+                    grow(point.x, point.y);
+                }
             }
         }
         if (!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)) {
@@ -906,6 +915,20 @@ export class SketchModeController {
         }
         this.renderPreview();
         this.emitChange();
+    }
+
+    /**
+     * Finish the in-progress entity if the active tool supports an explicit
+     * finish gesture (B-spline: Enter / double-click commits the placed poles).
+     */
+    async finishInProgress(): Promise<void> {
+        if (this.session === undefined) {
+            return;
+        }
+        await this.session.finish();
+        this.renderPreview();
+        this.emitChange();
+        this.renderCallback();
     }
 
     /** Pointer move handler. */
@@ -1220,7 +1243,9 @@ export class SketchModeController {
                     p.id !== pointId &&
                     ((p.type === 'line' && (p.p1Id === pointId || p.p2Id === pointId)) ||
                         (p.type === 'circle' && p.centerId === pointId) ||
-                        (p.type === 'arc' && (p.centerId === pointId || p.startId === pointId || p.endId === pointId)))
+                        (p.type === 'arc' && (p.centerId === pointId || p.startId === pointId || p.endId === pointId)) ||
+                        (p.type === 'ellipse' && (p.centerId === pointId || p.focus1Id === pointId)) ||
+                        (p.type === 'bspline' && p.poleIds.includes(pointId)))
             )
             .map((p) => p.id);
         return owned.length > 0 ? owned : [pointId];
@@ -1332,6 +1357,13 @@ export class SketchModeController {
                     : this.arcGeometry(center, primitive.radius, primitive.startAngle, primitive.endAngle, z);
             const material = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.45 });
             this.hoverMarker.add(new THREE.Line(geometry, material));
+        } else if (primitive.type === 'ellipse' || primitive.type === 'bspline') {
+            const curve = primitive.type === 'ellipse' ? this.ellipsePolyline(primitive) : this.bsplinePolylines(primitive)?.curve;
+            if (curve === undefined) {
+                return;
+            }
+            const material = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.45 });
+            this.hoverMarker.add(new THREE.Line(this.polylineGeometry(curve, z), material));
         }
         this.renderCallback();
     }
@@ -1544,6 +1576,51 @@ export class SketchModeController {
                 const line = new THREE.Line(geometry, material);
                 line.computeLineDistances();
                 this.projectedGroup.add(line);
+            } else if (type === 'ellipse') {
+                const center = this.findProjectedPoint(primitives, String(primitive.c_id ?? primitive.centerId ?? ''));
+                const focus1 = this.findProjectedPoint(primitives, String(primitive.focus1_id ?? primitive.focus1Id ?? ''));
+                const radmin = Number(primitive.radmin ?? 0);
+                if (center === undefined || focus1 === undefined || radmin <= 0) {
+                    continue;
+                }
+                const geometry = this.polylineGeometry(sharedEllipsePolyline(center, focus1, radmin), z);
+                const material = new THREE.LineDashedMaterial({
+                    color,
+                    dashSize: 0.15,
+                    gapSize: 0.1,
+                    linewidth: 1
+                });
+                const line = new THREE.Line(geometry, material);
+                line.computeLineDistances();
+                this.projectedGroup.add(line);
+            } else if (type === 'bspline') {
+                const poleIds = (primitive.pole_ids ?? primitive.poleIds ?? []) as unknown[];
+                const knots = (primitive.knots ?? []) as unknown[];
+                const mult = (primitive.mult ?? []) as unknown[];
+                const degree = Number(primitive.degree ?? 0);
+                const poles: Point2[] = [];
+                let valid = true;
+                for (const poleId of poleIds) {
+                    const pole = this.findProjectedPoint(primitives, String(poleId));
+                    if (pole === undefined) {
+                        valid = false;
+                        break;
+                    }
+                    poles.push(pole);
+                }
+                if (!valid || poles.length < degree + 1 || degree < 1) {
+                    continue;
+                }
+                const geometry = this.polylineGeometry(sharedBSplinePolyline(poles, knots.map(Number), mult.map(Number), degree), z);
+                const material = new THREE.LineDashedMaterial({
+                    color,
+                    dashSize: 0.15,
+                    gapSize: 0.1,
+                    linewidth: 1
+                });
+                const line = new THREE.Line(geometry, material);
+                line.computeLineDistances();
+                this.projectedGroup.add(line);
             }
         }
     }
@@ -1629,6 +1706,21 @@ export class SketchModeController {
             const line = new THREE.Line(geometry, material);
             line.userData = { id: primitive.id };
             this.committedGroup.add(line);
+            return;
+        }
+
+        if (primitive.type === 'ellipse' || primitive.type === 'bspline') {
+            const curve = primitive.type === 'ellipse' ? this.ellipsePolyline(primitive) : this.bsplinePolylines(primitive)?.curve;
+            if (curve === undefined) {
+                return;
+            }
+            const polygon = primitive.type === 'bspline' ? this.bsplinePolylines(primitive)?.polygon : undefined;
+            const material = new THREE.LineBasicMaterial({ color, linewidth: isSelected ? 2 : 1 });
+            const before = this.committedGroup.children.length;
+            this.addCurveAndPolygon(this.committedGroup, curve, polygon, z, material);
+            for (const child of this.committedGroup.children.slice(before)) {
+                child.userData = { id: primitive.id };
+            }
         }
     }
 
@@ -1660,6 +1752,61 @@ export class SketchModeController {
             points.push(new THREE.Vector3(center.x + radius * Math.cos(angle), center.y + radius * Math.sin(angle), z));
         }
         return new THREE.BufferGeometry().setFromPoints(points);
+    }
+
+    /** Sampled ellipse polyline for a committed ellipse primitive, or undefined. */
+    private ellipsePolyline(primitive: SketchPrimitive): Point2[] | undefined {
+        if (primitive.type !== 'ellipse' || this.session === undefined) {
+            return undefined;
+        }
+        const center = this.session.getPrimitive(primitive.centerId) as SketchPoint | undefined;
+        const focus1 = this.session.getPrimitive(primitive.focus1Id) as SketchPoint | undefined;
+        if (center === undefined || focus1 === undefined) {
+            return undefined;
+        }
+        return sharedEllipsePolyline(center, focus1, primitive.radmin);
+    }
+
+    /** Sampled curve + control polygon for a committed bspline primitive, or undefined. */
+    private bsplinePolylines(primitive: SketchPrimitive): { curve: Point2[]; polygon: Point2[] } | undefined {
+        if (primitive.type !== 'bspline' || this.session === undefined) {
+            return undefined;
+        }
+        const poles: Point2[] = [];
+        for (const poleId of primitive.poleIds) {
+            const pole = this.session.getPrimitive(poleId) as SketchPoint | undefined;
+            if (pole === undefined) {
+                return undefined;
+            }
+            poles.push(pole);
+        }
+        return { curve: sharedBSplinePolyline(poles, primitive.knots, primitive.mult, primitive.degree), polygon: poles };
+    }
+
+    private polylineGeometry(points: readonly Point2[], z: number): THREE.BufferGeometry {
+        return new THREE.BufferGeometry().setFromPoints(points.map((p) => new THREE.Vector3(p.x, p.y, z)));
+    }
+
+    /** Add a curve line plus (for bsplines) the dashed control polygon. */
+    private addCurveAndPolygon(
+        group: THREE.Group,
+        curve: readonly Point2[],
+        polygon: readonly Point2[] | undefined,
+        z: number,
+        material: THREE.Material
+    ): void {
+        const line = new THREE.Line(this.polylineGeometry(curve, z), material);
+        group.add(line);
+        if (polygon !== undefined && polygon.length > 1) {
+            const polygonMaterial = new THREE.LineDashedMaterial({
+                color: (material as THREE.LineBasicMaterial).color,
+                dashSize: 0.15,
+                gapSize: 0.1
+            });
+            const polygonLine = new THREE.Line(this.polylineGeometry(polygon, z), polygonMaterial);
+            polygonLine.computeLineDistances();
+            group.add(polygonLine);
+        }
     }
 
     private renderPreview(): void {
@@ -1716,6 +1863,14 @@ export class SketchModeController {
             ]);
             const material = new THREE.LineBasicMaterial({ color });
             this.previewObject.add(new THREE.Line(geometry, material));
+        } else if (preview.type === 'ellipse') {
+            const material = new THREE.LineBasicMaterial({ color });
+            this.previewObject.add(
+                new THREE.Line(this.polylineGeometry(sharedEllipsePolyline(preview.center, preview.focus1, preview.radmin), z), material)
+            );
+        } else if (preview.type === 'bspline') {
+            const material = new THREE.LineBasicMaterial({ color });
+            this.previewObject.add(new THREE.Line(this.polylineGeometry(preview.poles, z), material));
         }
     }
 
@@ -1787,6 +1942,14 @@ export class SketchModeController {
                 const geometry = this.arcGeometry(center, primitive.radius, primitive.startAngle, primitive.endAngle, z);
                 const material = new THREE.LineBasicMaterial({ color, linewidth: 2 });
                 this.selectionMarker.add(new THREE.Line(geometry, material));
+            } else if (primitive.type === 'ellipse' || primitive.type === 'bspline') {
+                const curve = primitive.type === 'ellipse' ? this.ellipsePolyline(primitive) : this.bsplinePolylines(primitive)?.curve;
+                if (curve === undefined) {
+                    continue;
+                }
+                const polygon = primitive.type === 'bspline' ? this.bsplinePolylines(primitive)?.polygon : undefined;
+                const material = new THREE.LineBasicMaterial({ color, linewidth: 2 });
+                this.addCurveAndPolygon(this.selectionMarker, curve, polygon, z, material);
             }
         }
         this.renderCallback();

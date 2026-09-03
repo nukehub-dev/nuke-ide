@@ -482,4 +482,77 @@ describe('PlanegcsSketchSolver', () => {
         solver = await PlanegcsSketchSolver.create();
         expect(() => solver.setDrivingValue('missing', 5)).toThrow(/Unknown constraint/);
     });
+
+    it('round-trips an ellipse through solve and reads back the solved radii', async () => {
+        solver = await PlanegcsSketchSolver.create();
+
+        solver.addPoint('center', 1, 2);
+        solver.addPoint('focus1', 4, 2);
+        solver.addEllipse('ellipse', 'center', 'focus1', 4);
+
+        solver.addConstraintFix('fixCenter', 'center');
+        solver.addConstraintFix('fixFocus', 'focus1');
+        const result = await solver.solve();
+        expect(result.status).toBe('converged');
+
+        const center = solver.getPrimitive('center') as SketchPoint;
+        const focus1 = solver.getPrimitive('focus1') as SketchPoint;
+        expect(center.x).toBeCloseTo(1, 8);
+        expect(center.y).toBeCloseTo(2, 8);
+        // The focus sets the major-axis direction and focal distance.
+        expect(focus1.x - center.x).toBeCloseTo(3, 8);
+        expect(focus1.y - center.y).toBeCloseTo(0, 8);
+
+        const ellipse = solver.getPrimitive('ellipse');
+        expect(ellipse?.type).toBe('ellipse');
+        if (ellipse?.type === 'ellipse') {
+            expect(ellipse.centerId).toBe('center');
+            expect(ellipse.focus1Id).toBe('focus1');
+            // radmin is the minor semi-axis; major derives from the focus form.
+            expect(ellipse.radmin).toBeCloseTo(4, 8);
+            const major = Math.sqrt(ellipse.radmin * ellipse.radmin + 9);
+            expect(major).toBeCloseTo(5, 8);
+        }
+    });
+
+    it('solves a B-spline by its control polygon and reads back the poles', async () => {
+        solver = await PlanegcsSketchSolver.create();
+
+        solver.addPoint('p0', 0, 0);
+        solver.addPoint('p1', 3, 6);
+        solver.addPoint('p2', 6, 0);
+        solver.addBSpline('curve', ['p0', 'p1', 'p2'], [1, 1, 1], [0, 1], [3, 3], 2, false);
+
+        // Fixing two poles leaves the middle pole free: 2 DOF.
+        solver.addConstraintFix('fix0', 'p0');
+        solver.addConstraintFix('fix2', 'p2');
+        const result = await solver.solve();
+        expect(result.status).toBe('converged');
+        expect(result.dof).toBe(2);
+
+        const curve = solver.getPrimitive('curve');
+        expect(curve?.type).toBe('bspline');
+        if (curve?.type === 'bspline') {
+            expect(curve.poleIds).toEqual(['p0', 'p1', 'p2']);
+            expect(curve.weights).toEqual([1, 1, 1]);
+            expect(curve.degree).toBe(2);
+            expect(curve.periodic).toBe(false);
+            const p1 = solver.getPrimitive('p1') as SketchPoint;
+            expect(p1.x).toBeCloseTo(3, 8);
+            expect(p1.y).toBeCloseTo(6, 8);
+        }
+    });
+
+    it('addBSpline validates knot multiplicities and pole references', async () => {
+        solver = await PlanegcsSketchSolver.create();
+        solver.addPoint('p0', 0, 0);
+        solver.addPoint('p1', 1, 1);
+        solver.addPoint('p2', 2, 0);
+
+        expect(() => solver.addBSpline('bad', ['p0', 'p1', 'p2'], [1, 1, 1], [0, 1], [3, 3], 3, false)).toThrow(/poles/);
+        expect(() => solver.addBSpline('bad', ['p0', 'p1', 'p2'], [1, 1], [0, 1], [3, 3], 2, false)).toThrow(/weights/);
+        expect(() => solver.addBSpline('bad', ['p0', 'p1', 'missing'], [1, 1, 1], [0, 1], [3, 3], 2, false)).toThrow(/unknown primitive/);
+        expect(() => solver.addBSpline('bad', ['p0', 'p1', 'p2'], [1, 1, 1], [0, 1], [3, 3], 2, true)).toThrow(/periodic/);
+        expect(() => solver.addBSpline('bad', ['p0', 'p1', 'p2'], [1, 1, 1], [0, 1, 2], [3, 3], 2, false)).toThrow(/knot/);
+    });
 });

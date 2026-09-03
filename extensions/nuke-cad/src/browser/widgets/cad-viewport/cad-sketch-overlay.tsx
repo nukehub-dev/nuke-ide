@@ -133,7 +133,9 @@ const TOOLS: Array<{ tool: SketchTool; label: string; icon: string; key: string 
     { tool: 'line', label: 'Line', icon: 'codicon-nuke-cad-line', key: 'L' },
     { tool: 'circle', label: 'Circle', icon: 'codicon-nuke-cad-circle', key: 'C' },
     { tool: 'arc3', label: '3-Point Arc', icon: 'codicon-nuke-cad-arc', key: 'A' },
-    { tool: 'rectangle', label: 'Rectangle', icon: 'codicon-nuke-cad-rectangle', key: 'R' }
+    { tool: 'rectangle', label: 'Rectangle', icon: 'codicon-nuke-cad-rectangle', key: 'R' },
+    { tool: 'ellipse', label: 'Ellipse', icon: 'codicon-nuke-cad-ellipse', key: 'E' },
+    { tool: 'bspline', label: 'B-Spline', icon: 'codicon-nuke-cad-bspline', key: 'B' }
 ];
 
 /** Snap-radius presets in screen pixels; M matches the session default. */
@@ -361,10 +363,16 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
 
     const refCounts = countReferenceResults(relevantRefs);
     const snapSummary = controller.isSnapEnabled() ? `Snap: ${controller.getSnapRadiusPx()}px` : 'Snap off';
+    const gestureHint =
+        active && tool === 'ellipse'
+            ? 'Click: center · Click: major-axis endpoint · Click: minor-radius point'
+            : active && tool === 'bspline'
+              ? 'Click: place poles · Double-click / Enter: finish (min 2 poles)'
+              : undefined;
     const selectHint =
         active && tool === 'select' && constraintInput === undefined
             ? 'Click: select · Ctrl+Click: multi-select / relations · Q: shortcut bar · Del: delete · Esc: clear'
-            : undefined;
+            : gestureHint;
     const statusText = buildStatusText(status, refCounts, snapSummary, selectHint);
     const hasDiagnostics =
         status.conflicting.length > 0 || status.redundant.length > 0 || refCounts.ambiguous > 0 || refCounts.unmatched > 0;
@@ -3083,6 +3091,9 @@ function buildStatusText(status: SketchStatus, referenceCounts?: ReferenceCounts
         const kinds = status.lastAutoConstraints.map((a) => a.kind).join(', ');
         parts.push(`Auto: ${kinds}`);
     }
+    if (status.hint !== undefined) {
+        parts.push(status.hint);
+    }
     return parts.join(' · ');
 }
 
@@ -3290,6 +3301,9 @@ function primitiveTypeToEntityType(type: string): SketchEntityType | undefined {
     if (type === 'arc') {
         return 'arc';
     }
+    // Ellipses and B-splines relate to other entities only through their
+    // point primitives (center, focus, poles); the curve itself has no
+    // relations this phase.
     return undefined;
 }
 

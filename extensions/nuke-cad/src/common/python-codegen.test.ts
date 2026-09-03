@@ -746,3 +746,179 @@ describe('generatePythonScript loft/helicalSweep emission', () => {
         expect(generatePythonScript(loftHelixDocument())).toMatchSnapshot();
     });
 });
+
+describe('generatePythonScript ellipse/B-spline emission', () => {
+    function curvesDocument(): NukeCadDocument {
+        return {
+            version: NUKE_CAD_SCHEMA_VERSION,
+            name: 'curves',
+            parameters: {},
+            datums: [{ id: 'dxy', kind: 'XY', name: 'XY' }],
+            bodies: [{ id: 'b1', name: 'B1' }],
+            sketches: [
+                {
+                    id: 'sk_ellipse',
+                    name: 'Ellipse',
+                    datumId: 'dxy',
+                    constraints: [],
+                    primitives: [
+                        { id: 'ec', type: 'point', x: 1, y: 2 },
+                        { id: 'ef', type: 'point', x: 4, y: 2 },
+                        { id: 'e1', type: 'ellipse', c_id: 'ec', focus1_id: 'ef', radmin: 4 }
+                    ]
+                },
+                {
+                    id: 'sk_mixed',
+                    name: 'Mixed',
+                    datumId: 'dxy',
+                    constraints: [],
+                    primitives: [
+                        { id: 'm1', type: 'point', x: 0, y: 0 },
+                        { id: 'm2', type: 'point', x: 10, y: 0 },
+                        { id: 'm3', type: 'point', x: 10, y: 10 },
+                        { id: 'm4', type: 'point', x: 5, y: 15 },
+                        { id: 'm5', type: 'point', x: 0, y: 10 },
+                        { id: 'ml1', type: 'line', p1_id: 'm1', p2_id: 'm2' },
+                        { id: 'ml2', type: 'line', p1_id: 'm2', p2_id: 'm3' },
+                        {
+                            id: 'mb1',
+                            type: 'bspline',
+                            pole_ids: ['m3', 'm4', 'm5'],
+                            weights: [1, 1, 1],
+                            knots: [0, 1],
+                            mult: [3, 3],
+                            degree: 2,
+                            periodic: false
+                        },
+                        { id: 'ml3', type: 'line', p1_id: 'm5', p2_id: 'm1' }
+                    ]
+                },
+                {
+                    id: 'sk_pure',
+                    name: 'PureBSpline',
+                    datumId: 'dxy',
+                    constraints: [],
+                    primitives: [
+                        { id: 's1', type: 'point', x: 0, y: 0 },
+                        { id: 's2', type: 'point', x: 5, y: 8 },
+                        { id: 's3', type: 'point', x: 10, y: 0 },
+                        {
+                            id: 'sb1',
+                            type: 'bspline',
+                            pole_ids: ['s1', 's2', 's3'],
+                            weights: [1, 1, 1],
+                            knots: [0, 1],
+                            mult: [3, 3],
+                            degree: 2,
+                            periodic: false
+                        }
+                    ]
+                },
+                {
+                    id: 'sk_periodic',
+                    name: 'Periodic',
+                    datumId: 'dxy',
+                    constraints: [],
+                    primitives: [
+                        { id: 'q1', type: 'point', x: 0, y: 0 },
+                        { id: 'q2', type: 'point', x: 5, y: 8 },
+                        { id: 'q3', type: 'point', x: 10, y: 0 },
+                        {
+                            id: 'qb1',
+                            type: 'bspline',
+                            pole_ids: ['q1', 'q2', 'q3'],
+                            weights: [1, 1, 1],
+                            knots: [0, 1],
+                            mult: [3, 3],
+                            degree: 2,
+                            periodic: true
+                        }
+                    ]
+                }
+            ],
+            features: [
+                {
+                    id: 'pad_1',
+                    name: 'Pad',
+                    type: 'pad',
+                    body: 'b1',
+                    sketchId: 'sk_mixed',
+                    params: { length: 2 } as FeatureDef['params'],
+                    suppressed: false,
+                    dependsOn: []
+                }
+            ],
+            curves: []
+        };
+    }
+
+    it('emits an ellipse via analytic axes under bd.Locations', () => {
+        const script = generatePythonScript(curvesDocument());
+        // center (1,2), focus (4,2): major = 5 (3-4-5), minor = 4, rotation 0.
+        expect(script).toContain('with bd.Locations((1, 2)):');
+        expect(script).toContain('bd.Ellipse(5, 4, rotation=0)');
+    });
+
+    it('emits a mixed line/B-spline loop as an explicit make_face edge list', () => {
+        const script = generatePythonScript(curvesDocument());
+        expect(script).toContain('bd.make_face([');
+        expect(script).toContain('bd.Line((0, 0), (10, 0)),');
+        expect(script).toContain('_bspline_edge([(10, 10), (5, 15), (0, 10)], [0, 1], [3, 3], 2),');
+        // The B-spline loop must not use the BuildLine capture pattern.
+        const mixedStart = script.indexOf('def sketch_Mixed_sk_mixed():');
+        const mixedEnd = script.indexOf('def sketch_PureBSpline_sk_pure():');
+        const mixedBody = script.slice(mixedStart, mixedEnd);
+        expect(mixedBody).not.toContain('with bd.BuildLine():');
+        expect(mixedBody).not.toContain('bd.make_face()');
+    });
+
+    it('emits the _bspline_edge helper exactly once at module level', () => {
+        const script = generatePythonScript(curvesDocument());
+        const occurrences = script.split('\n').filter((line) => line.startsWith('def _bspline_edge('));
+        expect(occurrences).toHaveLength(1);
+        expect(script.indexOf('def _bspline_edge(')).toBeLessThan(script.indexOf('def sketch_Mixed_sk_mixed():'));
+        expect(script).not.toContain('bd.Spline(*');
+    });
+
+    it('marks a periodic B-spline sketch as manually unbuildable', () => {
+        const script = generatePythonScript(curvesDocument());
+        expect(script).toContain('# TODO(manual): sketch "Periodic" has no exportable solved geometry.');
+    });
+
+    it('classifies an ellipse inside a loop as a hole with SUBTRACT mode', () => {
+        const doc = curvesDocument();
+        doc.sketches.push({
+            id: 'sk_hole',
+            name: 'Hole',
+            datumId: 'dxy',
+            constraints: [],
+            primitives: [
+                { id: 'h1', type: 'point', x: 0, y: 0 },
+                { id: 'h2', type: 'point', x: 20, y: 0 },
+                { id: 'h3', type: 'point', x: 20, y: 20 },
+                { id: 'h4', type: 'point', x: 0, y: 20 },
+                { id: 'hl1', type: 'line', p1_id: 'h1', p2_id: 'h2' },
+                { id: 'hl2', type: 'line', p1_id: 'h2', p2_id: 'h3' },
+                { id: 'hl3', type: 'line', p1_id: 'h3', p2_id: 'h4' },
+                { id: 'hl4', type: 'line', p1_id: 'h4', p2_id: 'h1' },
+                { id: 'hc', type: 'point', x: 10, y: 10 },
+                { id: 'hf', type: 'point', x: 13, y: 10 },
+                { id: 'he', type: 'ellipse', c_id: 'hc', focus1_id: 'hf', radmin: 4 }
+            ]
+        });
+        doc.features.push({
+            id: 'pad_2',
+            name: 'Pad hole',
+            type: 'pad',
+            body: 'b1',
+            sketchId: 'sk_hole',
+            params: { length: 1 } as FeatureDef['params'],
+            suppressed: false,
+            dependsOn: []
+        });
+        const script = generatePythonScript(doc);
+        const holeStart = script.indexOf('def sketch_Hole_sk_hole():');
+        const holeBody = script.slice(holeStart);
+        expect(holeBody).toContain('bd.Ellipse(5, 4, rotation=0, mode=bd.Mode.SUBTRACT)');
+    });
+});

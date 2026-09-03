@@ -42,6 +42,8 @@
 .codicon-nuke-cad-circle,
 .codicon-nuke-cad-arc,
 .codicon-nuke-cad-rectangle,
+.codicon-nuke-cad-ellipse,
+.codicon-nuke-cad-bspline,
 .codicon-nuke-cad-construction,
 .codicon-nuke-cad-external-ref,
 .codicon-nuke-cad-snap,
@@ -240,6 +242,18 @@
 .codicon-nuke-cad-rectangle {
     -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linejoin='round'%3E%3Crect x='2.5' y='4' width='11' height='8' rx='.5'/%3E%3C/svg%3E");
     mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linejoin='round'%3E%3Crect x='2.5' y='4' width='11' height='8' rx='.5'/%3E%3C/svg%3E");
+}
+
+/* Ellipse with center — Ellipse tool. */
+.codicon-nuke-cad-ellipse {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2'%3E%3Cellipse cx='8' cy='8' rx='6' ry='4'/%3E%3Ccircle cx='8' cy='8' r='1.2' fill='black' stroke='none'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2'%3E%3Cellipse cx='8' cy='8' rx='6' ry='4'/%3E%3Ccircle cx='8' cy='8' r='1.2' fill='black' stroke='none'/%3E%3C/svg%3E");
+}
+
+/* Curve with dashed control polygon — B-Spline tool. */
+.codicon-nuke-cad-bspline {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round'%3E%3Cpath d='M2.5 11.5c1.8-6.5 3.6-6.5 5.4 0s3.6 6.5 5.6 0'/%3E%3Cpath d='M2.5 11.5 5.5 5l3 3 3-3 2 6.5' stroke-dasharray='1.8 1.4'/%3E%3Cpath d='M2.2 11.5h.6M5.2 5h.6M8.2 8h.6M11.2 5h.6M13.7 11.5h.6' fill='black' stroke='none'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round'%3E%3Cpath d='M2.5 11.5c1.8-6.5 3.6-6.5 5.4 0s3.6 6.5 5.6 0'/%3E%3Cpath d='M2.5 11.5 5.5 5l3 3 3-3 2 6.5' stroke-dasharray='1.8 1.4'/%3E%3Cpath d='M2.2 11.5h.6M5.2 5h.6M8.2 8h.6M11.2 5h.6M13.7 11.5h.6' fill='black' stroke='none'/%3E%3C/svg%3E");
 }
 
 /* Dash-dot line — Construction geometry toggle. */

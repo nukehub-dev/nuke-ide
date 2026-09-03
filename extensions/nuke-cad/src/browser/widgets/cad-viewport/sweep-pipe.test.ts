@@ -261,7 +261,7 @@ describe('resolveCurvePick', () => {
     });
 });
 
-function sketch(id: string, name: string, datumId = 'datum-xy'): import('../../../common/cad-document').SketchDef {
+function sketch(id: string, name = 'Sketch', datumId = 'datum-xy'): import('../../../common/cad-document').SketchDef {
     return { id, name, datumId, primitives: [], constraints: [] };
 }
 

@@ -156,4 +156,97 @@ describe('snap', () => {
         expect(result.sourceId).toBe('a1');
         expect(result.pointId).toBe('center');
     });
+
+    function makeEllipse(id: string, center: Point2, focus1: Point2, radmin: number): SketchPrimitive[] {
+        return [
+            { type: 'point', id: `${id}-c`, x: center.x, y: center.y },
+            { type: 'point', id: `${id}-f`, x: focus1.x, y: focus1.y },
+            { type: 'ellipse', id, centerId: `${id}-c`, focus1Id: `${id}-f`, radmin }
+        ];
+    }
+
+    function makeBSpline(id: string, poles: Point2[]): SketchPrimitive[] {
+        const degree = Math.min(3, poles.length - 1);
+        const spans = poles.length - degree;
+        const knots: number[] = [];
+        const mult: number[] = [];
+        for (let i = 0; i <= spans; i++) {
+            knots.push(i);
+            mult.push(i === 0 || i === spans ? degree + 1 : 1);
+        }
+        return [
+            ...poles.map((p, i) => ({ type: 'point', id: `${id}-p${i}`, x: p.x, y: p.y }) as SketchPrimitive),
+            {
+                type: 'bspline',
+                id,
+                poleIds: poles.map((_p, i) => `${id}-p${i}`),
+                weights: poles.map(() => 1),
+                knots,
+                mult,
+                degree,
+                periodic: false
+            } as SketchPrimitive
+        ];
+    }
+
+    it('snaps to an ellipse center', () => {
+        // center (0,0), focus (3,0): major 5, minor 4.
+        const primitives = makeEllipse('e1', { x: 0, y: 0 }, { x: 3, y: 0 }, 4);
+        const result = snap({ x: 0.1, y: 0.1 }, primitives, CONFIG);
+        expect(result.kind).toBe('center');
+        expect(result.sourceId).toBe('e1');
+        expect(result.pointId).toBe('e1-c');
+        expect(result.point).toEqual({ x: 0, y: 0 });
+    });
+
+    it('snaps on-curve to an ellipse circumference', () => {
+        const primitives = makeEllipse('e1', { x: 0, y: 0 }, { x: 3, y: 0 }, 4);
+        // Near the major-axis extreme (5, 0); must not be treated as a quadrant.
+        const result = snap({ x: 5, y: 0.3 }, primitives, CONFIG);
+        expect(result.kind).toBe('on_curve');
+        expect(result.sourceId).toBe('e1');
+        // Snap lands on a chord vertex, so verify it lies on the ellipse.
+        const norm = (result.point.x * result.point.x) / 25 + (result.point.y * result.point.y) / 16;
+        expect(norm).toBeCloseTo(1, 3);
+    });
+
+    it('snaps to B-spline end poles as endpoints', () => {
+        const primitives = makeBSpline('b1', [
+            { x: 0, y: 0 },
+            { x: 3, y: 6 },
+            { x: 6, y: 0 }
+        ]);
+        const result = snap({ x: 6.1, y: 0.1 }, primitives, CONFIG);
+        expect(result.kind).toBe('endpoint');
+        expect(result.pointId).toBe('b1-p2');
+        expect(result.point).toEqual({ x: 6, y: 0 });
+    });
+
+    it('snaps on-curve to a B-spline interior, skipping end poles', () => {
+        const primitives = makeBSpline('b1', [
+            { x: 0, y: 0 },
+            { x: 3, y: 6 },
+            { x: 6, y: 0 }
+        ]);
+        // Quadratic B-spline: at t = 0.2 the curve passes through (1.2, 1.92);
+        // both end poles are far away.
+        const result = snap({ x: 1.25, y: 2.1 }, primitives, CONFIG);
+        expect(result.kind).toBe('on_curve');
+        expect(result.sourceId).toBe('b1');
+        expect(result.point.y).toBeGreaterThan(1.5);
+    });
+
+    it('treats an interior B-spline pole as a point, not an on-curve hit', () => {
+        const primitives = makeBSpline('b1', [
+            { x: 0, y: 0 },
+            { x: 3, y: 6 },
+            { x: 6, y: 0 }
+        ]);
+        // The middle pole (3, 6) is off-curve; it is still a sketch point, so
+        // snapping near it lands on the point rather than the curve below it.
+        const result = snap({ x: 3.1, y: 5.9 }, primitives, CONFIG);
+        expect(result.kind).toBe('endpoint');
+        expect(result.pointId).toBe('b1-p1');
+        expect(result.point).toEqual({ x: 3, y: 6 });
+    });
 });

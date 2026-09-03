@@ -71,7 +71,24 @@ interface PgSketchArc extends PgId {
     end_id: string;
 }
 
-type PgSketchGeometry = PgSketchPoint | PgSketchLine | PgSketchCircle | PgSketchArc;
+interface PgSketchEllipse extends PgId {
+    type: 'ellipse';
+    c_id: string;
+    focus1_id: string;
+    radmin: number;
+}
+
+interface PgSketchBSpline extends PgId {
+    type: 'bspline';
+    pole_ids: string[];
+    weights: number[];
+    knots: number[];
+    mult: number[];
+    degree: number;
+    periodic: boolean;
+}
+
+type PgSketchGeometry = PgSketchPoint | PgSketchLine | PgSketchCircle | PgSketchArc | PgSketchEllipse | PgSketchBSpline;
 
 interface PgConstraintBase extends PgId {
     driving?: boolean;
@@ -386,8 +403,39 @@ export interface SketchArc {
     endId: string;
 }
 
+/**
+ * A solved 2D ellipse, stored the way planegcs models it: the center and one
+ * focus are ordinary point primitives; `radmin` is the minor semi-axis and the
+ * major-axis direction comes from center → focus1
+ * (`major = √(radmin² + |c−f1|²)`).
+ */
+export interface SketchEllipse {
+    type: 'ellipse';
+    id: string;
+    centerId: string;
+    focus1Id: string;
+    radmin: number;
+}
+
+/**
+ * A solved 2D B-spline authored by control polygon. The poles are ordinary
+ * point primitives; weights are all 1 and the curve is non-periodic (clamped
+ * uniform knots), so the end poles are interpolated and double as wire
+ * endpoints.
+ */
+export interface SketchBSpline {
+    type: 'bspline';
+    id: string;
+    poleIds: string[];
+    weights: number[];
+    knots: number[];
+    mult: number[];
+    degree: number;
+    periodic: boolean;
+}
+
 /** Any geometry primitive returned by the solver. */
-export type SketchPrimitive = SketchPoint | SketchLine | SketchCircle | SketchArc;
+export type SketchPrimitive = SketchPoint | SketchLine | SketchCircle | SketchArc | SketchEllipse | SketchBSpline;
 
 /** Options common to all constraints. */
 export interface ConstraintOptions {
@@ -446,6 +494,31 @@ export interface SketchSolver {
         endAngle: number,
         startId: string,
         endId: string,
+        options?: { construction?: boolean }
+    ): void;
+    /**
+     * Add an ellipse through an existing center and focus1 point.
+     *
+     * The focus sets the major-axis direction and focal distance; `radmin` is
+     * the minor semi-axis.
+     */
+    addEllipse(id: string, centerId: string, focus1Id: string, radmin: number, options?: { construction?: boolean }): void;
+    /**
+     * Add a non-periodic B-spline authored by control polygon.
+     *
+     * Every pole id must reference an existing point primitive. Weights must
+     * match the pole count; knots/multiplicities must satisfy
+     * `sum(mult) == poleIds.length + degree + 1` (the clamped non-periodic
+     * form), which makes the curve interpolate the first and last pole.
+     */
+    addBSpline(
+        id: string,
+        poleIds: string[],
+        weights: number[],
+        knots: number[],
+        mult: number[],
+        degree: number,
+        periodic: boolean,
         options?: { construction?: boolean }
     ): void;
 
@@ -525,7 +598,7 @@ export interface PlanegcsSketchSolverOptions {
 }
 
 interface InternalPrimitive {
-    type: 'point' | 'line' | 'circle' | 'arc';
+    type: 'point' | 'line' | 'circle' | 'arc' | 'ellipse' | 'bspline';
     id: string;
     construction: boolean;
     pg: PgSketchGeometry;
@@ -556,6 +629,14 @@ function isPgCircle(pg: PgSketchPrimitive): pg is PgSketchCircle {
 
 function isPgArc(pg: PgSketchPrimitive): pg is PgSketchArc {
     return pg.type === 'arc';
+}
+
+function isPgEllipse(pg: PgSketchPrimitive): pg is PgSketchEllipse {
+    return pg.type === 'ellipse';
+}
+
+function isPgBSpline(pg: PgSketchPrimitive): pg is PgSketchBSpline {
+    return pg.type === 'bspline';
 }
 
 function constraintReferencesId(pg: PgConstraint | PgConstraint[], id: string): boolean {
@@ -664,7 +745,11 @@ export class PlanegcsSketchSolver implements SketchSolver {
         }
     }
 
-    private requirePrimitive(id: string, types: Array<'point' | 'line' | 'circle' | 'arc'>, context: string): InternalPrimitive {
+    private requirePrimitive(
+        id: string,
+        types: Array<'point' | 'line' | 'circle' | 'arc' | 'ellipse' | 'bspline'>,
+        context: string
+    ): InternalPrimitive {
         const primitive = this.primitives.get(id);
         if (!primitive) {
             throw new Error(`${context} references unknown primitive '${id}'`);
@@ -753,6 +838,73 @@ export class PlanegcsSketchSolver implements SketchSolver {
             end_id: endId
         };
         this.primitives.set(id, { type: 'arc', id, construction: options?.construction ?? false, pg });
+    }
+
+    addEllipse(id: string, centerId: string, focus1Id: string, radmin: number, options?: { construction?: boolean }): void {
+        this.assertNotDisposed();
+        this.assertUniqueId(id, 'Primitive');
+        this.assertFiniteNumber(radmin, `Ellipse '${id}' radmin`);
+        this.requirePrimitive(centerId, ['point'], `Ellipse '${id}' center`);
+        this.requirePrimitive(focus1Id, ['point'], `Ellipse '${id}' focus1`);
+        const pg: PgSketchEllipse = { id, type: 'ellipse', c_id: centerId, focus1_id: focus1Id, radmin };
+        this.primitives.set(id, { type: 'ellipse', id, construction: options?.construction ?? false, pg });
+    }
+
+    addBSpline(
+        id: string,
+        poleIds: string[],
+        weights: number[],
+        knots: number[],
+        mult: number[],
+        degree: number,
+        periodic: boolean,
+        options?: { construction?: boolean }
+    ): void {
+        this.assertNotDisposed();
+        this.assertUniqueId(id, 'Primitive');
+        if (periodic) {
+            throw new Error(`BSpline '${id}' must be non-periodic (the sketcher only authors clamped curves)`);
+        }
+        if (!Number.isInteger(degree) || degree < 1) {
+            throw new Error(`BSpline '${id}' degree must be a positive integer, got ${degree}`);
+        }
+        if (poleIds.length < degree + 1) {
+            throw new Error(`BSpline '${id}' needs at least ${degree + 1} poles for degree ${degree}, got ${poleIds.length}`);
+        }
+        if (weights.length !== poleIds.length) {
+            throw new Error(`BSpline '${id}' weights length ${weights.length} does not match ${poleIds.length} poles`);
+        }
+        if (knots.length !== mult.length) {
+            throw new Error(`BSpline '${id}' knots length ${knots.length} does not match mult length ${mult.length}`);
+        }
+        if (mult.reduce((sum, m) => sum + m, 0) !== poleIds.length + degree + 1) {
+            throw new Error(
+                `BSpline '${id}' knot multiplicities sum to ${mult.reduce((sum, m) => sum + m, 0)}, ` +
+                    `expected ${poleIds.length + degree + 1} (poles + degree + 1)`
+            );
+        }
+        for (const value of [...weights, ...knots]) {
+            this.assertFiniteNumber(value, `BSpline '${id}'`);
+        }
+        for (const m of mult) {
+            if (!Number.isInteger(m) || m < 1) {
+                throw new Error(`BSpline '${id}' multiplicities must be positive integers, got ${m}`);
+            }
+        }
+        for (const poleId of poleIds) {
+            this.requirePrimitive(poleId, ['point'], `BSpline '${id}' pole`);
+        }
+        const pg: PgSketchBSpline = {
+            id,
+            type: 'bspline',
+            pole_ids: [...poleIds],
+            weights: [...weights],
+            knots: [...knots],
+            mult: [...mult],
+            degree,
+            periodic
+        };
+        this.primitives.set(id, { type: 'bspline', id, construction: options?.construction ?? false, pg });
     }
 
     addConstraintCoincident(id: string, p1Id: string, p2Id: string, options?: ConstraintOptions): void {
@@ -1184,8 +1336,11 @@ export class PlanegcsSketchSolver implements SketchSolver {
                 (primitive.pg as PgSketchArc).radius = solved.radius;
                 (primitive.pg as PgSketchArc).start_angle = solved.startAngle;
                 (primitive.pg as PgSketchArc).end_angle = solved.endAngle;
+            } else if (primitive.type === 'ellipse' && solved.type === 'ellipse') {
+                (primitive.pg as PgSketchEllipse).radmin = solved.radmin;
             }
-            // Lines are defined by points; no per-line numeric state to update.
+            // Lines are defined by points; bsplines own no scalar state beyond
+            // their knots/weights (poles are point primitives).
         }
     }
 
@@ -1209,6 +1364,21 @@ export class PlanegcsSketchSolver implements SketchSolver {
                 endAngle: pg.end_angle,
                 startId: pg.start_id,
                 endId: pg.end_id
+            };
+        }
+        if (isPgEllipse(pg)) {
+            return { type: 'ellipse', id: pg.id, centerId: pg.c_id, focus1Id: pg.focus1_id, radmin: pg.radmin };
+        }
+        if (isPgBSpline(pg)) {
+            return {
+                type: 'bspline',
+                id: pg.id,
+                poleIds: [...pg.pole_ids],
+                weights: [...pg.weights],
+                knots: [...pg.knots],
+                mult: [...pg.mult],
+                degree: pg.degree,
+                periodic: pg.periodic
             };
         }
         return undefined;

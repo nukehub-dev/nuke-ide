@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- nuke-cad: **ellipse and B-spline sketch entities** — two new sketch tools
+  join the toolbar: **Ellipse** (`E`, center → major-axis endpoint → minor
+  radius) and **B-spline** (`B`, click control-polygon poles, finish with
+  Enter or double-click). An equal-radius ellipse gesture is rejected with a
+  hint pointing at the Circle tool, and an out-of-range minor radius is
+  clamped with a hint. Both entities solve with the geometric solver, snap
+  (center/end-pole/on-curve), render, serialize to the `.nuke-cad` document,
+  rebuild through the headless Python backend, and export to Python. Ellipse
+  and B-spline points accept point-level constraints (coincident, fix,
+  distance, symmetry); curve-level constraints remain lines/circles/arcs
+  only.
+
 ### Changed
 
 - Workspace-scope settings now live in `<project>/.nuke-ide/` instead of

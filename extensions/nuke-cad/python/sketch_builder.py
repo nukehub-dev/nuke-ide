@@ -23,6 +23,23 @@ except Exception:
     bd = None  # type: ignore
     HAS_BUILD123D = False
 
+try:
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeEdge
+    from OCP.Geom import Geom_BSplineCurve
+    from OCP.gp import gp_Pnt
+    from OCP.TColgp import TColgp_Array1OfPnt
+    from OCP.TColStd import TColStd_Array1OfInteger, TColStd_Array1OfReal
+
+    HAS_OCP = True
+except Exception:
+    HAS_OCP = False
+    BRepBuilderAPI_MakeEdge = None  # type: ignore
+    Geom_BSplineCurve = None  # type: ignore
+    gp_Pnt = None  # type: ignore
+    TColgp_Array1OfPnt = None  # type: ignore
+    TColStd_Array1OfInteger = None  # type: ignore
+    TColStd_Array1OfReal = None  # type: ignore
+
 
 class SketchError(ValueError):
     """Raised when a sketch cannot be reconstructed as closed face(s)."""
@@ -78,6 +95,45 @@ class SketchArc:
 
 
 SketchPrimitive = SketchPoint | SketchLine | SketchCircle | SketchArc
+
+
+@dataclass(frozen=True)
+class SketchEllipse:
+    """A solved 2D ellipse referencing a center and a focus point.
+
+    Stored the way PlaneGCS models it: the focus sets the major-axis direction
+    and focal distance, so the major semi-axis is
+    ``sqrt(radmin**2 + |c - f1|**2)`` and ``radmin`` is the minor semi-axis.
+    """
+
+    id: str
+    center_id: str
+    focus1_id: str
+    radmin: float
+    construction: bool
+
+
+@dataclass(frozen=True)
+class SketchBSpline:
+    """A solved 2D B-spline authored by control polygon.
+
+    The poles are separate ``SketchPoint`` records. Non-periodic (clamped
+    uniform) knots interpolate the end poles, so they double as wire endpoints.
+    ``knots``/``mult`` use the OpenCASCADE compressed form; the consistency
+    invariant is ``sum(mult) == len(pole_ids) + degree + 1``.
+    """
+
+    id: str
+    pole_ids: tuple[str, ...]
+    weights: tuple[float, ...]
+    knots: tuple[float, ...]
+    mult: tuple[int, ...]
+    degree: int
+    periodic: bool
+    construction: bool
+
+
+SketchPrimitive = SketchPrimitive | SketchEllipse | SketchBSpline
 
 
 def _as_finite_number(value: Any, context: str) -> float:
@@ -185,6 +241,99 @@ def _parse_arc(primitive: dict[str, Any]) -> SketchArc:
     )
 
 
+def _parse_ellipse(primitive: dict[str, Any]) -> SketchEllipse:
+    """Parse an ellipse primitive (planegcs-verbatim or camelCase alias)."""
+    pid = _get_str(primitive, "id", "ellipse")
+    center_id = (
+        _get_str(primitive, "c_id", f"ellipse '{pid}'")
+        if "c_id" in primitive
+        else _get_str(primitive, "centerId", f"ellipse '{pid}'")
+    )
+    focus1_id = (
+        _get_str(primitive, "focus1_id", f"ellipse '{pid}'")
+        if "focus1_id" in primitive
+        else _get_str(primitive, "focus1Id", f"ellipse '{pid}'")
+    )
+    return SketchEllipse(
+        id=pid,
+        center_id=center_id,
+        focus1_id=focus1_id,
+        radmin=_get_finite_number(primitive, "radmin", f"ellipse '{pid}'"),
+        construction=_as_bool(primitive.get("construction"), False),
+    )
+
+
+def _as_id_tuple(value: Any, context: str) -> tuple[str, ...]:
+    """Return ``value`` as a tuple of non-empty strings or raise ``SketchError``."""
+    if not isinstance(value, list) or not value:
+        raise SketchError(f"{context} must be a non-empty list of point ids, got {value!r}")
+    ids: list[str] = []
+    for item in value:
+        if not isinstance(item, str) or not item:
+            raise SketchError(f"{context} entries must be non-empty strings, got {item!r}")
+        ids.append(item)
+    return tuple(ids)
+
+
+def _as_number_tuple(value: Any, context: str) -> tuple[float, ...]:
+    """Return ``value`` as a tuple of finite floats or raise ``SketchError``."""
+    if not isinstance(value, list) or not value:
+        raise SketchError(f"{context} must be a non-empty list of numbers, got {value!r}")
+    return tuple(_as_finite_number(item, f"{context} entry") for item in value)
+
+
+def _parse_bspline(primitive: dict[str, Any]) -> SketchBSpline:
+    """Parse a B-spline primitive (planegcs-verbatim or camelCase alias)."""
+    pid = _get_str(primitive, "id", "bspline")
+    pole_ids = _as_id_tuple(
+        primitive.get("pole_ids", primitive.get("poleIds")), f"bspline '{pid}'.pole_ids"
+    )
+    weights = _as_number_tuple(primitive.get("weights"), f"bspline '{pid}'.weights")
+    knots = _as_number_tuple(primitive.get("knots"), f"bspline '{pid}'.knots")
+    mult_value = primitive.get("mult")
+    if not isinstance(mult_value, list) or not mult_value:
+        raise SketchError(
+            f"bspline '{pid}'.mult must be a non-empty list of integers, got {mult_value!r}"
+        )
+    mult: list[int] = []
+    for item in mult_value:
+        if not isinstance(item, int) or isinstance(item, bool) or item < 1:
+            raise SketchError(
+                f"bspline '{pid}'.mult entries must be positive integers, got {item!r}"
+            )
+        mult.append(item)
+    degree = primitive.get("degree")
+    if not isinstance(degree, int) or isinstance(degree, bool) or degree < 1:
+        raise SketchError(f"bspline '{pid}'.degree must be a positive integer, got {degree!r}")
+    if len(pole_ids) < degree + 1:
+        raise SketchError(
+            f"bspline '{pid}' needs at least {degree + 1} poles for degree {degree}, got {len(pole_ids)}"
+        )
+    if len(weights) != len(pole_ids):
+        raise SketchError(
+            f"bspline '{pid}' weights length {len(weights)} does not match {len(pole_ids)} poles"
+        )
+    if len(knots) != len(mult):
+        raise SketchError(
+            f"bspline '{pid}' knots length {len(knots)} does not match mult length {len(mult)}"
+        )
+    if sum(mult) != len(pole_ids) + degree + 1:
+        raise SketchError(
+            f"bspline '{pid}' knot multiplicities sum to {sum(mult)}, "
+            f"expected {len(pole_ids) + degree + 1} (poles + degree + 1)"
+        )
+    return SketchBSpline(
+        id=pid,
+        pole_ids=pole_ids,
+        weights=weights,
+        knots=knots,
+        mult=tuple(mult),
+        degree=degree,
+        periodic=_as_bool(primitive.get("periodic"), False),
+        construction=_as_bool(primitive.get("construction"), False),
+    )
+
+
 def parse_sketch_primitives(primitives: list[dict[str, Any]]) -> list[SketchPrimitive]:
     """Parse a list of planegcs-verbatim primitives into typed records.
 
@@ -207,10 +356,14 @@ def parse_sketch_primitives(primitives: list[dict[str, Any]]) -> list[SketchPrim
             record = _parse_circle(primitive)
         elif ptype == "arc":
             record = _parse_arc(primitive)
+        elif ptype == "ellipse":
+            record = _parse_ellipse(primitive)
+        elif ptype == "bspline":
+            record = _parse_bspline(primitive)
         else:
             raise SketchError(
                 f"primitives[{index}] has unknown or missing type {ptype!r}; "
-                "expected 'point', 'line', 'circle', or 'arc'"
+                "expected 'point', 'line', 'circle', 'arc', 'ellipse', or 'bspline'"
             )
         if record.id in seen_ids:
             raise SketchError(f"duplicate primitive id '{record.id}' in sketch")
@@ -255,6 +408,46 @@ def _resolve_datum(datum_id: str, datums: dict[str, dict[str, Any]]) -> dict[str
     if datum is None:
         raise SketchError(f"sketch references unknown datum '{datum_id}'")
     return datum
+
+
+def _bspline_edge(
+    poles: list[tuple[float, float]], knots: tuple[float, ...], mult: tuple[int, ...], degree: int
+) -> Any:
+    """Build a build123d ``Edge`` from a clamped non-periodic B-spline.
+
+    The raw ``Geom_BSplineCurve`` is wrapped through ``BRepBuilderAPI_MakeEdge``
+    because ``bd.Edge(...)`` rejects bare Geom curves. Clamped knots make the
+    curve interpolate the first and last pole, so wire/loop assembly treats the
+    end poles as ordinary endpoints.
+    """
+    if not HAS_OCP or bd is None:
+        raise SketchError("OCP is not available; cannot build B-spline edges")
+    if len(poles) < degree + 1:
+        raise SketchError(
+            f"bspline needs at least {degree + 1} poles for degree {degree}, got {len(poles)}"
+        )
+    if len(knots) != len(mult):
+        raise SketchError(
+            f"bspline knots length {len(knots)} does not match mult length {len(mult)}"
+        )
+    if sum(mult) != len(poles) + degree + 1:
+        raise SketchError(
+            f"bspline knot multiplicities sum to {sum(mult)}, expected {len(poles) + degree + 1} (poles + degree + 1)"
+        )
+    pole_array = TColgp_Array1OfPnt(1, len(poles))
+    for index, (x, y) in enumerate(poles, start=1):
+        pole_array.SetValue(index, gp_Pnt(x, y, 0))
+    knot_array = TColStd_Array1OfReal(1, len(knots))
+    for index, value in enumerate(knots, start=1):
+        knot_array.SetValue(index, float(value))
+    mult_array = TColStd_Array1OfInteger(1, len(mult))
+    for index, value in enumerate(mult, start=1):
+        mult_array.SetValue(index, int(value))
+    try:
+        curve = Geom_BSplineCurve(pole_array, knot_array, mult_array, int(degree), False)
+        return bd.Edge(BRepBuilderAPI_MakeEdge(curve).Edge())
+    except Exception as exc:
+        raise SketchError(f"could not build bspline edge: {exc}") from exc
 
 
 def _edges_from_primitives(
@@ -321,6 +514,55 @@ def _edges_from_primitives(
                 raise SketchError(
                     f"could not build arc '{primitive.id}' (radius={primitive.radius}): {exc}"
                 ) from exc
+
+        elif isinstance(primitive, SketchEllipse):
+            center = points.get(primitive.center_id)
+            focus1 = points.get(primitive.focus1_id)
+            if center is None:
+                raise SketchError(
+                    f"ellipse '{primitive.id}' references unknown center point '{primitive.center_id}'"
+                )
+            if focus1 is None:
+                raise SketchError(
+                    f"ellipse '{primitive.id}' references unknown focus point '{primitive.focus1_id}'"
+                )
+            # planegcs stores the focus: major = sqrt(radmin^2 + |c - f1|^2)
+            # and the focus direction is the major-axis angle.
+            focal_dx = focus1.x - center.x
+            focal_dy = focus1.y - center.y
+            major = math.sqrt(
+                primitive.radmin * primitive.radmin + focal_dx * focal_dx + focal_dy * focal_dy
+            )
+            rotation = math.degrees(math.atan2(focal_dy, focal_dx))
+            try:
+                edge = bd.Ellipse(
+                    x_radius=major, y_radius=primitive.radmin, rotation=rotation
+                ).edge()
+                edge = bd.Location((center.x, center.y, 0)) * edge
+            except Exception as exc:
+                raise SketchError(
+                    f"could not build ellipse '{primitive.id}' "
+                    f"(major={major}, minor={primitive.radmin}): {exc}"
+                ) from exc
+
+        elif isinstance(primitive, SketchBSpline):
+            if primitive.periodic:
+                raise SketchError(
+                    f"bspline '{primitive.id}' is periodic; only clamped non-periodic curves are supported"
+                )
+            pole_coords: list[tuple[float, float]] = []
+            for pole_id in primitive.pole_ids:
+                pole = points.get(pole_id)
+                if pole is None:
+                    raise SketchError(
+                        f"bspline '{primitive.id}' references unknown pole point '{pole_id}'"
+                    )
+                pole_coords.append((pole.x, pole.y))
+            if any(weight != 1 for weight in primitive.weights):
+                raise SketchError(
+                    f"bspline '{primitive.id}' uses non-unit weights, which are not supported"
+                )
+            edge = _bspline_edge(pole_coords, primitive.knots, primitive.mult, primitive.degree)
         else:
             continue
 

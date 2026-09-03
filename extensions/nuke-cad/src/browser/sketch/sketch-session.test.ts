@@ -26,7 +26,13 @@
 // *****************************************************************************
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { PlanegcsSketchSolver, type SketchPoint, type SketchLine } from '../../common/sketch-solver';
+import {
+    PlanegcsSketchSolver,
+    type SketchPoint,
+    type SketchLine,
+    type SketchEllipse,
+    type SketchBSpline
+} from '../../common/sketch-solver';
 import { SketchSession, type ConstraintKind, type SketchTool, type SketchPreview } from './sketch-session';
 import { type TopologyRef } from '../../common/topology-refs';
 
@@ -936,6 +942,213 @@ describe('SketchSession', () => {
             session.setSnapRadius(24);
             session.setSnapEnabled(true);
             expect(changes).toBe(3);
+        });
+    });
+
+    describe('ellipse tool', () => {
+        it('places an ellipse with three clicks', async () => {
+            const session = await makeSession('ellipse');
+            await session.click({ x: 0, y: 0 }); // center
+            await session.click({ x: 5, y: 0 }); // major axis endpoint
+            await session.click({ x: 2, y: 3 }); // minor radius via perpendicular distance
+
+            const ellipses = session.getPrimitives().filter((p) => p.type === 'ellipse');
+            expect(ellipses).toHaveLength(1);
+            const ellipse = ellipses[0] as SketchEllipse;
+            expect(ellipse.radmin).toBeCloseTo(3, 10);
+            // major = 5, minor = 3 -> focal distance 4 along +x.
+            const focus1 = point(session, ellipse.focus1Id);
+            expectPoint(session, ellipse.centerId, 0, 0);
+            expect(focus1.x).toBeCloseTo(4, 10);
+            expect(focus1.y).toBeCloseTo(0, 10);
+        });
+
+        it('rejects an equal-radius third click and hints at the circle tool', async () => {
+            const session = await makeSession('ellipse');
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 5, y: 0 });
+            await session.click({ x: 2, y: 5 }); // perpendicular distance 5 == major radius
+
+            expect(session.getPrimitives().filter((p) => p.type === 'ellipse')).toHaveLength(0);
+            expect(session.getStatus().hint).toContain('Circle tool');
+            // The gesture stays alive: a corrected click completes the ellipse.
+            await session.click({ x: 2, y: 4 });
+            expect(session.getPrimitives().filter((p) => p.type === 'ellipse')).toHaveLength(1);
+            expect(session.getStatus().hint).toBeUndefined();
+        });
+
+        it('clamps a minor radius above the major radius with a hint', async () => {
+            const session = await makeSession('ellipse');
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 5, y: 0 });
+            await session.click({ x: 2, y: 9 }); // perpendicular distance 9 > major 5
+
+            const ellipses = session.getPrimitives().filter((p) => p.type === 'ellipse');
+            expect(ellipses).toHaveLength(1);
+            const ellipse = ellipses[0] as SketchEllipse;
+            expect(ellipse.radmin).toBeLessThan(5);
+            expect(ellipse.radmin).toBeCloseTo(5 * (1 - 1e-9), 12);
+            expect(session.getStatus().hint).toContain('clamped');
+        });
+
+        it('cancels an in-progress ellipse', async () => {
+            const session = await makeSession('ellipse');
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 5, y: 0 });
+            session.cancel();
+            expect(session.getPrimitives()).toHaveLength(0);
+        });
+
+        it('round-trips an ellipse through SketchDef (snake and camel aliases)', async () => {
+            for (const camel of [false, true]) {
+                const session = await makeSession('ellipse');
+                await session.click({ x: 0, y: 0 });
+                await session.click({ x: 5, y: 0 });
+                await session.click({ x: 2, y: 3 });
+                const def = session.toSketchDef();
+
+                const ellipseRow = def.primitives.find((p) => p.type === 'ellipse')!;
+                expect(ellipseRow).toBeDefined();
+                if (camel) {
+                    const { c_id, focus1_id, ...rest } = ellipseRow as Record<string, unknown>;
+                    def.primitives = def.primitives.map((p) =>
+                        p.type === 'ellipse' ? { ...rest, centerId: c_id, focus1Id: focus1_id } : p
+                    );
+                }
+
+                const solver = await PlanegcsSketchSolver.create();
+                const restored = await SketchSession.fromSketchDef(def, solver);
+                const restoredEllipses = restored.getPrimitives().filter((p) => p.type === 'ellipse');
+                expect(restoredEllipses).toHaveLength(1);
+                const ellipse = restoredEllipses[0] as SketchEllipse;
+                expect(ellipse.radmin).toBeCloseTo(3, 10);
+                expect(restored.getPrimitive(ellipse.centerId)).toBeDefined();
+                expect(restored.getPrimitive(ellipse.focus1Id)).toBeDefined();
+            }
+        });
+    });
+
+    describe('bspline tool', () => {
+        it('places a B-spline through placed poles on finish', async () => {
+            const session = await makeSession('bspline');
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 3, y: 6 });
+            await session.click({ x: 6, y: 0 });
+            await session.finish();
+
+            const curves = session.getPrimitives().filter((p) => p.type === 'bspline');
+            expect(curves).toHaveLength(1);
+            const curve = curves[0] as SketchBSpline;
+            expect(curve.poleIds).toHaveLength(3);
+            expect(curve.degree).toBe(2);
+            expect(curve.weights).toEqual([1, 1, 1]);
+            expect(curve.periodic).toBe(false);
+            expect(curve.knots).toEqual([0, 1]);
+            expect(curve.mult).toEqual([3, 3]);
+        });
+
+        it('uses degree 3 for four or more poles', async () => {
+            const session = await makeSession('bspline');
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 2, y: 4 });
+            await session.click({ x: 4, y: 4 });
+            await session.click({ x: 6, y: 0 });
+            await session.finish();
+
+            const curve = session.getPrimitives().filter((p) => p.type === 'bspline')[0] as SketchBSpline;
+            expect(curve.degree).toBe(3);
+            expect(curve.poleIds).toHaveLength(4);
+        });
+
+        it('discards a lone pole on finish', async () => {
+            const session = await makeSession('bspline');
+            await session.click({ x: 1, y: 1 });
+            await session.finish();
+            expect(session.getPrimitives()).toHaveLength(0);
+        });
+
+        it('cancels an in-progress B-spline and removes its poles', async () => {
+            const session = await makeSession('bspline');
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 3, y: 6 });
+            session.cancel();
+            expect(session.getPrimitives()).toHaveLength(0);
+        });
+
+        it('previews the control polygon while placing poles', async () => {
+            const session = await makeSession('bspline');
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 3, y: 6 });
+            const preview = session.hover({ x: 6, y: 0 });
+            expect(preview.type).toBe('bspline');
+            const bsplinePreview = preview as Extract<SketchPreview, { type: 'bspline' }>;
+            expect(bsplinePreview.poles).toHaveLength(3);
+            expect(bsplinePreview.poles[2]).toEqual({ x: 6, y: 0 });
+        });
+
+        it('round-trips a B-spline through SketchDef (snake and camel aliases)', async () => {
+            for (const camel of [false, true]) {
+                const session = await makeSession('bspline');
+                await session.click({ x: 0, y: 0 });
+                await session.click({ x: 3, y: 6 });
+                await session.click({ x: 6, y: 0 });
+                await session.finish();
+                const def = session.toSketchDef();
+
+                const row = def.primitives.find((p) => p.type === 'bspline')!;
+                expect(row).toBeDefined();
+                if (camel) {
+                    const { pole_ids, ...rest } = row as Record<string, unknown>;
+                    def.primitives = def.primitives.map((p) => (p.type === 'bspline' ? { ...rest, poleIds: pole_ids } : p));
+                }
+
+                const solver = await PlanegcsSketchSolver.create();
+                const restored = await SketchSession.fromSketchDef(def, solver);
+                const curves = restored.getPrimitives().filter((p) => p.type === 'bspline');
+                expect(curves).toHaveLength(1);
+                const curve = curves[0] as SketchBSpline;
+                expect(curve.degree).toBe(2);
+                expect(curve.poleIds).toHaveLength(3);
+                expect(curve.knots).toEqual([0, 1]);
+                expect(curve.mult).toEqual([3, 3]);
+            }
+        });
+    });
+
+    describe('curve constraint conservatism', () => {
+        it('rejects curve-level constraints on ellipses and B-splines', async () => {
+            const session = await makeSession('ellipse');
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 5, y: 0 });
+            await session.click({ x: 2, y: 3 });
+            const ellipseId = session.getPrimitives().filter((p) => p.type === 'ellipse')[0].id;
+
+            const horizontal = await session.addConstraint('horizontal', [ellipseId]);
+            expect(horizontal.success).toBe(false);
+            const radius = await session.addConstraint('radius', [ellipseId]);
+            expect(radius.success).toBe(false);
+
+            const bsplineSession = await makeSession('bspline');
+            await bsplineSession.click({ x: 0, y: 0 });
+            await bsplineSession.click({ x: 3, y: 6 });
+            await bsplineSession.finish();
+            const bsplineId = bsplineSession.getPrimitives().filter((p) => p.type === 'bspline')[0].id;
+
+            const bsplineHorizontal = await bsplineSession.addConstraint('horizontal', [bsplineId]);
+            expect(bsplineHorizontal.success).toBe(false);
+        });
+
+        it('still allows point-level constraints on ellipse and B-spline points', async () => {
+            const session = await makeSession('ellipse');
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 5, y: 0 });
+            await session.click({ x: 2, y: 3 });
+            const ellipse = session.getPrimitives().filter((p) => p.type === 'ellipse')[0] as SketchEllipse;
+
+            const fix = await session.addConstraint('fix', [ellipse.centerId]);
+            expect(fix.success).toBe(true);
+            const distance = await session.addConstraint('distance', [ellipse.centerId, ellipse.focus1Id], 4);
+            expect(distance.success).toBe(true);
         });
     });
 });

@@ -3002,15 +3002,16 @@ function initViewport(
     };
     renderer.domElement.addEventListener('click', onClick);
 
-    // Double-click a solid to select it and frame it.
+    // Double-click a solid to select it and frame it. In sketch mode a
+    // double-click finishes the in-progress entity (B-spline pole gesture).
     const onDblClick = (event: MouseEvent): void => {
-        if (
-            controller.isActive ||
-            activeFacePickMode !== undefined ||
-            activeDressUpPickMode !== undefined ||
-            activeHolePickMode ||
-            activeCurvePickMode
-        ) {
+        if (controller.isActive) {
+            controller.finishInProgress().catch((err) => {
+                console.error('[CAD] finish in-progress failed:', err);
+            });
+            return;
+        }
+        if (activeFacePickMode !== undefined || activeDressUpPickMode !== undefined || activeHolePickMode || activeCurvePickMode) {
             return;
         }
         const rect = renderer.domElement.getBoundingClientRect();
@@ -3287,6 +3288,12 @@ function initViewport(
         } else if (event.key === 'Escape') {
             event.preventDefault();
             controller.onEscape();
+        } else if (event.key === 'Enter') {
+            // Enter finishes the in-progress entity (B-spline pole gesture).
+            event.preventDefault();
+            controller.finishInProgress().catch((err) => {
+                console.error('[CAD] finish in-progress failed:', err);
+            });
         } else if (!event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey) {
             const tool = SKETCH_TOOL_SHORTCUTS[event.key.toLowerCase()];
             if (tool !== undefined) {
