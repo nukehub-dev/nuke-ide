@@ -242,6 +242,9 @@ commands in the Feature Tree:
 - **Pocket** — extrude a sketch as a cut (requires an existing solid body).
 - **Revolve** — revolve a sketch around `X`, `Y`, or `Z` by an angle in `(0, 360]`.
 - **Groove** — revolve-cut (requires an existing solid body).
+- **Sweep** — sweep a sketch section along a 3D curve.
+- **Pipe** — sweep a circular section of a given radius along a 3D curve (no
+  sketch required).
 - **Boolean Fuse** — union one or more tool bodies into a target body.
 - **Boolean Cut** — subtract one or more tool bodies from a target body.
 - **Boolean Common** — intersect a target body with one or more tool bodies.
@@ -317,9 +320,10 @@ reports `ambiguous` or `unmatched` status in the Feature Tree if it cannot.
 
 ## Patterns
 
-Patterns replicate an existing sketch-based solid feature (`pad`, `pocket`,
-`revolve`, or `groove`) on the same body. The source feature must be earlier in
-the document order, and the pattern feature itself targets the source's body.
+Patterns replicate an existing solid feature (`pad`, `pocket`, `revolve`,
+`groove`, `sweep`, or `pipe`) on the same body. The source feature must be
+earlier in the document order, and the pattern feature itself targets the
+source's body.
 
 ### Linear pattern
 
@@ -355,8 +359,9 @@ the sweep angle and requires count ≥ 2.
    - **Datum plane** — any datum in the document.
 3. Click **Create**.
 
-The mirrored copy is appended for additive sources (`pad`/`revolve`) or cut for
-subtractive sources (`pocket`/`groove`). Overlapping mirror copies of additive
+The mirrored copy is appended for additive sources
+(`pad`/`revolve`/`sweep`/`pipe`) or cut for subtractive sources
+(`pocket`/`groove`). Overlapping mirror copies of additive
 sources fail with the same clear overlap error as overlapping additive features.
 
 ## Hole wizard
@@ -380,6 +385,41 @@ planar face of an existing body.
 
 The placement face is stored as a `TopologyRef`, so the hole survives parametric
 edits that reshape the body as long as the resolver can still identify the face.
+
+## Sweep and pipe
+
+Sweep and pipe solidify a section swept along a 3D curve (see
+[3D curves](#3d-curves)). Both are additive-only: they can start a new body or
+fuse into an existing one, and patterns and mirror can replicate them like any
+other solid feature.
+
+### Sweep
+
+1. Select a closed sketch — it becomes the section profile.
+2. Choose the **Path curve** from the dropdown, or click **Pick in viewport**
+   and click a curve directly. Hover highlights the candidate curve; right-click
+   or Escape cancels the pick.
+3. Choose the **Orientation**:
+   - **Frenet** — the section frame follows the path (default).
+   - **Fixed binormal** — locks the section's binormal to a fixed `[x, y, z]`
+     vector you provide; useful when the Frenet frame would twist on planar or
+     gently curving paths.
+4. Optionally enable **Preview** to ghost the swept solid in the viewport while
+   you edit. The preview builds the tentative feature through the normal
+   geometry pipeline, so it shows exactly the shape the feature adds.
+5. Click **Create**.
+
+The section is automatically repositioned to the path start, oriented by the
+path tangent; the sketch plane itself only defines the section shape.
+
+### Pipe
+
+Pipe is a sweep with a circular section — no sketch needed.
+
+1. Choose the **Path curve** (dropdown or viewport pick).
+2. Enter the **Radius**.
+3. Choose the **Orientation** as for sweep.
+4. Click **Create**.
 
 ## 3D curves
 

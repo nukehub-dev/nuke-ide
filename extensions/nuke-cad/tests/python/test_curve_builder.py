@@ -241,12 +241,21 @@ def test_fourier_source_sanity() -> None:
 
 
 def test_w7x_fixture_round_trip() -> None:
-    """The committed W7X coil centerline builds as a closed wire."""
+    """The committed W7X per-coil centerline builds as a closed wire."""
     pytest.importorskip("OCP", reason="OCP not installed")
     fixture = Path(__file__).parent.parent / "e2e" / "assets" / "w7x_coil_centerline.json"
     assert fixture.exists(), f"missing fixture {fixture}"
     samples = json.loads(fixture.read_text())
     assert isinstance(samples, list) and len(samples) >= 4
+    # Scale sanity: the fixture is the winding centerline of one W7-X modular
+    # coil — a genuinely closed ~20.7 m loop with a >5 m z excursion. A future
+    # re-extraction that regresses to a centroid ring or wrong units fails here.
+    length = sum(
+        math.dist(samples[i], samples[(i + 1) % len(samples)]) for i in range(len(samples))
+    )
+    assert 18.0 <= length <= 24.0
+    z_values = [p[2] for p in samples]
+    assert max(z_values) - min(z_values) > 5.0
     doc = _document_with_curve(
         {
             "id": "w7x",

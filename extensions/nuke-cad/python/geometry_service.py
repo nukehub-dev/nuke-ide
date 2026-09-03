@@ -1160,6 +1160,7 @@ def _validate_document_refs(document: dict[str, Any], source_file: Path) -> dict
     body_ids = {b.get("id") for b in document.get("bodies", []) if isinstance(b, dict)}
     sketch_ids = {s.get("id") for s in document.get("sketches", []) if isinstance(s, dict)}
     feature_ids = {f.get("id") for f in document.get("features", []) if isinstance(f, dict)}
+    curve_ids = {c.get("id") for c in document.get("curves", []) if isinstance(c, dict)}
 
     for i, sketch in enumerate(document.get("sketches", [])):
         if not isinstance(sketch, dict):
@@ -1182,6 +1183,8 @@ def _validate_document_refs(document: dict[str, Any], source_file: Path) -> dict
             "pocket",
             "revolve",
             "groove",
+            "sweep",
+            "pipe",
             "fillet",
             "chamfer",
             "draft",
@@ -1364,6 +1367,59 @@ def _validate_document_refs(document: dict[str, Any], source_file: Path) -> dict
         if feature_type in ("linearPattern", "circularPattern", "mirror", "hole"):
             continue
 
+        if feature_type in ("sweep", "pipe"):
+            params = feature.get("params", {}) if isinstance(feature.get("params"), dict) else {}
+            path_curve_id = params.get("pathCurveId")
+            if not isinstance(path_curve_id, str) or not path_curve_id:
+                return {
+                    "success": False,
+                    "error": f"Feature '{fid}' ({feature_type}) requires a pathCurveId",
+                    "scriptPath": str(source_file),
+                }
+            if path_curve_id not in curve_ids:
+                return {
+                    "success": False,
+                    "error": f"Feature '{fid}' references unknown curve '{path_curve_id}'",
+                    "scriptPath": str(source_file),
+                }
+            orientation = params.get("orientation", "frenet")
+            if orientation not in ("frenet", "fixedBinormal"):
+                return {
+                    "success": False,
+                    "error": f"Feature '{fid}' ({feature_type}) requires orientation 'frenet' or 'fixedBinormal'",
+                    "scriptPath": str(source_file),
+                }
+            if orientation == "fixedBinormal":
+                binormal = params.get("binormal")
+                if (
+                    not isinstance(binormal, (list, tuple))
+                    or len(binormal) != 3
+                    or not all(
+                        isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+                        for v in binormal
+                    )
+                    or (binormal[0] == 0 and binormal[1] == 0 and binormal[2] == 0)
+                ):
+                    return {
+                        "success": False,
+                        "error": f"Feature '{fid}' ({feature_type}) requires a non-zero binormal [x, y, z]",
+                        "scriptPath": str(source_file),
+                    }
+            if feature_type == "pipe":
+                radius = params.get("radius")
+                if (
+                    not isinstance(radius, (int, float))
+                    or isinstance(radius, bool)
+                    or not math.isfinite(radius)
+                    or radius <= 0
+                ):
+                    return {
+                        "success": False,
+                        "error": f"Feature '{fid}' (pipe) requires a positive radius",
+                        "scriptPath": str(source_file),
+                    }
+                continue
+
         sketch_id = feature.get("sketchId")
         if not isinstance(sketch_id, str) or not sketch_id:
             return {
@@ -1392,7 +1448,7 @@ def _validate_document_refs(document: dict[str, Any], source_file: Path) -> dict
                     "error": f"Feature '{fid}' ({feature_type}) requires a positive length",
                     "scriptPath": str(source_file),
                 }
-        else:  # revolve / groove
+        elif feature_type in ("revolve", "groove"):
             axis = params.get("axis")
             if axis not in ("x", "y", "z"):
                 return {
@@ -1544,9 +1600,38 @@ def build_document(
     curves = document.get("curves", [])
     has_curves = isinstance(curves, list) and len(curves) > 0
 
+    # Curves are built before features so sweep/pipe features can consume the
+    # fitted path wires; curves are independent of features, so the reorder is
+    # safe. The tess `curves` stream is still populated when a feature build
+    # fails because curve results are computed here, ahead of the feature loop.
+    curve_results: dict[str, dict[str, Any]] = {}
+    if has_curves:
+        if not HAS_CURVE_BUILDER or curve_builder is None:
+            return {
+                "success": False,
+                "error": "Document contains curves but the curve builder (OCP) is not available",
+                "scriptPath": str(document_file),
+            }
+        _print_progress("Building curves")
+        try:
+            curve_results = curve_builder.build_curves(document)
+        except curve_builder.CurveBuildError as exc:
+            return {
+                "success": False,
+                "error": str(exc),
+                "scriptPath": str(document_file),
+            }
+        except Exception as exc:
+            return {
+                "success": False,
+                "error": f"Curve build failed: {exc}",
+                "traceback": traceback.format_exc(),
+                "scriptPath": str(document_file),
+            }
+
     _print_progress("Building document features")
     try:
-        build_result = feature_builder.build_document_shape(document)
+        build_result = feature_builder.build_document_shape(document, curve_results=curve_results)
     except (feature_builder.FeatureBuilderError, sketch_builder.SketchError) as exc:
         return {
             "success": False,
@@ -1572,31 +1657,6 @@ def build_document(
             "consumedBodies": build_result.get("consumedBodies", []),
             "warnings": build_result.get("warnings", []),
         }
-
-    curve_results: dict[str, dict[str, Any]] = {}
-    if has_curves:
-        if not HAS_CURVE_BUILDER or curve_builder is None:
-            return {
-                "success": False,
-                "error": "Document contains curves but the curve builder (OCP) is not available",
-                "scriptPath": str(document_file),
-            }
-        _print_progress("Building curves")
-        try:
-            curve_results = curve_builder.build_curves(document)
-        except curve_builder.CurveBuildError as exc:
-            return {
-                "success": False,
-                "error": str(exc),
-                "scriptPath": str(document_file),
-            }
-        except Exception as exc:
-            return {
-                "success": False,
-                "error": f"Curve build failed: {exc}",
-                "traceback": traceback.format_exc(),
-                "scriptPath": str(document_file),
-            }
 
     wrapped = getattr(shape, "wrapped", None) if shape is not None else None
 

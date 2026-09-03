@@ -116,6 +116,7 @@ import {
     type MeasureViewState
 } from './measure-tool';
 import { headerRegionTarget, useDraggablePanel } from './draggable-panel';
+import { buildFeaturePreviewDocument, resolveCurvePick, type FeaturePreviewRequest } from './sweep-pipe';
 import './cad-viewport.css';
 import './cad-icons.css';
 
@@ -229,6 +230,12 @@ export class CadViewportWidget extends ReactWidget {
     private dressUpPickCallback?: (ref: TopologyRef) => void;
     /** Active hole face-pick mode and the callback that receives the picked face. */
     private holePickMode?: { callback: (ref: TopologyRef, uv: [number, number]) => void };
+    /** Active curve-pick mode and the callback that receives the picked curve id. */
+    private curvePickMode?: { callback: (curveId: string) => void };
+    /** Tessellation of the pending sweep/pipe draft (ghosted preview), if any. */
+    private previewTessData?: TessData;
+    /** Monotonically increasing token; stale preview builds are dropped. */
+    private featurePreviewToken = 0;
     /** True while the viewport section plane is engaged. */
     private sectionActive = false;
 
@@ -340,12 +347,13 @@ export class CadViewportWidget extends ReactWidget {
         }
         const paramsRecord = params as Record<string, unknown>;
 
-        // Boolean, dress-up, pattern/mirror/hole features do not consume a sketch.
+        // Boolean, dress-up, pattern/mirror/hole, and pipe features do not consume a sketch.
         const isBoolean = type === 'booleanFuse' || type === 'booleanCut' || type === 'booleanCommon';
         const isDressUp = type === 'fillet' || type === 'chamfer' || type === 'draft' || type === 'shell';
         const isPatternOrMirrorOrHole = type === 'linearPattern' || type === 'circularPattern' || type === 'mirror' || type === 'hole';
-        const sketchId = isBoolean || isDressUp || isPatternOrMirrorOrHole ? undefined : this.documentStore.selection.selectedSketchId;
-        if (!isBoolean && !isDressUp && !isPatternOrMirrorOrHole && sketchId === undefined) {
+        const sketchFree = isBoolean || isDressUp || isPatternOrMirrorOrHole || type === 'pipe';
+        const sketchId = sketchFree ? undefined : this.documentStore.selection.selectedSketchId;
+        if (!sketchFree && sketchId === undefined) {
             this.messageService.warn('Select a closed sketch before adding a solid feature.');
             return;
         }
@@ -357,7 +365,7 @@ export class CadViewportWidget extends ReactWidget {
             bodyId = typeof paramsRecord.bodyId === 'string' ? paramsRecord.bodyId : undefined;
         }
 
-        const isAdditive = type === 'pad' || type === 'revolve';
+        const isAdditive = type === 'pad' || type === 'revolve' || type === 'sweep' || type === 'pipe';
         if (bodyId === undefined && isAdditive) {
             // Create a new body for the additive feature.
             const label = typeof paramsRecord.label === 'string' ? paramsRecord.label : undefined;
@@ -488,6 +496,8 @@ export class CadViewportWidget extends ReactWidget {
             'pocket',
             'revolve',
             'groove',
+            'sweep',
+            'pipe',
             'fillet',
             'chamfer',
             'draft',
@@ -626,6 +636,100 @@ export class CadViewportWidget extends ReactWidget {
         this.update();
     };
 
+    protected readonly handleStartCurvePick = (callback: (curveId: string) => void): void => {
+        this.curvePickMode = { callback };
+        this.update();
+    };
+
+    protected readonly handleCurvePickCancel = (): void => {
+        this.curvePickMode = undefined;
+        this.update();
+    };
+
+    protected readonly handleCurvePick = (curveId: string): void => {
+        const doc = this.documentStore.document;
+        const resolved = doc !== undefined ? resolveCurvePick(doc.curves, curveId) : undefined;
+        if (resolved === undefined) {
+            this.messageService.warn('The picked curve no longer exists in this document.');
+            this.curvePickMode = undefined;
+            this.update();
+            return;
+        }
+        this.curvePickMode?.callback(resolved);
+        this.curvePickMode = undefined;
+        this.update();
+    };
+
+    /**
+     * Dialog-driven ghosted preview: the request replaces any previous one;
+     * undefined clears the preview. Stale build results are dropped by token.
+     */
+    protected readonly handleFeaturePreviewChange = (request: FeaturePreviewRequest | undefined): void => {
+        const token = ++this.featurePreviewToken;
+        if (request === undefined) {
+            if (this.previewTessData !== undefined) {
+                this.previewTessData = undefined;
+                this.update();
+            }
+            return;
+        }
+        void this.buildFeaturePreview(request, token);
+    };
+
+    /**
+     * Build the ghosted preview through the normal geometry-service document
+     * path: a tentative mini-document holding only what the draft feature
+     * references is written to a temp file, built, and its tessellation
+     * rendered in the preview group with the ghost material. Failures clear
+     * the preview silently — the dialog's validation is the text feedback.
+     */
+    private async buildFeaturePreview(request: FeaturePreviewRequest, token: number): Promise<void> {
+        const doc = this.documentStore.document;
+        const previewDoc = doc !== undefined ? buildFeaturePreviewDocument(doc, request) : undefined;
+        if (previewDoc === undefined) {
+            if (token === this.featurePreviewToken && this.previewTessData !== undefined) {
+                this.previewTessData = undefined;
+                this.update();
+            }
+            return;
+        }
+        const uri = new URI(`file:///tmp/nuke-cad-preview-${token}-${Date.now()}.nuke-cad`);
+        try {
+            await this.fileService.write(uri, JSON.stringify(previewDoc));
+            const result = await this.backendService.buildDocument({ scriptPath: uri.path.toString() });
+            if (!result.success || result.tessPath === undefined) {
+                throw new Error(result.error ?? 'Preview build produced no tessellation.');
+            }
+            const content = await this.fileService.readFile(new URI(result.tessPath));
+            if (token !== this.featurePreviewToken) {
+                return;
+            }
+            this.previewTessData = JSON.parse(content.value.toString()) as TessData;
+            this.update();
+        } catch (error) {
+            console.warn('[CadViewport] Feature preview build failed:', error);
+            if (token === this.featurePreviewToken && this.previewTessData !== undefined) {
+                this.previewTessData = undefined;
+                this.update();
+            }
+        } finally {
+            this.fileService.delete(uri).catch(() => undefined);
+        }
+    }
+
+    /** Dialog closed or committed: drop pick modes and the ghosted preview. */
+    protected readonly handleCancelFeatureCreation = (): void => {
+        this.featureCreationType = undefined;
+        this.editingFeatureId = undefined;
+        this.dressUpPickMode = undefined;
+        this.dressUpPickCallback = undefined;
+        this.holePickMode = undefined;
+        this.curvePickMode = undefined;
+        this.featurePreviewToken++;
+        this.previewTessData = undefined;
+        this.update();
+    };
+
     protected readonly handleRebuildDocument = (): Promise<void> => this.rebuildDocument();
 
     @postConstruct()
@@ -713,7 +817,13 @@ export class CadViewportWidget extends ReactWidget {
         const isBoolean = type === 'booleanFuse' || type === 'booleanCut' || type === 'booleanCommon';
         const isDressUp = type === 'fillet' || type === 'chamfer' || type === 'draft' || type === 'shell';
         const isPatternOrMirrorOrHole = type === 'linearPattern' || type === 'circularPattern' || type === 'mirror' || type === 'hole';
-        if (!isBoolean && !isDressUp && !isPatternOrMirrorOrHole && this.documentStore.selection.selectedSketchId === undefined) {
+        if (
+            !isBoolean &&
+            !isDressUp &&
+            !isPatternOrMirrorOrHole &&
+            type !== 'pipe' &&
+            this.documentStore.selection.selectedSketchId === undefined
+        ) {
             this.messageService.warn('Select a closed sketch in the feature tree before adding a solid feature.');
             return;
         }
@@ -1200,14 +1310,7 @@ export class CadViewportWidget extends ReactWidget {
                 onEditFeature={this.handleEditFeature}
                 onEditSketch={this.handleEditSketch}
                 onExportPython={() => void this.exportPython()}
-                onCancelFeatureCreation={() => {
-                    this.featureCreationType = undefined;
-                    this.editingFeatureId = undefined;
-                    this.dressUpPickMode = undefined;
-                    this.dressUpPickCallback = undefined;
-                    this.holePickMode = undefined;
-                    this.update();
-                }}
+                onCancelFeatureCreation={this.handleCancelFeatureCreation}
                 onStartFacePick={this.handleStartFacePick}
                 onStartExternalGeometryPick={this.handleStartExternalGeometryPick}
                 onFacePick={this.handleFacePick}
@@ -1220,6 +1323,12 @@ export class CadViewportWidget extends ReactWidget {
                 onHolePick={this.handleHolePick}
                 onHolePickCancel={this.handleHolePickCancel}
                 holePickMode={this.holePickMode !== undefined}
+                onStartCurvePick={this.handleStartCurvePick}
+                onCurvePick={this.handleCurvePick}
+                onCurvePickCancel={this.handleCurvePickCancel}
+                curvePickMode={this.curvePickMode !== undefined}
+                previewTessData={this.previewTessData}
+                onPreviewChange={this.handleFeaturePreviewChange}
                 sectionActive={this.sectionActive}
                 onSetSectionActive={this.handleSetSectionActive}
                 onExitSection={this.handleExitSection}
@@ -1283,6 +1392,12 @@ interface CadViewportComponentProps {
     readonly onStartHolePick: (callback: (ref: TopologyRef, uv: [number, number]) => void) => void;
     readonly onHolePick: (hit: FacePickHit) => void;
     readonly onHolePickCancel: () => void;
+    readonly onStartCurvePick: (callback: (curveId: string) => void) => void;
+    readonly onCurvePick: (curveId: string) => void;
+    readonly onCurvePickCancel: () => void;
+    readonly curvePickMode?: boolean;
+    readonly previewTessData?: TessData;
+    readonly onPreviewChange: (request: FeaturePreviewRequest | undefined) => void;
     readonly onSetSectionActive: (active: boolean) => void;
     readonly onExitSection: () => void;
 }
@@ -1320,6 +1435,8 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
         setFacePickMode?: (mode?: 'sketchDatum' | 'externalGeometry') => void;
         setDressUpPickMode?: (mode?: { type: FeatureType; selecting: 'edge' | 'face' }) => void;
         setHolePickMode?: (active: boolean) => void;
+        setCurvePickMode?: (active: boolean) => void;
+        setPreviewTessellation?: (tessData?: TessData) => void;
         fitView?: () => void;
         zoomView?: (factor: number) => void;
         setStandardView?: (view: 'iso' | 'top' | 'front' | 'right') => void;
@@ -1451,6 +1568,9 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                 props.onHolePick,
                 props.onHolePickCancel,
                 props.holePickMode ?? false,
+                props.onCurvePick,
+                props.onCurvePickCancel,
+                props.curvePickMode ?? false,
                 props.messageService,
                 props.onToggleSketchMode,
                 props.onExitSection,
@@ -1469,6 +1589,8 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             viewportApi.current.setFacePickMode = api.setFacePickMode;
             viewportApi.current.setDressUpPickMode = api.setDressUpPickMode;
             viewportApi.current.setHolePickMode = api.setHolePickMode;
+            viewportApi.current.setCurvePickMode = api.setCurvePickMode;
+            viewportApi.current.setPreviewTessellation = api.setPreviewTessellation;
             viewportApi.current.fitView = api.fitView;
             viewportApi.current.zoomView = api.zoomView;
             viewportApi.current.setStandardView = api.setStandardView;
@@ -1481,6 +1603,8 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             api.setFacePickMode(props.facePickMode);
             api.setDressUpPickMode(props.dressUpPickMode);
             api.setHolePickMode(props.holePickMode ?? false);
+            api.setCurvePickMode(props.curvePickMode ?? false);
+            api.setPreviewTessellation(props.previewTessData);
             setController(api.controller);
         })().catch((err) => {
             console.error('[CadViewport] Failed to initialize viewport:', err);
@@ -1493,6 +1617,8 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             viewportApi.current.setFacePickMode = undefined;
             viewportApi.current.setDressUpPickMode = undefined;
             viewportApi.current.setHolePickMode = undefined;
+            viewportApi.current.setCurvePickMode = undefined;
+            viewportApi.current.setPreviewTessellation = undefined;
             viewportApi.current.fitView = undefined;
             viewportApi.current.zoomView = undefined;
             viewportApi.current.setStandardView = undefined;
@@ -1524,6 +1650,14 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
     React.useEffect(() => {
         viewportApi.current.setHolePickMode?.(props.holePickMode ?? false);
     }, [props.holePickMode]);
+
+    React.useEffect(() => {
+        viewportApi.current.setCurvePickMode?.(props.curvePickMode ?? false);
+    }, [props.curvePickMode]);
+
+    React.useEffect(() => {
+        viewportApi.current.setPreviewTessellation?.(props.previewTessData);
+    }, [props.previewTessData, controller]);
 
     React.useEffect(() => {
         viewportApi.current.updateSelectedCurve?.(props.selectedCurveId);
@@ -1648,6 +1782,10 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             onDressUpPickCancel={props.onDressUpPickCancel}
             onStartHolePick={props.onStartHolePick}
             onHolePickCancel={props.onHolePickCancel}
+            curvePickMode={props.curvePickMode}
+            onStartCurvePick={props.onStartCurvePick}
+            onCurvePickCancel={props.onCurvePickCancel}
+            onPreviewChange={props.onPreviewChange}
             measureActive={measureActive}
             measureCount={modeMeasurements.length}
             measureListOpen={measureListOpen}
@@ -1984,6 +2122,8 @@ interface ViewportApi {
     readonly setFacePickMode: (mode?: 'sketchDatum' | 'externalGeometry') => void;
     readonly setDressUpPickMode: (mode?: { type: FeatureType; selecting: 'edge' | 'face' }) => void;
     readonly setHolePickMode: (active: boolean) => void;
+    readonly setCurvePickMode: (active: boolean) => void;
+    readonly setPreviewTessellation: (tessData?: TessData) => void;
     readonly fitView: () => void;
     readonly zoomView: (factor: number) => void;
     readonly setStandardView: (view: 'iso' | 'top' | 'front' | 'right') => void;
@@ -2013,6 +2153,9 @@ function initViewport(
     onHolePick: (hit: FacePickHit) => void,
     onHolePickCancel: () => void,
     initialHolePickMode: boolean,
+    onCurvePick: (curveId: string) => void,
+    onCurvePickCancel: () => void,
+    initialCurvePickMode: boolean,
     messageService: MessageService,
     onToggleSketchMode: () => void,
     onExitSection: () => void,
@@ -2061,6 +2204,13 @@ function initViewport(
     modelGroup.name = 'cad-model';
     scene.add(modelGroup);
 
+    // Ghosted feature-preview solids live in their own group so model rebuilds
+    // never dispose them; the dialog's preview toggle owns their lifetime.
+    const previewGroup = new THREE.Group();
+    previewGroup.name = 'cad-preview';
+    scene.add(previewGroup);
+    let previewMeshes: THREE.Mesh[] = [];
+
     const baseColor = new THREE.Color(viewportColors.body);
     const edgeColor = new THREE.Color(viewportColors.edges);
     const selectedColor = new THREE.Color(readThemeColor(container, '--theia-focusBorder', '#007fd4'));
@@ -2076,6 +2226,9 @@ function initViewport(
     let activeFacePickMode: 'sketchDatum' | 'externalGeometry' | undefined;
     let activeDressUpPickMode: { type: FeatureType; selecting: 'edge' | 'face' } | undefined;
     let activeHolePickMode = initialHolePickMode;
+    let activeCurvePickMode = initialCurvePickMode;
+    /** Curve hovered during curve-pick mode; highlighted like a selection. */
+    let curvePickHoverId: string | undefined;
     let lastCenter = new THREE.Vector3();
     let lastDiag = 10;
     // Declared before buildModel runs: applyShading reads both immediately.
@@ -2404,8 +2557,9 @@ function initViewport(
 
     const applyCurveHighlight = (): void => {
         for (const line of curveLines) {
-            const isSelected = line.userData.curveId === selectedCurveId;
-            (line.material as THREE.LineBasicMaterial).color.copy(isSelected ? selectedColor : edgeColor);
+            const id = line.userData.curveId;
+            const highlighted = id === selectedCurveId || id === curvePickHoverId;
+            (line.material as THREE.LineBasicMaterial).color.copy(highlighted ? selectedColor : edgeColor);
         }
     };
 
@@ -2543,6 +2697,42 @@ function initViewport(
 
     buildModel(tessData);
 
+    /**
+     * Replace the ghosted preview solids. Faces only (no edge lines) — the
+     * preview is a shape hint on top of the live model, rendered at the ghost
+     * (x-ray) opacity in a dedicated group the model rebuild never touches.
+     */
+    const setPreviewTessellation = (data?: TessData): void => {
+        for (const mesh of previewMeshes) {
+            previewGroup.remove(mesh);
+            mesh.geometry.dispose();
+            (mesh.material as THREE.Material).dispose();
+        }
+        previewMeshes = [];
+        if (data === undefined) {
+            renderScene();
+            return;
+        }
+        for (const solid of data.solids) {
+            for (const face of solid.faces) {
+                const geometry = buildFaceGeometry(face);
+                const material = new THREE.MeshStandardMaterial({
+                    color: baseColor,
+                    roughness: 0.6,
+                    metalness: 0.1,
+                    side: THREE.DoubleSide,
+                    transparent: true,
+                    opacity: ghostOpacity,
+                    depthWrite: false
+                });
+                const mesh = new THREE.Mesh(geometry, material);
+                previewGroup.add(mesh);
+                previewMeshes.push(mesh);
+            }
+        }
+        renderScene();
+    };
+
     /** Fit the camera to one solid's bounding box along the current view direction. */
     const fitToSolid = (solidId: number): void => {
         const box = new THREE.Box3();
@@ -2660,6 +2850,9 @@ function initViewport(
     };
     const setGhostOpacity = (value: number): void => {
         ghostOpacity = clampGhostOpacity(value);
+        for (const mesh of previewMeshes) {
+            (mesh.material as THREE.MeshStandardMaterial).opacity = ghostOpacity;
+        }
         applyShading();
     };
     const setSection = (section?: SectionState): void => {
@@ -2767,6 +2960,20 @@ function initViewport(
             }
             return;
         }
+        if (activeCurvePickMode) {
+            pointer.x = ndc.x;
+            pointer.y = ndc.y;
+            raycaster.setFromCamera(pointer, camera);
+            raycaster.params.Line.threshold = Math.max(lastDiag * 0.01, 1e-3);
+            const intersects = raycaster.intersectObjects(curveLines, false);
+            if (intersects.length > 0) {
+                const picked = intersects[0].object.userData.curveId;
+                curvePickHoverId = undefined;
+                applyCurveHighlight();
+                onCurvePick(typeof picked === 'string' ? picked : '');
+            }
+            return;
+        }
         if (activeFacePickMode !== undefined) {
             const hit = raycastFace(pickableMeshes(), raycaster, ndc, camera);
             if (hit !== undefined) {
@@ -2795,7 +3002,13 @@ function initViewport(
 
     // Double-click a solid to select it and frame it.
     const onDblClick = (event: MouseEvent): void => {
-        if (controller.isActive || activeFacePickMode !== undefined || activeDressUpPickMode !== undefined || activeHolePickMode) {
+        if (
+            controller.isActive ||
+            activeFacePickMode !== undefined ||
+            activeDressUpPickMode !== undefined ||
+            activeHolePickMode ||
+            activeCurvePickMode
+        ) {
             return;
         }
         const rect = renderer.domElement.getBoundingClientRect();
@@ -2860,6 +3073,20 @@ function initViewport(
             renderScene();
             return;
         }
+        if (activeCurvePickMode) {
+            pointer.x = ndc.x;
+            pointer.y = ndc.y;
+            raycaster.setFromCamera(pointer, camera);
+            raycaster.params.Line.threshold = Math.max(lastDiag * 0.01, 1e-3);
+            const intersects = raycaster.intersectObjects(curveLines, false);
+            const hoverId = intersects.length > 0 ? (intersects[0].object.userData.curveId as string | undefined) : undefined;
+            if (hoverId !== curvePickHoverId) {
+                curvePickHoverId = hoverId;
+                applyCurveHighlight();
+            }
+            renderScene();
+            return;
+        }
         if (activeFacePickMode !== undefined) {
             const hit = raycastFace(pickableMeshes(), raycaster, ndc, camera);
             if (hit !== undefined) {
@@ -2873,7 +3100,7 @@ function initViewport(
     renderer.domElement.addEventListener('pointermove', onPickPointerMove);
 
     const onContextMenu = (event: MouseEvent): void => {
-        if (activeFacePickMode === undefined && activeDressUpPickMode === undefined && !activeHolePickMode) {
+        if (activeFacePickMode === undefined && activeDressUpPickMode === undefined && !activeHolePickMode && !activeCurvePickMode) {
             return;
         }
         event.preventDefault();
@@ -2883,6 +3110,10 @@ function initViewport(
             onDressUpPickCancel();
         } else if (activeHolePickMode) {
             onHolePickCancel();
+        } else if (activeCurvePickMode) {
+            curvePickHoverId = undefined;
+            applyCurveHighlight();
+            onCurvePickCancel();
         } else {
             onFacePickCancel();
         }
@@ -2982,6 +3213,15 @@ function initViewport(
             }
             return;
         }
+        if (activeCurvePickMode) {
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                curvePickHoverId = undefined;
+                applyCurveHighlight();
+                onCurvePickCancel();
+            }
+            return;
+        }
         if (activeFacePickMode !== undefined) {
             if (event.key === 'Escape') {
                 event.preventDefault();
@@ -3062,7 +3302,13 @@ function initViewport(
         if (event.key !== 'f' && event.key !== 'F' && event.key !== '.') {
             return;
         }
-        if (controller.isActive || activeFacePickMode !== undefined || activeDressUpPickMode !== undefined || activeHolePickMode) {
+        if (
+            controller.isActive ||
+            activeFacePickMode !== undefined ||
+            activeDressUpPickMode !== undefined ||
+            activeHolePickMode ||
+            activeCurvePickMode
+        ) {
             return;
         }
         const target = event.target;
@@ -3084,7 +3330,7 @@ function initViewport(
         if (event.key !== 'Tab') {
             return;
         }
-        if (activeFacePickMode !== undefined || activeDressUpPickMode !== undefined || activeHolePickMode) {
+        if (activeFacePickMode !== undefined || activeDressUpPickMode !== undefined || activeHolePickMode || activeCurvePickMode) {
             return;
         }
         const target = event.target;
@@ -3108,7 +3354,13 @@ function initViewport(
         if (event.key !== 'Escape' || activeSection === undefined) {
             return;
         }
-        if (controller.isActive || activeFacePickMode !== undefined || activeDressUpPickMode !== undefined || activeHolePickMode) {
+        if (
+            controller.isActive ||
+            activeFacePickMode !== undefined ||
+            activeDressUpPickMode !== undefined ||
+            activeHolePickMode ||
+            activeCurvePickMode
+        ) {
             return;
         }
         const target = event.target;
@@ -3146,6 +3398,9 @@ function initViewport(
         edgeColor.set(nextColors.edges);
         for (const line of edgeLines) {
             (line.material as THREE.LineBasicMaterial).color.set(edgeColor);
+        }
+        for (const mesh of previewMeshes) {
+            (mesh.material as THREE.MeshStandardMaterial).color.copy(baseColor);
         }
         selectedColor.set(readThemeColor(container, '--theia-focusBorder', '#007fd4'));
         applyHighlight();
@@ -3197,6 +3452,15 @@ function initViewport(
             }
             renderScene();
         },
+        setCurvePickMode: (active) => {
+            activeCurvePickMode = active;
+            if (!active) {
+                curvePickHoverId = undefined;
+                applyCurveHighlight();
+            }
+            renderScene();
+        },
+        setPreviewTessellation,
         fitView,
         zoomView,
         setStandardView,
@@ -3267,6 +3531,12 @@ function initViewport(
                 line.geometry.dispose();
                 (line.material as THREE.Material).dispose();
             }
+            for (const mesh of previewMeshes) {
+                mesh.geometry.dispose();
+                (mesh.material as THREE.Material).dispose();
+            }
+            previewMeshes = [];
+            scene.remove(previewGroup);
         }
     };
 }

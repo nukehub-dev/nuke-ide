@@ -24,7 +24,8 @@ A document contains:
 - `features` — a sequential feature tree with explicit `dependsOn` edges, a
   required `body` id for every feature, consumed feature `sketchId` for
   sketch-based features, parameters, suppression flag, and optional label.
-  Solid features (`pad`/`pocket`/`revolve`/`groove`), pattern/mirror features
+  Solid features (`pad`/`pocket`/`revolve`/`groove`/`sweep`/`pipe`),
+  pattern/mirror features
   (`linearPattern`/`circularPattern`/`mirror`), the hole wizard (`hole`), boolean
   features (`booleanFuse`/`booleanCut`/`booleanCommon`), and dress-up features
   (`fillet`/`chamfer`/`draft`/`shell`) share the same feature record shape.
@@ -88,7 +89,7 @@ mirrors the script `build_geometry` signature. The flow is:
 4. For each feature, `feature_builder` calls `python/sketch_builder.py` to turn
    the feature's sketch primitives into build123d `Face` objects on the sketch
    datum plane.
-5. Additive features (`pad`, `revolve`) combine into the accumulated body for
+5. Additive features (`pad`, `revolve`, `sweep`, `pipe`) combine into the accumulated body for
    the feature's `body`; subtractive features (`pocket`, `groove`) cut from it.
    Boolean features (`booleanFuse`, `booleanCut`, `booleanCommon`) perform OCP
    booleans between a target body and the union of one or more tool bodies, then
@@ -96,9 +97,11 @@ mirrors the script `build_geometry` signature. The flow is:
    (`fillet`, `chamfer`, `draft`, `shell`) apply build123d operations to the
    accumulated body after resolving their edge/face `TopologyRef`s against the
    body's current B-rep. Pattern/mirror features (`linearPattern`,
-   `circularPattern`, `mirror`) resolve their `source` sketch-based solid feature
+   `circularPattern`, `mirror`) resolve their `source` solid feature
    and apply transformed copies of its stored tool shape: additive sources are
-   appended (overlap-checked), subtractive sources are cut. The hole wizard
+   appended (overlap-checked), subtractive sources are cut. Sweep/pipe features
+   (`sweep`, `pipe`) build their path wire from the document's curves and sweep a
+   section (the sketch face, or a generated circle for pipe) along it. The hole wizard
    (`hole`) resolves its planar placement `face`, projects `center` from face
    workplane coordinates, and expands the record into an extrude-cut plus
    optional counterbore/countersink geometry. Implied dependencies automatically

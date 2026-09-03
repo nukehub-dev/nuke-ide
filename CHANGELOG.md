@@ -53,6 +53,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- nuke-cad: **sweep and pipe features** — sweep a selected sketch section (or a
+  circular pipe of a given radius, no sketch needed) along a 3D curve. The
+  dialog picks the path curve from a dropdown or directly in the viewport
+  (hover-highlight, right-click/Escape cancel), supports Frenet and
+  fixed-binormal orientations, and offers an optional ghosted **Preview** that
+  builds the tentative feature through the normal geometry pipeline. Sweep/pipe
+  solids can start a new body or fuse into an existing one, patterns and mirror
+  can replicate them, and **Export as Python** emits the corresponding
+  `bd.sweep(...)` calls.
 - nuke-cad: **Model Outline interactivity round** — `Ctrl`/`Cmd`-click rows
   (list and table view) to build a multi-selection; every selected solid
   highlights in the viewport while the last-clicked one drives the Properties

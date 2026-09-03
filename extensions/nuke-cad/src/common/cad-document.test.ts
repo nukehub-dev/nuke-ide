@@ -1090,6 +1090,171 @@ describe('curve validation', () => {
     });
 });
 
+describe('sweep and pipe validation', () => {
+    function makeBaseDocument(): NukeCadDocument {
+        return {
+            version: NUKE_CAD_SCHEMA_VERSION,
+            name: 'sweep',
+            parameters: {},
+            datums: [{ id: 'xy', kind: 'XY', name: 'XY' }],
+            bodies: [{ id: 'body-1', name: 'Body 1' }],
+            sketches: [
+                {
+                    id: 'sketch1',
+                    name: 'Section',
+                    datumId: 'xy',
+                    primitives: [{ id: 'p1', type: 'point', x: 0, y: 0 }],
+                    constraints: [],
+                    parameters: {}
+                }
+            ],
+            features: [],
+            curves: [
+                {
+                    id: 'curve1',
+                    name: 'Path',
+                    source: { kind: 'points' },
+                    samples: [
+                        [0, 0, 0],
+                        [1, 0, 0],
+                        [1, 1, 0],
+                        [0, 1, 0]
+                    ]
+                }
+            ]
+        };
+    }
+
+    it('accepts a valid sweep and pipe', () => {
+        const doc = makeBaseDocument();
+        doc.features.push(
+            {
+                id: 'sw1',
+                name: 'Sweep',
+                type: 'sweep',
+                body: 'body-1',
+                sketchId: 'sketch1',
+                params: { pathCurveId: 'curve1', orientation: 'frenet' },
+                suppressed: false,
+                dependsOn: []
+            },
+            {
+                id: 'p1',
+                name: 'Pipe',
+                type: 'pipe',
+                body: 'body-1',
+                params: { pathCurveId: 'curve1', radius: 2, orientation: 'fixedBinormal', binormal: [0, 0, 1] },
+                suppressed: false,
+                dependsOn: []
+            }
+        );
+        const result = validateNukeCadDocument(doc);
+        expect(result.valid).toBe(true);
+        expect(result.issues).toHaveLength(0);
+    });
+
+    it('requires binormal iff orientation is fixedBinormal', () => {
+        const doc = makeBaseDocument();
+        doc.features.push({
+            id: 'sw1',
+            name: 'Sweep',
+            type: 'sweep',
+            body: 'body-1',
+            sketchId: 'sketch1',
+            params: { pathCurveId: 'curve1', orientation: 'fixedBinormal' },
+            suppressed: false,
+            dependsOn: []
+        });
+        const result = validateNukeCadDocument(doc);
+        expect(result.valid).toBe(false);
+        expect(result.issues.some((i) => i.path === 'features[0].params.binormal')).toBe(true);
+    });
+
+    it('rejects a zero or malformed binormal', () => {
+        const doc = makeBaseDocument();
+        doc.features.push({
+            id: 'sw1',
+            name: 'Sweep',
+            type: 'sweep',
+            body: 'body-1',
+            sketchId: 'sketch1',
+            params: { pathCurveId: 'curve1', orientation: 'fixedBinormal', binormal: [0, 0, 0] },
+            suppressed: false,
+            dependsOn: []
+        });
+        const zeroResult = validateNukeCadDocument(doc);
+        expect(zeroResult.valid).toBe(false);
+        expect(zeroResult.issues.some((i) => i.path === 'features[0].params.binormal')).toBe(true);
+
+        (doc.features[0].params as Record<string, unknown>).binormal = [0, 'x', 1];
+        const malformedResult = validateNukeCadDocument(doc);
+        expect(malformedResult.valid).toBe(false);
+        expect(malformedResult.issues.some((i) => i.path === 'features[0].params.binormal')).toBe(true);
+    });
+
+    it('rejects an unknown orientation', () => {
+        const doc = makeBaseDocument();
+        doc.features.push({
+            id: 'sw1',
+            name: 'Sweep',
+            type: 'sweep',
+            body: 'body-1',
+            sketchId: 'sketch1',
+            params: { pathCurveId: 'curve1', orientation: 'parallel' },
+            suppressed: false,
+            dependsOn: []
+        });
+        const result = validateNukeCadDocument(doc);
+        expect(result.valid).toBe(false);
+        expect(result.issues.some((i) => i.path === 'features[0].params.orientation')).toBe(true);
+    });
+
+    it('rejects a missing or unknown pathCurveId', () => {
+        const doc = makeBaseDocument();
+        doc.features.push({
+            id: 'sw1',
+            name: 'Sweep',
+            type: 'sweep',
+            body: 'body-1',
+            sketchId: 'sketch1',
+            params: { orientation: 'frenet' },
+            suppressed: false,
+            dependsOn: []
+        });
+        const missingResult = validateNukeCadDocument(doc);
+        expect(missingResult.valid).toBe(false);
+        expect(missingResult.issues.some((i) => i.path === 'features[0].params.pathCurveId')).toBe(true);
+
+        (doc.features[0].params as Record<string, unknown>).pathCurveId = 'nope';
+        const unknownResult = validateNukeCadDocument(doc);
+        expect(unknownResult.valid).toBe(false);
+        expect(unknownResult.issues.some((i) => i.path === 'features[0].params.pathCurveId')).toBe(true);
+    });
+
+    it('rejects a non-positive or non-numeric pipe radius', () => {
+        const doc = makeBaseDocument();
+        doc.features.push({
+            id: 'p1',
+            name: 'Pipe',
+            type: 'pipe',
+            body: 'body-1',
+            params: { pathCurveId: 'curve1', radius: -1, orientation: 'frenet' },
+            suppressed: false,
+            dependsOn: []
+        });
+        const negativeResult = validateNukeCadDocument(doc);
+        expect(negativeResult.valid).toBe(false);
+        expect(negativeResult.issues.some((i) => i.path === 'features[0].params.radius')).toBe(true);
+
+        // Pipe radius is numeric-only, like pad length: a parameter-name string
+        // is not resolved.
+        (doc.features[0].params as Record<string, unknown>).radius = 'pipeRadius';
+        const stringResult = validateNukeCadDocument(doc);
+        expect(stringResult.valid).toBe(false);
+        expect(stringResult.issues.some((i) => i.path === 'features[0].params.radius')).toBe(true);
+    });
+});
+
 describe('v2 to v3 migration', () => {
     it('adds an empty curves array to a v2 document', () => {
         const v2 = {

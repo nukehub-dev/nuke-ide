@@ -119,6 +119,16 @@ export namespace NukeCadCommands {
         label: nls.localize('nuke/cad/addFeature/groove', 'Add Groove Feature')
     };
 
+    export const ADD_FEATURE_SWEEP: Command = {
+        id: 'nuke.cad.addFeature.sweep',
+        label: nls.localize('nuke/cad/addFeature/sweep', 'Add Sweep Feature')
+    };
+
+    export const ADD_FEATURE_PIPE: Command = {
+        id: 'nuke.cad.addFeature.pipe',
+        label: nls.localize('nuke/cad/addFeature/pipe', 'Add Pipe Feature')
+    };
+
     export const EDIT_FEATURE: Command = {
         id: 'nuke.cad.editFeature',
         label: nls.localize('nuke/cad/editFeature', 'Edit Feature Parameters')

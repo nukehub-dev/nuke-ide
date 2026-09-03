@@ -67,21 +67,37 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   create new material.
 - Pattern, mirror, and hole features (`linearPattern`, `circularPattern`,
   `mirror`, `hole`) extend the same-body feature chain. Patterns and mirror name
-  a `source` sketch-based solid feature (`pad`/`pocket`/`revolve`/`groove`) on
-  the same body, earlier in document order. The backend stores the source's
-  tool shape and applies transformed copies: additive sources are merged with a
-  boolean union so overlapping pattern instances fuse into one solid
-  (required for toroidal/poloidal coil assemblies), subtractive sources are
-  cut. `linearPattern` uses `count`, `spacing`, and `axis`; `circularPattern`
+  a `source` solid-producing feature (`pad`/`pocket`/`revolve`/`groove`/
+  `sweep`/`pipe`) on the same body, earlier in document order. The backend stores
+  the source's tool shape and applies transformed copies: additive sources are
+  merged with a boolean union so overlapping pattern instances fuse into one
+  solid (required for toroidal/poloidal coil assemblies), subtractive sources
+  are cut. `linearPattern` uses `count`, `spacing`, and `axis`; `circularPattern`
   uses `count`, optional `angle`, and either `axis` or `axisDatumId`; `mirror`
   uses either `plane` (`XY`/`YZ`/`XZ`) or `planeDatumId`. Face datums behind
   `axisDatumId`/`planeDatumId` resolve against the referenced feature's
   historical shape (same scope as sketch datums), while the hole placement
-  face resolves against the pattern/hole body's current B-rep. The hole wizard stores
-  a single feature record with a face `TopologyRef` and a center `[u, v]` in the
-  resolved face's workplane coordinates; the backend expands it internally into
-  an extrude-cut plus optional counterbore/countersink geometry. Omitted `depth`
-  means through-hole; counterbore and countersink are mutually exclusive.
+  face resolves against the pattern/hole body's current B-rep. The hole wizard
+  stores a single feature record with a face `TopologyRef` and a center
+  `[u, v]` in the resolved face's workplane coordinates; the backend expands it
+  internally into an extrude-cut plus optional counterbore/countersink
+  geometry. Omitted `depth` means through-hole; counterbore and countersink are
+  mutually exclusive. `sweep` sweeps a sketch section along a document curve
+  (`pathCurveId`); `pipe` sweeps a circular section of a given `radius` along a
+  document curve. Both support `frenet`/`fixedBinormal` orientation (with a
+  non-zero `binormal` required for the latter), auto-position the section at
+  the path start, are additive-only, and are built with
+  `BRepOffsetAPI_MakePipeShell`. `pipe` has no `sketchId`. The sweep/pipe
+  dialogs pick the path curve from a dropdown or a viewport curve-pick mode
+  (click-through banner, hover highlight, right-click/Escape cancel; picks are
+  guarded against deleted curves by `resolveCurvePick`), and offer an optional
+  ghosted preview: the dialog debounces a validated draft (~300 ms) into a
+  `FeaturePreviewRequest`, the widget assembles a tentative mini-document
+  (`buildFeaturePreviewDocument` — empty v3 doc + the referenced sketch, its
+  datum, the path curve, and the draft feature on a fresh `preview-body`),
+  builds it through the normal geometry-service path, and renders the
+  tessellation faces in a dedicated `cad-preview` scene group with the ghost
+  (x-ray) opacity; preview failures clear the preview silently.
   Subtractive features (pocket/groove/hole) whose tool is disjoint from the
   body fail with a clear "does not intersect" error instead of a silent no-op
   success.
@@ -298,11 +314,12 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   is saved.
 - `.nuke-cad` v2 introduced **bodies** and **boolean features**; v3 adds a
   top-level **`curves`** array. Every solid feature (`pad`/`pocket`/`revolve`/
-  `groove`) targets a body id; boolean features (`booleanFuse`/`booleanCut`/
-  `booleanCommon`) consume one target body and one or more tool bodies. Bodies
-  carry an optional `label` that maps to the region manifest / `selector_map`
-  for DAGMC and mesh export. The v1→v2 migration creates a single implicit body
-  for each legacy feature; the v2→v3 migration adds an empty `curves` array.
+  `groove`, plus `sweep`/`pipe` which also reference a curve) targets a body id;
+  boolean features (`booleanFuse`/`booleanCut`/`booleanCommon`) consume one
+  target body and one or more tool bodies. Bodies carry an optional `label`
+  that maps to the region manifest / `selector_map` for DAGMC and mesh export.
+  The v1→v2 migration creates a single implicit body for each legacy feature;
+  the v2→v3 migration adds an empty `curves` array.
 - **3D curves** are lightweight polylines stored in `curves`. Each curve has an
   `id`, `name`, `source` recipe, and `samples` array of `[x, y, z]` points.
   Sources may be `points` (explicit samples), `parametric` (expressions for
@@ -414,21 +431,23 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   - `python/sketch_builder.py` consumes the solved sketch primitives stored in
     the document and emits build123d `Face` objects on the sketch datum plane.
   - `python/feature_builder.py` executes `pad`/`pocket`/`revolve`/`groove`,
-    pattern (`linearPattern`/`circularPattern`), `mirror`, and `hole` features in
-    topological order over explicit `dependsOn` edges, maintaining a separate
-    accumulated body per `body` id. Additive features combine into their target
-    body; subtractive features cut from it. `booleanFuse`, `booleanCut`, and
-    `booleanCommon` features merge tool bodies into a target body and optionally
-    keep the consumed tools. Dress-up features
+    `sweep`/`pipe`, pattern (`linearPattern`/`circularPattern`), `mirror`, and
+    `hole` features in topological order over explicit `dependsOn` edges,
+    maintaining a separate accumulated body per `body` id. Additive features
+    combine into their target body; subtractive features cut from it.
+    `booleanFuse`, `booleanCut`, and `booleanCommon` features merge tool bodies
+    into a target body and optionally keep the consumed tools. Dress-up features
     (`fillet`/`chamfer`/`draft`/`shell`) apply build123d/OCP operations to the
     accumulated body after resolving their edge/face `TopologyRef`s against the
     body's current B-rep. Pattern/mirror features resolve their `source` feature
     and transform copies of its stored tool shape; the hole wizard resolves its
     placement face and expands the record into an extrude-cut plus optional
-    counterbore/countersink geometry. Features targeting a body consumed by a
-    boolean feature are marked `stale` (the guard applies uniformly to
-    dress-up, pattern/mirror/hole, and sketch-solid features). Cycles are
-    rejected with a readable member list.
+    counterbore/countersink geometry. Sweep/pipe features read their path wires
+    from the curve results passed into `build_document_shape` (curves are built
+    before features in `geometry_service.build_document`). Features targeting a
+    body consumed by a boolean feature are marked `stale` (the guard applies
+    uniformly to dress-up, pattern/mirror/hole, and sketch-solid features).
+    Cycles are rejected with a readable member list.
   - `python/curve_builder.py` fits a B-spline wire through each curve's stored
     sample polyline. `points` sources are approximated with a tolerance derived
     from sample spacing; parametric and Fourier sources are interpolated.
@@ -436,9 +455,9 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
     periodic wires; the result is included in the tessellation output as a
     `curves` array alongside solids.
   - `geometry_service.py` exposes `build_document()` plus a `--from-document`
-    CLI flag; it validates references lightly, runs the feature builder, builds
-    any curves, and reuses `_process_shape` verbatim so STEP/tessellation/DAGMC/
-    mesh artifacts match script builds.
+    CLI flag; it validates references lightly, builds any curves, runs the
+    feature builder with the curve results, and reuses `_process_shape` verbatim
+    so STEP/tessellation/DAGMC/mesh artifacts match script builds.
   - The first release performs a full document rebuild on every `buildDocument`
     call. Per-feature shape caching is deferred until the modeler needs it.
   - Datum support includes `XY`/`YZ`/`XZ`/`offset`/`face`. `offset` datums are
@@ -519,7 +538,12 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
     solid (never the sketch), boolean tools are combined before the operation,
     and contained sketch profiles (any nesting depth) are holes emitted with
     `bd.Mode.SUBTRACT` — matching the backend's outer/inner-wire pairing.
-    Curves are emitted as `bd.Spline` calls over their sample point lists.
+    Curves are emitted as `bd.Spline` calls over their sample point lists,
+    before the bodies/features blocks (sweep/pipe reference the curve vars).
+    Sweep/pipe features emit `bd.sweep(...)`: the section is repositioned to
+    the path start via a `bd.Plane` built from the curve's start point and
+    tangent (`fixedBinormal` orientation adds a binormal-locked `# TODO(manual):`
+    escape hatch), and pipe sections are `bd.Circle(radius)` faces.
     Topology-reference-dependent items (face datums, external geometry,
     fillet/chamfer edges, draft/shell faces, hole placement) are emitted as
     `# TODO(manual):` comments, never silently dropped.
@@ -528,8 +552,8 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
     viewport into face-pick mode. Hover highlights the candidate face; a click
     creates a `face` datum and enters sketch mode on it. Right-click or Escape
     cancels the pick. All pick-mode banners (datum, external geometry,
-    dress-up, hole) are click-through (`pointer-events: none` except their
-    Cancel button) so faces under the banner stay pickable.
+    dress-up, hole, sweep/pipe curve) are click-through (`pointer-events: none`
+    except their Cancel button) so faces under the banner stay pickable.
   - Inside sketch mode, the **External Geometry** tool picks the most recent
     non-suppressed solid-producing feature as the reference target and enters
     face-pick mode. Clicking a face or edge of that body adds a `TopologyRef`

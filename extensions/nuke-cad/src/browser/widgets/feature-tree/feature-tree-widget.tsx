@@ -1035,6 +1035,10 @@ function iconForFeature(type: string): string {
             return 'codicon-nuke-cad-revolve';
         case 'groove':
             return 'codicon-nuke-cad-groove';
+        case 'sweep':
+            return 'codicon-nuke-cad-sweep';
+        case 'pipe':
+            return 'codicon-nuke-cad-pipe';
         case 'fillet':
             return 'codicon-nuke-cad-fillet';
         case 'chamfer':
@@ -1072,6 +1076,10 @@ function commandForFeatureType(type: FeatureDef['type']): import('@theia/core/li
             return NukeCadCommands.ADD_FEATURE_REVOLVE;
         case 'groove':
             return NukeCadCommands.ADD_FEATURE_GROOVE;
+        case 'sweep':
+            return NukeCadCommands.ADD_FEATURE_SWEEP;
+        case 'pipe':
+            return NukeCadCommands.ADD_FEATURE_PIPE;
         default:
             return undefined;
     }

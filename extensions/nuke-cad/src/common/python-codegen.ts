@@ -42,6 +42,10 @@
  *   tool bodies before the operation.
  * - Arcs become `bd.CenterArc` with a signed sweep in degrees (document angles
  *   are radians, CCW-positive).
+ * - sweep/pipe reposition their section to the path start via a build123d
+ *   `Plane` from the path's start point/tangent; `fixedBinormal` orientation
+ *   is emitted with a `# TODO(manual):` comment (build123d cannot lock the
+ *   binormal directly).
  * - Closed line/arc loops become one face per loop. Profiles are classified
  *   like the backend's outer/inner-wire pairing: sorted by area descending,
  *   a profile whose reference point lies inside an already-accepted outer
@@ -114,32 +118,9 @@ export function generatePythonScript(doc: NukeCadDocument): string {
 
     const orderedFeatures = topologicalFeatureOrder(doc);
 
-    lines.push('# Bodies');
-    const bodyVarById = new Map<string, string>();
-    for (const body of doc.bodies) {
-        const varName = uniqueBodyVarName(body.name, bodyVarById);
-        bodyVarById.set(body.id, varName);
-        const labelComment = body.label !== undefined ? `  # label: ${body.label}` : '';
-        lines.push(`${varName} = None  # ${body.name}${labelComment}`);
-    }
-    lines.push('');
-
-    lines.push('# Features');
-    for (const feature of orderedFeatures) {
-        if (feature.suppressed) {
-            lines.push(`# suppressed: ${feature.type} feature "${feature.name}" (excluded from the build)`);
-            continue;
-        }
-        const emitted = emitFeature(feature, doc, bodyVarById, sketchFuncById, datumVarById, datumById, unbuildableSketches);
-        if (emitted === undefined) {
-            lines.push(...emitManualTodo(feature));
-            manualFeatures.push(`${feature.type} "${feature.name}"`);
-        } else {
-            lines.push(...emitted);
-        }
-    }
-    lines.push('');
-
+    // Curves are emitted before features: sweep/pipe features reference the
+    // curve's `bd.Spline` variable as their path, so the variable must be
+    // assigned before the feature section runs.
     lines.push('# Curves');
     const curveVarById = new Map<string, string>();
     for (const curve of doc.curves) {
@@ -158,6 +139,32 @@ export function generatePythonScript(doc: NukeCadDocument): string {
         lines.push('# No curves defined.');
         lines.push('');
     }
+
+    lines.push('# Bodies');
+    const bodyVarById = new Map<string, string>();
+    for (const body of doc.bodies) {
+        const varName = uniqueBodyVarName(body.name, bodyVarById);
+        bodyVarById.set(body.id, varName);
+        const labelComment = body.label !== undefined ? `  # label: ${body.label}` : '';
+        lines.push(`${varName} = None  # ${body.name}${labelComment}`);
+    }
+    lines.push('');
+
+    lines.push('# Features');
+    for (const feature of orderedFeatures) {
+        if (feature.suppressed) {
+            lines.push(`# suppressed: ${feature.type} feature "${feature.name}" (excluded from the build)`);
+            continue;
+        }
+        const emitted = emitFeature(feature, doc, bodyVarById, sketchFuncById, datumVarById, datumById, curveVarById, unbuildableSketches);
+        if (emitted === undefined) {
+            lines.push(...emitManualTodo(feature));
+            manualFeatures.push(`${feature.type} "${feature.name}"`);
+        } else {
+            lines.push(...emitted);
+        }
+    }
+    lines.push('');
 
     if (manualFeatures.length > 0) {
         lines.push('# -----------------------------------------------------------------------------');
@@ -655,6 +662,7 @@ function emitFeature(
     sketchFuncById: Map<string, string>,
     datumVarById: Map<string, string>,
     datumById: Map<string, DatumPlane>,
+    curveVarById: Map<string, string>,
     unbuildableSketches: Set<string>
 ): string[] | undefined {
     const params = feature.params as Record<string, unknown>;
@@ -677,6 +685,15 @@ function emitFeature(
             return [`${bodyVar} = ${bodyVar} + ${expr} if ${bodyVar} is not None else ${expr}  # ${feature.name}`];
         }
         return [`${bodyVar} = ${bodyVar} - ${expr}  # ${feature.name}`];
+    }
+
+    if (feature.type === 'sweep' || feature.type === 'pipe') {
+        const tool = curveSweepTool(feature, doc, sketchFuncById, datumVarById, curveVarById, unbuildableSketches);
+        if (tool === undefined) {
+            return undefined;
+        }
+        // Sweep/pipe are additive-only, like pad/revolve.
+        return [...tool.lines, `${bodyVar} = ${bodyVar} + ${tool.expr} if ${bodyVar} is not None else ${tool.expr}  # ${feature.name}`];
     }
 
     if (feature.type === 'booleanFuse' || feature.type === 'booleanCut' || feature.type === 'booleanCommon') {
@@ -703,10 +720,67 @@ function emitFeature(
     }
 
     if (feature.type === 'linearPattern' || feature.type === 'circularPattern' || feature.type === 'mirror') {
-        return emitPatternOrMirror(feature, doc, bodyVar, sketchFuncById, datumVarById, datumById, unbuildableSketches);
+        return emitPatternOrMirror(feature, doc, bodyVar, sketchFuncById, datumVarById, datumById, curveVarById, unbuildableSketches);
     }
 
     return undefined;
+}
+
+/**
+ * Solid-producing expression for a sweep/pipe feature, or undefined when it
+ * cannot be exported.
+ *
+ * The section is repositioned to the path start: a build123d `Plane` built
+ * from the path's start point and tangent, applied relative to the section's
+ * own frame (the sketch datum for sweep, the global XY frame for the pipe's
+ * generated circle). `frenet` is build123d's default frame behavior;
+ * `fixedBinormal` cannot be expressed directly and is emitted with the
+ * allowed `# TODO(manual):` escape hatch above the sweep.
+ */
+function curveSweepTool(
+    feature: FeatureDef,
+    doc: NukeCadDocument,
+    sketchFuncById: Map<string, string>,
+    datumVarById: Map<string, string>,
+    curveVarById: Map<string, string>,
+    unbuildableSketches: Set<string>
+): { lines: string[]; expr: string } | undefined {
+    const params = feature.params as Record<string, unknown>;
+    const pathCurveId = typeof params.pathCurveId === 'string' ? params.pathCurveId : '';
+    const pathVar = curveVarById.get(pathCurveId);
+    if (pathVar === undefined || pathCurveId.length === 0) {
+        return undefined;
+    }
+    const orientation = params.orientation;
+    if (orientation !== 'frenet' && orientation !== 'fixedBinormal') {
+        return undefined;
+    }
+    const planeVar = sanitizeIdentifier(`_sweep_plane_${feature.id}`);
+    const lines: string[] = [];
+    if (orientation === 'fixedBinormal') {
+        lines.push(
+            `# TODO(manual): binormal-locked orientation — "${feature.name}" sweeps with a fixed binormal ` +
+                `${JSON.stringify(params.binormal ?? null)}; build123d's bd.sweep cannot lock the binormal directly.`
+        );
+    }
+    lines.push(`${planeVar} = bd.Plane(${pathVar} @ 0, z_dir=${pathVar}.tangent_at(0))`);
+    if (feature.type === 'sweep') {
+        if (feature.sketchId === undefined || unbuildableSketches.has(feature.sketchId)) {
+            return undefined;
+        }
+        const func = sketchFuncById.get(feature.sketchId);
+        const sketch = doc.sketches.find((s) => s.id === feature.sketchId);
+        const datumVar = sketch !== undefined ? datumVarById.get(sketch.datumId) : undefined;
+        if (func === undefined || datumVar === undefined) {
+            return undefined;
+        }
+        return { lines, expr: `bd.sweep(${func}().moved(${planeVar}.location * ${datumVar}.location.inverse), path=${pathVar})` };
+    }
+    const radius = Number(params.radius);
+    if (!Number.isFinite(radius) || radius <= 0) {
+        return undefined;
+    }
+    return { lines, expr: `bd.sweep(bd.Circle(${formatNumber(radius)}).moved(${planeVar}.location), path=${pathVar})` };
 }
 
 function emitPatternOrMirror(
@@ -716,6 +790,7 @@ function emitPatternOrMirror(
     sketchFuncById: Map<string, string>,
     datumVarById: Map<string, string>,
     datumById: Map<string, DatumPlane>,
+    curveVarById: Map<string, string>,
     unbuildableSketches: Set<string>
 ): string[] | undefined {
     const params = feature.params as Record<string, unknown>;
@@ -726,15 +801,33 @@ function emitPatternOrMirror(
         (sourceFeature.type !== 'pad' &&
             sourceFeature.type !== 'pocket' &&
             sourceFeature.type !== 'revolve' &&
-            sourceFeature.type !== 'groove')
+            sourceFeature.type !== 'groove' &&
+            sourceFeature.type !== 'sweep' &&
+            sourceFeature.type !== 'pipe')
     ) {
         return undefined;
     }
-    const toolExpr = sketchSolidExpr(sourceFeature, sketchFuncById, unbuildableSketches);
-    if (toolExpr === undefined) {
-        return undefined;
+    let toolExpr: string;
+    let toolLines: string[];
+    if (sourceFeature.type === 'sweep' || sourceFeature.type === 'pipe') {
+        const tool = curveSweepTool(sourceFeature, doc, sketchFuncById, datumVarById, curveVarById, unbuildableSketches);
+        if (tool === undefined) {
+            return undefined;
+        }
+        toolExpr = tool.expr;
+        toolLines = tool.lines;
+    } else {
+        const expr = sketchSolidExpr(sourceFeature, sketchFuncById, unbuildableSketches);
+        if (expr === undefined) {
+            return undefined;
+        }
+        toolExpr = expr;
+        toolLines = [];
     }
-    const op = sourceFeature.type === 'pad' || sourceFeature.type === 'revolve' ? '+' : '-';
+    const op =
+        sourceFeature.type === 'pad' || sourceFeature.type === 'revolve' || sourceFeature.type === 'sweep' || sourceFeature.type === 'pipe'
+            ? '+'
+            : '-';
 
     if (feature.type === 'mirror') {
         const planeExpr = mirrorPlaneExpr(params, datumVarById, datumById);
@@ -749,7 +842,7 @@ function emitPatternOrMirror(
         return undefined;
     }
     const toolVar = sanitizeIdentifier(`_tool_${feature.id}`);
-    const lines = [`${toolVar} = ${toolExpr}  # source: ${sourceFeature.name}`];
+    const lines = [...toolLines, `${toolVar} = ${toolExpr}  # source: ${sourceFeature.name}`];
 
     if (feature.type === 'linearPattern') {
         const spacing = Number(params.spacing);

@@ -568,6 +568,143 @@ def test_build_document_rejects_non_positive_length(tmp_path: Path) -> None:
     assert "positive length" in result["error"]
 
 
+def test_build_document_rejects_sweep_without_path_curve(tmp_path: Path) -> None:
+    doc_path = tmp_path / "bad.nuke-cad"
+    _write_minimal_document(doc_path)
+    doc = json.loads(doc_path.read_text())
+    doc["features"][0] = {
+        "id": "sw1",
+        "name": "sw1",
+        "type": "sweep",
+        "body": "body-1",
+        "sketchId": "rect",
+        "params": {"orientation": "frenet"},
+        "dependsOn": [],
+        "suppressed": False,
+    }
+    doc_path.write_text(json.dumps(doc), encoding="utf-8")
+    result = geometry_service.build_document(str(doc_path), output_dir=str(tmp_path))
+    assert result["success"] is False
+    assert "requires a pathCurveId" in result["error"]
+
+
+def test_build_document_rejects_sweep_unknown_path_curve(tmp_path: Path) -> None:
+    doc_path = tmp_path / "bad.nuke-cad"
+    _write_minimal_document(doc_path)
+    doc = json.loads(doc_path.read_text())
+    doc["features"][0] = {
+        "id": "sw1",
+        "name": "sw1",
+        "type": "sweep",
+        "body": "body-1",
+        "sketchId": "rect",
+        "params": {"pathCurveId": "nope", "orientation": "frenet"},
+        "dependsOn": [],
+        "suppressed": False,
+    }
+    doc_path.write_text(json.dumps(doc), encoding="utf-8")
+    result = geometry_service.build_document(str(doc_path), output_dir=str(tmp_path))
+    assert result["success"] is False
+    assert "references unknown curve 'nope'" in result["error"]
+
+
+def test_build_document_pipe_does_not_require_sketch(tmp_path: Path) -> None:
+    """Pipe validation checks the path curve, not a sketch (pipe has no sketchId)."""
+    doc_path = tmp_path / "bad.nuke-cad"
+    _write_minimal_document(doc_path)
+    doc = json.loads(doc_path.read_text())
+    doc["features"][0] = {
+        "id": "p1",
+        "name": "p1",
+        "type": "pipe",
+        "body": "body-1",
+        "params": {"pathCurveId": "nope", "radius": 2.0, "orientation": "frenet"},
+        "dependsOn": [],
+        "suppressed": False,
+    }
+    doc_path.write_text(json.dumps(doc), encoding="utf-8")
+    result = geometry_service.build_document(str(doc_path), output_dir=str(tmp_path))
+    assert result["success"] is False
+    # The path-curve check fires; the sketch gate is not hit for pipes.
+    assert "references unknown curve 'nope'" in result["error"]
+    assert "sketchId" not in result["error"]
+
+
+def test_build_document_rejects_pipe_non_positive_radius(tmp_path: Path) -> None:
+    doc_path = tmp_path / "bad.nuke-cad"
+    _write_minimal_document(doc_path)
+    doc = json.loads(doc_path.read_text())
+    doc["version"] = 3
+    doc["features"][0] = {
+        "id": "p1",
+        "name": "p1",
+        "type": "pipe",
+        "body": "body-1",
+        "params": {"pathCurveId": "arc", "radius": 0, "orientation": "frenet"},
+        "dependsOn": [],
+        "suppressed": False,
+    }
+    doc["curves"] = [
+        {
+            "id": "arc",
+            "name": "arc",
+            "source": {"kind": "points"},
+            "samples": [[0, 0, 0], [1, 0, 0], [2, 0, 0], [3, 0, 0]],
+        }
+    ]
+    doc_path.write_text(json.dumps(doc), encoding="utf-8")
+    result = geometry_service.build_document(str(doc_path), output_dir=str(tmp_path))
+    assert result["success"] is False
+    assert "pipe) requires a positive radius" in result["error"]
+
+
+def test_build_document_sweep_and_pipe_build(tmp_path: Path) -> None:
+    """Full profile: curves build before features and feed sweep/pipe path wires."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    doc_path = tmp_path / "sweep_pipe.nuke-cad"
+    _write_minimal_document(doc_path)
+    doc = json.loads(doc_path.read_text())
+    doc["version"] = 3
+    arc = [
+        [50.0 * math.cos(math.pi * i / 32), 50.0 * math.sin(math.pi * i / 32), 0.0]
+        for i in range(33)
+    ]
+    doc["curves"] = [{"id": "arc", "name": "arc", "source": {"kind": "points"}, "samples": arc}]
+    doc["features"] = [
+        {
+            "id": "sw1",
+            "name": "sw1",
+            "type": "sweep",
+            "body": "body-1",
+            "sketchId": "rect",
+            "params": {"pathCurveId": "arc", "orientation": "frenet"},
+            "dependsOn": [],
+            "suppressed": False,
+        },
+        {
+            "id": "p1",
+            "name": "p1",
+            "type": "pipe",
+            "body": "body-2",
+            "params": {"pathCurveId": "arc", "radius": 2.0, "orientation": "frenet"},
+            "dependsOn": [],
+            "suppressed": False,
+        },
+    ]
+    doc["bodies"].append({"id": "body-2", "name": "Body 2"})
+    doc_path.write_text(json.dumps(doc), encoding="utf-8")
+    result = geometry_service.build_document(
+        str(doc_path), output_dir=str(tmp_path), export_dagmc=False, export_mesh=False
+    )
+    assert result["success"] is True, result.get("error")
+    by_id = {r["featureId"]: r for r in result.get("featureResults", [])}
+    assert by_id["sw1"]["status"] == "built"
+    assert by_id["p1"]["status"] == "built"
+    # The viewport reads the curves stream from the tessellation artifact.
+    tess = json.loads(Path(result["tessPath"]).read_text(encoding="utf-8"))
+    assert len(tess.get("curves", [])) == 1
+
+
 def test_build_document_rejects_revolve_axis_out_of_plane(tmp_path: Path) -> None:
     pytest.importorskip("build123d", reason="build123d not installed")
     doc_path = tmp_path / "bad.nuke-cad"

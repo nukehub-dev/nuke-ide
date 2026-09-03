@@ -2410,8 +2410,8 @@ def test_pattern_source_cannot_be_self() -> None:
     assert "must be earlier in the feature tree" in by_id["lin"]["error"].lower()
 
 
-def test_pattern_source_must_be_sketch_based_solid() -> None:
-    """Pattern sources must be pad/pocket/revolve/groove features."""
+def test_pattern_source_must_be_solid_producer() -> None:
+    """Pattern sources must be solid-producing features, not other patterns."""
     pytest.importorskip("build123d", reason="build123d not installed")
     doc = _offset_pad_document(length=5.0)
     doc["features"].append(
@@ -2439,7 +2439,7 @@ def test_pattern_source_must_be_sketch_based_solid() -> None:
     result = fb.build_document_shape(doc)
     by_id = {r["featureId"]: r for r in result["featureResults"]}
     assert by_id["second-pattern"]["status"] == "failed"
-    assert "pad, pocket, revolve, or groove" in by_id["second-pattern"]["error"].lower()
+    assert "solid-producing feature" in by_id["second-pattern"]["error"].lower()
 
 
 def test_pattern_source_must_target_same_body() -> None:
@@ -3372,3 +3372,355 @@ def test_mirror_plane_datum_on_other_body() -> None:
     # to x in [-5,0].
     assert math.isclose(result["shape"].volume, 500.0 + 2.0 * 125.0, rel_tol=1e-6)
     assert _point_in_solid(result["shape"], (-2.5, 2.5, 2.5))
+
+
+# ---------------------------------------------------------------------------
+# Sweep and pipe features
+# ---------------------------------------------------------------------------
+
+
+def _centered_rect_sketch(width: float, height: float, sid: str = "rect") -> dict[str, Any]:
+    """Rectangle sketch centered on the sketch origin (section centered on the path)."""
+    hw = width / 2.0
+    hh = height / 2.0
+    return {
+        "id": sid,
+        "name": sid,
+        "datumId": "dxy",
+        "primitives": [
+            {"id": "p1", "type": "point", "x": -hw, "y": -hh},
+            {"id": "p2", "type": "point", "x": hw, "y": -hh},
+            {"id": "p3", "type": "point", "x": hw, "y": hh},
+            {"id": "p4", "type": "point", "x": -hw, "y": hh},
+            {"id": "l1", "type": "line", "p1_id": "p1", "p2_id": "p2"},
+            {"id": "l2", "type": "line", "p1_id": "p2", "p2_id": "p3"},
+            {"id": "l3", "type": "line", "p1_id": "p3", "p2_id": "p4"},
+            {"id": "l4", "type": "line", "p1_id": "p4", "p2_id": "p1"},
+        ],
+        "constraints": [],
+    }
+
+
+def _points_curve(curve_id: str, samples: list[list[float]]) -> dict[str, Any]:
+    return {"id": curve_id, "name": curve_id, "source": {"kind": "points"}, "samples": samples}
+
+
+def _arc_samples(radius: float, segments: int = 64) -> list[list[float]]:
+    return [
+        [radius * math.cos(math.pi * i / segments), radius * math.sin(math.pi * i / segments), 0.0]
+        for i in range(segments + 1)
+    ]
+
+
+def _sweep_document(
+    params: dict[str, Any],
+    sketch: dict[str, Any] | None = None,
+    curve: dict[str, Any] | None = None,
+    feature_id: str = "sw1",
+) -> dict[str, Any]:
+    doc = _document(
+        [
+            {
+                "id": feature_id,
+                "name": "sweep",
+                "type": "sweep",
+                "sketchId": (sketch or _rect_sketch())["id"],
+                "params": params,
+                "dependsOn": [],
+                "suppressed": False,
+            }
+        ],
+        sketches=[sketch or _rect_sketch()],
+    )
+    if curve is not None:
+        doc["curves"] = [curve]
+    return doc
+
+
+def _build_with_curves(doc: dict[str, Any]) -> Any:
+    """Fit document curves and build the shape, returning the build result."""
+    import curve_builder as cb
+
+    curve_results = cb.build_curves(doc)
+    return fb.build_document_shape(doc, curve_results=curve_results), curve_results
+
+
+def test_sweep_and_pipe_require_build123d(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When build123d is unavailable, sweep and pipe raise the standard clear error."""
+    monkeypatch.setitem(sys.modules, "build123d", None)
+    monkeypatch.setattr(fb, "HAS_BUILD123D", False)
+    monkeypatch.setattr(fb, "bd", None)
+    sweep_doc = _sweep_document(
+        {"pathCurveId": "arc", "orientation": "frenet"},
+        curve=_points_curve("arc", _arc_samples(50.0)),
+    )
+    with pytest.raises(fb.FeatureBuilderError, match="build123d is not available"):
+        fb.build_document_shape(sweep_doc)
+    pipe_doc = _document(
+        [
+            {
+                "id": "p1",
+                "name": "pipe",
+                "type": "pipe",
+                "params": {"pathCurveId": "arc", "radius": 2.0, "orientation": "frenet"},
+                "dependsOn": [],
+                "suppressed": False,
+            }
+        ],
+        sketches=[],
+    )
+    pipe_doc["curves"] = [_points_curve("arc", _arc_samples(50.0))]
+    with pytest.raises(fb.FeatureBuilderError, match="build123d is not available"):
+        fb.build_document_shape(pipe_doc)
+
+
+def test_sweep_along_arc_matches_build123d_reference() -> None:
+    """A rectangle swept along an arc matches a build123d sweep of the same section."""
+    bd = pytest.importorskip("build123d", reason="build123d not installed")
+    import sketch_builder
+
+    sketch = _centered_rect_sketch(40.0, 20.0)
+    doc = _sweep_document(
+        {"pathCurveId": "arc", "orientation": "frenet"},
+        sketch=sketch,
+        curve=_points_curve("arc", _arc_samples(50.0)),
+    )
+    result, curve_results = _build_with_curves(doc)
+    assert result["shape"] is not None
+    by_id = {r["featureId"]: r for r in result["featureResults"]}
+    assert by_id["sw1"]["status"] == "built", by_id["sw1"].get("error")
+    assert len(result["shape"].solids()) == 1
+
+    # Reference: the same section auto-positioned at the path start, swept by
+    # build123d with Frenet mode and a round-corner transition.
+    datums = {d["id"]: d for d in doc["datums"]}
+    plane, faces = sketch_builder.build_sketch_faces(sketch, datums)
+    spine = curve_results["arc"]["wire"]
+    start, tangent = fb._path_start_frame(spine)
+    sections = fb._position_sections_at_path_start(faces, plane, start, tangent)
+    reference = bd.Solid.sweep(
+        section=bd.Face(sections[0]),
+        path=bd.Wire(spine),
+        is_frenet=True,
+        transition=bd.Transition.ROUND,
+    )
+    assert reference.volume > 0.0
+    assert math.isclose(result["shape"].volume, reference.volume, rel_tol=1e-6)
+    assert np.allclose(
+        result["shape"].bounding_box().min.to_tuple(),
+        reference.bounding_box().min.to_tuple(),
+        atol=1e-6,
+    )
+    assert np.allclose(
+        result["shape"].bounding_box().max.to_tuple(),
+        reference.bounding_box().max.to_tuple(),
+        atol=1e-6,
+    )
+
+
+def test_sweep_frenet_vs_fixed_binormal_differ_and_are_stable() -> None:
+    """On a non-planar path the two orientation modes give different, stable results."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    # Half helix: strongly non-planar, so the Frenet frame banks while a fixed
+    # binormal keeps the section upright.
+    samples = [
+        [
+            50.0 * math.cos(math.pi * i / 64),
+            50.0 * math.sin(math.pi * i / 64),
+            30.0 * i / 64,
+        ]
+        for i in range(65)
+    ]
+    curve = _points_curve("helix", samples)
+    # Corner-anchored section: offset from the path, so frame choice matters.
+    doc = _sweep_document({"pathCurveId": "helix", "orientation": "frenet"}, curve=curve)
+    doc_binormal = _sweep_document(
+        {"pathCurveId": "helix", "orientation": "fixedBinormal", "binormal": [0.0, 0.0, 1.0]},
+        curve=curve,
+    )
+
+    frenet_result, _ = _build_with_curves(doc)
+    binormal_result, _ = _build_with_curves(doc_binormal)
+    assert frenet_result["shape"] is not None
+    assert binormal_result["shape"] is not None
+    frenet_volume = frenet_result["shape"].volume
+    binormal_volume = binormal_result["shape"].volume
+    assert frenet_volume > 0.0 and binormal_volume > 0.0
+    assert not math.isclose(frenet_volume, binormal_volume, rel_tol=1e-3)
+
+    # Both modes are deterministic across rebuilds.
+    frenet_repeat, _ = _build_with_curves(doc)
+    binormal_repeat, _ = _build_with_curves(doc_binormal)
+    assert frenet_repeat["shape"].volume == pytest.approx(frenet_volume, rel=1e-9)
+    assert binormal_repeat["shape"].volume == pytest.approx(binormal_volume, rel=1e-9)
+
+
+def test_pipe_volume_approximates_section_area_times_path_length() -> None:
+    """A pipe along a gently curved path has volume ~= pi r^2 * path length."""
+    bd = pytest.importorskip("build123d", reason="build123d not installed")
+    doc = _document(
+        [
+            {
+                "id": "p1",
+                "name": "pipe",
+                "type": "pipe",
+                "params": {"pathCurveId": "arc", "radius": 2.0, "orientation": "frenet"},
+                "dependsOn": [],
+                "suppressed": False,
+            }
+        ],
+        sketches=[],
+    )
+    doc["curves"] = [_points_curve("arc", _arc_samples(500.0, segments=32))]
+    result, curve_results = _build_with_curves(doc)
+    assert result["shape"] is not None
+    by_id = {r["featureId"]: r for r in result["featureResults"]}
+    assert by_id["p1"]["status"] == "built", by_id["p1"].get("error")
+    assert len(result["shape"].solids()) == 1
+    path_length = bd.Wire(curve_results["arc"]["wire"]).length
+    expected = math.pi * 2.0**2 * path_length
+    assert math.isclose(result["shape"].volume, expected, rel_tol=1e-3)
+
+
+def test_pipe_self_intersection_pre_check_fires() -> None:
+    """A fat pipe on a tight path fails with the named curvature error."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    closed_circle = [
+        [3.0 * math.cos(2 * math.pi * i / 64), 3.0 * math.sin(2 * math.pi * i / 64), 0.0]
+        for i in range(65)
+    ]
+    doc = _document(
+        [
+            {
+                "id": "p1",
+                "name": "pipe",
+                "type": "pipe",
+                "params": {"pathCurveId": "loop", "radius": 5.0, "orientation": "frenet"},
+                "dependsOn": [],
+                "suppressed": False,
+            }
+        ],
+        sketches=[],
+    )
+    doc["curves"] = [_points_curve("loop", closed_circle)]
+    result, _ = _build_with_curves(doc)
+    by_id = {r["featureId"]: r for r in result["featureResults"]}
+    assert by_id["p1"]["status"] == "failed"
+    assert "too tightly curved" in by_id["p1"]["error"]
+    assert "p1" in by_id["p1"]["error"]
+    assert "5" in by_id["p1"]["error"]  # the section reach is reported
+
+
+def test_sweep_self_intersection_pre_check_fires() -> None:
+    """An oversized sweep section on a tight path fails with the named curvature error."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    doc = _sweep_document(
+        {"pathCurveId": "arc", "orientation": "frenet"},
+        sketch=_centered_rect_sketch(30.0, 30.0),
+        curve=_points_curve("arc", _arc_samples(10.0)),
+    )
+    result, _ = _build_with_curves(doc)
+    by_id = {r["featureId"]: r for r in result["featureResults"]}
+    assert by_id["sw1"]["status"] == "failed"
+    assert "too tightly curved" in by_id["sw1"]["error"]
+    # The section reach (half diagonal of the 30x30 square) is reported.
+    assert "21.21" in by_id["sw1"]["error"]
+
+
+def test_sweep_pipeshell_failure_funnels_to_feature_builder_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Raw OCP failures inside PipeShell surface as FeatureBuilderError, not crashes."""
+
+    def _exploding_result(builder: Any, feature_id: str) -> Any:
+        raise RuntimeError("simulated OCCT Standard_Failure")
+
+    monkeypatch.setattr(fb, "_pipe_shell_result", _exploding_result)
+    pytest.importorskip("build123d", reason="build123d not installed")
+    doc = _sweep_document(
+        {"pathCurveId": "arc", "orientation": "frenet"},
+        sketch=_centered_rect_sketch(10.0, 5.0),
+        curve=_points_curve("arc", _arc_samples(50.0)),
+    )
+    result, _ = _build_with_curves(doc)
+    by_id = {r["featureId"]: r for r in result["featureResults"]}
+    assert by_id["sw1"]["status"] == "failed"
+    assert "sweep failed" in by_id["sw1"]["error"]
+    assert "simulated OCCT Standard_Failure" in by_id["sw1"]["error"]
+    assert "sw1" in by_id["sw1"]["error"]
+
+
+def test_sweep_as_circular_pattern_source() -> None:
+    """A sweep is a valid pattern source; instances add to the body volume."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    # A 60-degree arc: three copies rotated by 120 degrees stay disjoint.
+    segments = 64
+    short_arc = [
+        [
+            50.0 * math.cos(math.pi / 3.0 * i / segments),
+            50.0 * math.sin(math.pi / 3.0 * i / segments),
+            0.0,
+        ]
+        for i in range(segments + 1)
+    ]
+    doc = _sweep_document(
+        {"pathCurveId": "arc", "orientation": "frenet"},
+        sketch=_centered_rect_sketch(10.0, 5.0),
+        curve=_points_curve("arc", short_arc),
+    )
+    single, _ = _build_with_curves(doc)
+    assert single["shape"] is not None
+    single_volume = single["shape"].volume
+
+    doc["features"].append(
+        {
+            "id": "circ",
+            "name": "circular pattern",
+            "type": "circularPattern",
+            "body": "body-1",
+            "params": {"source": "sw1", "count": 3, "angle": 360.0, "axis": "z"},
+            "dependsOn": [],
+            "suppressed": False,
+        }
+    )
+    result, curve_results = _build_with_curves(doc)
+    by_id = {r["featureId"]: r for r in result["featureResults"]}
+    assert by_id["circ"]["status"] == "built", by_id["circ"].get("error")
+    assert result["shape"] is not None
+    assert math.isclose(result["shape"].volume, 3.0 * single_volume, rel_tol=1e-6)
+
+
+def test_sweep_missing_curve_is_per_feature_failure() -> None:
+    """A sweep whose path curve failed to build fails the feature, not the document."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    doc = _sweep_document({"pathCurveId": "arc", "orientation": "frenet"})
+    result = fb.build_document_shape(doc, curve_results={})
+    assert result["shape"] is None
+    by_id = {r["featureId"]: r for r in result["featureResults"]}
+    assert by_id["sw1"]["status"] == "failed"
+    assert "path curve 'arc' is unavailable" in by_id["sw1"]["error"]
+
+
+def test_w7x_coil_sweep_e2e_shaped() -> None:
+    """Square section swept along the W7X coil centerline: one solid, ~area x length."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    import json
+    from pathlib import Path
+
+    fixture = Path(__file__).parent.parent / "e2e" / "assets" / "w7x_coil_centerline.json"
+    samples = json.loads(fixture.read_text())
+    doc = _sweep_document(
+        {"pathCurveId": "w7x", "orientation": "frenet"},
+        sketch=_centered_rect_sketch(0.37, 0.37),
+        curve=_points_curve("w7x", [list(p) for p in samples]),
+    )
+    result, _ = _build_with_curves(doc)
+    by_id = {r["featureId"]: r for r in result["featureResults"]}
+    assert by_id["sw1"]["status"] == "built", by_id["sw1"].get("error")
+    assert result["shape"] is not None
+    assert len(result["shape"].solids()) == 1
+    length = sum(
+        math.dist(samples[i], samples[(i + 1) % len(samples)]) for i in range(len(samples))
+    )
+    expected = 0.37 * 0.37 * length
+    assert math.isclose(result["shape"].volume, expected, rel_tol=0.05)

@@ -226,7 +226,7 @@ export class NukeCadCommandContribution implements CommandContribution {
             }
         });
 
-        const addFeature = async (type: 'pad' | 'pocket' | 'revolve' | 'groove'): Promise<void> => {
+        const addFeature = async (type: 'pad' | 'pocket' | 'revolve' | 'groove' | 'sweep' | 'pipe'): Promise<void> => {
             const widget = await this.widgetManager.getWidget<CadViewportWidget>(CadViewportWidget.ID);
             widget?.startFeatureCreation(type);
         };
@@ -242,6 +242,12 @@ export class NukeCadCommandContribution implements CommandContribution {
         });
         commands.registerCommand(NukeCadCommands.ADD_FEATURE_GROOVE, {
             execute: () => void addFeature('groove')
+        });
+        commands.registerCommand(NukeCadCommands.ADD_FEATURE_SWEEP, {
+            execute: () => void addFeature('sweep')
+        });
+        commands.registerCommand(NukeCadCommands.ADD_FEATURE_PIPE, {
+            execute: () => void addFeature('pipe')
         });
 
         commands.registerCommand(NukeCadCommands.EDIT_FEATURE, {

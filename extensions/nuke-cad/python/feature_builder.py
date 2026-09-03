@@ -714,7 +714,16 @@ def _apply_shell(body: Any, faces: list[Any], thickness: float, feature_id: str)
 
 
 def _is_sketch_based_solid(feature_type: str) -> bool:
-    return feature_type in ("pad", "pocket", "revolve", "groove")
+    return feature_type in ("pad", "pocket", "revolve", "groove", "sweep")
+
+
+def _is_solid_producer(feature_type: str) -> bool:
+    """Return True for features whose tool shape is a solid usable as a pattern/mirror source.
+
+    Unlike :func:`_is_sketch_based_solid` this includes ``pipe``, which has no
+    sketch (its section is the schema-level circle) but still produces a solid.
+    """
+    return _is_sketch_based_solid(feature_type) or feature_type == "pipe"
 
 
 def _valid_source_feature(
@@ -734,9 +743,10 @@ def _valid_source_feature(
             f"feature '{feature_id}': source '{source_id}' must be earlier in the feature tree"
         )
     source_type = source.get("type")
-    if not _is_sketch_based_solid(source_type):
+    if not _is_solid_producer(source_type):
         raise FeatureBuilderError(
-            f"feature '{feature_id}': source '{source_id}' must be a pad, pocket, revolve, or groove"
+            f"feature '{feature_id}': source '{source_id}' must be a solid-producing feature "
+            "(pad, pocket, revolve, groove, sweep, or pipe)"
         )
     if source.get("body") != body_id:
         raise FeatureBuilderError(
@@ -859,7 +869,7 @@ def _apply_pattern_or_mirror(
     each instance from the body.
     """
     _require_build123d()
-    if source_type in ("pad", "revolve"):
+    if source_type in ("pad", "revolve", "sweep", "pipe"):
         result = body
         for instance in instances:
             result = result + instance
@@ -1074,6 +1084,302 @@ def _build_hole_tool(
     return cylinder
 
 
+def _path_start_frame(spine_wire: Any) -> tuple[Any, Any]:
+    """Return ``(start_point, start_tangent)`` of a spine wire."""
+    from OCP.BRepAdaptor import BRepAdaptor_Curve
+    from OCP.gp import gp_Dir, gp_Pnt, gp_Vec
+    from OCP.TopAbs import TopAbs_EDGE
+    from OCP.TopExp import TopExp_Explorer
+    from OCP.TopoDS import TopoDS
+
+    exp = TopExp_Explorer(spine_wire, TopAbs_EDGE)
+    if not exp.More():
+        raise FeatureBuilderError("path curve has no edges")
+    edge = TopoDS.Edge_s(exp.Current())
+    curve = BRepAdaptor_Curve(edge)
+    pnt = gp_Pnt()
+    vec = gp_Vec()
+    curve.D1(curve.FirstParameter(), pnt, vec)
+    if vec.Magnitude() < 1e-12:
+        raise FeatureBuilderError("path curve has a zero start tangent")
+    start = gp_Pnt(pnt.X(), pnt.Y(), pnt.Z())
+    tangent = gp_Dir(vec.X(), vec.Y(), vec.Z())
+    return start, tangent
+
+
+def _position_sections_at_path_start(
+    faces: list[Any],
+    plane: Any,
+    start: Any,
+    tangent: Any,
+) -> list[Any]:
+    """Move sketch-coordinate section faces to the path start frame.
+
+    The sketch-plane origin lands on the path start point and the sketch
+    normal aligns with the path start tangent; in-plane geometry relative to
+    the sketch origin is preserved. This is the SolidWorks-style
+    auto-positioning behavior: there is no requirement that the sketch plane
+    be perpendicular to the path.
+    """
+    from OCP.gp import gp_Ax3, gp_Dir, gp_Pnt, gp_Trsf
+    from OCP.TopLoc import TopLoc_Location
+
+    origin = plane.origin
+    source = gp_Ax3(
+        gp_Pnt(origin.X, origin.Y, origin.Z),
+        gp_Dir(plane.z_dir.X, plane.z_dir.Y, plane.z_dir.Z),
+        gp_Dir(plane.x_dir.X, plane.x_dir.Y, plane.x_dir.Z),
+    )
+    x_dir = _deterministic_x_dir((tangent.X(), tangent.Y(), tangent.Z()))
+    target = gp_Ax3(start, tangent, gp_Dir(*x_dir))
+    transformation = gp_Trsf()
+    transformation.SetTransformation(target, source)
+    location = TopLoc_Location(transformation)
+    return [face.wrapped.Moved(location) for face in faces]
+
+
+def _spine_min_radius(spine_wire: Any, samples: int = 200) -> float:
+    """Return the minimum radius of curvature of the spine wire.
+
+    Straight sections (curvature ~0) are skipped. Returns ``inf`` for a
+    perfectly straight spine.
+    """
+    from OCP.BRepAdaptor import BRepAdaptor_Curve
+    from OCP.BRepLProp import BRepLProp_CLProps
+    from OCP.TopAbs import TopAbs_EDGE
+    from OCP.TopExp import TopExp_Explorer
+    from OCP.TopoDS import TopoDS
+
+    best = math.inf
+    exp = TopExp_Explorer(spine_wire, TopAbs_EDGE)
+    while exp.More():
+        edge = TopoDS.Edge_s(exp.Current())
+        curve = BRepAdaptor_Curve(edge)
+        first = curve.FirstParameter()
+        last = curve.LastParameter()
+        for i in range(samples):
+            param = first + (last - first) * i / (samples - 1)
+            try:
+                props = BRepLProp_CLProps(curve, param, 2, 1e-9)
+                curvature = props.Curvature()
+            except Exception:
+                continue
+            if curvature > 1e-12:
+                best = min(best, 1.0 / curvature)
+        exp.Next()
+    return best
+
+
+def _section_reach(section_faces: list[Any]) -> float:
+    """Return the max distance from a section face's centroid to its boundary vertices."""
+    from OCP.BRep import BRep_Tool
+    from OCP.BRepGProp import BRepGProp
+    from OCP.GProp import GProp_GProps
+    from OCP.TopAbs import TopAbs_VERTEX
+    from OCP.TopExp import TopExp_Explorer
+    from OCP.TopoDS import TopoDS
+
+    reach = 0.0
+    for face in section_faces:
+        props = GProp_GProps()
+        BRepGProp.SurfaceProperties_s(face, props)
+        cog = props.CentreOfMass()
+        exp = TopExp_Explorer(face, TopAbs_VERTEX)
+        while exp.More():
+            vertex = TopoDS.Vertex_s(exp.Current())
+            pnt = BRep_Tool.Pnt_s(vertex)
+            distance = math.sqrt(
+                (pnt.X() - cog.X()) ** 2 + (pnt.Y() - cog.Y()) ** 2 + (pnt.Z() - cog.Z()) ** 2
+            )
+            reach = max(reach, distance)
+            exp.Next()
+    return reach
+
+
+def _sweep_params_or_raise(
+    params: dict[str, Any], feature_id: str
+) -> tuple[str, tuple[float, float, float] | None]:
+    """Validate sweep/pipe orientation params and return ``(orientation, binormal)``."""
+    orientation = params.get("orientation", "frenet")
+    if orientation not in ("frenet", "fixedBinormal"):
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': orientation must be 'frenet' or 'fixedBinormal'"
+        )
+    binormal = params.get("binormal")
+    if orientation == "fixedBinormal":
+        if (
+            not isinstance(binormal, (list, tuple))
+            or len(binormal) != 3
+            or not all(
+                isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+                for v in binormal
+            )
+        ):
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': fixedBinormal requires a finite binormal [x, y, z]"
+            )
+        return orientation, _normalized_vector(
+            (float(binormal[0]), float(binormal[1]), float(binormal[2]))
+        )
+    return orientation, None
+
+
+def _pipe_shell_solid(
+    spine_wire: Any,
+    section_faces: list[Any],
+    params: dict[str, Any],
+    feature_id: str,
+    reach: float,
+) -> Any:
+    """Sweep the section faces along the spine wire into a single solid.
+
+    Uses ``BRepOffsetAPI_MakePipeShell`` with a round-corner transition. The
+    section is swept from its current position; callers position it at the
+    path start first. A fast curvature pre-check rejects sections whose reach
+    meets or exceeds the spine's minimum radius of curvature, which would
+    self-intersect. All OCP failures are wrapped in ``FeatureBuilderError``.
+    """
+    _require_build123d()
+    assert bd is not None
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_RoundCorner
+    from OCP.BRepOffsetAPI import BRepOffsetAPI_MakePipeShell
+    from OCP.gp import gp_Dir
+
+    orientation, binormal = _sweep_params_or_raise(params, feature_id)
+
+    min_radius = _spine_min_radius(spine_wire)
+    if math.isfinite(min_radius) and reach >= min_radius:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': path curve is too tightly curved "
+            f"(minimum radius {min_radius:.6g}) for the section reach {reach:.6g}; "
+            "the sweep would self-intersect"
+        )
+
+    try:
+        profile_solids: list[Any] = []
+        for section_face in section_faces:
+            face = bd.Face(section_face)
+            wires = [face.outer_wire().wrapped] + [w.wrapped for w in face.inner_wires()]
+            swept_wires: list[Any] = []
+            for wire in wires:
+                builder = BRepOffsetAPI_MakePipeShell(spine_wire)
+                builder.SetTransitionMode(BRepBuilderAPI_RoundCorner)
+                if orientation == "fixedBinormal":
+                    assert binormal is not None
+                    builder.SetMode(gp_Dir(*binormal))
+                else:
+                    builder.SetMode(True)
+                builder.Add(wire, False, False)
+                builder.Build()
+                if not builder.IsDone():
+                    raise FeatureBuilderError(f"feature '{feature_id}': sweep operation failed")
+                swept_wires.append(_pipe_shell_result(builder, feature_id))
+            outer = bd.Solid(swept_wires[0])
+            for inner in swept_wires[1:]:
+                outer = outer.cut(bd.Solid(inner))
+            profile_solids.append(outer)
+        tool_shape = (
+            profile_solids[0] if len(profile_solids) == 1 else bd.Compound(children=profile_solids)
+        )
+    except FeatureBuilderError:
+        raise
+    except Exception as exc:
+        raise FeatureBuilderError(f"feature '{feature_id}': sweep failed: {exc}") from exc
+
+    if _solid_count(tool_shape) != 1:
+        raise FeatureBuilderError(f"feature '{feature_id}': sweep did not produce a single solid")
+    # Wrap in a Compound so the tool behaves like a pad/revolve tool shape in
+    # boolean combinations (``Solid + Solid`` returns a ShapeList in build123d,
+    # which the additive/pattern paths cannot consume).
+    return bd.Compound(children=[tool_shape])
+
+
+def _pipe_shell_result(builder: Any, feature_id: str) -> Any:
+    """Return the solid produced by a PipeShell builder.
+
+    ``MakeSolid`` caps the ends of an open spine. On a closed spine OCCT
+    raises ``Standard_NullObject`` (the built shell is already closed), so the
+    shell is wrapped in a solid directly.
+    """
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeSolid
+    from OCP.TopAbs import TopAbs_SHELL
+    from OCP.TopoDS import TopoDS
+
+    try:
+        builder.MakeSolid()
+        return builder.Shape()
+    except Exception:
+        raw = builder.Shape()
+        if raw.ShapeType() != TopAbs_SHELL:
+            raise FeatureBuilderError(f"feature '{feature_id}': sweep failed to produce a solid")
+        maker = BRepBuilderAPI_MakeSolid(TopoDS.Shell_s(raw))
+        return maker.Solid()
+
+
+def _build_sweep_tool(
+    faces: list[Any],
+    curve_entry: dict[str, Any],
+    params: dict[str, Any],
+    plane: Any,
+    feature_id: str,
+) -> Any:
+    """Build the tool shape of a sweep feature: sketch section along a curve path."""
+    spine_wire = curve_entry.get("wire")
+    if spine_wire is None:
+        raise FeatureBuilderError(f"feature '{feature_id}': path curve has no wire")
+    start, tangent = _path_start_frame(spine_wire)
+    sections = _position_sections_at_path_start(faces, plane, start, tangent)
+    reach = _section_reach(sections)
+    return _pipe_shell_solid(spine_wire, sections, params, feature_id, reach)
+
+
+def _build_pipe_tool(
+    feature: dict[str, Any],
+    params: dict[str, Any],
+    curve_results: dict[str, dict[str, Any]],
+    tool_shapes: dict[str, Any],
+) -> Any:
+    """Build the tool shape of a pipe feature: circle section along a curve path."""
+    _require_build123d()
+    assert bd is not None
+    from OCP.BRepBuilderAPI import (
+        BRepBuilderAPI_MakeEdge,
+        BRepBuilderAPI_MakeFace,
+        BRepBuilderAPI_MakeWire,
+    )
+    from OCP.GC import GC_MakeCircle
+    from OCP.gp import gp_Ax2
+
+    feature_id = feature["id"]
+    path_curve_id = params.get("pathCurveId")
+    if not isinstance(path_curve_id, str) or not path_curve_id:
+        raise FeatureBuilderError(f"feature '{feature_id}': pipe requires a pathCurveId")
+    curve_entry = curve_results.get(path_curve_id)
+    if curve_entry is None:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': path curve '{path_curve_id}' is unavailable"
+        )
+    radius = params.get("radius")
+    if (
+        not isinstance(radius, (int, float))
+        or isinstance(radius, bool)
+        or not math.isfinite(radius)
+        or radius <= 0
+    ):
+        raise FeatureBuilderError(f"feature '{feature_id}': pipe requires a positive radius")
+
+    spine_wire = curve_entry.get("wire")
+    if spine_wire is None:
+        raise FeatureBuilderError(f"feature '{feature_id}': path curve has no wire")
+    start, tangent = _path_start_frame(spine_wire)
+    circle = GC_MakeCircle(gp_Ax2(start, tangent), float(radius)).Value()
+    section_wire = BRepBuilderAPI_MakeWire(BRepBuilderAPI_MakeEdge(circle).Edge()).Wire()
+    section_face = BRepBuilderAPI_MakeFace(section_wire).Face()
+    tool_shape = _pipe_shell_solid(spine_wire, [section_face], params, feature_id, float(radius))
+    tool_shapes[feature_id] = tool_shape
+    return tool_shape
+
+
 def _build_feature_shape(
     feature: dict[str, Any],
     datums: dict[str, dict[str, Any]],
@@ -1081,6 +1387,7 @@ def _build_feature_shape(
     feature_shapes: dict[str, Any],
     tool_shapes: dict[str, Any],
     reference_results: list[dict[str, Any]],
+    curve_results: dict[str, dict[str, Any]] | None = None,
 ) -> Any:
     """Build the tool shape produced by a single sketch-based feature.
 
@@ -1096,7 +1403,7 @@ def _build_feature_shape(
     feature_type = feature["type"]
     params = feature.get("params", {}) if isinstance(feature.get("params"), dict) else {}
 
-    if feature_type not in ("pad", "pocket", "revolve", "groove"):
+    if feature_type not in ("pad", "pocket", "revolve", "groove", "sweep"):
         raise FeatureBuilderError(
             f"feature '{feature_id}': type '{feature_type}' is not supported yet"
         )
@@ -1161,6 +1468,19 @@ def _build_feature_shape(
     )
     if not faces:
         raise FeatureBuilderError(f"feature '{feature_id}': sketch '{sketch_id}' produced no faces")
+
+    if feature_type == "sweep":
+        path_curve_id = params.get("pathCurveId")
+        if not isinstance(path_curve_id, str) or not path_curve_id:
+            raise FeatureBuilderError(f"feature '{feature_id}': sweep requires a pathCurveId")
+        curve_entry = (curve_results or {}).get(path_curve_id)
+        if curve_entry is None:
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': path curve '{path_curve_id}' is unavailable"
+            )
+        tool_shape = _build_sweep_tool(faces, curve_entry, params, plane, feature_id)
+        tool_shapes[feature_id] = tool_shape
+        return tool_shape
 
     if feature_type in ("pad", "pocket"):
         # upToFace/upToBody/angle are schema-accepted and validated, but the
@@ -1633,8 +1953,13 @@ def _check_cross_body_overlap(bodies: list[Any], body_ids: list[str]) -> list[st
 
 def build_document_shape(
     document: dict[str, Any],
+    curve_results: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Build the shape described by a ``.nuke-cad`` document.
+
+    ``curve_results`` maps curve ids to the fitted-wire result dicts from
+    ``curve_builder.build_curves``; sweep/pipe features read their path wires
+    from it. Direct callers may omit it (treated as an empty mapping).
 
     Returns a dict with:
 
@@ -1656,6 +1981,8 @@ def build_document_shape(
     """
     if bd is None:
         raise FeatureBuilderError("build123d is not available; cannot build document shape")
+
+    curve_results = curve_results or {}
 
     datums = {
         d["id"]: d
@@ -2087,7 +2414,7 @@ def build_document_shape(
                 stale_or_failed.add(feature_id)
             continue
 
-        # Sketch-based solid feature (pad/pocket/revolve/groove).
+        # Sketch-based solid feature (pad/pocket/revolve/groove/sweep) or pipe.
         if body_id in consumed_bodies:
             # The body was consumed by a boolean feature; adding to it would be
             # silently excluded from the final assembly.
@@ -2096,9 +2423,21 @@ def build_document_shape(
             continue
 
         try:
-            tool_shape = _build_feature_shape(
-                feature, datums, sketches, feature_shapes, tool_shapes, reference_results
-            )
+            if feature_type == "pipe":
+                params = (
+                    feature.get("params", {}) if isinstance(feature.get("params"), dict) else {}
+                )
+                tool_shape = _build_pipe_tool(feature, params, curve_results, tool_shapes)
+            else:
+                tool_shape = _build_feature_shape(
+                    feature,
+                    datums,
+                    sketches,
+                    feature_shapes,
+                    tool_shapes,
+                    reference_results,
+                    curve_results,
+                )
         except Exception as exc:
             feature_results.append(
                 {"featureId": feature_id, "bodyId": body_id, "status": "failed", "error": str(exc)}
@@ -2109,7 +2448,7 @@ def build_document_shape(
         previous_body = accumulators.get(body_id)
 
         try:
-            if feature_type in ("pad", "revolve"):
+            if feature_type in ("pad", "revolve", "sweep", "pipe"):
                 if previous_body is None:
                     accumulators[body_id] = tool_shape
                 else:

@@ -406,52 +406,52 @@ describe('generatePythonScript runtime emission', () => {
     });
 });
 
-describe('generatePythonScript curve emission', () => {
-    function curveDocument(): NukeCadDocument {
-        return {
-            version: NUKE_CAD_SCHEMA_VERSION,
-            name: 'curves',
-            parameters: {},
-            datums: [{ id: 'xy', kind: 'XY', name: 'XY' }],
-            bodies: [],
-            sketches: [],
-            features: [],
-            curves: [
-                {
-                    id: 'c1',
-                    name: 'Helix',
-                    source: {
-                        kind: 'parametric',
-                        x: 'cos(t)',
-                        y: 'sin(t)',
-                        z: 't',
-                        tStart: 0,
-                        tEnd: 1,
-                        sampleCount: 8
-                    },
-                    samples: [
-                        [1, 0, 0],
-                        [0, 1, 0.125],
-                        [-1, 0, 0.25],
-                        [0, -1, 0.375],
-                        [1, 0, 0.5]
-                    ]
+function curveDocument(): NukeCadDocument {
+    return {
+        version: NUKE_CAD_SCHEMA_VERSION,
+        name: 'curves',
+        parameters: {},
+        datums: [{ id: 'xy', kind: 'XY', name: 'XY' }],
+        bodies: [],
+        sketches: [],
+        features: [],
+        curves: [
+            {
+                id: 'c1',
+                name: 'Helix',
+                source: {
+                    kind: 'parametric',
+                    x: 'cos(t)',
+                    y: 'sin(t)',
+                    z: 't',
+                    tStart: 0,
+                    tEnd: 1,
+                    sampleCount: 8
                 },
-                {
-                    id: 'c2',
-                    name: 'W7X coil',
-                    source: { kind: 'points' },
-                    samples: [
-                        [0, 0, 0],
-                        [1, 0, 0],
-                        [1, 1, 0],
-                        [0, 1, 0]
-                    ]
-                }
-            ]
-        };
-    }
+                samples: [
+                    [1, 0, 0],
+                    [0, 1, 0.125],
+                    [-1, 0, 0.25],
+                    [0, -1, 0.375],
+                    [1, 0, 0.5]
+                ]
+            },
+            {
+                id: 'c2',
+                name: 'W7X coil',
+                source: { kind: 'points' },
+                samples: [
+                    [0, 0, 0],
+                    [1, 0, 0],
+                    [1, 1, 0],
+                    [0, 1, 0]
+                ]
+            }
+        ]
+    };
+}
 
+describe('generatePythonScript curve emission', () => {
     it('emits a Spline for each curve', () => {
         const script = generatePythonScript(curveDocument());
         expect(script).toContain('# Curves');
@@ -480,5 +480,102 @@ describe('generatePythonScript curve emission', () => {
         doc.curves = [];
         const script = generatePythonScript(doc);
         expect(script).toContain('# No curves defined.');
+    });
+
+    it('emits curves before features so sweep paths are defined first', () => {
+        const doc = sweepDocument();
+        const script = generatePythonScript(doc);
+        expect(script.indexOf('# Curves')).toBeLessThan(script.indexOf('# Features'));
+        expect(script.indexOf('curve_W7X_coil = bd.Spline')).toBeLessThan(script.indexOf('bd.sweep('));
+    });
+});
+
+function sweepDocument(): NukeCadDocument {
+    const base = curveDocument();
+    return {
+        ...base,
+        name: 'sweep export',
+        bodies: [{ id: 'b1', name: 'Rail' }],
+        sketches: [
+            {
+                id: 'sk_sq',
+                name: 'Square',
+                datumId: 'xy',
+                constraints: [],
+                primitives: [
+                    { id: 'q1', type: 'point', x: 0, y: 0 },
+                    { id: 'q2', type: 'point', x: 1, y: 0 },
+                    { id: 'q3', type: 'point', x: 1, y: 1 },
+                    { id: 'q4', type: 'point', x: 0, y: 1 },
+                    { id: 'ql1', type: 'line', p1_id: 'q1', p2_id: 'q2' },
+                    { id: 'ql2', type: 'line', p1_id: 'q2', p2_id: 'q3' },
+                    { id: 'ql3', type: 'line', p1_id: 'q3', p2_id: 'q4' },
+                    { id: 'ql4', type: 'line', p1_id: 'q4', p2_id: 'q1' }
+                ]
+            }
+        ],
+        features: [
+            {
+                id: 'sw_1',
+                name: 'Rail sweep',
+                type: 'sweep',
+                body: 'b1',
+                sketchId: 'sk_sq',
+                params: { pathCurveId: 'c2', orientation: 'frenet' } as FeatureDef['params'],
+                suppressed: false,
+                dependsOn: []
+            },
+            {
+                id: 'pp_1',
+                name: 'Conduit',
+                type: 'pipe',
+                body: 'b1',
+                params: { pathCurveId: 'c1', radius: 0.25, orientation: 'fixedBinormal', binormal: [0, 0, 1] } as FeatureDef['params'],
+                suppressed: false,
+                dependsOn: []
+            },
+            {
+                id: 'pat_1',
+                name: 'Rail pattern',
+                type: 'circularPattern',
+                body: 'b1',
+                params: { source: 'sw_1', count: 4, angle: 360, axis: 'z' } as FeatureDef['params'],
+                suppressed: false,
+                dependsOn: ['sw_1']
+            }
+        ]
+    };
+}
+
+describe('generatePythonScript sweep/pipe emission', () => {
+    it('emits sweep with the sketch section and curve path repositioned to the path start', () => {
+        const script = generatePythonScript(sweepDocument());
+        expect(script).toContain('_sweep_plane_sw_1 = bd.Plane(curve_W7X_coil @ 0, z_dir=curve_W7X_coil.tangent_at(0))');
+        expect(script).toContain(
+            'bd.sweep(sketch_Square_sk_sq().moved(_sweep_plane_sw_1.location * datum_XY_xy.location.inverse), path=curve_W7X_coil)'
+        );
+    });
+
+    it('emits pipe as a circle-section sweep and marks fixedBinormal as a manual TODO', () => {
+        const script = generatePythonScript(sweepDocument());
+        expect(script).toContain('# TODO(manual): binormal-locked orientation');
+        expect(script).toContain('bd.sweep(bd.Circle(0.25).moved(_sweep_plane_pp_1.location), path=curve_Helix)');
+    });
+
+    it('accepts sweep and pipe as pattern sources', () => {
+        const script = generatePythonScript(sweepDocument());
+        expect(script).toContain('_tool_pat_1 = bd.sweep(sketch_Square_sk_sq().moved(');
+        expect(script).toContain('body_Rail = body_Rail + _tool_pat_1.rotate(bd.Axis.Z, _k * 90)');
+    });
+
+    it('marks a sweep with an unknown path curve as a manual TODO', () => {
+        const doc = sweepDocument();
+        (doc.features[0].params as Record<string, unknown>).pathCurveId = 'missing';
+        const script = generatePythonScript(doc);
+        expect(script).toContain('# TODO(manual): sweep feature "Rail sweep"');
+    });
+
+    it('matches the snapshot for the sweep/pipe document', () => {
+        expect(generatePythonScript(sweepDocument())).toMatchSnapshot();
     });
 });

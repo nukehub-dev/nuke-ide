@@ -58,6 +58,7 @@ import {
 } from './draggable-panel';
 import { type DocumentTemplate } from '../../../common/document-templates';
 import { validRelations, type SketchEntityType } from './constraint-relations';
+import { validateSweepPipeDraft, type FeaturePreviewRequest } from './sweep-pipe';
 
 /** Presses on the sketch toolbar's header pick it up; the collapsed toggle doubles as a handle. */
 const TOOLBAR_DRAG_TARGET: DragTargetFilter = (target) => {
@@ -104,6 +105,10 @@ interface CadSketchOverlayProps {
     readonly onDressUpPickCancel: () => void;
     readonly onStartHolePick: (callback: (ref: TopologyRef, uv: [number, number]) => void) => void;
     readonly onHolePickCancel: () => void;
+    readonly curvePickMode?: boolean;
+    readonly onStartCurvePick: (callback: (curveId: string) => void) => void;
+    readonly onCurvePickCancel: () => void;
+    readonly onPreviewChange?: (request: FeaturePreviewRequest | undefined) => void;
     readonly measureActive?: boolean;
     readonly measureCount?: number;
     readonly measureListOpen?: boolean;
@@ -128,7 +133,7 @@ const SNAP_RADIUS_PRESETS: ReadonlyArray<{ label: string; px: number }> = [
     { label: 'L', px: 24 }
 ];
 
-const SOLID_PRODUCERS: FeatureType[] = ['pad', 'pocket', 'revolve', 'groove'];
+const SOLID_PRODUCERS: FeatureType[] = ['pad', 'pocket', 'revolve', 'groove', 'sweep', 'pipe'];
 
 const CONSTRAINT_OPTIONS: Array<{ kind: ConstraintKind; label: string }> = [
     { kind: 'coincident', label: 'Coincident' },
@@ -179,6 +184,10 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
         onDressUpPickCancel,
         onStartHolePick,
         onHolePickCancel,
+        curvePickMode,
+        onStartCurvePick,
+        onCurvePickCancel,
+        onPreviewChange,
         measureActive,
         measureCount,
         measureListOpen,
@@ -406,7 +415,21 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
                     onDressUpPickCancel={onDressUpPickCancel}
                     onStartHolePick={onStartHolePick}
                     onHolePickCancel={onHolePickCancel}
+                    curvePickMode={curvePickMode}
+                    onStartCurvePick={onStartCurvePick}
+                    onCurvePickCancel={onCurvePickCancel}
+                    onPreviewChange={onPreviewChange}
                 />
+            )}
+
+            {curvePickMode === true && (
+                <div className="cad-sketch-face-pick-banner">
+                    <span className="codicon codicon-target" />
+                    <span>Click a curve in the viewport to use it as the sweep path.</span>
+                    <button className="theia-button secondary" onClick={onCurvePickCancel}>
+                        Cancel
+                    </button>
+                </div>
             )}
 
             {shortcutBar !== undefined && (
@@ -798,6 +821,7 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
     const selectedSketchId = props.documentStore.selection.selectedSketchId;
     const sketchSelected = selectedSketchId !== undefined;
     const hasBodies = doc !== undefined && doc.bodies.length > 0;
+    const hasCurves = doc !== undefined && doc.curves.length > 0;
     const hasSolidProducers = doc !== undefined && doc.features.some((f) => SOLID_PRODUCERS.includes(f.type) && !f.suppressed);
 
     const groups: Array<{ label: string; actions: ToolbarAction[] }> = [
@@ -887,6 +911,20 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
                     icon: 'codicon-nuke-cad-groove',
                     disabled: !sketchSelected || !hasBodies,
                     onClick: () => props.onStartFeatureCreation('groove')
+                },
+                {
+                    id: 'sweep',
+                    label: 'Sweep (sketch along curve)',
+                    icon: 'codicon-nuke-cad-sweep',
+                    disabled: !sketchSelected || !hasCurves,
+                    onClick: () => props.onStartFeatureCreation('sweep')
+                },
+                {
+                    id: 'pipe',
+                    label: 'Pipe (circle along curve)',
+                    icon: 'codicon-nuke-cad-pipe',
+                    disabled: !hasCurves,
+                    onClick: () => props.onStartFeatureCreation('pipe')
                 }
             ]
         },
@@ -1382,6 +1420,10 @@ interface FeatureCreationDialogProps {
     readonly onDressUpPickCancel: () => void;
     readonly onStartHolePick: (callback: (ref: TopologyRef, uv: [number, number]) => void) => void;
     readonly onHolePickCancel: () => void;
+    readonly curvePickMode?: boolean;
+    readonly onStartCurvePick: (callback: (curveId: string) => void) => void;
+    readonly onCurvePickCancel: () => void;
+    readonly onPreviewChange?: (request: FeaturePreviewRequest | undefined) => void;
 }
 
 const NEW_BODY_SENTINEL = '__new_body__';
@@ -1396,6 +1438,9 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
     const isDressUp = type === 'fillet' || type === 'chamfer' || type === 'draft' || type === 'shell';
     const isPattern = type === 'linearPattern' || type === 'circularPattern' || type === 'mirror';
     const isHole = type === 'hole';
+    const isSweep = type === 'sweep';
+    const isPipe = type === 'pipe';
+    const isCurveSweep = isSweep || isPipe;
     const doc = props.documentStore.document;
     const bodies = doc?.bodies ?? [];
     const [length, setLength] = React.useState('1');
@@ -1445,6 +1490,14 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
     const [holeCounterboreDepth, setHoleCounterboreDepth] = React.useState('0.5');
     const [holeCountersinkDiameter, setHoleCountersinkDiameter] = React.useState('1.5');
     const [holeCountersinkAngle, setHoleCountersinkAngle] = React.useState('82');
+
+    // Sweep/pipe state.
+    const curves = doc?.curves ?? [];
+    const [pathCurveId, setPathCurveId] = React.useState('');
+    const [sweepOrientation, setSweepOrientation] = React.useState<'frenet' | 'fixedBinormal'>('frenet');
+    const [sweepBinormal, setSweepBinormal] = React.useState<[string, string, string]>(['0', '0', '1']);
+    const [pipeRadius, setPipeRadius] = React.useState('1');
+    const [previewEnabled, setPreviewEnabled] = React.useState(false);
 
     // Prefill the dialog when editing an existing feature.
     React.useEffect(() => {
@@ -1548,9 +1601,44 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                 setHoleType('simple');
             }
         }
+        if (isCurveSweep) {
+            setPathCurveId(typeof p.pathCurveId === 'string' ? p.pathCurveId : '');
+            setSweepOrientation(p.orientation === 'fixedBinormal' ? 'fixedBinormal' : 'frenet');
+            const binormal = p.binormal as [number, number, number] | undefined;
+            setSweepBinormal(binormal !== undefined ? [String(binormal[0]), String(binormal[1]), String(binormal[2])] : ['0', '0', '1']);
+            setPipeRadius(p.radius !== undefined ? String(p.radius) : '1');
+        }
         setError(undefined);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [props.editFeature]);
+
+    // Ghosted preview: a valid draft is debounced into a preview request the
+    // widget builds through the normal geometry-service path; any invalid or
+    // disabled state clears the preview.
+    React.useEffect(() => {
+        if (!previewEnabled || props.onPreviewChange === undefined) {
+            props.onPreviewChange?.(undefined);
+            return;
+        }
+        const validation = validateSweepPipeDraft(
+            { type: isPipe ? 'pipe' : 'sweep', pathCurveId, orientation: sweepOrientation, binormal: sweepBinormal, radius: pipeRadius },
+            curves
+        );
+        if (!validation.ok) {
+            props.onPreviewChange?.(undefined);
+            return;
+        }
+        const timer = setTimeout(() => {
+            props.onPreviewChange?.({ type: isPipe ? 'pipe' : 'sweep', sketchId: props.sketchId, params: validation.params });
+        }, 300);
+        return () => clearTimeout(timer);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [previewEnabled, pathCurveId, sweepOrientation, sweepBinormal, pipeRadius, props.sketchId, type]);
+
+    React.useEffect(() => {
+        return () => props.onPreviewChange?.(undefined);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     const addRef = React.useCallback((ref: TopologyRef) => {
         setRefs((prev) => [...prev, ref]);
@@ -1572,7 +1660,7 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
     };
 
     const submit = (): void => {
-        if (!isBoolean && !isDressUp && props.sketchId === undefined) {
+        if (!isBoolean && !isDressUp && !isPipe && props.sketchId === undefined) {
             setError('No sketch is selected.');
             return;
         }
@@ -1763,6 +1851,25 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
             finish(params);
             return;
         }
+        if (isCurveSweep) {
+            const result = validateSweepPipeDraft(
+                {
+                    type: isPipe ? 'pipe' : 'sweep',
+                    pathCurveId,
+                    orientation: sweepOrientation,
+                    binormal: sweepBinormal,
+                    radius: pipeRadius
+                },
+                curves
+            );
+            if (!result.ok) {
+                setError(result.error);
+                return;
+            }
+            const effectiveBodyId = bodyId === NEW_BODY_SENTINEL ? undefined : bodyId;
+            finish({ ...result.params, bodyId: effectiveBodyId, label });
+            return;
+        }
         if (isExtrude) {
             const value = Number(length);
             if (!Number.isFinite(value) || value <= 0) {
@@ -1786,7 +1893,9 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
         <label className="cad-feature-dialog-row">
             Body
             <select value={bodyId} onChange={(e) => setBodyId(e.target.value)}>
-                {type === 'pad' || type === 'revolve' ? <option value={NEW_BODY_SENTINEL}>New body</option> : null}
+                {type === 'pad' || type === 'revolve' || type === 'sweep' || type === 'pipe' ? (
+                    <option value={NEW_BODY_SENTINEL}>New body</option>
+                ) : null}
                 {bodies.map((b) => (
                     <option key={b.id} value={b.id}>
                         {b.name}
@@ -1887,10 +1996,10 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
         </div>
     );
 
-    // A viewport pick (dress-up edges/faces, hole placement face) needs clicks
-    // and Escape to reach the viewport, so the dialog drops its modal backdrop
-    // while a pick is active.
-    const pickActive = isPicking || props.holePickMode === true;
+    // A viewport pick (dress-up edges/faces, hole placement face, sweep path
+    // curve) needs clicks and Escape to reach the viewport, so the dialog drops
+    // its modal backdrop while a pick is active.
+    const pickActive = isPicking || props.holePickMode === true || props.curvePickMode === true;
 
     return (
         <NukeDialog
@@ -2054,6 +2163,89 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                         Angle (°)
                         <input type="number" value={angle} onChange={(e) => setAngle(e.target.value)} autoFocus />
                     </label>
+                </>
+            )}
+            {isCurveSweep && (
+                <>
+                    <div className="cad-feature-dialog-row vertical">
+                        <span className="cad-feature-dialog-label">
+                            Path curve{' '}
+                            {pathCurveId !== '' ? `(${curves.find((c) => c.id === pathCurveId)?.name ?? pathCurveId})` : '(none)'}
+                        </span>
+                        <div className="cad-feature-dialog-actions">
+                            <select value={pathCurveId} onChange={(e) => setPathCurveId(e.target.value)}>
+                                <option value="">Select a curve…</option>
+                                {curves.map((c) => (
+                                    <option key={c.id} value={c.id}>
+                                        {c.name}
+                                    </option>
+                                ))}
+                            </select>
+                            <button
+                                className={`theia-button secondary ${props.curvePickMode === true ? 'active' : ''}`}
+                                onClick={() => {
+                                    if (props.curvePickMode === true) {
+                                        props.onCurvePickCancel();
+                                    } else {
+                                        props.onStartCurvePick((curveId) => setPathCurveId(curveId));
+                                    }
+                                }}
+                            >
+                                <span className="codicon codicon-target" />{' '}
+                                {props.curvePickMode === true ? 'Cancel pick' : 'Pick in viewport'}
+                            </button>
+                        </div>
+                    </div>
+                    <label className="cad-feature-dialog-row">
+                        Orientation
+                        <select
+                            value={sweepOrientation}
+                            onChange={(e) => setSweepOrientation(e.target.value as 'frenet' | 'fixedBinormal')}
+                        >
+                            <option value="frenet">Frenet (follow path)</option>
+                            <option value="fixedBinormal">Fixed binormal</option>
+                        </select>
+                    </label>
+                    {sweepOrientation === 'fixedBinormal' && (
+                        <>
+                            <label className="cad-feature-dialog-row">
+                                Binormal X
+                                <input
+                                    type="number"
+                                    value={sweepBinormal[0]}
+                                    onChange={(e) => setSweepBinormal(([_, y, z]) => [e.target.value, y, z])}
+                                />
+                            </label>
+                            <label className="cad-feature-dialog-row">
+                                Binormal Y
+                                <input
+                                    type="number"
+                                    value={sweepBinormal[1]}
+                                    onChange={(e) => setSweepBinormal(([x, _, z]) => [x, e.target.value, z])}
+                                />
+                            </label>
+                            <label className="cad-feature-dialog-row">
+                                Binormal Z
+                                <input
+                                    type="number"
+                                    value={sweepBinormal[2]}
+                                    onChange={(e) => setSweepBinormal(([x, y, _]) => [x, y, e.target.value])}
+                                />
+                            </label>
+                        </>
+                    )}
+                    {isPipe && (
+                        <label className="cad-feature-dialog-row">
+                            Radius
+                            <input type="number" value={pipeRadius} onChange={(e) => setPipeRadius(e.target.value)} autoFocus />
+                        </label>
+                    )}
+                    {props.onPreviewChange !== undefined && (
+                        <label className="cad-feature-dialog-row check">
+                            <input type="checkbox" checked={previewEnabled} onChange={(e) => setPreviewEnabled(e.target.checked)} />
+                            Preview (ghosted build)
+                        </label>
+                    )}
                 </>
             )}
             {isPattern && (
@@ -2861,6 +3053,7 @@ function ContextShortcutBar(props: ContextShortcutBarProps): React.ReactElement 
     const selectedSketchId = documentStore.selection.selectedSketchId;
     const sketchSelected = selectedSketchId !== undefined;
     const hasBodies = doc !== undefined && doc.bodies.length > 0;
+    const hasCurves = doc !== undefined && doc.curves.length > 0;
 
     const sketchEntries = (
         <>
@@ -2908,6 +3101,17 @@ function ContextShortcutBar(props: ContextShortcutBarProps): React.ReactElement 
                     <button
                         className="theia-button secondary cad-shortcut-bar-button"
                         disabled={!sketchSelected || ((type === 'pocket' || type === 'groove') && !hasBodies)}
+                        onClick={() => execute(() => onStartFeatureCreation(type))}
+                    >
+                        <span className={`codicon codicon-nuke-cad-${type}`} />
+                    </button>
+                </Tooltip>
+            ))}
+            {(['sweep', 'pipe'] as FeatureType[]).map((type) => (
+                <Tooltip key={type} content={capitalize(type)} position="bottom">
+                    <button
+                        className="theia-button secondary cad-shortcut-bar-button"
+                        disabled={!hasCurves || (type === 'sweep' && !sketchSelected)}
                         onClick={() => execute(() => onStartFeatureCreation(type))}
                     >
                         <span className={`codicon codicon-nuke-cad-${type}`} />

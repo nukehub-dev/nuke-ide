@@ -168,6 +168,8 @@ export type FeatureType =
     | 'pocket'
     | 'revolve'
     | 'groove'
+    | 'sweep'
+    | 'pipe'
     | 'fillet'
     | 'chamfer'
     | 'draft'
@@ -186,6 +188,8 @@ export type SolidFeatureType =
     | 'pocket'
     | 'revolve'
     | 'groove'
+    | 'sweep'
+    | 'pipe'
     | 'fillet'
     | 'chamfer'
     | 'draft'
@@ -211,6 +215,31 @@ export interface ExtrudeParams {
 export interface RevolveParams {
     axis: 'x' | 'y' | 'z';
     angle: number;
+}
+
+/** Sweep path orientation modes. */
+export type SweepOrientation = 'frenet' | 'fixedBinormal';
+
+/** Parameters for a sweep: a sketch section swept along a curve path. */
+export interface SweepParams {
+    /** Path curve id (from the document's curves). */
+    pathCurveId: string;
+    /** Section frame behavior along the path. */
+    orientation: SweepOrientation;
+    /** Locked binormal direction; required iff orientation is 'fixedBinormal'. */
+    binormal?: readonly [number, number, number];
+}
+
+/** Parameters for a pipe: a circular section swept along a curve path. */
+export interface PipeParams {
+    /** Path curve id (from the document's curves). */
+    pathCurveId: string;
+    /** Pipe radius; numeric only (unlike pad length, no parameter-name lookup). */
+    radius: number;
+    /** Section frame behavior along the path. */
+    orientation: SweepOrientation;
+    /** Locked binormal direction; required iff orientation is 'fixedBinormal'. */
+    binormal?: readonly [number, number, number];
 }
 
 /** Parameters for fillet/chamfer. */
@@ -298,6 +327,8 @@ export interface HoleParams {
 export type FeatureParams =
     | ExtrudeParams
     | RevolveParams
+    | SweepParams
+    | PipeParams
     | FilletParams
     | ShellParams
     | DraftParams
@@ -559,6 +590,8 @@ function validateFeature(ctx: MutableValidationContext, feature: FeatureDef, ind
         'pocket',
         'revolve',
         'groove',
+        'sweep',
+        'pipe',
         'fillet',
         'chamfer',
         'draft',
@@ -608,6 +641,30 @@ function validateFeature(ctx: MutableValidationContext, feature: FeatureDef, ind
     }
 }
 
+/** Validate a sweep/pipe path orientation and its binormal requirement. */
+function validateSweepOrientation(ctx: MutableValidationContext, path: string, p: Record<string, unknown>): void {
+    if (p.orientation !== 'frenet' && p.orientation !== 'fixedBinormal') {
+        issue(ctx, `${path}.orientation`, "orientation must be 'frenet' or 'fixedBinormal'");
+        return;
+    }
+    const binormal = p.binormal;
+    if (p.orientation === 'fixedBinormal') {
+        const isNonZeroVector =
+            Array.isArray(binormal) &&
+            binormal.length === 3 &&
+            binormal.every((v: unknown) => isFiniteNumber(v)) &&
+            !(binormal[0] === 0 && binormal[1] === 0 && binormal[2] === 0);
+        if (!isNonZeroVector) {
+            issue(ctx, `${path}.binormal`, 'fixedBinormal requires a non-zero binormal [x, y, z]');
+        }
+    } else if (binormal !== undefined) {
+        const isVector = Array.isArray(binormal) && binormal.length === 3 && binormal.every((v: unknown) => isFiniteNumber(v));
+        if (!isVector) {
+            issue(ctx, `${path}.binormal`, 'binormal must be a [x, y, z] tuple of finite numbers');
+        }
+    }
+}
+
 function validateFeatureParams(ctx: MutableValidationContext, path: string, type: FeatureType, params: FeatureParams): void {
     const p = params as Record<string, unknown>;
     switch (type) {
@@ -634,6 +691,21 @@ function validateFeatureParams(ctx: MutableValidationContext, path: string, type
             }
             break;
         }
+        case 'sweep':
+            if (!isString(p.pathCurveId) || p.pathCurveId.length === 0) {
+                issue(ctx, `${path}.pathCurveId`, 'pathCurveId is required and must be a non-empty string');
+            }
+            validateSweepOrientation(ctx, path, p);
+            break;
+        case 'pipe':
+            if (!isString(p.pathCurveId) || p.pathCurveId.length === 0) {
+                issue(ctx, `${path}.pathCurveId`, 'pathCurveId is required and must be a non-empty string');
+            }
+            if (!isFiniteNumber(p.radius) || p.radius <= 0) {
+                issue(ctx, `${path}.radius`, 'pipe requires a positive finite radius');
+            }
+            validateSweepOrientation(ctx, path, p);
+            break;
         case 'fillet':
             if (!Array.isArray(p.edges) || p.edges.length === 0) {
                 issue(ctx, `${path}.edges`, 'edges must be a non-empty array of TopologyRefs');
@@ -1013,6 +1085,7 @@ export function validateNukeCadDocument(doc: NukeCadDocument): ValidationResult 
     const bodyIds = new Set<string>(doc.bodies?.map((b) => (b as BodyDef).id).filter(isString) ?? []);
     const sketchIds = new Set<string>(doc.sketches?.map((s) => (s as SketchDef).id).filter(isString) ?? []);
     const featureIds = new Set<string>(doc.features?.map((f) => (f as FeatureDef).id).filter(isString) ?? []);
+    const curveIds = new Set<string>((Array.isArray(doc.curves) ? doc.curves : []).map((c) => (c as CurveDef).id).filter(isString));
 
     for (const [i, sketch] of (doc.sketches ?? []).entries()) {
         const s = sketch as SketchDef;
@@ -1062,6 +1135,12 @@ export function validateNukeCadDocument(doc: NukeCadDocument): ValidationResult 
             const p = f.params as Record<string, unknown>;
             if (isString(p.planeDatumId) && !datumIds.has(p.planeDatumId)) {
                 issue(ctx, `features[${i}].params.planeDatumId`, `unknown datum '${p.planeDatumId}'`);
+            }
+        }
+        if (f.type === 'sweep' || f.type === 'pipe') {
+            const p = f.params as Record<string, unknown>;
+            if (isString(p.pathCurveId) && p.pathCurveId.length > 0 && !curveIds.has(p.pathCurveId)) {
+                issue(ctx, `features[${i}].params.pathCurveId`, `unknown curve '${p.pathCurveId}'`);
             }
         }
         if (f.type === 'hole') {

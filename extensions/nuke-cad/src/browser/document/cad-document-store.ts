@@ -1294,6 +1294,8 @@ export function computeDependsOn(type: FeatureDef['type'], bodyId: string, featu
         'pocket',
         'revolve',
         'groove',
+        'sweep',
+        'pipe',
         'fillet',
         'chamfer',
         'draft',

@@ -609,6 +609,102 @@ describe('pattern, mirror, and hole feature store support', () => {
     });
 });
 
+describe('sweep and pipe features', () => {
+    function pointsCurve(id: string): import('../../common/cad-document').CurveDef {
+        return {
+            id,
+            name: id,
+            source: { kind: 'points' },
+            samples: [
+                [0, 0, 0],
+                [1, 0, 0],
+                [1, 1, 0],
+                [0, 1, 0]
+            ]
+        };
+    }
+
+    it('adds a sweep feature referencing a sketch and a path curve', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        store.addBody('Body 1');
+        store.upsertSketch(sketch('sk1'));
+        store.addCurve(pointsCurve('c1'));
+        const sweep: FeatureDef = {
+            id: 'sw1',
+            name: 'sw1',
+            type: 'sweep',
+            body: 'body-1',
+            sketchId: 'sk1',
+            params: { pathCurveId: 'c1', orientation: 'frenet' },
+            suppressed: false,
+            dependsOn: []
+        };
+        const result = store.addFeature(sweep);
+        expect(result.success).toBe(true);
+        expect(store.document?.features).toHaveLength(1);
+        expect(store.selection.selectedFeatureId).toBe('sw1');
+        expect(computeDependsOn('fillet', 'body-1', store.document?.features ?? [])).toBe('sw1');
+    });
+
+    it('adds a pipe feature without a sketch', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        store.addBody('Body 1');
+        store.addCurve(pointsCurve('c1'));
+        const pipe: FeatureDef = {
+            id: 'pp1',
+            name: 'pp1',
+            type: 'pipe',
+            body: 'body-1',
+            params: { pathCurveId: 'c1', radius: 0.25, orientation: 'fixedBinormal', binormal: [0, 0, 1] },
+            suppressed: false,
+            dependsOn: []
+        };
+        const result = store.addFeature(pipe);
+        expect(result.success).toBe(true);
+        expect(store.document?.features[0].sketchId).toBeUndefined();
+        expect(computeDependsOn('shell', 'body-1', store.document?.features ?? [])).toBe('pp1');
+    });
+
+    it('rejects a pipe with a non-positive radius', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        store.addBody('Body 1');
+        const pipe: FeatureDef = {
+            id: 'pp1',
+            name: 'pp1',
+            type: 'pipe',
+            body: 'body-1',
+            params: { pathCurveId: 'c1', radius: -1, orientation: 'frenet' },
+            suppressed: false,
+            dependsOn: []
+        };
+        const result = store.addFeature(pipe);
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('radius');
+    });
+
+    it('rejects a fixedBinormal sweep without a binormal', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        store.addBody('Body 1');
+        const sweep: FeatureDef = {
+            id: 'sw1',
+            name: 'sw1',
+            type: 'sweep',
+            body: 'body-1',
+            sketchId: 'sk1',
+            params: { pathCurveId: 'c1', orientation: 'fixedBinormal' },
+            suppressed: false,
+            dependsOn: []
+        };
+        const result = store.addFeature(sweep);
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('binormal');
+    });
+});
+
 describe('feature reordering', () => {
     it('accepts a valid permutation that preserves dependency precedence', () => {
         const store = new CadDocumentStore();
