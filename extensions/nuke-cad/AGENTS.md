@@ -68,7 +68,7 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
 - Pattern, mirror, and hole features (`linearPattern`, `circularPattern`,
   `mirror`, `hole`) extend the same-body feature chain. Patterns and mirror name
   a `source` solid-producing feature (`pad`/`pocket`/`revolve`/`groove`/
-  `sweep`/`pipe`) on the same body, earlier in document order. The backend stores
+  `sweep`/`pipe`/`loft`/`helicalSweep`) on the same body, earlier in document order. The backend stores
   the source's tool shape and applies transformed copies: additive sources are
   merged with a boolean union so overlapping pattern instances fuse into one
   solid (required for toroidal/poloidal coil assemblies), subtractive sources
@@ -87,17 +87,46 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   document curve. Both support `frenet`/`fixedBinormal` orientation (with a
   non-zero `binormal` required for the latter), auto-position the section at
   the path start, are additive-only, and are built with
-  `BRepOffsetAPI_MakePipeShell`. `pipe` has no `sketchId`. The sweep/pipe
+  `BRepOffsetAPI_MakePipeShell`. `pipe` has no `sketchId`. `loft` joins two or
+  more ordered sketch sections (`params.sectionSketchIds`; `FeatureDef.sketchId`
+  stays unset) into a single solid with `BRepOffsetAPI_ThruSections`; sections
+  are used as positioned on their datums (no auto-positioning), must be single
+  profiles without inner loops, and `ruled=true` builds a straight skin between
+  sections (a ruled failure suggests `ruled=false`). `helicalSweep` sweeps a
+  sketch section along an analytic helix derived from params (`axis` `X`/`Y`/`Z`,
+  positive `startRadius`/`pitch`/`turns`, optional `leftHanded`); the helix is
+  fitted through `curve_builder`'s interpolation path and fed to the sweep
+  machinery, so the section auto-positions at the helix start, the
+  `_spine_min_radius` self-intersection pre-check applies, and the default
+  orientation is `fixedBinormal` locked to the axis unit vector. Loft and
+  helicalSweep are additive-only, pattern/mirror-source eligible, and store
+  their tool shape in `tool_shapes`, like sweep. A section-sketch edit dirties
+  the loft exactly like a sketch edit dirties a pad: the backend rebuilds
+  sketches on every build, and `_compute_implied_dependencies` additionally
+  orders a loft after the features its section sketches reference through
+  topology (face datums, external geometry). Frontend-side the same rule holds:
+  `computeDependsOn` (loft/helicalSweep are solid producers),
+  `CadDocumentStore.deleteSketch`'s dependent guard, and
+  `findConsumingFeature` in the sketch overlay all honor
+  `params.sectionSketchIds` in addition to `sketchId`, mirroring the backend's
+  `_feature_sketch_ids`. The sweep/pipe
   dialogs pick the path curve from a dropdown or a viewport curve-pick mode
   (click-through banner, hover highlight, right-click/Escape cancel; picks are
   guarded against deleted curves by `resolveCurvePick`), and offer an optional
   ghosted preview: the dialog debounces a validated draft (~300 ms) into a
   `FeaturePreviewRequest`, the widget assembles a tentative mini-document
-  (`buildFeaturePreviewDocument` — empty v3 doc + the referenced sketch, its
-  datum, the path curve, and the draft feature on a fresh `preview-body`),
-  builds it through the normal geometry-service path, and renders the
-  tessellation faces in a dedicated `cad-preview` scene group with the ghost
-  (x-ray) opacity; preview failures clear the preview silently.
+  (`buildFeaturePreviewDocument` — empty v3 doc + the referenced sketches and
+  their datums, the referenced path curves, and the draft feature on a fresh
+  `preview-body`), builds it through the normal geometry-service path, and
+  renders the tessellation faces in a dedicated `cad-preview` scene group with
+  the ghost (x-ray) opacity; preview failures clear the preview silently. The
+  same preview machinery serves the sweep/pipe, loft, and helicalSweep dialogs
+  (`sweep-pipe.ts` stays the single home for the draft validators, the section
+  reorder helper, and the preview-document builder): the loft dialog picks an
+  ordered section list in-dialog (no selected-sketch guard, like pipe) with
+  per-row remove and up/down reorder, and the helicalSweep dialog derives the
+  path from axis/startRadius/pitch/turns with the fixed-binormal vector
+  prefilled to the axis unit.
   Subtractive features (pocket/groove/hole) whose tool is disjoint from the
   body fail with a clear "does not intersect" error instead of a silent no-op
   success.
@@ -314,7 +343,8 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   is saved.
 - `.nuke-cad` v2 introduced **bodies** and **boolean features**; v3 adds a
   top-level **`curves`** array. Every solid feature (`pad`/`pocket`/`revolve`/
-  `groove`, plus `sweep`/`pipe` which also reference a curve) targets a body id;
+  `groove`, plus `sweep`/`pipe` which also reference a curve, and `loft`/
+  `helicalSweep`) targets a body id;
   boolean features (`booleanFuse`/`booleanCut`/`booleanCommon`) consume one
   target body and one or more tool bodies. Bodies carry an optional `label`
   that maps to the region manifest / `selector_map` for DAGMC and mesh export.
@@ -431,8 +461,9 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   - `python/sketch_builder.py` consumes the solved sketch primitives stored in
     the document and emits build123d `Face` objects on the sketch datum plane.
   - `python/feature_builder.py` executes `pad`/`pocket`/`revolve`/`groove`,
-    `sweep`/`pipe`, pattern (`linearPattern`/`circularPattern`), `mirror`, and
-    `hole` features in topological order over explicit `dependsOn` edges,
+    `sweep`/`pipe`/`loft`/`helicalSweep`, pattern (`linearPattern`/
+    `circularPattern`), `mirror`, and `hole` features in topological order over
+    explicit `dependsOn` edges,
     maintaining a separate accumulated body per `body` id. Additive features
     combine into their target body; subtractive features cut from it.
     `booleanFuse`, `booleanCut`, and `booleanCommon` features merge tool bodies
@@ -444,7 +475,9 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
     placement face and expands the record into an extrude-cut plus optional
     counterbore/countersink geometry. Sweep/pipe features read their path wires
     from the curve results passed into `build_document_shape` (curves are built
-    before features in `geometry_service.build_document`). Features targeting a
+    before features in `geometry_service.build_document`); loft builds its
+    sections through the sketch-face pipeline as positioned and
+    helicalSweep derives its helix wire from params. Features targeting a
     body consumed by a boolean feature are marked `stale` (the guard applies
     uniformly to dress-up, pattern/mirror/hole, and sketch-solid features).
     Cycles are rejected with a readable member list.
@@ -543,7 +576,12 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
     Sweep/pipe features emit `bd.sweep(...)`: the section is repositioned to
     the path start via a `bd.Plane` built from the curve's start point and
     tangent (`fixedBinormal` orientation adds a binormal-locked `# TODO(manual):`
-    escape hatch), and pipe sections are `bd.Circle(radius)` faces.
+    escape hatch), and pipe sections are `bd.Circle(radius)` faces. Loft
+    features emit `bd.loft([<section fn>()...], ruled=...)` in section order
+    (an unbuildable section — e.g. a face datum — degrades the whole feature
+    to `# TODO(manual):`), and helicalSweep features emit
+    `bd.Helix(pitch, height=pitch*turns, radius, direction, lefthand)` as the
+    path plus the same `_sweep_plane` + `bd.sweep(...)` emission as sweep.
     Topology-reference-dependent items (face datums, external geometry,
     fillet/chamfer edges, draft/shell faces, hole placement) are emitted as
     `# TODO(manual):` comments, never silently dropped.

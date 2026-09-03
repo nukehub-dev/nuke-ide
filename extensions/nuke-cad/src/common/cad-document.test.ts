@@ -1310,3 +1310,211 @@ describe('v2 to v3 migration', () => {
         expect(result.document.features).toHaveLength(1);
     });
 });
+
+describe('loft and helicalSweep validation', () => {
+    function makeBaseDocument(): NukeCadDocument {
+        return {
+            version: NUKE_CAD_SCHEMA_VERSION,
+            name: 'loft-helix',
+            parameters: {},
+            datums: [{ id: 'xy', kind: 'XY', name: 'XY' }],
+            bodies: [{ id: 'body-1', name: 'Body 1' }],
+            sketches: [
+                {
+                    id: 'sketch1',
+                    name: 'Profile',
+                    datumId: 'xy',
+                    primitives: [
+                        { id: 'p1', type: 'point', x: 0, y: 0 },
+                        { id: 'p2', type: 'point', x: 10, y: 0 },
+                        { id: 'p3', type: 'point', x: 10, y: 10 },
+                        { id: 'p4', type: 'point', x: 0, y: 10 },
+                        { id: 'l1', type: 'line', p1_id: 'p1', p2_id: 'p2' },
+                        { id: 'l2', type: 'line', p1_id: 'p2', p2_id: 'p3' },
+                        { id: 'l3', type: 'line', p1_id: 'p3', p2_id: 'p4' },
+                        { id: 'l4', type: 'line', p1_id: 'p4', p2_id: 'p1' }
+                    ],
+                    constraints: []
+                },
+                {
+                    id: 'sketch2',
+                    name: 'Profile 2',
+                    datumId: 'xy',
+                    primitives: [
+                        { id: 'p1', type: 'point', x: 0, y: 0 },
+                        { id: 'p2', type: 'point', x: 5, y: 0 },
+                        { id: 'p3', type: 'point', x: 5, y: 5 },
+                        { id: 'p4', type: 'point', x: 0, y: 5 },
+                        { id: 'l1', type: 'line', p1_id: 'p1', p2_id: 'p2' },
+                        { id: 'l2', type: 'line', p1_id: 'p2', p2_id: 'p3' },
+                        { id: 'l3', type: 'line', p1_id: 'p3', p2_id: 'p4' },
+                        { id: 'l4', type: 'line', p1_id: 'p4', p2_id: 'p1' }
+                    ],
+                    constraints: []
+                }
+            ],
+            features: [],
+            curves: []
+        };
+    }
+
+    it('accepts a valid loft and helicalSweep', () => {
+        const doc = makeBaseDocument();
+        doc.features.push(
+            {
+                id: 'loft1',
+                name: 'Loft',
+                type: 'loft',
+                body: 'body-1',
+                params: { sectionSketchIds: ['sketch1', 'sketch2'], ruled: false },
+                suppressed: false,
+                dependsOn: []
+            },
+            {
+                id: 'h1',
+                name: 'Helix',
+                type: 'helicalSweep',
+                body: 'body-1',
+                sketchId: 'sketch1',
+                params: { axis: 'Z', startRadius: 20, pitch: 5, turns: 3, orientation: 'fixedBinormal', binormal: [0, 0, 1] },
+                suppressed: false,
+                dependsOn: []
+            }
+        );
+        const result = validateNukeCadDocument(doc);
+        expect(result.issues).toEqual([]);
+        expect(result.valid).toBe(true);
+    });
+
+    it('rejects a loft with fewer than 2 sections, duplicates, or dangling ids', () => {
+        const doc = makeBaseDocument();
+        doc.features.push({
+            id: 'loft1',
+            name: 'Loft',
+            type: 'loft',
+            body: 'body-1',
+            params: { sectionSketchIds: ['sketch1'], ruled: false },
+            suppressed: false,
+            dependsOn: []
+        });
+        let result = validateNukeCadDocument(doc);
+        expect(result.valid).toBe(false);
+        expect(result.issues.some((i) => i.path === 'features[0].params.sectionSketchIds')).toBe(true);
+
+        (doc.features[0].params as Record<string, unknown>).sectionSketchIds = ['sketch1', 'sketch1'];
+        result = validateNukeCadDocument(doc);
+        expect(result.valid).toBe(false);
+        expect(result.issues.some((i) => i.path === 'features[0].params.sectionSketchIds[1]')).toBe(true);
+
+        (doc.features[0].params as Record<string, unknown>).sectionSketchIds = ['sketch1', 'nope'];
+        result = validateNukeCadDocument(doc);
+        expect(result.valid).toBe(false);
+        expect(result.issues.some((i) => i.path === 'features[0].params.sectionSketchIds[1]')).toBe(true);
+    });
+
+    it('rejects a non-boolean loft ruled flag', () => {
+        const doc = makeBaseDocument();
+        doc.features.push({
+            id: 'loft1',
+            name: 'Loft',
+            type: 'loft',
+            body: 'body-1',
+            params: { sectionSketchIds: ['sketch1', 'sketch2'], ruled: 'yes' as unknown as boolean },
+            suppressed: false,
+            dependsOn: []
+        });
+        const result = validateNukeCadDocument(doc);
+        expect(result.valid).toBe(false);
+        expect(result.issues.some((i) => i.path === 'features[0].params.ruled')).toBe(true);
+    });
+
+    it('rejects non-positive helicalSweep radii, pitch, and turns', () => {
+        for (const [key, value] of [
+            ['startRadius', 0],
+            ['pitch', -5],
+            ['turns', 0]
+        ] as const) {
+            const doc = makeBaseDocument();
+            doc.features.push({
+                id: 'h1',
+                name: 'Helix',
+                type: 'helicalSweep',
+                body: 'body-1',
+                sketchId: 'sketch1',
+                params: { axis: 'Z', startRadius: 20, pitch: 5, turns: 3, [key]: value },
+                suppressed: false,
+                dependsOn: []
+            });
+            const result = validateNukeCadDocument(doc);
+            expect(result.valid).toBe(false);
+            expect(result.issues.some((i) => i.path === `features[0].params.${key}`)).toBe(true);
+        }
+    });
+
+    it('rejects a bad helicalSweep axis, orientation, or binormal', () => {
+        const base = (): NukeCadDocument => makeBaseDocument();
+        const params = { axis: 'Z', startRadius: 20, pitch: 5, turns: 3 };
+
+        const badAxis = base();
+        badAxis.features.push({
+            id: 'h1',
+            name: 'Helix',
+            type: 'helicalSweep',
+            body: 'body-1',
+            sketchId: 'sketch1',
+            params: { ...params, axis: 'z' as unknown as 'Z' },
+            suppressed: false,
+            dependsOn: []
+        });
+        let result = validateNukeCadDocument(badAxis);
+        expect(result.valid).toBe(false);
+        expect(result.issues.some((i) => i.path === 'features[0].params.axis')).toBe(true);
+
+        const badOrientation = base();
+        badOrientation.features.push({
+            id: 'h1',
+            name: 'Helix',
+            type: 'helicalSweep',
+            body: 'body-1',
+            sketchId: 'sketch1',
+            params: { ...params, orientation: 'parallel' as unknown as 'frenet' },
+            suppressed: false,
+            dependsOn: []
+        });
+        result = validateNukeCadDocument(badOrientation);
+        expect(result.valid).toBe(false);
+        expect(result.issues.some((i) => i.path === 'features[0].params.orientation')).toBe(true);
+
+        const badBinormal = base();
+        badBinormal.features.push({
+            id: 'h1',
+            name: 'Helix',
+            type: 'helicalSweep',
+            body: 'body-1',
+            sketchId: 'sketch1',
+            params: { ...params, orientation: 'fixedBinormal', binormal: [0, 0, 0] },
+            suppressed: false,
+            dependsOn: []
+        });
+        result = validateNukeCadDocument(badBinormal);
+        expect(result.valid).toBe(false);
+        expect(result.issues.some((i) => i.path === 'features[0].params.binormal')).toBe(true);
+    });
+
+    it('accepts an omitted fixedBinormal binormal (axis default) and leftHanded flag', () => {
+        const doc = makeBaseDocument();
+        doc.features.push({
+            id: 'h1',
+            name: 'Helix',
+            type: 'helicalSweep',
+            body: 'body-1',
+            sketchId: 'sketch1',
+            params: { axis: 'Z', startRadius: 20, pitch: 5, turns: 3, orientation: 'fixedBinormal', leftHanded: true },
+            suppressed: false,
+            dependsOn: []
+        });
+        const result = validateNukeCadDocument(doc);
+        expect(result.issues).toEqual([]);
+        expect(result.valid).toBe(true);
+    });
+});

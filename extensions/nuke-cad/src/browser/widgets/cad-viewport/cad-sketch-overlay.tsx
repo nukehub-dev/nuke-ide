@@ -58,7 +58,17 @@ import {
 } from './draggable-panel';
 import { type DocumentTemplate } from '../../../common/document-templates';
 import { validRelations, type SketchEntityType } from './constraint-relations';
-import { validateSweepPipeDraft, type FeaturePreviewRequest } from './sweep-pipe';
+import {
+    validateSweepPipeDraft,
+    validateLoftDraft,
+    validateHelicalSweepDraft,
+    loftDraftFromParams,
+    helicalSweepDraftFromParams,
+    helixAxisUnit,
+    moveLoftSection,
+    type FeaturePreviewRequest,
+    type HelixAxis
+} from './sweep-pipe';
 
 /** Presses on the sketch toolbar's header pick it up; the collapsed toggle doubles as a handle. */
 const TOOLBAR_DRAG_TARGET: DragTargetFilter = (target) => {
@@ -133,7 +143,7 @@ const SNAP_RADIUS_PRESETS: ReadonlyArray<{ label: string; px: number }> = [
     { label: 'L', px: 24 }
 ];
 
-const SOLID_PRODUCERS: FeatureType[] = ['pad', 'pocket', 'revolve', 'groove', 'sweep', 'pipe'];
+const SOLID_PRODUCERS: FeatureType[] = ['pad', 'pocket', 'revolve', 'groove', 'sweep', 'pipe', 'loft', 'helicalSweep'];
 
 const CONSTRAINT_OPTIONS: Array<{ kind: ConstraintKind; label: string }> = [
     { kind: 'coincident', label: 'Coincident' },
@@ -913,6 +923,13 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
                     onClick: () => props.onStartFeatureCreation('groove')
                 },
                 {
+                    id: 'loft',
+                    label: 'Loft (join sketch sections)',
+                    icon: 'codicon-nuke-cad-loft',
+                    disabled: doc === undefined || doc.sketches.length < 2,
+                    onClick: () => props.onStartFeatureCreation('loft')
+                },
+                {
                     id: 'sweep',
                     label: 'Sweep (sketch along curve)',
                     icon: 'codicon-nuke-cad-sweep',
@@ -925,6 +942,13 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
                     icon: 'codicon-nuke-cad-pipe',
                     disabled: !hasCurves,
                     onClick: () => props.onStartFeatureCreation('pipe')
+                },
+                {
+                    id: 'helicalSweep',
+                    label: 'Helical Sweep (sketch along helix)',
+                    icon: 'codicon-nuke-cad-helix',
+                    disabled: !sketchSelected,
+                    onClick: () => props.onStartFeatureCreation('helicalSweep')
                 }
             ]
         },
@@ -1441,6 +1465,8 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
     const isSweep = type === 'sweep';
     const isPipe = type === 'pipe';
     const isCurveSweep = isSweep || isPipe;
+    const isLoft = type === 'loft';
+    const isHelicalSweep = type === 'helicalSweep';
     const doc = props.documentStore.document;
     const bodies = doc?.bodies ?? [];
     const [length, setLength] = React.useState('1');
@@ -1497,6 +1523,21 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
     const [sweepOrientation, setSweepOrientation] = React.useState<'frenet' | 'fixedBinormal'>('frenet');
     const [sweepBinormal, setSweepBinormal] = React.useState<[string, string, string]>(['0', '0', '1']);
     const [pipeRadius, setPipeRadius] = React.useState('1');
+
+    // Loft state: ordered section sketch ids picked in-dialog (the feature
+    // does not consume the selected sketch).
+    const sketches = doc?.sketches ?? [];
+    const [loftSections, setLoftSections] = React.useState<string[]>([]);
+    const [loftRuled, setLoftRuled] = React.useState(false);
+
+    // Helical sweep state: the helix is derived from params (no document curve).
+    const [helixAxis, setHelixAxis] = React.useState<HelixAxis>('Z');
+    const [helixStartRadius, setHelixStartRadius] = React.useState('1');
+    const [helixPitch, setHelixPitch] = React.useState('1');
+    const [helixTurns, setHelixTurns] = React.useState('3');
+    const [helixLeftHanded, setHelixLeftHanded] = React.useState(false);
+    const [helixOrientation, setHelixOrientation] = React.useState<'frenet' | 'fixedBinormal'>('fixedBinormal');
+    const [helixBinormal, setHelixBinormal] = React.useState<[string, string, string]>(['0', '0', '1']);
     const [previewEnabled, setPreviewEnabled] = React.useState(false);
 
     // Prefill the dialog when editing an existing feature.
@@ -1608,6 +1649,21 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
             setSweepBinormal(binormal !== undefined ? [String(binormal[0]), String(binormal[1]), String(binormal[2])] : ['0', '0', '1']);
             setPipeRadius(p.radius !== undefined ? String(p.radius) : '1');
         }
+        if (isLoft) {
+            const draft = loftDraftFromParams(p);
+            setLoftSections([...draft.sectionSketchIds]);
+            setLoftRuled(draft.ruled);
+        }
+        if (isHelicalSweep) {
+            const draft = helicalSweepDraftFromParams(p);
+            setHelixAxis(draft.axis);
+            setHelixStartRadius(draft.startRadius);
+            setHelixPitch(draft.pitch);
+            setHelixTurns(draft.turns);
+            setHelixLeftHanded(draft.leftHanded);
+            setHelixOrientation(draft.orientation);
+            setHelixBinormal([draft.binormal[0], draft.binormal[1], draft.binormal[2]]);
+        }
         setError(undefined);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [props.editFeature]);
@@ -1620,20 +1676,67 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
             props.onPreviewChange?.(undefined);
             return;
         }
-        const validation = validateSweepPipeDraft(
-            { type: isPipe ? 'pipe' : 'sweep', pathCurveId, orientation: sweepOrientation, binormal: sweepBinormal, radius: pipeRadius },
-            curves
-        );
-        if (!validation.ok) {
+        let request: FeaturePreviewRequest | undefined;
+        if (isCurveSweep) {
+            const validation = validateSweepPipeDraft(
+                {
+                    type: isPipe ? 'pipe' : 'sweep',
+                    pathCurveId,
+                    orientation: sweepOrientation,
+                    binormal: sweepBinormal,
+                    radius: pipeRadius
+                },
+                curves
+            );
+            if (validation.ok) {
+                request = { type: isPipe ? 'pipe' : 'sweep', sketchId: props.sketchId, params: validation.params };
+            }
+        } else if (isLoft) {
+            const validation = validateLoftDraft({ sectionSketchIds: loftSections, ruled: loftRuled }, sketches);
+            if (validation.ok) {
+                request = { type: 'loft', params: validation.params };
+            }
+        } else if (isHelicalSweep) {
+            const validation = validateHelicalSweepDraft({
+                axis: helixAxis,
+                startRadius: helixStartRadius,
+                pitch: helixPitch,
+                turns: helixTurns,
+                leftHanded: helixLeftHanded,
+                orientation: helixOrientation,
+                binormal: helixBinormal
+            });
+            if (validation.ok) {
+                request = { type: 'helicalSweep', sketchId: props.sketchId, params: validation.params };
+            }
+        }
+        if (request === undefined) {
             props.onPreviewChange?.(undefined);
             return;
         }
         const timer = setTimeout(() => {
-            props.onPreviewChange?.({ type: isPipe ? 'pipe' : 'sweep', sketchId: props.sketchId, params: validation.params });
+            props.onPreviewChange?.(request);
         }, 300);
         return () => clearTimeout(timer);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [previewEnabled, pathCurveId, sweepOrientation, sweepBinormal, pipeRadius, props.sketchId, type]);
+    }, [
+        previewEnabled,
+        pathCurveId,
+        sweepOrientation,
+        sweepBinormal,
+        pipeRadius,
+        loftSections,
+        loftRuled,
+        helixAxis,
+        helixStartRadius,
+        helixPitch,
+        helixTurns,
+        helixLeftHanded,
+        helixOrientation,
+        helixBinormal,
+        props.sketchId,
+        type
+    ]);
 
     React.useEffect(() => {
         return () => props.onPreviewChange?.(undefined);
@@ -1660,7 +1763,7 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
     };
 
     const submit = (): void => {
-        if (!isBoolean && !isDressUp && !isPipe && props.sketchId === undefined) {
+        if (!isBoolean && !isDressUp && !isPipe && !isLoft && props.sketchId === undefined) {
             setError('No sketch is selected.');
             return;
         }
@@ -1870,6 +1973,34 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
             finish({ ...result.params, bodyId: effectiveBodyId, label });
             return;
         }
+        if (isLoft) {
+            const result = validateLoftDraft({ sectionSketchIds: loftSections, ruled: loftRuled }, sketches);
+            if (!result.ok) {
+                setError(result.error);
+                return;
+            }
+            const effectiveBodyId = bodyId === NEW_BODY_SENTINEL ? undefined : bodyId;
+            finish({ ...result.params, bodyId: effectiveBodyId, label });
+            return;
+        }
+        if (isHelicalSweep) {
+            const result = validateHelicalSweepDraft({
+                axis: helixAxis,
+                startRadius: helixStartRadius,
+                pitch: helixPitch,
+                turns: helixTurns,
+                leftHanded: helixLeftHanded,
+                orientation: helixOrientation,
+                binormal: helixBinormal
+            });
+            if (!result.ok) {
+                setError(result.error);
+                return;
+            }
+            const effectiveBodyId = bodyId === NEW_BODY_SENTINEL ? undefined : bodyId;
+            finish({ ...result.params, bodyId: effectiveBodyId, label });
+            return;
+        }
         if (isExtrude) {
             const value = Number(length);
             if (!Number.isFinite(value) || value <= 0) {
@@ -1893,7 +2024,12 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
         <label className="cad-feature-dialog-row">
             Body
             <select value={bodyId} onChange={(e) => setBodyId(e.target.value)}>
-                {type === 'pad' || type === 'revolve' || type === 'sweep' || type === 'pipe' ? (
+                {type === 'pad' ||
+                type === 'revolve' ||
+                type === 'sweep' ||
+                type === 'pipe' ||
+                type === 'loft' ||
+                type === 'helicalSweep' ? (
                     <option value={NEW_BODY_SENTINEL}>New body</option>
                 ) : null}
                 {bodies.map((b) => (
@@ -2168,6 +2304,7 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
             {isCurveSweep && (
                 <>
                     <div className="cad-feature-dialog-row vertical">
+                        {' '}
                         <span className="cad-feature-dialog-label">
                             Path curve{' '}
                             {pathCurveId !== '' ? `(${curves.find((c) => c.id === pathCurveId)?.name ?? pathCurveId})` : '(none)'}
@@ -2239,6 +2376,160 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                             Radius
                             <input type="number" value={pipeRadius} onChange={(e) => setPipeRadius(e.target.value)} autoFocus />
                         </label>
+                    )}
+                    {props.onPreviewChange !== undefined && (
+                        <label className="cad-feature-dialog-row check">
+                            <input type="checkbox" checked={previewEnabled} onChange={(e) => setPreviewEnabled(e.target.checked)} />
+                            Preview (ghosted build)
+                        </label>
+                    )}
+                </>
+            )}
+            {isLoft && (
+                <>
+                    <div className="cad-feature-dialog-row vertical">
+                        <span className="cad-feature-dialog-label">Sections ({loftSections.length})</span>
+                        <div className="cad-feature-dialog-refs">
+                            {loftSections.map((sectionSketchId, index) => (
+                                <div key={sectionSketchId} className="cad-feature-dialog-section-row">
+                                    <span className="cad-feature-dialog-section-index">{index + 1}</span>
+                                    <span className="cad-feature-dialog-ref-feature">
+                                        {sketches.find((s) => s.id === sectionSketchId)?.name ?? sectionSketchId}
+                                    </span>
+                                    <Tooltip content="Move up" position="left">
+                                        <button
+                                            className="theia-button secondary"
+                                            disabled={index === 0}
+                                            onClick={() => setLoftSections((prev) => [...moveLoftSection(prev, index, 'up')])}
+                                        >
+                                            <span className="codicon codicon-arrow-up" />
+                                        </button>
+                                    </Tooltip>
+                                    <Tooltip content="Move down" position="left">
+                                        <button
+                                            className="theia-button secondary"
+                                            disabled={index === loftSections.length - 1}
+                                            onClick={() => setLoftSections((prev) => [...moveLoftSection(prev, index, 'down')])}
+                                        >
+                                            <span className="codicon codicon-arrow-down" />
+                                        </button>
+                                    </Tooltip>
+                                    <Tooltip content="Remove section" position="left">
+                                        <button
+                                            className="theia-button secondary"
+                                            onClick={() => setLoftSections((prev) => prev.filter((sid) => sid !== sectionSketchId))}
+                                        >
+                                            <span className="codicon codicon-close" />
+                                        </button>
+                                    </Tooltip>
+                                </div>
+                            ))}
+                            {loftSections.length === 0 && <span className="cad-feature-dialog-label">No sections yet.</span>}
+                        </div>
+                        <div className="cad-feature-dialog-actions">
+                            <select
+                                value=""
+                                onChange={(e) => {
+                                    const value = e.target.value;
+                                    if (value.length > 0 && !loftSections.includes(value)) {
+                                        setLoftSections((prev) => [...prev, value]);
+                                    }
+                                }}
+                            >
+                                <option value="">Add section…</option>
+                                {sketches
+                                    .filter((s) => !loftSections.includes(s.id))
+                                    .map((s) => (
+                                        <option key={s.id} value={s.id}>
+                                            {s.name}
+                                        </option>
+                                    ))}
+                            </select>
+                        </div>
+                    </div>
+                    <label className="cad-feature-dialog-row check">
+                        <input type="checkbox" checked={loftRuled} onChange={(e) => setLoftRuled(e.target.checked)} />
+                        Ruled (straight skin between sections; unchecked = smooth)
+                    </label>
+                    {props.onPreviewChange !== undefined && (
+                        <label className="cad-feature-dialog-row check">
+                            <input type="checkbox" checked={previewEnabled} onChange={(e) => setPreviewEnabled(e.target.checked)} />
+                            Preview (ghosted build)
+                        </label>
+                    )}
+                </>
+            )}
+            {isHelicalSweep && (
+                <>
+                    <label className="cad-feature-dialog-row">
+                        Axis
+                        <select
+                            value={helixAxis}
+                            onChange={(e) => {
+                                const axis = e.target.value as HelixAxis;
+                                setHelixAxis(axis);
+                                // Prefill the fixed-binormal vector with the new axis unit.
+                                setHelixBinormal(helixAxisUnit(axis).map((v) => String(v)) as [string, string, string]);
+                            }}
+                        >
+                            <option value="X">X</option>
+                            <option value="Y">Y</option>
+                            <option value="Z">Z</option>
+                        </select>
+                    </label>
+                    <label className="cad-feature-dialog-row">
+                        Start radius
+                        <input type="number" value={helixStartRadius} onChange={(e) => setHelixStartRadius(e.target.value)} autoFocus />
+                    </label>
+                    <label className="cad-feature-dialog-row">
+                        Pitch
+                        <input type="number" value={helixPitch} onChange={(e) => setHelixPitch(e.target.value)} />
+                    </label>
+                    <label className="cad-feature-dialog-row">
+                        Turns
+                        <input type="number" value={helixTurns} onChange={(e) => setHelixTurns(e.target.value)} />
+                    </label>
+                    <label className="cad-feature-dialog-row check">
+                        <input type="checkbox" checked={helixLeftHanded} onChange={(e) => setHelixLeftHanded(e.target.checked)} />
+                        Left-handed
+                    </label>
+                    <label className="cad-feature-dialog-row">
+                        Orientation
+                        <select
+                            value={helixOrientation}
+                            onChange={(e) => setHelixOrientation(e.target.value as 'frenet' | 'fixedBinormal')}
+                        >
+                            <option value="fixedBinormal">Fixed binormal (no roll)</option>
+                            <option value="frenet">Frenet (follow path)</option>
+                        </select>
+                    </label>
+                    {helixOrientation === 'fixedBinormal' && (
+                        <>
+                            <label className="cad-feature-dialog-row">
+                                Binormal X
+                                <input
+                                    type="number"
+                                    value={helixBinormal[0]}
+                                    onChange={(e) => setHelixBinormal(([_, y, z]) => [e.target.value, y, z])}
+                                />
+                            </label>
+                            <label className="cad-feature-dialog-row">
+                                Binormal Y
+                                <input
+                                    type="number"
+                                    value={helixBinormal[1]}
+                                    onChange={(e) => setHelixBinormal(([x, _, z]) => [x, e.target.value, z])}
+                                />
+                            </label>
+                            <label className="cad-feature-dialog-row">
+                                Binormal Z
+                                <input
+                                    type="number"
+                                    value={helixBinormal[2]}
+                                    onChange={(e) => setHelixBinormal(([x, y, _]) => [x, y, e.target.value])}
+                                />
+                            </label>
+                        </>
                     )}
                     {props.onPreviewChange !== undefined && (
                         <label className="cad-feature-dialog-row check">
@@ -2815,7 +3106,14 @@ function findConsumingFeature(
     document: import('../../../common/cad-document').NukeCadDocument | undefined,
     sketchId: string
 ): import('../../../common/cad-document').FeatureDef | undefined {
-    return document?.features.find((f) => f.sketchId === sketchId);
+    // A feature consumes a sketch through sketchId or a loft's ordered
+    // section list — mirror the backend's `_feature_sketch_ids`.
+    return document?.features.find(
+        (f) =>
+            f.sketchId === sketchId ||
+            (Array.isArray((f.params as Record<string, unknown>).sectionSketchIds) &&
+                ((f.params as Record<string, unknown>).sectionSketchIds as unknown[]).includes(sketchId))
+    );
 }
 
 function findExternalGeometryTargetFeature(
@@ -3118,6 +3416,24 @@ function ContextShortcutBar(props: ContextShortcutBarProps): React.ReactElement 
                     </button>
                 </Tooltip>
             ))}
+            <Tooltip content="Loft" position="bottom">
+                <button
+                    className="theia-button secondary cad-shortcut-bar-button"
+                    disabled={(doc?.sketches.length ?? 0) < 2}
+                    onClick={() => execute(() => onStartFeatureCreation('loft'))}
+                >
+                    <span className="codicon codicon-nuke-cad-loft" />
+                </button>
+            </Tooltip>
+            <Tooltip content="Helical Sweep" position="bottom">
+                <button
+                    className="theia-button secondary cad-shortcut-bar-button"
+                    disabled={!sketchSelected}
+                    onClick={() => execute(() => onStartFeatureCreation('helicalSweep'))}
+                >
+                    <span className="codicon codicon-nuke-cad-helix" />
+                </button>
+            </Tooltip>
             <span className="cad-shortcut-bar-divider" />
             {(['fillet', 'chamfer', 'draft', 'shell'] as FeatureType[]).map((type) => (
                 <Tooltip key={type} content={capitalize(type)} position="bottom">

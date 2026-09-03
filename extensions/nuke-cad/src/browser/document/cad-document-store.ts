@@ -235,6 +235,23 @@ function getSourceFeatureId(feature: FeatureDef): string {
     return typeof source === 'string' ? source : '';
 }
 
+/**
+ * Loft section sketch ids (`params.sectionSketchIds`), mirroring the backend's
+ * `_feature_sketch_ids`: a feature consumes a sketch through `sketchId` or
+ * through a loft's ordered section list.
+ */
+function getSectionSketchIds(feature: FeatureDef): string[] {
+    const sectionSketchIds = (feature.params as Record<string, unknown>).sectionSketchIds;
+    if (!Array.isArray(sectionSketchIds)) {
+        return [];
+    }
+    return sectionSketchIds.filter((sid): sid is string => typeof sid === 'string' && sid.length > 0);
+}
+
+function featureConsumesSketch(feature: FeatureDef, sketchId: string): boolean {
+    return feature.sketchId === sketchId || getSectionSketchIds(feature).includes(sketchId);
+}
+
 function collectDependentFeatureIds(doc: NukeCadDocument, id: string): string[] {
     const dependents: string[] = [];
     for (const feature of doc.features) {
@@ -566,7 +583,7 @@ export class CadDocumentStore {
             return { success: false, error: check.error, issues: check.issues };
         }
         const doc = cloneDocument(check.value!);
-        const dependents = doc.features.filter((f) => f.sketchId === id).map((f) => f.id);
+        const dependents = doc.features.filter((f) => featureConsumesSketch(f, id)).map((f) => f.id);
         if (dependents.length > 0) {
             return {
                 success: false,
@@ -1296,6 +1313,8 @@ export function computeDependsOn(type: FeatureDef['type'], bodyId: string, featu
         'groove',
         'sweep',
         'pipe',
+        'loft',
+        'helicalSweep',
         'fillet',
         'chamfer',
         'draft',

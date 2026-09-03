@@ -27,6 +27,7 @@ except Exception:
     bd = None  # type: ignore
     HAS_BUILD123D = False
 
+import curve_builder
 import sketch_builder
 from reference_scoring import DEFAULT_TOLERANCE_SCALE
 from sketch_builder import build_sketch_faces
@@ -146,6 +147,27 @@ def _workplane_from_face(topods_face: Any, offset: float = 0.0) -> Any:
     return bd.Plane(origin=origin, x_dir=x_dir, z_dir=normal)
 
 
+def _feature_sketch_ids(feature: dict[str, Any]) -> list[str]:
+    """Sketch ids consumed by a feature: ``sketchId`` plus loft ``sectionSketchIds``.
+
+    Loft stores its ordered section sketches in params because the single
+    ``sketchId`` field cannot express ordering; both spellings name sketches
+    the feature's geometry depends on.
+    """
+    ids: list[str] = []
+    sketch_id = feature.get("sketchId")
+    if isinstance(sketch_id, str) and sketch_id:
+        ids.append(sketch_id)
+    params = feature.get("params", {}) if isinstance(feature.get("params"), dict) else {}
+    if feature.get("type") == "loft":
+        section_ids = params.get("sectionSketchIds")
+        if isinstance(section_ids, list):
+            for sid in section_ids:
+                if isinstance(sid, str) and sid and sid not in ids:
+                    ids.append(sid)
+    return ids
+
+
 def _collect_topology_refs(
     feature: dict[str, Any],
     datums: dict[str, dict[str, Any]],
@@ -159,10 +181,11 @@ def _collect_topology_refs(
     """
     refs: list[tuple[str, dict[str, Any]]] = []
     fid = feature.get("id", "<unknown>")
-    sketch_id = feature.get("sketchId")
-    sketch = sketches.get(sketch_id) if isinstance(sketch_id, str) else None
 
-    if sketch is not None:
+    for sketch_id in _feature_sketch_ids(feature):
+        sketch = sketches.get(sketch_id)
+        if sketch is None:
+            continue
         datum_id = sketch.get("datumId")
         datum = datums.get(datum_id) if isinstance(datum_id, str) else None
         if datum is not None and datum.get("kind") == "face":
@@ -714,7 +737,12 @@ def _apply_shell(body: Any, faces: list[Any], thickness: float, feature_id: str)
 
 
 def _is_sketch_based_solid(feature_type: str) -> bool:
-    return feature_type in ("pad", "pocket", "revolve", "groove", "sweep")
+    """Return True for solid features backed by one or more document sketches.
+
+    Loft is included even though it carries no ``sketchId``: its ordered
+    section sketches live in ``params.sectionSketchIds``.
+    """
+    return feature_type in ("pad", "pocket", "revolve", "groove", "sweep", "loft", "helicalSweep")
 
 
 def _is_solid_producer(feature_type: str) -> bool:
@@ -746,7 +774,7 @@ def _valid_source_feature(
     if not _is_solid_producer(source_type):
         raise FeatureBuilderError(
             f"feature '{feature_id}': source '{source_id}' must be a solid-producing feature "
-            "(pad, pocket, revolve, groove, sweep, or pipe)"
+            "(pad, pocket, revolve, groove, sweep, pipe, loft, or helicalSweep)"
         )
     if source.get("body") != body_id:
         raise FeatureBuilderError(
@@ -869,7 +897,7 @@ def _apply_pattern_or_mirror(
     each instance from the body.
     """
     _require_build123d()
-    if source_type in ("pad", "revolve", "sweep", "pipe"):
+    if source_type in ("pad", "revolve", "sweep", "pipe", "loft", "helicalSweep"):
         result = body
         for instance in instances:
             result = result + instance
@@ -1333,6 +1361,140 @@ def _build_sweep_tool(
     return _pipe_shell_solid(spine_wire, sections, params, feature_id, reach)
 
 
+def _build_loft_tool(
+    section_faces: list[Any],
+    ruled: bool,
+    feature_id: str,
+) -> Any:
+    """Loft single-profile section faces into a single solid.
+
+    Sections are used as positioned in world space and added in document
+    order to ``BRepOffsetAPI_ThruSections``. Ruled lofts between incompatible
+    profiles fail at ``Build()``; the error points at ``ruled=false`` as the
+    smooth alternative. All OCP failures are wrapped in ``FeatureBuilderError``
+    naming the feature. The result is wrapped in a ``Compound`` so the tool
+    behaves like a pad/revolve tool shape in boolean combinations.
+    """
+    _require_build123d()
+    assert bd is not None
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeSolid
+    from OCP.BRepOffsetAPI import BRepOffsetAPI_ThruSections
+    from OCP.TopAbs import TopAbs_SHELL, TopAbs_SOLID
+    from OCP.TopoDS import TopoDS
+
+    try:
+        builder = BRepOffsetAPI_ThruSections(True, ruled, 1e-6)
+        for face in section_faces:
+            builder.AddWire(face.outer_wire().wrapped)
+        builder.Build()
+        if not builder.IsDone():
+            raise FeatureBuilderError(f"feature '{feature_id}': loft operation failed")
+        shape = builder.Shape()
+        if shape.ShapeType() == TopAbs_SHELL:
+            shape = BRepBuilderAPI_MakeSolid(TopoDS.Shell_s(shape)).Solid()
+        if shape.ShapeType() != TopAbs_SOLID:
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': loft did not produce a single solid"
+            )
+        tool_shape = bd.Compound(children=[bd.Solid(shape)])
+    except FeatureBuilderError:
+        raise
+    except Exception as exc:
+        hint = "; ruled loft requires compatible profiles; try ruled=false" if ruled else ""
+        raise FeatureBuilderError(f"feature '{feature_id}': loft failed: {exc}{hint}") from exc
+    return tool_shape
+
+
+_HELICAL_AXIS_INDEX: dict[str, int] = {"X": 0, "Y": 1, "Z": 2}
+_HELICAL_AXIS_UNIT: dict[str, tuple[float, float, float]] = {
+    "X": (1.0, 0.0, 0.0),
+    "Y": (0.0, 1.0, 0.0),
+    "Z": (0.0, 0.0, 1.0),
+}
+
+
+def _helical_sweep_positive_param(params: dict[str, Any], name: str, feature_id: str) -> float:
+    value = params.get(name)
+    if (
+        not isinstance(value, (int, float))
+        or isinstance(value, bool)
+        or not math.isfinite(value)
+        or value <= 0
+    ):
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': helicalSweep requires a positive {name}"
+        )
+    return float(value)
+
+
+def _build_helix_wire(params: dict[str, Any], feature_id: str) -> Any:
+    """Sample the analytic helix described by helicalSweep params and fit a wire.
+
+    The helix winds around the origin-aligned axis (theta in [0, 2*pi*turns],
+    ``max(64, ceil(turns * 128))`` samples, the axial coordinate rising by
+    ``pitch`` per turn, the winding sign flipped for ``leftHanded``). The
+    samples are fitted by reusing :func:`curve_builder._fit_curve`'s
+    interpolation path; the wire is open. The helix is derived from params and
+    never stored as a document curve.
+    """
+    axis_name = params.get("axis")
+    if axis_name not in _HELICAL_AXIS_INDEX:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': helicalSweep requires axis 'X', 'Y', or 'Z'"
+        )
+    start_radius = _helical_sweep_positive_param(params, "startRadius", feature_id)
+    pitch = _helical_sweep_positive_param(params, "pitch", feature_id)
+    turns = _helical_sweep_positive_param(params, "turns", feature_id)
+
+    sample_count = max(64, math.ceil(turns * 128))
+    axis_index = _HELICAL_AXIS_INDEX[axis_name]
+    circular_axes = [i for i in range(3) if i != axis_index]
+    hand = -1.0 if params.get("leftHanded", False) else 1.0
+    points: list[tuple[float, float, float]] = []
+    for i in range(sample_count):
+        theta = 2.0 * math.pi * turns * i / (sample_count - 1)
+        angle = hand * theta
+        coords = [0.0, 0.0, 0.0]
+        coords[circular_axes[0]] = start_radius * math.cos(angle)
+        coords[circular_axes[1]] = start_radius * math.sin(angle)
+        coords[axis_index] = pitch * theta / (2.0 * math.pi)
+        points.append((coords[0], coords[1], coords[2]))
+
+    try:
+        fit = curve_builder._fit_curve(feature_id, "helix", {"kind": "parametric"}, points)
+    except Exception as exc:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': helicalSweep helix fit failed: {exc}"
+        ) from exc
+    wire = fit.get("wire")
+    if wire is None:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': helicalSweep helix fit produced no wire"
+        )
+    return wire
+
+
+def _helical_sweep_effective_params(params: dict[str, Any], feature_id: str) -> dict[str, Any]:
+    """Return sweep params for the helix path with helicalSweep defaults applied.
+
+    The default orientation is ``fixedBinormal`` locked to the helix axis unit
+    vector (spring-like, no roll); ``frenet`` is available for twisted
+    sections. An explicit binormal always wins.
+    """
+    orientation = params.get("orientation", "fixedBinormal")
+    if orientation not in ("frenet", "fixedBinormal"):
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': orientation must be 'frenet' or 'fixedBinormal'"
+        )
+    effective = dict(params)
+    effective["orientation"] = orientation
+    if orientation == "fixedBinormal" and effective.get("binormal") is None:
+        axis_name = params.get("axis")
+        unit = _HELICAL_AXIS_UNIT.get(axis_name, (0.0, 0.0, 1.0))
+        effective["binormal"] = list(unit)
+    return effective
+
+
 def _build_pipe_tool(
     feature: dict[str, Any],
     params: dict[str, Any],
@@ -1403,17 +1565,39 @@ def _build_feature_shape(
     feature_type = feature["type"]
     params = feature.get("params", {}) if isinstance(feature.get("params"), dict) else {}
 
-    if feature_type not in ("pad", "pocket", "revolve", "groove", "sweep"):
+    if feature_type not in ("pad", "pocket", "revolve", "groove", "sweep", "loft", "helicalSweep"):
         raise FeatureBuilderError(
             f"feature '{feature_id}': type '{feature_type}' is not supported yet"
         )
 
-    sketch_id = feature.get("sketchId")
-    if not isinstance(sketch_id, str) or not sketch_id:
-        raise FeatureBuilderError(f"feature '{feature_id}' ({feature_type}) requires a sketchId")
-    sketch = sketches.get(sketch_id)
-    if sketch is None:
-        raise FeatureBuilderError(f"feature '{feature_id}' references unknown sketch '{sketch_id}'")
+    if feature_type == "loft":
+        # Loft leaves FeatureDef.sketchId unset; the ordered section sketches
+        # live in params and every entry must reference an existing sketch.
+        section_sketch_ids = params.get("sectionSketchIds")
+        if (
+            not isinstance(section_sketch_ids, list)
+            or len(section_sketch_ids) < 2
+            or not all(isinstance(s, str) and s for s in section_sketch_ids)
+        ):
+            raise FeatureBuilderError(
+                f"feature '{feature_id}' (loft) requires at least 2 section sketches"
+            )
+        for section_sketch_id in section_sketch_ids:
+            if section_sketch_id not in sketches:
+                raise FeatureBuilderError(
+                    f"feature '{feature_id}' references unknown sketch '{section_sketch_id}'"
+                )
+    else:
+        sketch_id = feature.get("sketchId")
+        if not isinstance(sketch_id, str) or not sketch_id:
+            raise FeatureBuilderError(
+                f"feature '{feature_id}' ({feature_type}) requires a sketchId"
+            )
+        if sketch_id not in sketches:
+            raise FeatureBuilderError(
+                f"feature '{feature_id}' references unknown sketch '{sketch_id}'"
+            )
+        section_sketch_ids = [sketch_id]
 
     refs_with_paths = _collect_topology_refs(feature, datums, sketches)
     entities, ref_results = _resolve_document_refs(
@@ -1432,42 +1616,76 @@ def _build_feature_shape(
 
     ref_path_to_index = {path: i for i, (path, _) in enumerate(refs_with_paths)}
 
-    # Determine the sketch plane. Face datums use the resolved face; other datum
-    # kinds are handled by the sketch builder.
-    plane: Any | None = None
-    sketch_datum_id = sketch.get("datumId")
-    sketch_datum = datums.get(sketch_datum_id) if isinstance(sketch_datum_id, str) else None
-    if sketch_datum is not None and sketch_datum.get("kind") == "face":
-        datum_ref_path = f"datum.{sketch_datum_id}.reference"
-        entity = entities[ref_path_to_index[datum_ref_path]]
-        offset = sketch_datum.get("offset", 0.0)
-        if (
-            not isinstance(offset, (int, float))
-            or isinstance(offset, bool)
-            or not math.isfinite(offset)
-        ):
-            offset = 0.0
-        plane = _workplane_from_face(entity, offset)
+    def build_section(section_sketch_id: str) -> tuple[Any, list[Any]]:
+        """Build one section's sketch plane and faces through the sketch pipeline.
 
-    extra_primitives: list[dict[str, Any]] = []
-    for path, _ref in refs_with_paths:
-        if path.startswith(f"sketch.{sketch_id}.externalRefs["):
-            idx = int(path[path.index("[") + 1 : path.index("]")])
-            entity = entities[ref_path_to_index[path]]
-            # Ensure we have a plane to project onto.
-            if plane is None:
-                if sketch_datum is None:
-                    raise FeatureBuilderError(
-                        f"feature '{feature_id}': sketch '{sketch_id}' has no datum"
-                    )
-                plane = sketch_builder._build_plane(sketch_datum)
-            extra_primitives.extend(_project_entity_to_sketch(entity, plane, idx))
+        Face datums use the resolved face; other datum kinds are handled by
+        the sketch builder. External geometry is projected into the sketch
+        plane as construction primitives.
+        """
+        section_sketch = sketches[section_sketch_id]
+        plane: Any | None = None
+        sketch_datum_id = section_sketch.get("datumId")
+        sketch_datum = datums.get(sketch_datum_id) if isinstance(sketch_datum_id, str) else None
+        if sketch_datum is not None and sketch_datum.get("kind") == "face":
+            datum_ref_path = f"datum.{sketch_datum_id}.reference"
+            entity = entities[ref_path_to_index[datum_ref_path]]
+            offset = sketch_datum.get("offset", 0.0)
+            if (
+                not isinstance(offset, (int, float))
+                or isinstance(offset, bool)
+                or not math.isfinite(offset)
+            ):
+                offset = 0.0
+            plane = _workplane_from_face(entity, offset)
 
-    plane, faces = build_sketch_faces(
-        sketch, datums, plane=plane, extra_primitives=extra_primitives
-    )
-    if not faces:
-        raise FeatureBuilderError(f"feature '{feature_id}': sketch '{sketch_id}' produced no faces")
+        extra_primitives: list[dict[str, Any]] = []
+        for path, _ref in refs_with_paths:
+            if path.startswith(f"sketch.{section_sketch_id}.externalRefs["):
+                idx = int(path[path.index("[") + 1 : path.index("]")])
+                entity = entities[ref_path_to_index[path]]
+                # Ensure we have a plane to project onto.
+                if plane is None:
+                    if sketch_datum is None:
+                        raise FeatureBuilderError(
+                            f"feature '{feature_id}': sketch '{section_sketch_id}' has no datum"
+                        )
+                    plane = sketch_builder._build_plane(sketch_datum)
+                extra_primitives.extend(_project_entity_to_sketch(entity, plane, idx))
+
+        plane, faces = build_sketch_faces(
+            section_sketch, datums, plane=plane, extra_primitives=extra_primitives
+        )
+        if not faces:
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': sketch '{section_sketch_id}' produced no faces"
+            )
+        return plane, faces
+
+    if feature_type == "loft":
+        # Sections are used as positioned in world space (no auto-positioning,
+        # unlike sweep). Each section must be a single profile: one outer wire
+        # with no inner wires.
+        section_faces: list[Any] = []
+        for section_sketch_id in section_sketch_ids:
+            _section_plane, section = build_section(section_sketch_id)
+            if len(section) != 1:
+                raise FeatureBuilderError(
+                    f"feature '{feature_id}': loft section sketch '{section_sketch_id}' must be a "
+                    "single profile; multi-profile sections are not supported"
+                )
+            section_face = section[0]
+            if section_face.inner_wires():
+                raise FeatureBuilderError(
+                    f"feature '{feature_id}': loft section sketch '{section_sketch_id}' has inner "
+                    "loops (holes); loft sections with holes are not supported"
+                )
+            section_faces.append(section_face)
+        tool_shape = _build_loft_tool(section_faces, bool(params.get("ruled", False)), feature_id)
+        tool_shapes[feature_id] = tool_shape
+        return tool_shape
+
+    plane, faces = build_section(section_sketch_ids[0])
 
     if feature_type == "sweep":
         path_curve_id = params.get("pathCurveId")
@@ -1479,6 +1697,18 @@ def _build_feature_shape(
                 f"feature '{feature_id}': path curve '{path_curve_id}' is unavailable"
             )
         tool_shape = _build_sweep_tool(faces, curve_entry, params, plane, feature_id)
+        tool_shapes[feature_id] = tool_shape
+        return tool_shape
+
+    if feature_type == "helicalSweep":
+        # The helix is derived from params (never a document curve); the sweep
+        # machinery auto-positions the section at the helix start and applies
+        # the fixedBinormal/frenet orientation with the axis-unit default.
+        effective_params = _helical_sweep_effective_params(params, feature_id)
+        helix_wire = _build_helix_wire(params, feature_id)
+        tool_shape = _build_sweep_tool(
+            faces, {"wire": helix_wire}, effective_params, plane, feature_id
+        )
         tool_shapes[feature_id] = tool_shape
         return tool_shape
 
@@ -1796,8 +2026,30 @@ def _body_tip_feature_id(
     return None
 
 
+def _sketch_topology_dependency_ids(
+    sketch: dict[str, Any],
+    datums: dict[str, dict[str, Any]],
+) -> list[str]:
+    """Feature ids a sketch's topology references: its face datum and external refs."""
+    ids: list[str] = []
+    datum_id = sketch.get("datumId")
+    datum = datums.get(datum_id) if isinstance(datum_id, str) else None
+    if isinstance(datum, dict) and datum.get("kind") == "face":
+        ref = datum.get("reference")
+        if isinstance(ref, dict) and isinstance(ref.get("featureId"), str):
+            ids.append(ref["featureId"])
+    external_refs = sketch.get("externalRefs", [])
+    if isinstance(external_refs, list):
+        for ref in external_refs:
+            if isinstance(ref, dict) and isinstance(ref.get("featureId"), str):
+                ids.append(ref["featureId"])
+    return ids
+
+
 def _compute_implied_dependencies(
     features: list[dict[str, Any]],
+    sketches: dict[str, dict[str, Any]] | None = None,
+    datums: dict[str, dict[str, Any]] | None = None,
 ) -> list[tuple[str, str]]:
     """Return implied dependency edges derived from body semantics.
 
@@ -1810,6 +2062,10 @@ def _compute_implied_dependencies(
       * A boolean feature depends on the current tip feature of every tool body.
         The target body's tip is the same as the same-body previous feature, so
         it is not duplicated.
+      * A loft depends on the features its section sketches reference through
+        topology (face datums and external geometry), so the sections' backing
+        geometry is built (and kept fresh) before the loft — the same
+        staleness discipline a sketch-based pad enjoys through its ``sketchId``.
     """
     edges: list[tuple[str, str]] = []
     body_last_index: dict[str, int] = {}
@@ -1837,6 +2093,20 @@ def _compute_implied_dependencies(
             source = params.get("source")
             if isinstance(source, str) and source != feature["id"]:
                 edges.append((feature["id"], source))
+        if feature_type == "loft" and sketches is not None:
+            sketch_map = sketches
+            datum_map = datums or {}
+            section_sketch_ids = params.get("sectionSketchIds")
+            if isinstance(section_sketch_ids, list):
+                for sketch_id in section_sketch_ids:
+                    section_sketch = (
+                        sketch_map.get(sketch_id) if isinstance(sketch_id, str) else None
+                    )
+                    if section_sketch is None:
+                        continue
+                    for dependency_id in _sketch_topology_dependency_ids(section_sketch, datum_map):
+                        if dependency_id != feature["id"]:
+                            edges.append((feature["id"], dependency_id))
     return edges
 
 
@@ -2001,7 +2271,7 @@ def build_document_shape(
 
     # Inject implied dependencies so the topological sort respects body order
     # and boolean tool-body tips.
-    implied = _compute_implied_dependencies(features)
+    implied = _compute_implied_dependencies(features, sketches, datums)
     feature_map = {f["id"]: f for f in features}
     for dependent_id, dependency_id in implied:
         feature = feature_map.get(dependent_id)
@@ -2414,7 +2684,8 @@ def build_document_shape(
                 stale_or_failed.add(feature_id)
             continue
 
-        # Sketch-based solid feature (pad/pocket/revolve/groove/sweep) or pipe.
+        # Sketch-based solid feature (pad/pocket/revolve/groove/sweep/loft/
+        # helicalSweep) or pipe.
         if body_id in consumed_bodies:
             # The body was consumed by a boolean feature; adding to it would be
             # silently excluded from the final assembly.
@@ -2448,7 +2719,7 @@ def build_document_shape(
         previous_body = accumulators.get(body_id)
 
         try:
-            if feature_type in ("pad", "revolve", "sweep", "pipe"):
+            if feature_type in ("pad", "revolve", "sweep", "pipe", "loft", "helicalSweep"):
                 if previous_body is None:
                     accumulators[body_id] = tool_shape
                 else:

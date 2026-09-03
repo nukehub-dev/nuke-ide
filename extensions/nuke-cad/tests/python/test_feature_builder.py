@@ -3724,3 +3724,444 @@ def test_w7x_coil_sweep_e2e_shaped() -> None:
     )
     expected = 0.37 * 0.37 * length
     assert math.isclose(result["shape"].volume, expected, rel_tol=0.05)
+
+
+# ---------------------------------------------------------------------------
+# Loft and helical sweep features
+# ---------------------------------------------------------------------------
+
+
+def _offset_rect_sketch(
+    sid: str,
+    cx: float,
+    cy: float,
+    width: float,
+    height: float,
+    datum: str = "dxy",
+) -> dict[str, Any]:
+    """Rectangle sketch centered at (cx, cy) on its datum plane."""
+    hw = width / 2.0
+    hh = height / 2.0
+    return {
+        "id": sid,
+        "name": sid,
+        "datumId": datum,
+        "primitives": [
+            {"id": "p1", "type": "point", "x": cx - hw, "y": cy - hh},
+            {"id": "p2", "type": "point", "x": cx + hw, "y": cy - hh},
+            {"id": "p3", "type": "point", "x": cx + hw, "y": cy + hh},
+            {"id": "p4", "type": "point", "x": cx - hw, "y": cy + hh},
+            {"id": "l1", "type": "line", "p1_id": "p1", "p2_id": "p2"},
+            {"id": "l2", "type": "line", "p1_id": "p2", "p2_id": "p3"},
+            {"id": "l3", "type": "line", "p1_id": "p3", "p2_id": "p4"},
+            {"id": "l4", "type": "line", "p1_id": "p4", "p2_id": "p1"},
+        ],
+        "constraints": [],
+    }
+
+
+def _z_datums() -> list[dict[str, Any]]:
+    return [
+        {"id": "dxy", "kind": "XY", "name": "XY"},
+        {"id": "dz10", "kind": "offset", "name": "Z10", "offset": 10.0},
+        {"id": "dz30", "kind": "offset", "name": "Z30", "offset": 30.0},
+    ]
+
+
+def _loft_feature(
+    section_sketch_ids: list[str], ruled: bool, feature_id: str = "loft1"
+) -> dict[str, Any]:
+    return {
+        "id": feature_id,
+        "name": "loft",
+        "type": "loft",
+        "body": "body-1",
+        "params": {"sectionSketchIds": section_sketch_ids, "ruled": ruled},
+        "dependsOn": [],
+        "suppressed": False,
+    }
+
+
+def _helical_feature(
+    params: dict[str, Any], sketch_id: str = "sec", feature_id: str = "h1"
+) -> dict[str, Any]:
+    return {
+        "id": feature_id,
+        "name": "helix",
+        "type": "helicalSweep",
+        "body": "body-1",
+        "sketchId": sketch_id,
+        "params": params,
+        "dependsOn": [],
+        "suppressed": False,
+    }
+
+
+def _loft_doc(
+    section_sketches: list[dict[str, Any]],
+    ruled: bool = False,
+    features: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    doc = _document(
+        features
+        if features is not None
+        else [_loft_feature([s["id"] for s in section_sketches], ruled)],
+        sketches=section_sketches,
+        bodies=[{"id": "body-1", "name": "Body 1"}],
+    )
+    doc["datums"] = _z_datums()
+    return doc
+
+
+def test_loft_and_helical_sweep_require_build123d(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When build123d is unavailable, loft and helicalSweep raise the standard clear error."""
+    monkeypatch.setitem(sys.modules, "build123d", None)
+    monkeypatch.setattr(fb, "HAS_BUILD123D", False)
+    monkeypatch.setattr(fb, "bd", None)
+    loft_doc = _loft_doc(
+        [_offset_rect_sketch("r1", 0, 0, 40, 20), _offset_rect_sketch("r2", 0, 0, 20, 10, "dz30")]
+    )
+    with pytest.raises(fb.FeatureBuilderError, match="build123d is not available"):
+        fb.build_document_shape(loft_doc)
+    helix_doc = _document(
+        [_helical_feature({"axis": "Z", "startRadius": 20.0, "pitch": 5.0, "turns": 3.0})],
+        sketches=[_offset_rect_sketch("sec", 0, 0, 2, 2)],
+    )
+    with pytest.raises(fb.FeatureBuilderError, match="build123d is not available"):
+        fb.build_document_shape(helix_doc)
+
+
+def test_loft_sections_as_positioned_match_reference() -> None:
+    """A smooth loft between offset rectangles matches the same-wires reference."""
+    bd = pytest.importorskip("build123d", reason="build123d not installed")
+    import sketch_builder
+
+    sketches = [
+        _offset_rect_sketch("r1", 0, 0, 40, 20),
+        _offset_rect_sketch("r2", 5, 3, 30, 10, "dz10"),
+        _offset_rect_sketch("r3", 0, 0, 20, 12, "dz30"),
+    ]
+    doc = _loft_doc(sketches)
+    result = fb.build_document_shape(doc)
+    by_id = {r["featureId"]: r for r in result["featureResults"]}
+    assert by_id["loft1"]["status"] == "built", by_id["loft1"].get("error")
+    assert result["shape"] is not None
+    assert len(result["shape"].solids()) == 1
+
+    # Reference 1: the exact same section wires through the same ThruSections
+    # machinery must agree to numerical precision.
+    datums = {d["id"]: d for d in doc["datums"]}
+    wires = []
+    for sketch in sketches:
+        _plane, faces = sketch_builder.build_sketch_faces(sketch, datums)
+        wires.append(faces[0].outer_wire())
+    same_wires = bd.Solid.make_loft(wires, ruled=False)
+    assert same_wires.volume > 0.0
+    assert math.isclose(result["shape"].volume, same_wires.volume, rel_tol=1e-6)
+    assert np.allclose(
+        result["shape"].bounding_box().min.to_tuple(),
+        same_wires.bounding_box().min.to_tuple(),
+        atol=1e-6,
+    )
+    assert np.allclose(
+        result["shape"].bounding_box().max.to_tuple(),
+        same_wires.bounding_box().max.to_tuple(),
+        atol=1e-6,
+    )
+
+    # Reference 2: build123d's bd.loft on the same positioned sections. The
+    # wire seam ordering differs, so the smooth skin (and therefore volume)
+    # differs slightly; the result must stay close.
+    bd_faces = [
+        (bd.Plane.XY * bd.Rectangle(40, 20)).face(),
+        (bd.Plane.XY.offset(10) * bd.Pos(5, 3, 0) * bd.Rectangle(30, 10)).face(),
+        (bd.Plane.XY.offset(30) * bd.Rectangle(20, 12)).face(),
+    ]
+    reference = bd.loft(bd_faces, ruled=False)
+    assert math.isclose(result["shape"].volume, reference.volume, rel_tol=0.01)
+    assert np.allclose(
+        result["shape"].bounding_box().min.to_tuple(),
+        reference.bounding_box().min.to_tuple(),
+        atol=0.1,
+    )
+    assert np.allclose(
+        result["shape"].bounding_box().max.to_tuple(),
+        reference.bounding_box().max.to_tuple(),
+        atol=0.1,
+    )
+
+
+def test_loft_ruled_and_smooth_differ() -> None:
+    """On offset non-similar sections ruled and smooth lofts give different solids."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    sketches = [
+        _offset_rect_sketch("r1", 0, 0, 40, 20),
+        _offset_rect_sketch("r2", 5, 3, 30, 10, "dz10"),
+        _offset_rect_sketch("r3", 0, 0, 20, 12, "dz30"),
+    ]
+    smooth = fb.build_document_shape(_loft_doc(sketches, ruled=False))
+    ruled = fb.build_document_shape(_loft_doc(sketches, ruled=True))
+    assert smooth["shape"] is not None and ruled["shape"] is not None
+    smooth_volume = smooth["shape"].volume
+    ruled_volume = ruled["shape"].volume
+    assert smooth_volume > 0.0 and ruled_volume > 0.0
+    assert not math.isclose(smooth_volume, ruled_volume, rel_tol=1e-3)
+
+
+def test_loft_ruled_failure_suggests_ruled_false(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A ruled ThruSections failure is wrapped with the ruled=false hint."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    from OCP.BRepOffsetAPI import BRepOffsetAPI_ThruSections
+
+    def _exploding_build(self: Any) -> None:
+        raise RuntimeError("simulated ruled profile mismatch")
+
+    monkeypatch.setattr(BRepOffsetAPI_ThruSections, "Build", _exploding_build)
+    ruled = fb.build_document_shape(
+        _loft_doc(
+            [
+                _offset_rect_sketch("r1", 0, 0, 40, 20),
+                _offset_rect_sketch("r2", 0, 0, 20, 10, "dz30"),
+            ],
+            ruled=True,
+        )
+    )
+    by_id = {r["featureId"]: r for r in ruled["featureResults"]}
+    assert by_id["loft1"]["status"] == "failed"
+    assert "ruled=false" in by_id["loft1"]["error"]
+    assert "simulated ruled profile mismatch" in by_id["loft1"]["error"]
+    assert "loft1" in by_id["loft1"]["error"]
+
+    # The smooth variant of the same failure carries no ruled hint.
+    smooth = fb.build_document_shape(
+        _loft_doc(
+            [
+                _offset_rect_sketch("r1", 0, 0, 40, 20),
+                _offset_rect_sketch("r2", 0, 0, 20, 10, "dz30"),
+            ],
+            ruled=False,
+        )
+    )
+    by_id = {r["featureId"]: r for r in smooth["featureResults"]}
+    assert by_id["loft1"]["status"] == "failed"
+    assert "ruled=false" not in by_id["loft1"]["error"]
+
+
+def test_loft_multi_profile_section_is_named_error() -> None:
+    """A section sketch with two disjoint profiles fails naming the sketch."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    multi = _offset_rect_sketch("multi", -30, 0, 20, 20)
+    second = _offset_rect_sketch("multi_b", 20, 0, 20, 20)
+    multi["primitives"] = multi["primitives"] + [
+        {**p, "id": f"{p['id']}_b"} for p in second["primitives"]
+    ]
+    doc = _loft_doc([multi, _offset_rect_sketch("r1", 0, 0, 40, 20)])
+    result = fb.build_document_shape(doc)
+    by_id = {r["featureId"]: r for r in result["featureResults"]}
+    assert by_id["loft1"]["status"] == "failed"
+    assert "'multi'" in by_id["loft1"]["error"]
+    assert "multi-profile" in by_id["loft1"]["error"]
+
+
+def test_loft_multi_loop_section_is_named_error() -> None:
+    """A section sketch with a hole fails naming the sketch (holes unsupported)."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    holey = _offset_rect_sketch("holey", 0, 0, 40, 20)
+    holey["primitives"] = holey["primitives"] + [
+        {"id": "hc", "type": "point", "x": 0, "y": 0},
+        {"id": "hcirc", "type": "circle", "c_id": "hc", "radius": 5},
+    ]
+    doc = _loft_doc([holey, _offset_rect_sketch("r1", 0, 0, 40, 20)])
+    result = fb.build_document_shape(doc)
+    by_id = {r["featureId"]: r for r in result["featureResults"]}
+    assert by_id["loft1"]["status"] == "failed"
+    assert "'holey'" in by_id["loft1"]["error"]
+    assert "inner loops" in by_id["loft1"]["error"]
+
+
+def test_loft_requires_at_least_two_sections() -> None:
+    """Fewer than two section sketches is a per-feature failure."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    single = _loft_doc([_offset_rect_sketch("r1", 0, 0, 40, 20)])
+    result = fb.build_document_shape(single)
+    by_id = {r["featureId"]: r for r in result["featureResults"]}
+    assert by_id["loft1"]["status"] == "failed"
+    assert "at least 2 section sketches" in by_id["loft1"]["error"]
+
+
+def test_loft_dangling_section_sketch_is_named_error() -> None:
+    """A section sketch id that does not exist fails naming the id."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    doc = _loft_doc([_offset_rect_sketch("r1", 0, 0, 40, 20)])
+    doc["features"][0]["params"]["sectionSketchIds"] = ["r1", "nope"]
+    result = fb.build_document_shape(doc)
+    by_id = {r["featureId"]: r for r in result["featureResults"]}
+    assert by_id["loft1"]["status"] == "failed"
+    assert "'nope'" in by_id["loft1"]["error"]
+
+
+def test_loft_as_pattern_source() -> None:
+    """A loft is a valid pattern source; instances add to the body volume."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    sketches = [
+        _offset_rect_sketch("r1", 0, 0, 10, 10),
+        _offset_rect_sketch("r2", 0, 0, 10, 10, "dz30"),
+    ]
+    single = fb.build_document_shape(_loft_doc(sketches))
+    assert single["shape"] is not None
+    single_volume = single["shape"].volume
+
+    doc = _loft_doc(
+        sketches,
+        features=[
+            _loft_feature(["r1", "r2"], ruled=False),
+            {
+                "id": "pat",
+                "name": "linear pattern",
+                "type": "linearPattern",
+                "body": "body-1",
+                "params": {"source": "loft1", "count": 3, "spacing": 40.0, "axis": "x"},
+                "dependsOn": [],
+                "suppressed": False,
+            },
+        ],
+    )
+    result = fb.build_document_shape(doc)
+    by_id = {r["featureId"]: r for r in result["featureResults"]}
+    assert by_id["pat"]["status"] == "built", by_id["pat"].get("error")
+    assert result["shape"] is not None
+    assert math.isclose(result["shape"].volume, 3.0 * single_volume, rel_tol=1e-6)
+
+
+def test_loft_implied_dependencies_honor_section_sketches() -> None:
+    """A loft depends on the features its section sketches reference via topology."""
+    sketch_on_face = {
+        "id": "sec",
+        "name": "sec",
+        "datumId": "face-datum",
+        "primitives": _offset_rect_sketch("sec", 0, 0, 5, 5)["primitives"],
+        "constraints": [],
+        "externalRefs": [{"featureId": "base", "kind": "edge", "fingerprint": {}}],
+    }
+    sketches = {
+        "sec": sketch_on_face,
+    }
+    datums = {
+        "face-datum": {
+            "id": "face-datum",
+            "kind": "face",
+            "name": "Face",
+            "reference": {"featureId": "base", "kind": "face", "fingerprint": {}},
+        }
+    }
+    features = [
+        # "base" lives on another body so the same-body chain cannot mask the
+        # section-sketch topology edge.
+        {"id": "base", "type": "pad", "body": "body-0", "dependsOn": []},
+        {
+            "id": "loft1",
+            "type": "loft",
+            "body": "body-1",
+            "params": {"sectionSketchIds": ["sec", "other"], "ruled": False},
+            "dependsOn": [],
+        },
+    ]
+    edges = fb._compute_implied_dependencies(features, sketches, datums)
+    assert ("loft1", "base") in edges
+
+    # Without sketch/datum maps (direct callers) no section edges are added.
+    edges_bare = fb._compute_implied_dependencies(features)
+    assert ("loft1", "base") not in edges_bare
+    assert ("loft1", "base") in fb._compute_implied_dependencies(features, sketches, {})
+
+
+def test_helical_sweep_volume_and_height() -> None:
+    """A helical sweep's volume ~= section area x helix length; bbox height ~ pitch*turns + section."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    radius, pitch, turns = 20.0, 5.0, 3.0
+    doc = _document(
+        [_helical_feature({"axis": "Z", "startRadius": radius, "pitch": pitch, "turns": turns})],
+        sketches=[_offset_rect_sketch("sec", 0, 0, 2, 2)],
+    )
+    result = fb.build_document_shape(doc)
+    by_id = {r["featureId"]: r for r in result["featureResults"]}
+    assert by_id["h1"]["status"] == "built", by_id["h1"].get("error")
+    assert result["shape"] is not None
+    assert len(result["shape"].solids()) == 1
+
+    helix_length = turns * math.sqrt((2.0 * math.pi * radius) ** 2 + pitch**2)
+    expected = 4.0 * helix_length  # 2x2 square section
+    assert result["shape"].volume == pytest.approx(expected, rel=0.05)
+
+    bbox = result["shape"].bounding_box()
+    height = bbox.max.Z - bbox.min.Z
+    # The coil rises pitch*turns; each end cap tilts with the section frame,
+    # adding at most the section half-diagonal at either end.
+    section_reach = math.sqrt(2.0)
+    assert height == pytest.approx(pitch * turns, abs=2.0 * section_reach + 0.1)
+
+
+def test_helical_sweep_left_handed_is_mirror() -> None:
+    """Left-handed winding mirrors the right-handed coil; volume is unchanged."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    params = {"axis": "Z", "startRadius": 20.0, "pitch": 5.0, "turns": 3.0}
+    right = fb.build_document_shape(
+        _document([_helical_feature(params)], sketches=[_offset_rect_sketch("sec", 0, 0, 2, 2)])
+    )
+    left = fb.build_document_shape(
+        _document(
+            [_helical_feature({**params, "leftHanded": True})],
+            sketches=[_offset_rect_sketch("sec", 0, 0, 2, 2)],
+        )
+    )
+    assert right["shape"] is not None and left["shape"] is not None
+    assert left["shape"].volume == pytest.approx(right["shape"].volume, rel=1e-9)
+    right_bbox = right["shape"].bounding_box()
+    left_bbox = left["shape"].bounding_box()
+    # Mirrored across the XZ plane: y ranges negate.
+    assert math.isclose(right_bbox.min.Y, -left_bbox.max.Y, abs_tol=1e-4)
+    assert math.isclose(right_bbox.max.Y, -left_bbox.min.Y, abs_tol=1e-4)
+    assert math.isclose(right_bbox.min.X, left_bbox.min.X, abs_tol=1e-4)
+    assert math.isclose(right_bbox.max.X, left_bbox.max.X, abs_tol=1e-4)
+
+
+def test_helical_sweep_self_intersection_pre_check_fires() -> None:
+    """A fat section on a tightly coiled helix fails with the named curvature error."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    doc = _document(
+        [
+            _helical_feature(
+                {"axis": "Z", "startRadius": 5.0, "pitch": 5.0, "turns": 3.0},
+                sketch_id="fat",
+            )
+        ],
+        sketches=[_offset_rect_sketch("fat", 0, 0, 30, 30)],
+    )
+    result = fb.build_document_shape(doc)
+    by_id = {r["featureId"]: r for r in result["featureResults"]}
+    assert by_id["h1"]["status"] == "failed"
+    assert "too tightly curved" in by_id["h1"]["error"]
+    assert "h1" in by_id["h1"]["error"]
+
+
+def test_helical_sweep_rejects_bad_params() -> None:
+    """Non-positive helix params and bad orientation fail with clear errors."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    good = {"axis": "Z", "startRadius": 20.0, "pitch": 5.0, "turns": 3.0}
+    for bad_key, bad_value in (("axis", "z"), ("startRadius", 0.0), ("pitch", -1.0), ("turns", 0)):
+        doc = _document(
+            [_helical_feature({**good, bad_key: bad_value})],
+            sketches=[_offset_rect_sketch("sec", 0, 0, 2, 2)],
+        )
+        result = fb.build_document_shape(doc)
+        by_id = {r["featureId"]: r for r in result["featureResults"]}
+        assert by_id["h1"]["status"] == "failed", bad_key
+        assert "h1" in by_id["h1"]["error"]
+    bad_orientation = _document(
+        [_helical_feature({**good, "orientation": "parallel"})],
+        sketches=[_offset_rect_sketch("sec", 0, 0, 2, 2)],
+    )
+    result = fb.build_document_shape(bad_orientation)
+    by_id = {r["featureId"]: r for r in result["featureResults"]}
+    assert by_id["h1"]["status"] == "failed"
+    assert "orientation" in by_id["h1"]["error"]

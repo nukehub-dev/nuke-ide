@@ -170,6 +170,8 @@ export type FeatureType =
     | 'groove'
     | 'sweep'
     | 'pipe'
+    | 'loft'
+    | 'helicalSweep'
     | 'fillet'
     | 'chamfer'
     | 'draft'
@@ -190,6 +192,8 @@ export type SolidFeatureType =
     | 'groove'
     | 'sweep'
     | 'pipe'
+    | 'loft'
+    | 'helicalSweep'
     | 'fillet'
     | 'chamfer'
     | 'draft'
@@ -240,6 +244,32 @@ export interface PipeParams {
     orientation: SweepOrientation;
     /** Locked binormal direction; required iff orientation is 'fixedBinormal'. */
     binormal?: readonly [number, number, number];
+}
+
+/** Parameters for a loft: ordered sketch sections joined into a single solid. */
+export interface LoftParams {
+    /** Ordered section sketch ids (>= 2); sections are used as positioned on their datums. */
+    readonly sectionSketchIds: readonly string[];
+    /** Ruled (straight) skin between sections; default false = smooth. */
+    readonly ruled: boolean;
+}
+
+/** Parameters for a helical sweep: a sketch section swept along an analytic helix. */
+export interface HelicalSweepParams {
+    /** Origin-aligned helix axis. */
+    readonly axis: 'X' | 'Y' | 'Z';
+    /** Distance from the axis to the helix start; must be positive. */
+    readonly startRadius: number;
+    /** Axial rise per turn; must be positive. */
+    readonly pitch: number;
+    /** Number of turns; must be positive. Height = pitch * turns (derived, not stored). */
+    readonly turns: number;
+    /** Flip the winding direction; default false. */
+    readonly leftHanded?: boolean;
+    /** Section frame behavior along the helix; default 'fixedBinormal'. */
+    readonly orientation: SweepOrientation;
+    /** Locked binormal direction; defaults to the axis unit vector for 'fixedBinormal'. */
+    readonly binormal?: readonly [number, number, number];
 }
 
 /** Parameters for fillet/chamfer. */
@@ -329,6 +359,8 @@ export type FeatureParams =
     | RevolveParams
     | SweepParams
     | PipeParams
+    | LoftParams
+    | HelicalSweepParams
     | FilletParams
     | ShellParams
     | DraftParams
@@ -592,6 +624,8 @@ function validateFeature(ctx: MutableValidationContext, feature: FeatureDef, ind
         'groove',
         'sweep',
         'pipe',
+        'loft',
+        'helicalSweep',
         'fillet',
         'chamfer',
         'draft',
@@ -706,6 +740,62 @@ function validateFeatureParams(ctx: MutableValidationContext, path: string, type
             }
             validateSweepOrientation(ctx, path, p);
             break;
+        case 'loft': {
+            const sectionSketchIds = p.sectionSketchIds;
+            if (!Array.isArray(sectionSketchIds) || sectionSketchIds.length < 2) {
+                issue(ctx, `${path}.sectionSketchIds`, 'loft requires at least 2 section sketch ids');
+            } else {
+                const seen = new Set<string>();
+                for (const [i, sid] of sectionSketchIds.entries()) {
+                    if (!isString(sid) || sid.length === 0) {
+                        issue(ctx, `${path}.sectionSketchIds[${i}]`, 'section sketch id must be a non-empty string');
+                    } else if (seen.has(sid)) {
+                        issue(ctx, `${path}.sectionSketchIds[${i}]`, `duplicate section sketch id '${sid}'`);
+                    } else {
+                        seen.add(sid);
+                    }
+                }
+            }
+            if (typeof p.ruled !== 'boolean') {
+                issue(ctx, `${path}.ruled`, 'ruled must be a boolean');
+            }
+            break;
+        }
+        case 'helicalSweep': {
+            if (p.axis !== 'X' && p.axis !== 'Y' && p.axis !== 'Z') {
+                issue(ctx, `${path}.axis`, "axis must be 'X', 'Y' or 'Z'");
+            }
+            for (const name of ['startRadius', 'pitch', 'turns'] as const) {
+                if (!isFiniteNumber(p[name]) || (p[name] as number) <= 0) {
+                    issue(ctx, `${path}.${name}`, `${name} is required and must be a positive finite number`);
+                }
+            }
+            if (p.leftHanded !== undefined && typeof p.leftHanded !== 'boolean') {
+                issue(ctx, `${path}.leftHanded`, 'leftHanded must be a boolean when present');
+            }
+            if (p.orientation !== 'frenet' && p.orientation !== 'fixedBinormal') {
+                issue(ctx, `${path}.orientation`, "orientation must be 'frenet' or 'fixedBinormal'");
+            } else if (p.orientation === 'fixedBinormal' && p.binormal !== undefined) {
+                // Unlike sweep, a fixedBinormal helical sweep may omit the binormal
+                // (it defaults to the axis unit vector); when present it must be non-zero.
+                const binormal = p.binormal;
+                const isNonZeroVector =
+                    Array.isArray(binormal) &&
+                    binormal.length === 3 &&
+                    binormal.every((v: unknown) => isFiniteNumber(v)) &&
+                    !(binormal[0] === 0 && binormal[1] === 0 && binormal[2] === 0);
+                if (!isNonZeroVector) {
+                    issue(ctx, `${path}.binormal`, 'binormal must be a non-zero [x, y, z] vector');
+                }
+            } else if (p.binormal !== undefined) {
+                const isVector =
+                    Array.isArray(p.binormal) && p.binormal.length === 3 && p.binormal.every((v: unknown) => isFiniteNumber(v));
+                if (!isVector) {
+                    issue(ctx, `${path}.binormal`, 'binormal must be a [x, y, z] tuple of finite numbers');
+                }
+            }
+            break;
+        }
         case 'fillet':
             if (!Array.isArray(p.edges) || p.edges.length === 0) {
                 issue(ctx, `${path}.edges`, 'edges must be a non-empty array of TopologyRefs');
@@ -1141,6 +1231,16 @@ export function validateNukeCadDocument(doc: NukeCadDocument): ValidationResult 
             const p = f.params as Record<string, unknown>;
             if (isString(p.pathCurveId) && p.pathCurveId.length > 0 && !curveIds.has(p.pathCurveId)) {
                 issue(ctx, `features[${i}].params.pathCurveId`, `unknown curve '${p.pathCurveId}'`);
+            }
+        }
+        if (f.type === 'loft') {
+            const p = f.params as Record<string, unknown>;
+            if (Array.isArray(p.sectionSketchIds)) {
+                for (const [j, sid] of p.sectionSketchIds.entries()) {
+                    if (isString(sid) && sid.length > 0 && !sketchIds.has(sid)) {
+                        issue(ctx, `features[${i}].params.sectionSketchIds[${j}]`, `unknown sketch '${sid}'`);
+                    }
+                }
             }
         }
         if (f.type === 'hole') {

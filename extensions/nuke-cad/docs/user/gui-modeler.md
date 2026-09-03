@@ -245,6 +245,9 @@ commands in the Feature Tree:
 - **Sweep** — sweep a sketch section along a 3D curve.
 - **Pipe** — sweep a circular section of a given radius along a 3D curve (no
   sketch required).
+- **Loft** — join two or more ordered sketch sections into a single solid.
+- **Helical Sweep** — sweep a sketch section along an analytic helix (spring,
+  coil, or twisted path).
 - **Boolean Fuse** — union one or more tool bodies into a target body.
 - **Boolean Cut** — subtract one or more tool bodies from a target body.
 - **Boolean Common** — intersect a target body with one or more tool bodies.
@@ -321,9 +324,9 @@ reports `ambiguous` or `unmatched` status in the Feature Tree if it cannot.
 ## Patterns
 
 Patterns replicate an existing solid feature (`pad`, `pocket`, `revolve`,
-`groove`, `sweep`, or `pipe`) on the same body. The source feature must be
-earlier in the document order, and the pattern feature itself targets the
-source's body.
+`groove`, `sweep`, `pipe`, `loft`, or `helicalSweep`) on the same body. The
+source feature must be earlier in the document order, and the pattern feature
+itself targets the source's body.
 
 ### Linear pattern
 
@@ -360,7 +363,8 @@ the sweep angle and requires count ≥ 2.
 3. Click **Create**.
 
 The mirrored copy is appended for additive sources
-(`pad`/`revolve`/`sweep`/`pipe`) or cut for subtractive sources
+(`pad`/`revolve`/`sweep`/`pipe`/`loft`/`helicalSweep`) or cut for subtractive
+sources
 (`pocket`/`groove`). Overlapping mirror copies of additive
 sources fail with the same clear overlap error as overlapping additive features.
 
@@ -420,6 +424,66 @@ Pipe is a sweep with a circular section — no sketch needed.
 2. Enter the **Radius**.
 3. Choose the **Orientation** as for sweep.
 4. Click **Create**.
+
+## Loft and helical sweep
+
+Loft and helical sweep build solids without a document curve: a loft joins
+ordered sketch sections, and a helical sweep derives its path from parameters.
+Both are additive-only (they can start a new body or fuse into an existing
+one) and can be replicated by patterns and mirror like any other solid
+feature.
+
+### Loft
+
+A loft joins two or more sketch sections into a single solid. Unlike sweep,
+the sections are used **as positioned** on their datum planes — sketch on an
+offset datum to place that section in space.
+
+1. Click **Loft** in the Additive toolbar group (no sketch selection needed).
+2. Build the ordered **Sections** list: pick document sketches from the
+   **Add section…** dropdown, remove a row with its × button, and reorder
+   sections with the up/down buttons. Sections are joined in list order.
+3. Choose the skin:
+   - unchecked (default) — a smooth skin blends between the sections.
+   - **Ruled** — a straight skin runs between the sections; it requires
+     compatible profiles (matching vertex counts) and fails with a clear
+     error otherwise — try the smooth skin.
+4. Choose the target body (**New body** or an existing one) and click
+   **Create**.
+
+Each section must be a single closed profile without inner loops (a sketch
+with holes fails with a named error). A section-sketch edit dirties the loft
+exactly like a sketch edit dirties a pad, and a sketch used as a section
+cannot be deleted until the loft is removed.
+
+Optionally enable **Preview** to ghost the lofted solid in the viewport while
+you edit. The preview builds the tentative feature — all section sketches plus
+the draft loft — through the normal geometry pipeline.
+
+### Helical Sweep
+
+A helical sweep sweeps a sketch section along an analytic helix — springs,
+coils, or twisted paths — generated from parameters rather than a document
+curve.
+
+1. Select a closed sketch — it becomes the section profile.
+2. Click **Helical Sweep** in the Additive toolbar group.
+3. Choose the helix **Axis** (`X`, `Y`, or `Z` through the origin).
+4. Enter **Start radius** (distance from the axis to the helix start),
+   **Pitch** (axial rise per turn), and **Turns**. The swept height is
+   `pitch × turns`.
+5. Optionally check **Left-handed** to flip the winding direction.
+6. Choose the **Orientation**:
+   - **Fixed binormal** (default) — the section keeps its attitude like a
+     stretched spring (no roll); the binormal vector is prefilled to the axis
+     direction and can be edited.
+   - **Frenet** — the section frame follows the helix, twisting the profile
+     along the path.
+7. Optionally enable **Preview** to ghost the swept solid while you edit.
+8. Click **Create**.
+
+The section is automatically repositioned to the helix start; like sweep, a
+section wider than the coil radius fails with the self-intersection error.
 
 ## 3D curves
 

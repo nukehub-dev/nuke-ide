@@ -347,11 +347,11 @@ export class CadViewportWidget extends ReactWidget {
         }
         const paramsRecord = params as Record<string, unknown>;
 
-        // Boolean, dress-up, pattern/mirror/hole, and pipe features do not consume a sketch.
+        // Boolean, dress-up, pattern/mirror/hole, pipe, and loft features do not consume a sketch.
         const isBoolean = type === 'booleanFuse' || type === 'booleanCut' || type === 'booleanCommon';
         const isDressUp = type === 'fillet' || type === 'chamfer' || type === 'draft' || type === 'shell';
         const isPatternOrMirrorOrHole = type === 'linearPattern' || type === 'circularPattern' || type === 'mirror' || type === 'hole';
-        const sketchFree = isBoolean || isDressUp || isPatternOrMirrorOrHole || type === 'pipe';
+        const sketchFree = isBoolean || isDressUp || isPatternOrMirrorOrHole || type === 'pipe' || type === 'loft';
         const sketchId = sketchFree ? undefined : this.documentStore.selection.selectedSketchId;
         if (!sketchFree && sketchId === undefined) {
             this.messageService.warn('Select a closed sketch before adding a solid feature.');
@@ -365,7 +365,8 @@ export class CadViewportWidget extends ReactWidget {
             bodyId = typeof paramsRecord.bodyId === 'string' ? paramsRecord.bodyId : undefined;
         }
 
-        const isAdditive = type === 'pad' || type === 'revolve' || type === 'sweep' || type === 'pipe';
+        const isAdditive =
+            type === 'pad' || type === 'revolve' || type === 'sweep' || type === 'pipe' || type === 'loft' || type === 'helicalSweep';
         if (bodyId === undefined && isAdditive) {
             // Create a new body for the additive feature.
             const label = typeof paramsRecord.label === 'string' ? paramsRecord.label : undefined;
@@ -822,6 +823,7 @@ export class CadViewportWidget extends ReactWidget {
             !isDressUp &&
             !isPatternOrMirrorOrHole &&
             type !== 'pipe' &&
+            type !== 'loft' &&
             this.documentStore.selection.selectedSketchId === undefined
         ) {
             this.messageService.warn('Select a closed sketch in the feature tree before adding a solid feature.');

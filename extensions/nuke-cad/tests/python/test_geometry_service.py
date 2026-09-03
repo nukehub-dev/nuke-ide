@@ -539,11 +539,11 @@ def test_build_document_rejects_unsupported_feature_type(tmp_path: Path) -> None
     doc_path = tmp_path / "bad.nuke-cad"
     _write_minimal_document(doc_path)
     doc = json.loads(doc_path.read_text())
-    doc["features"][0]["type"] = "loft"
+    doc["features"][0]["type"] = "thread"
     doc_path.write_text(json.dumps(doc), encoding="utf-8")
     result = geometry_service.build_document(str(doc_path), output_dir=str(tmp_path))
     assert result["success"] is False
-    assert "unsupported type 'loft'" in result["error"]
+    assert "unsupported type 'thread'" in result["error"]
 
 
 def test_build_document_rejects_missing_sketch_id(tmp_path: Path) -> None:
@@ -656,6 +656,105 @@ def test_build_document_rejects_pipe_non_positive_radius(tmp_path: Path) -> None
     result = geometry_service.build_document(str(doc_path), output_dir=str(tmp_path))
     assert result["success"] is False
     assert "pipe) requires a positive radius" in result["error"]
+
+
+def _add_second_sketch(doc: dict, sketch_id: str = "rect-2") -> dict:
+    """Clone the minimal document's rect sketch under a second id."""
+    rect = next(s for s in doc["sketches"] if s["id"] == "rect")
+    second = json.loads(json.dumps(rect))
+    second["id"] = sketch_id
+    second["name"] = sketch_id
+    doc["sketches"].append(second)
+    return doc
+
+
+def test_build_document_rejects_loft_without_sections(tmp_path: Path) -> None:
+    doc_path = tmp_path / "bad.nuke-cad"
+    _write_minimal_document(doc_path)
+    doc = json.loads(doc_path.read_text())
+    doc["features"][0] = {
+        "id": "l1",
+        "name": "l1",
+        "type": "loft",
+        "body": "body-1",
+        "params": {"sectionSketchIds": ["rect"], "ruled": False},
+        "dependsOn": [],
+        "suppressed": False,
+    }
+    doc_path.write_text(json.dumps(doc), encoding="utf-8")
+    result = geometry_service.build_document(str(doc_path), output_dir=str(tmp_path))
+    assert result["success"] is False
+    assert "loft) requires at least 2 section sketches" in result["error"]
+
+
+def test_build_document_rejects_loft_unknown_section_sketch(tmp_path: Path) -> None:
+    doc_path = tmp_path / "bad.nuke-cad"
+    _write_minimal_document(doc_path)
+    doc = _add_second_sketch(json.loads(doc_path.read_text()))
+    doc["features"][0] = {
+        "id": "l1",
+        "name": "l1",
+        "type": "loft",
+        "body": "body-1",
+        "params": {"sectionSketchIds": ["rect", "nope"], "ruled": False},
+        "dependsOn": [],
+        "suppressed": False,
+    }
+    doc_path.write_text(json.dumps(doc), encoding="utf-8")
+    result = geometry_service.build_document(str(doc_path), output_dir=str(tmp_path))
+    assert result["success"] is False
+    assert "references unknown sketch 'nope'" in result["error"]
+
+
+def test_build_document_rejects_helical_sweep_missing_sketch(tmp_path: Path) -> None:
+    doc_path = tmp_path / "bad.nuke-cad"
+    _write_minimal_document(doc_path)
+    doc = json.loads(doc_path.read_text())
+    doc["features"][0] = {
+        "id": "h1",
+        "name": "h1",
+        "type": "helicalSweep",
+        "body": "body-1",
+        "params": {"axis": "Z", "startRadius": 20.0, "pitch": 5.0, "turns": 3.0},
+        "dependsOn": [],
+        "suppressed": False,
+    }
+    doc_path.write_text(json.dumps(doc), encoding="utf-8")
+    result = geometry_service.build_document(str(doc_path), output_dir=str(tmp_path))
+    assert result["success"] is False
+    assert "helicalSweep) requires a sketchId" in result["error"]
+
+
+def test_build_document_rejects_helical_sweep_bad_params(tmp_path: Path) -> None:
+    doc_path = tmp_path / "bad.nuke-cad"
+    _write_minimal_document(doc_path)
+    doc = json.loads(doc_path.read_text())
+    doc["features"][0] = {
+        "id": "h1",
+        "name": "h1",
+        "type": "helicalSweep",
+        "body": "body-1",
+        "sketchId": "rect",
+        "params": {"axis": "z", "startRadius": 20.0, "pitch": 5.0, "turns": 3.0},
+        "dependsOn": [],
+        "suppressed": False,
+    }
+    doc_path.write_text(json.dumps(doc), encoding="utf-8")
+    result = geometry_service.build_document(str(doc_path), output_dir=str(tmp_path))
+    assert result["success"] is False
+    assert "helicalSweep) requires axis 'X', 'Y', or 'Z'" in result["error"]
+
+    doc = json.loads(doc_path.read_text())
+    doc["features"][0]["params"] = {
+        "axis": "Z",
+        "startRadius": 20.0,
+        "pitch": -5.0,
+        "turns": 3.0,
+    }
+    doc_path.write_text(json.dumps(doc), encoding="utf-8")
+    result = geometry_service.build_document(str(doc_path), output_dir=str(tmp_path))
+    assert result["success"] is False
+    assert "helicalSweep) requires a positive pitch" in result["error"]
 
 
 def test_build_document_sweep_and_pipe_build(tmp_path: Path) -> None:

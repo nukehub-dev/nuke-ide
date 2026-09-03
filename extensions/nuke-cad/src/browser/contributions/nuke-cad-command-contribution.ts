@@ -226,7 +226,9 @@ export class NukeCadCommandContribution implements CommandContribution {
             }
         });
 
-        const addFeature = async (type: 'pad' | 'pocket' | 'revolve' | 'groove' | 'sweep' | 'pipe'): Promise<void> => {
+        const addFeature = async (
+            type: 'pad' | 'pocket' | 'revolve' | 'groove' | 'sweep' | 'pipe' | 'loft' | 'helicalSweep'
+        ): Promise<void> => {
             const widget = await this.widgetManager.getWidget<CadViewportWidget>(CadViewportWidget.ID);
             widget?.startFeatureCreation(type);
         };
@@ -248,6 +250,12 @@ export class NukeCadCommandContribution implements CommandContribution {
         });
         commands.registerCommand(NukeCadCommands.ADD_FEATURE_PIPE, {
             execute: () => void addFeature('pipe')
+        });
+        commands.registerCommand(NukeCadCommands.ADD_FEATURE_LOFT, {
+            execute: () => void addFeature('loft')
+        });
+        commands.registerCommand(NukeCadCommands.ADD_FEATURE_HELICAL_SWEEP, {
+            execute: () => void addFeature('helicalSweep')
         });
 
         commands.registerCommand(NukeCadCommands.EDIT_FEATURE, {

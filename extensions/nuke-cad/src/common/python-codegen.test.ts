@@ -579,3 +579,170 @@ describe('generatePythonScript sweep/pipe emission', () => {
         expect(generatePythonScript(sweepDocument())).toMatchSnapshot();
     });
 });
+
+function loftHelixDocument(): NukeCadDocument {
+    const rectangle = (id: string, name: string): import('./cad-document').SketchDef => ({
+        id,
+        name,
+        datumId: 'xy',
+        constraints: [],
+        primitives: [
+            { id: `${id}_p1`, type: 'point', x: 0, y: 0 },
+            { id: `${id}_p2`, type: 'point', x: 2, y: 0 },
+            { id: `${id}_p3`, type: 'point', x: 2, y: 1 },
+            { id: `${id}_p4`, type: 'point', x: 0, y: 1 },
+            { id: `${id}_l1`, type: 'line', p1_id: `${id}_p1`, p2_id: `${id}_p2` },
+            { id: `${id}_l2`, type: 'line', p1_id: `${id}_p2`, p2_id: `${id}_p3` },
+            { id: `${id}_l3`, type: 'line', p1_id: `${id}_p3`, p2_id: `${id}_p4` },
+            { id: `${id}_l4`, type: 'line', p1_id: `${id}_p4`, p2_id: `${id}_p1` }
+        ]
+    });
+    return {
+        version: NUKE_CAD_SCHEMA_VERSION,
+        name: 'loft helix export',
+        parameters: {},
+        datums: [{ id: 'xy', kind: 'XY', name: 'XY' }],
+        bodies: [{ id: 'b1', name: 'Transition' }],
+        sketches: [rectangle('sk_lo_a', 'Loft A'), rectangle('sk_lo_b', 'Loft B'), rectangle('sk_sec', 'Spring section')],
+        features: [
+            {
+                id: 'loft_1',
+                name: 'Transition loft',
+                type: 'loft',
+                body: 'b1',
+                params: { sectionSketchIds: ['sk_lo_a', 'sk_lo_b'], ruled: true } as FeatureDef['params'],
+                suppressed: false,
+                dependsOn: []
+            },
+            {
+                id: 'helix_1',
+                name: 'Spring sweep',
+                type: 'helicalSweep',
+                body: 'b1',
+                sketchId: 'sk_sec',
+                params: {
+                    axis: 'Z',
+                    startRadius: 5,
+                    pitch: 2,
+                    turns: 3,
+                    leftHanded: false,
+                    orientation: 'fixedBinormal',
+                    binormal: [0, 0, 1]
+                } as FeatureDef['params'],
+                suppressed: false,
+                dependsOn: ['loft_1']
+            },
+            {
+                id: 'helix_frenet',
+                name: 'Twisted sweep',
+                type: 'helicalSweep',
+                body: 'b1',
+                sketchId: 'sk_sec',
+                params: {
+                    axis: 'Y',
+                    startRadius: 2,
+                    pitch: 1,
+                    turns: 2,
+                    leftHanded: true,
+                    orientation: 'frenet'
+                } as FeatureDef['params'],
+                suppressed: false,
+                dependsOn: ['helix_1']
+            }
+        ],
+        curves: []
+    };
+}
+
+describe('generatePythonScript loft/helicalSweep emission', () => {
+    it('emits a loft over its ordered section sketches with the ruled flag', () => {
+        const script = generatePythonScript(loftHelixDocument());
+        expect(script).toContain(
+            'body_Transition = body_Transition + bd.loft([sketch_Loft_A_sk_lo_a(), sketch_Loft_B_sk_lo_b()], ruled=True) ' +
+                'if body_Transition is not None else bd.loft([sketch_Loft_A_sk_lo_a(), sketch_Loft_B_sk_lo_b()], ruled=True)  # Transition loft'
+        );
+    });
+
+    it('emits a helical sweep as bd.Helix plus the sweep plane and bd.sweep', () => {
+        const script = generatePythonScript(loftHelixDocument());
+        expect(script).toContain('_helix_helix_1 = bd.Helix(pitch=2, height=6, radius=5, direction=(0, 0, 1), lefthand=False)');
+        expect(script).toContain('_sweep_plane_helix_1 = bd.Plane(_helix_helix_1 @ 0, z_dir=_helix_helix_1.tangent_at(0))');
+        expect(script).toContain(
+            'bd.sweep(sketch_Spring_section_sk_sec().moved(' +
+                '_sweep_plane_helix_1.location * datum_XY_xy.location.inverse), path=_helix_helix_1)'
+        );
+    });
+
+    it('keeps the fixedBinormal TODO hatch for helical sweeps', () => {
+        const script = generatePythonScript(loftHelixDocument());
+        const hatch = '# TODO(manual): binormal-locked orientation — "Spring sweep" sweeps with a fixed binormal [0,0,1];';
+        expect(script).toContain(hatch);
+    });
+
+    it('emits a left-handed frenet helical sweep without a binormal hatch', () => {
+        const script = generatePythonScript(loftHelixDocument());
+        expect(script).toContain('_helix_helix_frenet = bd.Helix(pitch=1, height=2, radius=2, direction=(0, 1, 0), lefthand=True)');
+        expect(script).toContain('path=_helix_helix_frenet)');
+        const frenetSection = script.slice(script.indexOf('Twisted sweep'));
+        expect(frenetSection).not.toContain('binormal-locked orientation');
+    });
+
+    it('degrades a loft with a face-datum section to a manual TODO', () => {
+        const doc = loftHelixDocument();
+        doc.sketches[1] = {
+            ...doc.sketches[1],
+            datumId: 'face-datum'
+        };
+        doc.datums.push({
+            id: 'face-datum',
+            kind: 'face',
+            name: 'Face datum',
+            reference: {
+                featureId: 'loft_1',
+                kind: 'face',
+                fingerprint: { surfaceType: 'plane', area: 4, center: [0, 0, 0], normal: [0, 0, 1] }
+            }
+        });
+        const script = generatePythonScript(doc);
+        expect(script).toContain('# TODO(manual): loft feature "Transition loft"');
+        expect(script).not.toContain('bd.loft(');
+    });
+
+    it('accepts loft and helicalSweep as pattern/mirror sources', () => {
+        const doc = loftHelixDocument();
+        doc.features.push(
+            {
+                id: 'pat_loft',
+                name: 'Loft pattern',
+                type: 'circularPattern',
+                body: 'b1',
+                params: { source: 'loft_1', count: 3, angle: 360, axis: 'z' } as FeatureDef['params'],
+                suppressed: false,
+                dependsOn: ['helix_frenet']
+            },
+            {
+                id: 'mir_helix',
+                name: 'Helix mirror',
+                type: 'mirror',
+                body: 'b1',
+                params: { source: 'helix_1', plane: 'XZ' } as FeatureDef['params'],
+                suppressed: false,
+                dependsOn: ['helix_frenet']
+            }
+        );
+        const script = generatePythonScript(doc);
+        // Loft source: re-derived in section order, additive op.
+        expect(script).toContain('_tool_pat_loft = bd.loft([sketch_Loft_A_sk_lo_a(), sketch_Loft_B_sk_lo_b()], ruled=True)');
+        expect(script).toContain('body_Transition = body_Transition + _tool_pat_loft.rotate(bd.Axis.Z, _k * 120)');
+        // Helical sweep source: the helix lines precede the tool assignment.
+        expect(script).toContain('_helix_helix_1 = bd.Helix(');
+        expect(script).toContain(
+            'body_Transition = body_Transition + bd.sweep(sketch_Spring_section_sk_sec().moved(' +
+                '_sweep_plane_helix_1.location * datum_XY_xy.location.inverse), path=_helix_helix_1).mirror(bd.Plane.XZ)'
+        );
+    });
+
+    it('matches the snapshot for the loft/helicalSweep document', () => {
+        expect(generatePythonScript(loftHelixDocument())).toMatchSnapshot();
+    });
+});

@@ -1185,6 +1185,8 @@ def _validate_document_refs(document: dict[str, Any], source_file: Path) -> dict
             "groove",
             "sweep",
             "pipe",
+            "loft",
+            "helicalSweep",
             "fillet",
             "chamfer",
             "draft",
@@ -1367,6 +1369,45 @@ def _validate_document_refs(document: dict[str, Any], source_file: Path) -> dict
         if feature_type in ("linearPattern", "circularPattern", "mirror", "hole"):
             continue
 
+        if feature_type == "loft":
+            params = feature.get("params", {}) if isinstance(feature.get("params"), dict) else {}
+            section_sketch_ids = params.get("sectionSketchIds")
+            if not isinstance(section_sketch_ids, list) or len(section_sketch_ids) < 2:
+                return {
+                    "success": False,
+                    "error": f"Feature '{fid}' (loft) requires at least 2 section sketches",
+                    "scriptPath": str(source_file),
+                }
+            seen_sections: set[str] = set()
+            for j, section_id in enumerate(section_sketch_ids):
+                if not isinstance(section_id, str) or not section_id:
+                    return {
+                        "success": False,
+                        "error": f"Feature '{fid}' section sketch id at sectionSketchIds[{j}] must be a non-empty string",
+                        "scriptPath": str(source_file),
+                    }
+                if section_id in seen_sections:
+                    return {
+                        "success": False,
+                        "error": f"Feature '{fid}' references duplicate section sketch '{section_id}'",
+                        "scriptPath": str(source_file),
+                    }
+                seen_sections.add(section_id)
+                if section_id not in sketch_ids:
+                    return {
+                        "success": False,
+                        "error": f"Feature '{fid}' references unknown sketch '{section_id}' at sectionSketchIds[{j}]",
+                        "scriptPath": str(source_file),
+                    }
+            ruled = params.get("ruled", False)
+            if not isinstance(ruled, bool):
+                return {
+                    "success": False,
+                    "error": f"Feature '{fid}' (loft) requires ruled to be a boolean",
+                    "scriptPath": str(source_file),
+                }
+            continue
+
         if feature_type in ("sweep", "pipe"):
             params = feature.get("params", {}) if isinstance(feature.get("params"), dict) else {}
             path_curve_id = params.get("pathCurveId")
@@ -1467,6 +1508,61 @@ def _validate_document_refs(document: dict[str, Any], source_file: Path) -> dict
                 return {
                     "success": False,
                     "error": (f"Feature '{fid}' ({feature_type}) requires angle in (0, 360]"),
+                    "scriptPath": str(source_file),
+                }
+        elif feature_type == "helicalSweep":
+            axis = params.get("axis")
+            if axis not in ("X", "Y", "Z"):
+                return {
+                    "success": False,
+                    "error": (f"Feature '{fid}' (helicalSweep) requires axis 'X', 'Y', or 'Z'"),
+                    "scriptPath": str(source_file),
+                }
+            for name in ("startRadius", "pitch", "turns"):
+                value = params.get(name)
+                if (
+                    not isinstance(value, (int, float))
+                    or isinstance(value, bool)
+                    or not math.isfinite(value)
+                    or value <= 0
+                ):
+                    return {
+                        "success": False,
+                        "error": (f"Feature '{fid}' (helicalSweep) requires a positive {name}"),
+                        "scriptPath": str(source_file),
+                    }
+            orientation = params.get("orientation", "fixedBinormal")
+            if orientation not in ("frenet", "fixedBinormal"):
+                return {
+                    "success": False,
+                    "error": (
+                        f"Feature '{fid}' (helicalSweep) requires orientation 'frenet' or 'fixedBinormal'"
+                    ),
+                    "scriptPath": str(source_file),
+                }
+            # Unlike sweep, the binormal may be omitted (it defaults to the axis
+            # unit vector); when present it must be a non-zero vector.
+            if orientation == "fixedBinormal" and params.get("binormal") is not None:
+                binormal = params.get("binormal")
+                if (
+                    not isinstance(binormal, (list, tuple))
+                    or len(binormal) != 3
+                    or not all(
+                        isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+                        for v in binormal
+                    )
+                    or (binormal[0] == 0 and binormal[1] == 0 and binormal[2] == 0)
+                ):
+                    return {
+                        "success": False,
+                        "error": f"Feature '{fid}' (helicalSweep) requires a non-zero binormal [x, y, z]",
+                        "scriptPath": str(source_file),
+                    }
+            left_handed = params.get("leftHanded", False)
+            if not isinstance(left_handed, bool):
+                return {
+                    "success": False,
+                    "error": f"Feature '{fid}' (helicalSweep) requires leftHanded to be a boolean",
                     "scriptPath": str(source_file),
                 }
 

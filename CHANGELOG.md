@@ -53,6 +53,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- nuke-cad: **loft and helical sweep features** — a **Loft** joins two or more
+  ordered sketch sections into a single solid (sections picked in-dialog with
+  up/down reordering, used as positioned on their datums; optional ruled skin),
+  and a **Helical Sweep** sweeps a selected sketch section along an analytic
+  helix derived from axis, start radius, pitch, and turns (optional
+  left-handed winding; Frenet or fixed-binormal orientation, the latter
+  prefilled to the axis direction). Both are additive-only, offer the ghosted
+  **Preview** while editing, can be replicated by patterns and mirror, and are
+  exported by **Export as Python** (`bd.loft(...)` / `bd.Helix(...)` +
+  `bd.sweep(...)`).
 - nuke-cad: **sweep and pipe features** — sweep a selected sketch section (or a
   circular pipe of a given radius, no sketch needed) along a 3D curve. The
   dialog picks the path curve from a dropdown or directly in the viewport

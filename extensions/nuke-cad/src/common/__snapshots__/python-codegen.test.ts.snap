@@ -68,6 +68,64 @@ for _k in range(1, 3):
 "
 `;
 
+exports[`generatePythonScript loft/helicalSweep emission > matches the snapshot for the loft/helicalSweep document 1`] = `
+"# Generated from "loft helix export" by NukeIDE nuke-cad
+# This is a one-way export; it is NOT re-importable.
+
+import build123d as bd
+
+# Datums
+datum_XY_xy = bd.Plane.XY  # XY
+
+# Sketches
+def sketch_Loft_A_sk_lo_a():
+    with bd.BuildSketch(datum_XY_xy) as sk:
+        with bd.BuildLine():
+            bd.Line((0, 0), (2, 0))
+            bd.Line((2, 0), (2, 1))
+            bd.Line((2, 1), (0, 1))
+            bd.Line((0, 1), (0, 0))
+        bd.make_face()
+    return sk.sketch
+
+def sketch_Loft_B_sk_lo_b():
+    with bd.BuildSketch(datum_XY_xy) as sk:
+        with bd.BuildLine():
+            bd.Line((0, 0), (2, 0))
+            bd.Line((2, 0), (2, 1))
+            bd.Line((2, 1), (0, 1))
+            bd.Line((0, 1), (0, 0))
+        bd.make_face()
+    return sk.sketch
+
+def sketch_Spring_section_sk_sec():
+    with bd.BuildSketch(datum_XY_xy) as sk:
+        with bd.BuildLine():
+            bd.Line((0, 0), (2, 0))
+            bd.Line((2, 0), (2, 1))
+            bd.Line((2, 1), (0, 1))
+            bd.Line((0, 1), (0, 0))
+        bd.make_face()
+    return sk.sketch
+
+# Curves
+# No curves defined.
+
+# Bodies
+body_Transition = None  # Transition
+
+# Features
+body_Transition = body_Transition + bd.loft([sketch_Loft_A_sk_lo_a(), sketch_Loft_B_sk_lo_b()], ruled=True) if body_Transition is not None else bd.loft([sketch_Loft_A_sk_lo_a(), sketch_Loft_B_sk_lo_b()], ruled=True)  # Transition loft
+# TODO(manual): binormal-locked orientation — "Spring sweep" sweeps with a fixed binormal [0,0,1]; build123d's bd.sweep cannot lock the binormal directly.
+_helix_helix_1 = bd.Helix(pitch=2, height=6, radius=5, direction=(0, 0, 1), lefthand=False)
+_sweep_plane_helix_1 = bd.Plane(_helix_helix_1 @ 0, z_dir=_helix_helix_1.tangent_at(0))
+body_Transition = body_Transition + bd.sweep(sketch_Spring_section_sk_sec().moved(_sweep_plane_helix_1.location * datum_XY_xy.location.inverse), path=_helix_helix_1) if body_Transition is not None else bd.sweep(sketch_Spring_section_sk_sec().moved(_sweep_plane_helix_1.location * datum_XY_xy.location.inverse), path=_helix_helix_1)  # Spring sweep
+_helix_helix_frenet = bd.Helix(pitch=1, height=2, radius=2, direction=(0, 1, 0), lefthand=True)
+_sweep_plane_helix_frenet = bd.Plane(_helix_helix_frenet @ 0, z_dir=_helix_helix_frenet.tangent_at(0))
+body_Transition = body_Transition + bd.sweep(sketch_Spring_section_sk_sec().moved(_sweep_plane_helix_frenet.location * datum_XY_xy.location.inverse), path=_helix_helix_frenet) if body_Transition is not None else bd.sweep(sketch_Spring_section_sk_sec().moved(_sweep_plane_helix_frenet.location * datum_XY_xy.location.inverse), path=_helix_helix_frenet)  # Twisted sweep
+"
+`;
+
 exports[`generatePythonScript sweep/pipe emission > matches the snapshot for the sweep/pipe document 1`] = `
 "# Generated from "sweep export" by NukeIDE nuke-cad
 # This is a one-way export; it is NOT re-importable.

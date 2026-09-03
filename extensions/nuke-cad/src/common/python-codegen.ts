@@ -45,7 +45,9 @@
  * - sweep/pipe reposition their section to the path start via a build123d
  *   `Plane` from the path's start point/tangent; `fixedBinormal` orientation
  *   is emitted with a `# TODO(manual):` comment (build123d cannot lock the
- *   binormal directly).
+ *   binormal directly). Loft joins its ordered section sketches via
+ *   `bd.loft(..., ruled=...)`; helical sweeps derive their path from params
+ *   via `bd.Helix(...)` and reuse the sweep emission.
  * - Closed line/arc loops become one face per loop. Profiles are classified
  *   like the backend's outer/inner-wire pairing: sorted by area descending,
  *   a profile whose reference point lies inside an already-accepted outer
@@ -696,6 +698,23 @@ function emitFeature(
         return [...tool.lines, `${bodyVar} = ${bodyVar} + ${tool.expr} if ${bodyVar} is not None else ${tool.expr}  # ${feature.name}`];
     }
 
+    if (feature.type === 'loft') {
+        const expr = loftSolidExpr(feature, sketchFuncById, unbuildableSketches);
+        if (expr === undefined) {
+            return undefined;
+        }
+        // Loft is additive-only, like pad/revolve.
+        return [`${bodyVar} = ${bodyVar} + ${expr} if ${bodyVar} is not None else ${expr}  # ${feature.name}`];
+    }
+
+    if (feature.type === 'helicalSweep') {
+        const tool = helicalSweepTool(feature, doc, sketchFuncById, datumVarById, unbuildableSketches);
+        if (tool === undefined) {
+            return undefined;
+        }
+        return [...tool.lines, `${bodyVar} = ${bodyVar} + ${tool.expr} if ${bodyVar} is not None else ${tool.expr}  # ${feature.name}`];
+    }
+
     if (feature.type === 'booleanFuse' || feature.type === 'booleanCut' || feature.type === 'booleanCommon') {
         const targetVar = bodyVarById.get(String(params.targetBody ?? feature.body));
         if (targetVar === undefined) {
@@ -765,22 +784,136 @@ function curveSweepTool(
     }
     lines.push(`${planeVar} = bd.Plane(${pathVar} @ 0, z_dir=${pathVar}.tangent_at(0))`);
     if (feature.type === 'sweep') {
-        if (feature.sketchId === undefined || unbuildableSketches.has(feature.sketchId)) {
+        const section = sweepSectionExpr(feature, doc, planeVar, sketchFuncById, datumVarById, unbuildableSketches);
+        if (section === undefined) {
             return undefined;
         }
-        const func = sketchFuncById.get(feature.sketchId);
-        const sketch = doc.sketches.find((s) => s.id === feature.sketchId);
-        const datumVar = sketch !== undefined ? datumVarById.get(sketch.datumId) : undefined;
-        if (func === undefined || datumVar === undefined) {
-            return undefined;
-        }
-        return { lines, expr: `bd.sweep(${func}().moved(${planeVar}.location * ${datumVar}.location.inverse), path=${pathVar})` };
+        return { lines, expr: `bd.sweep(${section}, path=${pathVar})` };
     }
     const radius = Number(params.radius);
     if (!Number.isFinite(radius) || radius <= 0) {
         return undefined;
     }
     return { lines, expr: `bd.sweep(bd.Circle(${formatNumber(radius)}).moved(${planeVar}.location), path=${pathVar})` };
+}
+
+/**
+ * Sketch section expression repositioned from its own datum frame onto the
+ * sweep start plane: `<sketchFn>().moved(<planeVar>.location *
+ * <datumVar>.location.inverse)`. Shared by sweep and helical sweep; returns
+ * undefined when the section sketch cannot be exported.
+ */
+function sweepSectionExpr(
+    feature: FeatureDef,
+    doc: NukeCadDocument,
+    planeVar: string,
+    sketchFuncById: Map<string, string>,
+    datumVarById: Map<string, string>,
+    unbuildableSketches: Set<string>
+): string | undefined {
+    if (feature.sketchId === undefined || unbuildableSketches.has(feature.sketchId)) {
+        return undefined;
+    }
+    const func = sketchFuncById.get(feature.sketchId);
+    const sketch = doc.sketches.find((s) => s.id === feature.sketchId);
+    const datumVar = sketch !== undefined ? datumVarById.get(sketch.datumId) : undefined;
+    if (func === undefined || datumVar === undefined) {
+        return undefined;
+    }
+    return `${func}().moved(${planeVar}.location * ${datumVar}.location.inverse)`;
+}
+
+/**
+ * Solid-producing expression for a loft feature, or undefined when it cannot
+ * be exported.
+ *
+ * Sections are emitted in document order via `bd.loft`; each section goes
+ * through its sketch function (built on its own datum, so loft sections keep
+ * their world placement). A section sketch that cannot be exported — e.g. one
+ * on a face datum — degrades the whole feature to `emitManualTodo`, like
+ * sweep's unknown-curve path.
+ */
+function loftSolidExpr(feature: FeatureDef, sketchFuncById: Map<string, string>, unbuildableSketches: Set<string>): string | undefined {
+    const params = feature.params as Record<string, unknown>;
+    if (typeof params.ruled !== 'boolean' || !Array.isArray(params.sectionSketchIds)) {
+        return undefined;
+    }
+    const funcs: string[] = [];
+    for (const sid of params.sectionSketchIds) {
+        if (typeof sid !== 'string' || sid.length === 0 || unbuildableSketches.has(sid)) {
+            return undefined;
+        }
+        const func = sketchFuncById.get(sid);
+        if (func === undefined) {
+            return undefined;
+        }
+        funcs.push(`${func}()`);
+    }
+    if (funcs.length < 2) {
+        return undefined;
+    }
+    return `bd.loft([${funcs.join(', ')}], ruled=${params.ruled ? 'True' : 'False'})`;
+}
+
+/**
+ * Tool lines + solid-producing expression for a helical sweep feature, or
+ * undefined when it cannot be exported.
+ *
+ * The helix is derived from params (no document curve is involved):
+ * `bd.Helix(pitch, height=pitch*turns, radius, direction, lefthand)` becomes
+ * the sweep path, the section is repositioned to the helix start via the same
+ * `_sweep_plane` machinery as sweep, and `fixedBinormal` keeps the
+ * `# TODO(manual):` hatch (build123d cannot lock the binormal directly).
+ */
+function helicalSweepTool(
+    feature: FeatureDef,
+    doc: NukeCadDocument,
+    sketchFuncById: Map<string, string>,
+    datumVarById: Map<string, string>,
+    unbuildableSketches: Set<string>
+): { lines: string[]; expr: string } | undefined {
+    const params = feature.params as Record<string, unknown>;
+    const axis = typeof params.axis === 'string' ? params.axis.toUpperCase() : '';
+    if (axis !== 'X' && axis !== 'Y' && axis !== 'Z') {
+        return undefined;
+    }
+    const startRadius = Number(params.startRadius);
+    const pitch = Number(params.pitch);
+    const turns = Number(params.turns);
+    if (
+        !Number.isFinite(startRadius) ||
+        startRadius <= 0 ||
+        !Number.isFinite(pitch) ||
+        pitch <= 0 ||
+        !Number.isFinite(turns) ||
+        turns <= 0
+    ) {
+        return undefined;
+    }
+    const orientation = params.orientation;
+    if (orientation !== 'frenet' && orientation !== 'fixedBinormal') {
+        return undefined;
+    }
+    const helixVar = sanitizeIdentifier(`_helix_${feature.id}`);
+    const planeVar = sanitizeIdentifier(`_sweep_plane_${feature.id}`);
+    const lines: string[] = [];
+    if (orientation === 'fixedBinormal') {
+        lines.push(
+            `# TODO(manual): binormal-locked orientation — "${feature.name}" sweeps with a fixed binormal ` +
+                `${JSON.stringify(params.binormal ?? null)}; build123d's bd.sweep cannot lock the binormal directly.`
+        );
+    }
+    lines.push(
+        `${helixVar} = bd.Helix(pitch=${formatNumber(pitch)}, height=${formatNumber(pitch * turns)}, ` +
+            `radius=${formatNumber(startRadius)}, direction=${tuple(axisComponents(axis.toLowerCase()))}, ` +
+            `lefthand=${params.leftHanded === true ? 'True' : 'False'})`
+    );
+    lines.push(`${planeVar} = bd.Plane(${helixVar} @ 0, z_dir=${helixVar}.tangent_at(0))`);
+    const section = sweepSectionExpr(feature, doc, planeVar, sketchFuncById, datumVarById, unbuildableSketches);
+    if (section === undefined) {
+        return undefined;
+    }
+    return { lines, expr: `bd.sweep(${section}, path=${helixVar})` };
 }
 
 function emitPatternOrMirror(
@@ -803,7 +936,9 @@ function emitPatternOrMirror(
             sourceFeature.type !== 'revolve' &&
             sourceFeature.type !== 'groove' &&
             sourceFeature.type !== 'sweep' &&
-            sourceFeature.type !== 'pipe')
+            sourceFeature.type !== 'pipe' &&
+            sourceFeature.type !== 'loft' &&
+            sourceFeature.type !== 'helicalSweep')
     ) {
         return undefined;
     }
@@ -816,6 +951,20 @@ function emitPatternOrMirror(
         }
         toolExpr = tool.expr;
         toolLines = tool.lines;
+    } else if (sourceFeature.type === 'helicalSweep') {
+        const tool = helicalSweepTool(sourceFeature, doc, sketchFuncById, datumVarById, unbuildableSketches);
+        if (tool === undefined) {
+            return undefined;
+        }
+        toolExpr = tool.expr;
+        toolLines = tool.lines;
+    } else if (sourceFeature.type === 'loft') {
+        const expr = loftSolidExpr(sourceFeature, sketchFuncById, unbuildableSketches);
+        if (expr === undefined) {
+            return undefined;
+        }
+        toolExpr = expr;
+        toolLines = [];
     } else {
         const expr = sketchSolidExpr(sourceFeature, sketchFuncById, unbuildableSketches);
         if (expr === undefined) {
@@ -825,7 +974,12 @@ function emitPatternOrMirror(
         toolLines = [];
     }
     const op =
-        sourceFeature.type === 'pad' || sourceFeature.type === 'revolve' || sourceFeature.type === 'sweep' || sourceFeature.type === 'pipe'
+        sourceFeature.type === 'pad' ||
+        sourceFeature.type === 'revolve' ||
+        sourceFeature.type === 'sweep' ||
+        sourceFeature.type === 'pipe' ||
+        sourceFeature.type === 'loft' ||
+        sourceFeature.type === 'helicalSweep'
             ? '+'
             : '-';
 

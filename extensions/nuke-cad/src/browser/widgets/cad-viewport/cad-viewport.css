@@ -1086,6 +1086,34 @@
     min-width: 0;
 }
 
+/* Loft section rows carry an order badge, the sketch name, and up/down/remove
+   buttons — one more auto column than the dress-up reference rows. */
+.cad-feature-dialog-section-row {
+    display: grid;
+    grid-template-columns: auto 1fr auto auto auto;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 4px;
+    border-radius: 3px;
+    font-size: var(--theia-ui-font-size1);
+}
+
+.cad-feature-dialog-section-row:hover {
+    background: var(--theia-list-hoverBackground);
+}
+
+.cad-feature-dialog-section-row button {
+    padding: 2px 4px;
+    min-width: 0;
+}
+
+.cad-feature-dialog-section-index {
+    min-width: 16px;
+    text-align: right;
+    opacity: 0.7;
+    font-size: var(--theia-ui-font-size0);
+}
+
 .cad-viewport-nav {
     position: absolute;
     bottom: 8px;

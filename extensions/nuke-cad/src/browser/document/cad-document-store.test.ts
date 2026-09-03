@@ -703,6 +703,110 @@ describe('sweep and pipe features', () => {
         expect(result.success).toBe(false);
         expect(result.error).toContain('binormal');
     });
+
+    it('adds a loft feature with ordered sections and no sketchId', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        store.addBody('Body 1');
+        store.upsertSketch(sketch('sk1'));
+        store.upsertSketch(sketch('sk2'));
+        const loft: FeatureDef = {
+            id: 'lf1',
+            name: 'lf1',
+            type: 'loft',
+            body: 'body-1',
+            params: { sectionSketchIds: ['sk1', 'sk2'], ruled: true },
+            suppressed: false,
+            dependsOn: []
+        };
+        const result = store.addFeature(loft);
+        expect(result.success).toBe(true);
+        expect(store.document?.features[0].sketchId).toBeUndefined();
+        expect(store.document?.features[0].params).toEqual({ sectionSketchIds: ['sk1', 'sk2'], ruled: true });
+        // Loft is a solid producer: later features on the same body chain after it.
+        expect(computeDependsOn('fillet', 'body-1', store.document?.features ?? [])).toBe('lf1');
+        expect(computeDependsOn('loft', 'body-1', [])).toBeUndefined();
+    });
+
+    it('rejects a loft with fewer than two sections', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        store.addBody('Body 1');
+        const loft: FeatureDef = {
+            id: 'lf1',
+            name: 'lf1',
+            type: 'loft',
+            body: 'body-1',
+            params: { sectionSketchIds: ['sk1'], ruled: false },
+            suppressed: false,
+            dependsOn: []
+        };
+        const result = store.addFeature(loft);
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('section');
+    });
+
+    it('rejects deleting a sketch used as a loft section', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        store.addBody('Body 1');
+        store.upsertSketch(sketch('sk1'));
+        store.upsertSketch(sketch('sk2'));
+        const loft: FeatureDef = {
+            id: 'lf1',
+            name: 'lf1',
+            type: 'loft',
+            body: 'body-1',
+            params: { sectionSketchIds: ['sk1', 'sk2'], ruled: false },
+            suppressed: false,
+            dependsOn: []
+        };
+        expect(store.addFeature(loft).success).toBe(true);
+        const result = store.deleteSketch('sk2');
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('lf1');
+    });
+
+    it('adds a helical sweep feature with its sketch', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        store.addBody('Body 1');
+        store.upsertSketch(sketch('sk1'));
+        const helix: FeatureDef = {
+            id: 'hx1',
+            name: 'hx1',
+            type: 'helicalSweep',
+            body: 'body-1',
+            sketchId: 'sk1',
+            params: { axis: 'Z', startRadius: 2, pitch: 1, turns: 3, orientation: 'fixedBinormal', binormal: [0, 0, 1] },
+            suppressed: false,
+            dependsOn: []
+        };
+        const result = store.addFeature(helix);
+        expect(result.success).toBe(true);
+        // Helical sweep is a solid producer like sweep.
+        expect(computeDependsOn('shell', 'body-1', store.document?.features ?? [])).toBe('hx1');
+        expect(computeDependsOn('helicalSweep', 'body-1', [])).toBeUndefined();
+    });
+
+    it('rejects a helical sweep with a non-positive pitch', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        store.addBody('Body 1');
+        const helix: FeatureDef = {
+            id: 'hx1',
+            name: 'hx1',
+            type: 'helicalSweep',
+            body: 'body-1',
+            sketchId: 'sk1',
+            params: { axis: 'Z', startRadius: 2, pitch: 0, turns: 3, orientation: 'frenet' },
+            suppressed: false,
+            dependsOn: []
+        };
+        const result = store.addFeature(helix);
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('pitch');
+    });
 });
 
 describe('feature reordering', () => {
