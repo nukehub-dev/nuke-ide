@@ -307,7 +307,11 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   `applyShading` (face meshes and edge lines) and excludes hidden solids from
   every picking path (`pickableMeshes()` / `pickableEdgeLines()`; three.js
   never renders invisible objects but its raycaster still hits them, so the
-  pick pool filters explicitly). The set clears on `setModel` because solid
+  pick pool filters explicitly). Document curves have no solid of their own:
+  `curve-visibility.ts` hides a curve exactly when every body consuming it as
+  a sweep/pipe path is fully hidden (unreferenced curves always stay), applied
+  in the same `applyShading` funnel, with hidden curves excluded from curve
+  picking (`pickableCurveLines()`). The set clears on `setModel` because solid
   indices are positional and can shuffle between builds.
 - The Model Outline panel (`src/browser/widgets/outline-panel/`, widget ID
   `nuke-cad-outline-panel-widget`, label "Model Outline") lists the active

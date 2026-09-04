@@ -133,6 +133,7 @@ import {
 } from './measure-tool';
 import { edgeRadius } from './radius-fit';
 import { clampExplodeFactor, planExplodeOffsets, type ExplodeSolidCentroid } from './explode-view';
+import { visibleCurveIds, type CurvePathUser } from './curve-visibility';
 import { headerRegionTarget, useDraggablePanel } from './draggable-panel';
 import { buildFeaturePreviewDocument, resolveCurvePick, type FeaturePreviewRequest } from './sweep-pipe';
 import { faceReuseKey, planFaceReuse, type ParsedTessCurve, type ParsedTessData } from './tess-reuse';
@@ -3109,9 +3110,54 @@ function initViewport(
         for (const line of edgeLines) {
             line.visible = !hiddenSolidIds.has(line.userData.solidId as number);
         }
+        applyCurveVisibility();
         edgeLineMaterial.clippingPlanes = clippingPlanes;
         edgeLineMaterial.needsUpdate = true;
         applyHighlight();
+    };
+
+    /**
+     * Sweep/pipe path consumptions behind the current document: which body
+     * each curve builds. Suppressed features build nothing, so they never
+     * keep a curve visible.
+     */
+    const collectCurvePathUsers = (): CurvePathUser[] => {
+        const users: CurvePathUser[] = [];
+        for (const feature of documentStore.document?.features ?? []) {
+            if ((feature.type === 'sweep' || feature.type === 'pipe') && !feature.suppressed) {
+                const pathCurveId = (feature.params as Record<string, unknown>).pathCurveId;
+                if (typeof pathCurveId === 'string' && pathCurveId.length > 0) {
+                    users.push({ curveId: pathCurveId, bodyId: feature.body });
+                }
+            }
+        }
+        return users;
+    };
+
+    /**
+     * Curves are construction geometry with no solid of their own: a curve
+     * hides exactly when every body consuming it as a sweep/pipe path is
+     * fully hidden (hiding copper must not leave its centerline floating in
+     * an empty viewport). Runs inside `applyShading`, so every visibility
+     * funnel — rebuilds, hidden-set changes, shading/section switches —
+     * keeps curves in sync.
+     */
+    const applyCurveVisibility = (): void => {
+        const solidToBody = new Map<number, string>();
+        for (const mesh of meshes) {
+            if (typeof mesh.userData.bodyId === 'string') {
+                solidToBody.set(mesh.userData.solidId as number, mesh.userData.bodyId);
+            }
+        }
+        const visible = visibleCurveIds(
+            curveLines.map((line) => line.userData.curveId as string),
+            collectCurvePathUsers(),
+            solidToBody,
+            hiddenSolidIds
+        );
+        for (const line of curveLines) {
+            line.visible = visible.has(line.userData.curveId as string);
+        }
     };
 
     /**
@@ -3122,6 +3168,8 @@ function initViewport(
     const pickableMeshes = (): THREE.Mesh[] =>
         shading === 'edgesOnly' ? [] : meshes.filter((mesh) => !hiddenSolidIds.has(mesh.userData.solidId as number));
     const pickableEdgeLines = (): THREE.Line[] => edgeLines.filter((line) => !hiddenSolidIds.has(line.userData.solidId as number));
+    /** Hidden curves are invisible but still raycastable — filter explicitly. */
+    const pickableCurveLines = (): THREE.Line[] => curveLines.filter((line) => line.visible);
 
     /**
      * Face meshes pooled by content-based reuse key across rebuilds. Unchanged
@@ -3635,7 +3683,7 @@ function initViewport(
             pointer.y = ndc.y;
             raycaster.setFromCamera(pointer, camera);
             raycaster.params.Line.threshold = Math.max(lastDiag * 0.01, 1e-3);
-            const intersects = raycaster.intersectObjects(curveLines, false);
+            const intersects = raycaster.intersectObjects(pickableCurveLines(), false);
             if (intersects.length > 0) {
                 const picked = intersects[0].object.userData.curveId;
                 curvePickHoverId = undefined;
@@ -3759,7 +3807,7 @@ function initViewport(
             pointer.y = ndc.y;
             raycaster.setFromCamera(pointer, camera);
             raycaster.params.Line.threshold = Math.max(lastDiag * 0.01, 1e-3);
-            const intersects = raycaster.intersectObjects(curveLines, false);
+            const intersects = raycaster.intersectObjects(pickableCurveLines(), false);
             const hoverId = intersects.length > 0 ? (intersects[0].object.userData.curveId as string | undefined) : undefined;
             if (hoverId !== curvePickHoverId) {
                 curvePickHoverId = hoverId;
