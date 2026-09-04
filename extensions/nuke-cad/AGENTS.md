@@ -183,8 +183,12 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   on a solid it offers Edit Feature… (attributed through the solid's body id
   to the latest non-suppressed feature writing that body — a pattern fuse
   resolves to its tip feature; disabled when no feature matches, never
-  guessed), the three measure tools, and Fit to Solid; on empty space it
-  offers Fit All and Reset Explode (disabled at 0%). It is imperative DOM
+  guessed), the three measure tools, Fit to Solid, and Hide/Isolate Solid;
+  on empty space it offers Fit All, Show All Solids (disabled when nothing
+  is hidden), a Section View toggle, and Reset Explode (disabled at 0%).
+  The shading and section popovers share one `openPopover` slot (never both
+  open); picking a mode, pressing Escape, or clicking the canvas closes the
+  open popover. It is imperative DOM
   (`viewport-context-menu.ts`: pure model + attribution, thin renderer;
   window pointerdown/Escape close), not a Theia ContextMenuRenderer.
   Viewport key handlers are scoped to the viewport: the container
@@ -226,7 +230,10 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   theme changes re-color the loaded model live, and the initial scene colors
   re-read once after first paint so a freshly injected theme stylesheet is
   not stuck on the dark fallback (`applyThemeColors` at init + on theme
-  change).
+  change). The canvas background itself follows the `nukeCad.viewportBackground`
+  preference (`theme` | `dark` | `light` | `gradient`, default `theme`):
+  solid styles paint `scene.background`, while `gradient` clears it and shows
+  a CSS backdrop behind a transparent renderer.
   The tessellation load path (`tess-reuse.ts` + `tess-parse.worker.ts` +
   `tess-parse-client.ts`): the `.tess.json` text parses in a Web Worker
   (webpack-5 native `new Worker(new URL(...))`, worker imports nothing Theia)
@@ -277,13 +284,16 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   state (never document state) and
   clear on rebuild or sketch exit. The **explode view** slider (navigation
   cluster) is per-solid viewport-only state: `explode-view.ts` plans
-  solidId → offset as `normalize(centroid − bboxCenter) · diagonal · factor`
-  from vertex-averaged per-solid centroids, and the widget applies it as
-  mesh/edge-line `.position` transforms after every `buildModel` (transform
-  only — the reuse pool, geometry, and picking are untouched; raycasts use
-  world matrices). Factor 0 is the assembled model; the factor resets on
+  solidId → offset as `normalize(centroid − bboxCenter) · diagonal · factor ·
+ EXPLODE_MAX_SPAN (0.35)` from vertex-averaged per-solid centroids (the cap
+  keeps a 100% explode framed instead of flying a full diagonal per solid),
+  and the widget applies it as mesh/edge-line `.position` transforms after
+  every `buildModel` (transform only — the reuse pool, geometry, and picking
+  are untouched; raycasts use world matrices; curve lines stay pinned at the
+  origin). Factor 0 is the assembled model; the factor resets on
   reload/rebuild like measurements, and existing measurements stay world-
-  anchored (NOT re-anchored to moved solids). `fitView` frames
+  anchored (NOT re-anchored to moved solids — the status hint reads
+  `Explode N% — F to refit` while displaced). `fitView` frames
   the selected solid when `currentSelection.solidId` is set; `.` and
   double-click-on-solid also fit the selection; `Tab` toggles sketch mode
   (`handleToggleSketchMode`, guarded against pick modes, dialogs, and text
@@ -350,6 +360,9 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   documents open quickly, and `nukeCad.maxDisplayTriangles` (default 2 000 000)
   triggers a warning when a display tessellation exceeds the budget. DAGMC and
   FEM export tolerances are unaffected by the display settings.
+  `nukeCad.viewportBackground` (string enum `theme`/`dark`/`light`/`gradient`,
+  default `theme`) chooses the 3D canvas backdrop; `gradient` is a CSS
+  backdrop behind a transparent renderer.
 - STEP/STP/BREP files open in nuke-cad by default (higher open-handler priority
   than nuke-visualizer); the geometry service reads them through OCP and runs
   the same tessellation pipeline as script builds. The `.py` open-handler

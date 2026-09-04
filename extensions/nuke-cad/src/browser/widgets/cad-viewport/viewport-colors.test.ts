@@ -27,12 +27,16 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+    BACKGROUND_GRADIENT_CSS,
+    DARK_BACKGROUND,
     DARK_THEME_EDGE_COLOR,
+    LIGHT_BACKGROUND,
     LIGHT_THEME_BODY_COLOR,
     LIGHT_THEME_EDGE_COLOR,
     cadViewportColors,
     parseCssColor,
-    relativeLuminance
+    relativeLuminance,
+    resolveViewportBackground
 } from './viewport-colors';
 
 describe('parseCssColor', () => {
@@ -86,5 +90,30 @@ describe('cadViewportColors', () => {
 
     it('falls back to dark-theme behavior for unparseable backgrounds', () => {
         expect(cadViewportColors('not-a-color', '#cccccc')).toEqual({ body: '#cccccc', edges: DARK_THEME_EDGE_COLOR });
+    });
+});
+
+describe('resolveViewportBackground', () => {
+    it('follows the theme background for theme style', () => {
+        expect(resolveViewportBackground('theme', '#1e1e1e')).toBe('#1e1e1e');
+    });
+
+    it('returns the fixed dark background for dark style', () => {
+        expect(resolveViewportBackground('dark', '#ffffff')).toBe(DARK_BACKGROUND);
+    });
+
+    it('returns the fixed light background for light style', () => {
+        expect(resolveViewportBackground('light', '#1e1e1e')).toBe(LIGHT_BACKGROUND);
+    });
+
+    it('returns undefined for gradient style', () => {
+        expect(resolveViewportBackground('gradient', '#1e1e1e')).toBeUndefined();
+    });
+});
+
+describe('BACKGROUND_GRADIENT_CSS', () => {
+    it('is a non-empty CSS gradient', () => {
+        expect(BACKGROUND_GRADIENT_CSS.length).toBeGreaterThan(0);
+        expect(BACKGROUND_GRADIENT_CSS).toContain('linear-gradient');
     });
 });

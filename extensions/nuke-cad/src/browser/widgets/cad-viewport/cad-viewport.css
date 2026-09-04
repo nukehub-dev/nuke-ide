@@ -43,6 +43,13 @@
     height: 100%;
 }
 
+/* Gradient backdrop for the `gradient` viewport background style: the
+   renderer runs transparent (alpha) so this CSS shows through. Value mirrors
+   BACKGROUND_GRADIENT_CSS in viewport-colors.ts. */
+.cad-viewport-gradient {
+    background: linear-gradient(to bottom, #334155 0%, #000000 100%);
+}
+
 .cad-viewport-banners {
     position: absolute;
     top: 8px;
@@ -1059,7 +1066,9 @@
 }
 
 .cad-feature-dialog-row.check {
-    grid-template-columns: minmax(0, 1fr);
+    display: flex;
+    align-items: center;
+    gap: 8px;
 }
 
 .cad-feature-dialog-row input[type='text'],
@@ -1199,8 +1208,10 @@
     background: var(--theia-panel-border);
 }
 
-/* Shading-mode popover (anchored above the navigation cluster) */
-.cad-viewport-nav-popover {
+/* Shared card for the bottom-bar popovers (shading, section): positioning and
+   surface live here; the per-popover classes keep only their distinct spacing
+   so the two cards can never drift apart and overlap again. */
+.cad-viewport-popover {
     position: absolute;
     bottom: 42px;
     right: 8px;
@@ -1208,13 +1219,18 @@
     display: flex;
     flex-direction: column;
     min-width: 180px;
-    padding: 4px;
+    padding: 8px;
     border: 1px solid var(--theia-panel-border);
     border-radius: 6px;
     background: var(--theia-editorWidget-background);
     box-shadow:
         0 4px 6px rgba(0, 0, 0, 0.1),
         0 2px 4px rgba(0, 0, 0, 0.06);
+}
+
+/* Shading-mode popover (anchored above the navigation cluster) */
+.cad-viewport-nav-popover {
+    padding: 4px;
 }
 
 .cad-viewport-shading-item {
@@ -1263,21 +1279,7 @@
 
 /* Section-mode popover (anchored above the navigation cluster) */
 .cad-viewport-section-popover {
-    position: absolute;
-    bottom: 42px;
-    right: 8px;
-    z-index: 16;
-    display: flex;
-    flex-direction: column;
     gap: 4px;
-    min-width: 180px;
-    padding: 8px;
-    border: 1px solid var(--theia-panel-border);
-    border-radius: 6px;
-    background: var(--theia-editorWidget-background);
-    box-shadow:
-        0 4px 6px rgba(0, 0, 0, 0.1),
-        0 2px 4px rgba(0, 0, 0, 0.06);
 }
 
 .cad-viewport-section-axis,

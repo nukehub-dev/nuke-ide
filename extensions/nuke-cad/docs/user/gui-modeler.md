@@ -62,17 +62,23 @@ it opens it in the CAD viewport by default.
   Y, or Z plane. A popover offers axis buttons, **Flip**, and a slider that
   slides the plane across the model's bounding box. Sectioning is visual
   only — exports are unaffected. Click the button again or press `Esc` to
-  exit.
+  exit. The shading and section popovers share one slot: opening one closes
+  the other, and picking a mode, pressing `Esc`, or clicking the canvas
+  closes it.
 - **Explode view** (navigation cluster): the **Explode** slider (0–100%)
   moves every solid away from the model center along the direction to its
   own centroid, so a fused multi-part body (for example a circular pattern)
-  separates into its solids — faces and edge lines move together. Explode is
+  separates into its solids — faces and edge lines move together. Travel is
+  capped at 0.35× the model diagonal at 100% so large assemblies stay
+  framed; press `F` to refit while exploded. Explode is
   a viewport-only transform: it is never saved into the document, resets to
   0 when the model reloads or rebuilds, and picking keeps working on
   displaced solids. Measurements already on screen keep their original
   world positions — they are **not** re-anchored to moved solids — so set
   the slider back to 0 before reading measurements taken on the assembled
   model.
+- **Canvas background** (`nukeCad.viewportBackground` setting): `theme`
+  (default, follows the active Theia theme), `dark`, `light`, or `gradient`.
 - **Axis gizmo** (top-right, below the toolbar): mirrors the current camera
   orientation; click an axis handle (or its opposite) to snap to that view.
 - **View label** (top-left, below the toolbar): shows the active view
@@ -84,9 +90,10 @@ it opens it in the CAD viewport by default.
   active) for a context menu instead of the browser default. On a solid it
   offers **Edit Feature…** (the solid is attributed to the latest feature that
   wrote its body — disabled when no feature matches, e.g. script/STEP models),
-  **Measure Distance / Angle / Radius**, and **Fit to Solid**; on empty space
-  it offers **Fit All** and **Reset Explode** (disabled at 0%). It closes on a
-  click elsewhere or `Esc`.
+  **Measure Distance / Angle / Radius**, **Fit to Solid**, and **Hide /
+  Isolate Solid**; on empty space it offers **Fit All**, **Show All Solids**
+  (disabled when nothing is hidden), a **Section View** toggle, and **Reset
+  Explode** (disabled at 0%). It closes on a click elsewhere or `Esc`.
 - Press `Tab` to enter sketch mode and `Tab` again to leave it; the labeled
   **Finish Sketch** pill at the top-right does the same.
 

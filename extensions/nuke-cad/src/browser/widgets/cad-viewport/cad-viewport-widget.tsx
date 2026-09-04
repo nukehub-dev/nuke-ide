@@ -82,7 +82,7 @@ import { DOCUMENT_TEMPLATES } from '../../../common/document-templates';
 import { type SketchDef, type FeatureDef, type FeatureType, type FeatureParams } from '../../../common/cad-document';
 import { type TopologyRef } from '../../../common/topology-refs';
 import { FaceHighlighter, type FacePickHit, buildTopologyRef, pointerToNdc, projectHitToFaceUv, raycastFace } from './face-picker';
-import { cadViewportColors } from './viewport-colors';
+import { cadViewportColors, resolveViewportBackground, type ViewportBackgroundStyle } from './viewport-colors';
 import { EdgeHighlighter, type EdgePickHit, buildEdgeLine, buildEdgeTopologyRef, raycastEdge } from './edge-picker';
 import {
     DEFAULT_GHOST_OPACITY,
@@ -249,6 +249,33 @@ export class CadViewportWidget extends ReactWidget {
     protected readonly handleExitSection = (): void => {
         this.sectionActive = false;
         this.update();
+    };
+
+    /** Context-menu entry: hide one solid (viewport state, never document state). */
+    protected readonly handleHideSolid = (solidId: number): void => {
+        if (this.stateManager.isSolidHidden(solidId)) {
+            return;
+        }
+        this.stateManager.setHiddenSolidIds([...this.stateManager.hiddenSolidIds, solidId]);
+    };
+
+    /**
+     * Context-menu entry: isolate the body owning the solid (falling back to
+     * the solid alone when the build produced no body id, e.g. script/STEP).
+     */
+    protected readonly handleIsolateSolid = (solidId: number): void => {
+        const solids = this.tessData?.solids ?? [];
+        const bodyId = solids.find((solid) => solid.solidId === solidId)?.bodyId;
+        const keep =
+            bodyId === undefined
+                ? new Set([solidId])
+                : new Set(solids.filter((solid) => solid.bodyId === bodyId).map((solid) => solid.solidId));
+        this.stateManager.setHiddenSolidIds(solids.map((solid) => solid.solidId).filter((id) => !keep.has(id)));
+    };
+
+    /** Context-menu entry: reveal every hidden solid. */
+    protected readonly handleShowAllSolids = (): void => {
+        this.stateManager.setHiddenSolidIds([]);
     };
 
     /**
@@ -1318,6 +1345,7 @@ export class CadViewportWidget extends ReactWidget {
                 documentStore={this.documentStore}
                 templatePickerOpen={this.templatePickerOpen}
                 sketchAutoDimension={this.preferences['nukeCad.sketchAutoDimension']}
+                viewportBackground={this.preferences['nukeCad.viewportBackground'] as ViewportBackgroundStyle}
                 templates={DOCUMENT_TEMPLATES}
                 onDismissError={this.dismissBuildError}
                 onDismissWarnings={this.dismissBuildWarnings}
@@ -1363,6 +1391,9 @@ export class CadViewportWidget extends ReactWidget {
                 onSetSectionActive={this.handleSetSectionActive}
                 onExitSection={this.handleExitSection}
                 onEditFeatureRequest={this.handleEditFeatureRequest}
+                onHideSolid={this.handleHideSolid}
+                onIsolateSolid={this.handleIsolateSolid}
+                onShowAllSolids={this.handleShowAllSolids}
                 messageService={this.messageService}
             />
         );
@@ -1394,6 +1425,7 @@ interface CadViewportComponentProps {
     readonly messageService: MessageService;
     readonly templatePickerOpen: boolean;
     readonly sketchAutoDimension: boolean;
+    readonly viewportBackground: ViewportBackgroundStyle;
     readonly templates: ReadonlyArray<import('../../../common/document-templates').DocumentTemplate>;
     readonly onDismissError: () => void;
     readonly onDismissWarnings: () => void;
@@ -1438,6 +1470,10 @@ interface CadViewportComponentProps {
     readonly onExitSection: () => void;
     /** Viewport context menu: open the feature dialog for an attributed feature. */
     readonly onEditFeatureRequest: (featureId: string) => void;
+    /** Viewport context menu: hide/isolate/reveal solids via the state manager. */
+    readonly onHideSolid: (solidId: number) => void;
+    readonly onIsolateSolid: (solidId: number) => void;
+    readonly onShowAllSolids: () => void;
 }
 
 function CadViewportComponent(props: CadViewportComponentProps): React.ReactElement {
@@ -1445,7 +1481,8 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
     const [controller, setController] = React.useState<SketchModeController | undefined>();
     const [shadingMode, setShadingMode] = React.useState<ShadingMode>('shaded');
     const [ghostOpacity, setGhostOpacity] = React.useState(DEFAULT_GHOST_OPACITY);
-    const [shadingMenuOpen, setShadingMenuOpen] = React.useState(false);
+    /** Single bottom-bar popover: the shading and section cards share one anchor slot. */
+    const [openPopover, setOpenPopover] = React.useState<'shading' | 'section' | undefined>(undefined);
     const [sectionAxis, setSectionAxis] = React.useState<SectionAxis>('z');
     const [sectionFlip, setSectionFlip] = React.useState(false);
     const [sectionFraction, setSectionFraction] = React.useState(DEFAULT_SECTION_FRACTION);
@@ -1463,6 +1500,16 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
     const measurePendingRef = React.useRef<MeasurePoint3D | undefined>(undefined);
     const measureVertexRef = React.useRef<MeasurePoint3D | undefined>(undefined);
     const prevMeasureSketchRef = React.useRef(false);
+    /** Read at menu-dispatch time so initViewport never depends on render props. */
+    const sectionActiveRef = React.useRef(props.sectionActive);
+    sectionActiveRef.current = props.sectionActive;
+    const handleClosePopover = React.useCallback((): void => setOpenPopover(undefined), []);
+    /** Section toggle (nav button and context menu): chrome and popover stay in sync. */
+    const handleToggleSection = React.useCallback((): void => {
+        const next = !sectionActiveRef.current;
+        props.onSetSectionActive(next);
+        setOpenPopover(next ? 'section' : undefined);
+    }, [props.onSetSectionActive]);
     const editFeature = React.useMemo(() => {
         if (props.editingFeatureId === undefined) {
             return undefined;
@@ -1484,6 +1531,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
         setStandardView?: (view: 'iso' | 'top' | 'front' | 'right') => void;
         setShading?: (mode: ShadingMode) => void;
         setGhostOpacity?: (value: number) => void;
+        setViewportBackground?: (style: ViewportBackgroundStyle) => void;
         setSection?: (section?: SectionState) => void;
         setExplodeFactor?: (factor: number) => void;
         setGizmoVisible?: (visible: boolean) => void;
@@ -1687,7 +1735,14 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                 props.onEditFeatureRequest,
                 handleStartMeasureTool,
                 handleResetExplode,
-                OrbitControls
+                OrbitControls,
+                props.viewportBackground,
+                () => sectionActiveRef.current,
+                handleClosePopover,
+                handleToggleSection,
+                props.onHideSolid,
+                props.onIsolateSolid,
+                props.onShowAllSolids
             );
             if (disposed) {
                 api.cleanup();
@@ -1706,6 +1761,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             viewportApi.current.setStandardView = api.setStandardView;
             viewportApi.current.setShading = api.setShading;
             viewportApi.current.setGhostOpacity = api.setGhostOpacity;
+            viewportApi.current.setViewportBackground = api.setViewportBackground;
             viewportApi.current.setSection = api.setSection;
             viewportApi.current.setExplodeFactor = api.setExplodeFactor;
             viewportApi.current.setGizmoVisible = api.setGizmoVisible;
@@ -1735,6 +1791,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             viewportApi.current.setStandardView = undefined;
             viewportApi.current.setShading = undefined;
             viewportApi.current.setGhostOpacity = undefined;
+            viewportApi.current.setViewportBackground = undefined;
             viewportApi.current.setSection = undefined;
             viewportApi.current.setExplodeFactor = undefined;
             viewportApi.current.setGizmoVisible = undefined;
@@ -1788,6 +1845,10 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
     React.useEffect(() => {
         viewportApi.current.setAutoDimensionEnabled?.(props.sketchAutoDimension);
     }, [props.sketchAutoDimension, controller]);
+
+    React.useEffect(() => {
+        viewportApi.current.setViewportBackground?.(props.viewportBackground);
+    }, [props.viewportBackground, controller]);
 
     React.useEffect(() => {
         if (props.warnings.length > 0) {
@@ -1940,6 +2001,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
     const statusHints = [
         shadingMode === 'edgesOnly' ? 'Edges-only: face/solid picking disabled' : undefined,
         props.sectionActive ? `Section: ${sectionLabel} — Esc to exit` : undefined,
+        explodeFactor > 0 ? `Explode ${Math.round(explodeFactor * 100)}% — F to refit` : undefined,
         measureActive && activeMeasureTool !== 'radius' && shadingMode === 'edgesOnly' && measureMode === 'model3d'
             ? 'Measure: point picking disabled by edges-only shading'
             : undefined,
@@ -2008,7 +2070,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                     <Tooltip content={`Shading: ${activeShading.label}`} position="left">
                         <button
                             className={`theia-button secondary cad-viewport-nav-button ${shadingMode !== 'shaded' ? 'active' : ''}`}
-                            onClick={() => setShadingMenuOpen(!shadingMenuOpen)}
+                            onClick={() => setOpenPopover(openPopover === 'shading' ? undefined : 'shading')}
                         >
                             <span className={`codicon ${activeShading.icon}`} />
                         </button>
@@ -2017,7 +2079,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                     <Tooltip content="Section view" position="left">
                         <button
                             className={`theia-button secondary cad-viewport-nav-button ${props.sectionActive ? 'active' : ''}`}
-                            onClick={() => props.onSetSectionActive(!props.sectionActive)}
+                            onClick={handleToggleSection}
                         >
                             <span className="codicon codicon-nuke-cad-section" />
                         </button>
@@ -2038,8 +2100,8 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                         </label>
                     </Tooltip>
                 </div>
-                {shadingMenuOpen && (
-                    <div className="cad-viewport-nav-popover">
+                {openPopover === 'shading' && (
+                    <div className="cad-viewport-popover cad-viewport-nav-popover">
                         {SHADING_MODES.map((mode) => (
                             <Tooltip
                                 key={mode.id}
@@ -2051,6 +2113,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                                     onClick={() => {
                                         setShadingMode(mode.id);
                                         viewportApi.current.setShading?.(mode.id);
+                                        setOpenPopover(undefined);
                                     }}
                                 >
                                     <span className={`codicon ${mode.icon}`} />
@@ -2079,8 +2142,8 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                         )}
                     </div>
                 )}
-                {props.sectionActive && (
-                    <div className="cad-viewport-section-popover">
+                {openPopover === 'section' && (
+                    <div className="cad-viewport-popover cad-viewport-section-popover">
                         <div className="cad-viewport-section-row">
                             {SECTION_AXES.map((axis) => (
                                 <Tooltip key={axis.id} content={`${axis.label} axis`} position="left">
@@ -2306,6 +2369,7 @@ interface ViewportApi {
     readonly setStandardView: (view: 'iso' | 'top' | 'front' | 'right') => void;
     readonly setShading: (mode: ShadingMode) => void;
     readonly setGhostOpacity: (value: number) => void;
+    readonly setViewportBackground: (style: ViewportBackgroundStyle) => void;
     readonly setSection: (section?: SectionState) => void;
     readonly setExplodeFactor: (factor: number) => void;
     readonly setGizmoVisible: (visible: boolean) => void;
@@ -2354,14 +2418,31 @@ function initViewport(
         addEventListener(type: string, listener: () => void): void;
         removeEventListener(type: string, listener: () => void): void;
         dispose(): void;
-    }
+    },
+    initialViewportBackground: ViewportBackgroundStyle,
+    isSectionActive: () => boolean,
+    onClosePopover: () => void,
+    onToggleSection: () => void,
+    onHideSolid: (solidId: number) => void,
+    onIsolateSolid: (solidId: number) => void,
+    onShowAllSolids: () => void
 ): ViewportApi {
     const width = container.clientWidth || 400;
     const height = container.clientHeight || 300;
 
     const scene = new THREE.Scene();
-    const background = readThemeColor(container, '--theia-editor-background', '#1e1e1e');
-    scene.background = new THREE.Color(background);
+    // Viewport background style (theme/dark/light/gradient pref): gradient
+    // leaves the scene transparent so the container's CSS backdrop shows
+    // through; every other style resolves to a solid scene color.
+    let backgroundStyle = initialViewportBackground;
+    const applyBackground = (): string => {
+        const themeBackground = readThemeColor(container, '--theia-editor-background', '#1e1e1e');
+        const resolved = resolveViewportBackground(backgroundStyle, themeBackground);
+        container.classList.toggle('cad-viewport-gradient', backgroundStyle === 'gradient');
+        scene.background = resolved === undefined ? null : new THREE.Color(resolved);
+        return themeBackground;
+    };
+    const background = applyBackground();
     const viewportColors = cadViewportColors(background, readThemeColor(container, '--theia-foreground', '#cccccc'));
 
     const camera = new THREE.PerspectiveCamera(45, width / height, 0.01, 10000);
@@ -2372,7 +2453,7 @@ function initViewport(
     camera.up.set(0, 0, 1);
     camera.lookAt(0, 0, 0);
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setSize(width, height);
     renderer.setPixelRatio(window.devicePixelRatio);
     renderer.localClippingEnabled = true;
@@ -3071,10 +3152,12 @@ function initViewport(
 
     /**
      * Apply the explode offsets as object positions (faces AND the edge lines
-     * of the same solid move together). Raycast picking uses world matrices,
-     * so it keeps working on exploded geometry. Factor 0 resets every
-     * transform to the origin — reused pooled meshes may carry a stale
-     * position from a previous explode, so the zero write is unconditional.
+     * of the same solid move together; document-level curve lines carry no
+     * solid id and stay pinned at the origin so reused pooled state can never
+     * strand them). Raycast picking uses world matrices, so it keeps working
+     * on exploded geometry. Factor 0 resets every transform to the origin —
+     * reused pooled meshes may carry a stale position from a previous explode,
+     * so the zero write is unconditional.
      */
     const applyExplode = (): void => {
         if (explodeFactor <= 0 || currentTessData === undefined) {
@@ -3082,6 +3165,9 @@ function initViewport(
                 mesh.position.set(0, 0, 0);
             }
             for (const line of edgeLines) {
+                line.position.set(0, 0, 0);
+            }
+            for (const line of curveLines) {
                 line.position.set(0, 0, 0);
             }
             return;
@@ -3097,6 +3183,9 @@ function initViewport(
         for (const line of edgeLines) {
             const offset = offsets.get(line.userData.solidId as number);
             line.position.set(offset?.[0] ?? 0, offset?.[1] ?? 0, offset?.[2] ?? 0);
+        }
+        for (const line of curveLines) {
+            line.position.set(0, 0, 0);
         }
     };
 
@@ -3371,6 +3460,12 @@ function initViewport(
         activeSection = section ?? undefined;
         applyShading();
     };
+    /** Preference change: swap the backdrop without rebuilding the scene. */
+    const setViewportBackground = (style: ViewportBackgroundStyle): void => {
+        backgroundStyle = style;
+        applyBackground();
+        renderScene();
+    };
 
     const ambient = new THREE.AmbientLight(0xffffff, 0.6);
     scene.add(ambient);
@@ -3440,6 +3535,9 @@ function initViewport(
     };
 
     const onClick = (event: MouseEvent) => {
+        // Canvas clicks never need a bottom-bar popover open; the popover
+        // buttons live outside the canvas so this cannot eat their presses.
+        onClosePopover();
         if (controller.isActive) {
             return;
         }
@@ -3677,7 +3775,9 @@ function initViewport(
                 container,
                 buildViewportContextMenu({
                     solid: hit !== undefined ? { solidId: hit.solidId, featureId } : undefined,
-                    explodeFactor
+                    explodeFactor,
+                    hiddenCount: hiddenSolidIds.size,
+                    sectionActive: isSectionActive()
                 }),
                 { x: event.clientX - containerRect.left, y: event.clientY - containerRect.top },
                 (action) => {
@@ -3691,11 +3791,23 @@ function initViewport(
                         case 'fitSolid':
                             fitToSolid(action.solidId);
                             break;
+                        case 'hideSolid':
+                            onHideSolid(action.solidId);
+                            break;
+                        case 'isolateSolid':
+                            onIsolateSolid(action.solidId);
+                            break;
                         case 'fitAll':
                             fitAllView();
                             break;
                         case 'resetExplode':
                             onResetExplode();
+                            break;
+                        case 'showAll':
+                            onShowAllSolids();
+                            break;
+                        case 'toggleSection':
+                            onToggleSection();
                             break;
                         case 'noop':
                             break;
@@ -3962,13 +4074,14 @@ function initViewport(
     window.addEventListener('keydown', onTabKey);
 
     // Escape exits section mode unless a pick mode, sketch session, dialog, or
-    // text field consumes the key first (same guards as the fit/tab keys).
+    // text field consumes the key first (same guards as the fit/tab keys), and
+    // always closes an open bottom-bar popover.
     // Capture phase, for the same Theia keybinding race as onKeyDown.
     const onSectionEscapeKey = (event: KeyboardEvent): void => {
         if (!viewportHasFocus()) {
             return;
         }
-        if (event.key !== 'Escape' || activeSection === undefined) {
+        if (event.key !== 'Escape') {
             return;
         }
         if (
@@ -3988,6 +4101,10 @@ function initViewport(
             return;
         }
         event.preventDefault();
+        onClosePopover();
+        if (activeSection === undefined) {
+            return;
+        }
         activeSection = undefined;
         applyShading();
         onExitSection();
@@ -4008,10 +4125,10 @@ function initViewport(
     });
 
     // Re-reads the theme CSS vars and re-colors scene + shared materials. A
-    // no-op re-read when the vars are unchanged.
+    // no-op re-read when the vars are unchanged. Theme and gradient styles
+    // re-resolve here; dark/light stay fixed to their constants.
     const applyThemeColors = (): void => {
-        const nextBackground = readThemeColor(container, '--theia-editor-background', '#1e1e1e');
-        scene.background = new THREE.Color(nextBackground);
+        const nextBackground = applyBackground();
         const nextColors = cadViewportColors(nextBackground, readThemeColor(container, '--theia-foreground', '#cccccc'));
         baseColor.set(nextColors.body);
         edgeColor.set(nextColors.edges);
@@ -4099,6 +4216,7 @@ function initViewport(
         setStandardView,
         setShading,
         setGhostOpacity,
+        setViewportBackground,
         setSection,
         setExplodeFactor: (factor) => {
             explodeFactor = clampExplodeFactor(factor);
@@ -4121,6 +4239,7 @@ function initViewport(
         cleanup: () => {
             closeContextMenu?.();
             closeContextMenu = undefined;
+            container.classList.remove('cad-viewport-gradient');
             gizmo.remove();
             viewLabel.remove();
             measureLabelLayer.remove();

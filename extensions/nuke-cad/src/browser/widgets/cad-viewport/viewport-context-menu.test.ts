@@ -53,14 +53,16 @@ describe('attributeBodyToFeature', () => {
 });
 
 describe('buildViewportContextMenu', () => {
-    it('offers Edit Feature (attributed), the three measure tools, and Fit to Solid on a solid', () => {
+    it('offers Edit Feature (attributed), the three measure tools, Fit to Solid, Hide and Isolate on a solid', () => {
         const items = buildViewportContextMenu({ solid: { solidId: 3, featureId: 'pad-1' }, explodeFactor: 0 });
         expect(items.map((item) => item.label)).toEqual([
             'Edit Feature…',
             'Measure Distance',
             'Measure Angle',
             'Measure Radius',
-            'Fit to Solid'
+            'Fit to Solid',
+            'Hide Solid',
+            'Isolate Solid'
         ]);
         expect(items[0].disabled).toBeUndefined();
         expect(items[0].action).toEqual({ kind: 'editFeature', featureId: 'pad-1' });
@@ -68,6 +70,11 @@ describe('buildViewportContextMenu', () => {
         expect(items[2].action).toEqual({ kind: 'measure', tool: 'angle' });
         expect(items[3].action).toEqual({ kind: 'measure', tool: 'radius' });
         expect(items[4].action).toEqual({ kind: 'fitSolid', solidId: 3 });
+        expect(items[5].separatorAbove).toBe(true);
+        expect(items[5].disabled).toBeUndefined();
+        expect(items[5].action).toEqual({ kind: 'hideSolid', solidId: 3 });
+        expect(items[6].disabled).toBeUndefined();
+        expect(items[6].action).toEqual({ kind: 'isolateSolid', solidId: 3 });
     });
 
     it('disables Edit Feature when attribution fails instead of guessing', () => {
@@ -76,14 +83,38 @@ describe('buildViewportContextMenu', () => {
         expect(items[0].action).toEqual({ kind: 'noop' });
     });
 
-    it('offers Fit All and Reset Explode on empty space, gated at explode factor 0', () => {
+    it('offers Fit All, Reset Explode, Show All Solids, and the section toggle on empty space', () => {
         const items = buildViewportContextMenu({ solid: undefined, explodeFactor: 0 });
-        expect(items.map((item) => item.label)).toEqual(['Fit All', 'Reset Explode']);
+        expect(items.map((item) => item.label)).toEqual(['Fit All', 'Reset Explode', 'Show All Solids', 'Show Section View']);
         expect(items[0].disabled).toBeUndefined();
         expect(items[1].disabled).toBe(true);
 
         const exploded = buildViewportContextMenu({ solid: undefined, explodeFactor: 0.5 });
         expect(exploded[1].disabled).toBeUndefined();
         expect(exploded[1].action).toEqual({ kind: 'resetExplode' });
+    });
+
+    it('disables Show All Solids when nothing is hidden', () => {
+        const byDefault = buildViewportContextMenu({ solid: undefined, explodeFactor: 0 });
+        expect(byDefault[2].disabled).toBe(true);
+        expect(byDefault[2].action).toEqual({ kind: 'showAll' });
+
+        const explicitZero = buildViewportContextMenu({ solid: undefined, explodeFactor: 0, hiddenCount: 0 });
+        expect(explicitZero[2].disabled).toBe(true);
+
+        const someHidden = buildViewportContextMenu({ solid: undefined, explodeFactor: 0, hiddenCount: 2 });
+        expect(someHidden[2].disabled).toBeUndefined();
+        expect(someHidden[2].action).toEqual({ kind: 'showAll' });
+    });
+
+    it('flips the section toggle label with sectionActive', () => {
+        const inactive = buildViewportContextMenu({ solid: undefined, explodeFactor: 0 });
+        expect(inactive[3].label).toBe('Show Section View');
+        expect(inactive[3].disabled).toBeUndefined();
+        expect(inactive[3].action).toEqual({ kind: 'toggleSection' });
+
+        const active = buildViewportContextMenu({ solid: undefined, explodeFactor: 0, sectionActive: true });
+        expect(active[3].label).toBe('Hide Section View');
+        expect(active[3].action).toEqual({ kind: 'toggleSection' });
     });
 });

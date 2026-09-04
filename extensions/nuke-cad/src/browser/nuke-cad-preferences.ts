@@ -85,6 +85,14 @@ export const NukeCadPreferenceSchema: PreferenceSchema = {
             description:
                 'Show an inline value input after drawing a line, circle, or arc in sketch mode. ' +
                 'Pressing Enter creates a driving dimension; Escape dismisses without dimensioning.'
+        },
+        'nukeCad.viewportBackground': {
+            type: 'string',
+            enum: ['theme', 'dark', 'light', 'gradient'],
+            default: 'theme',
+            description:
+                'Viewport background style: theme follows the active theme, dark/light use a fixed color, ' +
+                'gradient uses a CSS backdrop with a transparent renderer.'
         }
     }
 };
@@ -99,6 +107,8 @@ export interface NukeCadConfiguration {
     'nukeCad.maxDisplayTriangles': number;
     /** When true, sketch entity completion prompts for an immediate driving dimension. */
     'nukeCad.sketchAutoDimension': boolean;
+    /** Viewport background style: theme, dark, light, or gradient. */
+    'nukeCad.viewportBackground': string;
 }
 
 /** Symbol used to bind the {@link PreferenceContribution} for Nuke CAD. */

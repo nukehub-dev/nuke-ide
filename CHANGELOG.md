@@ -46,6 +46,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   position. The `nuke.cad.editFeature` command palette entry now edits the
   feature selected in the Feature Tree when invoked without an id, and the
   Feature Tree shows the **Edit Parameters** pencil for boolean features too.
+- nuke-cad: **`nukeCad.viewportBackground` preference** — the 3D canvas
+  backdrop is now choosable: `theme` (default, follows the active Theia
+  theme as before), `dark`, `light`, or `gradient` (a dark gradient backdrop
+  behind a transparent renderer).
 
 ### Changed
 
@@ -133,6 +137,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the viewport and stack apart when they collide, the sketch shortcuts popover
   no longer opens stacked on the measurements popover, and the sketch value
   input no longer covers the status line.
+- nuke-cad: **viewport chrome UX round** — the shading and section popovers
+  now share a single slot above the navigation cluster (opening one closes
+  the other; picking a shading mode, pressing `Esc`, or clicking the canvas
+  closes it), fixing the stacked/overlapping cards. The context menu gains
+  **Hide / Isolate Solid** on solids plus **Show All Solids** and a
+  **Section View** toggle on empty space. Explode is capped at 0.35× the
+  model diagonal at 100% so large assemblies stay framed (previously a full
+  diagonal per solid scattered the model out of view), and the status pill
+  points at `F` to refit while exploded. The extrude dialog groups Length /
+  Direction under Dimensions and Symmetric under Options via the shared
+  `NukeSection` / `NukeFormRow` components, and the misaligned checkbox row
+  is fixed.
 - nuke-cad: **closed-loop sweeps/pipes now survive STEP export** — a sweep or
   pipe whose path curve is a closed loop (e.g. a coil centerline) previously
   produced a tube whose periodic-seam edges carried meter-scale tolerances;

@@ -70,8 +70,12 @@ export type ViewportContextMenuAction =
     | { readonly kind: 'editFeature'; readonly featureId: string }
     | { readonly kind: 'measure'; readonly tool: MeasureToolMode }
     | { readonly kind: 'fitSolid'; readonly solidId: number }
+    | { readonly kind: 'hideSolid'; readonly solidId: number }
+    | { readonly kind: 'isolateSolid'; readonly solidId: number }
     | { readonly kind: 'fitAll' }
     | { readonly kind: 'resetExplode' }
+    | { readonly kind: 'showAll' }
+    | { readonly kind: 'toggleSection' }
     /** Only ever on disabled items (the Edit Feature placeholder). */
     | { readonly kind: 'noop' };
 
@@ -89,6 +93,10 @@ export interface ViewportContextMenuInput {
     readonly solid: { readonly solidId: number; readonly featureId?: string } | undefined;
     /** Current explode factor (0 = assembled); gates Reset Explode. */
     readonly explodeFactor: number;
+    /** Hidden-solid count; gates Show All Solids. Defaults to 0. */
+    readonly hiddenCount?: number;
+    /** Whether the section view is active; flips the section toggle label. Defaults to false. */
+    readonly sectionActive?: boolean;
 }
 
 /** Hit-test-dependent menu contents; solid menu vs empty-space menu. */
@@ -123,9 +131,22 @@ export function buildViewportContextMenu(input: ViewportContextMenuInput): reado
                 icon: 'codicon-zoom-in',
                 separatorAbove: true,
                 action: { kind: 'fitSolid', solidId }
+            },
+            {
+                label: 'Hide Solid',
+                icon: 'codicon-eye-closed',
+                separatorAbove: true,
+                action: { kind: 'hideSolid', solidId }
+            },
+            {
+                label: 'Isolate Solid',
+                icon: 'codicon-filter',
+                action: { kind: 'isolateSolid', solidId }
             }
         ];
     }
+    const hiddenCount = input.hiddenCount ?? 0;
+    const sectionActive = input.sectionActive ?? false;
     return [
         { label: 'Fit All', icon: 'codicon-zoom-out', action: { kind: 'fitAll' } },
         {
@@ -133,9 +154,29 @@ export function buildViewportContextMenu(input: ViewportContextMenuInput): reado
             icon: 'codicon-discard',
             disabled: input.explodeFactor <= 0 ? true : undefined,
             action: { kind: 'resetExplode' }
+        },
+        {
+            label: 'Show All Solids',
+            icon: 'codicon-eye',
+            separatorAbove: true,
+            disabled: hiddenCount <= 0 ? true : undefined,
+            action: { kind: 'showAll' }
+        },
+        {
+            label: sectionActive ? 'Hide Section View' : 'Show Section View',
+            icon: 'codicon-nuke-cad-section',
+            action: { kind: 'toggleSection' }
         }
     ];
 }
+
+/**
+ * Parent dispatch sketch (not wired — the widget owns this):
+ * hideSolid -> stateManager.setHiddenSolidIds([...hidden, solidId])
+ * isolateSolid -> setHiddenSolidIds(summaries.map(s => s.solidId).filter(id => id !== solidId))
+ * showAll -> stateManager.setHiddenSolidIds([])
+ * toggleSection -> onSetSectionActive(!sectionActive)
+ */
 
 /**
  * Render the menu at a container-relative anchor and invoke `onAction` for the

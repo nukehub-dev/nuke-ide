@@ -46,6 +46,34 @@ export const LIGHT_THEME_EDGE_COLOR = '#4a5560';
 /** Edge-line color on dark themes (the historical default). */
 export const DARK_THEME_EDGE_COLOR = '#ffffff';
 
+/** Viewport background choice: theme color, fixed dark/light, or CSS gradient. */
+export type ViewportBackgroundStyle = 'theme' | 'dark' | 'light' | 'gradient';
+
+/** Fixed dark viewport background. */
+export const DARK_BACKGROUND = '#1e1e1e';
+/** Fixed light viewport background. */
+export const LIGHT_BACKGROUND = '#f5f5f5';
+/** CSS backdrop used when the background style is gradient. */
+export const BACKGROUND_GRADIENT_CSS = 'linear-gradient(to bottom, #334155 0%, #000000 100%)';
+
+/**
+ * Resolve the solid scene color for a background style. Returns `undefined`
+ * for gradient: the CSS backdrop shows through a transparent renderer.
+ */
+export function resolveViewportBackground(style: ViewportBackgroundStyle, themeBackground: string): string | undefined {
+    switch (style) {
+        case 'dark':
+            return DARK_BACKGROUND;
+        case 'light':
+            return LIGHT_BACKGROUND;
+        case 'gradient':
+            return undefined;
+        case 'theme':
+        default:
+            return themeBackground;
+    }
+}
+
 /** Colors the 3D scene derives from the active Theia theme. */
 export interface CadViewportColors {
     /** Albedo for the model's face materials. */

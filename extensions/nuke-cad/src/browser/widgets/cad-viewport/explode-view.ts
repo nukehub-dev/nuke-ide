@@ -30,8 +30,8 @@
  *
  * Pure transform planning shared by the viewport widget: each solid moves away
  * from the model's global bounding-box center along the direction from the
- * center to the solid's own centroid, scaled by the model diagonal and the
- * slider factor. Offsets are applied as object `.position` transforms only —
+ * center to the solid's own centroid, scaled by the model diagonal, the
+ * slider factor, and EXPLODE_MAX_SPAN. Offsets are applied as object `.position` transforms only —
  * never geometry edits — so the mesh reuse pool is untouched and picking (which
  * raycasts world matrices) keeps working on exploded models.
  *
@@ -56,6 +56,10 @@ export interface ExplodeSolidCentroid {
 /** Distance below which a direction is treated as degenerate (zero offset). */
 export const EXPLODE_EPSILON = 1e-9;
 
+// At factor 1 each solid moves only a fraction of the model diagonal so large
+// assemblies such as the tokamak stay in frame instead of flying out of view.
+export const EXPLODE_MAX_SPAN = 0.35;
+
 export function clampExplodeFactor(value: number): number {
     if (!Number.isFinite(value)) {
         return 0;
@@ -64,11 +68,13 @@ export function clampExplodeFactor(value: number): number {
 }
 
 /**
- * Offset for one solid: `normalize(centroid - center) * diagonal * factor`.
+ * Offset for one solid: `normalize(centroid - center) * diagonal * factor * EXPLODE_MAX_SPAN`.
  *
  * A centroid coinciding with the global center (or a zero/negative factor)
  * yields the zero vector — the solid simply does not move, which is the
- * correct behavior for a solid at the explode origin.
+ * correct behavior for a solid at the explode origin. A single centered solid
+ * has nothing to separate from, so there is deliberately no fallback axis:
+ * it stays at zero.
  */
 export function explodeOffset(centroid: ExplodePoint3D, center: ExplodePoint3D, diagonal: number, factor: number): ExplodePoint3D {
     const dx = centroid[0] - center[0];
@@ -78,7 +84,7 @@ export function explodeOffset(centroid: ExplodePoint3D, center: ExplodePoint3D, 
     if (length < EXPLODE_EPSILON || !(diagonal > 0) || factor <= 0) {
         return [0, 0, 0];
     }
-    const scale = (diagonal * clampExplodeFactor(factor)) / length;
+    const scale = (diagonal * clampExplodeFactor(factor) * EXPLODE_MAX_SPAN) / length;
     return [dx * scale, dy * scale, dz * scale];
 }
 

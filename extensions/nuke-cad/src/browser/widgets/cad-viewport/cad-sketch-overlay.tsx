@@ -36,7 +36,14 @@
 
 import * as React from '@theia/core/shared/react';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
-import { NukeDialog, NukePanel, NukeToolbar, NukeToolbarGroup } from 'nuke-essentials/lib/theme/browser/components';
+import {
+    NukeDialog,
+    NukeFormRow,
+    NukePanel,
+    NukeSection,
+    NukeToolbar,
+    NukeToolbarGroup
+} from 'nuke-essentials/lib/theme/browser/components';
 import { SketchModeController } from '../../sketch/sketch-mode-controller';
 import { type SketchTool, type ConstraintKind, type SketchStatus } from '../../sketch/sketch-session';
 import { type DatumKind } from '../../sketch/sketch-math';
@@ -2032,8 +2039,7 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
     };
 
     const bodySelector = (
-        <label className="cad-feature-dialog-row">
-            Body
+        <NukeFormRow label="Body" className="cad-feature-dialog-row">
             <select value={bodyId} onChange={(e) => setBodyId(e.target.value)}>
                 {type === 'pad' ||
                 type === 'revolve' ||
@@ -2049,7 +2055,7 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                     </option>
                 ))}
             </select>
-        </label>
+        </NukeFormRow>
     );
 
     const dressUpBodySelector = (
@@ -2066,10 +2072,9 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
     );
 
     const labelInput = (
-        <label className="cad-feature-dialog-row">
-            Label
+        <NukeFormRow label="Label" className="cad-feature-dialog-row">
             <input type="text" value={label} onChange={(e) => setLabel(e.target.value)} />
-        </label>
+        </NukeFormRow>
     );
 
     const booleanBodySelectors = (
@@ -2286,22 +2291,28 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
             )}
             {isExtrude && (
                 <>
-                    <label className="cad-feature-dialog-row">
-                        Length
-                        <input type="number" value={length} onChange={(e) => setLength(e.target.value)} autoFocus />
-                    </label>
-                    <label className="cad-feature-dialog-row">
-                        Direction
-                        <select value={axis} onChange={(e) => setAxis(e.target.value as 'x' | 'y' | 'z')}>
-                            <option value="x">X</option>
-                            <option value="y">Y</option>
-                            <option value="z">Z</option>
-                        </select>
-                    </label>
-                    <label className="cad-feature-dialog-row check">
-                        <input type="checkbox" checked={symmetric} onChange={(e) => setSymmetric(e.target.checked)} />
-                        Symmetric
-                    </label>
+                    <NukeSection title="Dimensions">
+                        <NukeFormRow label="Length" hint="Model units" className="cad-feature-dialog-row">
+                            <input type="number" value={length} onChange={(e) => setLength(e.target.value)} autoFocus />
+                        </NukeFormRow>
+                        <NukeFormRow label="Direction" className="cad-feature-dialog-row">
+                            <select value={axis} onChange={(e) => setAxis(e.target.value as 'x' | 'y' | 'z')}>
+                                <option value="x">X</option>
+                                <option value="y">Y</option>
+                                <option value="z">Z</option>
+                            </select>
+                        </NukeFormRow>
+                    </NukeSection>
+                    <NukeSection title="Options">
+                        <NukeFormRow
+                            label="Symmetric"
+                            hint="Extends equally in both directions"
+                            checkbox
+                            className="cad-feature-dialog-row check"
+                        >
+                            <input type="checkbox" checked={symmetric} onChange={(e) => setSymmetric(e.target.checked)} />
+                        </NukeFormRow>
+                    </NukeSection>
                 </>
             )}
             {isRevolve && (

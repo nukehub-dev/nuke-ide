@@ -26,7 +26,7 @@
 // *****************************************************************************
 
 import { describe, expect, it } from 'vitest';
-import { clampExplodeFactor, explodeBoxCenterDiagonal, explodeOffset, planExplodeOffsets } from './explode-view';
+import { clampExplodeFactor, EXPLODE_MAX_SPAN, explodeBoxCenterDiagonal, explodeOffset, planExplodeOffsets } from './explode-view';
 
 describe('explode-view', () => {
     it('clamps the slider factor into 0..1', () => {
@@ -40,25 +40,35 @@ describe('explode-view', () => {
 
     it('offsets along the direction from the global center to the solid centroid', () => {
         // Center at origin, solid centroid on +X: the offset must be +X only.
+        // Capped by EXPLODE_MAX_SPAN: 100 * 0.5 * 0.35 = 17.5.
         const offset = explodeOffset([10, 0, 0], [0, 0, 0], 100, 0.5);
-        expect(offset[0]).toBeCloseTo(50, 12);
+        expect(offset[0]).toBeCloseTo(17.5, 12);
+        expect(offset[1]).toBeCloseTo(0, 12);
+        expect(offset[2]).toBeCloseTo(0, 12);
+    });
+
+    it('caps the maximum displacement at EXPLODE_MAX_SPAN of the diagonal', () => {
+        expect(EXPLODE_MAX_SPAN).toBe(0.35);
+        // Factor 1 moves exactly 0.35 * diagonal.
+        const offset = explodeOffset([160, 0, 0], [100, 0, 0], 40, 1);
+        expect(offset[0]).toBeCloseTo(40 * EXPLODE_MAX_SPAN, 12);
         expect(offset[1]).toBeCloseTo(0, 12);
         expect(offset[2]).toBeCloseTo(0, 12);
     });
 
     it('normalizes the direction so only the magnitude scales with factor', () => {
         // Centroid distance from center (60, 0, 0) is irrelevant: a factor of 1
-        // moves the solid exactly one diagonal.
+        // moves the solid exactly EXPLODE_MAX_SPAN * diagonal.
         const offset = explodeOffset([160, 0, 0], [100, 0, 0], 40, 1);
-        expect(offset[0]).toBeCloseTo(40, 12);
+        expect(offset[0]).toBeCloseTo(40 * EXPLODE_MAX_SPAN, 12);
         // Halving the factor halves the offset.
         const half = explodeOffset([160, 0, 0], [100, 0, 0], 40, 0.5);
-        expect(half[0]).toBeCloseTo(20, 12);
+        expect(half[0]).toBeCloseTo(40 * EXPLODE_MAX_SPAN * 0.5, 12);
     });
 
     it('scales diagonally placed centroids component-wise after normalization', () => {
         const offset = explodeOffset([1, 1, 0], [0, 0, 0], 10, 1);
-        const expected = 10 / Math.sqrt(2);
+        const expected = (10 * EXPLODE_MAX_SPAN) / Math.sqrt(2);
         expect(offset[0]).toBeCloseTo(expected, 12);
         expect(offset[1]).toBeCloseTo(expected, 12);
         expect(offset[2]).toBe(0);
@@ -90,9 +100,9 @@ describe('explode-view', () => {
         const box = { min: [-5, -5, -5], max: [5, 5, 5] };
         const diagonal = Math.sqrt(300);
         const offsets = planExplodeOffsets(solids, box, 0.5);
-        expect(offsets.get(0)?.[0]).toBeCloseTo(diagonal * 0.5, 12);
+        expect(offsets.get(0)?.[0]).toBeCloseTo(diagonal * 0.5 * EXPLODE_MAX_SPAN, 12);
         expect(offsets.get(0)?.[1]).toBe(0);
-        expect(offsets.get(1)?.[0]).toBeCloseTo(-diagonal * 0.5, 12);
+        expect(offsets.get(1)?.[0]).toBeCloseTo(-diagonal * 0.5 * EXPLODE_MAX_SPAN, 12);
         // The solid sitting at the explode origin does not move.
         expect(offsets.get(2)).toEqual([0, 0, 0]);
         expect(offsets.size).toBe(3);
