@@ -41,6 +41,10 @@ export const blueDarkTheme = {
         'button.secondaryBackground': '#4a4a4a',
         'button.secondaryHoverBackground': '#5a5a5a',
         'button.secondaryForeground': '#e0e0e0',
+        // Theia-native secondary buttons (.theia-button.secondary)
+        'secondaryButton.background': '#4a4a4a',
+        'secondaryButton.foreground': '#e0e0e0',
+        'secondaryButton.hoverBackground': '#5a5a5a',
 
         'textLink.foreground': '#4fc3f7',
         'textLink.activeForeground': '#81d4fa',

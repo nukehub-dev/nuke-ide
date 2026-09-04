@@ -261,8 +261,14 @@ export class NukeCadCommandContribution implements CommandContribution {
         commands.registerCommand(NukeCadCommands.EDIT_FEATURE, {
             execute: async (featureId?: string) => {
                 const widget = await this.widgetManager.getWidget<CadViewportWidget>(CadViewportWidget.ID);
+                if (widget === undefined) {
+                    return;
+                }
                 if (typeof featureId === 'string') {
-                    widget?.startFeatureEdit(featureId);
+                    widget.startFeatureEdit(featureId);
+                } else {
+                    // Palette invocation carries no id: edit the selected feature.
+                    widget.startFeatureEditForSelection();
                 }
             }
         });

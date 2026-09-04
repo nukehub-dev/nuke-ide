@@ -964,8 +964,12 @@ def convert_to_dagmc(
 
         # Size field: interpret ``tol`` as a rough target mesh edge length.
         # Curved surfaces are refined based on curvature. This is a pragmatic
-        # mapping from faceting tolerance to gmsh's length-field API.
-        gmsh.option.setNumber("Mesh.CharacteristicLengthMin", tol / 100.0)
+        # mapping from faceting tolerance to gmsh's length-field API. The min
+        # length floor stays within an order of magnitude below ``tol``: a
+        # smaller floor lets curvature refinement emit needle facets (aspect
+        # >100:1) that DAGMC ray firing intermittently misses, causing
+        # sporadic "no intersection" lost particles at large model scale.
+        gmsh.option.setNumber("Mesh.CharacteristicLengthMin", tol / 10.0)
         gmsh.option.setNumber("Mesh.CharacteristicLengthMax", max(tol * 10.0, 0.1))
         gmsh.option.setNumber("Mesh.CharacteristicLengthFromCurvature", 1)
         gmsh.option.setNumber("Mesh.MinimumCirclePoints", 12)

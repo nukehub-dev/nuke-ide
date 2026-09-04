@@ -341,6 +341,10 @@ _LOST_PARTICLE_PATTERNS = (
     "could not be located in any cell and it did not leak",
     "Lost particle after reflection",
     "Lost a ray",
+    # DAGMC ray-tracing failure mode: the particle's cell is known but the
+    # boundary ray finds no intersection (sliver facets); OpenMC kills the
+    # particle and prints one of these per lost particle.
+    "No intersection found with DAGMC cell",
 )
 
 
@@ -381,19 +385,36 @@ def test_w7x_openmc_run_zero_lost(w7x_h5m: Path) -> None:
     settings.run_mode = "fixed source"
     settings.particles = 500
     settings.batches = 10
-    # 14 MeV point source inside coil solid 0, placed at its bbox center.
-    shape = _w7x_shape()
-    selector_map = shape["selectorMap"]
-    coil_idx = selector_map["coil"][0]
-    coil = shape["shape"].solids()[coil_idx - 1]
-    bbox = coil.bounding_box()
-    sx = (bbox.min.X + bbox.max.X) / 2.0 * _LENGTH_SCALE
-    sy = (bbox.min.Y + bbox.max.Y) / 2.0 * _LENGTH_SCALE
-    sz = (bbox.min.Z + bbox.max.Z) / 2.0 * _LENGTH_SCALE
+    # 14 MeV point source strictly inside coil solid 0, placed on the
+    # centerline spine (interior by construction — the sweep section is
+    # centered on it). The bbox center is NOT usable here: the coil is a
+    # 0.37 m tube waving through a ~5 x 3.5 x 7.6 m bbox, so the bbox center
+    # sits in the void and OpenMC's DAGMC locate assigns the source to an
+    # arbitrary cell — the graveyard at some pattern counts (a vacuous pass:
+    # born particles are killed without transport) or a copper cell at others
+    # (100 % birth losses). Assert the spine point classifies strictly inside
+    # the built B-rep so this test can never pass vacuously again.
+    samples = json.loads(_FIXTURE.read_text(encoding="utf-8"))
+    sx, sy, sz = (float(c) * _LENGTH_SCALE for c in samples[0])
     settings.source = openmc.IndependentSource(
         particle="neutron",
         space=openmc.stats.Point((sx, sy, sz)),
         energy=openmc.stats.Discrete([14.0e6], [1.0]),
+    )
+
+    shape = _w7x_shape()
+    selector_map = shape["selectorMap"]
+    coil_idx = selector_map["coil"][0]
+    coil = shape["shape"].solids()[coil_idx - 1]
+    from OCP.BRepClass3d import BRepClass3d_SolidClassifier
+    from OCP.gp import gp_Pnt
+    from OCP.TopAbs import TopAbs_IN
+
+    classifier = BRepClass3d_SolidClassifier(
+        coil.wrapped, gp_Pnt(sx / _LENGTH_SCALE, sy / _LENGTH_SCALE, sz / _LENGTH_SCALE), 1e-9
+    )
+    assert classifier.State() == TopAbs_IN, (
+        "W7X source point is not inside coil solid — the zero-lost run would be vacuous"
     )
 
     model = openmc.Model(geometry=geometry, materials=materials, settings=settings)

@@ -1560,6 +1560,11 @@ def _corner_station_loft(ring: list[Any], feature_id: str) -> Any:
     are trimmed slightly off the periodic seam, where the raw shell's sliver
     faces leave the corner curves unreliable. Accuracy is approximately 1% in
     volume for the W7-X coil model (measured -1.2% at these settings).
+
+    Stations stay numerous (480) and uniform in curve parameter: arc-length
+    spacing at 120 stations measured -2.7% volume drift AND introduced
+    sliver-prone UV parameterization, so neither accuracy nor mesh quality
+    benefits from fewer stations.
     """
     from OCP.BRepAdaptor import BRepAdaptor_Curve
     from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeEdge, BRepBuilderAPI_MakeWire

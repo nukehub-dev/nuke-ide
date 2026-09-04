@@ -245,3 +245,67 @@ export function projectMeasurePoint(
 
 /** Popover note: measurements are session state, never stored in the document. */
 export const MEASURE_CLEAR_NOTE = 'Measurements are cleared after rebuild';
+
+/**
+ * A committed label's projected anchor and measured on-screen size. Sizes come
+ * from the DOM (offsetWidth/offsetHeight); the fallback covers not-yet-laid-out
+ * labels.
+ */
+export interface MeasureLabelCandidate {
+    readonly id: string;
+    readonly x: number;
+    readonly y: number;
+    readonly width: number;
+    readonly height: number;
+}
+
+/** Vertical shift applied per colliding label when stacking a collision group. */
+export const MEASURE_LABEL_STACK_STEP_PX = 20;
+
+/**
+ * Clamp a label center so the whole label box stays inside the container.
+ * Labels are centered on their anchor via `translate(-50%, -50%)`, so the
+ * clamp bounds are half the label size from each edge.
+ */
+export function clampMeasureLabel(
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    containerWidth: number,
+    containerHeight: number
+): { x: number; y: number } {
+    const halfW = Math.max(width / 2, 1);
+    const halfH = Math.max(height / 2, 1);
+    return {
+        x: Math.min(Math.max(x, halfW), Math.max(halfW, containerWidth - halfW)),
+        y: Math.min(Math.max(y, halfH), Math.max(halfH, containerHeight - halfH))
+    };
+}
+
+/**
+ * Clamp committed measure labels to the viewport and de-overlap collisions:
+ * labels are processed in input order (callers pass measurement order, which
+ * is deterministic) and a label whose box would overlap an already-placed one
+ * stacks downward in `MEASURE_LABEL_STACK_STEP_PX` steps until free or pinned
+ * by the clamp. Returns the final center per label id.
+ */
+export function layoutMeasureLabels(
+    labels: readonly MeasureLabelCandidate[],
+    containerWidth: number,
+    containerHeight: number
+): Map<string, { x: number; y: number }> {
+    const placed: MeasureLabelCandidate[] = [];
+    const result = new Map<string, { x: number; y: number }>();
+    const overlaps = (x: number, y: number, width: number, height: number): boolean =>
+        placed.some((p) => Math.abs(p.x - x) < (p.width + width) / 2 && Math.abs(p.y - y) < (p.height + height) / 2);
+    for (const label of labels) {
+        let { x, y } = clampMeasureLabel(label.x, label.y, label.width, label.height, containerWidth, containerHeight);
+        for (let attempt = 0; attempt < 20 && overlaps(x, y, label.width, label.height); attempt++) {
+            y = clampMeasureLabel(x, y + MEASURE_LABEL_STACK_STEP_PX, label.width, label.height, containerWidth, containerHeight).y;
+        }
+        placed.push({ ...label, x, y });
+        result.set(label.id, { x, y });
+    }
+    return result;
+}

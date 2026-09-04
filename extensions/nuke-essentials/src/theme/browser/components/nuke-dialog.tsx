@@ -46,6 +46,14 @@ export interface NukeDialogProps {
     footer?: React.ReactNode;
     /** Maximum width of the dialog box (default 480px). */
     maxWidth?: number | string;
+    /** Inline style on the dialog box — e.g. a dragged offset from useDraggablePanel. */
+    style?: React.CSSProperties;
+    /**
+     * Extra props spread onto the dialog box root, e.g. drag-handle handlers
+     * (`onPointerDown`/`onDoubleClick`/`onContextMenu`) and a `ref` from
+     * useDraggablePanel. Omit to keep the centered, non-draggable default.
+     */
+    rootProps?: React.HTMLAttributes<HTMLDivElement> & React.RefAttributes<HTMLDivElement>;
     /** Extra class on the dialog box. */
     className?: string;
     /** Extra class on the scrollable body. */
@@ -70,6 +78,8 @@ export const NukeDialog: React.FC<NukeDialogProps> = ({
     closeOnEscape = true,
     footer,
     maxWidth,
+    style,
+    rootProps,
     className,
     bodyClassName,
     children
@@ -100,7 +110,8 @@ export const NukeDialog: React.FC<NukeDialogProps> = ({
         <div className={`nuke-dialog-backdrop${modal ? '' : ' non-modal'}`} onMouseDown={onBackdropMouseDown}>
             <div
                 className={`nuke-dialog${className ? ` ${className}` : ''}`}
-                style={maxWidth !== undefined ? { maxWidth } : undefined}
+                style={maxWidth !== undefined || style !== undefined ? { maxWidth, ...style } : undefined}
+                {...rootProps}
                 role="dialog"
                 aria-modal="true"
             >

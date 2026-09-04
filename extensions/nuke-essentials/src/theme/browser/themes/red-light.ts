@@ -43,6 +43,10 @@ export const redLightTheme = {
         'button.secondaryBackground': '#f2e2e2',
         'button.secondaryHoverBackground': '#e8d5d5',
         'button.secondaryForeground': '#2c3e50',
+        // Theia-native secondary buttons (.theia-button.secondary)
+        'secondaryButton.background': '#f2e2e2',
+        'secondaryButton.foreground': '#2c3e50',
+        'secondaryButton.hoverBackground': '#e8d5d5',
 
         // Links
         'textLink.foreground': '#d32f2f',

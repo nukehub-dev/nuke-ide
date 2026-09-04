@@ -178,11 +178,27 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   is active. Pressing `Q` inside the viewport opens a transient context shortcut
   bar anchored at the cursor: sketch tools when a sketch session is active,
   feature-creation actions otherwise; it closes on click, Escape, or pointer
-  leaving the viewport. Viewport key handlers are scoped to the viewport: the container
+  leaving the viewport. Right-clicking the canvas (no pick mode, no sketch
+  session) opens the viewport context menu instead of the browser default:
+  on a solid it offers Edit Feature… (attributed through the solid's body id
+  to the latest non-suppressed feature writing that body — a pattern fuse
+  resolves to its tip feature; disabled when no feature matches, never
+  guessed), the three measure tools, and Fit to Solid; on empty space it
+  offers Fit All and Reset Explode (disabled at 0%). It is imperative DOM
+  (`viewport-context-menu.ts`: pure model + attribution, thin renderer;
+  window pointerdown/Escape close), not a Theia ContextMenuRenderer.
+  Viewport key handlers are scoped to the viewport: the container
   is focusable (`tabindex="-1"`, focused on pointerdown) and every window
   keydown handler early-returns unless the container contains
   `document.activeElement`, so Theia's own shortcuts keep working whenever
-  focus is elsewhere. Closing the viewport widget also closes the Model Outline and
+  focus is elsewhere. The tool-key handlers (`onKeyDown`, section Escape)
+  additionally listen in the window CAPTURE phase: Theia's KeybindingRegistry
+  matches keybindings (Escape → hide notifications among them) from a
+  document-capture listener and stopPropagation()s the event, so bubble-phase
+  tool keys were silently eaten while any notification was visible. Capture
+  on window runs first; unclaimed keys still propagate to Theia. The context
+  menu hands focus back to the container after dispatching an action, since
+  the pressed button leaves the DOM with the menu. Closing the viewport widget also closes the Model Outline and
   Feature Tree panels (they have no model to show otherwise); opening a CAD
   model reveals them again automatically. Entering sketch
   mode on a saved sketch fits the orthographic view to the sketch's bounding
@@ -207,7 +223,10 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   follows `--theia-foreground` on dark themes but switches to a fixed steel
   tone on light editor backgrounds (a light theme's foreground is near-black
   and silhouettes the model), and edge lines flip from white to dark slate;
-  theme changes re-color the loaded model live.
+  theme changes re-color the loaded model live, and the initial scene colors
+  re-read once after first paint so a freshly injected theme stylesheet is
+  not stuck on the dark fallback (`applyThemeColors` at init + on theme
+  change).
   The tessellation load path (`tess-reuse.ts` + `tess-parse.worker.ts` +
   `tess-parse-client.ts`): the `.tess.json` text parses in a Web Worker
   (webpack-5 native `new Worker(new URL(...))`, worker imports nothing Theia)
@@ -463,7 +482,9 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
     the panel exceeds it). The toolbar, Parameters, Solver Diagnostics,
     External Geometry, Keyboard Shortcuts, and Measurements panels all drag
     by their headers with the same reset grammar; the feature-creation modal
-    and the dimension value popover stay anchored. The toolbar body is a
+    also drags by its NukeDialog header (double-click/right-click resets,
+    clamped to the viewport), while the dimension value popover stays
+    anchored. The toolbar body is a
     grouped two-column grid (draw / modify & constraint / lists) with
     `active`-state tool buttons (accent background via the
     `.theia-button.secondary`-beating specificity rules in cad-viewport.css). Exiting

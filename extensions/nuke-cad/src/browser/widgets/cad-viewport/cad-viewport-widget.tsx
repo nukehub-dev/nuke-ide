@@ -115,6 +115,8 @@ import {
     isMeasureAngle,
     isMeasureRadius,
     isMeasureSegment,
+    layoutMeasureLabels,
+    clampMeasureLabel,
     measureAngle,
     measureDistance,
     nextMeasureId,
@@ -122,6 +124,7 @@ import {
     type Measurement,
     type MeasureAngle,
     type MeasureKind,
+    type MeasureLabelCandidate,
     type MeasurePoint3D,
     type MeasureRadius,
     type MeasureSegment,
@@ -134,6 +137,7 @@ import { headerRegionTarget, useDraggablePanel } from './draggable-panel';
 import { buildFeaturePreviewDocument, resolveCurvePick, type FeaturePreviewRequest } from './sweep-pipe';
 import { faceReuseKey, planFaceReuse, type ParsedTessCurve, type ParsedTessData } from './tess-reuse';
 import { parseTessellationAsync } from './tess-parse-client';
+import { attributeBodyToFeature, buildViewportContextMenu, openViewportContextMenu } from './viewport-context-menu';
 import './cad-viewport.css';
 import './cad-icons.css';
 
@@ -849,6 +853,20 @@ export class CadViewportWidget extends ReactWidget {
         this.update();
     }
 
+    /**
+     * Palette entry point for EDIT_FEATURE: the command palette cannot supply
+     * a feature id, so edit the feature currently selected in the document
+     * (e.g. clicked in the Feature Tree), or explain why nothing happens.
+     */
+    startFeatureEditForSelection(): void {
+        const selectedId = this.documentStore.selection.selectedFeatureId;
+        if (selectedId === undefined) {
+            this.messageService.warn('Select a feature in the Feature Tree first.');
+            return;
+        }
+        this.startFeatureEdit(selectedId);
+    }
+
     /** Export the active document as a one-way build123d Python script. */
     async exportPython(): Promise<void> {
         const doc = this.documentStore.document;
@@ -1344,10 +1362,16 @@ export class CadViewportWidget extends ReactWidget {
                 sectionActive={this.sectionActive}
                 onSetSectionActive={this.handleSetSectionActive}
                 onExitSection={this.handleExitSection}
+                onEditFeatureRequest={this.handleEditFeatureRequest}
                 messageService={this.messageService}
             />
         );
     }
+
+    /** Context-menu Edit Feature: reopen the dialog for the attributed feature. */
+    protected readonly handleEditFeatureRequest = (featureId: string): void => {
+        this.startFeatureEdit(featureId);
+    };
 }
 
 interface CadViewportComponentProps {
@@ -1412,6 +1436,8 @@ interface CadViewportComponentProps {
     readonly onPreviewChange: (request: FeaturePreviewRequest | undefined) => void;
     readonly onSetSectionActive: (active: boolean) => void;
     readonly onExitSection: () => void;
+    /** Viewport context menu: open the feature dialog for an attributed feature. */
+    readonly onEditFeatureRequest: (featureId: string) => void;
 }
 
 function CadViewportComponent(props: CadViewportComponentProps): React.ReactElement {
@@ -1546,6 +1572,19 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
         setMeasureActive((prev) => !prev);
     }, []);
 
+    /** Context-menu entry: activate the tool in the chosen mode. */
+    const handleStartMeasureTool = React.useCallback(
+        (tool: MeasureToolMode): void => {
+            clearMeasurePendings();
+            setMeasureTool(tool);
+            setMeasureActive(true);
+        },
+        [clearMeasurePendings]
+    );
+
+    /** Context-menu entry: reassemble an exploded model. */
+    const handleResetExplode = React.useCallback((): void => setExplodeFactor(0), []);
+
     const handleToggleMeasureList = React.useCallback((): void => {
         setMeasureListOpen((prev) => !prev);
     }, []);
@@ -1645,6 +1684,9 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                 handleMeasureRadius,
                 handleMeasureDeactivate,
                 (mode, anchor) => setShortcutBar({ mode, anchor }),
+                props.onEditFeatureRequest,
+                handleStartMeasureTool,
+                handleResetExplode,
                 OrbitControls
             );
             if (disposed) {
@@ -2076,7 +2118,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                 {statusHints.length > 0 && (
                     <div className="cad-viewport-shading-hint">
                         <span className="codicon codicon-info" />
-                        {statusHints.join(' · ')}
+                        <span className="cad-viewport-shading-hint-text">{statusHints.join(' · ')}</span>
                     </div>
                 )}
             </>
@@ -2299,6 +2341,9 @@ function initViewport(
     onMeasureRadius: (center: MeasurePoint3D, radius: number) => void,
     onMeasureDeactivate: () => void,
     onShortcutBarRequest: (mode: 'document' | 'sketch', anchor: { x: number; y: number }) => void,
+    onEditFeatureRequest: (featureId: string) => void,
+    onStartMeasureTool: (tool: MeasureToolMode) => void,
+    onResetExplode: () => void,
     OrbitControlsCtor: new (
         camera: THREE.Camera,
         domElement: HTMLElement
@@ -2770,12 +2815,14 @@ function initViewport(
             const pxPerUnit = rectHeight / (2 * Math.tan(((perspective.fov ?? 45) * Math.PI) / 360) * distance);
             return MEASURE_MARKER_PX / Math.max(pxPerUnit, 1e-9);
         };
-        const positionLabel = (label: HTMLDivElement, anchor: MeasurePoint3D, text: string): void => {
+        const positionLabel = (label: HTMLDivElement, anchor: MeasurePoint3D, text: string): { x: number; y: number } | undefined => {
             const screen = projectMeasurePoint(anchor, viewProjection, rectWidth, rectHeight);
             label.textContent = text;
-            label.style.left = `${screen.x}px`;
-            label.style.top = `${screen.y}px`;
             label.style.display = screen.visible ? '' : 'none';
+            if (!screen.visible) {
+                return undefined;
+            }
+            return { x: screen.x, y: screen.y };
         };
         const scaleSphere = (sphere: THREE.Mesh, point: MeasurePoint3D): void => {
             const screen = projectMeasurePoint(point, viewProjection, rectWidth, rectHeight);
@@ -2783,40 +2830,87 @@ function initViewport(
             const scale = markerScaleFor(point);
             sphere.scale.set(scale, scale, scale);
         };
+        // Pass 1: set text, project anchors, hide labels behind the camera, and
+        // collect visible candidates with their measured box sizes.
+        const labelCandidates: MeasureLabelCandidate[] = [];
+        for (const visual of measureVisuals.values()) {
+            let anchor: MeasurePoint3D;
+            let text: string;
+            if (visual.type === 'segment') {
+                anchor = visual.measurement.midpoint;
+                text = formatMeasureDistance(visual.measurement.distance);
+            } else if (visual.type === 'angle') {
+                anchor = visual.measurement.b;
+                text = formatMeasureAngle(visual.measurement.angle);
+            } else {
+                anchor = visual.measurement.center;
+                text = formatMeasureRadius(visual.measurement.radius);
+            }
+            const screen = positionLabel(visual.label, anchor, text);
+            if (screen !== undefined) {
+                labelCandidates.push({
+                    id: visual.measurement.id,
+                    x: screen.x,
+                    y: screen.y,
+                    width: visual.label.offsetWidth || 64,
+                    height: visual.label.offsetHeight || 18
+                });
+            }
+        }
+        // Pass 2: clamp to the viewport and stack colliding labels apart,
+        // deterministic in measurement order.
+        const labelPlacements = layoutMeasureLabels(labelCandidates, rectWidth, rectHeight);
+        for (const visual of measureVisuals.values()) {
+            const placement = labelPlacements.get(visual.measurement.id);
+            if (placement !== undefined) {
+                visual.label.style.left = `${placement.x}px`;
+                visual.label.style.top = `${placement.y}px`;
+            }
+        }
         for (const visual of measureVisuals.values()) {
             if (visual.type === 'segment') {
-                positionLabel(visual.label, visual.measurement.midpoint, formatMeasureDistance(visual.measurement.distance));
                 scaleSphere(visual.sphereA, visual.measurement.a);
                 scaleSphere(visual.sphereB, visual.measurement.b);
             } else if (visual.type === 'angle') {
-                positionLabel(visual.label, visual.measurement.b, formatMeasureAngle(visual.measurement.angle));
                 scaleSphere(visual.sphereA, visual.measurement.a);
                 scaleSphere(visual.sphereB, visual.measurement.b);
                 scaleSphere(visual.sphereC, visual.measurement.c);
             } else {
-                positionLabel(visual.label, visual.measurement.center, formatMeasureRadius(visual.measurement.radius));
                 scaleSphere(visual.sphereCenter, visual.measurement.center);
             }
         }
         if (measureState.active && measureState.pending !== undefined) {
             const pendingPoint = measureState.pending as MeasurePoint3D;
             const vertex = measureState.pendingVertex;
-            if (measureState.tool === 'angle' && vertex !== undefined && measureHover !== undefined) {
-                // Live angle preview at the vertex while the third point hovers.
-                positionLabel(pendingLabel, vertex, formatMeasureAngle(measureAngle(pendingPoint, vertex, measureHover)));
-            } else {
-                const anchor = measureHover ?? pendingPoint;
-                const text =
-                    measureHover !== undefined && measureState.tool === 'distance'
-                        ? formatMeasureDistance(measureDistance(pendingPoint, measureHover))
-                        : measureState.tool === 'radius'
-                          ? 'Pick a circular edge'
-                          : vertex !== undefined
-                            ? 'Pick third point'
-                            : measureState.tool === 'angle'
-                              ? 'Pick vertex (point B)'
-                              : 'Pick second point';
-                positionLabel(pendingLabel, anchor, text);
+            const pendingScreen =
+                measureState.tool === 'angle' && vertex !== undefined && measureHover !== undefined
+                    ? // Live angle preview at the vertex while the third point hovers.
+                      positionLabel(pendingLabel, vertex, formatMeasureAngle(measureAngle(pendingPoint, vertex, measureHover)))
+                    : positionLabel(
+                          pendingLabel,
+                          measureHover ?? pendingPoint,
+                          measureHover !== undefined && measureState.tool === 'distance'
+                              ? formatMeasureDistance(measureDistance(pendingPoint, measureHover))
+                              : measureState.tool === 'radius'
+                                ? 'Pick a circular edge'
+                                : vertex !== undefined
+                                  ? 'Pick third point'
+                                  : measureState.tool === 'angle'
+                                    ? 'Pick vertex (point B)'
+                                    : 'Pick second point'
+                      );
+            if (pendingScreen !== undefined) {
+                // Transient hint: clamp inside the viewport (no collision pass).
+                const clamped = clampMeasureLabel(
+                    pendingScreen.x,
+                    pendingScreen.y,
+                    pendingLabel.offsetWidth || 64,
+                    pendingLabel.offsetHeight || 18,
+                    rectWidth,
+                    rectHeight
+                );
+                pendingLabel.style.left = `${clamped.x}px`;
+                pendingLabel.style.top = `${clamped.y}px`;
             }
             const scale = markerScaleFor(pendingPoint);
             pendingMarker.scale.set(scale, scale, scale);
@@ -3183,11 +3277,8 @@ function initViewport(
         renderScene();
     };
 
-    const fitView = (): void => {
-        if (currentSelection.solidId !== undefined) {
-            fitToSolid(currentSelection.solidId);
-            return;
-        }
+    /** Fit the whole model along the current view direction, ignoring selection. */
+    const fitAllView = (): void => {
         const direction = camera.position.clone().sub(controls.target);
         if (direction.length() < 1e-6) {
             direction.set(1, -1, 1);
@@ -3201,6 +3292,14 @@ function initViewport(
         camera.lookAt(lastCenter);
         controls.update();
         renderScene();
+    };
+
+    const fitView = (): void => {
+        if (currentSelection.solidId !== undefined) {
+            fitToSolid(currentSelection.solidId);
+            return;
+        }
+        fitAllView();
     };
 
     const zoomView = (factor: number): void => {
@@ -3558,11 +3657,56 @@ function initViewport(
     };
     renderer.domElement.addEventListener('pointermove', onPickPointerMove);
 
+    let closeContextMenu: (() => void) | undefined;
     const onContextMenu = (event: MouseEvent): void => {
         if (activeFacePickMode === undefined && activeDressUpPickMode === undefined && !activeHolePickMode && !activeCurvePickMode) {
+            // No pick mode: the viewport's own menu replaces the browser
+            // default. Sketch mode keeps the default — the menu is a 3D-model
+            // surface — and an empty canvas has nothing to act on.
+            if (controller.isActive || meshes.length === 0) {
+                return;
+            }
+            event.preventDefault();
+            closeContextMenu?.();
+            const rect = renderer.domElement.getBoundingClientRect();
+            const ndc = pointerToNdc(event.clientX, event.clientY, rect);
+            const hit = raycastFace(pickableMeshes(), raycaster, ndc, camera);
+            const featureId = attributeBodyToFeature(hit?.bodyId, documentStore.document?.features);
+            const containerRect = container.getBoundingClientRect();
+            closeContextMenu = openViewportContextMenu(
+                container,
+                buildViewportContextMenu({
+                    solid: hit !== undefined ? { solidId: hit.solidId, featureId } : undefined,
+                    explodeFactor
+                }),
+                { x: event.clientX - containerRect.left, y: event.clientY - containerRect.top },
+                (action) => {
+                    switch (action.kind) {
+                        case 'editFeature':
+                            onEditFeatureRequest(action.featureId);
+                            break;
+                        case 'measure':
+                            onStartMeasureTool(action.tool);
+                            break;
+                        case 'fitSolid':
+                            fitToSolid(action.solidId);
+                            break;
+                        case 'fitAll':
+                            fitAllView();
+                            break;
+                        case 'resetExplode':
+                            onResetExplode();
+                            break;
+                        case 'noop':
+                            break;
+                    }
+                }
+            );
             return;
         }
         event.preventDefault();
+        closeContextMenu?.();
+        closeContextMenu = undefined;
         faceHighlighter.clear();
         edgeHighlighter.clear();
         if (activeDressUpPickMode !== undefined) {
@@ -3641,6 +3785,13 @@ function initViewport(
     // when an editor or another widget holds focus. Clicking a blank spot of
     // the viewport pulls focus onto the container; clicking an interactive
     // control lets the browser focus that control, which stays in the container.
+    // The tool-key handlers (onKeyDown, section Escape) listen in the CAPTURE
+    // phase: Theia's KeybindingRegistry dispatches matched keybindings from a
+    // document-capture listener and stopPropagation()s them, so a bubble-phase
+    // listener would never see Escape/Enter while e.g. a notification toast is
+    // visible. Capture on window runs before document capture; the handlers
+    // keep their focus and text-field guards, and keys they don't claim still
+    // propagate to Theia.
     const viewportHasFocus = (): boolean => container.contains(document.activeElement);
     const onContainerPointerDown = (event: PointerEvent): void => {
         const target = event.target;
@@ -3758,7 +3909,7 @@ function initViewport(
             }
         }
     };
-    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keydown', onKeyDown, true);
 
     const onFitKey = (event: KeyboardEvent): void => {
         if (!viewportHasFocus()) {
@@ -3812,6 +3963,7 @@ function initViewport(
 
     // Escape exits section mode unless a pick mode, sketch session, dialog, or
     // text field consumes the key first (same guards as the fit/tab keys).
+    // Capture phase, for the same Theia keybinding race as onKeyDown.
     const onSectionEscapeKey = (event: KeyboardEvent): void => {
         if (!viewportHasFocus()) {
             return;
@@ -3840,7 +3992,7 @@ function initViewport(
         applyShading();
         onExitSection();
     };
-    window.addEventListener('keydown', onSectionEscapeKey);
+    window.addEventListener('keydown', onSectionEscapeKey, true);
 
     // Fires immediately with the current selection, then on every change.
     const selectionDisposable = subscribeSelection((selection) => {
@@ -3855,7 +4007,9 @@ function initViewport(
         applyShading();
     });
 
-    const themeDisposable = subscribeThemeChange(() => {
+    // Re-reads the theme CSS vars and re-colors scene + shared materials. A
+    // no-op re-read when the vars are unchanged.
+    const applyThemeColors = (): void => {
         const nextBackground = readThemeColor(container, '--theia-editor-background', '#1e1e1e');
         scene.background = new THREE.Color(nextBackground);
         const nextColors = cadViewportColors(nextBackground, readThemeColor(container, '--theia-foreground', '#cccccc'));
@@ -3869,6 +4023,21 @@ function initViewport(
         selectedColor.set(readThemeColor(container, '--theia-focusBorder', '#007fd4'));
         applyHighlight();
         controller.refreshThemeColors();
+        renderScene();
+    };
+
+    let themeColorsDisposed = false;
+    const themeDisposable = subscribeThemeChange(applyThemeColors);
+    // The initial scene background was read synchronously above; at startup
+    // the theme stylesheet can still be injecting, so the first read may fall
+    // back to the dark default under a light theme. Re-read once after first
+    // paint — a no-op when the vars already resolved.
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+            if (!themeColorsDisposed) {
+                applyThemeColors();
+            }
+        });
     });
 
     const resizeObserver = new ResizeObserver(() => {
@@ -3950,6 +4119,8 @@ function initViewport(
             renderScene();
         },
         cleanup: () => {
+            closeContextMenu?.();
+            closeContextMenu = undefined;
             gizmo.remove();
             viewLabel.remove();
             measureLabelLayer.remove();
@@ -3969,6 +4140,7 @@ function initViewport(
             measureSphereMaterial.dispose();
             selectionDisposable.dispose();
             hiddenSolidsDisposable.dispose();
+            themeColorsDisposed = true;
             themeDisposable.dispose();
             resizeObserver.disconnect();
             renderer.domElement.removeEventListener('click', onClick);
@@ -3979,10 +4151,10 @@ function initViewport(
             renderer.domElement.removeEventListener('pointermove', onSketchPointerMove);
             renderer.domElement.removeEventListener('pointerup', onPointerUp);
             renderer.domElement.removeEventListener('wheel', onWheel);
-            window.removeEventListener('keydown', onKeyDown);
+            window.removeEventListener('keydown', onKeyDown, true);
             window.removeEventListener('keydown', onFitKey);
             window.removeEventListener('keydown', onTabKey);
-            window.removeEventListener('keydown', onSectionEscapeKey);
+            window.removeEventListener('keydown', onSectionEscapeKey, true);
             container.removeEventListener('pointerdown', onContainerPointerDown);
             controls.removeEventListener('start', onViewInteractionStart);
             controls.removeEventListener('change', renderScene);

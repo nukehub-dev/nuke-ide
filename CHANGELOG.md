@@ -35,6 +35,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cleared after rebuild; with the explode slider raised, existing
   measurements stay at their original world positions (they are not
   re-anchored to moved solids).
+- nuke-cad: **viewport context menu and draggable feature dialog** —
+  right-clicking the 3D canvas opens a context menu instead of the browser
+  default: on a solid it offers **Edit Feature…** (attributed through the
+  solid's body to the latest feature writing it; disabled when no feature
+  matches), **Measure Distance / Angle / Radius**, and **Fit to Solid**; on
+  empty space it offers **Fit All** and **Reset Explode** (disabled at 0%).
+  The feature-creation/edit dialog now floats like the sketch chrome: drag it
+  by its header, double-click or right-click the header to reset its
+  position. The `nuke.cad.editFeature` command palette entry now edits the
+  feature selected in the Feature Tree when invoked without an id, and the
+  Feature Tree shows the **Edit Parameters** pencil for boolean features too.
 
 ### Changed
 
@@ -93,6 +104,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- nuke-cad: **DAGMC export mesh floor raised to tolerance/10** — the gmsh
+  minimum characteristic length was tolerance/100, letting curvature
+  refinement emit needle facets (aspect >100:1, edges far below the requested
+  faceting tolerance) that DAGMC ray firing intermittently misses; large
+  models sporadically lost particles with "No intersection found" at birth
+  or first crossing. The floor now stays within an order of magnitude below
+  the tolerance (verified zero lost on a 12-coil W7X-scale model).
+- nuke-cad: **viewport tool keys keep working while a notification toast is
+  visible** — Theia dispatches matched keybindings (Escape is bound to hiding
+  notifications) from a document-capture listener and stops the event there, so
+  viewport keys like Escape (end the measure tool, cancel a pick, exit section
+  mode), Enter, and the single-key tool shortcuts silently did nothing
+  whenever any notification was on screen. The viewport's tool-key handlers
+  now listen in the window capture phase, which runs before Theia's document
+  listener, keeping their focus and text-field guards; keys they don't claim
+  still propagate to Theia. Choosing an item from the viewport context menu
+  also hands focus back to the viewport, so a tool activated from the menu
+  responds to Escape immediately.
+- nuke-cad: **viewport theme and overlap polish** — the viewport canvas now
+  matches the active theme at first paint (the initial scene colors re-read
+  after the first frame, fixing a dark canvas under a freshly applied light
+  theme) as well as on every theme switch. Secondary buttons (Cancel/close/nav)
+  are themed in all five NukeIDE themes (Theia's `secondaryButton.*` keys were
+  only defined in the light theme, so the others fell back to Theia's default
+  slate-navy). The bottom-center status pill no longer slides under the
+  navigation cluster (capped width with ellipsis), measurement labels clamp to
+  the viewport and stack apart when they collide, the sketch shortcuts popover
+  no longer opens stacked on the measurements popover, and the sketch value
+  input no longer covers the status line.
 - nuke-cad: **closed-loop sweeps/pipes now survive STEP export** — a sweep or
   pipe whose path curve is a closed loop (e.g. a coil centerline) previously
   produced a tube whose periodic-seam edges carried meter-scale tolerances;

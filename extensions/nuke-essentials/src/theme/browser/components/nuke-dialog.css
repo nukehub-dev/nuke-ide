@@ -38,6 +38,12 @@
     box-sizing: border-box;
 }
 
+/* Draggable variant: a dragged offset arrives via inline style (top/left),
+   anchored to the backdrop so the offsetParent clamp keeps it in view. */
+.nuke-dialog.nuke-dialog-dragged {
+    position: absolute;
+}
+
 .nuke-dialog-header {
     display: flex;
     align-items: center;

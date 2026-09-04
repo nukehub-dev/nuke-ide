@@ -28,6 +28,7 @@
 import { describe, expect, it } from 'vitest';
 import {
     MEASURE_CLEAR_NOTE,
+    clampMeasureLabel,
     createMeasureAngle,
     createMeasureRadius,
     createMeasureSegment,
@@ -38,11 +39,13 @@ import {
     isMeasureAngle,
     isMeasureRadius,
     isMeasureSegment,
+    layoutMeasureLabels,
     measureAngle,
     measureDistance,
     measureMidpoint,
     nextMeasureId,
-    projectMeasurePoint
+    projectMeasurePoint,
+    type MeasureLabelCandidate
 } from './measure-tool';
 
 /** Identity view-projection matrix in column-major THREE.Matrix4 layout. */
@@ -193,5 +196,64 @@ describe('measure-tool', () => {
         expect(formatMeasurementValue(createMeasureSegment('m1', 'model3d', [0, 0, 0], [3, 0, 0]))).toBe('3');
         expect(formatMeasurementValue(createMeasureAngle('m2', 'model3d', [1, 0, 0], [0, 0, 0], [0, 1, 0]))).toBe('90°');
         expect(formatMeasurementValue(createMeasureRadius('m3', [0, 0, 0], 4))).toBe('R 4 · ⌀ 8');
+    });
+});
+
+describe('clampMeasureLabel', () => {
+    it('keeps an in-bounds anchor untouched', () => {
+        expect(clampMeasureLabel(100, 50, 40, 20, 400, 300)).toEqual({ x: 100, y: 50 });
+    });
+
+    it('pulls an off-screen center back inside by half the label size', () => {
+        expect(clampMeasureLabel(-30, 500, 40, 20, 400, 300)).toEqual({ x: 20, y: 290 });
+        expect(clampMeasureLabel(1000, -50, 40, 20, 400, 300)).toEqual({ x: 380, y: 10 });
+    });
+
+    it('keeps the whole box inside even when the container is smaller than the label', () => {
+        const clamped = clampMeasureLabel(10, 10, 400, 100, 200, 80);
+        expect(clamped.x).toBe(200);
+        expect(clamped.y).toBe(50);
+    });
+});
+
+describe('layoutMeasureLabels', () => {
+    const label = (id: string, x: number, y: number): MeasureLabelCandidate => ({ id, x, y, width: 40, height: 20 });
+
+    it('passes non-colliding labels through with clamping only', () => {
+        const placements = layoutMeasureLabels([label('a', 100, 50), label('b', 300, 250)], 400, 300);
+        expect(placements.get('a')).toEqual({ x: 100, y: 50 });
+        expect(placements.get('b')).toEqual({ x: 300, y: 250 });
+    });
+
+    it('stacks colliding labels apart in input order', () => {
+        const placements = layoutMeasureLabels([label('a', 100, 100), label('b', 105, 102), label('c', 98, 99)], 400, 300);
+        const a = placements.get('a');
+        const b = placements.get('b');
+        const c = placements.get('c');
+        expect(a).toEqual({ x: 100, y: 100 });
+        expect(b).toBeDefined();
+        expect(c).toBeDefined();
+        // Every pair must be at least one full label apart vertically or horizontally.
+        const apart = (p: { x: number; y: number }, q: { x: number; y: number }): boolean =>
+            Math.abs(p.x - q.x) >= 40 || Math.abs(p.y - q.y) >= 20;
+        expect(apart(b as { x: number; y: number }, a as { x: number; y: number })).toBe(true);
+        expect(apart(c as { x: number; y: number }, a as { x: number; y: number })).toBe(true);
+        expect(apart(c as { x: number; y: number }, b as { x: number; y: number })).toBe(true);
+    });
+
+    it('stays deterministic regardless of how many times it runs', () => {
+        const run = (): Array<{ x: number; y: number } | undefined> => [
+            ...layoutMeasureLabels([label('a', 100, 100), label('b', 105, 102)], 400, 300).values()
+        ];
+        expect(run()).toEqual(run());
+    });
+
+    it('clamps stacked labels inside the viewport', () => {
+        const placements = layoutMeasureLabels([label('a', 100, 290), label('b', 102, 291)], 400, 300);
+        expect(placements.get('a')).toEqual({ x: 100, y: 290 });
+        const b = placements.get('b');
+        expect(b).toBeDefined();
+        expect((b as { y: number }).y).toBeLessThanOrEqual(290);
+        expect((b as { x: number }).x).toBeGreaterThanOrEqual(20);
     });
 });

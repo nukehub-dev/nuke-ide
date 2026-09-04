@@ -80,6 +80,13 @@ it opens it in the CAD viewport by default.
 - **Fit**: `F` or the fit button frames the whole model; with a solid selected
   it frames that selection instead — `.` and double-clicking a solid also fit
   the selection.
+- **Context menu**: right-click the canvas (no pick mode or sketch session
+  active) for a context menu instead of the browser default. On a solid it
+  offers **Edit Feature…** (the solid is attributed to the latest feature that
+  wrote its body — disabled when no feature matches, e.g. script/STEP models),
+  **Measure Distance / Angle / Radius**, and **Fit to Solid**; on empty space
+  it offers **Fit All** and **Reset Explode** (disabled at 0%). It closes on a
+  click elsewhere or `Esc`.
 - Press `Tab` to enter sketch mode and `Tab` again to leave it; the labeled
   **Finish Sketch** pill at the top-right does the same.
 
@@ -570,8 +577,26 @@ The **Feature Tree** panel shows four sections:
   body's solids in the viewport. Status markers from the last rebuild
   (`built`, `stale`, or `failed`) and reference-resolution badges when
   topological references are ambiguous or unmatched. Each row has actions for
-  suppress, move up/down, edit parameters, and delete; boolean features cannot
-  be edited.
+  suppress, move up/down, edit parameters, and delete — including boolean
+  features.
+
+### Editing a feature
+
+To change an existing feature's parameters instead of deleting and recreating
+it, use any of:
+
+- The feature tree row's **edit parameters** pencil — the feature dialog
+  reopens prefilled with the feature's current parameters (target/tool bodies
+  for booleans, edges/faces for dress-ups, sections for lofts); confirming
+  updates the feature and rebuilds.
+- The **Edit Feature** command in the Command Palette — it edits the feature
+  currently selected in the Feature Tree (select a row first).
+- The **viewport context menu** (below) — right-click the solid and choose
+  **Edit Feature…**.
+
+Feature dialogs float: drag them by their header to move them out of the
+model's way, and double-click (or right-click) the header to snap them back to
+the center.
 
 Suppressed features are omitted from the build and mark downstream features as
 stale. Deleting a feature with dependents prompts you to either cancel or

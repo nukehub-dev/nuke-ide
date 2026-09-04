@@ -291,6 +291,51 @@
     background: var(--theia-list-hoverBackground);
 }
 
+/* 3D viewport right-click context menu (imperative DOM, opened at the pointer) */
+.cad-viewport-context-menu {
+    position: absolute;
+    z-index: 30;
+    display: flex;
+    flex-direction: column;
+    min-width: 170px;
+    padding: 4px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editorWidget-background);
+    box-shadow:
+        0 4px 6px rgba(0, 0, 0, 0.1),
+        0 2px 4px rgba(0, 0, 0, 0.06);
+}
+
+.cad-viewport-context-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--theia-foreground);
+    font-size: var(--theia-ui-font-size1);
+    text-align: left;
+    cursor: pointer;
+}
+
+.cad-viewport-context-menu-item:hover:not(:disabled) {
+    background: var(--theia-list-hoverBackground);
+}
+
+.cad-viewport-context-menu-item:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.cad-viewport-context-menu-separator {
+    height: 1px;
+    margin: 4px 6px;
+    background: var(--theia-panel-border);
+}
+
 .cad-sketch-toolbar-title {
     font-size: var(--theia-ui-font-size0);
     font-weight: 600;
@@ -537,9 +582,10 @@
     font-size: var(--theia-ui-font-size0);
 }
 
+/* Sits above the full-width status line (which tops out ~38px) — never over it. */
 .cad-sketch-value-input {
     position: absolute;
-    bottom: 36px;
+    bottom: 46px;
     left: 50%;
     transform: translateX(-50%);
     display: flex;
@@ -582,7 +628,7 @@
 
 .cad-sketch-status {
     position: absolute;
-    bottom: 36px;
+    bottom: 46px;
     left: 50%;
     transform: translateX(-50%);
     padding: 4px 10px;
@@ -1288,6 +1334,9 @@
     display: flex;
     align-items: center;
     gap: 6px;
+    /* Keep the pill clear of the bottom-right navigation cluster: capped width
+       plus ellipsis instead of sliding underneath it. */
+    max-width: calc(100% - 380px);
     padding: 4px 10px;
     border: 1px solid var(--theia-panel-border);
     border-radius: 6px;
@@ -1297,13 +1346,24 @@
     pointer-events: none;
 }
 
-/* Sketch keyboard-shortcuts cheat sheet (draggable, right of the floating sketch toolbar) */
+.cad-viewport-shading-hint .codicon {
+    flex-shrink: 0;
+}
+
+.cad-viewport-shading-hint-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Sketch keyboard-shortcuts cheat sheet (draggable, below the sketch-measure
+   popover's default spot so opening both never stacks them) */
 .cad-sketch-shortcuts-popover {
-    top: 64px;
+    top: 120px;
     left: 56px;
     z-index: 22;
     width: 300px;
-    max-height: calc(100% - 88px);
+    max-height: calc(100% - 144px);
 }
 
 .cad-sketch-shortcuts-section + .cad-sketch-shortcuts-section {

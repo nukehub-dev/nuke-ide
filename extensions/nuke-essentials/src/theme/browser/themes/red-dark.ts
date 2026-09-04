@@ -43,6 +43,10 @@ export const redDarkTheme = {
         'button.secondaryBackground': '#4a4a4a',
         'button.secondaryHoverBackground': '#5a5a5a',
         'button.secondaryForeground': '#ffffff',
+        // Theia-native secondary buttons (.theia-button.secondary)
+        'secondaryButton.background': '#4a4a4a',
+        'secondaryButton.foreground': '#ffffff',
+        'secondaryButton.hoverBackground': '#5a5a5a',
 
         // Links
         'textLink.foreground': '#e53935',

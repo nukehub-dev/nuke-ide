@@ -879,7 +879,7 @@ function FeatureRow(props: FeatureRowProps): React.ReactElement {
                         <span className="codicon codicon-arrow-down" />
                     </button>
                 </Tooltip>
-                {!isBoolean && !renaming && (
+                {!renaming && (
                     <Tooltip content="Edit Parameters" position="left">
                         <button
                             className="theia-button secondary feature-tree-action"

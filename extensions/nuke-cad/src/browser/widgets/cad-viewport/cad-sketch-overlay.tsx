@@ -85,6 +85,9 @@ const TOOLBAR_RESET_TARGET: DragTargetFilter = (target) =>
 
 const NUKE_PANEL_HEADER_TARGET = headerRegionTarget('.nuke-panel-header');
 
+/** The feature dialog drags by its NukeDialog header; double-click/right-click there resets. */
+const NUKE_DIALOG_HEADER_TARGET = headerRegionTarget('.nuke-dialog-header');
+
 interface CadSketchOverlayProps {
     readonly controller: SketchModeController;
     readonly documentStore: CadDocumentStore;
@@ -2145,12 +2148,20 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
     // its modal backdrop while a pick is active.
     const pickActive = isPicking || props.holePickMode === true || props.curvePickMode === true;
 
+    // The dialog floats like the sketch chrome: drag by the header, double-click
+    // or right-click the header to reset; clamping to the viewport comes free
+    // because the backdrop's positioned ancestor is the viewport root.
+    const drag = useDraggablePanel({ canDrag: NUKE_DIALOG_HEADER_TARGET, canResetFrom: NUKE_DIALOG_HEADER_TARGET });
+
     return (
         <NukeDialog
             title={props.editFeature !== undefined ? `Edit ${capitalize(type)}` : capitalize(type)}
             onClose={props.onCancel}
             modal={!pickActive}
             closeOnEscape={!pickActive}
+            className={drag.position !== undefined ? 'nuke-dialog-dragged' : undefined}
+            style={drag.style}
+            rootProps={{ ref: drag.panelRef, ...drag.handleProps }}
             footer={
                 <>
                     <button className="theia-button" onClick={submit}>
