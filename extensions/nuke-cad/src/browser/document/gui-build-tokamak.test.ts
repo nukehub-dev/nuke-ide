@@ -438,7 +438,9 @@ describe('GUI build tokamak', () => {
                     type: 'pad',
                     body: innerLegs[i],
                     sketchId: sketch.id,
-                    params: { length: 1030, axis: 'z' },
+                    // Symmetric: a one-sided pad would span z 0..1030 and stick
+                    // ~460 above the machine (the "pillar" defect).
+                    params: { length: 1030, axis: 'z', symmetric: true },
                     dependsOn: [],
                     suppressed: false
                 }).success

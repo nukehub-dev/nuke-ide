@@ -1517,6 +1517,13 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
         return props.documentStore.document?.features.find((f) => f.id === props.editingFeatureId);
     }, [props.editingFeatureId, props.documentStore.document?.features]);
     const closeShortcutBar = React.useCallback((): void => setShortcutBar(undefined), []);
+    const navRef = React.useRef<HTMLDivElement>(null);
+    /**
+     * Measured width of the bottom-right navigation cluster. The bottom-center
+     * status pill caps its own width clear of it; without the measurement the
+     * pill slides underneath the cluster on wide nav layouts (explode slider).
+     */
+    const [navWidth, setNavWidth] = React.useState(0);
 
     const viewportApi = React.useRef<{
         updateModel?: (tessData?: TessData) => void;
@@ -1868,6 +1875,21 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
         viewportApi.current.setGizmoVisible?.(hasTessellation && !sketchActive);
     }, [hasTessellation, sketchActive, controller]);
 
+    // Keep the status pill clear of the navigation cluster: re-measure the
+    // cluster whenever it (re)mounts or resizes. The pill falls back to its
+    // CSS `max-width` until the first measurement lands.
+    React.useEffect(() => {
+        const nav = navRef.current;
+        if (nav === null) {
+            return undefined;
+        }
+        const measure = (): void => setNavWidth(nav.offsetWidth);
+        measure();
+        const observer = new ResizeObserver(measure);
+        observer.observe(nav);
+        return () => observer.disconnect();
+    }, [props.tessData, sketchActive, props.loading]);
+
     const errorBanner = props.error ? (
         <div className="cad-viewport-error-banner">
             <span className="codicon codicon-error" />
@@ -2011,7 +2033,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
     const navCluster =
         props.tessData !== undefined && !sketchActive && !props.loading ? (
             <>
-                <div className="cad-viewport-nav">
+                <div className="cad-viewport-nav" ref={navRef}>
                     <Tooltip content="Iso view" position="left">
                         <button
                             className="theia-button secondary cad-viewport-nav-button cad-viewport-nav-text"
@@ -2179,7 +2201,10 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                     </div>
                 )}
                 {statusHints.length > 0 && (
-                    <div className="cad-viewport-shading-hint">
+                    <div
+                        className="cad-viewport-shading-hint"
+                        style={navWidth > 0 ? { maxWidth: `calc(100% - ${navWidth + 40}px)` } : undefined}
+                    >
                         <span className="codicon codicon-info" />
                         <span className="cad-viewport-shading-hint-text">{statusHints.join(' · ')}</span>
                     </div>

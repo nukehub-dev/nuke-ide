@@ -149,6 +149,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Direction under Dimensions and Symmetric under Options via the shared
   `NukeSection` / `NukeFormRow` components, and the misaligned checkbox row
   is fixed.
+- nuke-cad: **status pill no longer hides under the navigation cluster** —
+  the bottom-center hint pill used a hardcoded clearance narrower than the
+  cluster (notably with the Explode slider present), so long hints such as
+  `Explode 100% — F to refit` slid underneath the buttons. The pill now caps
+  its width from the measured cluster width (re-measured on resize) and
+  ellipsizes instead.
+- nuke-cad: **tokamak demo "pillar" defect fixed** — the six TF inner-leg
+  pads were extruded one-sided, spanning z 0..1030 instead of ±515, so six
+  thin columns stuck ~460 above the machine. The driver now pads them
+  symmetric, the committed fixture is regenerated, and a new bbox regression
+  test pins the legs at z ±515 (volumes and face counts are identical either
+  way, so drift checks could not catch it).
 - nuke-cad: **closed-loop sweeps/pipes now survive STEP export** — a sweep or
   pipe whose path curve is a closed loop (e.g. a coil centerline) previously
   produced a tube whose periodic-seam edges carried meter-scale tolerances;

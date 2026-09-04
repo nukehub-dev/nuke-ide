@@ -1337,7 +1337,9 @@
     align-items: center;
     gap: 6px;
     /* Keep the pill clear of the bottom-right navigation cluster: capped width
-       plus ellipsis instead of sliding underneath it. */
+       plus ellipsis instead of sliding underneath it. The static cap below is
+       only the pre-measurement fallback — React overwrites `max-width` from
+       the measured cluster width once it mounts. */
     max-width: calc(100% - 380px);
     padding: 4px 10px;
     border: 1px solid var(--theia-panel-border);

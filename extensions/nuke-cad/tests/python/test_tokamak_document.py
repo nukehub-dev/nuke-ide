@@ -140,6 +140,21 @@ def test_tokamak_document_volumes_and_faces(tokamak_build_result: dict) -> None:
     assert not failures, "\n".join(failures)
 
 
+def test_tokamak_inner_legs_are_z_symmetric(tokamak_build_result: dict) -> None:
+    """The TF inner legs must span z +/-515, not 0..1030.
+
+    Regression test for the "pillar" defect: the driver padded the legs
+    one-sided, so six thin columns stuck ~460 above the machine. Volumes and
+    face counts are identical either way, so only a bbox assertion catches it.
+    """
+    for i in range(1, 7):
+        solid = _body_shape(tokamak_build_result, f"tf_inner_leg_{i}")
+        bbox = solid.bounding_box()
+        zmin, zmax = bbox.min.Z, bbox.max.Z
+        assert zmin == pytest.approx(-515.0, abs=1e-6), f"tf_inner_leg_{i} zmin {zmin}"
+        assert zmax == pytest.approx(515.0, abs=1e-6), f"tf_inner_leg_{i} zmax {zmax}"
+
+
 def test_tokamak_overlap_warnings_are_reported(tokamak_build_result: dict) -> None:
     """Overlapping assembly bodies are reported as warnings, not fatal errors."""
     warnings = tokamak_build_result.get("warnings", [])

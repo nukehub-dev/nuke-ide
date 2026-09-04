@@ -258,7 +258,8 @@
       "name": "inner-leg-1",
       "params": {
         "axis": "z",
-        "length": 1030
+        "length": 1030,
+        "symmetric": true
       },
       "sketchId": "inner-leg-1-sketch",
       "suppressed": false,
@@ -271,7 +272,8 @@
       "name": "inner-leg-2",
       "params": {
         "axis": "z",
-        "length": 1030
+        "length": 1030,
+        "symmetric": true
       },
       "sketchId": "inner-leg-2-sketch",
       "suppressed": false,
@@ -284,7 +286,8 @@
       "name": "inner-leg-3",
       "params": {
         "axis": "z",
-        "length": 1030
+        "length": 1030,
+        "symmetric": true
       },
       "sketchId": "inner-leg-3-sketch",
       "suppressed": false,
@@ -297,7 +300,8 @@
       "name": "inner-leg-4",
       "params": {
         "axis": "z",
-        "length": 1030
+        "length": 1030,
+        "symmetric": true
       },
       "sketchId": "inner-leg-4-sketch",
       "suppressed": false,
@@ -310,7 +314,8 @@
       "name": "inner-leg-5",
       "params": {
         "axis": "z",
-        "length": 1030
+        "length": 1030,
+        "symmetric": true
       },
       "sketchId": "inner-leg-5-sketch",
       "suppressed": false,
@@ -323,7 +328,8 @@
       "name": "inner-leg-6",
       "params": {
         "axis": "z",
-        "length": 1030
+        "length": 1030,
+        "symmetric": true
       },
       "sketchId": "inner-leg-6-sketch",
       "suppressed": false,
