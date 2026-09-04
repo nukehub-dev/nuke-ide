@@ -49,6 +49,10 @@ interface SummarySolidInput {
     readonly faces?: readonly SummaryFaceInput[];
     readonly edges?: readonly unknown[];
     readonly properties?: TessSolidProperties;
+    /** Precomputed counts (the typed-array parse path carries no face objects). */
+    readonly faceCount?: number;
+    readonly edgeCount?: number;
+    readonly triangleCount?: number;
 }
 
 /** Placeholder rendered when payload data is absent (older backends). */
@@ -66,9 +70,9 @@ export function buildSolidSummaries(solids: readonly SummarySolidInput[] | undef
     return (solids ?? []).map((solid) => ({
         solidId: solid.solidId,
         bodyId: solid.bodyId,
-        faceCount: solid.faces?.length ?? 0,
-        edgeCount: solid.edges?.length ?? 0,
-        triangleCount: countTriangles(solid.faces),
+        faceCount: solid.faceCount ?? solid.faces?.length ?? 0,
+        edgeCount: solid.edgeCount ?? solid.edges?.length ?? 0,
+        triangleCount: solid.triangleCount ?? countTriangles(solid.faces),
         properties: solid.properties
     }));
 }

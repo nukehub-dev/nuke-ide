@@ -3650,6 +3650,95 @@ def test_sweep_pipeshell_failure_funnels_to_feature_builder_error(
     assert "sw1" in by_id["sw1"]["error"]
 
 
+def _step_roundtrip_volumes(shape: Any, path: Any) -> list[float]:
+    """Write a shape to STEP, read it back, and return the solid volumes."""
+    from OCP.BRepGProp import BRepGProp
+    from OCP.GProp import GProp_GProps
+    from OCP.IFSelect import IFSelect_RetDone
+    from OCP.STEPControl import STEPControl_AsIs, STEPControl_Reader, STEPControl_Writer
+    from OCP.TopAbs import TopAbs_SOLID
+    from OCP.TopExp import TopExp_Explorer
+    from OCP.TopoDS import TopoDS
+
+    writer = STEPControl_Writer()
+    writer.Transfer(shape, STEPControl_AsIs)
+    assert writer.Write(str(path)) == IFSelect_RetDone
+    reader = STEPControl_Reader()
+    assert reader.ReadFile(str(path)) == IFSelect_RetDone
+    reader.TransferRoots()
+    volumes = []
+    exp = TopExp_Explorer(reader.OneShape(), TopAbs_SOLID)
+    while exp.More():
+        props = GProp_GProps()
+        BRepGProp.VolumeProperties_s(TopoDS.Solid_s(exp.Current()), props)
+        volumes.append(props.Mass())
+        exp.Next()
+    return volumes
+
+
+def _closed_loop_samples(radius: float, segments: int = 64) -> list[list[float]]:
+    return [
+        [
+            radius * math.cos(2 * math.pi * i / segments),
+            radius * math.sin(2 * math.pi * i / segments),
+            0.0,
+        ]
+        for i in range(segments + 1)
+    ]
+
+
+def test_sweep_along_closed_loop_produces_step_durable_solid(tmp_path: Any) -> None:
+    """A closed-path sweep yields one valid solid that survives a STEP round-trip."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    doc = _sweep_document(
+        {"pathCurveId": "loop", "orientation": "frenet"},
+        sketch=_centered_rect_sketch(10.0, 10.0),
+        curve=_points_curve("loop", _closed_loop_samples(50.0)),
+    )
+    result, _ = _build_with_curves(doc)
+    by_id = {r["featureId"]: r for r in result["featureResults"]}
+    assert by_id["sw1"]["status"] == "built", by_id["sw1"].get("error")
+    assert len(result["shape"].solids()) == 1
+    volume = result["shape"].volume
+    # Sanity: the lofted tube tracks the section area times the loop length.
+    expected = 10.0 * 10.0 * (2 * math.pi * 50.0)
+    assert math.isclose(volume, expected, rel_tol=0.05)
+    # The MakePipeShell closed-spine shell degrades on STEP round-trip; the
+    # rebuilt loft must come back as exactly one solid with the same volume.
+    roundtrip = _step_roundtrip_volumes(result["shape"].wrapped, tmp_path / "loop.step")
+    assert len(roundtrip) == 1
+    assert math.isclose(roundtrip[0], volume, rel_tol=1e-3)
+
+
+def test_pipe_along_closed_loop_produces_step_durable_solid(tmp_path: Any) -> None:
+    """A pipe on a closed path uses the circle-station fallback and stays STEP-durable."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    doc = _document(
+        [
+            {
+                "id": "p1",
+                "name": "pipe",
+                "type": "pipe",
+                "params": {"pathCurveId": "loop", "radius": 2.0, "orientation": "frenet"},
+                "dependsOn": [],
+                "suppressed": False,
+            }
+        ],
+        sketches=[],
+    )
+    doc["curves"] = [_points_curve("loop", _closed_loop_samples(50.0))]
+    result, _ = _build_with_curves(doc)
+    by_id = {r["featureId"]: r for r in result["featureResults"]}
+    assert by_id["p1"]["status"] == "built", by_id["p1"].get("error")
+    assert len(result["shape"].solids()) == 1
+    volume = result["shape"].volume
+    expected = math.pi * 2.0**2 * (2 * math.pi * 50.0)
+    assert math.isclose(volume, expected, rel_tol=0.02)
+    roundtrip = _step_roundtrip_volumes(result["shape"].wrapped, tmp_path / "pipe.step")
+    assert len(roundtrip) == 1
+    assert math.isclose(roundtrip[0], volume, rel_tol=1e-3)
+
+
 def test_sweep_as_circular_pattern_source() -> None:
     """A sweep is a valid pattern source; instances add to the body volume."""
     pytest.importorskip("build123d", reason="build123d not installed")

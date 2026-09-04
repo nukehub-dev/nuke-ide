@@ -48,8 +48,13 @@ it opens it in the CAD viewport by default.
   fills for a technical-drawing look; face/solid picking is disabled while it
   is active (the viewport shows a hint).
 - **Measure tool** (document toolbar Inspect group, also on the sketch
-  toolbar): click two points to record a persistent distance label — 3D mode
-  snaps to picked surface points, sketch mode uses the active snap settings.
+  toolbar): the Measurements popover selects the mode — **Distance** clicks
+  two points, **Angle** clicks three (A, vertex B, then C; the overlay draws
+  segments BA/BC and labels the angle at B), and **Radius** clicks a circular
+  edge in the 3D view (radius and diameter come from the edge's geometric
+  fingerprint, or a circle fit when no center is known; non-circular edges
+  are rejected with a warning). 3D mode snaps to picked surface points,
+  sketch mode always measures distance with the active snap settings.
   Measurements live in a list popover where individual rows can be deleted;
   they are viewport-only annotations (never saved into the document) and are
   cleared when the model rebuilds.
@@ -58,6 +63,16 @@ it opens it in the CAD viewport by default.
   slides the plane across the model's bounding box. Sectioning is visual
   only — exports are unaffected. Click the button again or press `Esc` to
   exit.
+- **Explode view** (navigation cluster): the **Explode** slider (0–100%)
+  moves every solid away from the model center along the direction to its
+  own centroid, so a fused multi-part body (for example a circular pattern)
+  separates into its solids — faces and edge lines move together. Explode is
+  a viewport-only transform: it is never saved into the document, resets to
+  0 when the model reloads or rebuilds, and picking keeps working on
+  displaced solids. Measurements already on screen keep their original
+  world positions — they are **not** re-anchored to moved solids — so set
+  the slider back to 0 before reading measurements taken on the assembled
+  model.
 - **Axis gizmo** (top-right, below the toolbar): mirrors the current camera
   orientation; click an axis handle (or its opposite) to snap to that view.
 - **View label** (top-left, below the toolbar): shows the active view

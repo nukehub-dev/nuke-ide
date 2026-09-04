@@ -45,7 +45,9 @@ export { pointerToNdc };
 /** Per-edge tessellation data consumed by the viewport. */
 export interface TessEdgeData {
     readonly edgeId: number;
-    readonly points: number[][];
+    /** XYZ triplets, `pointCount * 3` entries. */
+    readonly positions: Float32Array;
+    readonly pointCount: number;
     readonly bodyId?: string;
     readonly fingerprint?: EdgeFingerprint;
 }
@@ -87,16 +89,9 @@ export function buildEdgeTopologyRef(
 }
 
 /** Build a THREE.Line object from tessellated edge points. */
-export function buildEdgeLine(solidId: number, edge: TessEdgeData): THREE.Line {
+export function buildEdgeLine(solidId: number, edge: TessEdgeData, material: THREE.LineBasicMaterial): THREE.Line {
     const geometry = new THREE.BufferGeometry();
-    const positions = new Float32Array(edge.points.length * 3);
-    for (let i = 0; i < edge.points.length; i++) {
-        positions[i * 3] = edge.points[i][0];
-        positions[i * 3 + 1] = edge.points[i][1];
-        positions[i * 3 + 2] = edge.points[i][2];
-    }
-    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    const material = new THREE.LineBasicMaterial({ transparent: true, opacity: 0.85 });
+    geometry.setAttribute('position', new THREE.BufferAttribute(edge.positions, 3));
     const line = new THREE.Line(geometry, material);
     line.userData = {
         solidId,

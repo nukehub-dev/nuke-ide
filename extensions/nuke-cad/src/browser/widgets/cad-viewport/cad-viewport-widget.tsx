@@ -57,7 +57,7 @@ import { MonacoEditorModel } from '@theia/monaco/lib/browser/monaco-editor-model
 import * as THREE from 'three';
 
 import { NukeCadBackendService, GeometryBuildResult } from '../../../common/nuke-cad-protocol';
-import { NukeCadStateManager, CadModel, CadSelection, TessSolidProperties } from '../../state/nuke-cad-state-manager';
+import { NukeCadStateManager, CadModel, CadSelection } from '../../state/nuke-cad-state-manager';
 import { buildSolidSummaries } from '../outline-panel/solid-summaries';
 import { NukeCadCommands } from '../../commands';
 import { LoadingAnimations } from 'nuke-essentials/lib/theme/browser/components/loading-spinner';
@@ -105,51 +105,47 @@ import {
 } from './section-plane';
 import {
     MEASURE_CLEAR_NOTE,
+    createMeasureAngle,
+    createMeasureRadius,
     createMeasureSegment,
+    formatMeasureAngle,
     formatMeasureDistance,
+    formatMeasureRadius,
+    formatMeasurementValue,
+    isMeasureAngle,
+    isMeasureRadius,
+    isMeasureSegment,
+    measureAngle,
     measureDistance,
     nextMeasureId,
     projectMeasurePoint,
+    type Measurement,
+    type MeasureAngle,
     type MeasureKind,
     type MeasurePoint3D,
+    type MeasureRadius,
     type MeasureSegment,
+    type MeasureToolMode,
     type MeasureViewState
 } from './measure-tool';
+import { edgeRadius } from './radius-fit';
+import { clampExplodeFactor, planExplodeOffsets, type ExplodeSolidCentroid } from './explode-view';
 import { headerRegionTarget, useDraggablePanel } from './draggable-panel';
 import { buildFeaturePreviewDocument, resolveCurvePick, type FeaturePreviewRequest } from './sweep-pipe';
+import { faceReuseKey, planFaceReuse, type ParsedTessCurve, type ParsedTessData } from './tess-reuse';
+import { parseTessellationAsync } from './tess-parse-client';
 import './cad-viewport.css';
 import './cad-icons.css';
 
-interface TessFace {
-    readonly faceId: number;
-    readonly nodes: number[][];
-    readonly triangles: number[][];
-    readonly bodyId?: string;
-    readonly fingerprint?: import('../../../common/topology-refs').FaceFingerprint;
-}
+/** Tessellation payload in its transfer-friendly parsed form (typed arrays). */
+type TessData = ParsedTessData;
 
-interface TessEdge {
-    readonly edgeId: number;
-    readonly points: number[][];
-    readonly bodyId?: string;
-    readonly fingerprint?: import('../../../common/topology-refs').EdgeFingerprint;
-}
-
-interface TessSolid {
-    readonly solidId: number;
-    readonly bodyId?: string;
-    readonly faces: TessFace[];
-    readonly edges: TessEdge[];
-    readonly properties?: TessSolidProperties;
-}
-
-interface TessData {
-    readonly version: number;
-    readonly tolerance: number;
-    readonly boundingBox: { readonly min: number[]; readonly max: number[] };
-    readonly solids: TessSolid[];
-    readonly curves?: import('../../../common/nuke-cad-protocol').TessCurve[];
-}
+/**
+ * Lightweight stage timings behind a localStorage flag: set
+ * `localStorage['nuke-cad-profile'] = '1'` to log file-read/parse/buildModel
+ * splits for the tessellation load path. Off by default — no committed noise.
+ */
+const PROFILE_TESSELLATION_LOAD = typeof localStorage !== 'undefined' && localStorage.getItem('nuke-cad-profile') === '1';
 
 @injectable()
 export class CadViewportWidget extends ReactWidget {
@@ -705,7 +701,10 @@ export class CadViewportWidget extends ReactWidget {
             if (token !== this.featurePreviewToken) {
                 return;
             }
-            this.previewTessData = JSON.parse(content.value.toString()) as TessData;
+            this.previewTessData = await parseTessellationAsync(content.value.toString());
+            if (token !== this.featurePreviewToken) {
+                return;
+            }
             this.update();
         } catch (error) {
             console.warn('[CadViewport] Feature preview build failed:', error);
@@ -1136,11 +1135,22 @@ export class CadViewportWidget extends ReactWidget {
     }
 
     private async loadTessellation(path: string, token: number): Promise<void> {
+        const t0 = PROFILE_TESSELLATION_LOAD ? performance.now() : 0;
         const content = await this.fileService.readFile(new URI(path));
+        const tRead = PROFILE_TESSELLATION_LOAD ? performance.now() : 0;
         if (token !== this.tessLoadToken) {
             return; // A newer model or rebuild superseded this load.
         }
-        this.tessData = JSON.parse(content.value.toString()) as TessData;
+        this.tessData = await parseTessellationAsync(content.value.toString());
+        if (token !== this.tessLoadToken) {
+            return; // A newer model or rebuild superseded this parse.
+        }
+        if (PROFILE_TESSELLATION_LOAD) {
+            const tParse = performance.now();
+            console.log(
+                `[CadViewport] profile: read ${(tRead - t0).toFixed(0)} ms, parse ${(tParse - tRead).toFixed(0)} ms, ${(content.value.toString().length / 1e6).toFixed(1)} MB`
+            );
+        }
         this.loadedTessPath = path;
         this.stateManager.setSolidSummaries(buildSolidSummaries(this.tessData.solids));
         this.tessLoadInFlight = false;
@@ -1415,13 +1425,17 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
     const [sectionFraction, setSectionFraction] = React.useState(DEFAULT_SECTION_FRACTION);
     const [warningsOpen, setWarningsOpen] = React.useState(false);
     const [measureActive, setMeasureActive] = React.useState(false);
-    const [measurements, setMeasurements] = React.useState<MeasureSegment[]>([]);
+    const [measureTool, setMeasureTool] = React.useState<MeasureToolMode>('distance');
+    const [measurements, setMeasurements] = React.useState<Measurement[]>([]);
     const [measurePending, setMeasurePending] = React.useState<MeasurePoint3D | undefined>();
+    const [measureVertex, setMeasureVertex] = React.useState<MeasurePoint3D | undefined>();
     const [measureListOpen, setMeasureListOpen] = React.useState(false);
+    const [explodeFactor, setExplodeFactor] = React.useState(0);
     const [shortcutBar, setShortcutBar] = React.useState<
         { readonly mode: 'document' | 'sketch'; readonly anchor: { readonly x: number; readonly y: number } } | undefined
     >(undefined);
     const measurePendingRef = React.useRef<MeasurePoint3D | undefined>(undefined);
+    const measureVertexRef = React.useRef<MeasurePoint3D | undefined>(undefined);
     const prevMeasureSketchRef = React.useRef(false);
     const editFeature = React.useMemo(() => {
         if (props.editingFeatureId === undefined) {
@@ -1445,6 +1459,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
         setShading?: (mode: ShadingMode) => void;
         setGhostOpacity?: (value: number) => void;
         setSection?: (section?: SectionState) => void;
+        setExplodeFactor?: (factor: number) => void;
         setGizmoVisible?: (visible: boolean) => void;
         updateMeasureState?: (state: MeasureViewState) => void;
         setAutoDimensionEnabled?: (enabled: boolean) => void;
@@ -1453,30 +1468,77 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
     const measureMode: MeasureKind =
         (controller?.isActive ?? false) || props.sketchSetupVisible || props.sketchEntering ? 'sketch' : 'model3d';
 
-    const handleMeasureDeactivate = React.useCallback((): void => {
+    // Sketch mode has no angle/radius capture; the tool selector only applies
+    // to the 3D surface.
+    const activeMeasureTool: MeasureToolMode = measureMode === 'sketch' ? 'distance' : measureTool;
+
+    const clearMeasurePendings = React.useCallback((): void => {
         measurePendingRef.current = undefined;
+        measureVertexRef.current = undefined;
         setMeasurePending(undefined);
+        setMeasureVertex(undefined);
+    }, []);
+
+    const handleMeasureDeactivate = React.useCallback((): void => {
+        clearMeasurePendings();
         setMeasureActive(false);
         setMeasureListOpen(false);
-    }, []);
+    }, [clearMeasurePendings]);
 
     // Read at click time without becoming a dependency of handleMeasurePoint:
     // the capture mode decides which lifecycle bucket a segment lands in.
     const sketchModeRef = React.useRef<MeasureKind>('model3d');
     sketchModeRef.current = measureMode;
+    const measureToolRef = React.useRef<MeasureToolMode>('distance');
+    measureToolRef.current = activeMeasureTool;
 
-    const handleMeasurePoint = React.useCallback((point: MeasurePoint3D): void => {
-        const pending = measurePendingRef.current;
-        if (pending === undefined) {
-            measurePendingRef.current = point;
-            setMeasurePending(point);
-            return;
-        }
-        measurePendingRef.current = undefined;
-        setMeasurePending(undefined);
-        const segment = createMeasureSegment(nextMeasureId(), sketchModeRef.current, pending, point);
-        setMeasurements((prev) => [...prev, segment]);
+    const handleMeasurePoint = React.useCallback(
+        (point: MeasurePoint3D): void => {
+            const tool = sketchModeRef.current === 'sketch' ? 'distance' : measureToolRef.current;
+            if (tool === 'angle') {
+                if (measurePendingRef.current === undefined) {
+                    measurePendingRef.current = point;
+                    setMeasurePending(point);
+                    return;
+                }
+                if (measureVertexRef.current === undefined) {
+                    measureVertexRef.current = point;
+                    setMeasureVertex(point);
+                    return;
+                }
+                const a = measurePendingRef.current;
+                const b = measureVertexRef.current;
+                clearMeasurePendings();
+                // A degenerate (zero-length) leg yields NaN; never commit a bogus angle.
+                if (Number.isFinite(measureAngle(a, b, point))) {
+                    setMeasurements((prev) => [...prev, createMeasureAngle(nextMeasureId(), 'model3d', a, b, point)]);
+                }
+                return;
+            }
+            const pending = measurePendingRef.current;
+            if (pending === undefined) {
+                measurePendingRef.current = point;
+                setMeasurePending(point);
+                return;
+            }
+            clearMeasurePendings();
+            const segment = createMeasureSegment(nextMeasureId(), sketchModeRef.current, pending, point);
+            setMeasurements((prev) => [...prev, segment]);
+        },
+        [clearMeasurePendings]
+    );
+
+    const handleMeasureRadius = React.useCallback((center: MeasurePoint3D, radius: number): void => {
+        setMeasurements((prev) => [...prev, createMeasureRadius(nextMeasureId(), center, radius)]);
     }, []);
+
+    const handleMeasureToolChange = React.useCallback(
+        (tool: MeasureToolMode): void => {
+            clearMeasurePendings();
+            setMeasureTool(tool);
+        },
+        [clearMeasurePendings]
+    );
 
     const handleToggleMeasure = React.useCallback((): void => {
         measurePendingRef.current = undefined;
@@ -1500,10 +1562,12 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
         viewportApi.current.updateMeasureState?.({
             active: measureActive,
             mode: measureMode,
-            segments: measurements,
-            pending: measurePending
+            tool: activeMeasureTool,
+            measurements,
+            pending: measurePending,
+            pendingVertex: measureVertex
         });
-    }, [measureActive, measureMode, measurements, measurePending, controller]);
+    }, [measureActive, measureMode, activeMeasureTool, measurements, measurePending, measureVertex, controller]);
 
     React.useEffect(() => {
         if (shadingMode === 'edgesOnly') {
@@ -1530,13 +1594,14 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
 
     React.useEffect(() => {
         // A rebuild replaces the tessellation; measurements reference the old
-        // surface and are session state only, so they never survive it.
-        measurePendingRef.current = undefined;
-        setMeasurePending(undefined);
+        // surface and are session state only, so they never survive it. The
+        // explode factor moves with the same rebuild, so it resets too.
+        clearMeasurePendings();
         setMeasurements([]);
-    }, [props.tessData]);
+        setExplodeFactor(0);
+    }, [props.tessData, clearMeasurePendings]);
 
-    const modeMeasurements = measurements.filter((segment) => segment.kind === measureMode);
+    const modeMeasurements = measurements.filter((measurement) => measurement.kind === measureMode);
 
     React.useEffect(() => {
         const container = containerRef.current;
@@ -1577,6 +1642,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                 props.onToggleSketchMode,
                 props.onExitSection,
                 handleMeasurePoint,
+                handleMeasureRadius,
                 handleMeasureDeactivate,
                 (mode, anchor) => setShortcutBar({ mode, anchor }),
                 OrbitControls
@@ -1599,6 +1665,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             viewportApi.current.setShading = api.setShading;
             viewportApi.current.setGhostOpacity = api.setGhostOpacity;
             viewportApi.current.setSection = api.setSection;
+            viewportApi.current.setExplodeFactor = api.setExplodeFactor;
             viewportApi.current.setGizmoVisible = api.setGizmoVisible;
             viewportApi.current.updateMeasureState = api.updateMeasureState;
             viewportApi.current.setAutoDimensionEnabled = api.setAutoDimensionEnabled;
@@ -1627,6 +1694,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             viewportApi.current.setShading = undefined;
             viewportApi.current.setGhostOpacity = undefined;
             viewportApi.current.setSection = undefined;
+            viewportApi.current.setExplodeFactor = undefined;
             viewportApi.current.setGizmoVisible = undefined;
             viewportApi.current.updateMeasureState = undefined;
             viewportApi.current.setAutoDimensionEnabled = undefined;
@@ -1670,6 +1738,10 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             props.sectionActive ? { axis: sectionAxis, flip: sectionFlip, fraction: sectionFraction } : undefined
         );
     }, [props.sectionActive, sectionAxis, sectionFlip, sectionFraction, controller]);
+
+    React.useEffect(() => {
+        viewportApi.current.setExplodeFactor?.(explodeFactor);
+    }, [explodeFactor, controller]);
 
     React.useEffect(() => {
         viewportApi.current.setAutoDimensionEnabled?.(props.sketchAutoDimension);
@@ -1810,17 +1882,26 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
 
     const activeShading = SHADING_MODES.find((mode) => mode.id === shadingMode) ?? SHADING_MODES[0];
     const sectionLabel = sectionStatusLabel({ axis: sectionAxis, flip: sectionFlip, fraction: sectionFraction });
+    const measureHint = !measureActive
+        ? undefined
+        : activeMeasureTool === 'radius'
+          ? 'Measure: click a circular edge (Enter/Esc ends the tool)'
+          : activeMeasureTool === 'angle'
+            ? measurePending === undefined
+                ? 'Measure: click the first point'
+                : measureVertex === undefined
+                  ? 'Measure: click the vertex (point B)'
+                  : 'Measure: click the third point (Enter/Esc ends the tool)'
+            : measurePending === undefined
+              ? 'Measure: click the first point'
+              : 'Measure: click the second point (Enter/Esc ends the tool)';
     const statusHints = [
         shadingMode === 'edgesOnly' ? 'Edges-only: face/solid picking disabled' : undefined,
         props.sectionActive ? `Section: ${sectionLabel} — Esc to exit` : undefined,
-        measureActive && shadingMode === 'edgesOnly' && measureMode === 'model3d'
+        measureActive && activeMeasureTool !== 'radius' && shadingMode === 'edgesOnly' && measureMode === 'model3d'
             ? 'Measure: point picking disabled by edges-only shading'
             : undefined,
-        measureActive
-            ? measurePending === undefined
-                ? 'Measure: click the first point'
-                : 'Measure: click the second point (Enter/Esc ends the tool)'
-            : undefined
+        measureHint
     ].filter((hint): hint is string => hint !== undefined);
 
     const navCluster =
@@ -1898,6 +1979,21 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                         >
                             <span className="codicon codicon-nuke-cad-section" />
                         </button>
+                    </Tooltip>
+                    <span className="cad-viewport-nav-divider" />
+                    <Tooltip content="Explode view — moves each solid outward from the model center (viewport only)" position="left">
+                        <label className="cad-viewport-explode">
+                            <span className="cad-viewport-explode-label">Explode</span>
+                            <input
+                                type="range"
+                                min={0}
+                                max={100}
+                                step={1}
+                                value={Math.round(explodeFactor * 100)}
+                                onChange={(event) => setExplodeFactor(Number(event.target.value) / 100)}
+                            />
+                            <span className="cad-viewport-explode-value">{Math.round(explodeFactor * 100)}%</span>
+                        </label>
                     </Tooltip>
                 </div>
                 {shadingMenuOpen && (
@@ -1989,7 +2085,10 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
     const measureListPopover = measureListOpen ? (
         <MeasureListPopover
             className={measureMode === 'sketch' ? 'cad-sketch-measure-popover' : 'cad-viewport-measure-popover'}
-            segments={modeMeasurements}
+            measurements={modeMeasurements}
+            tool={activeMeasureTool}
+            showToolSelector={measureMode === 'model3d'}
+            onToolChange={handleMeasureToolChange}
             onDelete={handleMeasureDelete}
             onClear={handleMeasureClear}
             onClose={() => setMeasureListOpen(false)}
@@ -2066,7 +2165,12 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
 
 interface MeasureListPopoverProps {
     readonly className: string;
-    readonly segments: readonly MeasureSegment[];
+    readonly measurements: readonly Measurement[];
+    /** Active capture tool (distance/angle/radius); sketch mode is distance. */
+    readonly tool: MeasureToolMode;
+    /** Show the mode selector row (model3d popover only). */
+    readonly showToolSelector: boolean;
+    readonly onToolChange: (tool: MeasureToolMode) => void;
     readonly onDelete: (id: string) => void;
     readonly onClear: () => void;
     readonly onClose: () => void;
@@ -2074,30 +2178,55 @@ interface MeasureListPopoverProps {
 
 const MEASURE_HEADER_TARGET = headerRegionTarget('.cad-measure-header');
 
+const MEASURE_MODE_LABELS: readonly { id: MeasureToolMode; label: string }[] = [
+    { id: 'distance', label: 'Distance' },
+    { id: 'angle', label: 'Angle' },
+    { id: 'radius', label: 'Radius' }
+];
+
 function MeasureListPopover(props: MeasureListPopoverProps): React.ReactElement {
     const drag = useDraggablePanel({ canDrag: MEASURE_HEADER_TARGET, canResetFrom: MEASURE_HEADER_TARGET });
+    const modeHint =
+        props.tool === 'radius'
+            ? 'Click a circular edge in the viewport to measure its radius.'
+            : props.tool === 'angle'
+              ? 'Click three points (A, vertex B, C) in the viewport to measure the angle at B.'
+              : 'Click two points to measure a distance.';
     return (
         <div className={props.className} ref={drag.panelRef} style={drag.style}>
             <div className="cad-measure-header" {...drag.handleProps}>
                 <span className="cad-measure-title">Measurements</span>
-                <span className="cad-measure-badge">{props.segments.length}</span>
+                <span className="cad-measure-badge">{props.measurements.length}</span>
                 <Tooltip content="Close" position="left">
                     <button className="theia-button secondary cad-measure-row-remove" onClick={props.onClose}>
                         <span className="codicon codicon-close" />
                     </button>
                 </Tooltip>
             </div>
-            {props.segments.length === 0 ? (
-                <div className="cad-measure-empty">Click two points to measure a distance.</div>
+            {props.showToolSelector && (
+                <div className="cad-measure-modes">
+                    {MEASURE_MODE_LABELS.map((mode) => (
+                        <button
+                            key={mode.id}
+                            className={`theia-button secondary cad-measure-mode${mode.id === props.tool ? ' active' : ''}`}
+                            onClick={() => props.onToolChange(mode.id)}
+                        >
+                            {mode.label}
+                        </button>
+                    ))}
+                </div>
+            )}
+            {props.measurements.length === 0 ? (
+                <div className="cad-measure-empty">{modeHint}</div>
             ) : (
                 <div className="cad-measure-list">
-                    {props.segments.map((segment) => (
-                        <div key={segment.id} className="cad-measure-row">
-                            <span className="cad-measure-value">{formatMeasureDistance(segment.distance)}</span>
+                    {props.measurements.map((measurement) => (
+                        <div key={measurement.id} className="cad-measure-row">
+                            <span className="cad-measure-value">{formatMeasurementValue(measurement)}</span>
                             <Tooltip content="Delete measurement" position="left">
                                 <button
                                     className="theia-button secondary cad-measure-row-remove"
-                                    onClick={() => props.onDelete(segment.id)}
+                                    onClick={() => props.onDelete(measurement.id)}
                                 >
                                     <span className="codicon codicon-close" />
                                 </button>
@@ -2107,7 +2236,11 @@ function MeasureListPopover(props: MeasureListPopoverProps): React.ReactElement 
                 </div>
             )}
             <div className="cad-measure-footer">
-                <button className="theia-button secondary cad-measure-clear" disabled={props.segments.length === 0} onClick={props.onClear}>
+                <button
+                    className="theia-button secondary cad-measure-clear"
+                    disabled={props.measurements.length === 0}
+                    onClick={props.onClear}
+                >
                     Clear All
                 </button>
                 <span className="cad-measure-note">{MEASURE_CLEAR_NOTE}</span>
@@ -2132,6 +2265,7 @@ interface ViewportApi {
     readonly setShading: (mode: ShadingMode) => void;
     readonly setGhostOpacity: (value: number) => void;
     readonly setSection: (section?: SectionState) => void;
+    readonly setExplodeFactor: (factor: number) => void;
     readonly setGizmoVisible: (visible: boolean) => void;
     readonly updateMeasureState: (state: MeasureViewState) => void;
     readonly setAutoDimensionEnabled: (enabled: boolean) => void;
@@ -2162,6 +2296,7 @@ function initViewport(
     onToggleSketchMode: () => void,
     onExitSection: () => void,
     onMeasurePoint: (point: MeasurePoint3D) => void,
+    onMeasureRadius: (center: MeasurePoint3D, radius: number) => void,
     onMeasureDeactivate: () => void,
     onShortcutBarRequest: (mode: 'document' | 'sketch', anchor: { x: number; y: number }) => void,
     OrbitControlsCtor: new (
@@ -2239,6 +2374,11 @@ function initViewport(
     // Section mode: plane recomputed from this tessellation's bounding box.
     let currentTessData: TessData | undefined = tessData;
     let activeSection: SectionState | undefined;
+    // Explode view: per-solid, transform-only viewport state. Offsets are
+    // re-planned from the new payload after every buildModel; never document
+    // state, never geometry edits (the reuse pool is untouched).
+    let explodeFactor = 0;
+    let explodeCentroids: ExplodeSolidCentroid[] | undefined;
     /** Last pointer position inside the container, used to anchor the Q shortcut bar. */
     let lastPointerPosition = { x: container.clientWidth / 2, y: container.clientHeight / 2 };
 
@@ -2247,6 +2387,35 @@ function initViewport(
     faceHighlighter.attach(modelGroup);
     const edgeHighlighter = new EdgeHighlighter(highlightColor);
     edgeHighlighter.attach(modelGroup);
+
+    // Shared materials: one instance per shading role instead of one per face
+    // mesh (hundreds at tokamak scale). Selection highlight is a material swap
+    // between the body and highlight roles; shading flags are applied to both
+    // roles at once. Theme changes re-color these in place.
+    const bodyMaterial = new THREE.MeshStandardMaterial({ color: baseColor, roughness: 0.6, metalness: 0.1, side: THREE.DoubleSide });
+    const highlightMaterial = new THREE.MeshStandardMaterial({
+        color: highlightColor,
+        roughness: 0.6,
+        metalness: 0.1,
+        side: THREE.DoubleSide
+    });
+    const edgeLineMaterial = new THREE.LineBasicMaterial({ color: edgeColor, transparent: true, opacity: 0.85 });
+    const curveLineMaterial = new THREE.LineBasicMaterial({ color: edgeColor, transparent: true, opacity: 0.95, linewidth: 2 });
+    const curveLineHighlightMaterial = new THREE.LineBasicMaterial({
+        color: highlightColor,
+        transparent: true,
+        opacity: 0.95,
+        linewidth: 2
+    });
+    const previewGhostMaterial = new THREE.MeshStandardMaterial({
+        color: baseColor,
+        roughness: 0.6,
+        metalness: 0.1,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: DEFAULT_GHOST_OPACITY,
+        depthWrite: false
+    });
 
     // Axis navigation gizmo: an SVG overlay that mirrors the
     // camera orientation and snaps to the clicked axis view. Updated directly
@@ -2378,15 +2547,33 @@ function initViewport(
     measureSphereMaterial.color = highlightColor;
     const measureSphereGeometry = new THREE.SphereGeometry(1, 12, 8);
 
-    interface MeasureVisual {
-        segment: MeasureSegment;
+    interface SegmentVisual {
+        readonly type: 'segment';
+        measurement: MeasureSegment;
         line: THREE.Line;
         sphereA: THREE.Mesh;
         sphereB: THREE.Mesh;
         label: HTMLDivElement;
     }
+    interface AngleVisual {
+        readonly type: 'angle';
+        measurement: MeasureAngle;
+        lineBA: THREE.Line;
+        lineBC: THREE.Line;
+        sphereA: THREE.Mesh;
+        sphereB: THREE.Mesh;
+        sphereC: THREE.Mesh;
+        label: HTMLDivElement;
+    }
+    interface RadiusVisual {
+        readonly type: 'radius';
+        measurement: MeasureRadius;
+        sphereCenter: THREE.Mesh;
+        label: HTMLDivElement;
+    }
+    type MeasureVisual = SegmentVisual | AngleVisual | RadiusVisual;
     const measureVisuals = new Map<string, MeasureVisual>();
-    let measureState: MeasureViewState = { active: false, mode: 'model3d', segments: [] };
+    let measureState: MeasureViewState = { active: false, mode: 'model3d', tool: 'distance', measurements: [] };
     let measureHover: MeasurePoint3D | undefined;
 
     const pendingLineGeometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
@@ -2400,6 +2587,12 @@ function initViewport(
     pendingMarker.renderOrder = 1000;
     pendingMarker.visible = false;
     measureGroup.add(pendingMarker);
+    // Angle mode: second pending point (the vertex B pick).
+    const pendingVertexMarker = new THREE.Mesh(measureSphereGeometry, measureSphereMaterial);
+    pendingVertexMarker.name = 'cad-measure-pending-vertex-marker';
+    pendingVertexMarker.renderOrder = 1000;
+    pendingVertexMarker.visible = false;
+    measureGroup.add(pendingVertexMarker);
     const pendingLabel = document.createElement('div');
     pendingLabel.className = 'cad-measure-label cad-measure-label-pending';
     pendingLabel.style.display = 'none';
@@ -2418,68 +2611,142 @@ function initViewport(
     };
     setMeasureLinePoints(pendingLine, [0, 0, 0], [0, 0, 0]);
 
-    const createMeasureVisual = (segment: MeasureSegment): MeasureVisual => {
-        const line = new THREE.Line(new THREE.BufferGeometry(), measureLineMaterial);
-        setMeasureLinePoints(line, segment.a, segment.b);
-        line.renderOrder = 999;
-        const sphereA = new THREE.Mesh(measureSphereGeometry, measureSphereMaterial);
-        sphereA.position.set(segment.a[0], segment.a[1], segment.a[2]);
-        sphereA.renderOrder = 1000;
-        const sphereB = new THREE.Mesh(measureSphereGeometry, measureSphereMaterial);
-        sphereB.position.set(segment.b[0], segment.b[1], segment.b[2]);
-        sphereB.renderOrder = 1000;
+    const makeMeasureSphere = (): THREE.Mesh => {
+        const sphere = new THREE.Mesh(measureSphereGeometry, measureSphereMaterial);
+        sphere.renderOrder = 1000;
+        return sphere;
+    };
+
+    const createMeasureVisual = (measurement: Measurement): MeasureVisual => {
         const label = document.createElement('div');
         label.className = 'cad-measure-label';
-        label.textContent = formatMeasureDistance(segment.distance);
         measureLabelLayer.appendChild(label);
-        measureGroup.add(line, sphereA, sphereB);
-        return { segment, line, sphereA, sphereB, label };
+        if (isMeasureSegment(measurement)) {
+            const line = new THREE.Line(new THREE.BufferGeometry(), measureLineMaterial);
+            setMeasureLinePoints(line, measurement.a, measurement.b);
+            line.renderOrder = 999;
+            const sphereA = makeMeasureSphere();
+            sphereA.position.set(measurement.a[0], measurement.a[1], measurement.a[2]);
+            const sphereB = makeMeasureSphere();
+            sphereB.position.set(measurement.b[0], measurement.b[1], measurement.b[2]);
+            label.textContent = formatMeasureDistance(measurement.distance);
+            measureGroup.add(line, sphereA, sphereB);
+            return { type: 'segment', measurement, line, sphereA, sphereB, label };
+        }
+        if (isMeasureAngle(measurement)) {
+            // Segments BA and BC meeting at the vertex B.
+            const lineBA = new THREE.Line(new THREE.BufferGeometry(), measureLineMaterial);
+            setMeasureLinePoints(lineBA, measurement.b, measurement.a);
+            lineBA.renderOrder = 999;
+            const lineBC = new THREE.Line(new THREE.BufferGeometry(), measureLineMaterial);
+            setMeasureLinePoints(lineBC, measurement.b, measurement.c);
+            lineBC.renderOrder = 999;
+            const sphereA = makeMeasureSphere();
+            sphereA.position.set(measurement.a[0], measurement.a[1], measurement.a[2]);
+            const sphereB = makeMeasureSphere();
+            sphereB.position.set(measurement.b[0], measurement.b[1], measurement.b[2]);
+            const sphereC = makeMeasureSphere();
+            sphereC.position.set(measurement.c[0], measurement.c[1], measurement.c[2]);
+            label.textContent = formatMeasureAngle(measurement.angle);
+            measureGroup.add(lineBA, lineBC, sphereA, sphereB, sphereC);
+            return { type: 'angle', measurement, lineBA, lineBC, sphereA, sphereB, sphereC, label };
+        }
+        const sphereCenter = makeMeasureSphere();
+        sphereCenter.position.set(measurement.center[0], measurement.center[1], measurement.center[2]);
+        label.textContent = formatMeasureRadius(measurement.radius);
+        measureGroup.add(sphereCenter);
+        return { type: 'radius', measurement, sphereCenter, label };
     };
 
     const disposeMeasureVisual = (visual: MeasureVisual): void => {
-        visual.line.removeFromParent();
-        visual.line.geometry.dispose();
-        visual.sphereA.removeFromParent();
-        visual.sphereB.removeFromParent();
+        if (visual.type === 'segment') {
+            visual.line.removeFromParent();
+            visual.line.geometry.dispose();
+            visual.sphereA.removeFromParent();
+            visual.sphereB.removeFromParent();
+        } else if (visual.type === 'angle') {
+            visual.lineBA.removeFromParent();
+            visual.lineBA.geometry.dispose();
+            visual.lineBC.removeFromParent();
+            visual.lineBC.geometry.dispose();
+            visual.sphereA.removeFromParent();
+            visual.sphereB.removeFromParent();
+            visual.sphereC.removeFromParent();
+        } else {
+            visual.sphereCenter.removeFromParent();
+        }
         visual.label.remove();
+    };
+
+    /** Refresh a reused visual's transforms and label after its state object changed. */
+    const updateMeasureVisual = (visual: MeasureVisual, measurement: Measurement): void => {
+        if (visual.type === 'segment' && isMeasureSegment(measurement)) {
+            visual.measurement = measurement;
+            setMeasureLinePoints(visual.line, measurement.a, measurement.b);
+            visual.sphereA.position.set(measurement.a[0], measurement.a[1], measurement.a[2]);
+            visual.sphereB.position.set(measurement.b[0], measurement.b[1], measurement.b[2]);
+            visual.label.textContent = formatMeasureDistance(measurement.distance);
+            return;
+        }
+        if (visual.type === 'angle' && isMeasureAngle(measurement)) {
+            visual.measurement = measurement;
+            setMeasureLinePoints(visual.lineBA, measurement.b, measurement.a);
+            setMeasureLinePoints(visual.lineBC, measurement.b, measurement.c);
+            visual.sphereA.position.set(measurement.a[0], measurement.a[1], measurement.a[2]);
+            visual.sphereB.position.set(measurement.b[0], measurement.b[1], measurement.b[2]);
+            visual.sphereC.position.set(measurement.c[0], measurement.c[1], measurement.c[2]);
+            visual.label.textContent = formatMeasureAngle(measurement.angle);
+            return;
+        }
+        if (visual.type === 'radius' && isMeasureRadius(measurement)) {
+            visual.measurement = measurement;
+            visual.sphereCenter.position.set(measurement.center[0], measurement.center[1], measurement.center[2]);
+            visual.label.textContent = formatMeasureRadius(measurement.radius);
+        }
     };
 
     /** Reconcile the overlay objects with the pushed state (called per state change, not per frame). */
     const syncMeasureObjects = (): void => {
-        const modeSegments = measureState.segments.filter((segment) => segment.kind === measureState.mode);
-        const presentIds = new Set(modeSegments.map((segment) => segment.id));
+        const modeMeasurements = measureState.measurements.filter((measurement) => measurement.kind === measureState.mode);
+        const presentIds = new Set(modeMeasurements.map((measurement) => measurement.id));
         for (const [id, visual] of [...measureVisuals]) {
             if (!presentIds.has(id)) {
                 disposeMeasureVisual(visual);
                 measureVisuals.delete(id);
             }
         }
-        for (const segment of modeSegments) {
-            const existing = measureVisuals.get(segment.id);
+        for (const measurement of modeMeasurements) {
+            const existing = measureVisuals.get(measurement.id);
             if (existing === undefined) {
-                measureVisuals.set(segment.id, createMeasureVisual(segment));
-            } else if (existing.segment !== segment) {
-                existing.segment = segment;
-                setMeasureLinePoints(existing.line, segment.a, segment.b);
-                existing.sphereA.position.set(segment.a[0], segment.a[1], segment.a[2]);
-                existing.sphereB.position.set(segment.b[0], segment.b[1], segment.b[2]);
-                existing.label.textContent = formatMeasureDistance(segment.distance);
+                measureVisuals.set(measurement.id, createMeasureVisual(measurement));
+            } else if (existing.measurement !== measurement) {
+                updateMeasureVisual(existing, measurement);
             }
         }
         const hasPending = measureState.active && measureState.pending !== undefined;
+        const hasVertex = measureState.active && measureState.pendingVertex !== undefined;
         pendingLine.visible = false;
         pendingMarker.visible = false;
+        pendingVertexMarker.visible = false;
         pendingLabel.style.display = 'none';
         if (hasPending) {
             const pendingPoint = measureState.pending as MeasurePoint3D;
             pendingMarker.position.set(pendingPoint[0], pendingPoint[1], pendingPoint[2]);
             pendingMarker.visible = true;
+            if (hasVertex) {
+                const vertexPoint = measureState.pendingVertex as MeasurePoint3D;
+                pendingVertexMarker.position.set(vertexPoint[0], vertexPoint[1], vertexPoint[2]);
+                pendingVertexMarker.visible = true;
+            }
             if (measureHover !== undefined) {
-                setMeasureLinePoints(pendingLine, pendingPoint, measureHover);
+                // Preview from the most recent pick: B→hover once the vertex is
+                // set, otherwise A→hover.
+                const anchor = hasVertex ? (measureState.pendingVertex as MeasurePoint3D) : pendingPoint;
+                setMeasureLinePoints(pendingLine, anchor, measureHover);
                 pendingLine.visible = true;
             }
         }
-        measureGroup.visible = measureState.active || modeSegments.length > 0;
+        measureGroup.visible = measureState.active || modeMeasurements.length > 0;
         measureLabelLayer.style.display = measureGroup.visible ? '' : 'none';
     };
 
@@ -2503,36 +2770,60 @@ function initViewport(
             const pxPerUnit = rectHeight / (2 * Math.tan(((perspective.fov ?? 45) * Math.PI) / 360) * distance);
             return MEASURE_MARKER_PX / Math.max(pxPerUnit, 1e-9);
         };
+        const positionLabel = (label: HTMLDivElement, anchor: MeasurePoint3D, text: string): void => {
+            const screen = projectMeasurePoint(anchor, viewProjection, rectWidth, rectHeight);
+            label.textContent = text;
+            label.style.left = `${screen.x}px`;
+            label.style.top = `${screen.y}px`;
+            label.style.display = screen.visible ? '' : 'none';
+        };
+        const scaleSphere = (sphere: THREE.Mesh, point: MeasurePoint3D): void => {
+            const screen = projectMeasurePoint(point, viewProjection, rectWidth, rectHeight);
+            sphere.visible = screen.visible;
+            const scale = markerScaleFor(point);
+            sphere.scale.set(scale, scale, scale);
+        };
         for (const visual of measureVisuals.values()) {
-            const mid = projectMeasurePoint(visual.segment.midpoint, viewProjection, rectWidth, rectHeight);
-            visual.label.textContent = formatMeasureDistance(visual.segment.distance);
-            visual.label.style.left = `${mid.x}px`;
-            visual.label.style.top = `${mid.y}px`;
-            visual.label.style.display = mid.visible ? '' : 'none';
-            for (const [sphere, point] of [
-                [visual.sphereA, visual.segment.a],
-                [visual.sphereB, visual.segment.b]
-            ] as Array<[THREE.Mesh, MeasurePoint3D]>) {
-                const screen = projectMeasurePoint(point, viewProjection, rectWidth, rectHeight);
-                sphere.visible = screen.visible;
-                const scale = markerScaleFor(point);
-                sphere.scale.set(scale, scale, scale);
+            if (visual.type === 'segment') {
+                positionLabel(visual.label, visual.measurement.midpoint, formatMeasureDistance(visual.measurement.distance));
+                scaleSphere(visual.sphereA, visual.measurement.a);
+                scaleSphere(visual.sphereB, visual.measurement.b);
+            } else if (visual.type === 'angle') {
+                positionLabel(visual.label, visual.measurement.b, formatMeasureAngle(visual.measurement.angle));
+                scaleSphere(visual.sphereA, visual.measurement.a);
+                scaleSphere(visual.sphereB, visual.measurement.b);
+                scaleSphere(visual.sphereC, visual.measurement.c);
+            } else {
+                positionLabel(visual.label, visual.measurement.center, formatMeasureRadius(visual.measurement.radius));
+                scaleSphere(visual.sphereCenter, visual.measurement.center);
             }
         }
         if (measureState.active && measureState.pending !== undefined) {
             const pendingPoint = measureState.pending as MeasurePoint3D;
-            const anchor = measureHover ?? pendingPoint;
-            const screen = projectMeasurePoint(anchor, viewProjection, rectWidth, rectHeight);
-            pendingLabel.style.left = `${screen.x}px`;
-            pendingLabel.style.top = `${screen.y}px`;
-            pendingLabel.style.display = screen.visible ? '' : 'none';
-            const text =
-                measureHover !== undefined ? formatMeasureDistance(measureDistance(pendingPoint, measureHover)) : 'Pick second point';
-            if (pendingLabel.textContent !== text) {
-                pendingLabel.textContent = text;
+            const vertex = measureState.pendingVertex;
+            if (measureState.tool === 'angle' && vertex !== undefined && measureHover !== undefined) {
+                // Live angle preview at the vertex while the third point hovers.
+                positionLabel(pendingLabel, vertex, formatMeasureAngle(measureAngle(pendingPoint, vertex, measureHover)));
+            } else {
+                const anchor = measureHover ?? pendingPoint;
+                const text =
+                    measureHover !== undefined && measureState.tool === 'distance'
+                        ? formatMeasureDistance(measureDistance(pendingPoint, measureHover))
+                        : measureState.tool === 'radius'
+                          ? 'Pick a circular edge'
+                          : vertex !== undefined
+                            ? 'Pick third point'
+                            : measureState.tool === 'angle'
+                              ? 'Pick vertex (point B)'
+                              : 'Pick second point';
+                positionLabel(pendingLabel, anchor, text);
             }
             const scale = markerScaleFor(pendingPoint);
             pendingMarker.scale.set(scale, scale, scale);
+            if (vertex !== undefined) {
+                const vertexScale = markerScaleFor(vertex);
+                pendingVertexMarker.scale.set(vertexScale, vertexScale, vertexScale);
+            }
         }
     };
 
@@ -2561,11 +2852,16 @@ function initViewport(
         for (const line of curveLines) {
             const id = line.userData.curveId;
             const highlighted = id === selectedCurveId || id === curvePickHoverId;
-            (line.material as THREE.LineBasicMaterial).color.copy(highlighted ? selectedColor : edgeColor);
+            const material = highlighted ? curveLineHighlightMaterial : curveLineMaterial;
+            if (line.material !== material) {
+                line.material = material;
+            }
         }
     };
 
     const applyHighlight = (): void => {
+        bodyMaterial.color.copy(baseColor);
+        highlightMaterial.color.copy(selectedColor);
         const highlightIds = currentSelection.solidIds ?? (currentSelection.solidId !== undefined ? [currentSelection.solidId] : []);
         for (const mesh of meshes) {
             const data = mesh.userData;
@@ -2574,7 +2870,10 @@ function initViewport(
             const isSelected =
                 highlightIds.includes(data.solidId as number) &&
                 (currentSelection.faceId === undefined || data.faceId === currentSelection.faceId);
-            (mesh.material as THREE.MeshStandardMaterial).color.copy(isSelected ? selectedColor : baseColor);
+            const material = isSelected ? highlightMaterial : bodyMaterial;
+            if (mesh.material !== material) {
+                mesh.material = material;
+            }
         }
         applyCurveHighlight();
         renderScene();
@@ -2592,10 +2891,11 @@ function initViewport(
     };
     const applyShading = (): void => {
         const clippingPlanes = computeSectionPlanes();
-        for (const mesh of meshes) {
-            const flags = meshShadingFlags(shading, ghostOpacity);
-            mesh.visible = flags.faceVisible && !hiddenSolidIds.has(mesh.userData.solidId as number);
-            const material = mesh.material as THREE.MeshStandardMaterial;
+        const flags = meshShadingFlags(shading, ghostOpacity);
+        // Flags are role-wide: every body face shares the two materials, so the
+        // shading mode lands on the materials directly; per-mesh state is
+        // visibility only (plus hidden solids).
+        for (const material of [bodyMaterial, highlightMaterial]) {
             material.wireframe = flags.wireframe;
             material.transparent = flags.transparent;
             material.opacity = flags.opacity;
@@ -2603,12 +2903,14 @@ function initViewport(
             material.clippingPlanes = clippingPlanes;
             material.needsUpdate = true;
         }
+        for (const mesh of meshes) {
+            mesh.visible = flags.faceVisible && !hiddenSolidIds.has(mesh.userData.solidId as number);
+        }
         for (const line of edgeLines) {
             line.visible = !hiddenSolidIds.has(line.userData.solidId as number);
-            const lineMaterial = line.material as THREE.LineBasicMaterial;
-            lineMaterial.clippingPlanes = clippingPlanes;
-            lineMaterial.needsUpdate = true;
         }
+        edgeLineMaterial.clippingPlanes = clippingPlanes;
+        edgeLineMaterial.needsUpdate = true;
         applyHighlight();
     };
 
@@ -2621,30 +2923,112 @@ function initViewport(
         shading === 'edgesOnly' ? [] : meshes.filter((mesh) => !hiddenSolidIds.has(mesh.userData.solidId as number));
     const pickableEdgeLines = (): THREE.Line[] => edgeLines.filter((line) => !hiddenSolidIds.has(line.userData.solidId as number));
 
-    const buildModel = (data?: TessData): void => {
-        currentTessData = data;
-        for (const mesh of meshes) {
-            modelGroup.remove(mesh);
-            mesh.geometry.dispose();
-            (mesh.material as THREE.Material).dispose();
+    /**
+     * Face meshes pooled by content-based reuse key across rebuilds. Unchanged
+     * faces keep their BufferGeometry between rebuilds; only added faces pay
+     * geometry construction. The pool always mirrors `previousTessData` exactly
+     * (one mesh per face entry), which is what {@link planFaceReuse} plans
+     * against.
+     */
+    let meshPool = new Map<string, THREE.Mesh[]>();
+    let previousTessData: TessData | undefined;
+
+    const disposePooledMeshes = (): void => {
+        for (const bucket of meshPool.values()) {
+            for (const mesh of bucket) {
+                modelGroup.remove(mesh);
+                mesh.geometry.dispose();
+            }
         }
+        meshPool = new Map();
         meshes = [];
+    };
+
+    /**
+     * Vertex-average approximation of each solid's centroid, one pass over the
+     * tessellated coordinates. Only the explode direction derives from it, so
+     * the vertex average suffices (exact volume centroids would need an
+     * area-weighted pass over every triangle).
+     */
+    const computeExplodeCentroids = (data: TessData): ExplodeSolidCentroid[] => {
+        const sums = new Map<number, [number, number, number, number]>();
+        for (const face of data.faces) {
+            let entry = sums.get(face.solidId);
+            if (entry === undefined) {
+                entry = [0, 0, 0, 0];
+                sums.set(face.solidId, entry);
+            }
+            for (let i = 0; i < face.positions.length; i += 3) {
+                entry[0] += face.positions[i];
+                entry[1] += face.positions[i + 1];
+                entry[2] += face.positions[i + 2];
+            }
+            entry[3] += face.positions.length / 3;
+        }
+        const solids: ExplodeSolidCentroid[] = [];
+        for (const [solidId, entry] of sums) {
+            solids.push({
+                solidId,
+                centroid: entry[3] > 0 ? [entry[0] / entry[3], entry[1] / entry[3], entry[2] / entry[3]] : [0, 0, 0]
+            });
+        }
+        return solids;
+    };
+
+    /**
+     * Apply the explode offsets as object positions (faces AND the edge lines
+     * of the same solid move together). Raycast picking uses world matrices,
+     * so it keeps working on exploded geometry. Factor 0 resets every
+     * transform to the origin — reused pooled meshes may carry a stale
+     * position from a previous explode, so the zero write is unconditional.
+     */
+    const applyExplode = (): void => {
+        if (explodeFactor <= 0 || currentTessData === undefined) {
+            for (const mesh of meshes) {
+                mesh.position.set(0, 0, 0);
+            }
+            for (const line of edgeLines) {
+                line.position.set(0, 0, 0);
+            }
+            return;
+        }
+        if (explodeCentroids === undefined) {
+            explodeCentroids = computeExplodeCentroids(currentTessData);
+        }
+        const offsets = planExplodeOffsets(explodeCentroids, currentTessData.boundingBox, explodeFactor);
+        for (const mesh of meshes) {
+            const offset = offsets.get(mesh.userData.solidId as number);
+            mesh.position.set(offset?.[0] ?? 0, offset?.[1] ?? 0, offset?.[2] ?? 0);
+        }
+        for (const line of edgeLines) {
+            const offset = offsets.get(line.userData.solidId as number);
+            line.position.set(offset?.[0] ?? 0, offset?.[1] ?? 0, offset?.[2] ?? 0);
+        }
+    };
+
+    const buildModel = (data?: TessData): void => {
+        const t0 = PROFILE_TESSELLATION_LOAD ? performance.now() : 0;
+        currentTessData = data;
+        // Edge lines and curves are small (profiled ~50 ms at tokamak scale
+        // vs ~830 ms parse) — they keep the full teardown-rebuild discipline.
         for (const line of edgeLines) {
             modelGroup.remove(line);
             line.geometry.dispose();
-            (line.material as THREE.Material).dispose();
         }
         edgeLines = [];
         for (const line of curveLines) {
             modelGroup.remove(line);
             line.geometry.dispose();
-            (line.material as THREE.Material).dispose();
         }
         curveLines = [];
         faceHighlighter.clear();
         edgeHighlighter.clear();
 
         if (data === undefined) {
+            previousTessData = undefined;
+            disposePooledMeshes();
+            explodeCentroids = undefined;
+            applyExplode();
             applyShading();
             return;
         }
@@ -2659,42 +3043,80 @@ function initViewport(
         controls.target.copy(center);
         controls.update();
 
-        for (const solid of data.solids) {
-            for (const face of solid.faces) {
-                const geometry = buildFaceGeometry(face);
-                const material = new THREE.MeshStandardMaterial({
-                    color: baseColor,
-                    roughness: 0.6,
-                    metalness: 0.1,
-                    side: THREE.DoubleSide
-                });
-                const mesh = new THREE.Mesh(geometry, material);
-                mesh.userData = {
-                    solidId: solid.solidId,
-                    faceId: face.faceId,
-                    bodyId: face.bodyId ?? solid.bodyId,
-                    fingerprint: face.fingerprint
-                };
-                modelGroup.add(mesh);
-                meshes.push(mesh);
+        const plan = planFaceReuse(previousTessData, data);
+        previousTessData = data;
+        const nextMeshes: THREE.Mesh[] = [];
+        const nextPool = new Map<string, THREE.Mesh[]>();
+        const adopt = (mesh: THREE.Mesh, key: string): void => {
+            modelGroup.add(mesh);
+            nextMeshes.push(mesh);
+            const bucket = nextPool.get(key);
+            if (bucket === undefined) {
+                nextPool.set(key, [mesh]);
+            } else {
+                bucket.push(mesh);
             }
-            for (const edge of solid.edges) {
-                const line = buildEdgeLine(solid.solidId, edge);
-                (line.material as THREE.LineBasicMaterial).color.set(edgeColor);
-                modelGroup.add(line);
-                edgeLines.push(line);
+        };
+        for (const { key, face } of plan.reused) {
+            // The plan guarantees a pooled mesh exists for every reused key.
+            const mesh = meshPool.get(key)?.pop() as THREE.Mesh;
+            // Solid identity is positional and can shuffle between builds, so
+            // userData is re-derived from the new payload even for reused
+            // geometry (picking/outline maps read these fields).
+            mesh.userData = {
+                reuseKey: key,
+                solidId: face.solidId,
+                faceId: face.faceId,
+                bodyId: face.bodyId,
+                fingerprint: face.fingerprint
+            };
+            adopt(mesh, key);
+        }
+        for (const face of plan.added) {
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.BufferAttribute(face.positions, 3));
+            geometry.setIndex(new THREE.BufferAttribute(face.indices, 1));
+            geometry.computeVertexNormals();
+            const mesh = new THREE.Mesh(geometry, bodyMaterial);
+            const key = faceReuseKey(face);
+            mesh.userData = {
+                reuseKey: key,
+                solidId: face.solidId,
+                faceId: face.faceId,
+                bodyId: face.bodyId,
+                fingerprint: face.fingerprint
+            };
+            adopt(mesh, key);
+        }
+        // Leftover pooled meshes served faces that vanished from the payload.
+        for (const bucket of meshPool.values()) {
+            for (const mesh of bucket) {
+                modelGroup.remove(mesh);
+                mesh.geometry.dispose();
             }
         }
-        if (data.curves !== undefined) {
-            for (const curve of data.curves) {
-                const line = buildCurveLine(curve);
-                (line.material as THREE.LineBasicMaterial).color.set(edgeColor);
-                modelGroup.add(line);
-                curveLines.push(line);
-            }
+        meshPool = nextPool;
+        meshes = nextMeshes;
+
+        for (const edge of data.edges) {
+            const line = buildEdgeLine(edge.solidId, edge, edgeLineMaterial);
+            modelGroup.add(line);
+            edgeLines.push(line);
         }
+        for (const curve of data.curves) {
+            const line = buildCurveLine(curve, curveLineMaterial);
+            modelGroup.add(line);
+            curveLines.push(line);
+        }
+        explodeCentroids = undefined;
+        applyExplode();
         applyShading();
         applyCurveHighlight();
+        if (PROFILE_TESSELLATION_LOAD) {
+            console.log(
+                `[CadViewport] profile: buildModel ${(performance.now() - t0).toFixed(0)} ms (reused ${plan.reused.length}, added ${plan.added.length}, disposed ${plan.removedKeys.length})`
+            );
+        }
     };
 
     buildModel(tessData);
@@ -2708,29 +3130,20 @@ function initViewport(
         for (const mesh of previewMeshes) {
             previewGroup.remove(mesh);
             mesh.geometry.dispose();
-            (mesh.material as THREE.Material).dispose();
         }
         previewMeshes = [];
         if (data === undefined) {
             renderScene();
             return;
         }
-        for (const solid of data.solids) {
-            for (const face of solid.faces) {
-                const geometry = buildFaceGeometry(face);
-                const material = new THREE.MeshStandardMaterial({
-                    color: baseColor,
-                    roughness: 0.6,
-                    metalness: 0.1,
-                    side: THREE.DoubleSide,
-                    transparent: true,
-                    opacity: ghostOpacity,
-                    depthWrite: false
-                });
-                const mesh = new THREE.Mesh(geometry, material);
-                previewGroup.add(mesh);
-                previewMeshes.push(mesh);
-            }
+        for (const face of data.faces) {
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.BufferAttribute(face.positions, 3));
+            geometry.setIndex(new THREE.BufferAttribute(face.indices, 1));
+            geometry.computeVertexNormals();
+            const mesh = new THREE.Mesh(geometry, previewGhostMaterial);
+            previewGroup.add(mesh);
+            previewMeshes.push(mesh);
         }
         renderScene();
     };
@@ -2852,9 +3265,7 @@ function initViewport(
     };
     const setGhostOpacity = (value: number): void => {
         ghostOpacity = clampGhostOpacity(value);
-        for (const mesh of previewMeshes) {
-            (mesh.material as THREE.MeshStandardMaterial).opacity = ghostOpacity;
-        }
+        previewGhostMaterial.opacity = ghostOpacity;
         applyShading();
     };
     const setSection = (section?: SectionState): void => {
@@ -2881,6 +3292,19 @@ function initViewport(
 
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
+
+    /** Extract an edge line's polyline as model-unit points for the radius fit. */
+    const lineGeometryPoints = (line: THREE.Line): MeasurePoint3D[] => {
+        const attribute = line.geometry.getAttribute('position') as THREE.BufferAttribute | undefined;
+        if (attribute === undefined) {
+            return [];
+        }
+        const points: MeasurePoint3D[] = [];
+        for (let i = 0; i < attribute.count; i++) {
+            points.push([attribute.getX(i), attribute.getY(i), attribute.getZ(i)]);
+        }
+        return points;
+    };
 
     /**
      * Map a pointer position to a point on the sketch plane for measurement,
@@ -2921,12 +3345,34 @@ function initViewport(
             return;
         }
         if (measureState.active && measureState.mode === 'model3d') {
+            const rect = renderer.domElement.getBoundingClientRect();
+            const ndc = pointerToNdc(event.clientX, event.clientY, rect);
+            if (measureState.tool === 'radius') {
+                // Radius picks edges, which stay visible and pickable under
+                // edges-only shading. Non-circular picks warn instead of
+                // committing a bogus number.
+                const hit = raycastEdge(pickableEdgeLines(), raycaster, ndc, camera);
+                if (hit !== undefined) {
+                    const result = edgeRadius({
+                        curveType: hit.fingerprint?.curveType,
+                        fingerprintCenter: hit.fingerprint?.center,
+                        points: lineGeometryPoints(hit.line)
+                    });
+                    if (result.ok) {
+                        edgeHighlighter.clear();
+                        measureHover = undefined;
+                        onMeasureRadius(result.center, result.radius);
+                        renderScene();
+                    } else {
+                        messageService.warn(result.reason);
+                    }
+                }
+                return;
+            }
             if (shading === 'edgesOnly') {
                 // Faces are hidden under edges-only shading; the hint pill explains why clicks no-op.
                 return;
             }
-            const rect = renderer.domElement.getBoundingClientRect();
-            const ndc = pointerToNdc(event.clientX, event.clientY, rect);
             const hit = raycastFace(pickableMeshes(), raycaster, ndc, camera);
             if (hit !== undefined && hit.point !== undefined) {
                 measureHover = undefined;
@@ -3033,11 +3479,21 @@ function initViewport(
             return;
         }
         if (measureState.active && measureState.mode === 'model3d') {
+            const rect = renderer.domElement.getBoundingClientRect();
+            const ndc = pointerToNdc(event.clientX, event.clientY, rect);
+            if (measureState.tool === 'radius') {
+                const hit = raycastEdge(pickableEdgeLines(), raycaster, ndc, camera);
+                if (hit !== undefined) {
+                    edgeHighlighter.highlight(hit.line);
+                } else {
+                    edgeHighlighter.clear();
+                }
+                renderScene();
+                return;
+            }
             if (shading === 'edgesOnly') {
                 measureHover = undefined;
             } else {
-                const rect = renderer.domElement.getBoundingClientRect();
-                const ndc = pointerToNdc(event.clientX, event.clientY, rect);
                 const hit = raycastFace(pickableMeshes(), raycaster, ndc, camera);
                 measureHover = hit?.point !== undefined ? [hit.point.x, hit.point.y, hit.point.z] : undefined;
             }
@@ -3405,12 +3861,11 @@ function initViewport(
         const nextColors = cadViewportColors(nextBackground, readThemeColor(container, '--theia-foreground', '#cccccc'));
         baseColor.set(nextColors.body);
         edgeColor.set(nextColors.edges);
-        for (const line of edgeLines) {
-            (line.material as THREE.LineBasicMaterial).color.set(edgeColor);
-        }
-        for (const mesh of previewMeshes) {
-            (mesh.material as THREE.MeshStandardMaterial).color.copy(baseColor);
-        }
+        // Shared materials re-color in place; per-mesh state is untouched.
+        bodyMaterial.color.copy(baseColor);
+        edgeLineMaterial.color.set(edgeColor);
+        curveLineMaterial.color.set(edgeColor);
+        previewGhostMaterial.color.copy(baseColor);
         selectedColor.set(readThemeColor(container, '--theia-focusBorder', '#007fd4'));
         applyHighlight();
         controller.refreshThemeColors();
@@ -3476,6 +3931,11 @@ function initViewport(
         setShading,
         setGhostOpacity,
         setSection,
+        setExplodeFactor: (factor) => {
+            explodeFactor = clampExplodeFactor(factor);
+            applyExplode();
+            renderScene();
+        },
         setGizmoVisible,
         setAutoDimensionEnabled: (enabled) => {
             controller.setAutoDimensionEnabled(enabled);
@@ -3484,6 +3944,7 @@ function initViewport(
             measureState = state;
             if (!state.active) {
                 measureHover = undefined;
+                edgeHighlighter.clear();
             }
             syncMeasureObjects();
             renderScene();
@@ -3494,7 +3955,12 @@ function initViewport(
             measureLabelLayer.remove();
             scene.remove(measureGroup);
             for (const visual of measureVisuals.values()) {
-                visual.line.geometry.dispose();
+                if (visual.type === 'segment') {
+                    visual.line.geometry.dispose();
+                } else if (visual.type === 'angle') {
+                    visual.lineBA.geometry.dispose();
+                    visual.lineBC.geometry.dispose();
+                }
             }
             measureVisuals.clear();
             pendingLine.geometry.dispose();
@@ -3530,59 +3996,31 @@ function initViewport(
             }
             for (const mesh of meshes) {
                 mesh.geometry.dispose();
-                (mesh.material as THREE.Material).dispose();
             }
             for (const line of edgeLines) {
                 line.geometry.dispose();
-                (line.material as THREE.Material).dispose();
             }
             for (const line of curveLines) {
                 line.geometry.dispose();
-                (line.material as THREE.Material).dispose();
             }
             for (const mesh of previewMeshes) {
                 mesh.geometry.dispose();
-                (mesh.material as THREE.Material).dispose();
             }
+            bodyMaterial.dispose();
+            highlightMaterial.dispose();
+            edgeLineMaterial.dispose();
+            curveLineMaterial.dispose();
+            curveLineHighlightMaterial.dispose();
+            previewGhostMaterial.dispose();
             previewMeshes = [];
             scene.remove(previewGroup);
         }
     };
 }
 
-function buildFaceGeometry(face: TessFace): THREE.BufferGeometry {
+function buildCurveLine(curve: ParsedTessCurve, material: THREE.LineBasicMaterial): THREE.Line {
     const geometry = new THREE.BufferGeometry();
-    // The tessellation already shares nodes across triangles; build an indexed
-    // geometry instead of un-indexing to per-triangle vertices.
-    const positions = new Float32Array(face.nodes.length * 3);
-    for (let i = 0; i < face.nodes.length; i++) {
-        positions[i * 3] = face.nodes[i][0];
-        positions[i * 3 + 1] = face.nodes[i][1];
-        positions[i * 3 + 2] = face.nodes[i][2];
-    }
-    const indices = new Uint32Array(face.triangles.length * 3);
-    for (let i = 0; i < face.triangles.length; i++) {
-        indices[i * 3] = face.triangles[i][0];
-        indices[i * 3 + 1] = face.triangles[i][1];
-        indices[i * 3 + 2] = face.triangles[i][2];
-    }
-    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    geometry.setIndex(new THREE.BufferAttribute(indices, 1));
-    geometry.computeVertexNormals();
-    return geometry;
-}
-
-function buildCurveLine(curve: import('../../../common/nuke-cad-protocol').TessCurve): THREE.Line {
-    const geometry = new THREE.BufferGeometry();
-    const points = curve.points;
-    const positions = new Float32Array(points.length * 3);
-    for (let i = 0; i < points.length; i++) {
-        positions[i * 3] = points[i][0];
-        positions[i * 3 + 1] = points[i][1];
-        positions[i * 3 + 2] = points[i][2];
-    }
-    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    const material = new THREE.LineBasicMaterial({ transparent: true, opacity: 0.95, linewidth: 2 });
+    geometry.setAttribute('position', new THREE.BufferAttribute(curve.positions, 3));
     const line = new THREE.Line(geometry, material);
     line.userData = { curveId: curve.id, name: curve.name, closed: curve.closed };
     return line;

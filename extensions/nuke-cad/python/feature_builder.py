@@ -1269,11 +1269,13 @@ def _pipe_shell_solid(
     """
     _require_build123d()
     assert bd is not None
+    from OCP.BRep import BRep_Tool
     from OCP.BRepBuilderAPI import BRepBuilderAPI_RoundCorner
     from OCP.BRepOffsetAPI import BRepOffsetAPI_MakePipeShell
     from OCP.gp import gp_Dir
 
     orientation, binormal = _sweep_params_or_raise(params, feature_id)
+    closed_spine = BRep_Tool.IsClosed_s(spine_wire)
 
     min_radius = _spine_min_radius(spine_wire)
     if math.isfinite(min_radius) and reach >= min_radius:
@@ -1301,7 +1303,12 @@ def _pipe_shell_solid(
                 builder.Build()
                 if not builder.IsDone():
                     raise FeatureBuilderError(f"feature '{feature_id}': sweep operation failed")
-                swept_wires.append(_pipe_shell_result(builder, feature_id))
+                if closed_spine:
+                    swept_wires.append(
+                        _closed_spine_sweep_solid(builder, spine_wire, wire, feature_id)
+                    )
+                else:
+                    swept_wires.append(_pipe_shell_result(builder, feature_id))
             outer = bd.Solid(swept_wires[0])
             for inner in swept_wires[1:]:
                 outer = outer.cut(bd.Solid(inner))
@@ -1323,25 +1330,350 @@ def _pipe_shell_solid(
 
 
 def _pipe_shell_result(builder: Any, feature_id: str) -> Any:
-    """Return the solid produced by a PipeShell builder.
+    """Return the solid produced by a PipeShell builder on an open spine.
 
-    ``MakeSolid`` caps the ends of an open spine. On a closed spine OCCT
-    raises ``Standard_NullObject`` (the built shell is already closed), so the
-    shell is wrapped in a solid directly.
+    ``MakeSolid`` caps the ends of an open spine. If that fails, the raw shell
+    must be repaired before it becomes a solid: ``MakePipeShell`` can leave the
+    lateral faces' seam edges unglued, so an unglued shell makes an invalid
+    solid whose STEP round-trip degrades to bare faces — the DAGMC export
+    pipeline then finds no volume in the exported STEP. ``ShapeFix_Shape``
+    re-glues the seams (sewing alone leaves the solid invalid). Valid
+    ``MakeSolid`` results return unchanged. Closed spines never reach this
+    repair: they are rebuilt by ``_closed_spine_sweep_solid`` instead.
     """
     from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeSolid
-    from OCP.TopAbs import TopAbs_SHELL
+    from OCP.BRepCheck import BRepCheck_Analyzer
+    from OCP.ShapeFix import ShapeFix_Shape
+    from OCP.TopAbs import TopAbs_SHELL, TopAbs_SOLID
     from OCP.TopoDS import TopoDS
 
     try:
         builder.MakeSolid()
-        return builder.Shape()
+        made = builder.Shape()
+        if made.ShapeType() == TopAbs_SOLID and BRepCheck_Analyzer(made).IsValid():
+            return made
     except Exception:
-        raw = builder.Shape()
-        if raw.ShapeType() != TopAbs_SHELL:
-            raise FeatureBuilderError(f"feature '{feature_id}': sweep failed to produce a solid")
-        maker = BRepBuilderAPI_MakeSolid(TopoDS.Shell_s(raw))
-        return maker.Solid()
+        pass
+
+    raw = builder.Shape()
+    if raw.ShapeType() not in (TopAbs_SHELL, TopAbs_SOLID):
+        raise FeatureBuilderError(f"feature '{feature_id}': sweep failed to produce a solid")
+
+    fixed = ShapeFix_Shape(raw)
+    fixed.Perform()
+    repaired = fixed.Shape()
+    if repaired.ShapeType() == TopAbs_SOLID:
+        return repaired
+    if repaired.ShapeType() != TopAbs_SHELL:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': sweep shell repair did not produce a shell"
+        )
+    maker = BRepBuilderAPI_MakeSolid(TopoDS.Shell_s(repaired))
+    return maker.Solid()
+
+
+def _closed_spine_sweep_solid(
+    builder: Any, spine_wire: Any, profile_wire: Any, feature_id: str
+) -> Any:
+    """Rebuild a closed-spine sweep as a watertight, STEP-durable solid.
+
+    ``BRepOffsetAPI_MakePipeShell`` on a closed spine emits the correct lateral
+    faces plus tiny inward sliver faces at the periodic seam, and leaves seam
+    edges carrying tolerances of up to ~0.5 m. A solid sewn from those surfaces
+    is valid in memory but degrades on STEP round-trip (bare faces, zero
+    volume), so the DAGMC export pipeline finds no volumes. The lateral faces
+    are exact sweep iso-curves, so the tube is rebuilt as a station loft
+    through corner polygons sampled from the lateral faces' shared edges — the
+    loft preserves the sweep's twist and uses fresh, default-tolerance
+    geometry. Sections without lateral corners (circular pipes) instead fall
+    back to a loft through fresh circle stations, which is exact for a circular
+    section regardless of twist.
+    """
+    from OCP.TopAbs import TopAbs_SHELL, TopAbs_SOLID
+
+    raw = builder.Shape()
+    if raw.ShapeType() not in (TopAbs_SHELL, TopAbs_SOLID):
+        raise FeatureBuilderError(f"feature '{feature_id}': closed-path sweep produced no shell")
+    lateral: list[Any] = []
+    try:
+        lateral = _lateral_sweep_faces(raw, feature_id)
+    except FeatureBuilderError:
+        pass
+    profile_edges = _wire_edge_count(profile_wire)
+    spine_edges = _wire_edge_count(spine_wire)
+    if spine_edges == 1 and len(lateral) >= 3 and len(lateral) == profile_edges:
+        ring = _lateral_long_edge_ring(lateral, feature_id)
+        if ring is not None:
+            return _corner_station_loft(ring, feature_id)
+    radius = _circular_section_radius(profile_wire)
+    if spine_edges == 1 and radius is not None:
+        return _circle_station_loft(spine_wire, radius, feature_id)
+    raise FeatureBuilderError(
+        f"feature '{feature_id}': closed-path sweep of this section shape is not supported"
+    )
+
+
+def _circular_section_radius(profile_wire: Any) -> float | None:
+    """Return the radius when the section is a single full-circle edge."""
+    from OCP.BRepAdaptor import BRepAdaptor_Curve
+    from OCP.GeomAbs import GeomAbs_CurveType
+    from OCP.TopAbs import TopAbs_EDGE
+    from OCP.TopExp import TopExp_Explorer
+    from OCP.TopoDS import TopoDS
+
+    edges = []
+    exp = TopExp_Explorer(profile_wire, TopAbs_EDGE)
+    while exp.More():
+        edges.append(TopoDS.Edge_s(exp.Current()))
+        exp.Next()
+    if len(edges) != 1:
+        return None
+    curve = BRepAdaptor_Curve(edges[0])
+    if curve.GetType() != GeomAbs_CurveType.GeomAbs_Circle:
+        return None
+    return float(curve.Circle().Radius())
+
+
+def _wire_edge_count(wire: Any) -> int:
+    """Return the number of edges in a wire."""
+    from OCP.TopAbs import TopAbs_EDGE
+    from OCP.TopExp import TopExp_Explorer
+
+    count = 0
+    exp = TopExp_Explorer(wire, TopAbs_EDGE)
+    while exp.More():
+        count += 1
+        exp.Next()
+    return count
+
+
+def _lateral_sweep_faces(raw: Any, feature_id: str) -> list[Any]:
+    """Split a closed-spine PipeShell shell into lateral faces and seam slivers.
+
+    Seam slivers are inward-facing faces with a small fraction of the largest
+    lateral face's area. Structural guards in the caller (edge count vs. the
+    profile, ring-walk checks) catch any misclassification instead of letting
+    it silently change the section shape.
+    """
+    from OCP.BRepGProp import BRepGProp
+    from OCP.GProp import GProp_GProps
+    from OCP.TopAbs import TopAbs_FACE
+    from OCP.TopExp import TopExp_Explorer
+    from OCP.TopoDS import TopoDS
+
+    faces = []
+    exp = TopExp_Explorer(raw, TopAbs_FACE)
+    while exp.More():
+        faces.append(TopoDS.Face_s(exp.Current()))
+        exp.Next()
+    if len(faces) < 3:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': closed-path sweep produced a degenerate shell"
+        )
+    areas = []
+    for face in faces:
+        props = GProp_GProps()
+        BRepGProp.SurfaceProperties_s(face, props)
+        areas.append(props.Mass())
+    largest = max(areas)
+    return [face for face, area in zip(faces, areas, strict=True) if area >= 0.2 * largest]
+
+
+def _lateral_long_edge_ring(lateral: list[Any], feature_id: str) -> list[Any] | None:
+    """Order the long (spine-parallel) edges of the lateral faces into a ring.
+
+    A long edge is shared by exactly two lateral faces; walking the lateral
+    faces via their shared long edges yields the corner order around the
+    section. Returns ``None`` when the topology does not form a single ring.
+    """
+    from OCP.TopAbs import TopAbs_EDGE
+    from OCP.TopExp import TopExp_Explorer
+    from OCP.TopoDS import TopoDS
+
+    face_edges = []
+    for face in lateral:
+        edges = []
+        exp = TopExp_Explorer(face, TopAbs_EDGE)
+        while exp.More():
+            edges.append(TopoDS.Edge_s(exp.Current()))
+            exp.Next()
+        face_edges.append(edges)
+
+    long_edges: list[Any] = []
+    owners: list[list[int]] = []
+    for face_index, edges in enumerate(face_edges):
+        for edge in edges:
+            shared = {face_index}
+            for other_index, other_edges in enumerate(face_edges):
+                if other_index != face_index and any(edge.IsSame(o) for o in other_edges):
+                    shared.add(other_index)
+            if len(shared) >= 2 and face_index == min(shared):
+                long_edges.append(edge)
+                owners.append(sorted(shared))
+    if len(long_edges) != len(lateral):
+        return None
+
+    # pairs[face] = the two long-edge indices bounding that lateral face
+    pairs: list[list[int]] = [[] for _ in lateral]
+    for edge_index, faces_shared in enumerate(owners):
+        if len(faces_shared) < 2:
+            return None
+        for face_index in faces_shared[:2]:
+            pairs[face_index].append(edge_index)
+    if any(len(pair) != 2 for pair in pairs):
+        return None
+    pairs_typed = [tuple(pair) for pair in pairs]
+
+    order = [0]
+    used = {0}
+    while len(order) < len(pairs_typed):
+        last = set(pairs_typed[order[-1]])
+        nxt = None
+        for face_index, pair in enumerate(pairs_typed):
+            if face_index in used:
+                continue
+            if any(i in last for i in pair):
+                nxt = face_index
+                break
+        if nxt is None:
+            return None
+        used.add(nxt)
+        order.append(nxt)
+    pairs_ordered = [pairs_typed[i] for i in order]
+    ring_indices = [pairs_ordered[0][0], pairs_ordered[0][1]]
+    for pair in pairs_ordered[1:]:
+        prev = ring_indices[-1]
+        ring_indices.append(pair[0] if pair[1] == prev else pair[1])
+    ring_indices = ring_indices[:-1]
+    if len(ring_indices) != len(long_edges) or len(set(ring_indices)) != len(ring_indices):
+        return None
+    return [long_edges[i] for i in ring_indices]
+
+
+def _corner_station_loft(ring: list[Any], feature_id: str) -> Any:
+    """Loft a fresh solid through corner polygons sampled along the long edges.
+
+    The long edges are exact sweep iso-curves parameterized by the spine
+    parameter, so evaluating all of them at the same fraction yields a section
+    corner polygon at that station. A smoothing ThruSections loft through the
+    stations rebuilds the tube with the sweep's own twist; the end stations
+    are trimmed slightly off the periodic seam, where the raw shell's sliver
+    faces leave the corner curves unreliable. Accuracy is approximately 1% in
+    volume for the W7-X coil model (measured -1.2% at these settings).
+    """
+    from OCP.BRepAdaptor import BRepAdaptor_Curve
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeEdge, BRepBuilderAPI_MakeWire
+    from OCP.BRepOffsetAPI import BRepOffsetAPI_ThruSections
+    from OCP.gp import gp_Pnt
+
+    stations = 480
+    trim = 0.02
+
+    def corner_polygon(t: float) -> list[Any]:
+        points = []
+        for edge in ring:
+            curve = BRepAdaptor_Curve(edge)
+            point = gp_Pnt()
+            curve.D0(
+                curve.FirstParameter() + (curve.LastParameter() - curve.FirstParameter()) * t,
+                point,
+            )
+            points.append(point)
+        return points
+
+    wires = []
+    for i in range(stations):
+        t = trim + (1.0 - 2.0 * trim) * i / stations
+        points = corner_polygon(t)
+        maker = BRepBuilderAPI_MakeWire()
+        for k, point in enumerate(points):
+            nxt = points[(k + 1) % len(points)]
+            maker.Add(BRepBuilderAPI_MakeEdge(point, nxt).Edge())
+        wires.append(maker.Wire())
+    loft = BRepOffsetAPI_ThruSections(True, False, 1e-4)
+    loft.SetSmoothing(True)
+    for wire in wires:
+        loft.AddWire(wire)
+    loft.AddWire(wires[0])
+    loft.Build()
+    if not loft.IsDone():
+        raise FeatureBuilderError(f"feature '{feature_id}': closed-path sweep loft failed to build")
+    return _require_single_valid_solid(loft.Shape(), feature_id)
+
+
+def _require_single_valid_solid(shape: Any, feature_id: str) -> Any:
+    """Return the single valid solid in a loft shape or raise a clear error."""
+    from OCP.BRepCheck import BRepCheck_Analyzer
+    from OCP.TopAbs import TopAbs_SOLID
+    from OCP.TopExp import TopExp_Explorer
+    from OCP.TopoDS import TopoDS
+
+    solids = []
+    exp = TopExp_Explorer(shape, TopAbs_SOLID)
+    while exp.More():
+        solids.append(TopoDS.Solid_s(exp.Current()))
+        exp.Next()
+    if len(solids) != 1:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': closed-path sweep did not produce a single solid"
+        )
+    solid = solids[0]
+    if not BRepCheck_Analyzer(solid).IsValid():
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': closed-path sweep produced an invalid solid"
+        )
+    return solid
+
+
+def _circle_station_loft(spine_wire: Any, radius: float, feature_id: str) -> Any:
+    """Rebuild a circular-section closed-spine sweep as a station loft.
+
+    Fallback for sections without lateral corners (circular pipes): fresh
+    circle wires are built at stations along the spine and lofted. The twist
+    of a circular section is irrelevant, so no frame transport is needed.
+    """
+    from OCP.BRepAdaptor import BRepAdaptor_Curve
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeEdge, BRepBuilderAPI_MakeWire
+    from OCP.BRepOffsetAPI import BRepOffsetAPI_ThruSections
+    from OCP.GC import GC_MakeCircle
+    from OCP.gp import gp_Ax2, gp_Dir, gp_Pnt, gp_Vec
+    from OCP.TopAbs import TopAbs_EDGE
+    from OCP.TopExp import TopExp_Explorer
+    from OCP.TopoDS import TopoDS
+
+    spine_edges = []
+    exp = TopExp_Explorer(spine_wire, TopAbs_EDGE)
+    while exp.More():
+        spine_edges.append(TopoDS.Edge_s(exp.Current()))
+        exp.Next()
+    if len(spine_edges) != 1:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': closed-path sweeps require a single-edge path curve"
+        )
+    curve = BRepAdaptor_Curve(spine_edges[0])
+    first, last = curve.FirstParameter(), curve.LastParameter()
+
+    stations = 96
+    wires = []
+    for i in range(stations):
+        t = first + (last - first) * i / stations
+        pnt = gp_Pnt()
+        vec = gp_Vec()
+        curve.D1(t, pnt, vec)
+        if vec.Magnitude() < 1e-12:
+            raise FeatureBuilderError(f"feature '{feature_id}': path curve has a zero tangent")
+        circle = GC_MakeCircle(gp_Ax2(pnt, gp_Dir(vec.X(), vec.Y(), vec.Z())), radius).Value()
+        edge = BRepBuilderAPI_MakeEdge(circle).Edge()
+        wires.append(BRepBuilderAPI_MakeWire(edge).Wire())
+
+    loft = BRepOffsetAPI_ThruSections(True, True, 1e-6)
+    for wire in wires:
+        loft.AddWire(wire)
+    loft.AddWire(wires[0])
+    loft.Build()
+    if not loft.IsDone():
+        raise FeatureBuilderError(f"feature '{feature_id}': closed-path sweep loft failed to build")
+    return _require_single_valid_solid(loft.Shape(), feature_id)
 
 
 def _build_sweep_tool(

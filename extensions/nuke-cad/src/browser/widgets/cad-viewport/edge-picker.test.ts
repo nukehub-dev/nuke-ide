@@ -131,21 +131,22 @@ describe('edge-picker', () => {
 
     describe('buildEdgeLine', () => {
         it('builds a THREE.Line with userData from tessellated edge points', () => {
-            const line = buildEdgeLine(3, {
-                edgeId: 7,
-                points: [
-                    [0, 0, 0],
-                    [1, 0, 0],
-                    [2, 0, 0]
-                ],
-                bodyId: 'body-1',
-                fingerprint: {
-                    curveType: 'line',
-                    length: 2,
-                    start: [0, 0, 0],
-                    end: [2, 0, 0]
-                }
-            });
+            const line = buildEdgeLine(
+                3,
+                {
+                    edgeId: 7,
+                    positions: new Float32Array([0, 0, 0, 1, 0, 0, 2, 0, 0]),
+                    pointCount: 3,
+                    bodyId: 'body-1',
+                    fingerprint: {
+                        curveType: 'line',
+                        length: 2,
+                        start: [0, 0, 0],
+                        end: [2, 0, 0]
+                    }
+                },
+                new THREE.LineBasicMaterial()
+            );
             expect(line.userData.solidId).toBe(3);
             expect(line.userData.edgeId).toBe(7);
             expect(line.userData.bodyId).toBe('body-1');
@@ -172,13 +173,11 @@ describe('edge-picker', () => {
         });
 
         it('returns the closest edge line intersected by the ray', () => {
-            const line = buildEdgeLine(1, {
-                edgeId: 1,
-                points: [
-                    [-1, 0, 0],
-                    [1, 0, 0]
-                ]
-            });
+            const line = buildEdgeLine(
+                1,
+                { edgeId: 1, positions: new Float32Array([-1, 0, 0, 1, 0, 0]), pointCount: 2 },
+                new THREE.LineBasicMaterial()
+            );
             const hit = raycastEdge([line], raycaster, { x: 0, y: 0 }, camera, 0.5);
             expect(hit).toBeDefined();
             expect(hit?.solidId).toBe(1);
@@ -186,13 +185,11 @@ describe('edge-picker', () => {
         });
 
         it('returns undefined when the pointer is far from the line', () => {
-            const line = buildEdgeLine(1, {
-                edgeId: 1,
-                points: [
-                    [-1, 1, 0],
-                    [1, 1, 0]
-                ]
-            });
+            const line = buildEdgeLine(
+                1,
+                { edgeId: 1, positions: new Float32Array([-1, 1, 0, 1, 1, 0]), pointCount: 2 },
+                new THREE.LineBasicMaterial()
+            );
             const hit = raycastEdge([line], raycaster, { x: 0, y: 0 }, camera, 0.05);
             expect(hit).toBeUndefined();
         });
@@ -214,13 +211,11 @@ describe('edge-picker', () => {
 
         it('starts invisible and becomes visible after highlighting', () => {
             expect(highlighter.isActive).toBe(false);
-            const line = buildEdgeLine(1, {
-                edgeId: 1,
-                points: [
-                    [0, 0, 0],
-                    [1, 0, 0]
-                ]
-            });
+            const line = buildEdgeLine(
+                1,
+                { edgeId: 1, positions: new Float32Array([0, 0, 0, 1, 0, 0]), pointCount: 2 },
+                new THREE.LineBasicMaterial()
+            );
             highlighter.highlight(line);
             expect(highlighter.isActive).toBe(true);
             const highlightLine = group.getObjectByName('cad-edge-highlight');
@@ -228,13 +223,11 @@ describe('edge-picker', () => {
         });
 
         it('clears the highlight', () => {
-            const line = buildEdgeLine(1, {
-                edgeId: 1,
-                points: [
-                    [0, 0, 0],
-                    [1, 0, 0]
-                ]
-            });
+            const line = buildEdgeLine(
+                1,
+                { edgeId: 1, positions: new Float32Array([0, 0, 0, 1, 0, 0]), pointCount: 2 },
+                new THREE.LineBasicMaterial()
+            );
             highlighter.highlight(line);
             highlighter.clear();
             expect(highlighter.isActive).toBe(false);

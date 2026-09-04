@@ -20,9 +20,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and B-spline points accept point-level constraints (coincident, fix,
   distance, symmetry); curve-level constraints remain lines/circles/arcs
   only.
+- nuke-cad: **explode view and measure angle/radius** — the 3D viewport
+  navigation cluster gains an **Explode** slider (0–100%) that moves every
+  solid away from the model center, faces and edge lines together, so fused
+  multi-part bodies (e.g. a circular pattern) separate visually. It is a
+  viewport-only transform — never written to the document, reset when the
+  model reloads or rebuilds — and picking keeps working on exploded geometry.
+  The measure tool (document toolbar Inspect group, Measurements popover) now
+  has three modes: **Distance** (two points, as before), **Angle** (three
+  clicks — A, vertex B, C — with overlay segments BA/BC and the angle label
+  at B), and **Radius** (click a circular edge; reports radius and diameter
+  from the edge's fingerprint center or a least-squares circle fit, warning
+  on non-circular edges). All measurements stay viewport-only session state
+  cleared after rebuild; with the explode slider raised, existing
+  measurements stay at their original world positions (they are not
+  re-anchored to moved solids).
 
 ### Changed
 
+- nuke-cad: **faster large-model rebuilds** — the tessellation payload now
+  parses in a Web Worker off the UI thread and transfers to the viewport as
+  zero-copy typed arrays, and the viewport scene update is incremental:
+  unchanged faces keep their GPU geometry across rebuilds (keyed by content
+  fingerprints, not process-salted ids) and materials are shared per shading
+  role instead of cloned per face. On the ~59 MB tokamak display model the
+  main-thread work of a rebuild drops from roughly one second to about
+  0.2 s on a cold load and to a few tens of milliseconds when the geometry is
+  unchanged; a new opt-in performance test
+  (`NUKE_CAD_W7X_PERF=1`, `tests/e2e/test_w7x_performance.py`) profiles the
+  W7X-scale 50-coil document.
 - Workspace-scope settings now live in `<project>/.nuke-ide/` instead of
   Theia's default `<project>/.theia/` — nuke-essentials rebinds Theia's
   `PreferenceConfigurations`, so `settings.json` plus the tasks/launch/snippets
@@ -64,6 +90,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   button) frames the selected solid when one is active, double-clicking a
   solid selects and frames it, and `.` fits the selection; `Tab` enters/exits
   sketch mode.
+
+### Fixed
+
+- nuke-cad: **closed-loop sweeps/pipes now survive STEP export** — a sweep or
+  pipe whose path curve is a closed loop (e.g. a coil centerline) previously
+  produced a tube whose periodic-seam edges carried meter-scale tolerances;
+  the solid looked valid in memory but degraded to bare faces on the STEP
+  round-trip, so DAGMC export failed with "No volumes found in STEP file".
+  Closed-spine sweeps are now rebuilt as station lofts (corner sections loft
+  through ring-sampled station wires, circular sections through analytic
+  circle stations), giving a STEP-durable solid; open-spine behavior is
+  unchanged.
 
 ### Added
 

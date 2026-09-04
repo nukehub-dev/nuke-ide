@@ -1645,3 +1645,42 @@
     display: flex;
     justify-content: flex-end;
 }
+
+/* Explode slider (inside the navigation cluster) */
+.cad-viewport-explode {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 4px;
+    font-size: var(--theia-ui-font-size0);
+    cursor: default;
+    user-select: none;
+}
+
+.cad-viewport-explode input[type='range'] {
+    width: 90px;
+}
+
+.cad-viewport-explode-label,
+.cad-viewport-explode-value {
+    min-width: 30px;
+    text-align: center;
+    color: var(--theia-descriptionForeground);
+}
+
+/* Measure tool mode selector (model3d popover) */
+.cad-measure-modes {
+    display: flex;
+    gap: 4px;
+    margin-top: 6px;
+}
+
+.cad-measure-mode {
+    flex: 1;
+    padding: 2px 6px;
+    font-size: var(--theia-ui-font-size0);
+}
+
+.cad-measure-mode.active {
+    color: var(--theia-focusBorder);
+}

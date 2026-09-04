@@ -58,6 +58,24 @@ export async function runCommand(page: Page, label: string): Promise<void> {
     await expect(input).toBeHidden();
 }
 
+/**
+ * Open a workspace file via Quick Open (Ctrl+P). `waitForClose` false keeps
+ * the quick-input open, e.g. to snapshot a loading state mid-open.
+ */
+export async function openFileByQuickOpen(page: Page, name: string, waitForClose = true): Promise<void> {
+    await page.locator('#theia-app-shell').click({ position: { x: 10, y: 10 } });
+    await page.keyboard.press('Control+P');
+    const input = page.locator('.quick-input-widget input');
+    await expect(input).toBeVisible({ timeout: 10_000 });
+    await input.fill(name);
+    const row = page.locator('.quick-input-widget .monaco-list-row', { hasText: name }).first();
+    await expect(row).toBeVisible({ timeout: 30_000 });
+    await row.click();
+    if (waitForClose) {
+        await expect(input).toBeHidden();
+    }
+}
+
 /** Assert a locator has meaningful (non-blank) text content. */
 export async function expectNonEmptyContent(locator: ReturnType<Page['locator']>, minLength = 50): Promise<void> {
     await expect(locator).toBeVisible();

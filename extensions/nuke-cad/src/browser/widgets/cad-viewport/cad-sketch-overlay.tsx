@@ -1057,7 +1057,7 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
             actions: [
                 {
                     id: 'measure',
-                    label: 'Measure (click two points)',
+                    label: 'Measure (distance, angle, radius)',
                     icon: 'codicon-nuke-cad-measure',
                     disabled: false,
                     active: props.measureActive,

@@ -28,8 +28,17 @@
 import { describe, expect, it } from 'vitest';
 import {
     MEASURE_CLEAR_NOTE,
+    createMeasureAngle,
+    createMeasureRadius,
     createMeasureSegment,
+    formatMeasureAngle,
     formatMeasureDistance,
+    formatMeasureRadius,
+    formatMeasurementValue,
+    isMeasureAngle,
+    isMeasureRadius,
+    isMeasureSegment,
+    measureAngle,
     measureDistance,
     measureMidpoint,
     nextMeasureId,
@@ -115,5 +124,74 @@ describe('measure-tool', () => {
 
     it('exposes the rebuild note shown in the measurements popover', () => {
         expect(MEASURE_CLEAR_NOTE).toContain('rebuild');
+    });
+
+    it('measures the angle at the vertex in degrees', () => {
+        // Right angle in the XY plane.
+        expect(measureAngle([1, 0, 0], [0, 0, 0], [0, 1, 0])).toBeCloseTo(90, 12);
+        // Straight line through the vertex: 180°.
+        expect(measureAngle([1, 0, 0], [0, 0, 0], [-1, 0, 0])).toBeCloseTo(180, 12);
+        // Acute angle: cos⁻¹(1/√2) = 45°.
+        expect(measureAngle([1, 0, 0], [0, 0, 0], [1, 1, 0])).toBeCloseTo(45, 12);
+    });
+
+    it('measures non-planar angles', () => {
+        // Vectors (1,0,0) and (0,0,1): 90° out of plane.
+        expect(measureAngle([1, 0, 5], [0, 0, 5], [0, 1, 6])).toBeCloseTo(90, 12);
+        // cos⁻¹(-1/√3) ≈ 125.26° between (1,0,0) and (-1,1,1).
+        const angle = measureAngle([1, 0, 0], [0, 0, 0], [-1, 1, 1]);
+        expect(angle).toBeCloseTo((Math.acos(-1 / Math.sqrt(3)) * 180) / Math.PI, 10);
+    });
+
+    it('returns NaN for a degenerate zero-length leg', () => {
+        expect(measureAngle([0, 0, 0], [0, 0, 0], [1, 0, 0])).toBeNaN();
+        expect(measureAngle([1, 0, 0], [0, 0, 0], [0, 0, 0])).toBeNaN();
+    });
+
+    it('builds angle measurements with vertex and degrees together', () => {
+        const angle = createMeasureAngle('mA', 'model3d', [2, 0, 0], [0, 0, 0], [0, 2, 0]);
+        expect(angle.id).toBe('mA');
+        expect(angle.kind).toBe('model3d');
+        expect(angle.b).toEqual([0, 0, 0]);
+        expect(angle.angle).toBeCloseTo(90, 12);
+    });
+
+    it('builds radius measurements with diameter', () => {
+        const radius = createMeasureRadius('mR', [1, 2, 3], 2.5);
+        expect(radius.kind).toBe('model3d');
+        expect(radius.center).toEqual([1, 2, 3]);
+        expect(radius.radius).toBe(2.5);
+        expect(radius.diameter).toBe(5);
+    });
+
+    it('classifies measurements by their discriminating fields', () => {
+        const segment = createMeasureSegment('m1', 'model3d', [0, 0, 0], [1, 0, 0]);
+        const angle = createMeasureAngle('m2', 'model3d', [1, 0, 0], [0, 0, 0], [0, 1, 0]);
+        const radius = createMeasureRadius('m3', [0, 0, 0], 4);
+        expect(isMeasureSegment(segment)).toBe(true);
+        expect(isMeasureAngle(segment)).toBe(false);
+        expect(isMeasureAngle(angle)).toBe(true);
+        expect(isMeasureRadius(angle)).toBe(false);
+        expect(isMeasureRadius(radius)).toBe(true);
+        expect(isMeasureSegment(radius)).toBe(false);
+    });
+
+    it('formats angles with a degree suffix and trims like distances', () => {
+        expect(formatMeasureAngle(90)).toBe('90°');
+        expect(formatMeasureAngle(45.5)).toBe('45.5°');
+        expect(formatMeasureAngle(125.264)).toBe('125.3°');
+        expect(formatMeasureAngle(NaN)).toBe('—');
+    });
+
+    it('formats radius rows with radius and diameter', () => {
+        expect(formatMeasureRadius(5)).toBe('R 5 · ⌀ 10');
+        expect(formatMeasureRadius(2.5)).toBe('R 2.5 · ⌀ 5');
+        expect(formatMeasureRadius(NaN)).toBe('—');
+    });
+
+    it('formats any measurement kind for popover rows', () => {
+        expect(formatMeasurementValue(createMeasureSegment('m1', 'model3d', [0, 0, 0], [3, 0, 0]))).toBe('3');
+        expect(formatMeasurementValue(createMeasureAngle('m2', 'model3d', [1, 0, 0], [0, 0, 0], [0, 1, 0]))).toBe('90°');
+        expect(formatMeasurementValue(createMeasureRadius('m3', [0, 0, 0], 4))).toBe('R 4 · ⌀ 8');
     });
 });

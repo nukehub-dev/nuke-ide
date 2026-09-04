@@ -95,7 +95,15 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   document curve. Both support `frenet`/`fixedBinormal` orientation (with a
   non-zero `binormal` required for the latter), auto-position the section at
   the path start, are additive-only, and are built with
-  `BRepOffsetAPI_MakePipeShell`. `pipe` has no `sketchId`. `loft` joins two or
+  `BRepOffsetAPI_MakePipeShell`. Closed-spine paths (`BRep_Tool.IsClosed_s` on
+  the spine wire) are the exception: the PipeShell tube's periodic-seam edges
+  carry meter-scale tolerances that degrade the solid to bare faces on STEP
+  round-trip, so closed-spine sweeps are rebuilt as station lofts
+  (`_closed_spine_sweep_solid` — corner sections loft through ring-sampled
+  station wires, circular sections through analytic circle stations) and must
+  pass `_require_single_valid_solid`; open spines keep the PipeShell result
+  (`_pipe_shell_result`, with a `ShapeFix_Shape` repair fallback when
+  `MakeSolid` fails). `pipe` has no `sketchId`. `loft` joins two or
   more ordered sketch sections (`params.sectionSketchIds`; `FeatureDef.sketchId`
   stays unset) into a single solid with `BRepOffsetAPI_ThruSections`; sections
   are used as positioned on their datums (no auto-positioning), must be single
@@ -200,28 +208,63 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   tone on light editor backgrounds (a light theme's foreground is near-black
   and silhouettes the model), and edge lines flip from white to dark slate;
   theme changes re-color the loaded model live.
+  The tessellation load path (`tess-reuse.ts` + `tess-parse.worker.ts` +
+  `tess-parse-client.ts`): the `.tess.json` text parses in a Web Worker
+  (webpack-5 native `new Worker(new URL(...))`, worker imports nothing Theia)
+  and transfers back as typed arrays — transferring the parsed JSON object
+  graph would cost about as much main-thread time as parsing it, while
+  ArrayBuffer transfer is zero-copy and feeds `BufferAttribute` directly. If
+  worker construction or transport fails, the client logs once and parses on
+  the main thread; the feature degrades, never breaks. `buildModel` updates
+  incrementally: faces are pooled by a content-based reuse key (the backend's
+  geometric fingerprint when present, else a signature of the tessellated
+  coordinates — never the process-salted `hash` field or the positional
+  `solidId`/`faceId`) and unchanged faces keep their `BufferGeometry` across
+  rebuilds while `userData` (solid/face/body identity) is re-derived from the
+  new payload, because solid indices are positional and can shuffle. Edge
+  lines and curves keep full teardown-rebuild (profiled small). Stage timings
+  log behind `localStorage['nuke-cad-profile'] = '1'`.
   Shading is a single material-state authority: `setShading(mode)` accepts
   `shaded`, `shadedWireframe`, `edgesOnly`, or `xray`, and
   `setGhostOpacity(v)` tunes x-ray transparency; pure helpers live in
   `shading-modes.ts` and one `applyShading()` applies everything —
   the nav-cluster popover picks the mode; rebuilds re-apply mode and opacity.
-  Edges-only hides face meshes and disables face/solid picking (hint pill);
+  Materials are shared per shading role (body / selection highlight / edge
+  lines / curve lines / preview ghost), not cloned per face: selection
+  highlight swaps the shared material reference per mesh, and `applyShading`
+  writes mode flags onto the shared materials directly. Edges-only hides face meshes and disables face/solid picking (hint pill);
   x-ray ghosts faces at the ghost opacity with edges opaque. A section plane
   (`setSection({axis, flip, fraction} | undefined)`, pure math in
   `section-plane.ts`) clips faces and edge lines via
   `renderer.localClippingEnabled`; it is visual only, slider-driven over the
   tessellation bounding box, exits on button/Escape, and survives rebuilds
   through the same `applyShading()` path. The measure tool (pure logic in
-  `measure-tool.ts`) records point-to-point distance annotations from the
-  document toolbar Inspect group or the sketch toolbar — raycast surface
-  points in 3D, snap-aware sketch-plane points in sketch mode — rendered as
+  `measure-tool.ts`) records viewport annotations from the
+  document toolbar Inspect group or the sketch toolbar, in three modes
+  (selector in the Measurements popover): point-to-point **distance**
+  (raycast surface points in 3D, snap-aware sketch-plane points in sketch
+  mode), three-click **angle** A→vertex B→C with overlay segments BA/BC and
+  the label at B, and edge **radius** (model3d only — edge pick via
+  `edge-picker.ts`; radius = mean polyline distance to the fingerprint
+  center when present, else a Kasa least-squares circle fit in the best-fit
+  plane from `radius-fit.ts`, rejecting non-circular edges with a status
+  warning). Angle/radius capture is model3d-only; sketch mode always behaves
+  as distance. All kinds render as
   overlay lines/spheres with imperative HTML labels projected in
   `renderScene`. Overlay updates must run BEFORE `renderer.render` inside
   `renderScene` (with a fresh `cam.updateMatrixWorld()`): render-on-demand has
   no next frame to correct a stale paint, so painting first flashes new
   measure markers at their initial unit scale. Measurements are viewport
   state (never document state) and
-  clear on rebuild or sketch exit. `fitView` frames
+  clear on rebuild or sketch exit. The **explode view** slider (navigation
+  cluster) is per-solid viewport-only state: `explode-view.ts` plans
+  solidId → offset as `normalize(centroid − bboxCenter) · diagonal · factor`
+  from vertex-averaged per-solid centroids, and the widget applies it as
+  mesh/edge-line `.position` transforms after every `buildModel` (transform
+  only — the reuse pool, geometry, and picking are untouched; raycasts use
+  world matrices). Factor 0 is the assembled model; the factor resets on
+  reload/rebuild like measurements, and existing measurements stay world-
+  anchored (NOT re-anchored to moved solids). `fitView` frames
   the selected solid when `currentSelection.solidId` is set; `.` and
   double-click-on-solid also fit the selection; `Tab` toggles sketch mode
   (`handleToggleSketchMode`, guarded against pick modes, dialogs, and text
@@ -517,6 +560,12 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
     so STEP/tessellation/DAGMC/mesh artifacts match script builds.
   - The first release performs a full document rebuild on every `buildDocument`
     call. Per-feature shape caching is deferred until the modeler needs it.
+    The same deferral applies to a per-feature **tessellation** cache: the
+    backend is spawned as a per-call subprocess (`nuke-cad-backend-service`
+    `_spawnJsonService`), so an in-memory facet cache cannot survive between
+    rebuilds, and an on-disk fragment cache needs a boolean-safe re-indexing
+    design (booleans relocate solids; tessellation is post-assembly) — a
+    larger design than a perf-phase line item.
   - Datum support includes `XY`/`YZ`/`XZ`/`offset`/`face`. `offset` datums are
     interpreted as offsets of the XY plane along +Z. `face` datums resolve a
     referenced planar face by fingerprint, derive a deterministic workplane from
@@ -716,7 +765,17 @@ yarn lint
 
 E2e runs require the full profile: `NUKE_TEST_PYTHON` pointing at an env with
 openmc + the CAD toolchain, plus `OPENMC_CROSS_SECTIONS` for the model run —
-see the root `AGENTS.md` coverage/e2e bullets.
+see the root `AGENTS.md` coverage/e2e bullets. The W7X-scale performance
+measurement (`tests/e2e/test_w7x_performance.py`) is additionally opt-in via
+`NUKE_CAD_W7X_PERF=1` (the x50 build takes tens of minutes);
+`NUKE_CAD_W7X_PERF_COUNT` overrides the pattern count for partial runs.
+The W7X demo gate (`tests/e2e/test_w7x_dagmc_e2e.py` — patterned coil document
+to imprinted DAGMC h5m, OpenMC fixed-source run with a zero-lost-particle
+assertion, and a per-solid drift check against the developer-local reference
+W7-X STEP) is likewise opt-in via `NUKE_CAD_W7X_GATE=1` (the x50 pattern fuse
+takes ~45 min); `NUKE_CAD_W7X_GATE_COUNT` overrides the pattern count, and
+`NUKE_E2E_W7X_STEP` gates the drift test (the reference STEP is
+developer-local and never committed).
 
 Environment split for local testing: the dedicated `nuke` dev env
 (`$HOME/.conda/envs/nuke`, conda-forge OCP stack: cadquery, build123d,

@@ -40,6 +40,9 @@
 /** Which capture surface a measurement belongs to. */
 export type MeasureKind = 'model3d' | 'sketch';
 
+/** Which tool the measure popover selects; sketch mode is always distance. */
+export type MeasureToolMode = 'distance' | 'angle' | 'radius';
+
 /** A world-space point (x, y, z) in model units. */
 export type MeasurePoint3D = readonly [number, number, number];
 
@@ -54,15 +57,61 @@ export interface MeasureSegment {
     readonly midpoint: MeasurePoint3D;
 }
 
+/** One committed three-point angle measurement; `b` is the vertex. */
+export interface MeasureAngle {
+    readonly id: string;
+    readonly kind: MeasureKind;
+    /** First leg endpoint. */
+    readonly a: MeasurePoint3D;
+    /** Vertex the angle is measured at. */
+    readonly b: MeasurePoint3D;
+    /** Second leg endpoint. */
+    readonly c: MeasurePoint3D;
+    /** Angle BAC…C at the vertex in degrees (0..180). */
+    readonly angle: number;
+}
+
+/** One committed edge-radius measurement (model3d only). */
+export interface MeasureRadius {
+    readonly id: string;
+    readonly kind: 'model3d';
+    /** Circle center (fingerprint or fitted) the radius belongs to. */
+    readonly center: MeasurePoint3D;
+    readonly radius: number;
+    readonly diameter: number;
+}
+
+/** Any committed measurement shown in the popover and the overlay. */
+export type Measurement = MeasureSegment | MeasureAngle | MeasureRadius;
+
+/** Type guard: two-point distance measurement. */
+export function isMeasureSegment(measurement: Measurement): measurement is MeasureSegment {
+    return 'distance' in measurement;
+}
+
+/** Type guard: three-point angle measurement. */
+export function isMeasureAngle(measurement: Measurement): measurement is MeasureAngle {
+    return 'angle' in measurement;
+}
+
+/** Type guard: edge-radius measurement. */
+export function isMeasureRadius(measurement: Measurement): measurement is MeasureRadius {
+    return 'radius' in measurement;
+}
+
 /** Visual state pushed from the React chrome down to the imperative overlay. */
 export interface MeasureViewState {
     /** True while the tool captures clicks (selection/picking is suppressed). */
     readonly active: boolean;
     /** Which surface new clicks come from; only this kind's visuals render. */
     readonly mode: MeasureKind;
-    readonly segments: readonly MeasureSegment[];
+    /** Which tool captures clicks; sketch mode always behaves as 'distance'. */
+    readonly tool: MeasureToolMode;
+    readonly measurements: readonly Measurement[];
     /** First picked point waiting for its partner, if any. */
     readonly pending?: MeasurePoint3D;
+    /** Angle mode: vertex pick waiting for the third point. */
+    readonly pendingVertex?: MeasurePoint3D;
 }
 
 export function measureDistance(a: MeasurePoint3D, b: MeasurePoint3D): number {
@@ -85,6 +134,66 @@ let measureCounter = 0;
 export function nextMeasureId(): string {
     measureCounter += 1;
     return `measure-${measureCounter}`;
+}
+
+/**
+ * Angle at vertex `b` between legs BA and BC, in degrees (0..180).
+ *
+ * Returns NaN for a degenerate (zero-length) leg so callers never commit a
+ * bogus angle.
+ */
+export function measureAngle(a: MeasurePoint3D, b: MeasurePoint3D, c: MeasurePoint3D): number {
+    const ux = a[0] - b[0];
+    const uy = a[1] - b[1];
+    const uz = a[2] - b[2];
+    const vx = c[0] - b[0];
+    const vy = c[1] - b[1];
+    const vz = c[2] - b[2];
+    const uLen = Math.sqrt(ux * ux + uy * uy + uz * uz);
+    const vLen = Math.sqrt(vx * vx + vy * vy + vz * vz);
+    if (uLen < 1e-12 || vLen < 1e-12) {
+        return NaN;
+    }
+    const cosine = Math.min(1, Math.max(-1, (ux * vx + uy * vy + uz * vz) / (uLen * vLen)));
+    return (Math.acos(cosine) * 180) / Math.PI;
+}
+
+export function createMeasureAngle(id: string, kind: MeasureKind, a: MeasurePoint3D, b: MeasurePoint3D, c: MeasurePoint3D): MeasureAngle {
+    return { id, kind, a, b, c, angle: measureAngle(a, b, c) };
+}
+
+export function createMeasureRadius(id: string, center: MeasurePoint3D, radius: number): MeasureRadius {
+    return { id, kind: 'model3d', center, radius, diameter: radius * 2 };
+}
+
+/**
+ * Format an angle in degrees for labels and popover rows: trimmed like the
+ * distance formatter, with a degree suffix (`90°`, `45.5°`).
+ */
+export function formatMeasureAngle(degrees: number): string {
+    if (!Number.isFinite(degrees)) {
+        return '—';
+    }
+    return `${degrees.toFixed(1).replace(/\.?0+$/, '')}°`;
+}
+
+/** Compact radius/diameter label: `R 5 · ⌀ 10`. */
+export function formatMeasureRadius(radius: number): string {
+    if (!Number.isFinite(radius)) {
+        return '—';
+    }
+    return `R ${formatMeasureDistance(radius)} · ⌀ ${formatMeasureDistance(radius * 2)}`;
+}
+
+/** Short popover-row value for any committed measurement. */
+export function formatMeasurementValue(measurement: Measurement): string {
+    if (isMeasureSegment(measurement)) {
+        return formatMeasureDistance(measurement.distance);
+    }
+    if (isMeasureAngle(measurement)) {
+        return formatMeasureAngle(measurement.angle);
+    }
+    return formatMeasureRadius(measurement.radius);
 }
 
 /**
