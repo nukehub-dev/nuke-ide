@@ -639,6 +639,12 @@ round-trippable; it is intended as readable output for downstream editing.
   first opened.
 - Build errors surface in a dismissible banner in the viewport and in the feature
   tree status markers.
+- **Large documents:** every edit rebuilds by default (`nukeCad.rebuildOnEdit:
+auto`). For models where each rebuild is expensive (patterned assemblies),
+  switch the setting to `manual`: edits then only mark the model stale until
+  **Rebuild CAD Geometry** runs — opening still always builds. Suppressing an
+  expensive pattern/mirror feature in the Feature Tree has the same effect for
+  that subtree and composes with either mode.
 
 ## Demo model: tokamak with divertor
 

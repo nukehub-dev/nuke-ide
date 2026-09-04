@@ -2370,6 +2370,103 @@ def test_linear_pattern_overlap_fuses() -> None:
     assert math.isclose(result["shape"].volume, 10.0 * 10.0 * 5.0, rel_tol=1e-6)
 
 
+def _solid_signatures(shape: Any) -> list[tuple[float, tuple[float, ...], tuple[float, ...]]]:
+    """Per-solid (volume, bbox-min, bbox-max) signatures, sorted for comparison."""
+    signatures = []
+    for solid in shape.solids():
+        bbox = solid.bounding_box()
+        signatures.append(
+            (
+                float(solid.volume),
+                (bbox.min.X, bbox.min.Y, bbox.min.Z),
+                (bbox.max.X, bbox.max.Y, bbox.max.Z),
+            )
+        )
+    return sorted(signatures)
+
+
+def _assert_same_solid_set(actual: Any, expected: Any) -> None:
+    """Assert two shapes carry the same solid set (volumes + bboxes)."""
+    actual_sigs = _solid_signatures(actual)
+    expected_sigs = _solid_signatures(expected)
+    assert len(actual_sigs) == len(expected_sigs)
+    for actual_sig, expected_sig in zip(actual_sigs, expected_sigs, strict=True):
+        assert math.isclose(actual_sig[0], expected_sig[0], rel_tol=1e-9)
+        for a, e in zip(actual_sig[1], expected_sig[1], strict=True):
+            assert math.isclose(a, e, abs_tol=1e-9)
+        for a, e in zip(actual_sig[2], expected_sig[2], strict=True):
+            assert math.isclose(a, e, abs_tol=1e-9)
+
+
+def test_disjoint_additive_pattern_skips_fuse(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Disjoint additive instances skip the boolean fuse via a flat compound."""
+    bd = pytest.importorskip("build123d", reason="build123d not installed")
+    body = bd.Compound(children=[bd.Solid.make_box(10.0, 10.0, 5.0)])
+    instances = [
+        body.moved(bd.Location((20.0, 0.0, 0.0))),
+        body.moved(bd.Location((40.0, 0.0, 0.0))),
+    ]
+    assert fb._pattern_instances_are_disjoint(body, instances) is True
+
+    calls: list[bool] = []
+    real_predicate = fb._pattern_instances_are_disjoint
+
+    def _spy(pred_body: Any, pred_instances: list[Any]) -> bool:
+        calls.append(True)
+        return real_predicate(pred_body, pred_instances)
+
+    monkeypatch.setattr(fb, "_pattern_instances_are_disjoint", _spy)
+    result = fb._apply_pattern_or_mirror(body, None, "pad", instances, "test")
+    assert calls, "the disjointness predicate must gate the additive path"
+    assert isinstance(result, bd.Compound)
+    assert len(result.solids()) == 3
+
+    fused: Any = body
+    for instance in instances:
+        fused = fused + instance
+    _assert_same_solid_set(result, fused)
+
+
+def test_overlapping_additive_pattern_takes_fuse_path() -> None:
+    """Overlapping (and merely touching) instances still fuse into one solid."""
+    bd = pytest.importorskip("build123d", reason="build123d not installed")
+    body = bd.Compound(children=[bd.Solid.make_box(10.0, 10.0, 5.0)])
+    overlapping = [body.moved(bd.Location((5.0, 0.0, 0.0)))]
+    assert fb._pattern_instances_are_disjoint(body, overlapping) is False
+    result = fb._apply_pattern_or_mirror(body, None, "pad", overlapping, "test")
+    assert len(result.solids()) == 1
+    assert math.isclose(result.volume, 10.0 * 10.0 * 5.0 + 5.0 * 10.0 * 5.0, rel_tol=1e-9)
+
+    touching = [body.moved(bd.Location((10.0, 0.0, 0.0)))]
+    assert fb._pattern_instances_are_disjoint(body, touching) is False
+    fused_touching = fb._apply_pattern_or_mirror(body, None, "pad", touching, "test")
+    assert math.isclose(fused_touching.volume, 2.0 * 10.0 * 10.0 * 5.0, rel_tol=1e-9)
+
+
+def test_subtractive_pattern_never_consults_disjoint_skip(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pocket/groove patterns always cut sequentially, even when disjoint."""
+    bd = pytest.importorskip("build123d", reason="build123d not installed")
+
+    def _forbidden(_body: Any, _instances: list[Any]) -> bool:
+        raise AssertionError("subtractive path must not consult the disjoint skip")
+
+    monkeypatch.setattr(fb, "_pattern_instances_are_disjoint", _forbidden)
+    body = bd.Compound(children=[bd.Solid.make_box(20.0, 20.0, 5.0)])
+    cuts = [
+        bd.Compound(children=[bd.Solid.make_box(4.0, 4.0, 3.0)]).moved(
+            bd.Location((8.0, 8.0, 0.0))
+        ),
+        bd.Compound(children=[bd.Solid.make_box(4.0, 4.0, 3.0)]).moved(
+            bd.Location((14.0, 14.0, 0.0))
+        ),
+    ]
+    result = fb._apply_pattern_or_mirror(body, None, "pocket", cuts, "test")
+    expected = 20.0 * 20.0 * 5.0 - 2.0 * 4.0 * 4.0 * 3.0
+    assert math.isclose(result.volume, expected, rel_tol=1e-9)
+
+
 def test_pattern_source_missing_fails() -> None:
     """A pattern whose source feature does not exist fails at sort time."""
     pytest.importorskip("build123d", reason="build123d not installed")

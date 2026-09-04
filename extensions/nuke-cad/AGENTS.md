@@ -148,7 +148,11 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   success.
 - The same-body additive overlap check for single sketch features remains in
   `_combine_additive`; overlapping additive pattern instances are fused by the
-  boolean union in `_apply_pattern_or_mirror` instead.
+  boolean union in `_apply_pattern_or_mirror` instead. When the body and every
+  additive instance are pairwise bbox-disjoint the union equals their plain
+  compound exactly, so `_pattern_instances_are_disjoint` skips the sequential
+  fuse in favor of a flat `Compound` of all solids (touching counts as
+  intersecting → conservative fuse; subtractive cuts always run sequentially).
 - Cross-body overlap is reported as a warning (with overlap volume) rather than
   a fatal error. Pure CAD assemblies such as the tokamak demo intentionally
   contain overlapping parts, so the B-rep build completes and callers that
@@ -367,6 +371,10 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   `nukeCad.viewportBackground` (string enum `theme`/`dark`/`light`/`gradient`,
   default `theme`) chooses the 3D canvas backdrop; `gradient` is a CSS
   backdrop behind a transparent renderer.
+  `nukeCad.rebuildOnEdit` (string enum `auto`/`manual`, default `auto`)
+  gates edit-triggered rebuilds: `manual` marks the model stale (banner +
+  Rebuild button) instead of rebuilding; opening a document always builds,
+  and plain Save never builds.
 - STEP/STP/BREP files open in nuke-cad by default (higher open-handler priority
   than nuke-visualizer); the geometry service reads them through OCP and runs
   the same tessellation pipeline as script builds. The `.py` open-handler

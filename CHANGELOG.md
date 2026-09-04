@@ -46,6 +46,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   position. The `nuke.cad.editFeature` command palette entry now edits the
   feature selected in the Feature Tree when invoked without an id, and the
   Feature Tree shows the **Edit Parameters** pencil for boolean features too.
+- nuke-cad: **`nukeCad.rebuildOnEdit` preference** (`auto`/`manual`,
+  default `auto`) — manual mode stops edit-triggered rebuilds and marks the
+  model stale (banner + Rebuild button) instead, for documents where each
+  rebuild is expensive; opening a document always builds, and plain Save
+  never builds.
 - nuke-cad: **`nukeCad.viewportBackground` preference** — the 3D canvas
   backdrop is now choosable: `theme` (default, follows the active Theia
   theme as before), `dark`, `light`, or `gradient` (a dark gradient backdrop
@@ -168,6 +173,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   body consuming it as a sweep/pipe path is fully hidden (unreferenced
   construction curves always stay), and hidden curves are excluded from
   curve picking the same way hidden solids are.
+- nuke-cad: **pattern fuse skipped for disjoint instances** — additive
+  pattern/mirror instances that are pairwise bbox-disjoint (the W7X coil set)
+  no longer pay the sequential boolean union: the union of disjoint solids is
+  exactly their compound, so the builder returns it directly. Overlapping
+  instances still fuse as before, and subtractive cuts always run
+  sequentially. Touching counts as intersecting (conservative fuse).
 - nuke-cad: **closed-loop sweeps/pipes now survive STEP export** — a sweep or
   pipe whose path curve is a closed loop (e.g. a coil centerline) previously
   produced a tube whose periodic-seam edges carried meter-scale tolerances;

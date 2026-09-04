@@ -882,6 +882,34 @@ def _mirror_shape(tool: Any, plane: Any) -> Any:
     return tool.mirror(plane)
 
 
+def _bboxes_strictly_disjoint(a_bbox: Any, b_bbox: Any) -> bool:
+    """Return True iff two build123d ``BoundBox`` instances are strictly disjoint.
+
+    This is the exact complement of :func:`_bbox_overlaps_3d`: boxes that merely
+    touch (shared face/edge/point) still overlap within tolerance and count as
+    intersecting, so the caller takes the conservative boolean path.
+    """
+    return not _bbox_overlaps_3d(a_bbox, b_bbox)
+
+
+def _pattern_instances_are_disjoint(body: Any, instances: list[Any]) -> bool:
+    """Return True iff the body and every pattern/mirror instance are pairwise disjoint.
+
+    Only bounding boxes are compared (no booleans), so this stays cheap even
+    for large instance counts. Both body-vs-instance and instance-vs-instance
+    pairs are checked: the union of pairwise-disjoint solids equals their plain
+    compound exactly, so the caller may skip the boolean fuse.
+    """
+    boxes = [body.bounding_box()]
+    for instance in instances:
+        boxes.append(instance.bounding_box())
+    for i in range(len(boxes)):
+        for j in range(i + 1, len(boxes)):
+            if not _bboxes_strictly_disjoint(boxes[i], boxes[j]):
+                return False
+    return True
+
+
 def _apply_pattern_or_mirror(
     body: Any,
     source_tool: Any,
@@ -893,11 +921,23 @@ def _apply_pattern_or_mirror(
 
     Additive sources merge instances into the body with a boolean union so that
     overlapping pattern instances fuse into a single solid rather than being
-    rejected by the same-body additive overlap guard. Subtractive sources cut
-    each instance from the body.
+    rejected by the same-body additive overlap guard. When the body and every
+    instance are pairwise bbox-disjoint the union equals the plain compound of
+    their solids exactly, so the (expensive) sequential fuse is skipped in favor
+    of a flat ``Compound`` of ``body.solids() + all instance solids``.
+    Subtractive sources cut each instance from the body, always sequentially:
+    each cut mutates the body, so skipping is unsound there.
     """
     _require_build123d()
+    assert bd is not None
     if source_type in ("pad", "revolve", "sweep", "pipe", "loft", "helicalSweep"):
+        if _pattern_instances_are_disjoint(body, instances):
+            # ``Compound(children=[...])`` is the supported spelling on
+            # build123d 0.9.1 (also used by ``_combine_additive``).
+            solids: list[Any] = list(body.solids())
+            for instance in instances:
+                solids.extend(instance.solids())
+            return bd.Compound(children=solids)
         result = body
         for instance in instances:
             result = result + instance

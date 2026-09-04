@@ -207,6 +207,12 @@ export class CadViewportWidget extends ReactWidget {
     private rebuildPromise?: Promise<void>;
     /** True when an edit arrived while a rebuild was in-flight. */
     private rebuildPending = false;
+    /**
+     * True when document edits arrived while manual-rebuild mode skipped the
+     * automatic rebuild. Cleared on a successful rebuild and on fresh
+     * document open; never set in auto mode.
+     */
+    private buildStale = false;
 
     /** True while the datum picker is waiting for the user to choose a plane. */
     sketchSetupVisible = false;
@@ -347,6 +353,8 @@ export class CadViewportWidget extends ReactWidget {
         this.documentStore.createDocument('Untitled', templateId);
         this.editingSketchId = undefined;
         this.templatePickerOpen = false;
+        // A fresh document has no build to be stale against.
+        this.buildStale = false;
         this.update();
     };
 
@@ -954,6 +962,7 @@ export class CadViewportWidget extends ReactWidget {
             this.documentStore.setReferenceResults(result.referenceResults ?? []);
             this.buildWarnings = result.warnings ?? [];
             if (result.success) {
+                this.buildStale = false;
                 this.stateManager.setModel({ scriptPath: filePath, result, manifest: result.regionManifest });
                 this.messageService.info(`CAD rebuild: ${result.solidCount ?? 0} solids, ${result.triangleCount ?? 0} triangles`);
             } else {
@@ -1090,6 +1099,13 @@ export class CadViewportWidget extends ReactWidget {
 
     private scheduleDocumentRebuild(): void {
         if (!this.documentStore.hasDocument) {
+            return;
+        }
+        if (this.preferences['nukeCad.rebuildOnEdit'] === 'manual') {
+            // Manual mode never starts a timer or rebuild from an edit; the
+            // stale banner offers the on-demand rebuild instead.
+            this.buildStale = true;
+            this.update();
             return;
         }
         if (this.rebuildPromise !== undefined) {
@@ -1309,6 +1325,8 @@ export class CadViewportWidget extends ReactWidget {
             }
             this.documentStore.setUri(uri.toString());
             this.documentStore.markSaved();
+            // Opening a document always builds, in both rebuild modes.
+            this.buildStale = false;
             await this.rebuildDocument();
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
@@ -1347,6 +1365,8 @@ export class CadViewportWidget extends ReactWidget {
                 templatePickerOpen={this.templatePickerOpen}
                 sketchAutoDimension={this.preferences['nukeCad.sketchAutoDimension']}
                 viewportBackground={this.preferences['nukeCad.viewportBackground'] as ViewportBackgroundStyle}
+                rebuildOnEdit={this.preferences['nukeCad.rebuildOnEdit']}
+                buildStale={this.buildStale}
                 templates={DOCUMENT_TEMPLATES}
                 onDismissError={this.dismissBuildError}
                 onDismissWarnings={this.dismissBuildWarnings}
@@ -1427,6 +1447,8 @@ interface CadViewportComponentProps {
     readonly templatePickerOpen: boolean;
     readonly sketchAutoDimension: boolean;
     readonly viewportBackground: ViewportBackgroundStyle;
+    readonly rebuildOnEdit: 'auto' | 'manual';
+    readonly buildStale: boolean;
     readonly templates: ReadonlyArray<import('../../../common/document-templates').DocumentTemplate>;
     readonly onDismissError: () => void;
     readonly onDismissWarnings: () => void;
@@ -1930,11 +1952,27 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             </div>
         ) : undefined;
 
+    const staleBanner =
+        props.rebuildOnEdit === 'manual' && props.buildStale ? (
+            <div className="cad-viewport-warning-strip">
+                <div className="cad-viewport-warning-header">
+                    <span className="codicon codicon-warning" />
+                    <span className="cad-viewport-error-message">Model stale — parameters changed since last build</span>
+                    <Tooltip content="Rebuild now" position="left">
+                        <button className="theia-button secondary cad-viewport-error-dismiss" onClick={props.onRebuildDocument}>
+                            <span className="codicon codicon-refresh" /> Rebuild
+                        </button>
+                    </Tooltip>
+                </div>
+            </div>
+        ) : undefined;
+
     const banners =
-        errorBanner !== undefined || warningStrip !== undefined ? (
+        errorBanner !== undefined || warningStrip !== undefined || staleBanner !== undefined ? (
             <div className="cad-viewport-banners">
                 {errorBanner}
                 {warningStrip}
+                {staleBanner}
             </div>
         ) : undefined;
 

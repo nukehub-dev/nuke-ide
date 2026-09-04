@@ -93,6 +93,15 @@ export const NukeCadPreferenceSchema: PreferenceSchema = {
             description:
                 'Viewport background style: theme follows the active theme, dark/light use a fixed color, ' +
                 'gradient uses a CSS backdrop with a transparent renderer.'
+        },
+        'nukeCad.rebuildOnEdit': {
+            type: 'string',
+            enum: ['auto', 'manual'],
+            default: 'auto',
+            description:
+                'Rebuild .nuke-cad documents automatically after each edit (auto), or only on demand (manual). ' +
+                'Manual mode skips the debounced edit-triggered rebuild and marks the model stale until Rebuild runs; ' +
+                'opening a document always builds. Prefer manual for large documents where each rebuild is expensive.'
         }
     }
 };
@@ -109,6 +118,8 @@ export interface NukeCadConfiguration {
     'nukeCad.sketchAutoDimension': boolean;
     /** Viewport background style: theme, dark, light, or gradient. */
     'nukeCad.viewportBackground': string;
+    /** Rebuild behavior for document edits: auto rebuilds after each edit, manual marks the model stale until rebuilt. */
+    'nukeCad.rebuildOnEdit': 'auto' | 'manual';
 }
 
 /** Symbol used to bind the {@link PreferenceContribution} for Nuke CAD. */
