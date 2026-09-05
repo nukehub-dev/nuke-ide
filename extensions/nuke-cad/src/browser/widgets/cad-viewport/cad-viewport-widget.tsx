@@ -104,6 +104,7 @@ import {
 import { type TopologyRef } from '../../../common/topology-refs';
 import { FaceHighlighter, type FacePickHit, buildTopologyRef, pointerToNdc, projectHitToFaceUv, raycastFace } from './face-picker';
 import { cadViewportColors, resolveViewportBackground, type ViewportBackgroundStyle } from './viewport-colors';
+import { applyNavigationStyle, type NavigationStyle } from './navigation-styles';
 import { EdgeHighlighter, type EdgePickHit, buildEdgeLine, buildEdgeTopologyRef, raycastEdge } from './edge-picker';
 import {
     DEFAULT_GHOST_OPACITY,
@@ -1590,6 +1591,7 @@ export class CadViewportWidget extends ReactWidget {
                 templatePickerOpen={this.templatePickerOpen}
                 sketchAutoDimension={this.preferences['nukeCad.sketchAutoDimension']}
                 viewportBackground={this.preferences['nukeCad.viewportBackground'] as ViewportBackgroundStyle}
+                navigationStyle={this.preferences['nukeCad.navigationStyle'] as NavigationStyle}
                 rebuildOnEdit={this.preferences['nukeCad.rebuildOnEdit']}
                 buildStale={this.buildStale}
                 templates={DOCUMENT_TEMPLATES}
@@ -1673,6 +1675,7 @@ interface CadViewportComponentProps {
     readonly templatePickerOpen: boolean;
     readonly sketchAutoDimension: boolean;
     readonly viewportBackground: ViewportBackgroundStyle;
+    readonly navigationStyle: NavigationStyle;
     readonly rebuildOnEdit: 'auto' | 'manual';
     readonly buildStale: boolean;
     readonly templates: ReadonlyArray<import('../../../common/document-templates').DocumentTemplate>;
@@ -1789,6 +1792,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
         setShading?: (mode: ShadingMode) => void;
         setGhostOpacity?: (value: number) => void;
         setViewportBackground?: (style: ViewportBackgroundStyle) => void;
+        setNavigationStyle?: (style: NavigationStyle) => void;
         setSection?: (section?: SectionState) => void;
         setExplodeFactor?: (factor: number) => void;
         setGizmoVisible?: (visible: boolean) => void;
@@ -1994,6 +1998,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                 handleResetExplode,
                 OrbitControls,
                 props.viewportBackground,
+                props.navigationStyle,
                 () => sectionActiveRef.current,
                 handleClosePopover,
                 handleToggleSection,
@@ -2019,6 +2024,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             viewportApi.current.setShading = api.setShading;
             viewportApi.current.setGhostOpacity = api.setGhostOpacity;
             viewportApi.current.setViewportBackground = api.setViewportBackground;
+            viewportApi.current.setNavigationStyle = api.setNavigationStyle;
             viewportApi.current.setSection = api.setSection;
             viewportApi.current.setExplodeFactor = api.setExplodeFactor;
             viewportApi.current.setGizmoVisible = api.setGizmoVisible;
@@ -2049,6 +2055,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             viewportApi.current.setShading = undefined;
             viewportApi.current.setGhostOpacity = undefined;
             viewportApi.current.setViewportBackground = undefined;
+            viewportApi.current.setNavigationStyle = undefined;
             viewportApi.current.setSection = undefined;
             viewportApi.current.setExplodeFactor = undefined;
             viewportApi.current.setGizmoVisible = undefined;
@@ -2106,6 +2113,10 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
     React.useEffect(() => {
         viewportApi.current.setViewportBackground?.(props.viewportBackground);
     }, [props.viewportBackground, controller]);
+
+    React.useEffect(() => {
+        viewportApi.current.setNavigationStyle?.(props.navigationStyle);
+    }, [props.navigationStyle, controller]);
 
     React.useEffect(() => {
         if (props.warnings.length > 0) {
@@ -2663,6 +2674,7 @@ interface ViewportApi {
     readonly setShading: (mode: ShadingMode) => void;
     readonly setGhostOpacity: (value: number) => void;
     readonly setViewportBackground: (style: ViewportBackgroundStyle) => void;
+    readonly setNavigationStyle: (style: NavigationStyle) => void;
     readonly setSection: (section?: SectionState) => void;
     readonly setExplodeFactor: (factor: number) => void;
     readonly setGizmoVisible: (visible: boolean) => void;
@@ -2707,12 +2719,15 @@ function initViewport(
     ) => {
         enabled: boolean;
         target: THREE.Vector3;
+        mouseButtons: { LEFT?: number | null; MIDDLE?: number | null; RIGHT?: number | null };
+        touches: { ONE?: number | null; TWO?: number | null };
         update: () => void;
         addEventListener(type: string, listener: () => void): void;
         removeEventListener(type: string, listener: () => void): void;
         dispose(): void;
     },
     initialViewportBackground: ViewportBackgroundStyle,
+    initialNavigationStyle: NavigationStyle,
     isSectionActive: () => boolean,
     onClosePopover: () => void,
     onToggleSection: () => void,
@@ -2753,6 +2768,8 @@ function initViewport(
     container.appendChild(renderer.domElement);
 
     let controls = new OrbitControlsCtor(camera, renderer.domElement);
+    let navigationStyle = initialNavigationStyle;
+    applyNavigationStyle(controls, navigationStyle);
     controls.target.set(0, 0, 0);
     controls.update();
 
@@ -3749,6 +3766,7 @@ function initViewport(
         camera.up.copy(up);
         controlsUp = up.clone();
         controls = new OrbitControlsCtor(camera, renderer.domElement);
+        applyNavigationStyle(controls, navigationStyle);
         controls.target.copy(lastCenter);
         controls.addEventListener('change', renderScene);
         controls.addEventListener('start', onViewInteractionStart);
@@ -3804,6 +3822,12 @@ function initViewport(
     const setViewportBackground = (style: ViewportBackgroundStyle): void => {
         backgroundStyle = style;
         applyBackground();
+        renderScene();
+    };
+    /** Preference change: swap the mouse/touch bindings on the live controls. */
+    const setNavigationStyle = (style: NavigationStyle): void => {
+        navigationStyle = style;
+        applyNavigationStyle(controls, navigationStyle);
         renderScene();
     };
 
@@ -4557,6 +4581,7 @@ function initViewport(
         setShading,
         setGhostOpacity,
         setViewportBackground,
+        setNavigationStyle,
         setSection,
         setExplodeFactor: (factor) => {
             explodeFactor = clampExplodeFactor(factor);

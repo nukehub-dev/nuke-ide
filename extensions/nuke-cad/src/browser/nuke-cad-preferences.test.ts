@@ -41,6 +41,19 @@ describe('NukeCadPreferenceSchema rebuildOnEdit', () => {
     });
 });
 
+describe('NukeCadPreferenceSchema navigationStyle', () => {
+    it('defaults to orbit so existing behavior is unchanged', () => {
+        const prop = NukeCadPreferenceSchema.properties['nukeCad.navigationStyle'];
+        expect(prop.type).toBe('string');
+        expect(prop.default).toBe('orbit');
+    });
+
+    it('offers the four button-table styles', () => {
+        const prop = NukeCadPreferenceSchema.properties['nukeCad.navigationStyle'];
+        expect(prop.enum).toEqual(['orbit', 'solidworks', 'tinkercad', 'touchpad']);
+    });
+});
+
 describe('NukeCadPreferenceSchema resultCacheSizeMB', () => {
     it('defaults to 1024 MB', () => {
         const prop = NukeCadPreferenceSchema.properties['nukeCad.resultCacheSizeMB'];

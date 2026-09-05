@@ -38,6 +38,11 @@ it opens it in the CAD viewport by default.
 - **Orbit**: left-drag.
 - **Pan**: right-drag.
 - **Zoom**: mouse wheel.
+- **Navigation style** (`nukeCad.navigationStyle` setting): `orbit` as above;
+  `solidworks` reserves left-drag for selection with middle-drag orbit;
+  `tinkercad` orbits on right-drag with middle-drag pan; `touchpad` uses
+  one-finger pan and two-finger dolly-rotate. Right-click context menus work
+  in every style.
 - **Navigation cluster** (bottom-right of the viewport): `ISO`, `T` (top),
   `F` (front), and `R` (right) snap to standard views; the remaining buttons
   fit the view and zoom in/out.

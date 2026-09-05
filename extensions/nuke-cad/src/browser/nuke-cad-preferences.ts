@@ -110,6 +110,15 @@ export const NukeCadPreferenceSchema: PreferenceSchema = {
             description:
                 'Maximum size in MB of the .nuke-cad result-cache sidecar (<stem>.nuke-cache.zip) before LRU eviction. ' +
                 'Sent on every partial build; applies to builds started after the change.'
+        },
+        'nukeCad.navigationStyle': {
+            type: 'string',
+            enum: ['orbit', 'solidworks', 'tinkercad', 'touchpad'],
+            default: 'orbit',
+            description:
+                'Viewport mouse/touch bindings: orbit uses left-drag orbit, SolidWorks reserves left-drag for ' +
+                'selection with middle-drag orbit, TinkerCAD orbits on right-drag, touchpad uses finger gestures. ' +
+                'Right-click context menus work in every style.'
         }
     }
 };
@@ -130,6 +139,8 @@ export interface NukeCadConfiguration {
     'nukeCad.rebuildOnEdit': 'auto' | 'manual';
     /** Maximum size in MB of the result-cache sidecar before LRU eviction. */
     'nukeCad.resultCacheSizeMB': number;
+    /** Viewport mouse/touch bindings: orbit, solidworks, tinkercad, or touchpad. */
+    'nukeCad.navigationStyle': string;
 }
 
 /** Symbol used to bind the {@link PreferenceContribution} for Nuke CAD. */

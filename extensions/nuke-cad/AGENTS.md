@@ -388,6 +388,11 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   `nukeCad.viewportBackground` (string enum `theme`/`dark`/`light`/`gradient`,
   default `theme`) chooses the 3D canvas backdrop; `gradient` is a CSS
   backdrop behind a transparent renderer.
+  `nukeCad.navigationStyle` (`orbit`/`solidworks`/`tinkercad`/`touchpad`,
+  default `orbit`) remaps OrbitControls button tables (`navigation-styles.ts`,
+  re-applied after every controls re-creation); right-click menus work in
+  every style, and modifier-key styles stay out (OrbitControls has no
+  modifier layer).
   `nukeCad.rebuildOnEdit` (string enum `auto`/`manual`, default `auto`)
   gates edit-triggered rebuilds: `manual` marks the model stale (banner +
   Rebuild button) instead of rebuilding; opening a document always builds,

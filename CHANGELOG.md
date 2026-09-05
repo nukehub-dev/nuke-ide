@@ -84,6 +84,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   DistanceX/DistanceY, Diameter, and Block-freeze constraints; diagnostics
   now tag partially-redundant constraints and flag missing coincidents,
   open profiles, and fully-constrained state.
+- nuke-cad: **navigation styles** — `nukeCad.navigationStyle` (`orbit` default,
+  `solidworks`, `tinkercad`, `touchpad`) remaps viewport mouse/touch bindings
+  so switchers keep their orbit habits; right-click menus work everywhere.
 - nuke-cad: **document units** — `.nuke-cad` accepts `units` (`mm`/`cm`/`m`;
   absent stays legacy unitless); curve expressions coerce to the declared
   unit (`mm` doc: `10mm`→10, `1cm`→10, dimension mismatches error instead
