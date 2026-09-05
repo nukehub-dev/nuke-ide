@@ -672,6 +672,677 @@ def _read_step_names(step_path: Path, solid_count: int) -> dict[int, str]:
         return {}
 
 
+# ---------------------------------------------------------------------------
+# CAD exchange: IGES / BREP / glTF / STL
+#
+# Read-write coverage with the OCP available in the dev env (OCP 7.8.1.2):
+# IGES (IGESControl + IGESCAFControl, same OCAF name/color pattern as STEP),
+# BREP (lossless native round-trip via BRepTools), glTF write
+# (RWGltf_CafWriter over an XCAF document with precomputed triangulation),
+# STL export (StlAPI_Writer over the tessellation route's BRepMesh settings).
+# Partial-landing rule: whatever the binding lacks raises/returns a clear
+# "not supported with this OCP build" error covered by error-path tests,
+# never a silent fallback.
+# Follow-up (not composed here): OBJ/PLY — this OCP exposes no OCP.RWObj /
+# OCP.RWPly modules, so there is no trivially composable writer path.
+# ---------------------------------------------------------------------------
+
+
+def _unsupported_ocp_error(capability: str, exc: ImportError) -> str:
+    """Format the partial-landing error for a missing OCP binding."""
+    return f"{capability} is not supported with this OCP build ({exc})"
+
+
+def _write_iges_ocaf(
+    shape: object,
+    iges_path: Path,
+    solid_names: list[str | None] | None,
+    face_colors: list[tuple[float, float, float] | None] | None,
+) -> None:
+    """Write ``shape`` to IGES with per-solid names and face colors.
+
+    Same OCAF stack pattern as :func:`_write_step_ocaf`: one free product
+    label per explorer-order solid (never fused), each carrying its label as
+    the product name plus a surface color. Raises on failure so the caller
+    can fall back to the plain writer.
+    """
+    try:
+        from OCP.IGESCAFControl import IGESCAFControl_Writer
+        from OCP.Quantity import Quantity_Color, Quantity_TOC_RGB
+        from OCP.TCollection import TCollection_ExtendedString
+        from OCP.TDataStd import TDataStd_Name
+        from OCP.TDocStd import TDocStd_Document
+        from OCP.XCAFDoc import XCAFDoc_ColorType, XCAFDoc_DocumentTool
+    except ImportError as exc:
+        raise RuntimeError(_unsupported_ocp_error("IGES export", exc))
+
+    solids = _solids_in_explorer_order(shape)
+    if not solids:
+        raise RuntimeError("OCAF IGES export found no solids")
+
+    doc = TDocStd_Document(TCollection_ExtendedString("nuke-cad"))
+    shape_tool = XCAFDoc_DocumentTool.ShapeTool_s(doc.Main())
+    color_tool = XCAFDoc_DocumentTool.ColorTool_s(doc.Main())
+    for i, solid in enumerate(solids):
+        label = shape_tool.NewShape()
+        shape_tool.SetShape(label, solid)
+        name = solid_names[i] if solid_names is not None and i < len(solid_names) else None
+        color: tuple[float, float, float] | None = None
+        if face_colors is not None and i < len(face_colors):
+            color = face_colors[i]
+        if name:
+            TDataStd_Name.Set_s(label, TCollection_ExtendedString(str(name)))
+            if color is None:
+                color = _label_color(str(name))
+        if color is not None:
+            quantity = Quantity_Color(
+                float(color[0]), float(color[1]), float(color[2]), Quantity_TOC_RGB
+            )
+            color_tool.SetColor(label, quantity, XCAFDoc_ColorType.XCAFDoc_ColorSurf)
+
+    writer = IGESCAFControl_Writer()
+    writer.SetNameMode(True)
+    writer.SetColorMode(True)
+    if not writer.Transfer(doc):
+        raise RuntimeError("OCAF IGES transfer failed")
+    if not writer.Write(str(iges_path)):
+        raise RuntimeError(f"OCAF IGES writer failed for {iges_path}")
+
+
+def _write_iges(
+    shape: object,
+    iges_path: Path,
+    solid_names: list[str | None] | None = None,
+    face_colors: list[tuple[float, float, float] | None] | None = None,
+) -> str | None:
+    """Write ``shape`` to an IGES file using OCP.
+
+    With per-solid ``solid_names``/``face_colors`` the OCAF writer is used so
+    labels survive as product names (plus face colors); without them the
+    legacy ``IGESControl`` writer runs verbatim. Returns a warning string when
+    the OCAF path fell back to the legacy writer (names dropped), else None.
+    """
+    wants_fidelity = bool(solid_names and any(solid_names)) or bool(
+        face_colors and any(face_colors)
+    )
+    if wants_fidelity:
+        try:
+            _write_iges_ocaf(shape, iges_path, solid_names, face_colors)
+            return None
+        except Exception as exc:
+            _print_progress(f"OCAF IGES export failed ({exc}); falling back to plain writer")
+
+    try:
+        from OCP.IGESControl import IGESControl_Writer
+    except ImportError as exc:
+        raise RuntimeError(_unsupported_ocp_error("IGES export", exc))
+
+    writer = IGESControl_Writer()
+    if not writer.AddShape(shape):
+        raise RuntimeError(f"IGES writer rejected the shape for {iges_path}")
+    if not writer.Write(str(iges_path)):
+        raise RuntimeError(f"IGES writer failed for {iges_path}")
+    if wants_fidelity:
+        return "IGES product names were dropped (plain IGES writer fallback)"
+    return None
+
+
+def _sew_faces_to_solids(shape: object) -> object:
+    """Sew loose IGES faces into closed shells and rebuild solids from them.
+
+    IGES is a surface format: readers deliver unsewn faces, so the exchange
+    pipeline (which works per-solid) would see an empty model. Sewing plus
+    one ``BRepBuilderAPI_MakeSolid`` per shell restores the solids without
+    any boolean fuse. Returns a compound of the rebuilt solids, or the sewed
+    shape unchanged when no closed shell is found (open sheets stay faces).
+    """
+    try:
+        from OCP.BRep import BRep_Builder
+        from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeSolid, BRepBuilderAPI_Sewing
+        from OCP.TopAbs import TopAbs_SHELL
+        from OCP.TopExp import TopExp_Explorer
+        from OCP.TopoDS import TopoDS, TopoDS_Compound
+    except ImportError as exc:
+        raise RuntimeError(_unsupported_ocp_error("IGES import", exc))
+
+    sewing = BRepBuilderAPI_Sewing()
+    sewing.Add(shape)
+    sewing.Perform()
+    sewed = sewing.SewedShape()
+
+    shell_downcast = getattr(TopoDS, "Shell_s", None) or TopoDS.Shell
+    compound = TopoDS_Compound()
+    builder = BRep_Builder()
+    builder.MakeCompound(compound)
+    made = 0
+    exp = TopExp_Explorer(sewed, TopAbs_SHELL)
+    while exp.More():
+        maker = BRepBuilderAPI_MakeSolid()
+        maker.Add(shell_downcast(exp.Current()))
+        if maker.IsDone():
+            solid = maker.Solid()
+            if not solid.IsNull():
+                builder.Add(compound, solid)
+                made += 1
+        exp.Next()
+    return compound if made > 0 else sewed
+
+
+def _read_iges(iges_path: Path) -> object:
+    """Read an IGES file into an OCP ``TopoDS_Shape``."""
+    try:
+        from OCP.IFSelect import IFSelect_RetDone
+        from OCP.IGESControl import IGESControl_Reader
+    except ImportError as exc:
+        raise RuntimeError(_unsupported_ocp_error("IGES import", exc))
+
+    reader = IGESControl_Reader()
+    status = reader.ReadFile(str(iges_path))
+    if status != IFSelect_RetDone:
+        raise RuntimeError(f"IGES reader returned status {status} for {iges_path}")
+    reader.TransferRoots()
+    shape = reader.OneShape()
+    if shape is None:
+        raise RuntimeError(f"No shape transferred from {iges_path}")
+    if not _solids_in_explorer_order(shape):
+        shape = _sew_faces_to_solids(shape)
+    return shape
+
+
+def _xcaf_free_shape_names(doc_main: object, solid_count: int) -> dict[int, str]:
+    """Map free product labels of an XCAF document onto explorer-order solids.
+
+    Shared walk for the IGESCAF reader (the STEP reader keeps its own inline
+    copy): labels in file order map onto consecutive 1-based solid indices.
+    Returns {} whenever the label/solid counts do not line up. Never raises.
+    """
+    from OCP.TDataStd import TDataStd_Name
+    from OCP.TDF import TDF_LabelSequence
+    from OCP.XCAFDoc import XCAFDoc_DocumentTool
+
+    shape_tool = XCAFDoc_DocumentTool.ShapeTool_s(doc_main)
+    free_shapes = TDF_LabelSequence()
+    shape_tool.GetFreeShapes(free_shapes)
+
+    names: dict[int, str] = {}
+    next_index = 1
+    total = 0
+    for i in range(1, free_shapes.Length() + 1):
+        label = free_shapes.Value(i)
+        product = shape_tool.GetShape_s(label)
+        count = len(_solids_in_explorer_order(product))
+        if count == 0:
+            # IGES products arrive as loose faces; sew them the same way the
+            # reader does so per-label solid counts line up.
+            try:
+                count = len(_solids_in_explorer_order(_sew_faces_to_solids(product)))
+            except Exception:
+                count = 0
+        name_attr = TDataStd_Name()
+        name: str | None = None
+        if label.FindAttribute(TDataStd_Name.GetID_s(), name_attr):
+            try:
+                candidate = name_attr.Get().ToExtString()
+                if candidate:
+                    name = candidate
+            except Exception:
+                name = None
+        for _ in range(count):
+            if name:
+                names[next_index] = name
+            next_index += 1
+        total += count
+
+    if total != solid_count:
+        return {}
+    return names
+
+
+def _read_iges_names(iges_path: Path, solid_count: int) -> dict[int, str]:
+    """Best-effort per-solid IGES product names keyed by 1-based solid index.
+
+    Same OCAF stack pattern as :func:`_read_step_names`. Returns {} whenever
+    OCAF is unavailable, the file carries no names, or the label/solid counts
+    do not line up. Never raises.
+    """
+    try:
+        from OCP.IGESCAFControl import IGESCAFControl_Reader
+        from OCP.TCollection import TCollection_ExtendedString
+        from OCP.TDocStd import TDocStd_Document
+
+        reader = IGESCAFControl_Reader()
+        reader.SetNameMode(True)
+        reader.SetColorMode(True)
+        if reader.ReadFile(str(iges_path)) != 1:
+            return {}
+        doc = TDocStd_Document(TCollection_ExtendedString("nuke-cad-import"))
+        if not reader.Transfer(doc):
+            return {}
+        return _xcaf_free_shape_names(doc.Main(), solid_count)
+    except Exception:
+        return {}
+
+
+def import_iges_file(
+    iges_path: str,
+    output_dir: str | None = None,
+    tolerance: float = 0.001,
+    export_dagmc: bool = False,
+    add_graveyard: bool = True,
+    export_mesh: bool = False,
+    mesh_engine: str = "gmsh",
+    mesh_size: float | None = None,
+    mesh_min_size: float | None = None,
+    mesh_max_size: float | None = None,
+    mesh_order: int = 1,
+    length_scale: float = 1.0,
+    merge: bool = False,
+    expand_compound: bool = True,
+    one_object_per_solid: bool = True,
+) -> dict:
+    """Import an existing IGES file and write canonical artifacts.
+
+    Same contract as :func:`import_step_file`: ``merge`` is False by default
+    (imported solids are never fused), compounds are always expanded, and the
+    pipeline always yields one object per solid for DAGMC. IGES product names
+    written by :func:`_write_iges` are restored into the returned
+    ``selectorMap`` (best-effort; missing names simply stay absent).
+
+    IGES imports skip DAGMC/mesh export by default (opt in explicitly).
+    Returns the stdout-JSON result dict.
+    """
+    if not expand_compound or not one_object_per_solid:
+        raise ValueError(
+            "nuke-cad IGES import always expands compounds to one object per solid "
+            "(required by the DAGMC pipeline); expand_compound=False / "
+            "one_object_per_solid=False are not supported"
+        )
+    iges_file = Path(iges_path).resolve()
+    if not iges_file.exists():
+        return {"success": False, "error": f"IGES file not found: {iges_path}"}
+
+    if output_dir is None:
+        output_dir = iges_file.parent
+    out_dir = Path(output_dir).resolve()
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    _print_progress(f"Reading IGES: {iges_file}")
+    try:
+        shape = _read_iges(iges_file)
+    except Exception as exc:
+        return {
+            "success": False,
+            "error": f"Failed to read IGES file: {exc}",
+            "traceback": traceback.format_exc(),
+            "scriptPath": str(iges_file),
+        }
+
+    warnings: list[str] = []
+    if merge:
+        try:
+            shape = _fuse_solids(shape)
+        except Exception as exc:
+            warnings.append(f"IGES merge requested but the fuse failed; kept unfused solids: {exc}")
+
+    selector_map: dict[str, list[int]] = {}
+    try:
+        solid_count = len(_solids_in_explorer_order(shape))
+        for index, name in _read_iges_names(iges_file, solid_count).items():
+            selector_map.setdefault(name, [])
+            if index not in selector_map[name]:
+                selector_map[name].append(index)
+                selector_map[name].sort()
+    except Exception:
+        selector_map = {}
+
+    result = _process_shape(
+        shape,
+        iges_file,
+        out_dir,
+        iges_file.stem,
+        tolerance=tolerance,
+        export_dagmc=export_dagmc,
+        add_graveyard=add_graveyard,
+        export_mesh=export_mesh,
+        mesh_engine=mesh_engine,
+        mesh_size=mesh_size,
+        mesh_min_size=mesh_min_size,
+        mesh_max_size=mesh_max_size,
+        mesh_order=mesh_order,
+        selector_map=selector_map,
+        manifest=None,
+        length_scale=length_scale,
+    )
+    if warnings:
+        result["warnings"] = (result.get("warnings") or []) + warnings
+    return result
+
+
+def _write_brep(shape: object, brep_path: Path) -> None:
+    """Write ``shape`` to a native BREP file (lossless round-trip)."""
+    try:
+        from OCP.BRepTools import BRepTools
+    except ImportError as exc:
+        raise RuntimeError(_unsupported_ocp_error("BREP export", exc))
+    if not brep_tools_write(BRepTools, shape, str(brep_path)):
+        raise RuntimeError(f"BREP writer failed for {brep_path}")
+
+
+def _read_brep(brep_path: Path) -> object:
+    """Read a native BREP file into an OCP ``TopoDS_Shape``."""
+    try:
+        from OCP.BRep import BRep_Builder
+        from OCP.BRepTools import BRepTools
+        from OCP.TopoDS import TopoDS_Shape
+    except ImportError as exc:
+        raise RuntimeError(_unsupported_ocp_error("BREP import", exc))
+    shape = TopoDS_Shape()
+    builder = BRep_Builder()
+    if not brep_tools_read(BRepTools, shape, builder, str(brep_path)):
+        raise RuntimeError(f"BREP reader failed for {brep_path}")
+    return shape
+
+
+def import_brep_file(
+    brep_path: str,
+    output_dir: str | None = None,
+    tolerance: float = 0.001,
+    export_dagmc: bool = False,
+    add_graveyard: bool = True,
+    export_mesh: bool = False,
+    mesh_engine: str = "gmsh",
+    mesh_size: float | None = None,
+    mesh_min_size: float | None = None,
+    mesh_max_size: float | None = None,
+    mesh_order: int = 1,
+    length_scale: float = 1.0,
+    merge: bool = False,
+    expand_compound: bool = True,
+    one_object_per_solid: bool = True,
+) -> dict:
+    """Import an existing BREP file and write canonical artifacts.
+
+    Same contract as :func:`import_step_file` except names: the native BREP
+    format carries no product names, so the returned ``selectorMap`` is always
+    empty. ``merge`` is False by default; compounds are always expanded to one
+    object per solid for DAGMC. BREP imports skip DAGMC/mesh export by default
+    (opt in explicitly). Returns the stdout-JSON result dict.
+    """
+    if not expand_compound or not one_object_per_solid:
+        raise ValueError(
+            "nuke-cad BREP import always expands compounds to one object per solid "
+            "(required by the DAGMC pipeline); expand_compound=False / "
+            "one_object_per_solid=False are not supported"
+        )
+    brep_file = Path(brep_path).resolve()
+    if not brep_file.exists():
+        return {"success": False, "error": f"BREP file not found: {brep_path}"}
+
+    if output_dir is None:
+        output_dir = brep_file.parent
+    out_dir = Path(output_dir).resolve()
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    _print_progress(f"Reading BREP: {brep_file}")
+    try:
+        shape = _read_brep(brep_file)
+    except Exception as exc:
+        return {
+            "success": False,
+            "error": f"Failed to read BREP file: {exc}",
+            "traceback": traceback.format_exc(),
+            "scriptPath": str(brep_file),
+        }
+
+    warnings: list[str] = []
+    if merge:
+        try:
+            shape = _fuse_solids(shape)
+        except Exception as exc:
+            warnings.append(f"BREP merge requested but the fuse failed; kept unfused solids: {exc}")
+
+    result = _process_shape(
+        shape,
+        brep_file,
+        out_dir,
+        brep_file.stem,
+        tolerance=tolerance,
+        export_dagmc=export_dagmc,
+        add_graveyard=add_graveyard,
+        export_mesh=export_mesh,
+        mesh_engine=mesh_engine,
+        mesh_size=mesh_size,
+        mesh_min_size=mesh_min_size,
+        mesh_max_size=mesh_max_size,
+        mesh_order=mesh_order,
+        selector_map={},
+        manifest=None,
+        length_scale=length_scale,
+    )
+    if warnings:
+        result["warnings"] = (result.get("warnings") or []) + warnings
+    return result
+
+
+def _write_gltf(
+    shape: object,
+    gltf_path: Path,
+    solid_names: list[str | None] | None = None,
+    face_colors: list[tuple[float, float, float] | None] | None = None,
+    tolerance: float = 0.001,
+    binary: bool | None = None,
+) -> None:
+    """Write ``shape`` to glTF (.gltf JSON or .glb binary) using OCP.
+
+    glTF is a mesh+color exchange format: the shape is tessellated with the
+    same ``BRepMesh_IncrementalMesh`` settings as :func:`_tessellate_shape`
+    (no new mesher), then written from an XCAF document carrying one labeled,
+    optionally named and surface-colored product per explorer-order solid.
+    ``binary`` defaults to True for a ``.glb`` suffix, False otherwise.
+    """
+    try:
+        from OCP.BRepMesh import BRepMesh_IncrementalMesh
+        from OCP.Message import Message_ProgressRange
+        from OCP.Quantity import Quantity_Color, Quantity_TOC_RGB
+        from OCP.RWGltf import RWGltf_CafWriter
+        from OCP.TCollection import TCollection_AsciiString, TCollection_ExtendedString
+        from OCP.TColStd import TColStd_IndexedDataMapOfStringString
+        from OCP.TDataStd import TDataStd_Name
+        from OCP.TDocStd import TDocStd_Document
+        from OCP.XCAFDoc import XCAFDoc_ColorType, XCAFDoc_DocumentTool
+    except ImportError as exc:
+        raise RuntimeError(_unsupported_ocp_error("glTF export", exc))
+    if not hasattr(RWGltf_CafWriter, "Perform"):
+        raise RuntimeError(_unsupported_ocp_error("glTF export", ImportError("RWGltf_CafWriter")))
+
+    if binary is None:
+        binary = gltf_path.suffix.lower() == ".glb"
+
+    solids = _solids_in_explorer_order(shape)
+    if not solids:
+        raise RuntimeError("glTF export found no solids")
+
+    # Triangulation data must be precomputed within the shapes.
+    BRepMesh_IncrementalMesh(shape, tolerance, False, 0.5, True)
+
+    doc = TDocStd_Document(TCollection_ExtendedString("nuke-cad"))
+    shape_tool = XCAFDoc_DocumentTool.ShapeTool_s(doc.Main())
+    color_tool = XCAFDoc_DocumentTool.ColorTool_s(doc.Main())
+    for i, solid in enumerate(solids):
+        label = shape_tool.NewShape()
+        shape_tool.SetShape(label, solid)
+        name = solid_names[i] if solid_names is not None and i < len(solid_names) else None
+        color: tuple[float, float, float] | None = None
+        if face_colors is not None and i < len(face_colors):
+            color = face_colors[i]
+        if name:
+            TDataStd_Name.Set_s(label, TCollection_ExtendedString(str(name)))
+            if color is None:
+                color = _label_color(str(name))
+        if color is not None:
+            quantity = Quantity_Color(
+                float(color[0]), float(color[1]), float(color[2]), Quantity_TOC_RGB
+            )
+            color_tool.SetColor(label, quantity, XCAFDoc_ColorType.XCAFDoc_ColorSurf)
+
+    writer = RWGltf_CafWriter(TCollection_AsciiString(str(gltf_path)), bool(binary))
+    if not writer.Perform(doc, TColStd_IndexedDataMapOfStringString(), Message_ProgressRange()):
+        raise RuntimeError(f"glTF writer failed for {gltf_path}")
+
+
+def _read_gltf(gltf_path: Path) -> object:
+    """Read a glTF file into an OCP ``TopoDS_Shape``.
+
+    Always raises today (partial-landing rule): the shipped OCP's
+    ``RWGltf_CafReader`` exposes no document read API, so glTF is write-only
+    here. The error states that plainly instead of failing silently.
+    """
+    try:
+        from OCP.RWGltf import RWGltf_CafReader
+    except ImportError as exc:
+        raise RuntimeError(_unsupported_ocp_error("glTF import", exc))
+    readable = any(
+        hasattr(RWGltf_CafReader, name)
+        for name in ("ReadFile", "ReadStream", "Perform", "Transfer", "Document")
+    )
+    if not readable:
+        raise RuntimeError(
+            "glTF import is not supported with this OCP build "
+            "(RWGltf_CafReader exposes no document read API)"
+        )
+    raise RuntimeError(
+        "glTF import is not supported with this OCP build "
+        "(no reader implementation for the available RWGltf API)"
+    )
+
+
+def import_gltf_file(
+    gltf_path: str,
+    output_dir: str | None = None,
+    tolerance: float = 0.001,
+) -> dict:
+    """Import an existing glTF file and write canonical artifacts.
+
+    Always returns a structured not-supported error today (see
+    :func:`_read_gltf`); the entry point exists so callers and error-path
+    tests share one contract once an OCP reader API lands.
+    """
+    gltf_file = Path(gltf_path).resolve()
+    if not gltf_file.exists():
+        return {"success": False, "error": f"glTF file not found: {gltf_path}"}
+
+    if output_dir is None:
+        output_dir = gltf_file.parent
+    out_dir = Path(output_dir).resolve()
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    _print_progress(f"Reading glTF: {gltf_file}")
+    try:
+        shape = _read_gltf(gltf_file)
+    except Exception as exc:
+        return {
+            "success": False,
+            "error": f"Failed to read glTF file: {exc}",
+            "traceback": traceback.format_exc(),
+            "scriptPath": str(gltf_file),
+        }
+
+    return _process_shape(
+        shape,
+        gltf_file,
+        out_dir,
+        gltf_file.stem,
+        tolerance=tolerance,
+        export_dagmc=False,
+        export_mesh=False,
+        selector_map={},
+        manifest=None,
+    )
+
+
+def _require_stl_modules() -> tuple:
+    """Import the STL writer binding pair or raise the not-supported error."""
+    try:
+        from OCP.BRepMesh import BRepMesh_IncrementalMesh
+        from OCP.StlAPI import StlAPI_Writer
+    except ImportError as exc:
+        raise RuntimeError(_unsupported_ocp_error("STL export", exc))
+    return BRepMesh_IncrementalMesh, StlAPI_Writer
+
+
+def _write_stl(
+    shape: object,
+    stl_path: Path,
+    tolerance: float = 0.001,
+    binary: bool = True,
+) -> None:
+    """Write ``shape`` facets to an STL file using OCP.
+
+    Exact-facet export through the existing tessellation route: the shape is
+    meshed with the same ``BRepMesh_IncrementalMesh`` settings as
+    :func:`_tessellate_shape` (no new mesher), so the STL facet count matches
+    the viewport tessellation triangle count at the same tolerance.
+    """
+    BRepMesh_IncrementalMesh, StlAPI_Writer = _require_stl_modules()
+
+    BRepMesh_IncrementalMesh(shape, tolerance, False, 0.5, True)
+    writer = StlAPI_Writer()
+    writer.ASCIIMode = not binary
+    if not writer.Write(shape, str(stl_path)):
+        raise RuntimeError(f"STL writer failed for {stl_path}")
+
+
+def export_stl_file(
+    source_path: str,
+    output_path: str | None = None,
+    tolerance: float = 0.001,
+    binary: bool = True,
+) -> dict:
+    """Export the exact facets of a CAD file (STEP/IGES/BREP) to STL.
+
+    The source format is dispatched by file extension; the facets come from
+    :func:`_write_stl`, i.e. the tessellation route, not a new mesher.
+    Returns the stdout-JSON result dict with ``stlPath`` on success.
+    """
+    source_file = Path(source_path).resolve()
+    if not source_file.exists():
+        return {"success": False, "error": f"CAD file not found: {source_path}"}
+
+    stl_path = (
+        Path(output_path).resolve() if output_path is not None else source_file.with_suffix(".stl")
+    )
+    suffix = source_file.suffix.lower()
+    if suffix not in (".step", ".stp", ".iges", ".igs", ".brep"):
+        return {
+            "success": False,
+            "error": (
+                f"Unsupported exchange extension '{source_file.suffix}': "
+                "STL export accepts .step/.stp, .iges/.igs, and .brep"
+            ),
+            "sourcePath": str(source_file),
+        }
+    try:
+        # Capability probe before any reader so a missing binding reports the
+        # not-supported error instead of a misleading reader failure.
+        _require_stl_modules()
+        if suffix in (".step", ".stp"):
+            shape = _read_step(source_file)
+        elif suffix in (".iges", ".igs"):
+            shape = _read_iges(source_file)
+        else:
+            shape = _read_brep(source_file)
+        _print_progress(f"Writing STL: {stl_path}")
+        _write_stl(shape, stl_path, tolerance=tolerance, binary=binary)
+    except Exception as exc:
+        return {
+            "success": False,
+            "error": f"Failed to export STL: {exc}",
+            "traceback": traceback.format_exc(),
+            "sourcePath": str(source_file),
+        }
+    return {"success": True, "sourcePath": str(source_file), "stlPath": str(stl_path)}
+
+
 def _fuse_solids(shape: object) -> object:
     """Fuse every explorer-order solid of ``shape`` into one (``merge=true``).
 

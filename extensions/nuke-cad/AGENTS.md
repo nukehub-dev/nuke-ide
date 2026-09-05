@@ -394,9 +394,18 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   and plain Save never builds.
 - STEP/STP/BREP files open in nuke-cad by default (higher open-handler priority
   than nuke-visualizer); the geometry service reads them through OCP and runs
-  the same tessellation pipeline as script builds. The `.py` open-handler
+  the same tessellation pipeline as script builds. IGES/BREP/glTF read-write,
+  glTF write-only (this OCP has no CafReader read API), and STL export ride
+  the same path (IGES import sews loose faces into shells first); OBJ/PLY
+  and open-handler priorities are untouched. The `.py` open-handler
   priority is 50 — below the text editor's 100 — so Python files open in the
   editor by default and reach the CAD viewport via **Open With…**.
+- Assembly foundation (`src/common/assembly-document.ts` + `assembly-placement.ts`,
+  no UI/backend yet): mate-connector documents (instances with placement
+  overrides, connectors as named frames, one mate per part pair, explicit
+  grounded instance) with closed-form placement (`R = Ra·Rbᵀ`) and DOF
+  counting per mate type. `python/fastener_data.py` holds versioned ISO/UNC
+  thread tables for later hole recognition (data only, no consumers yet).
 - STEP-source imports and `.nuke-cad` document opens/rebuilds skip DAGMC and
   FEM mesh export by default; the backend enforces `--no-dagmc`/`--no-mesh` on
   every path (including rebuilds) and `geometry_service.py` exposes opt-in
@@ -474,10 +483,13 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   `x(t)`, `y(t)`, `z(t)` sampled uniformly over `[tStart, tEnd]`), or `fourier`
   (cos/sin coefficients sampled over `[0, 2π)`). The expression mini-language
   lives in `src/common/expression.ts` (with a units layer — `Quantity`,
-  per-operator unit rules, coercion — that stays dormant until a
-  document-unit convention lands; the unit-less sampler path rejects unit
-  syntax rather than folding it); the document store resamples parametric
-  and Fourier curves when they are added or edited. Closed curves repeat the
+  per-operator unit rules, coercion — active wherever a document declares
+  `units` (`mm`/`cm`/`m`; absent = legacy unitless, and the unit-less
+  sampler path rejects unit syntax rather than folding it); the document
+  store resamples parametric and Fourier curves when they are added or
+  edited, coercing each coordinate to the declared unit, and dimension
+  labels carry the unit suffix. There is no `setUnits` UI yet — units
+  arrive via file/load. STEP-unit import scaling is deferred. Closed curves repeat the
   first sample exactly at the end of `samples` — the Fourier sampler always
   does this (the series is periodic) and the parametric sampler does it when
   the expressions meet at both ends — so the backend's proximity check marks

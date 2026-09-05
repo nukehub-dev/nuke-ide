@@ -71,6 +71,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   DistanceX/DistanceY, Diameter, and Block-freeze constraints; diagnostics
   now tag partially-redundant constraints and flag missing coincidents,
   open profiles, and fully-constrained state.
+- nuke-cad: **document units** — `.nuke-cad` accepts `units` (`mm`/`cm`/`m`;
+  absent stays legacy unitless); curve expressions coerce to the declared
+  unit (`mm` doc: `10mm`→10, `1cm`→10, dimension mismatches error instead
+  of silently numbering) and dimension labels carry the suffix.
+- nuke-cad: **assembly foundation** — mate-connector assembly documents
+  (instances, named frame connectors, one mate per pair, explicit ground)
+  with closed-form placement and DOF counting (fixed/revolute/slider/
+  cylindrical/ball/planar). Pure model layer; no UI or backend yet.
+- nuke-cad: **exchange breadth** — IGES/BREP/glTF read-write (glTF write
+  only on this OCP), STL export, IGES face-sewing import, STEP-style
+  names/colors where formats support them. Plus versioned ISO/UNC thread
+  tables for later hole recognition.
 - nuke-cad: **carbon copy + ellipse internals** — a sketch toolbar button
   imports the Feature-Tree-selected sketch (fresh ids, constraints and
   dimensions remapped); ellipses expose their second focus plus major/minor

@@ -51,6 +51,7 @@ import { type DatumKind } from '../../sketch/sketch-math';
 import {
     type SketchDimension,
     type DimensionKind,
+    type DocumentUnits,
     type FeatureType,
     type FeatureParams,
     type FeatureDef,
@@ -246,6 +247,7 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
     const constraintInput = controller.getConstraintInput();
     const dimensions = active ? controller.getDimensions() : [];
     const dimensionLabels = active ? controller.getDimensionLabels() : [];
+    const docUnits = documentStore.document?.units;
     const session = controller.getSession();
     const externalRefs = session?.getExternalRefs() ?? [];
     const sketchId = session?.getId();
@@ -640,13 +642,14 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
                                 }
                             }}
                         >
-                            {label.text}
+                            {formatDimensionWithUnits(label.text, docUnits)}
                         </div>
                     ))}
 
                     {editingDimension !== undefined && (
                         <DimensionEditPopover
                             dimension={editingDimension}
+                            units={docUnits}
                             value={editDimValue}
                             driving={editDimDriving}
                             onValueChange={setEditDimValue}
@@ -3502,6 +3505,7 @@ function capitalize(value: string): string {
 
 interface DimensionEditPopoverProps {
     dimension: SketchDimension;
+    units: DocumentUnits | undefined;
     value: string;
     driving: boolean;
     onValueChange: (value: string) => void;
@@ -3512,10 +3516,10 @@ interface DimensionEditPopoverProps {
 }
 
 function DimensionEditPopover(props: DimensionEditPopoverProps): React.ReactElement {
-    const { dimension, value, driving, onValueChange, onDrivingChange, onApply, onDelete, onClose } = props;
+    const { dimension, units, value, driving, onValueChange, onDrivingChange, onApply, onDelete, onClose } = props;
     return (
         <div className="cad-sketch-dimension-popover">
-            <div className="cad-sketch-dimension-popover-title">{dimensionLabel(dimension.kind)}</div>
+            <div className="cad-sketch-dimension-popover-title">{formatDimensionWithUnits(dimensionLabel(dimension.kind), units)}</div>
             <label className="cad-sketch-dimension-popover-row">
                 Value
                 <input
@@ -3821,6 +3825,14 @@ function dimensionLabel(kind: DimensionKind): string {
         case 'diameter':
             return 'Diameter';
     }
+}
+
+/**
+ * Append the document-unit suffix to a dimension text when the document
+ * declares units; unitless documents render the text unchanged.
+ */
+export function formatDimensionWithUnits(text: string, units: DocumentUnits | undefined): string {
+    return units === undefined ? text : `${text} ${units}`;
 }
 
 function buildStatusText(status: SketchStatus, referenceCounts?: ReferenceCounts, snapSummary?: string, selectHint?: string): string {

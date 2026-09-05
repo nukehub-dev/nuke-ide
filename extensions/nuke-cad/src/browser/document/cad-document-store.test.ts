@@ -26,8 +26,15 @@
 // *****************************************************************************
 
 import { describe, it, expect } from 'vitest';
-import { CadDocumentStore, computeDependsOn } from './cad-document-store';
-import { NUKE_CAD_SCHEMA_VERSION, type NukeCadDocument, type FeatureDef, type SketchDef } from '../../common/cad-document';
+import { CadDocumentStore, computeDependsOn, sampleParametricWithUnits } from './cad-document-store';
+import {
+    NUKE_CAD_SCHEMA_VERSION,
+    type NukeCadDocument,
+    type CurveDef,
+    type DocumentUnits,
+    type FeatureDef,
+    type SketchDef
+} from '../../common/cad-document';
 import { type TopologyRef } from '../../common/topology-refs';
 
 function minimalDoc(overrides?: Partial<NukeCadDocument>): NukeCadDocument {
@@ -1572,5 +1579,103 @@ describe('multiTransform store cascade', () => {
         const result = store.reorderFeatures(['pad1', 'linB', 'linA', 'mt1']);
         expect(result.success).toBe(true);
         expect(store.document?.features.map((f) => f.id)).toEqual(['pad1', 'linB', 'linA', 'mt1']);
+    });
+});
+
+describe('curve operations with document units', () => {
+    function parametricCurve(x: string, y = '0', z = '0'): CurveDef {
+        return {
+            id: 'c1',
+            name: 'Units',
+            source: { kind: 'parametric', x, y, z, tStart: 0, tEnd: 1, sampleCount: 16 },
+            samples: []
+        };
+    }
+
+    function unitStore(units: DocumentUnits): CadDocumentStore {
+        const store = new CadDocumentStore();
+        const loaded = store.loadDocument({ ...minimalDoc(), units });
+        expect(loaded.success).toBe(true);
+        return store;
+    }
+
+    it.each([
+        ['mm', '10mm', 10],
+        ['mm', '1cm', 10],
+        ['mm', '1m', 1000],
+        ['cm', '10mm', 1],
+        ['cm', '1cm', 1],
+        ['cm', '1m', 100],
+        ['m', '1000mm', 1],
+        ['m', '100cm', 1],
+        ['m', '2m', 2]
+    ] as const)('in a %s document, %s coerces to %s', (units, expr, expected) => {
+        const samples = sampleParametricWithUnits(
+            { kind: 'parametric', x: expr, y: '0', z: '0', tStart: 0, tEnd: 1, sampleCount: 8 },
+            {},
+            units
+        );
+        expect(samples[0][0]).toBeCloseTo(expected, 10);
+    });
+
+    it('coerces literals and conversions per coordinate on add', () => {
+        const store = unitStore('mm');
+        const result = store.addCurve(parametricCurve('10mm', '1cm', '1m'));
+        expect(result.success).toBe(true);
+        expect(store.document?.curves[0].samples[0]).toEqual([10, 10, 1000]);
+    });
+
+    it('treats plain numbers as already expressed in the doc unit', () => {
+        const store = unitStore('mm');
+        const result = store.addCurve(parametricCurve('2 * 3', 'cos(t)', '0'));
+        expect(result.success).toBe(true);
+        const samples = store.document!.curves[0].samples;
+        expect(samples[0][0]).toBeCloseTo(6, 10);
+        expect(samples[0][1]).toBeCloseTo(1, 10);
+    });
+
+    it('surfaces dimension mismatches as errors, never silent numbers', () => {
+        const store = unitStore('mm');
+        const result = store.addCurve(parametricCurve('5s'));
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('Failed to convert');
+    });
+
+    it('keeps rejecting unit syntax in unitless documents', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        const result = store.addCurve(parametricCurve('10mm'));
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('unit-less evaluator');
+    });
+
+    it('coerces on update and preserves units across unrelated mutations', () => {
+        const store = unitStore('cm');
+        const added = store.addCurve(parametricCurve('1', '2', '3'));
+        expect(added.success).toBe(true);
+        const updated = store.updateCurve(added.value!, parametricCurve('20mm'));
+        expect(updated.success).toBe(true);
+        expect(store.document?.curves[0].samples[0][0]).toBeCloseTo(2, 10);
+        expect(store.setParameter('radius', 3).success).toBe(true);
+        expect(store.document?.units).toBe('cm');
+    });
+
+    it('leaves Fourier coefficients (plain numbers) untouched in unit documents', () => {
+        const store = unitStore('mm');
+        const result = store.addCurve({
+            id: 'c1',
+            name: 'Fourier',
+            source: { kind: 'fourier', nfp: 1, order: 0, cosX: [5], sinX: [], cosY: [0], sinY: [], cosZ: [0], sinZ: [], sampleCount: 32 },
+            samples: []
+        });
+        expect(result.success).toBe(true);
+        expect(store.document?.curves[0].samples[0]).toEqual([5, 0, 0]);
+    });
+
+    it('rejects unknown units at load time', () => {
+        const store = new CadDocumentStore();
+        const result = store.loadDocument({ ...minimalDoc(), units: 'inch' } as unknown as NukeCadDocument);
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('units');
     });
 });

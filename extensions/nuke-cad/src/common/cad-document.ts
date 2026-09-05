@@ -454,10 +454,18 @@ export interface FeatureDef {
     dependsOn: string[];
 }
 
+/** Declared length unit for a `.nuke-cad` document. Absent = legacy unitless. */
+export type DocumentUnits = 'mm' | 'cm' | 'm';
+
 /** Complete `.nuke-cad` document. */
 export interface NukeCadDocument {
     version: number;
     name: string;
+    /**
+     * Declared length unit for curve-expression coercion and dimension display.
+     * Absent means legacy unitless (unit syntax stays rejected, no suffix shown).
+     */
+    units?: DocumentUnits;
     parameters: Record<string, number>;
     datums: DatumPlane[];
     bodies: BodyDef[];
@@ -1347,6 +1355,9 @@ export function validateNukeCadDocument(doc: NukeCadDocument): ValidationResult 
     }
     if (!isString(doc.name)) {
         issue(ctx, 'name', 'name must be a string');
+    }
+    if (doc.units !== undefined && doc.units !== 'mm' && doc.units !== 'cm' && doc.units !== 'm') {
+        issue(ctx, 'units', `unknown document units '${doc.units}' (expected 'mm', 'cm' or 'm')`);
     }
     if (!isPlainObject(doc.parameters)) {
         issue(ctx, 'parameters', 'parameters must be an object');

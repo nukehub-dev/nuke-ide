@@ -48,11 +48,23 @@ import {
     type ValidationIssue,
     type CurveDef,
     type CurveSource,
+    type DocumentUnits,
+    type ParametricCurveSource,
     validateNukeCadDocument,
     migrateNukeCadDocument
 } from '../../common/cad-document';
 import { applyDocumentTemplate, createEmptyNukeCadDocument } from '../../common/document-templates';
-import { sampleFourier, sampleParametric } from '../../common/expression';
+import {
+    convertQuantity,
+    evaluateExpression,
+    evaluateQuantity,
+    isDimensionless,
+    parseExpression,
+    sampleFourier,
+    sampleParametric,
+    type Expr,
+    type QuantityScope
+} from '../../common/expression';
 import { type FeatureResult, type ReferenceResolutionResult } from '../../common/nuke-cad-protocol';
 import { type TopologyRef, type FaceFingerprint, type EdgeFingerprint, validateTopologyRef } from '../../common/topology-refs';
 
@@ -135,6 +147,7 @@ function cloneDocument(doc: NukeCadDocument): NukeCadDocument {
     return {
         version: doc.version,
         name: doc.name,
+        units: doc.units,
         parameters: { ...doc.parameters },
         datums: doc.datums.map((d) => ({
             ...d,
@@ -214,16 +227,105 @@ function fingerprintsEqual(
     return JSON.stringify(a) === JSON.stringify(b);
 }
 
+/** Relative tolerance matching the unit-less sampler's endpoint-closure rule. */
+const PARAMETRIC_CLOSURE_TOLERANCE = 1e-9;
+
+function parametricEndpointsMeet(points: readonly (readonly [number, number, number])[]): boolean {
+    let extent = 0;
+    for (const point of points) {
+        for (const coordinate of point) {
+            extent = Math.max(extent, Math.abs(coordinate));
+        }
+    }
+    const first = points[0];
+    const last = points[points.length - 1];
+    const gap = Math.hypot(first[0] - last[0], first[1] - last[1], first[2] - last[2]);
+    return gap <= PARAMETRIC_CLOSURE_TOLERANCE * Math.max(1, extent);
+}
+
+/**
+ * True when the expression holds a unit literal (``10mm``); the unit-less
+ * evaluator rejects those, so only such coordinates take the quantity path.
+ */
+function containsQuantityNode(ast: Expr): boolean {
+    switch (ast.type) {
+        case 'quantity':
+            return true;
+        case 'unary':
+            return containsQuantityNode(ast.operand);
+        case 'binary':
+            return containsQuantityNode(ast.left) || containsQuantityNode(ast.right);
+        case 'call':
+            return ast.args.some(containsQuantityNode);
+        default:
+            return false;
+    }
+}
+
+/**
+ * Sample a parametric source into the document's declared length unit.
+ *
+ * Coordinates holding unit literals are evaluated with the quantity scope
+ * (document parameters and ``t`` are dimensionless) and expressed in
+ * ``units``: dimensionless results are already in doc units, quantities
+ * convert (``10mm`` to 10 in a ``mm`` document, ``1cm`` to 10). Dimension
+ * mismatches (seconds in ``x(t)``) throw and surface through the caller's
+ * error channel. Unit-free coordinates (``cos(t)``, ``t``) keep the exact
+ * legacy evaluation so existing curves survive a unit declaration.
+ */
+export function sampleParametricWithUnits(
+    source: ParametricCurveSource,
+    parameters: Record<string, number>,
+    units: DocumentUnits
+): [number, number, number][] {
+    const asts = [source.x, source.y, source.z].map((expr) => {
+        const parsed = parseExpression(expr);
+        if (!parsed.ok) {
+            throw new Error(parsed.error);
+        }
+        return parsed.ast;
+    });
+    const labels = ['x(t)', 'y(t)', 'z(t)'];
+    const count = Math.max(2, Math.floor(source.sampleCount));
+    const points: [number, number, number][] = [];
+    for (let i = 0; i < count; i++) {
+        const t = source.tStart + ((source.tEnd - source.tStart) * i) / (count - 1);
+        const scope: QuantityScope = { ...parameters, t };
+        const coords = asts.map((ast, index) => {
+            if (!containsQuantityNode(ast)) {
+                return evaluateExpression(ast, { ...parameters, t });
+            }
+            const quantity = evaluateQuantity(ast, scope);
+            if (isDimensionless(quantity.unit)) {
+                return quantity.value;
+            }
+            return convertQuantity(quantity, units, labels[index]);
+        });
+        points.push([coords[0], coords[1], coords[2]]);
+    }
+    if (parametricEndpointsMeet(points)) {
+        points.push([points[0][0], points[0][1], points[0][2]]);
+    }
+    return points;
+}
+
 function buildCurveSamples(
     source: CurveSource,
-    parameters: Record<string, number>
+    parameters: Record<string, number>,
+    units?: DocumentUnits
 ): { samples: [number, number, number][]; error?: string } {
     try {
         if (source.kind === 'points') {
             return { samples: [] };
         }
         if (source.kind === 'parametric') {
-            return { samples: sampleParametric(source, parameters) as [number, number, number][] };
+            // Unitless documents keep the legacy sampler verbatim (unit syntax
+            // rejected by its guard); declared units coerce per coordinate.
+            const samples =
+                units === undefined
+                    ? (sampleParametric(source, parameters) as [number, number, number][])
+                    : sampleParametricWithUnits(source, parameters, units);
+            return { samples };
         }
         return { samples: sampleFourier(source) as [number, number, number][] };
     } catch (error) {
@@ -942,7 +1044,7 @@ export class CadDocumentStore {
         if (def.source.kind === 'points') {
             samples = def.samples.map((p) => [p[0], p[1], p[2]]);
         } else {
-            const result = buildCurveSamples(def.source, doc.parameters);
+            const result = buildCurveSamples(def.source, doc.parameters, doc.units);
             if (result.error !== undefined) {
                 return { success: false, error: result.error };
             }
@@ -985,7 +1087,7 @@ export class CadDocumentStore {
         if (def.source.kind === 'points') {
             samples = def.samples.map((p) => [p[0], p[1], p[2]]);
         } else {
-            const result = buildCurveSamples(def.source, doc.parameters);
+            const result = buildCurveSamples(def.source, doc.parameters, doc.units);
             if (result.error !== undefined) {
                 return { success: false, error: result.error };
             }

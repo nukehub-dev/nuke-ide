@@ -593,7 +593,9 @@ needs to be visualized and exported.
      arithmetic, functions, and constants used elsewhere in Nuke CAD
      (`+ - * / ^`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `sqrt`, `abs`,
      `exp`, `log`, `min`, `max`, `pi`, `e`) and resolves document parameters by
-     name.
+     name. When the document declares `units` (`mm`/`cm`/`m`), expressions may
+     carry units (`10mm`, `1cm`) and each coordinate coerces to the document
+     unit; without declared units, unit syntax is rejected.
    - **Fourier** — enter the toroidal mode number `nfp`, harmonic order, and
      cos/sin coefficients for each spatial axis. The series is sampled uniformly
      over `[0, 2π)`.

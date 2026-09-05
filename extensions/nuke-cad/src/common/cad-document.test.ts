@@ -88,6 +88,27 @@ describe('validateNukeCadDocument', () => {
         expect(round.version).toBe(NUKE_CAD_SCHEMA_VERSION);
     });
 
+    it('accepts each declared document unit and an absent (legacy unitless) field', () => {
+        for (const units of [undefined, 'mm', 'cm', 'm'] as const) {
+            const doc = makeDocument();
+            if (units === undefined) {
+                delete doc.units;
+            } else {
+                doc.units = units;
+            }
+            const result = validateNukeCadDocument(doc);
+            expect(result.valid).toBe(true);
+        }
+    });
+
+    it('rejects unknown document units without a version bump', () => {
+        const doc = { ...makeDocument(), units: 'inch' } as unknown as NukeCadDocument;
+        const result = validateNukeCadDocument(doc);
+        expect(result.valid).toBe(false);
+        expect(result.issues.some((i) => i.path === 'units')).toBe(true);
+        expect(makeDocument().version).toBe(NUKE_CAD_SCHEMA_VERSION);
+    });
+
     it('reports duplicate ids across top-level collections', () => {
         const doc = makeDocument();
         doc.features[0].id = 'sketch1';

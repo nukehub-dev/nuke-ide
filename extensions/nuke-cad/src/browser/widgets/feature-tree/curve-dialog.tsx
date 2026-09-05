@@ -42,6 +42,7 @@ import { FileService } from '@theia/filesystem/lib/browser/file-service';
 import { NukeDialog } from 'nuke-essentials/lib/theme/browser/components';
 import { type NukeCadDocument, type CurveDef, type CurveSource } from '../../../common/cad-document';
 import { parseExpression, sampleParametric, sampleFourier } from '../../../common/expression';
+import { sampleParametricWithUnits } from '../../document/cad-document-store';
 
 export interface CurveDialogProps {
     readonly document: NukeCadDocument;
@@ -349,7 +350,13 @@ function buildCurveDef(
             sampleCount: sampleCountNum
         };
         try {
-            const samples = sampleParametric(source, document.parameters);
+            // The preview resamples exactly like the store: unitless documents
+            // keep the legacy sampler (unit syntax rejected), declared units
+            // coerce per coordinate. Failures surface as dialog errors.
+            const samples =
+                document.units === undefined
+                    ? sampleParametric(source, document.parameters)
+                    : sampleParametricWithUnits(source, document.parameters, document.units);
             return {
                 ok: true,
                 def: {
