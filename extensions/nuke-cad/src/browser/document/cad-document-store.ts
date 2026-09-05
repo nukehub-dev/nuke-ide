@@ -44,12 +44,14 @@ import {
     type FeatureDef,
     type FeatureParams,
     type DatumKind,
+    type DatumPlane,
     type CurvePoint,
     type ValidationIssue,
     type CurveDef,
     type CurveSource,
     type DocumentUnits,
     type ParametricCurveSource,
+    NUKE_CAD_SCHEMA_VERSION,
     validateNukeCadDocument,
     migrateNukeCadDocument
 } from '../../common/cad-document';
@@ -67,6 +69,7 @@ import {
 } from '../../common/expression';
 import { type FeatureResult, type ReferenceResolutionResult } from '../../common/nuke-cad-protocol';
 import { type TopologyRef, type FaceFingerprint, type EdgeFingerprint, validateTopologyRef } from '../../common/topology-refs';
+import { FeatureGraph } from '../../common/feature-graph';
 
 /** Listener invoked after any mutation that changes the store state. */
 export type DocumentStoreListener = () => void;
@@ -1490,4 +1493,612 @@ export function computeDependsOn(type: FeatureDef['type'], bodyId: string, featu
         }
     }
     return undefined;
+}
+
+// *****************************************************************************
+// P2 result-cache orchestration (TS side).
+//
+// Two self-consistent key systems, never compared across the language
+// boundary (their number grammars differ): this region's keys back the
+// in-session memory cache only, while ``python/doc_cache.py`` keys the zip
+// sidecar. This region owns the TS-side pure logic: content-key computation
+// for the open fast path, dirty-plan computation for partial rebuilds, the
+// untitled memory-backed cache, and the rebuild lifecycle tracker. The
+// widget (``cad-viewport-widget.tsx``) orchestrates these against the
+// ``buildFeaturesPartial`` RPC; it never touches blobs.
+// *****************************************************************************
+
+/**
+ * Builder-semantics version baked into every content key.
+ *
+ * MUST match ``BUILDER_VERSION`` in ``python/doc_cache.py`` (C1): any change
+ * to builder semantics — or to the canonicalization below — bumps both, which
+ * loudly invalidates every stored key (hash mismatch → full rebuild).
+ */
+export const RESULT_CACHE_BUILDER_VERSION = 1;
+
+/** Version input used when the OCP version is not known (pure key checks). */
+export const RESULT_CACHE_OCP_UNKNOWN = 'unknown';
+
+/** Versions folded into every content key (brief §2: key = SHA over inputs + versions). */
+export interface ResultCacheVersions {
+    readonly builderVersion: number;
+    readonly ocpVersion: string;
+}
+
+/**
+ * Format a finite number for canonical JSON.
+ *
+ * Self-consistent by design (see the key-system split below): these keys
+ * back the in-session memory cache only and are never compared against the
+ * Python sidecar keys, so no cross-language grammar audit is required —
+ * stability across sessions of the same frontend is what matters.
+ * - non-finite (NaN/Infinity) throws — such values never enter a key;
+ * - ``-0`` normalizes to ``0.0``;
+ * - integral values with ``abs < 1e21`` serialize as ``<int>.0`` regardless of
+ *   JSON int/float origin (Python MUST normalize ints the same way, since TS
+ *   cannot distinguish ``10`` from ``10.0`` after parsing);
+ * - everything else serializes in exponential form with exactly 17 significant
+ *   digits (``toExponential(16)``, injective over doubles), mantissa trailing
+ *   zeros stripped, exponent sign always present with no leading zeros
+ *   (``2.5``, ``5e-1``, ``1e+21`` — the exponent is omitted when zero).
+ *   Python mirror: ``format(v, '.16e')`` + the same trims.
+ */
+export function formatCanonicalNumber(value: number): string {
+    if (!Number.isFinite(value)) {
+        throw new Error(`Cannot canonicalize non-finite number ${value}`);
+    }
+    if (value === 0) {
+        return '0.0';
+    }
+    if (Number.isInteger(value) && Math.abs(value) < 1e21) {
+        return `${value}.0`;
+    }
+    const text = value.toExponential(16);
+    const match = /^([+-]?)(\d)\.(\d+)e([+-]?\d+)$/.exec(text);
+    if (match === null) {
+        throw new Error(`Cannot canonicalize number ${value}`);
+    }
+    const [, sign, digit, fraction, exponent] = match;
+    const trimmedFraction = fraction.replace(/0+$/, '');
+    const mantissa = trimmedFraction.length > 0 ? `${sign}${digit}.${trimmedFraction}` : `${sign}${digit}`;
+    const exponentNumber = parseInt(exponent, 10);
+    if (exponentNumber === 0) {
+        return mantissa;
+    }
+    return `${mantissa}e${exponentNumber < 0 ? '-' : '+'}${Math.abs(exponentNumber)}`;
+}
+
+/**
+ * Deterministic JSON serialization for content keys.
+ *
+ * Grammar: objects emit keys sorted by UTF-16 code-unit order with no
+ * whitespace; arrays keep document order; strings use ``JSON.stringify``
+ * quoting; booleans/null are literal; numbers use
+ * {@link formatCanonicalNumber}; ``undefined`` object properties are omitted
+ * and ``undefined`` array items become ``null`` (JSON semantics).
+ */
+export function canonicalJson(value: unknown): string {
+    if (value === null) {
+        return 'null';
+    }
+    if (value === undefined) {
+        throw new Error('Cannot canonicalize undefined');
+    }
+    if (typeof value === 'number') {
+        return formatCanonicalNumber(value);
+    }
+    if (typeof value === 'string') {
+        return JSON.stringify(value);
+    }
+    if (typeof value === 'boolean') {
+        return value ? 'true' : 'false';
+    }
+    if (Array.isArray(value)) {
+        return `[${value.map((item) => (item === undefined ? 'null' : canonicalJson(item))).join(',')}]`;
+    }
+    if (typeof value === 'object') {
+        const entries = Object.entries(value as Record<string, unknown>)
+            .filter(([, item]) => item !== undefined)
+            .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+        return `{${entries.map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`).join(',')}}`;
+    }
+    throw new Error(`Cannot canonicalize value of type ${typeof value}`);
+}
+
+const SHA256_K = [
+    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be,
+    0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa,
+    0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85,
+    0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3,
+    0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f,
+    0x682e6ff3, 0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
+];
+
+function sha256Rotr(value: number, bits: number): number {
+    return (value >>> bits) | (value << (32 - bits));
+}
+
+/**
+ * SHA-256 hex digest over the UTF-8 encoding of ``text``.
+ *
+ * Pure TypeScript (no Node/browser crypto dependency) so the open fast path
+ * runs identically in every host; byte-identical to
+ * ``hashlib.sha256(text.encode('utf-8')).hexdigest()`` (cross-checked in
+ * tests against ``node:crypto``).
+ */
+export function sha256Hex(text: string): string {
+    const data = new TextEncoder().encode(text);
+    let paddedLength = data.length + 1 + 8;
+    while (paddedLength % 64 !== 0) {
+        paddedLength++;
+    }
+    const padded = new Uint8Array(paddedLength);
+    padded.set(data);
+    padded[data.length] = 0x80;
+    const view = new DataView(padded.buffer);
+    view.setUint32(paddedLength - 8, Math.floor(data.length / 0x20000000));
+    view.setUint32(paddedLength - 4, (data.length << 3) >>> 0);
+
+    const state = [0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19];
+    const schedule = new Array<number>(64);
+    for (let offset = 0; offset < paddedLength; offset += 64) {
+        for (let t = 0; t < 16; t++) {
+            schedule[t] = view.getUint32(offset + t * 4);
+        }
+        for (let t = 16; t < 64; t++) {
+            const s0 = sha256Rotr(schedule[t - 15], 7) ^ sha256Rotr(schedule[t - 15], 18) ^ (schedule[t - 15] >>> 3);
+            const s1 = sha256Rotr(schedule[t - 2], 17) ^ sha256Rotr(schedule[t - 2], 19) ^ (schedule[t - 2] >>> 10);
+            schedule[t] = (schedule[t - 16] + s0 + schedule[t - 7] + s1) | 0;
+        }
+        let [a, b, c, d, e, f, g, h] = state;
+        for (let t = 0; t < 64; t++) {
+            const s1 = sha256Rotr(e, 6) ^ sha256Rotr(e, 11) ^ sha256Rotr(e, 25);
+            const ch = (e & f) ^ (~e & g);
+            const t1 = (h + s1 + ch + SHA256_K[t] + schedule[t]) | 0;
+            const s0 = sha256Rotr(a, 2) ^ sha256Rotr(a, 13) ^ sha256Rotr(a, 22);
+            const maj = (a & b) ^ (a & c) ^ (b & c);
+            const t2 = (s0 + maj) | 0;
+            h = g;
+            g = f;
+            f = e;
+            e = (d + t1) | 0;
+            d = c;
+            c = b;
+            b = a;
+            a = (t1 + t2) | 0;
+        }
+        state[0] = (state[0] + a) | 0;
+        state[1] = (state[1] + b) | 0;
+        state[2] = (state[2] + c) | 0;
+        state[3] = (state[3] + d) | 0;
+        state[4] = (state[4] + e) | 0;
+        state[5] = (state[5] + f) | 0;
+        state[6] = (state[6] + g) | 0;
+        state[7] = (state[7] + h) | 0;
+    }
+    return state.map((word) => `00000000${(word >>> 0).toString(16)}`.slice(-8)).join('');
+}
+
+/** Node id prefixes for the key table (sketches and curves are cache nodes too). */
+export type ResultCacheNodeKind = 'sketch' | 'curve' | 'feature';
+
+function cacheNodeId(kind: ResultCacheNodeKind, id: string): string {
+    return `${kind}:${id}`;
+}
+
+/** Per-node content keys for a document, keyed by ``<kind>:<id>``. */
+export interface ResultCacheKeyTable {
+    readonly keys: Record<string, string>;
+}
+
+function sortByStringId(items: readonly Record<string, unknown>[]): Record<string, unknown>[] {
+    return [...items].sort((a, b) => {
+        const aId = typeof a.id === 'string' ? a.id : '';
+        const bId = typeof b.id === 'string' ? b.id : '';
+        return aId < bId ? -1 : aId > bId ? 1 : 0;
+    });
+}
+
+function datumSnapshot(doc: NukeCadDocument, datumId: string): Record<string, unknown> {
+    const datum: DatumPlane | undefined = doc.datums.find((d) => d.id === datumId);
+    if (datum === undefined) {
+        throw new Error(`Cannot key sketch: unknown datum '${datumId}'`);
+    }
+    return {
+        kind: datum.kind,
+        offset: datum.offset,
+        reference: datum.reference,
+        points: datum.points,
+        faces: datum.faces
+    };
+}
+
+/**
+ * Compute per-node content keys for a document, purely from the doc JSON (no
+ * OCP, no backend call).
+ *
+ * Recipe (brief §2, node granularity brief §4): ``sketch:<id>`` keys hash the
+ * sketch primitive snapshot + datum snapshot + external refs; ``curve:<id>``
+ * keys hash source + samples; ``feature:<id>`` keys hash canonical params
+ * JSON + consumed-sketch keys + referenced-curve keys + upstream feature keys
+ * + versions. Upstream edges are explicit ``dependsOn`` plus pattern/mirror
+ * ``source``/``first``/``second`` refs (resolved recursively in any document
+ * order, cycles rejected). Document-level ``parameters`` are intentionally
+ * NOT key inputs: the backend builds from solved primitives and stored curve
+ * samples and never reads the parameter table at build time, so parameters
+ * cannot stale a key (verified: no ``parameters`` read in
+ * ``feature_builder.py``/``sketch_builder.py``/``curve_builder.py``).
+ *
+ * Throws on structural problems (unknown datum/sketch/curve/dependency,
+ * dependency cycle); callers treat that as a cache miss → full build.
+ */
+export function computeResultCacheKeys(doc: NukeCadDocument, versions: ResultCacheVersions): ResultCacheKeyTable {
+    const sketches = new Map(doc.sketches.map((s) => [s.id, s]));
+    const curves = new Map(doc.curves.map((c) => [c.id, c]));
+    const features = new Map(doc.features.map((f) => [f.id, f]));
+    // Document order affects accumulation and boolean tips, so a pure
+    // reorder must miss rather than serve pre-reorder geometry.
+    const order = new Map(doc.features.map((f, index) => [f.id, index] as const));
+    const keys: Record<string, string> = {};
+
+    for (const sketch of doc.sketches) {
+        // `parameters` rides along even though solved coordinates usually
+        // embed value edits already: a value-only change with no re-solve
+        // must still miss rather than serve a stale tessellation.
+        const input = {
+            primitives: sortByStringId(sketch.primitives),
+            constraints: sortByStringId(sketch.constraints),
+            datum: datumSnapshot(doc, sketch.datumId),
+            externalRefs: sketch.externalRefs ?? [],
+            parameters: sketch.parameters ?? {},
+            versions
+        };
+        keys[cacheNodeId('sketch', sketch.id)] = sha256Hex(canonicalJson(input));
+    }
+
+    for (const curve of doc.curves) {
+        const input = { source: curve.source, samples: curve.samples, versions };
+        keys[cacheNodeId('curve', curve.id)] = sha256Hex(canonicalJson(input));
+    }
+
+    const visiting = new Set<string>();
+    const featureKey = (id: string): string => {
+        const cached = keys[cacheNodeId('feature', id)];
+        if (cached !== undefined) {
+            return cached;
+        }
+        const feature = features.get(id);
+        if (feature === undefined) {
+            throw new Error(`Cannot key feature: unknown dependency '${id}'`);
+        }
+        if (visiting.has(id)) {
+            throw new Error(`Cannot key feature: dependency cycle at '${id}'`);
+        }
+        visiting.add(id);
+        try {
+            const sketchIds = new Set<string>();
+            if (feature.sketchId !== undefined) {
+                sketchIds.add(feature.sketchId);
+            }
+            for (const sectionId of getSectionSketchIds(feature)) {
+                sketchIds.add(sectionId);
+            }
+            const sketchEntries: [string, string][] = [...sketchIds].sort().map((sketchId) => {
+                if (!sketches.has(sketchId)) {
+                    throw new Error(`Cannot key feature '${id}': unknown sketch '${sketchId}'`);
+                }
+                return [sketchId, keys[cacheNodeId('sketch', sketchId)]];
+            });
+            const curveEntries: [string, string][] = [];
+            const pathCurveId = (feature.params as Record<string, unknown>).pathCurveId;
+            if (typeof pathCurveId === 'string' && pathCurveId.length > 0) {
+                if (!curves.has(pathCurveId)) {
+                    throw new Error(`Cannot key feature '${id}': unknown curve '${pathCurveId}'`);
+                }
+                curveEntries.push([pathCurveId, keys[cacheNodeId('curve', pathCurveId)]]);
+            }
+            const upstreamIds = new Set<string>(feature.dependsOn);
+            for (const source of getPatternSourceIds(feature)) {
+                upstreamIds.add(source);
+            }
+            const upstreamEntries: [string, string][] = [...upstreamIds].sort().map((depId) => [depId, featureKey(depId)]);
+            const input = {
+                type: feature.type,
+                body: feature.body,
+                order: order.get(id),
+                params: feature.params,
+                sketches: sketchEntries,
+                curves: curveEntries,
+                upstream: upstreamEntries,
+                versions
+            };
+            const key = sha256Hex(canonicalJson(input));
+            keys[cacheNodeId('feature', id)] = key;
+            return key;
+        } finally {
+            visiting.delete(id);
+        }
+    };
+    for (const feature of doc.features) {
+        featureKey(feature.id);
+    }
+    return { keys };
+}
+
+/** Cached tessellation + key record backing one open document. */
+export interface CachedDocumentResult {
+    /** Per-node content keys at the time the tessellation was produced. */
+    readonly keys: Record<string, string>;
+    /** Builder version the keys were computed with. */
+    readonly builderVersion: number;
+    /** OCP version the keys were computed with. */
+    readonly ocpVersion: string;
+    /** Document schema version the keys were computed with. */
+    readonly schemaVersion: number;
+    /** Raw ``.tess.json`` text for immediate render on a fast-path hit. */
+    readonly tessText: string;
+}
+
+/**
+ * Memory-backed result cache with the zip-manifest interface (no zip).
+ *
+ * Untitled documents (no URI, no sidecar) use this directly; saved documents
+ * use it as the in-session fast path in front of the Python-managed zip. Key
+ * with {@link cacheKeyForDocument}.
+ */
+export class MemoryResultCache {
+    private readonly entries = new Map<string, CachedDocumentResult>();
+
+    get(key: string): CachedDocumentResult | undefined {
+        return this.entries.get(key);
+    }
+
+    set(key: string, record: CachedDocumentResult): void {
+        this.entries.set(key, record);
+    }
+
+    delete(key: string): boolean {
+        return this.entries.delete(key);
+    }
+
+    clear(): void {
+        this.entries.clear();
+    }
+
+    get size(): number {
+        return this.entries.size;
+    }
+}
+
+/**
+ * Cache key for one open document: the backing URI when saved, otherwise a
+ * name-scoped untitled slot (the store holds a single active document, so one
+ * slot per name is unambiguous within a session).
+ */
+export function cacheKeyForDocument(uri: string | undefined, docName: string): string {
+    return uri ?? `untitled:${docName}`;
+}
+
+/** Outcome of the open fast-path hash check. */
+export interface OpenFastPathCheck {
+    readonly hit: boolean;
+    readonly reason: string;
+}
+
+/**
+ * Open fast-path hash check, purely from the doc JSON (no OCP, no backend).
+ *
+ * Recomputes content keys with the record's own OCP version and compares them
+ * against the stored keys: full hit → the caller renders ``record.tessText``
+ * with zero backend spawn; any mismatch → full build (the safe default).
+ * Version gates: schema or builder mismatch is an immediate miss. OCP-upgrade
+ * staleness cannot be detected here (the current OCP version is only known to
+ * the backend); the backend re-verifies keys with the true OCP version on the
+ * next build and misses to a full rebuild there.
+ */
+export function checkOpenFastPath(doc: NukeCadDocument, record: CachedDocumentResult | undefined): OpenFastPathCheck {
+    if (record === undefined) {
+        return { hit: false, reason: 'no-cache-entry' };
+    }
+    if (record.schemaVersion !== NUKE_CAD_SCHEMA_VERSION) {
+        return { hit: false, reason: 'schema-mismatch' };
+    }
+    if (record.builderVersion !== RESULT_CACHE_BUILDER_VERSION) {
+        return { hit: false, reason: 'builder-mismatch' };
+    }
+    let current: ResultCacheKeyTable;
+    try {
+        current = computeResultCacheKeys(doc, { builderVersion: record.builderVersion, ocpVersion: record.ocpVersion });
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return { hit: false, reason: `key-error: ${message}` };
+    }
+    const currentIds = Object.keys(current.keys).sort();
+    const storedIds = Object.keys(record.keys).sort();
+    if (currentIds.length !== storedIds.length || currentIds.some((id, index) => id !== storedIds[index])) {
+        return { hit: false, reason: 'node-set-mismatch' };
+    }
+    for (const id of currentIds) {
+        if (current.keys[id] !== record.keys[id]) {
+            return { hit: false, reason: `key-mismatch: ${id}` };
+        }
+    }
+    return { hit: true, reason: 'hit' };
+}
+
+/** Minimal dirty-closure plan: ordered feature ids plus stale dependents. */
+export interface DirtyRebuildPlan {
+    /** Feature ids in topological build order (the partial-RPC payload). */
+    readonly featureIds: string[];
+    /** Non-suppressed features depending on suppressed ones (kept last-good). */
+    readonly stale: string[];
+}
+
+/**
+ * Compute the minimal rebuild plan for edited features via the existing
+ * ``FeatureGraph.markDirty`` + ``recomputePlan`` (dependents included,
+ * suppressed features omitted with dependents marked stale).
+ *
+ * Throws on unknown dirty ids or an inconsistent graph; callers treat that as
+ * "plan unavailable" → full build.
+ */
+export function planDirtyRebuild(doc: NukeCadDocument, dirtyFeatureIds: readonly string[]): DirtyRebuildPlan {
+    const graph = new FeatureGraph(doc.features);
+    graph.markDirty([...dirtyFeatureIds]);
+    const plan = graph.recomputePlan();
+    return { featureIds: plan.order, stale: plan.stale };
+}
+
+/** Ids of features consuming a sketch (``sketchId`` or loft ``sectionSketchIds``). */
+export function featuresConsumingSketch(doc: NukeCadDocument, sketchId: string): string[] {
+    return doc.features.filter((f) => featureConsumesSketch(f, sketchId)).map((f) => f.id);
+}
+
+/** Ids of features sweeping along a curve (``params.pathCurveId``). */
+export function featuresConsumingCurve(doc: NukeCadDocument, curveId: string): string[] {
+    return doc.features.filter((f) => (f.params as Record<string, unknown>).pathCurveId === curveId).map((f) => f.id);
+}
+
+/** Ids of features consuming sketches placed on a datum. */
+export function featuresOnDatum(doc: NukeCadDocument, datumId: string): string[] {
+    const sketchIds = new Set(doc.sketches.filter((s) => s.datumId === datumId).map((s) => s.id));
+    return doc.features.filter((f) => featureConsumesSketchIds(f, sketchIds)).map((f) => f.id);
+}
+
+function featureConsumesSketchIds(feature: FeatureDef, sketchIds: ReadonlySet<string>): boolean {
+    if (feature.sketchId !== undefined && sketchIds.has(feature.sketchId)) {
+        return true;
+    }
+    return getSectionSketchIds(feature).some((id) => sketchIds.has(id));
+}
+
+/** Every feature id in document order (conservative dirty set for unknown-scope edits). */
+export function allFeatureIds(doc: NukeCadDocument): string[] {
+    return doc.features.map((f) => f.id);
+}
+
+/**
+ * Directory owning the ``<stem>.nuke-cache.zip`` sidecar for a document path
+ * (TS-owned cache policy; the backend only resolves the zip inside it).
+ */
+export function partialCacheDirForDocument(filePath: string): string {
+    const index = filePath.lastIndexOf('/');
+    if (index < 0) {
+        return '.';
+    }
+    return filePath.slice(0, index) || '/';
+}
+
+/**
+ * Decide between the partial RPC and a full build: a non-empty plan smaller
+ * than the whole tree goes through ``buildFeaturesPartial``; an empty plan
+ * (unknown scope or nothing dirty) and a full-tree plan use ``buildDocument``.
+ */
+export function shouldUsePartialPlan(planIds: readonly string[], totalFeatures: number): boolean {
+    return planIds.length > 0 && planIds.length < totalFeatures;
+}
+
+/** Lifecycle of one document's rebuild flow (existing chrome: overlay/banner/error). */
+export type PartialRebuildStatus = 'fresh' | 'stale' | 'building' | 'error' | 'cancelled';
+
+/** Snapshot of {@link PartialRebuildTracker}. */
+export interface PartialRebuildState {
+    readonly status: PartialRebuildStatus;
+    /** Dirty feature ids accumulated since the last successful build. Empty while stale means unknown scope (full build). */
+    readonly dirtyIds: string[];
+    readonly error?: string;
+}
+
+/**
+ * Pure tracker for the edit → plan → partial-RPC lifecycle.
+ *
+ * ``noteEdit`` marks stale (queueing while a build is in flight);
+ * ``beginBuild`` drains the dirty set into one ``buildFeaturesPartial`` call
+ * (``undefined`` while a build is already running — the caller coalesces);
+ * ``succeed``/``fail``/``cancel`` close the build, carrying queued edits into
+ * the next round. ``reset`` clears everything on document open.
+ */
+export class PartialRebuildTracker {
+    private status: PartialRebuildStatus = 'fresh';
+    private dirtyIds = new Set<string>();
+    private pendingWhileBuilding = new Set<string>();
+    private lastError?: string;
+
+    getState(): PartialRebuildState {
+        const state: PartialRebuildState = { status: this.status, dirtyIds: [...this.dirtyIds] };
+        return this.lastError === undefined ? state : { ...state, error: this.lastError };
+    }
+
+    noteEdit(ids: readonly string[]): void {
+        const target = this.status === 'building' ? this.pendingWhileBuilding : this.dirtyIds;
+        for (const id of ids) {
+            target.add(id);
+        }
+        if (this.status !== 'building') {
+            this.status = 'stale';
+            this.lastError = undefined;
+        }
+    }
+
+    beginBuild(): string[] | undefined {
+        if (this.status === 'building') {
+            return undefined;
+        }
+        this.status = 'building';
+        this.lastError = undefined;
+        const ids = [...this.dirtyIds];
+        this.dirtyIds.clear();
+        return ids;
+    }
+
+    succeed(): void {
+        if (this.status !== 'building') {
+            return;
+        }
+        if (this.pendingWhileBuilding.size > 0) {
+            this.dirtyIds = this.pendingWhileBuilding;
+            this.pendingWhileBuilding = new Set<string>();
+            this.status = 'stale';
+        } else {
+            this.status = 'fresh';
+        }
+    }
+
+    fail(error: string, retryIds: readonly string[] = []): void {
+        if (this.status !== 'building') {
+            return;
+        }
+        for (const id of this.pendingWhileBuilding) {
+            this.dirtyIds.add(id);
+        }
+        this.pendingWhileBuilding.clear();
+        for (const id of retryIds) {
+            this.dirtyIds.add(id);
+        }
+        this.status = 'error';
+        this.lastError = error;
+    }
+
+    cancel(retryIds: readonly string[] = []): void {
+        if (this.status !== 'building') {
+            return;
+        }
+        for (const id of this.pendingWhileBuilding) {
+            this.dirtyIds.add(id);
+        }
+        this.pendingWhileBuilding.clear();
+        for (const id of retryIds) {
+            this.dirtyIds.add(id);
+        }
+        this.status = this.dirtyIds.size > 0 ? 'stale' : 'cancelled';
+        this.lastError = undefined;
+    }
+
+    reset(): void {
+        this.status = 'fresh';
+        this.dirtyIds.clear();
+        this.pendingWhileBuilding.clear();
+        this.lastError = undefined;
+    }
 }

@@ -77,9 +77,30 @@ import { createSnapConfig, snap } from '../../sketch/snap';
 import { ensureNukeCadExtension } from './cad-save-path';
 import { CadSketchOverlay, DocumentTemplatePicker, type DatumDraft } from './cad-sketch-overlay';
 import { CadDocumentStore, createSketchId, createFeatureId, computeDependsOn } from '../../document/cad-document-store';
+import {
+    MemoryResultCache,
+    PartialRebuildTracker,
+    RESULT_CACHE_BUILDER_VERSION,
+    RESULT_CACHE_OCP_UNKNOWN,
+    allFeatureIds,
+    cacheKeyForDocument,
+    checkOpenFastPath,
+    computeResultCacheKeys,
+    featuresConsumingSketch,
+    partialCacheDirForDocument,
+    planDirtyRebuild,
+    shouldUsePartialPlan
+} from '../../document/cad-document-store';
 import { NukeCadPreferences } from '../../nuke-cad-preferences';
 import { DOCUMENT_TEMPLATES } from '../../../common/document-templates';
-import { type SketchDef, type FeatureDef, type FeatureType, type FeatureParams, type CurvePoint } from '../../../common/cad-document';
+import {
+    type SketchDef,
+    type FeatureDef,
+    type FeatureType,
+    type FeatureParams,
+    type CurvePoint,
+    type NukeCadDocument
+} from '../../../common/cad-document';
 import { type TopologyRef } from '../../../common/topology-refs';
 import { FaceHighlighter, type FacePickHit, buildTopologyRef, pointerToNdc, projectHitToFaceUv, raycastFace } from './face-picker';
 import { cadViewportColors, resolveViewportBackground, type ViewportBackgroundStyle } from './viewport-colors';
@@ -213,6 +234,15 @@ export class CadViewportWidget extends ReactWidget {
      * document open; never set in auto mode.
      */
     private buildStale = false;
+    /** In-session result cache (memory-backed; untitled docs never touch the zip). */
+    private readonly resultCache = new MemoryResultCache();
+    /** Edit → plan → partial-RPC lifecycle tracker (progress/cancel/error states). */
+    private readonly rebuildTracker = new PartialRebuildTracker();
+    /** Monotonically increasing token; superseded/cancelled rebuilds drop their results. */
+    private rebuildToken = 0;
+    /** Job id of the in-flight partial rebuild, for cancellation. */
+    private pendingPartialJobId?: string;
+    private partialJobCounter = 0;
 
     /** True while the datum picker is waiting for the user to choose a plane. */
     sketchSetupVisible = false;
@@ -363,6 +393,7 @@ export class CadViewportWidget extends ReactWidget {
         this.templatePickerOpen = false;
         // A fresh document has no build to be stale against.
         this.buildStale = false;
+        this.rebuildTracker.reset();
         this.update();
     };
 
@@ -381,7 +412,7 @@ export class CadViewportWidget extends ReactWidget {
             this.messageService.error(result.error || 'Failed to update feature.');
             return;
         }
-        this.scheduleDocumentRebuild();
+        this.scheduleDocumentRebuild([id]);
     };
 
     protected readonly handleAddFeature = (type: FeatureType, params: FeatureParams): void => {
@@ -498,7 +529,7 @@ export class CadViewportWidget extends ReactWidget {
             this.messageService.error(result.error || 'Failed to add feature.');
             return;
         }
-        this.scheduleDocumentRebuild();
+        this.scheduleDocumentRebuild([feature.id]);
     };
 
     protected readonly handleEditSketch = (sketchId: string): void => {
@@ -934,13 +965,20 @@ export class CadViewportWidget extends ReactWidget {
         this.messageService.info(`Exported Python script to ${uri.path.base}`);
     }
 
-    /** Rebuild the active document through the backend. */
-    async rebuildDocument(): Promise<void> {
+    /**
+     * Rebuild the active document through the backend.
+     *
+     * With `restoreFromCache` (document open after a memory-cache miss), an
+     * otherwise-full build goes through the partial RPC with an empty dirty
+     * set instead: clean features restore from the zip sidecar and only
+     * tessellation runs, with per-feature fallback to execution on any miss.
+     */
+    async rebuildDocument(restoreFromCache = false): Promise<void> {
         if (this.rebuildPromise !== undefined) {
             this.rebuildPending = true;
             return;
         }
-        this.rebuildPromise = this.doRebuildDocument();
+        this.rebuildPromise = this.doRebuildDocument(restoreFromCache);
         try {
             await this.rebuildPromise;
         } finally {
@@ -952,7 +990,7 @@ export class CadViewportWidget extends ReactWidget {
         }
     }
 
-    private async doRebuildDocument(): Promise<void> {
+    private async doRebuildDocument(restoreFromCache = false): Promise<void> {
         const doc = this.documentStore.document;
         if (doc === undefined) {
             this.messageService.warn('No CAD document is active.');
@@ -965,26 +1003,151 @@ export class CadViewportWidget extends ReactWidget {
             }
         }
         const filePath = new URI(this.documentStore.uri).path.toString();
-        this.setLoading(true, 'Rebuilding CAD geometry...');
+        // Drain the accumulated dirty set into this build; unknown scope (or a
+        // fresh open) yields an empty list → full build below.
+        const attempted = this.rebuildTracker.beginBuild() ?? [];
+        let plan: string[] | undefined;
         try {
-            const result = await this.backendService.buildDocument({ scriptPath: filePath });
+            plan = planDirtyRebuild(doc, attempted).featureIds;
+        } catch (error) {
+            console.warn('[CadViewport] Dirty-plan unavailable, falling back to full build:', error);
+            plan = undefined;
+        }
+        const usePartial = plan !== undefined && shouldUsePartialPlan(plan, doc.features.length);
+        // Cross-session open fast path: with a fresh tracker the plan is empty
+        // (would-be-full), so restore everything from the zip sidecar instead —
+        // clean features deserialize with zero booleans and only tessellation
+        // runs. Any miss executes that feature; without partial support the
+        // transport fallback runs the full build.
+        const restoreAll = restoreFromCache && !usePartial;
+        const token = ++this.rebuildToken;
+        this.setLoading(
+            true,
+            usePartial
+                ? `Rebuilding ${plan!.length} of ${doc.features.length} features...`
+                : restoreAll
+                  ? 'Restoring cached geometry...'
+                  : 'Rebuilding CAD geometry...'
+        );
+        try {
+            const result = usePartial
+                ? await this.buildPartialWithFallback(filePath, plan!)
+                : restoreAll
+                  ? await this.buildPartialWithFallback(filePath, [])
+                  : await this.backendService.buildDocument({ scriptPath: filePath });
+            if (token !== this.rebuildToken) {
+                // Cancelled or superseded while in flight: keep the attempted
+                // ids dirty so the next rebuild retries them.
+                this.rebuildTracker.noteEdit(attempted);
+                return;
+            }
+            this.pendingPartialJobId = undefined;
             this.documentStore.setFeatureResults(result.featureResults ?? []);
             this.documentStore.setProjectedPrimitives(result.projectedPrimitives);
             this.documentStore.setReferenceResults(result.referenceResults ?? []);
             this.buildWarnings = result.warnings ?? [];
             if (result.success) {
+                this.rebuildTracker.succeed();
                 this.buildStale = false;
                 this.stateManager.setModel({ scriptPath: filePath, result, manifest: result.regionManifest });
                 this.messageService.info(`CAD rebuild: ${result.solidCount ?? 0} solids, ${result.triangleCount ?? 0} triangles`);
+                await this.cacheSuccessfulBuild(doc, result);
             } else {
                 const message = result.error || 'Document rebuild failed.';
+                this.rebuildTracker.fail(message, attempted);
                 this.showBuildError(message);
                 this.messageService.error(message);
             }
         } catch (error) {
+            if (token !== this.rebuildToken) {
+                this.rebuildTracker.noteEdit(attempted);
+                return;
+            }
+            this.pendingPartialJobId = undefined;
             const message = error instanceof Error ? error.message : String(error);
+            this.rebuildTracker.fail(message, attempted);
             this.showBuildError(message);
             this.messageService.error(message);
+        }
+    }
+
+    /**
+     * Partial rebuild with a one-time fallback: when the backend does not
+     * (yet) implement ``buildFeaturesPartial`` the transport throws and the
+     * existing full-build path runs instead. A reached backend returning
+     * ``success: false`` is a real build error and is NOT retried as full.
+     */
+    private async buildPartialWithFallback(filePath: string, featureIds: string[]): Promise<GeometryBuildResult> {
+        const jobId = `cad-partial-${Date.now()}-${this.partialJobCounter++}`;
+        this.pendingPartialJobId = jobId;
+        try {
+            const partial = this.backendService.buildFeaturesPartial;
+            if (partial === undefined) {
+                throw new Error('buildFeaturesPartial is not implemented by the backend service.');
+            }
+            return await partial.call(this.backendService, {
+                scriptPath: filePath,
+                featureIds,
+                cacheDir: partialCacheDirForDocument(filePath),
+                jobId
+            });
+        } catch (error) {
+            console.warn('[CadViewport] Partial rebuild unavailable, falling back to full build:', error);
+            this.pendingPartialJobId = undefined;
+            return this.backendService.buildDocument({ scriptPath: filePath });
+        }
+    }
+
+    /**
+     * Cancel the in-flight document rebuild, if any.
+     *
+     * Signals the backend job, drops the late result by token, and returns
+     * the tracker to stale (queued edits preserved) or cancelled. Existing
+     * geometry stays on screen; no error banner — cancellation is not a
+     * failure. In auto mode a still-stale tracker schedules a follow-up.
+     */
+    async cancelDocumentRebuild(): Promise<void> {
+        this.rebuildToken++;
+        const jobId = this.pendingPartialJobId;
+        this.pendingPartialJobId = undefined;
+        if (jobId !== undefined) {
+            try {
+                await this.backendService.cancelJob(jobId);
+            } catch (error) {
+                console.warn('[CadViewport] Partial-rebuild cancel failed:', error);
+            }
+        }
+        this.rebuildTracker.cancel();
+        this.setLoading(false);
+        if (this.rebuildTracker.getState().status === 'stale' && this.preferences['nukeCad.rebuildOnEdit'] !== 'manual') {
+            this.scheduleDocumentRebuild([]);
+        }
+    }
+
+    /**
+     * Record a successful build's tessellation + content keys in the
+     * in-session memory cache for the open fast path. Best-effort: failures
+     * only skip the fast path, never the build.
+     */
+    private async cacheSuccessfulBuild(doc: NukeCadDocument, result: GeometryBuildResult): Promise<void> {
+        if (!result.success || result.tessPath === undefined) {
+            return;
+        }
+        try {
+            const content = await this.fileService.readFile(new URI(result.tessPath));
+            const table = computeResultCacheKeys(doc, {
+                builderVersion: RESULT_CACHE_BUILDER_VERSION,
+                ocpVersion: RESULT_CACHE_OCP_UNKNOWN
+            });
+            this.resultCache.set(cacheKeyForDocument(this.documentStore.uri, doc.name), {
+                keys: table.keys,
+                builderVersion: RESULT_CACHE_BUILDER_VERSION,
+                ocpVersion: RESULT_CACHE_OCP_UNKNOWN,
+                schemaVersion: doc.version,
+                tessText: content.value.toString()
+            });
+        } catch (error) {
+            console.warn('[CadViewport] Result-cache store skipped:', error);
         }
     }
 
@@ -1110,13 +1273,18 @@ export class CadViewportWidget extends ReactWidget {
         await this.sketchController?.exitSketch();
         this.sketchSetupVisible = false;
         this.facePickMode = undefined;
-        this.scheduleDocumentRebuild();
+        const doc = this.documentStore.document;
+        this.scheduleDocumentRebuild(doc !== undefined ? featuresConsumingSketch(doc, def.id) : undefined);
     }
 
-    private scheduleDocumentRebuild(): void {
+    private scheduleDocumentRebuild(dirtyIds?: readonly string[]): void {
         if (!this.documentStore.hasDocument) {
             return;
         }
+        // Every edit feeds the dirty plan; unknown scope conservatively marks
+        // the whole tree (the next rebuild then takes the full path).
+        const doc = this.documentStore.document;
+        this.rebuildTracker.noteEdit(dirtyIds ?? (doc !== undefined ? allFeatureIds(doc) : []));
         if (this.preferences['nukeCad.rebuildOnEdit'] === 'manual') {
             // Manual mode never starts a timer or rebuild from an edit; the
             // stale banner offers the on-demand rebuild instead.
@@ -1343,13 +1511,53 @@ export class CadViewportWidget extends ReactWidget {
             this.documentStore.markSaved();
             // Opening a document always builds, in both rebuild modes.
             this.buildStale = false;
-            await this.rebuildDocument();
+            this.rebuildTracker.reset();
+            const doc = this.documentStore.document;
+            if (doc !== undefined && (await this.tryOpenFastPath(uri, filePath, doc))) {
+                return;
+            }
+            await this.rebuildDocument(true);
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             this.buildError = message;
             this.messageService.error(message);
         } finally {
             this.setLoading(false);
+        }
+    }
+
+    /**
+     * Open fast path: hash-check the document against the in-session memory
+     * cache purely from the doc JSON (no OCP, no backend call). Full hit →
+     * render the cached tessellation immediately with zero backend spawn;
+     * miss → false and the caller restores from the zip sidecar (per-feature
+     * fallback to execution), which populates the sidecar on the way.
+     */
+    private async tryOpenFastPath(uri: URI, filePath: string, doc: NukeCadDocument): Promise<boolean> {
+        const cached = this.resultCache.get(cacheKeyForDocument(uri.toString(), doc.name));
+        const check = checkOpenFastPath(doc, cached);
+        if (!check.hit || cached === undefined) {
+            return false;
+        }
+        try {
+            // Publish a model without a tessellation path first (clears prior
+            // state synchronously), then render the cached tessellation
+            // directly — the backend never runs on this path.
+            this.stateManager.setModel({ scriptPath: filePath, result: { success: true, scriptPath: filePath }, manifest: undefined });
+            this.tessData = await parseTessellationAsync(cached.tessText);
+            this.loadedTessPath = undefined;
+            this.stateManager.setSolidSummaries(buildSolidSummaries(this.tessData.solids));
+            this.tessLoadInFlight = false;
+            this.loading = false;
+            this.buildError = undefined;
+            this.messageService.info(
+                `CAD fast open: rendered cached tessellation (${this.tessData.solids.length} solids, zero backend spawn)`
+            );
+            this.update();
+            return true;
+        } catch (error) {
+            console.warn('[CadViewport] Cached tessellation parse failed, falling back to full build:', error);
+            return false;
         }
     }
 

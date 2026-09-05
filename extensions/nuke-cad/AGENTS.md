@@ -646,14 +646,19 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
     CLI flag; it validates references lightly, builds any curves, runs the
     feature builder with the curve results, and reuses `_process_shape` verbatim
     so STEP/tessellation/DAGMC/mesh artifacts match script builds.
-  - The first release performs a full document rebuild on every `buildDocument`
-    call. Per-feature shape caching is deferred until the modeler needs it.
-    The same deferral applies to a per-feature **tessellation** cache: the
-    backend is spawned as a per-call subprocess (`nuke-cad-backend-service`
-    `_spawnJsonService`), so an in-memory facet cache cannot survive between
-    rebuilds, and an on-disk fragment cache needs a boolean-safe re-indexing
-    design (booleans relocate solids; tessellation is post-assembly) — a
-    larger design than a perf-phase line item.
+  - Document builds go through the P2 result cache: `build_document_partial`
+    executes only the TS-planned dirty closure and restores clean
+    predecessors from the `<stem>.nuke-cache.zip` sidecar (per-feature BREP
+    blobs + tool shapes + boolean meta, `python/doc_cache.py`); a document
+    open with an empty dirty set restores everything and only tessellates.
+    Any miss executes that feature, so an empty cache is exactly a full
+    build. Full `build_document` calls never touch the sidecar. Two
+    self-consistent key systems, never compared across languages: TS keys
+    back the in-session memory cache, C1 content keys back the zip (sketch
+    params, external refs, the datum table, and document order are key
+    inputs on both sides). A per-feature **tessellation** cache is still
+    deferred (facet blobs keyed pre-assembly): opens restore shapes but
+    re-tessellate.
   - Datum support includes `XY`/`YZ`/`XZ`/`offset`/`face`/`threePoint`/
     `midplane`/`line2Point`. `offset` datums are
     interpreted as offsets of the XY plane along +Z. `face` datums resolve a

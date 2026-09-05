@@ -26,7 +26,30 @@
 // *****************************************************************************
 
 import { describe, it, expect } from 'vitest';
-import { CadDocumentStore, computeDependsOn, sampleParametricWithUnits } from './cad-document-store';
+import { createHash } from 'node:crypto';
+import {
+    CadDocumentStore,
+    MemoryResultCache,
+    PartialRebuildTracker,
+    RESULT_CACHE_BUILDER_VERSION,
+    RESULT_CACHE_OCP_UNKNOWN,
+    allFeatureIds,
+    cacheKeyForDocument,
+    canonicalJson,
+    checkOpenFastPath,
+    computeDependsOn,
+    computeResultCacheKeys,
+    featuresConsumingCurve,
+    featuresConsumingSketch,
+    featuresOnDatum,
+    formatCanonicalNumber,
+    partialCacheDirForDocument,
+    planDirtyRebuild,
+    sampleParametricWithUnits,
+    sha256Hex,
+    shouldUsePartialPlan,
+    type CachedDocumentResult
+} from './cad-document-store';
 import {
     NUKE_CAD_SCHEMA_VERSION,
     type NukeCadDocument,
@@ -1677,5 +1700,413 @@ describe('curve operations with document units', () => {
         const result = store.loadDocument({ ...minimalDoc(), units: 'inch' } as unknown as NukeCadDocument);
         expect(result.success).toBe(false);
         expect(result.error).toContain('units');
+    });
+});
+
+/** Fixed document for the key-stability golden test (fixed doc → fixed keys). */
+function goldenDoc(): NukeCadDocument {
+    return {
+        version: NUKE_CAD_SCHEMA_VERSION,
+        name: 'golden',
+        parameters: {},
+        datums: [{ id: 'datum-xy', kind: 'XY', name: 'XY' }],
+        bodies: [{ id: 'body-1', name: 'Body 1' }],
+        sketches: [
+            {
+                id: 'sk1',
+                name: 'Sketch 1',
+                datumId: 'datum-xy',
+                primitives: [{ id: 'p1', type: 'point', x: 10, y: 20 }],
+                constraints: []
+            }
+        ],
+        features: [
+            {
+                id: 'f1',
+                name: 'pad 1',
+                type: 'pad',
+                body: 'body-1',
+                sketchId: 'sk1',
+                params: { length: 5 } as FeatureDef['params'],
+                suppressed: false,
+                dependsOn: []
+            },
+            {
+                id: 'f2',
+                name: 'fillet 1',
+                type: 'fillet',
+                body: 'body-1',
+                params: { radius: 1 } as FeatureDef['params'],
+                suppressed: false,
+                dependsOn: ['f1']
+            }
+        ],
+        curves: []
+    };
+}
+
+function goldenRecord(doc: NukeCadDocument): CachedDocumentResult {
+    const table = computeResultCacheKeys(doc, { builderVersion: RESULT_CACHE_BUILDER_VERSION, ocpVersion: RESULT_CACHE_OCP_UNKNOWN });
+    return {
+        keys: table.keys,
+        builderVersion: RESULT_CACHE_BUILDER_VERSION,
+        ocpVersion: RESULT_CACHE_OCP_UNKNOWN,
+        schemaVersion: NUKE_CAD_SCHEMA_VERSION,
+        tessText: '{"solids":[]}'
+    };
+}
+
+describe('result cache key scheme (P2 C3)', () => {
+    it('sha256Hex matches node:crypto across vectors', () => {
+        for (const text of ['', 'abc', 'héllo wörld ✓', 'x'.repeat(1000)]) {
+            expect(sha256Hex(text)).toBe(createHash('sha256').update(text, 'utf8').digest('hex'));
+        }
+    });
+
+    it('formats canonical numbers with the Python-compatible grammar', () => {
+        expect(formatCanonicalNumber(10)).toBe('10.0');
+        expect(formatCanonicalNumber(-3)).toBe('-3.0');
+        expect(formatCanonicalNumber(0)).toBe('0.0');
+        expect(formatCanonicalNumber(-0)).toBe('0.0');
+        expect(formatCanonicalNumber(2.5)).toBe('2.5');
+        expect(formatCanonicalNumber(0.5)).toBe('5e-1');
+        // 1e-7 is not exactly representable: the grammar formats the true binary
+        // value (Python format(v, '.16e') agrees digit-for-digit).
+        expect(formatCanonicalNumber(1e-7)).toBe('9.9999999999999995e-8');
+        expect(formatCanonicalNumber(1e21)).toBe('1e+21');
+        expect(() => formatCanonicalNumber(NaN)).toThrow();
+        expect(() => formatCanonicalNumber(Infinity)).toThrow();
+    });
+
+    it('canonicalizes objects with sorted keys and no whitespace', () => {
+        expect(canonicalJson({ b: 1, a: [1, 2] })).toBe('{"a":[1.0,2.0],"b":1.0}');
+        expect(canonicalJson({ a: undefined, b: null, c: true })).toBe('{"b":null,"c":true}');
+        expect(canonicalJson({ outer: { z: 0.5, m: 'x' } })).toBe('{"outer":{"m":"x","z":5e-1}}');
+    });
+
+    it('produces fixed keys for the fixed golden document', () => {
+        const table = computeResultCacheKeys(goldenDoc(), {
+            builderVersion: RESULT_CACHE_BUILDER_VERSION,
+            ocpVersion: RESULT_CACHE_OCP_UNKNOWN
+        });
+        expect(table.keys).toEqual({
+            'sketch:sk1': '27d8e6a715197e9dd3464682a1add6c1044ae14a76c68226426c10a376673db8',
+            'feature:f1': 'd1ffe8b34324c4f911f9b96756e33dd51c911a15b7fe6849c42c92c29fdf5878',
+            'feature:f2': 'd3aa6736423d7ebacf950a4e6450232ee0e8bef665671dce2f06981a3c9998cf'
+        });
+    });
+
+    it('changes sketch keys when sketch-local parameters change', () => {
+        const versions = { builderVersion: RESULT_CACHE_BUILDER_VERSION, ocpVersion: RESULT_CACHE_OCP_UNKNOWN };
+        const before = computeResultCacheKeys(goldenDoc(), versions).keys;
+        const edited = goldenDoc();
+        edited.sketches[0] = { ...edited.sketches[0], parameters: { width: 7 } };
+        const after = computeResultCacheKeys(edited, versions).keys;
+        // A value-only parameter edit must miss rather than serve a stale
+        // tessellation, even when solved coordinates are unchanged.
+        expect(after['sketch:sk1']).not.toBe(before['sketch:sk1']);
+        expect(after['feature:f1']).not.toBe(before['feature:f1']);
+    });
+
+    it('changes feature keys on reorder even with identical content', () => {
+        const versions = { builderVersion: RESULT_CACHE_BUILDER_VERSION, ocpVersion: RESULT_CACHE_OCP_UNKNOWN };
+        const before = computeResultCacheKeys(goldenDoc(), versions).keys;
+        const reordered = goldenDoc();
+        reordered.features = [reordered.features[1], reordered.features[0]];
+        const after = computeResultCacheKeys(reordered, versions).keys;
+        // Accumulation and boolean tips are order-sensitive: a pure reorder
+        // must miss rather than serve pre-reorder geometry.
+        expect(after['feature:f1']).not.toBe(before['feature:f1']);
+        expect(after['feature:f2']).not.toBe(before['feature:f2']);
+    });
+
+    it('is insensitive to document renames and params key order', () => {
+        const before = computeResultCacheKeys(goldenDoc(), {
+            builderVersion: RESULT_CACHE_BUILDER_VERSION,
+            ocpVersion: RESULT_CACHE_OCP_UNKNOWN
+        }).keys;
+        const renamed: NukeCadDocument = { ...goldenDoc(), name: 'renamed', parameters: { width: 7 } };
+        const after = computeResultCacheKeys(renamed, {
+            builderVersion: RESULT_CACHE_BUILDER_VERSION,
+            ocpVersion: RESULT_CACHE_OCP_UNKNOWN
+        }).keys;
+        expect(after).toEqual(before);
+    });
+
+    it('is insensitive to sketch primitive order', () => {
+        const doc = goldenDoc();
+        const reordered: NukeCadDocument = {
+            ...doc,
+            sketches: [
+                {
+                    ...doc.sketches[0],
+                    primitives: [
+                        { id: 'p2', type: 'point', x: 1, y: 1 },
+                        { id: 'p1', type: 'point', x: 10, y: 20 }
+                    ]
+                }
+            ]
+        };
+        const base: NukeCadDocument = {
+            ...doc,
+            sketches: [{ ...doc.sketches[0], primitives: [...doc.sketches[0].primitives, { id: 'p2', type: 'point', x: 1, y: 1 }] }]
+        };
+        const versions = { builderVersion: RESULT_CACHE_BUILDER_VERSION, ocpVersion: RESULT_CACHE_OCP_UNKNOWN };
+        expect(computeResultCacheKeys(reordered, versions).keys).toEqual(computeResultCacheKeys(base, versions).keys);
+    });
+
+    it('changes the edited feature key and its dependents only', () => {
+        const versions = { builderVersion: RESULT_CACHE_BUILDER_VERSION, ocpVersion: RESULT_CACHE_OCP_UNKNOWN };
+        const before = computeResultCacheKeys(goldenDoc(), versions).keys;
+        const edited = goldenDoc();
+        edited.features[0] = { ...edited.features[0], params: { length: 6 } as FeatureDef['params'] };
+        const after = computeResultCacheKeys(edited, versions).keys;
+        expect(after['sketch:sk1']).toBe(before['sketch:sk1']);
+        expect(after['feature:f1']).not.toBe(before['feature:f1']);
+        expect(after['feature:f2']).not.toBe(before['feature:f2']);
+    });
+
+    it('folds builder and OCP versions into every key', () => {
+        const doc = goldenDoc();
+        const base = computeResultCacheKeys(doc, { builderVersion: 1, ocpVersion: 'unknown' }).keys;
+        expect(computeResultCacheKeys(doc, { builderVersion: 2, ocpVersion: 'unknown' }).keys['feature:f1']).not.toBe(base['feature:f1']);
+        expect(computeResultCacheKeys(doc, { builderVersion: 1, ocpVersion: '7.8' }).keys['feature:f1']).not.toBe(base['feature:f1']);
+    });
+
+    it('throws on unknown sketches, curves, dependencies, and cycles', () => {
+        const versions = { builderVersion: RESULT_CACHE_BUILDER_VERSION, ocpVersion: RESULT_CACHE_OCP_UNKNOWN };
+        const badSketch = goldenDoc();
+        badSketch.features[0] = { ...badSketch.features[0], sketchId: 'missing' };
+        expect(() => computeResultCacheKeys(badSketch, versions)).toThrow();
+        const badDep = goldenDoc();
+        badDep.features[1] = { ...badDep.features[1], dependsOn: ['missing'] };
+        expect(() => computeResultCacheKeys(badDep, versions)).toThrow();
+        const cyclic = goldenDoc();
+        cyclic.features[0] = { ...cyclic.features[0], dependsOn: ['f2'] };
+        expect(() => computeResultCacheKeys(cyclic, versions)).toThrow();
+        const badDatum = goldenDoc();
+        badDatum.sketches[0] = { ...badDatum.sketches[0], datumId: 'missing' };
+        expect(() => computeResultCacheKeys(badDatum, versions)).toThrow();
+    });
+});
+
+function chainDoc(): NukeCadDocument {
+    const doc = goldenDoc();
+    return {
+        ...doc,
+        features: [
+            { ...doc.features[0] },
+            { ...doc.features[1], id: 'f2', params: { radius: 2 } as FeatureDef['params'] },
+            {
+                id: 'f3',
+                name: 'chamfer 1',
+                type: 'chamfer',
+                body: 'body-1',
+                params: { distance: 0.5 } as FeatureDef['params'],
+                suppressed: false,
+                dependsOn: ['f2']
+            }
+        ]
+    };
+}
+
+describe('dirty rebuild plan (P2 C3)', () => {
+    it('expands the dirty closure to transitive dependents in order', () => {
+        const doc = chainDoc();
+        expect(planDirtyRebuild(doc, ['f1']).featureIds).toEqual(['f1', 'f2', 'f3']);
+        expect(planDirtyRebuild(doc, ['f2']).featureIds).toEqual(['f2', 'f3']);
+        expect(planDirtyRebuild(doc, ['f3']).featureIds).toEqual(['f3']);
+    });
+
+    it('omits suppressed features and marks their dependents stale', () => {
+        const doc = chainDoc();
+        doc.features[1] = { ...doc.features[1], suppressed: true };
+        const plan = planDirtyRebuild(doc, ['f2']);
+        expect(plan.featureIds).toEqual([]);
+        expect(plan.stale).toContain('f3');
+    });
+
+    it('throws on unknown dirty ids', () => {
+        expect(() => planDirtyRebuild(chainDoc(), ['missing'])).toThrow();
+    });
+
+    it('maps sketch, curve, and datum edits to consuming features', () => {
+        const doc = goldenDoc();
+        expect(featuresConsumingSketch(doc, 'sk1')).toEqual(['f1']);
+        expect(featuresConsumingSketch(doc, 'other')).toEqual([]);
+        const lofted: NukeCadDocument = {
+            ...doc,
+            sketches: [...doc.sketches, { id: 'sk2', name: 'Sketch 2', datumId: 'datum-xy', primitives: [], constraints: [] }],
+            features: [
+                ...doc.features,
+                {
+                    id: 'f3',
+                    name: 'loft 1',
+                    type: 'loft',
+                    body: 'body-1',
+                    params: { sectionSketchIds: ['sk1', 'sk2'] } as unknown as FeatureDef['params'],
+                    suppressed: false,
+                    dependsOn: ['f2']
+                }
+            ]
+        };
+        expect(featuresConsumingSketch(lofted, 'sk2')).toEqual(['f3']);
+        const withCurve: NukeCadDocument = {
+            ...doc,
+            curves: [{ id: 'c1', name: 'C1', source: { kind: 'points' }, samples: [] }],
+            features: [
+                ...doc.features,
+                {
+                    id: 'f4',
+                    name: 'pipe 1',
+                    type: 'pipe',
+                    body: 'body-1',
+                    params: { pathCurveId: 'c1', radius: 1 } as unknown as FeatureDef['params'],
+                    suppressed: false,
+                    dependsOn: ['f2']
+                }
+            ]
+        };
+        expect(featuresConsumingCurve(withCurve, 'c1')).toEqual(['f4']);
+        expect(featuresOnDatum(doc, 'datum-xy')).toEqual(['f1']);
+        expect(allFeatureIds(doc)).toEqual(['f1', 'f2']);
+    });
+});
+
+describe('memory result cache and open fast path (P2 C3)', () => {
+    it('keys saved documents by URI and untitled documents by name', () => {
+        expect(cacheKeyForDocument('file:///a/model.nuke-cad', 'model')).toBe('file:///a/model.nuke-cad');
+        expect(cacheKeyForDocument(undefined, 'Untitled')).toBe('untitled:Untitled');
+    });
+
+    it('stores and drops entries', () => {
+        const cache = new MemoryResultCache();
+        expect(cache.size).toBe(0);
+        const record = goldenRecord(goldenDoc());
+        cache.set('k', record);
+        expect(cache.size).toBe(1);
+        expect(cache.get('k')).toBe(record);
+        expect(cache.delete('k')).toBe(true);
+        expect(cache.get('k')).toBeUndefined();
+        cache.set('k', record);
+        cache.clear();
+        expect(cache.size).toBe(0);
+    });
+
+    it('hits on identical content and misses with no entry', () => {
+        expect(checkOpenFastPath(goldenDoc(), undefined)).toEqual({ hit: false, reason: 'no-cache-entry' });
+        expect(checkOpenFastPath(goldenDoc(), goldenRecord(goldenDoc()))).toEqual({ hit: true, reason: 'hit' });
+    });
+
+    it('misses when a feature input changes and names the node', () => {
+        const doc = goldenDoc();
+        const check = checkOpenFastPath(
+            doc,
+            goldenRecord({ ...doc, features: [{ ...doc.features[0], params: { length: 9 } as FeatureDef['params'] }, doc.features[1]] })
+        );
+        expect(check.hit).toBe(false);
+        expect(check.reason).toBe('key-mismatch: feature:f1');
+    });
+
+    it('misses on node-set, builder, and schema drift', () => {
+        const doc = goldenDoc();
+        const record = goldenRecord(doc);
+        const extra: FeatureDef = { ...doc.features[0], id: 'f9', name: 'pad 9' };
+        expect(checkOpenFastPath({ ...doc, features: [...doc.features, extra] }, record).reason).toBe('node-set-mismatch');
+        expect(checkOpenFastPath(doc, { ...record, builderVersion: record.builderVersion + 1 }).reason).toBe('builder-mismatch');
+        expect(checkOpenFastPath(doc, { ...record, schemaVersion: 999 }).reason).toBe('schema-mismatch');
+    });
+
+    it('misses (never throws) on structurally broken documents', () => {
+        const doc = goldenDoc();
+        doc.sketches[0] = { ...doc.sketches[0], datumId: 'missing' };
+        const check = checkOpenFastPath(doc, goldenRecord(goldenDoc()));
+        expect(check.hit).toBe(false);
+        expect(check.reason.startsWith('key-error')).toBe(true);
+    });
+});
+
+describe('partial rebuild tracker (P2 C3)', () => {
+    it('walks stale → building → fresh', () => {
+        const tracker = new PartialRebuildTracker();
+        expect(tracker.getState().status).toBe('fresh');
+        tracker.noteEdit(['f1', 'f2']);
+        expect(tracker.getState()).toMatchObject({ status: 'stale', dirtyIds: ['f1', 'f2'] });
+        const ids = tracker.beginBuild();
+        expect(ids).toEqual(['f1', 'f2']);
+        expect(tracker.getState().status).toBe('building');
+        tracker.succeed();
+        expect(tracker.getState()).toMatchObject({ status: 'fresh', dirtyIds: [] });
+    });
+
+    it('coalesces a second begin while building', () => {
+        const tracker = new PartialRebuildTracker();
+        tracker.noteEdit(['f1']);
+        expect(tracker.beginBuild()).toEqual(['f1']);
+        expect(tracker.beginBuild()).toBeUndefined();
+    });
+
+    it('queues edits arriving mid-build into the next round', () => {
+        const tracker = new PartialRebuildTracker();
+        tracker.noteEdit(['f1']);
+        tracker.beginBuild();
+        tracker.noteEdit(['f2']);
+        tracker.succeed();
+        expect(tracker.getState()).toMatchObject({ status: 'stale', dirtyIds: ['f2'] });
+    });
+
+    it('fails to error and preserves retry ids', () => {
+        const tracker = new PartialRebuildTracker();
+        tracker.noteEdit(['f1']);
+        tracker.beginBuild();
+        tracker.noteEdit(['f2']);
+        tracker.fail('boom', ['f1']);
+        expect(tracker.getState()).toMatchObject({ status: 'error', error: 'boom' });
+        expect([...tracker.getState().dirtyIds].sort()).toEqual(['f1', 'f2']);
+        tracker.noteEdit(['f3']);
+        expect(tracker.getState().status).toBe('stale');
+        expect([...tracker.getState().dirtyIds].sort()).toEqual(['f1', 'f2', 'f3']);
+        expect(tracker.getState().error).toBeUndefined();
+    });
+
+    it('cancels to stale with queued edits and to cancelled when clean', () => {
+        const tracker = new PartialRebuildTracker();
+        tracker.noteEdit(['f1']);
+        tracker.beginBuild();
+        tracker.noteEdit(['f2']);
+        tracker.cancel();
+        expect(tracker.getState()).toMatchObject({ status: 'stale', dirtyIds: ['f2'] });
+        tracker.reset();
+        tracker.noteEdit(['f1']);
+        tracker.beginBuild();
+        tracker.cancel();
+        expect(tracker.getState()).toMatchObject({ status: 'cancelled', dirtyIds: [] });
+    });
+
+    it('ignores terminal transitions when not building', () => {
+        const tracker = new PartialRebuildTracker();
+        tracker.succeed();
+        tracker.fail('boom');
+        tracker.cancel();
+        expect(tracker.getState().status).toBe('fresh');
+    });
+});
+
+describe('partial rebuild routing (P2 C3)', () => {
+    it('derives the cache dir from the document path', () => {
+        expect(partialCacheDirForDocument('/a/b/model.nuke-cad')).toBe('/a/b');
+        expect(partialCacheDirForDocument('/model.nuke-cad')).toBe('/');
+        expect(partialCacheDirForDocument('model.nuke-cad')).toBe('.');
+    });
+
+    it('routes strict subsets through the partial RPC', () => {
+        expect(shouldUsePartialPlan(['f2'], 3)).toBe(true);
+        expect(shouldUsePartialPlan(['f1', 'f2'], 3)).toBe(true);
+    });
+
+    it('keeps empty and full-tree plans on the full build path', () => {
+        expect(shouldUsePartialPlan([], 3)).toBe(false);
+        expect(shouldUsePartialPlan(['f1', 'f2', 'f3'], 3)).toBe(false);
+        expect(shouldUsePartialPlan([], 0)).toBe(false);
     });
 });

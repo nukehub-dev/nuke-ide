@@ -26,8 +26,8 @@
 // *****************************************************************************
 
 import { describe, it, expect } from 'vitest';
-import { buildGeometryArgs, buildDocumentArgs } from './nuke-cad-backend-service';
-import type { GeometryBuildRequest, BuildDocumentRequest } from '../common/nuke-cad-protocol';
+import { buildGeometryArgs, buildDocumentArgs, buildFeaturesPartialArgs } from './nuke-cad-backend-service';
+import type { GeometryBuildRequest, BuildDocumentRequest, BuildFeaturesPartialRequest } from '../common/nuke-cad-protocol';
 
 const SCRIPT_PATH = '/tmp/geometry_service.py';
 const MODEL_PATH = '/tmp/model.nuke-cad';
@@ -146,5 +146,35 @@ describe('buildDocumentArgs', () => {
             '--no-dagmc',
             '--no-mesh'
         ]);
+    });
+});
+
+describe('buildFeaturesPartialArgs', () => {
+    it('passes the partial RPC shape as CLI flags', () => {
+        const request: BuildFeaturesPartialRequest = { scriptPath: MODEL_PATH, featureIds: ['f1', 'f2'], cacheDir: '/tmp/out' };
+        expect(buildFeaturesPartialArgs(request, SCRIPT_PATH)).toEqual([
+            SCRIPT_PATH,
+            MODEL_PATH,
+            '--from-document',
+            '--partial-features',
+            'f1,f2',
+            '--no-dagmc',
+            '--no-mesh',
+            '--cache-dir',
+            '/tmp/out'
+        ]);
+    });
+
+    it('omits --cache-dir when the caller leaves policy to the backend default', () => {
+        const request: BuildFeaturesPartialRequest = { scriptPath: MODEL_PATH, featureIds: ['f1'] };
+        const args = buildFeaturesPartialArgs(request, SCRIPT_PATH);
+        expect(args).toContain('--partial-features');
+        expect(args).not.toContain('--cache-dir');
+    });
+
+    it('passes a single id without separators', () => {
+        const request: BuildFeaturesPartialRequest = { scriptPath: MODEL_PATH, featureIds: ['only'] };
+        const args = buildFeaturesPartialArgs(request, SCRIPT_PATH);
+        expect(args[args.indexOf('--partial-features') + 1]).toBe('only');
     });
 });

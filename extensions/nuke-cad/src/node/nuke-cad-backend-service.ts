@@ -47,6 +47,7 @@ import {
     GeometryBuildRequest,
     GeometryBuildResult,
     BuildDocumentRequest,
+    BuildFeaturesPartialRequest,
     FemRunRequest,
     FemRunResult,
     FemMaterial,
@@ -153,6 +154,28 @@ export function buildDocumentArgs(request: BuildDocumentRequest, scriptPath: str
 }
 
 /**
+ * Build the argument list for ``python/geometry_service.py --from-document``
+ * partial rebuilds (P2 result cache).
+ *
+ * ``featureIds`` travel as a single comma-separated ``--partial-features``
+ * argument; ``cacheDir`` travels as ``--cache-dir`` when supplied (otherwise
+ * the backend defaults to the document file's directory). DAGMC and FEM mesh
+ * export stay skipped exactly like {@link buildDocumentArgs} — partial
+ * rebuilds are viewport-only operations.
+ *
+ * Exported for unit testing; callers should use {@link NukeCadBackendServiceImpl.buildFeaturesPartial}.
+ */
+export function buildFeaturesPartialArgs(request: BuildFeaturesPartialRequest, scriptPath: string): string[] {
+    const args = [scriptPath, request.scriptPath, '--from-document', '--partial-features', request.featureIds.join(',')];
+    // Viewport-only, like document builds: skip expensive DAGMC/mesh export.
+    args.push('--no-dagmc', '--no-mesh');
+    if (request.cacheDir !== undefined && request.cacheDir.length > 0) {
+        args.push('--cache-dir', request.cacheDir);
+    }
+    return args;
+}
+
+/**
  * Maximum characters of a service's stdout/stderr kept in memory, mirroring
  * openmc-studio's runner. The stdout-JSON services print their one small JSON
  * summary line last, so keeping only the trailing 1 MB preserves the backwards
@@ -252,6 +275,37 @@ export class NukeCadBackendServiceImpl implements NukeCadBackendService {
 
         const args = buildDocumentArgs(request, scriptPath);
         return this._spawnJsonService<GeometryBuildResult>(pythonCommand, args, path.dirname(request.scriptPath), request.scriptPath);
+    }
+
+    /**
+     * Rebuild only ``request.featureIds`` of a ``.nuke-cad`` document against
+     * the result-cache sidecar (pass-through to ``geometry_service.py``; the
+     * Python backend owns cache IO, predecessor-shape injection, and topo
+     * order within the closure).
+     */
+    async buildFeaturesPartial(request: BuildFeaturesPartialRequest): Promise<GeometryBuildResult> {
+        const scriptPath = resolvePythonScript({ packageName: 'nuke-cad', scriptName: 'geometry_service.py' });
+        if (!scriptPath) {
+            return {
+                success: false,
+                error: 'Geometry service script not found.',
+                scriptPath: request.scriptPath
+            };
+        }
+
+        const pythonCommand = await this.nukeCoreService.getPythonCommand();
+        if (!pythonCommand) {
+            return {
+                success: false,
+                error: 'No Python interpreter configured. Set a Python environment in Settings → Nuke Utils.',
+                scriptPath: request.scriptPath
+            };
+        }
+
+        const args = buildFeaturesPartialArgs(request, scriptPath);
+        return this._spawnJsonService<GeometryBuildResult>(pythonCommand, args, path.dirname(request.scriptPath), request.scriptPath, {
+            jobId: request.jobId
+        });
     }
 
     /**

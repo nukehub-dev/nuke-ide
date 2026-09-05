@@ -46,6 +46,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   position. The `nuke.cad.editFeature` command palette entry now edits the
   feature selected in the Feature Tree when invoked without an id, and the
   Feature Tree shows the **Edit Parameters** pencil for boolean features too.
+- nuke-cad: **result-cache rebuilds** — document builds now persist
+  per-feature B-reps to a `<stem>.nuke-cache.zip` sidecar, so edits rebuild
+  only the dirty closure (clean predecessors restore from blobs) and opening
+  a cached document restores everything with only tessellation running; any
+  miss safely executes that feature instead. Reorders, datum edits, and
+  sketch-parameter edits all invalidate correctly. The in-session memory
+  cache still covers same-session reopens with zero backend spawn.
 - nuke-cad: **`nukeCad.rebuildOnEdit` preference** (`auto`/`manual`,
   default `auto`) — manual mode stops edit-triggered rebuilds and marks the
   model stale (banner + Rebuild button) instead, for documents where each

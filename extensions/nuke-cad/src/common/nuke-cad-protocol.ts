@@ -436,6 +436,26 @@ export interface RegionManifestData {
     readonly surfaces: RegionManifestSurface[];
 }
 
+/** Request to rebuild only the dirty closure of a ``.nuke-cad`` document. */
+export interface BuildFeaturesPartialRequest {
+    /** Absolute path to the ``.nuke-cad`` document (carried in ``scriptPath`` for service dispatch). */
+    readonly scriptPath: string;
+    /** Feature ids to rebuild, in topological build order (see ``FeatureGraph.recomputePlan``). */
+    readonly featureIds: string[];
+    /**
+     * Directory holding the ``<stem>.nuke-cache.zip`` sidecar. Defaults to the
+     * document file's directory when omitted. TS owns this policy; the backend
+     * only resolves the zip inside it.
+     */
+    readonly cacheDir?: string;
+    /**
+     * Optional caller-chosen job id for cancellation via
+     * {@link NukeCadBackendService.cancelJob}. The backend generates one when
+     * omitted and echoes it back on the result.
+     */
+    readonly jobId?: string;
+}
+
 /** Backend service exposed via JSON-RPC. */
 export interface NukeCadBackendService {
     /**
@@ -451,6 +471,22 @@ export interface NukeCadBackendService {
      * backend passes ``--from-document`` to the geometry service.
      */
     buildDocument(request: BuildDocumentRequest): Promise<GeometryBuildResult>;
+
+    /**
+     * Rebuild only ``featureIds`` of a ``.nuke-cad`` document against the
+     * result-cache sidecar in ``cacheDir``.
+     *
+     * Optional (additive P2 API) so existing implementers keep compiling while
+     * the backend lands: callers invoke it via ``?.`` and fall back to
+     * ``buildDocument`` when absent or rejected.
+     *
+     * The backend loads cached input shapes for clean predecessors from the
+     * zip, executes only the dirty features, writes back fresh blobs, and
+     * returns the unified tessellation as a {@link GeometryBuildResult}.
+     * Callers compute the id list with ``FeatureGraph.markDirty`` +
+     * ``recomputePlan``; the backend owns topo order within the closure.
+     */
+    buildFeaturesPartial?(request: BuildFeaturesPartialRequest): Promise<GeometryBuildResult>;
 
     /**
      * Set up and optionally run a CalculiX FEM analysis from a gmsh mesh.

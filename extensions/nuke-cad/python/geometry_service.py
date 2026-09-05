@@ -78,6 +78,17 @@ except Exception:
     curve_builder = None  # type: ignore
     HAS_CURVE_BUILDER = False
 
+# Result-cache sidecar (P2): pure stdlib, always importable. The zip path is
+# composed from the caller-provided cache dir + document stem; a missing dir
+# disables caching for that build.
+try:
+    import doc_cache  # noqa: E402
+
+    HAS_DOC_CACHE = True
+except Exception:
+    doc_cache = None  # type: ignore
+    HAS_DOC_CACHE = False
+
 # DAGMC export is optional; failure is reported but does not break STEP/tessellation.
 try:
     import dagmc_export
@@ -2700,6 +2711,203 @@ def build_document(
     return result
 
 
+def build_document_partial(
+    document_path: str,
+    feature_ids: list[str] | None,
+    cache_dir: str | None = None,
+    output_dir: str | None = None,
+    tolerance: float = 0.001,
+    export_dagmc: bool = True,
+    add_graveyard: bool = True,
+    export_mesh: bool = True,
+    mesh_engine: str = "gmsh",
+    mesh_size: float | None = None,
+    mesh_min_size: float | None = None,
+    mesh_max_size: float | None = None,
+    mesh_order: int = 1,
+    length_scale: float = 1.0,
+) -> dict:
+    """Rebuild only ``feature_ids`` of a ``.nuke-cad`` document via the P2 result cache.
+
+    Mirrors :func:`build_document` in validation, migration, curve handling,
+    and artifact emission; only the feature execution differs (TS-planned
+    dirty closure through ``feature_builder.build_document_shape_partial``,
+    clean predecessors restored from cached B-rep blobs). The zip sidecar
+    resolves inside ``cache_dir`` under the document stem
+    (``<stem>.nuke-cache.zip``); without a usable dir every feature executes.
+    Returns the stdout-JSON result dict with the unified
+    tessellation and per-feature results.
+    """
+    document_file = Path(document_path).resolve()
+    if not document_file.exists():
+        return {"success": False, "error": f"Document not found: {document_path}"}
+
+    if (
+        not HAS_FEATURE_BUILDER
+        or not HAS_SKETCH_BUILDER
+        or feature_builder is None
+        or sketch_builder is None
+    ):
+        return {
+            "success": False,
+            "error": "Document build requires build123d, which is not available in the active Python environment",
+            "scriptPath": str(document_file),
+        }
+
+    if output_dir is None:
+        output_dir = document_file.parent
+    out_dir = Path(output_dir).resolve()
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    _print_progress(f"Loading document: {document_file}")
+    try:
+        with document_file.open("r", encoding="utf-8") as fh:
+            document = json.load(fh)
+    except json.JSONDecodeError as exc:
+        return {
+            "success": False,
+            "error": f"Failed to parse .nuke-cad document: {exc}",
+            "scriptPath": str(document_file),
+        }
+    except Exception as exc:
+        return {
+            "success": False,
+            "error": f"Failed to read document: {exc}",
+            "traceback": traceback.format_exc(),
+            "scriptPath": str(document_file),
+        }
+
+    if not isinstance(document, dict):
+        return {
+            "success": False,
+            "error": ".nuke-cad document must be a JSON object",
+            "scriptPath": str(document_file),
+        }
+
+    version = document.get("version")
+    if version not in (1, 2, 3):
+        return {
+            "success": False,
+            "error": f"Unsupported .nuke-cad schema version {version!r}; expected 1, 2, or 3",
+            "scriptPath": str(document_file),
+        }
+
+    if version == 1:
+        document = _migrate_v1_to_v2(document)
+    if document.get("version") == 2:
+        document = _migrate_v2_to_v3(document)
+
+    ref_error = _validate_document_refs(document, document_file)
+    if ref_error is not None:
+        return ref_error
+
+    curves = document.get("curves", [])
+    has_curves = isinstance(curves, list) and len(curves) > 0
+
+    # Curves are built before features so sweep/pipe features can consume the
+    # fitted path wires; curves are independent of features, so the reorder is
+    # safe. The tess `curves` stream is still populated when a feature build
+    # fails because curve results are computed here, ahead of the feature loop.
+    curve_results: dict[str, dict[str, Any]] = {}
+    if has_curves:
+        if not HAS_CURVE_BUILDER or curve_builder is None:
+            return {
+                "success": False,
+                "error": "Document contains curves but the curve builder (OCP) is not available",
+                "scriptPath": str(document_file),
+            }
+        _print_progress("Building curves")
+        try:
+            curve_results = curve_builder.build_curves(document)
+        except curve_builder.CurveBuildError as exc:
+            return {
+                "success": False,
+                "error": str(exc),
+                "scriptPath": str(document_file),
+            }
+        except Exception as exc:
+            return {
+                "success": False,
+                "error": f"Curve build failed: {exc}",
+                "traceback": traceback.format_exc(),
+                "scriptPath": str(document_file),
+            }
+
+    # The zip sidecar lives beside the document; the TS-provided cache dir
+    # selects the directory (normally the document's own). Best-effort:
+    # without a usable path the partial path simply executes everything.
+    cache_path: str | None = None
+    if cache_dir and HAS_DOC_CACHE and doc_cache is not None:
+        try:
+            cache_path = str(Path(cache_dir) / f"{document_file.stem}.nuke-cache.zip")
+        except Exception:
+            cache_path = None
+    _print_progress("Building document features (partial)")
+    try:
+        build_result = feature_builder.build_document_shape_partial(
+            document,
+            list(feature_ids or []),
+            curve_results=curve_results,
+            cache_path=cache_path,
+        )
+    except (feature_builder.FeatureBuilderError, sketch_builder.SketchError) as exc:
+        return {
+            "success": False,
+            "error": str(exc),
+            "scriptPath": str(document_file),
+        }
+    except Exception as exc:
+        return {
+            "success": False,
+            "error": f"Document build failed: {exc}",
+            "traceback": traceback.format_exc(),
+            "scriptPath": str(document_file),
+        }
+
+    shape = build_result.get("shape")
+    if shape is None and not has_curves:
+        return {
+            "success": False,
+            "error": "Document produced no solids; check feature results for failures",
+            "scriptPath": str(document_file),
+            "featureResults": build_result.get("featureResults", []),
+            "referenceResults": build_result.get("referenceResults", []),
+            "consumedBodies": build_result.get("consumedBodies", []),
+            "warnings": build_result.get("warnings", []),
+        }
+
+    wrapped = getattr(shape, "wrapped", None) if shape is not None else None
+
+    manifest, manifest_warnings = _load_manifest(document_file)
+    result = _process_shape(
+        wrapped,
+        document_file,
+        out_dir,
+        document_file.stem,
+        tolerance=tolerance,
+        export_dagmc=export_dagmc,
+        add_graveyard=add_graveyard,
+        export_mesh=export_mesh,
+        mesh_engine=mesh_engine,
+        mesh_size=mesh_size,
+        mesh_min_size=mesh_min_size,
+        mesh_max_size=mesh_max_size,
+        mesh_order=mesh_order,
+        selector_map=build_result.get("selectorMap", {}),
+        manifest=manifest,
+        length_scale=length_scale,
+        body_ids=build_result.get("solidBodyIds"),
+        curve_results=curve_results,
+    )
+    result["featureResults"] = build_result.get("featureResults", [])
+    result["referenceResults"] = build_result.get("referenceResults", [])
+    result["consumedBodies"] = build_result.get("consumedBodies", [])
+    result["warnings"] = (
+        (result.get("warnings") or []) + build_result.get("warnings", []) + manifest_warnings
+    )
+    return result
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="nuke-cad geometry service")
     parser.add_argument(
@@ -2713,6 +2921,22 @@ def main() -> None:
         "--from-document", action="store_true", help="Treat the input as a .nuke-cad document"
     )
     parser.add_argument("--output-dir", default=None, help="Directory for output artifacts")
+    parser.add_argument(
+        "--partial-feature-ids",
+        default=None,
+        help=(
+            "Comma-separated feature ids for a partial --from-document rebuild; "
+            "clean predecessors reuse the P2 result cache at --cache-dir"
+        ),
+    )
+    parser.add_argument(
+        "--cache-dir",
+        default=None,
+        help=(
+            "Result-cache directory for partial document rebuilds "
+            "(passed through opaquely; cache policy is owned by the TS orchestrator)"
+        ),
+    )
     # Internal child-process entry point used by build_geometry for isolated
     # script execution; not part of the public CLI.
     parser.add_argument("--exec-script", default=None, help=argparse.SUPPRESS)
@@ -2798,20 +3022,38 @@ def main() -> None:
             length_scale=args.length_scale,
         )
     elif args.from_document:
-        result = build_document(
-            args.script,
-            output_dir=args.output_dir,
-            tolerance=args.tolerance,
-            export_dagmc=not args.no_dagmc,
-            add_graveyard=not args.no_graveyard,
-            export_mesh=not args.no_mesh,
-            mesh_engine=args.mesh_engine,
-            mesh_size=args.mesh_size,
-            mesh_min_size=args.mesh_min_size,
-            mesh_max_size=args.mesh_max_size,
-            mesh_order=args.mesh_order,
-            length_scale=args.length_scale,
-        )
+        if args.partial_feature_ids is not None:
+            result = build_document_partial(
+                args.script,
+                [fid.strip() for fid in args.partial_feature_ids.split(",") if fid.strip()],
+                cache_dir=args.cache_dir,
+                output_dir=args.output_dir,
+                tolerance=args.tolerance,
+                export_dagmc=not args.no_dagmc,
+                add_graveyard=not args.no_graveyard,
+                export_mesh=not args.no_mesh,
+                mesh_engine=args.mesh_engine,
+                mesh_size=args.mesh_size,
+                mesh_min_size=args.mesh_min_size,
+                mesh_max_size=args.mesh_max_size,
+                mesh_order=args.mesh_order,
+                length_scale=args.length_scale,
+            )
+        else:
+            result = build_document(
+                args.script,
+                output_dir=args.output_dir,
+                tolerance=args.tolerance,
+                export_dagmc=not args.no_dagmc,
+                add_graveyard=not args.no_graveyard,
+                export_mesh=not args.no_mesh,
+                mesh_engine=args.mesh_engine,
+                mesh_size=args.mesh_size,
+                mesh_min_size=args.mesh_min_size,
+                mesh_max_size=args.mesh_max_size,
+                mesh_order=args.mesh_order,
+                length_scale=args.length_scale,
+            )
     else:
         result = build_geometry(
             args.script,

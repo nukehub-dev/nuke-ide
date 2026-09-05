@@ -47,6 +47,14 @@ class FeatureBuilderError(ValueError):
     """Raised when the feature tree cannot be built."""
 
 
+#: Builder semantics version. Bumped on any change that alters built geometry
+#: for identical document inputs (the P2 result cache keys every per-feature
+#: entry on this alongside the OCP version, so a bump invalidates everything
+#: loudly instead of serving poisoned blobs). Pure refactors that keep
+#: ``build_document_shape`` byte-identical leave this at 1.
+BUILDER_VERSION = 1
+
+
 _AXIS_VECTOR: dict[str, tuple[float, float, float]] = {
     "x": (1.0, 0.0, 0.0),
     "y": (0.0, 1.0, 0.0),
@@ -3889,6 +3897,49 @@ def _check_cross_body_overlap(bodies: list[Any], body_ids: list[str]) -> list[st
     return warnings
 
 
+class _BuildState:
+    """Mutable per-build state threaded through single-feature execution.
+
+    Holds the document-derived maps (``datums``, ``sketches``, ``feature_map``,
+    ``order``, ``body_ids``, ``body_labels``, ``curve_results``) together with
+    the accumulators the feature loop mutates (per-body B-reps, per-feature
+    historical shapes, pattern source tools, result records, the stale/failed
+    set, and the boolean-consumed body set). Both the full build and the
+    partial (P2 cache) build drive the same :func:`_execute_feature` against
+    this state; the partial path additionally hydrates entries from cached
+    B-rep blobs before executing the dirty closure.
+    """
+
+    def __init__(
+        self,
+        *,
+        datums: dict[str, dict[str, Any]],
+        sketches: dict[str, dict[str, Any]],
+        features: list[dict[str, Any]],
+        feature_map: dict[str, dict[str, Any]],
+        order: list[str],
+        body_ids: list[str],
+        body_labels: dict[str, str],
+        curve_results: dict[str, dict[str, Any]],
+    ) -> None:
+        self.datums = datums
+        self.sketches = sketches
+        self.features = features
+        self.feature_map = feature_map
+        self.order = order
+        self.body_ids = body_ids
+        self.body_labels = body_labels
+        self.curve_results = curve_results
+        self.accumulators: dict[str, Any] = {}
+        self.selector_map: dict[str, list[int]] = {}
+        self.feature_results: list[dict[str, Any]] = []
+        self.reference_results: list[dict[str, Any]] = []
+        self.stale_or_failed: set[str] = set()
+        self.feature_shapes: dict[str, Any] = {}
+        self.tool_shapes: dict[str, Any] = {}
+        self.consumed_bodies: set[str] = set()
+
+
 def build_document_shape(
     document: dict[str, Any],
     curve_results: dict[str, dict[str, Any]] | None = None,
@@ -3920,6 +3971,24 @@ def build_document_shape(
     if bd is None:
         raise FeatureBuilderError("build123d is not available; cannot build document shape")
 
+    state = _prepare_build_state(document, curve_results)
+
+    for feature_id in state.order:
+        _execute_feature(state, feature_id)
+
+    return _assemble_final_shape(state)
+
+
+def _prepare_build_state(
+    document: dict[str, Any],
+    curve_results: dict[str, dict[str, Any]] | None = None,
+) -> _BuildState:
+    """Parse a ``.nuke-cad`` document into an empty :class:`_BuildState`.
+
+    Injects implied body/boolean/datum dependencies and computes the
+    topological order (via :func:`topo_sort_features`). Shared verbatim by the
+    full build and the P2 partial build so both plan the same execution order.
+    """
     curve_results = curve_results or {}
 
     datums = {
@@ -3960,498 +4029,347 @@ def build_document_shape(
         and b["label"]
     }
 
-    accumulators: dict[str, Any] = {}
-    selector_map: dict[str, list[int]] = {}
-    feature_results: list[dict[str, Any]] = []
-    reference_results: list[dict[str, Any]] = []
-    stale_or_failed: set[str] = set()
-    feature_shapes: dict[str, Any] = {}
-    tool_shapes: dict[str, Any] = {}
-    consumed_bodies: set[str] = set()
-    overlap_warnings: list[str] = []
+    return _BuildState(
+        datums=datums,
+        sketches=sketches,
+        features=features,
+        feature_map=feature_map,
+        order=order,
+        body_ids=body_ids,
+        body_labels=body_labels,
+        curve_results=curve_results,
+    )
 
-    for feature_id in order:
-        feature = feature_map[feature_id]
-        body_id = feature.get("body", "")
 
-        if feature.get("suppressed"):
-            feature_results.append({"featureId": feature_id, "bodyId": body_id, "status": "stale"})
+def _execute_feature(state: _BuildState, feature_id: str) -> None:
+    """Execute one feature against the predecessor shapes in ``state``.
+
+    Single-feature step shared by the full build and the P2 partial build.
+    Predecessor inputs (body accumulators, historical ``feature_shapes``,
+    pattern source ``tool_shapes``) may come from live execution or from
+    cached B-rep blobs deserialized into ``state`` — execution itself is
+    identical either way. Suppression and stale/failed propagation follow the
+    existing contract: suppressed features and dependents of stale/failed
+    dependencies are marked ``stale`` without building; features targeting a
+    boolean-consumed body are likewise ``stale``. Exactly one
+    ``feature_results`` record is appended per call.
+    """
+    feature_map = state.feature_map
+    order = state.order
+    datums = state.datums
+    sketches = state.sketches
+    curve_results = state.curve_results
+    accumulators = state.accumulators
+    feature_results = state.feature_results
+    reference_results = state.reference_results
+    stale_or_failed = state.stale_or_failed
+    feature_shapes = state.feature_shapes
+    tool_shapes = state.tool_shapes
+    consumed_bodies = state.consumed_bodies
+    body_ids = state.body_ids
+    feature = feature_map[feature_id]
+    body_id = feature.get("body", "")
+
+    if feature.get("suppressed"):
+        feature_results.append({"featureId": feature_id, "bodyId": body_id, "status": "stale"})
+        stale_or_failed.add(feature_id)
+        return
+
+    dependency_status = (
+        "stale" if any(dep in stale_or_failed for dep in feature.get("dependsOn", [])) else None
+    )
+    if dependency_status:
+        feature_results.append({"featureId": feature_id, "bodyId": body_id, "status": "stale"})
+        stale_or_failed.add(feature_id)
+        return
+
+    feature_type = feature["type"]
+
+    if feature_type in ("booleanFuse", "booleanCut", "booleanCommon"):
+        params = feature.get("params", {}) if isinstance(feature.get("params"), dict) else {}
+        target_body = params.get("targetBody", "")
+        tool_bodies = params.get("toolBodies", [])
+        keep_tools = bool(params.get("keepTools", False))
+        error: str | None = None
+
+        if not isinstance(target_body, str) or not target_body:
+            error = f"feature '{feature_id}': boolean requires a targetBody"
+        elif not isinstance(tool_bodies, list) or not tool_bodies:
+            error = f"feature '{feature_id}': boolean requires at least one tool body"
+        elif target_body not in accumulators:
+            error = f"feature '{feature_id}': target body '{target_body}' has no geometry"
+        elif any(tool not in accumulators for tool in tool_bodies):
+            missing = [tool for tool in tool_bodies if tool not in accumulators]
+            error = f"feature '{feature_id}': tool bodies have no geometry: {', '.join(missing)}"
+        elif any(tool not in body_ids for tool in tool_bodies):
+            missing = [tool for tool in tool_bodies if tool not in body_ids]
+            error = f"feature '{feature_id}': unknown tool bodies: {', '.join(missing)}"
+
+        if error is not None:
+            feature_results.append(
+                {"featureId": feature_id, "bodyId": body_id, "status": "failed", "error": error}
+            )
             stale_or_failed.add(feature_id)
-            continue
+            return
 
-        dependency_status = (
-            "stale" if any(dep in stale_or_failed for dep in feature.get("dependsOn", [])) else None
-        )
-        if dependency_status:
-            feature_results.append({"featureId": feature_id, "bodyId": body_id, "status": "stale"})
-            stale_or_failed.add(feature_id)
-            continue
-
-        feature_type = feature["type"]
-
-        if feature_type in ("booleanFuse", "booleanCut", "booleanCommon"):
-            params = feature.get("params", {}) if isinstance(feature.get("params"), dict) else {}
-            target_body = params.get("targetBody", "")
-            tool_bodies = params.get("toolBodies", [])
-            keep_tools = bool(params.get("keepTools", False))
-            error: str | None = None
-
-            if not isinstance(target_body, str) or not target_body:
-                error = f"feature '{feature_id}': boolean requires a targetBody"
-            elif not isinstance(tool_bodies, list) or not tool_bodies:
-                error = f"feature '{feature_id}': boolean requires at least one tool body"
-            elif target_body not in accumulators:
-                error = f"feature '{feature_id}': target body '{target_body}' has no geometry"
-            elif any(tool not in accumulators for tool in tool_bodies):
-                missing = [tool for tool in tool_bodies if tool not in accumulators]
-                error = (
-                    f"feature '{feature_id}': tool bodies have no geometry: {', '.join(missing)}"
-                )
-            elif any(tool not in body_ids for tool in tool_bodies):
-                missing = [tool for tool in tool_bodies if tool not in body_ids]
-                error = f"feature '{feature_id}': unknown tool bodies: {', '.join(missing)}"
-
-            if error is not None:
-                feature_results.append(
-                    {"featureId": feature_id, "bodyId": body_id, "status": "failed", "error": error}
-                )
-                stale_or_failed.add(feature_id)
-                continue
-
-            target_shape = accumulators[target_body]
-            boolean_tool_shapes = [accumulators[t] for t in tool_bodies]
-            try:
-                result_shape = _boolean_operation(target_shape, boolean_tool_shapes, feature_type)
-            except Exception as exc:
-                feature_results.append(
-                    {
-                        "featureId": feature_id,
-                        "bodyId": body_id,
-                        "status": "failed",
-                        "error": str(exc),
-                    }
-                )
-                stale_or_failed.add(feature_id)
-                continue
-
-            accumulators[target_body] = result_shape
-            feature_shapes[feature_id] = getattr(result_shape, "wrapped", result_shape)
-            consumed = [] if keep_tools else list(tool_bodies)
-            if not keep_tools:
-                consumed_bodies.update(tool_bodies)
+        target_shape = accumulators[target_body]
+        boolean_tool_shapes = [accumulators[t] for t in tool_bodies]
+        try:
+            result_shape = _boolean_operation(target_shape, boolean_tool_shapes, feature_type)
+        except Exception as exc:
             feature_results.append(
                 {
                     "featureId": feature_id,
                     "bodyId": body_id,
-                    "status": "built",
-                    "consumedBodyIds": consumed,
+                    "status": "failed",
+                    "error": str(exc),
                 }
             )
-            continue
+            stale_or_failed.add(feature_id)
+            return
 
-        if feature_type in ("fillet", "chamfer", "draft", "shell", "defeature"):
-            if body_id in consumed_bodies:
-                feature_results.append(
-                    {"featureId": feature_id, "bodyId": body_id, "status": "stale"}
-                )
-                stale_or_failed.add(feature_id)
-                continue
-            previous_body = accumulators.get(body_id)
-            if previous_body is None:
-                feature_results.append(
-                    {
-                        "featureId": feature_id,
-                        "bodyId": body_id,
-                        "status": "failed",
-                        "error": f"feature '{feature_id}': {feature_type} requires an existing solid body",
-                    }
-                )
-                stale_or_failed.add(feature_id)
-                continue
+        accumulators[target_body] = result_shape
+        feature_shapes[feature_id] = getattr(result_shape, "wrapped", result_shape)
+        consumed = [] if keep_tools else list(tool_bodies)
+        if not keep_tools:
+            consumed_bodies.update(tool_bodies)
+        feature_results.append(
+            {
+                "featureId": feature_id,
+                "bodyId": body_id,
+                "status": "built",
+                "consumedBodyIds": consumed,
+            }
+        )
+        return
 
-            refs_with_paths = _collect_topology_refs(feature, datums, sketches)
-            entities, ref_results = _resolve_refs_against_shape(
-                refs_with_paths, previous_body.wrapped, owner_feature_id=feature_id
+    if feature_type in ("fillet", "chamfer", "draft", "shell", "defeature"):
+        if body_id in consumed_bodies:
+            feature_results.append({"featureId": feature_id, "bodyId": body_id, "status": "stale"})
+            stale_or_failed.add(feature_id)
+            return
+        previous_body = accumulators.get(body_id)
+        if previous_body is None:
+            feature_results.append(
+                {
+                    "featureId": feature_id,
+                    "bodyId": body_id,
+                    "status": "failed",
+                    "error": f"feature '{feature_id}': {feature_type} requires an existing solid body",
+                }
             )
-            reference_results.extend(ref_results)
-            broken = [r for r in ref_results if r["status"] in ("unmatched", "ambiguous")]
-            if broken:
-                details = "; ".join(
-                    f"{r['path']} is {r['status']} (score {r['score']:.3f})" for r in broken
-                )
-                feature_results.append(
-                    {
-                        "featureId": feature_id,
-                        "bodyId": body_id,
-                        "status": "failed",
-                        "error": f"feature '{feature_id}' has unresolved topological references: {details}",
-                    }
-                )
-                stale_or_failed.add(feature_id)
-                continue
+            stale_or_failed.add(feature_id)
+            return
 
-            ref_path_to_index = {path: i for i, (path, _) in enumerate(refs_with_paths)}
-            params = feature.get("params", {}) if isinstance(feature.get("params"), dict) else {}
-            try:
-                if feature_type == "fillet":
-                    radius = params.get("radius")
-                    if (
-                        not isinstance(radius, (int, float))
-                        or isinstance(radius, bool)
-                        or not math.isfinite(radius)
-                        or radius <= 0
-                    ):
-                        raise FeatureBuilderError(
-                            f"feature '{feature_id}': fillet requires a positive radius"
-                        )
-                    result_shape = _apply_fillet(previous_body, entities, float(radius), feature_id)
-                elif feature_type == "chamfer":
-                    result_shape = _apply_chamfer(previous_body, entities, params, feature_id)
-                elif feature_type == "draft":
-                    pull_direction = params.get("pullDirection")
-                    if not isinstance(pull_direction, (list, tuple)) or len(pull_direction) != 3:
-                        raise FeatureBuilderError(
-                            f"feature '{feature_id}': draft requires pullDirection [x, y, z]"
-                        )
-                    angle = params.get("angle")
-                    if (
-                        not isinstance(angle, (int, float))
-                        or isinstance(angle, bool)
-                        or not math.isfinite(angle)
-                    ):
-                        raise FeatureBuilderError(
-                            f"feature '{feature_id}': draft requires a finite angle"
-                        )
-                    neutral_path = f"feature.{feature_id}.params.neutralPlane"
-                    neutral_plane = None
-                    if neutral_path in ref_path_to_index:
-                        neutral_plane = _neutral_plane_from_face(
-                            entities[ref_path_to_index[neutral_path]], feature_id
-                        )
-                    # The neutralPlane reference resolves alongside the draft
-                    # faces but is not itself a drafted face.
-                    draft_faces = [
-                        entity
-                        for path, entity in zip(
-                            [p for p, _ in refs_with_paths], entities, strict=True
-                        )
-                        if path != neutral_path
-                    ]
-                    result_shape = _apply_draft(
-                        previous_body,
-                        draft_faces,
-                        tuple(pull_direction),
-                        float(angle),
-                        feature_id,
-                        neutral_plane,
-                    )
-                elif feature_type == "shell":
-                    thickness = params.get("thickness")
-                    if (
-                        not isinstance(thickness, (int, float))
-                        or isinstance(thickness, bool)
-                        or not math.isfinite(thickness)
-                        or thickness <= 0
-                    ):
-                        raise FeatureBuilderError(
-                            f"feature '{feature_id}': shell requires a positive thickness"
-                        )
-                    result_shape = _apply_shell(
-                        previous_body, entities, float(thickness), feature_id
-                    )
-                elif feature_type == "defeature":
-                    result_shape = _apply_defeature(previous_body, entities, feature_id)
-                else:
+        refs_with_paths = _collect_topology_refs(feature, datums, sketches)
+        entities, ref_results = _resolve_refs_against_shape(
+            refs_with_paths, previous_body.wrapped, owner_feature_id=feature_id
+        )
+        reference_results.extend(ref_results)
+        broken = [r for r in ref_results if r["status"] in ("unmatched", "ambiguous")]
+        if broken:
+            details = "; ".join(
+                f"{r['path']} is {r['status']} (score {r['score']:.3f})" for r in broken
+            )
+            feature_results.append(
+                {
+                    "featureId": feature_id,
+                    "bodyId": body_id,
+                    "status": "failed",
+                    "error": f"feature '{feature_id}' has unresolved topological references: {details}",
+                }
+            )
+            stale_or_failed.add(feature_id)
+            return
+
+        ref_path_to_index = {path: i for i, (path, _) in enumerate(refs_with_paths)}
+        params = feature.get("params", {}) if isinstance(feature.get("params"), dict) else {}
+        try:
+            if feature_type == "fillet":
+                radius = params.get("radius")
+                if (
+                    not isinstance(radius, (int, float))
+                    or isinstance(radius, bool)
+                    or not math.isfinite(radius)
+                    or radius <= 0
+                ):
                     raise FeatureBuilderError(
-                        f"feature '{feature_id}': type '{feature_type}' is not supported yet"
+                        f"feature '{feature_id}': fillet requires a positive radius"
                     )
-            except Exception as exc:
-                feature_results.append(
-                    {
-                        "featureId": feature_id,
-                        "bodyId": body_id,
-                        "status": "failed",
-                        "error": str(exc),
-                    }
-                )
-                stale_or_failed.add(feature_id)
-                continue
-
-            accumulators[body_id] = result_shape
-            feature_shapes[feature_id] = getattr(result_shape, "wrapped", result_shape)
-            feature_results.append({"featureId": feature_id, "bodyId": body_id, "status": "built"})
-            continue
-
-        if feature_type in ("linearPattern", "circularPattern", "mirror", "hole", "multiTransform"):
-            if body_id in consumed_bodies:
-                feature_results.append(
-                    {"featureId": feature_id, "bodyId": body_id, "status": "stale"}
-                )
-                stale_or_failed.add(feature_id)
-                continue
-            previous_body = accumulators.get(body_id)
-            if previous_body is None:
-                feature_results.append(
-                    {
-                        "featureId": feature_id,
-                        "bodyId": body_id,
-                        "status": "failed",
-                        "error": f"feature '{feature_id}': {feature_type} requires an existing solid body",
-                    }
-                )
-                stale_or_failed.add(feature_id)
-                continue
-
-            if feature_type == "multiTransform":
-                # Cartesian product of the second pattern's transforms over the
-                # first pattern's full instance set, merged through the single
-                # union/skip path. Datum references resolve against the
-                # referenced features' historical shapes, like the sketch path.
-                multi_params = (
-                    feature.get("params", {}) if isinstance(feature.get("params"), dict) else {}
-                )
-                try:
-                    multi_order = {fid: idx for idx, fid in enumerate(order)}
-                    first = _valid_multitransform_reference(
-                        feature_id,
-                        multi_params.get("first"),
-                        "first",
-                        body_id,
-                        feature_map,
-                        multi_order,
+                result_shape = _apply_fillet(previous_body, entities, float(radius), feature_id)
+            elif feature_type == "chamfer":
+                result_shape = _apply_chamfer(previous_body, entities, params, feature_id)
+            elif feature_type == "draft":
+                pull_direction = params.get("pullDirection")
+                if not isinstance(pull_direction, (list, tuple)) or len(pull_direction) != 3:
+                    raise FeatureBuilderError(
+                        f"feature '{feature_id}': draft requires pullDirection [x, y, z]"
                     )
-                    second = _valid_multitransform_reference(
-                        feature_id,
-                        multi_params.get("second"),
-                        "second",
-                        body_id,
-                        feature_map,
-                        multi_order,
-                    )
-                    first_params = (
-                        first.get("params", {}) if isinstance(first.get("params"), dict) else {}
-                    )
-                    second_params = (
-                        second.get("params", {}) if isinstance(second.get("params"), dict) else {}
-                    )
-                    first_source_tool = tool_shapes.get(first_params.get("source"))
-                    if first_source_tool is None:
-                        raise FeatureBuilderError(
-                            f"feature '{feature_id}': first pattern '{first['id']}' "
-                            "tool shape is unavailable"
-                        )
-                    second_source = feature_map.get(second_params.get("source", ""))
-                    if second_source is None:
-                        raise FeatureBuilderError(
-                            f"feature '{feature_id}': second pattern '{second['id']}' "
-                            "source tool shape is unavailable"
-                        )
-                    role_refs = _multitransform_datum_refs(
-                        "first", first, feature_id, datums
-                    ) + _multitransform_datum_refs("second", second, feature_id, datums)
-                    role_entities, role_results = _resolve_document_refs(
-                        role_refs, feature_shapes, owner_feature_id=feature_id
-                    )
-                    reference_results.extend(role_results)
-                    role_broken = [
-                        r for r in role_results if r["status"] in ("unmatched", "ambiguous")
-                    ]
-                    if role_broken:
-                        details = "; ".join(
-                            f"{r['path']} is {r['status']} (score {r['score']:.3f})"
-                            for r in role_broken
-                        )
-                        raise FeatureBuilderError(
-                            f"feature '{feature_id}' has unresolved topological "
-                            f"references: {details}"
-                        )
-                    role_index = {path: i for i, (path, _) in enumerate(role_refs)}
-                    first_ops = _pattern_copy_operations(
-                        first,
-                        datums,
-                        role_entities,
-                        role_index,
-                        feature_id,
-                        prefix=f"feature.{feature_id}.params.first.datum.",
-                    )
-                    second_ops = _pattern_copy_operations(
-                        second,
-                        datums,
-                        role_entities,
-                        role_index,
-                        feature_id,
-                        prefix=f"feature.{feature_id}.params.second.datum.",
-                    )
-                    first_shapes = [first_source_tool] + [op(first_source_tool) for op in first_ops]
-                    product = [op(shape) for shape in first_shapes for op in second_ops]
-                    result_shape = _apply_pattern_or_mirror(
-                        previous_body, None, second_source.get("type", ""), product, feature_id
-                    )
-                    accumulators[body_id] = result_shape
-                    feature_shapes[feature_id] = getattr(result_shape, "wrapped", result_shape)
-                    feature_results.append(
-                        {"featureId": feature_id, "bodyId": body_id, "status": "built"}
-                    )
-                except Exception as exc:
-                    feature_results.append(
-                        {
-                            "featureId": feature_id,
-                            "bodyId": body_id,
-                            "status": "failed",
-                            "error": str(exc),
-                        }
-                    )
-                    stale_or_failed.add(feature_id)
-                continue
-
-            refs_with_paths = _collect_topology_refs(feature, datums, sketches)
-            # Datum references (pattern axis / mirror plane) resolve against the
-            # referenced feature's historical shape, like the sketch path; the
-            # hole placement face resolves against the body's current B-rep.
-            datum_slots = [
-                i for i, (path, _ref) in enumerate(refs_with_paths) if path.startswith("datum.")
-            ]
-            body_slots = [i for i in range(len(refs_with_paths)) if i not in datum_slots]
-            entities: list[Any] = [None] * len(refs_with_paths)
-            resolved_results: list[dict[str, Any] | None] = [None] * len(refs_with_paths)
-            if datum_slots:
-                datum_entities, datum_results = _resolve_document_refs(
-                    [refs_with_paths[i] for i in datum_slots],
-                    feature_shapes,
-                    owner_feature_id=feature_id,
-                )
-                for slot, entity, result in zip(
-                    datum_slots, datum_entities, datum_results, strict=True
+                angle = params.get("angle")
+                if (
+                    not isinstance(angle, (int, float))
+                    or isinstance(angle, bool)
+                    or not math.isfinite(angle)
                 ):
-                    entities[slot] = entity
-                    resolved_results[slot] = result
-            if body_slots:
-                body_entities, body_results = _resolve_refs_against_shape(
-                    [refs_with_paths[i] for i in body_slots],
-                    previous_body.wrapped,
-                    owner_feature_id=feature_id,
+                    raise FeatureBuilderError(
+                        f"feature '{feature_id}': draft requires a finite angle"
+                    )
+                neutral_path = f"feature.{feature_id}.params.neutralPlane"
+                neutral_plane = None
+                if neutral_path in ref_path_to_index:
+                    neutral_plane = _neutral_plane_from_face(
+                        entities[ref_path_to_index[neutral_path]], feature_id
+                    )
+                # The neutralPlane reference resolves alongside the draft
+                # faces but is not itself a drafted face.
+                draft_faces = [
+                    entity
+                    for path, entity in zip([p for p, _ in refs_with_paths], entities, strict=True)
+                    if path != neutral_path
+                ]
+                result_shape = _apply_draft(
+                    previous_body,
+                    draft_faces,
+                    tuple(pull_direction),
+                    float(angle),
+                    feature_id,
+                    neutral_plane,
                 )
-                for slot, entity, result in zip(
-                    body_slots, body_entities, body_results, strict=True
+            elif feature_type == "shell":
+                thickness = params.get("thickness")
+                if (
+                    not isinstance(thickness, (int, float))
+                    or isinstance(thickness, bool)
+                    or not math.isfinite(thickness)
+                    or thickness <= 0
                 ):
-                    entities[slot] = entity
-                    resolved_results[slot] = result
-            ref_results = [r for r in resolved_results if r is not None]
-            reference_results.extend(ref_results)
-            broken = [r for r in ref_results if r["status"] in ("unmatched", "ambiguous")]
-            if broken:
-                details = "; ".join(
-                    f"{r['path']} is {r['status']} (score {r['score']:.3f})" for r in broken
+                    raise FeatureBuilderError(
+                        f"feature '{feature_id}': shell requires a positive thickness"
+                    )
+                result_shape = _apply_shell(previous_body, entities, float(thickness), feature_id)
+            elif feature_type == "defeature":
+                result_shape = _apply_defeature(previous_body, entities, feature_id)
+            else:
+                raise FeatureBuilderError(
+                    f"feature '{feature_id}': type '{feature_type}' is not supported yet"
                 )
-                feature_results.append(
-                    {
-                        "featureId": feature_id,
-                        "bodyId": body_id,
-                        "status": "failed",
-                        "error": f"feature '{feature_id}' has unresolved topological references: {details}",
-                    }
-                )
-                stale_or_failed.add(feature_id)
-                continue
+        except Exception as exc:
+            feature_results.append(
+                {
+                    "featureId": feature_id,
+                    "bodyId": body_id,
+                    "status": "failed",
+                    "error": str(exc),
+                }
+            )
+            stale_or_failed.add(feature_id)
+            return
 
-            ref_path_to_index = {path: i for i, (path, _) in enumerate(refs_with_paths)}
-            params = feature.get("params", {}) if isinstance(feature.get("params"), dict) else {}
+        accumulators[body_id] = result_shape
+        feature_shapes[feature_id] = getattr(result_shape, "wrapped", result_shape)
+        feature_results.append({"featureId": feature_id, "bodyId": body_id, "status": "built"})
+        return
 
+    if feature_type in ("linearPattern", "circularPattern", "mirror", "hole", "multiTransform"):
+        if body_id in consumed_bodies:
+            feature_results.append({"featureId": feature_id, "bodyId": body_id, "status": "stale"})
+            stale_or_failed.add(feature_id)
+            return
+        previous_body = accumulators.get(body_id)
+        if previous_body is None:
+            feature_results.append(
+                {
+                    "featureId": feature_id,
+                    "bodyId": body_id,
+                    "status": "failed",
+                    "error": f"feature '{feature_id}': {feature_type} requires an existing solid body",
+                }
+            )
+            stale_or_failed.add(feature_id)
+            return
+
+        if feature_type == "multiTransform":
+            # Cartesian product of the second pattern's transforms over the
+            # first pattern's full instance set, merged through the single
+            # union/skip path. Datum references resolve against the
+            # referenced features' historical shapes, like the sketch path.
+            multi_params = (
+                feature.get("params", {}) if isinstance(feature.get("params"), dict) else {}
+            )
             try:
-                if feature_type in ("linearPattern", "circularPattern", "mirror"):
-                    source_id = params.get("source")
-                    if not isinstance(source_id, str) or not source_id:
-                        raise FeatureBuilderError(
-                            f"feature '{feature_id}': source feature id is required"
-                        )
-                    order_index = {fid: idx for idx, fid in enumerate(order)}
-                    source = _valid_source_feature(
-                        feature_id, source_id, feature_type, body_id, feature_map, order_index
+                multi_order = {fid: idx for idx, fid in enumerate(order)}
+                first = _valid_multitransform_reference(
+                    feature_id,
+                    multi_params.get("first"),
+                    "first",
+                    body_id,
+                    feature_map,
+                    multi_order,
+                )
+                second = _valid_multitransform_reference(
+                    feature_id,
+                    multi_params.get("second"),
+                    "second",
+                    body_id,
+                    feature_map,
+                    multi_order,
+                )
+                first_params = (
+                    first.get("params", {}) if isinstance(first.get("params"), dict) else {}
+                )
+                second_params = (
+                    second.get("params", {}) if isinstance(second.get("params"), dict) else {}
+                )
+                first_source_tool = tool_shapes.get(first_params.get("source"))
+                if first_source_tool is None:
+                    raise FeatureBuilderError(
+                        f"feature '{feature_id}': first pattern '{first['id']}' "
+                        "tool shape is unavailable"
                     )
-                    source_tool = tool_shapes.get(source_id)
-                    if source_tool is None:
-                        raise FeatureBuilderError(
-                            f"feature '{feature_id}': source '{source_id}' tool shape is unavailable"
-                        )
-
-                    if feature_type == "linearPattern":
-                        count = int(params.get("count", 1))
-                        spacing = float(params.get("spacing", 0.0))
-                        axis = str(params.get("axis", "z"))
-                        scale = _pattern_scale(params, feature_id)
-                        instances = [
-                            _scaled_about_center(instance, scale)
-                            for instance in _linear_pattern_instances(
-                                source_tool, count, spacing, axis
-                            )
-                        ]
-                        result_shape = _apply_pattern_or_mirror(
-                            previous_body, source_tool, source["type"], instances, feature_id
-                        )
-                    elif feature_type == "circularPattern":
-                        count = int(params.get("count", 1))
-                        angle = float(params.get("angle", 360.0))
-                        scale = _pattern_scale(params, feature_id)
-                        pattern_axis = _resolve_circular_pattern_axis(
-                            params,
-                            datums,
-                            entities,
-                            ref_path_to_index,
-                            feature_id,
-                        )
-                        instances = [
-                            _scaled_about_center(instance, scale)
-                            for instance in _circular_pattern_instances(
-                                source_tool, count, angle, pattern_axis
-                            )
-                        ]
-                        result_shape = _apply_pattern_or_mirror(
-                            previous_body, source_tool, source["type"], instances, feature_id
-                        )
-                    else:  # mirror
-                        scale = _pattern_scale(params, feature_id)
-                        mirror_plane = _resolve_mirror_plane(
-                            params,
-                            datums,
-                            entities,
-                            ref_path_to_index,
-                            feature_id,
-                        )
-                        mirrored = _scaled_about_center(
-                            _mirror_shape(source_tool, mirror_plane), scale
-                        )
-                        result_shape = _apply_pattern_or_mirror(
-                            previous_body, source_tool, source["type"], [mirrored], feature_id
-                        )
-                else:  # hole
-                    face_path = f"feature.{feature_id}.params.face"
-                    face_entity = entities[ref_path_to_index[face_path]]
-                    hole_plane = _workplane_from_face(face_entity)
-                    center = params.get("center")
-                    if not isinstance(center, (list, tuple)) or len(center) != 2:
-                        raise FeatureBuilderError(
-                            f"feature '{feature_id}': hole center must be [u, v]"
-                        )
-                    tool = _build_hole_tool(
-                        plane=hole_plane,
-                        center=(float(center[0]), float(center[1])),
-                        diameter=float(params.get("diameter", 0.0)),
-                        depth=params.get("depth"),
-                        body=previous_body,
-                        face_entity=face_entity,
-                        feature_id=feature_id,
-                        counterbore_diameter=params.get("counterboreDiameter"),
-                        counterbore_depth=params.get("counterboreDepth"),
-                        countersink_diameter=params.get("countersinkDiameter"),
-                        countersink_angle=params.get("countersinkAngle"),
-                        counterdrill_diameter=params.get("counterdrillDiameter"),
-                        counterdrill_depth=params.get("counterdrillDepth"),
-                        taper_angle=params.get("taperAngle"),
-                        drill_point_angle=params.get("drillPointAngle"),
+                second_source = feature_map.get(second_params.get("source", ""))
+                if second_source is None:
+                    raise FeatureBuilderError(
+                        f"feature '{feature_id}': second pattern '{second['id']}' "
+                        "source tool shape is unavailable"
                     )
-                    _require_cut_intersection(previous_body, tool, feature_id, feature_type)
-                    result_shape = previous_body - tool
-
+                role_refs = _multitransform_datum_refs(
+                    "first", first, feature_id, datums
+                ) + _multitransform_datum_refs("second", second, feature_id, datums)
+                role_entities, role_results = _resolve_document_refs(
+                    role_refs, feature_shapes, owner_feature_id=feature_id
+                )
+                reference_results.extend(role_results)
+                role_broken = [r for r in role_results if r["status"] in ("unmatched", "ambiguous")]
+                if role_broken:
+                    details = "; ".join(
+                        f"{r['path']} is {r['status']} (score {r['score']:.3f})"
+                        for r in role_broken
+                    )
+                    raise FeatureBuilderError(
+                        f"feature '{feature_id}' has unresolved topological references: {details}"
+                    )
+                role_index = {path: i for i, (path, _) in enumerate(role_refs)}
+                first_ops = _pattern_copy_operations(
+                    first,
+                    datums,
+                    role_entities,
+                    role_index,
+                    feature_id,
+                    prefix=f"feature.{feature_id}.params.first.datum.",
+                )
+                second_ops = _pattern_copy_operations(
+                    second,
+                    datums,
+                    role_entities,
+                    role_index,
+                    feature_id,
+                    prefix=f"feature.{feature_id}.params.second.datum.",
+                )
+                first_shapes = [first_source_tool] + [op(first_source_tool) for op in first_ops]
+                product = [op(shape) for shape in first_shapes for op in second_ops]
+                result_shape = _apply_pattern_or_mirror(
+                    previous_body, None, second_source.get("type", ""), product, feature_id
+                )
                 accumulators[body_id] = result_shape
                 feature_shapes[feature_id] = getattr(result_shape, "wrapped", result_shape)
                 feature_results.append(
@@ -4467,103 +4385,271 @@ def build_document_shape(
                     }
                 )
                 stale_or_failed.add(feature_id)
-            continue
+            return
 
-        # Sketch-based solid feature (pad/pocket/revolve/groove/sweep/loft/
-        # helicalSweep), pipe, or primitive.
-        if body_id in consumed_bodies:
-            # The body was consumed by a boolean feature; adding to it would be
-            # silently excluded from the final assembly.
-            feature_results.append({"featureId": feature_id, "bodyId": body_id, "status": "stale"})
-            stale_or_failed.add(feature_id)
-            continue
-
-        try:
-            if feature_type == "pipe":
-                params = (
-                    feature.get("params", {}) if isinstance(feature.get("params"), dict) else {}
-                )
-                tool_shape = _build_pipe_tool(feature, params, curve_results, tool_shapes)
-            elif feature_type == "primitive":
-                params = (
-                    feature.get("params", {}) if isinstance(feature.get("params"), dict) else {}
-                )
-                tool_shape = _build_primitive_tool(
-                    feature,
-                    params,
-                    datums,
-                    sketches,
-                    feature_shapes,
-                    tool_shapes,
-                    reference_results,
-                )
-            else:
-                tool_shape = _build_feature_shape(
-                    feature,
-                    datums,
-                    sketches,
-                    feature_shapes,
-                    tool_shapes,
-                    reference_results,
-                    curve_results,
-                    accumulators.get(body_id),
-                )
-        except Exception as exc:
-            feature_results.append(
-                {"featureId": feature_id, "bodyId": body_id, "status": "failed", "error": str(exc)}
+        refs_with_paths = _collect_topology_refs(feature, datums, sketches)
+        # Datum references (pattern axis / mirror plane) resolve against the
+        # referenced feature's historical shape, like the sketch path; the
+        # hole placement face resolves against the body's current B-rep.
+        datum_slots = [
+            i for i, (path, _ref) in enumerate(refs_with_paths) if path.startswith("datum.")
+        ]
+        body_slots = [i for i in range(len(refs_with_paths)) if i not in datum_slots]
+        entities: list[Any] = [None] * len(refs_with_paths)
+        resolved_results: list[dict[str, Any] | None] = [None] * len(refs_with_paths)
+        if datum_slots:
+            datum_entities, datum_results = _resolve_document_refs(
+                [refs_with_paths[i] for i in datum_slots],
+                feature_shapes,
+                owner_feature_id=feature_id,
             )
-            stale_or_failed.add(feature_id)
-            continue
-
-        previous_body = accumulators.get(body_id)
-        up_to_fuse = feature_type == "pad" and _is_up_to_extrude(feature)
-
-        try:
-            if feature_type in (
-                "pad",
-                "revolve",
-                "sweep",
-                "pipe",
-                "loft",
-                "helicalSweep",
-                "primitive",
+            for slot, entity, result in zip(
+                datum_slots, datum_entities, datum_results, strict=True
             ):
-                if previous_body is None:
-                    accumulators[body_id] = tool_shape
-                elif up_to_fuse:
-                    # Up-to tools terminate on the body by construction, so
-                    # they overlap or touch it; fuse instead of going through
-                    # the blind disjoint-regions guard.
-                    try:
-                        accumulators[body_id] = previous_body + tool_shape
-                    except Exception as exc:
-                        raise FeatureBuilderError(
-                            f"feature '{feature_id}': pad boolean union failed: {exc}"
-                        ) from exc
-                else:
-                    accumulators[body_id] = _combine_additive(previous_body, tool_shape, feature_id)
-            elif feature_type in ("pocket", "groove"):
-                if previous_body is None:
-                    raise FeatureBuilderError(
-                        f"feature '{feature_id}': {feature_type} requires an existing solid body"
-                    )
-                _require_cut_intersection(previous_body, tool_shape, feature_id, feature_type)
-                accumulators[body_id] = previous_body - tool_shape
-            else:
-                raise FeatureBuilderError(
-                    f"feature '{feature_id}': type '{feature_type}' is not supported yet"
-                )
-        except Exception as exc:
+                entities[slot] = entity
+                resolved_results[slot] = result
+        if body_slots:
+            body_entities, body_results = _resolve_refs_against_shape(
+                [refs_with_paths[i] for i in body_slots],
+                previous_body.wrapped,
+                owner_feature_id=feature_id,
+            )
+            for slot, entity, result in zip(body_slots, body_entities, body_results, strict=True):
+                entities[slot] = entity
+                resolved_results[slot] = result
+        ref_results = [r for r in resolved_results if r is not None]
+        reference_results.extend(ref_results)
+        broken = [r for r in ref_results if r["status"] in ("unmatched", "ambiguous")]
+        if broken:
+            details = "; ".join(
+                f"{r['path']} is {r['status']} (score {r['score']:.3f})" for r in broken
+            )
             feature_results.append(
-                {"featureId": feature_id, "bodyId": body_id, "status": "failed", "error": str(exc)}
+                {
+                    "featureId": feature_id,
+                    "bodyId": body_id,
+                    "status": "failed",
+                    "error": f"feature '{feature_id}' has unresolved topological references: {details}",
+                }
             )
             stale_or_failed.add(feature_id)
-            continue
+            return
 
-        current_body = accumulators[body_id]
-        feature_shapes[feature_id] = getattr(current_body, "wrapped", current_body)
-        feature_results.append({"featureId": feature_id, "bodyId": body_id, "status": "built"})
+        ref_path_to_index = {path: i for i, (path, _) in enumerate(refs_with_paths)}
+        params = feature.get("params", {}) if isinstance(feature.get("params"), dict) else {}
 
+        try:
+            if feature_type in ("linearPattern", "circularPattern", "mirror"):
+                source_id = params.get("source")
+                if not isinstance(source_id, str) or not source_id:
+                    raise FeatureBuilderError(
+                        f"feature '{feature_id}': source feature id is required"
+                    )
+                order_index = {fid: idx for idx, fid in enumerate(order)}
+                source = _valid_source_feature(
+                    feature_id, source_id, feature_type, body_id, feature_map, order_index
+                )
+                source_tool = tool_shapes.get(source_id)
+                if source_tool is None:
+                    raise FeatureBuilderError(
+                        f"feature '{feature_id}': source '{source_id}' tool shape is unavailable"
+                    )
+
+                if feature_type == "linearPattern":
+                    count = int(params.get("count", 1))
+                    spacing = float(params.get("spacing", 0.0))
+                    axis = str(params.get("axis", "z"))
+                    scale = _pattern_scale(params, feature_id)
+                    instances = [
+                        _scaled_about_center(instance, scale)
+                        for instance in _linear_pattern_instances(source_tool, count, spacing, axis)
+                    ]
+                    result_shape = _apply_pattern_or_mirror(
+                        previous_body, source_tool, source["type"], instances, feature_id
+                    )
+                elif feature_type == "circularPattern":
+                    count = int(params.get("count", 1))
+                    angle = float(params.get("angle", 360.0))
+                    scale = _pattern_scale(params, feature_id)
+                    pattern_axis = _resolve_circular_pattern_axis(
+                        params,
+                        datums,
+                        entities,
+                        ref_path_to_index,
+                        feature_id,
+                    )
+                    instances = [
+                        _scaled_about_center(instance, scale)
+                        for instance in _circular_pattern_instances(
+                            source_tool, count, angle, pattern_axis
+                        )
+                    ]
+                    result_shape = _apply_pattern_or_mirror(
+                        previous_body, source_tool, source["type"], instances, feature_id
+                    )
+                else:  # mirror
+                    scale = _pattern_scale(params, feature_id)
+                    mirror_plane = _resolve_mirror_plane(
+                        params,
+                        datums,
+                        entities,
+                        ref_path_to_index,
+                        feature_id,
+                    )
+                    mirrored = _scaled_about_center(_mirror_shape(source_tool, mirror_plane), scale)
+                    result_shape = _apply_pattern_or_mirror(
+                        previous_body, source_tool, source["type"], [mirrored], feature_id
+                    )
+            else:  # hole
+                face_path = f"feature.{feature_id}.params.face"
+                face_entity = entities[ref_path_to_index[face_path]]
+                hole_plane = _workplane_from_face(face_entity)
+                center = params.get("center")
+                if not isinstance(center, (list, tuple)) or len(center) != 2:
+                    raise FeatureBuilderError(f"feature '{feature_id}': hole center must be [u, v]")
+                tool = _build_hole_tool(
+                    plane=hole_plane,
+                    center=(float(center[0]), float(center[1])),
+                    diameter=float(params.get("diameter", 0.0)),
+                    depth=params.get("depth"),
+                    body=previous_body,
+                    face_entity=face_entity,
+                    feature_id=feature_id,
+                    counterbore_diameter=params.get("counterboreDiameter"),
+                    counterbore_depth=params.get("counterboreDepth"),
+                    countersink_diameter=params.get("countersinkDiameter"),
+                    countersink_angle=params.get("countersinkAngle"),
+                    counterdrill_diameter=params.get("counterdrillDiameter"),
+                    counterdrill_depth=params.get("counterdrillDepth"),
+                    taper_angle=params.get("taperAngle"),
+                    drill_point_angle=params.get("drillPointAngle"),
+                )
+                _require_cut_intersection(previous_body, tool, feature_id, feature_type)
+                result_shape = previous_body - tool
+
+            accumulators[body_id] = result_shape
+            feature_shapes[feature_id] = getattr(result_shape, "wrapped", result_shape)
+            feature_results.append({"featureId": feature_id, "bodyId": body_id, "status": "built"})
+        except Exception as exc:
+            feature_results.append(
+                {
+                    "featureId": feature_id,
+                    "bodyId": body_id,
+                    "status": "failed",
+                    "error": str(exc),
+                }
+            )
+            stale_or_failed.add(feature_id)
+        return
+
+    # Sketch-based solid feature (pad/pocket/revolve/groove/sweep/loft/
+    # helicalSweep), pipe, or primitive.
+    if body_id in consumed_bodies:
+        # The body was consumed by a boolean feature; adding to it would be
+        # silently excluded from the final assembly.
+        feature_results.append({"featureId": feature_id, "bodyId": body_id, "status": "stale"})
+        stale_or_failed.add(feature_id)
+        return
+
+    try:
+        if feature_type == "pipe":
+            params = feature.get("params", {}) if isinstance(feature.get("params"), dict) else {}
+            tool_shape = _build_pipe_tool(feature, params, curve_results, tool_shapes)
+        elif feature_type == "primitive":
+            params = feature.get("params", {}) if isinstance(feature.get("params"), dict) else {}
+            tool_shape = _build_primitive_tool(
+                feature,
+                params,
+                datums,
+                sketches,
+                feature_shapes,
+                tool_shapes,
+                reference_results,
+            )
+        else:
+            tool_shape = _build_feature_shape(
+                feature,
+                datums,
+                sketches,
+                feature_shapes,
+                tool_shapes,
+                reference_results,
+                curve_results,
+                accumulators.get(body_id),
+            )
+    except Exception as exc:
+        feature_results.append(
+            {"featureId": feature_id, "bodyId": body_id, "status": "failed", "error": str(exc)}
+        )
+        stale_or_failed.add(feature_id)
+        return
+
+    previous_body = accumulators.get(body_id)
+    up_to_fuse = feature_type == "pad" and _is_up_to_extrude(feature)
+
+    try:
+        if feature_type in (
+            "pad",
+            "revolve",
+            "sweep",
+            "pipe",
+            "loft",
+            "helicalSweep",
+            "primitive",
+        ):
+            if previous_body is None:
+                accumulators[body_id] = tool_shape
+            elif up_to_fuse:
+                # Up-to tools terminate on the body by construction, so
+                # they overlap or touch it; fuse instead of going through
+                # the blind disjoint-regions guard.
+                try:
+                    accumulators[body_id] = previous_body + tool_shape
+                except Exception as exc:
+                    raise FeatureBuilderError(
+                        f"feature '{feature_id}': pad boolean union failed: {exc}"
+                    ) from exc
+            else:
+                accumulators[body_id] = _combine_additive(previous_body, tool_shape, feature_id)
+        elif feature_type in ("pocket", "groove"):
+            if previous_body is None:
+                raise FeatureBuilderError(
+                    f"feature '{feature_id}': {feature_type} requires an existing solid body"
+                )
+            _require_cut_intersection(previous_body, tool_shape, feature_id, feature_type)
+            accumulators[body_id] = previous_body - tool_shape
+        else:
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': type '{feature_type}' is not supported yet"
+            )
+    except Exception as exc:
+        feature_results.append(
+            {"featureId": feature_id, "bodyId": body_id, "status": "failed", "error": str(exc)}
+        )
+        stale_or_failed.add(feature_id)
+        return
+
+    current_body = accumulators[body_id]
+    feature_shapes[feature_id] = getattr(current_body, "wrapped", current_body)
+    feature_results.append({"featureId": feature_id, "bodyId": body_id, "status": "built"})
+
+
+def _assemble_final_shape(state: _BuildState) -> dict[str, Any]:
+    """Assemble the final Compound from the state's non-consumed bodies.
+
+    Shared by the full build and the P2 partial build: a ``Compound`` of
+    non-consumed body accumulators in document body order, plus the body-label
+    ``selectorMap``, per-solid body ids, cross-body overlap warnings, and the
+    accumulated feature/reference records.
+    """
+    body_ids = state.body_ids
+    consumed_bodies = state.consumed_bodies
+    accumulators = state.accumulators
+    body_labels = state.body_labels
+    selector_map = state.selector_map
+    feature_results = state.feature_results
+    reference_results = state.reference_results
+    overlap_warnings: list[str] = []
     # Final assembly: Compound of non-consumed bodies in document body order.
     final_children: list[Any] = []
     active_body_ids: list[str] = []
@@ -4625,3 +4711,417 @@ def build_document_shape(
         "solidBodyIds": solid_body_ids,
         "warnings": overlap_warnings,
     }
+
+
+# ---------------------------------------------------------------------------
+# P2 result-cache seam + partial execution (C2).
+#
+# Trust boundary (brief decisions 2-3): the TS orchestrator owns the dirty
+# plan and cache validity. Per-feature content-hash keys are recomputed from
+# the doc JSON on the TS side (``FeatureGraph.markDirty``/``recomputePlan``);
+# the backend never re-validates keys. A clean predecessor's blob is restored
+# as-is, and a missing/unreadable blob degrades to executing that feature (a
+# safe, slightly fuller rebuild) — never to a crash. Cache IO is best-effort
+# throughout: a failed write is skipped silently so the build result is never
+# held hostage by the sidecar.
+#
+# Result-cache seam (``doc_cache.py`` single-zip sidecar).
+#
+# Key-system split (do not "fix" by merging): the TS side computes its own
+# keys for the in-session memory cache; Python computes zip keys via
+# ``doc_cache.compute_document_keys``. The grammars differ and are NEVER
+# compared across the boundary — each flow passes the keys it computed to
+# the calls below, so both sides stay self-consistent.
+#
+# ``cache_path`` is the ``<stem>.nuke-cache.zip`` file path (or None to
+# disable); the geometry service composes it from the TS-provided cache dir
+# + document stem. All cache IO is best-effort: misses execute, failed
+# writes are skipped, and the build result never depends on the sidecar.
+# ---------------------------------------------------------------------------
+
+try:
+    import doc_cache as _doc_cache
+
+    HAS_DOC_CACHE = True
+except Exception:
+    _doc_cache = None  # type: ignore
+    HAS_DOC_CACHE = False
+
+try:
+    from ocp_compat import brep_tools_read as _brep_tools_read
+    from ocp_compat import brep_tools_write as _brep_tools_write
+
+    HAS_OCP_COMPAT_IO = True
+except Exception:
+    _brep_tools_read = None  # type: ignore
+    _brep_tools_write = None  # type: ignore
+    HAS_OCP_COMPAT_IO = False
+
+
+def _shape_fingerprint(topods_shape: Any) -> str:
+    """Content fingerprint of a B-rep shape for cache change detection.
+
+    Canonical JSON of the sorted face-fingerprint dicts (the same extraction
+    the repair UI uses), hashed with SHA-256. Face order from the explorer is
+    normalized by sorting, so the fingerprint is stable across processes for
+    identical geometry. Best-effort: any failure yields ``""`` (the input-key
+    match remains the real gate; the fingerprint is belt-and-braces metadata).
+    """
+    import hashlib
+    import json
+
+    try:
+        if not HAS_REFERENCE_RESOLVER or rr is None:
+            return ""
+        faces = rr.extract_face_fingerprints(topods_shape)
+        dicts = sorted(
+            json.dumps(f.to_dict(), sort_keys=True, separators=(",", ":")) for f in faces
+        )
+        return hashlib.sha256("\n".join(dicts).encode("utf-8")).hexdigest()
+    except Exception:
+        return ""
+
+
+def _shape_to_brep_bytes(shape: Any) -> bytes | None:
+    """Serialize a build123d shape to native BREP bytes (lossless round-trip).
+
+    Returns ``None`` for a ``None`` shape or when serialization fails; callers
+    treat ``None`` as "nothing to cache" and skip the write.
+    """
+    if shape is None:
+        return None
+    _require_build123d()
+    if not HAS_OCP_COMPAT_IO or _brep_tools_write is None:
+        return None
+    import os
+    import tempfile
+
+    from OCP.BRepTools import BRepTools
+
+    wrapped = getattr(shape, "wrapped", shape)
+    fd, path = tempfile.mkstemp(prefix="nuke_feat_", suffix=".brep")
+    os.close(fd)
+    try:
+        if not _brep_tools_write(BRepTools, wrapped, path):
+            return None
+        with open(path, "rb") as fh:
+            return fh.read()
+    except Exception:
+        return None
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+
+def _shape_from_brep_bytes(data: bytes | bytearray) -> Any:
+    """Deserialize BREP bytes to a build123d shape.
+
+    A single solid restores as a ``bd.Solid`` (preserving the single-tool
+    wrapper type the sketch-solid path produces); several solids restore as a
+    flat ``bd.Compound`` of wrapped solids (mirroring ``_apply_defeature``).
+    Raises ``FeatureBuilderError`` when the blob holds no solids.
+    """
+    _require_build123d()
+    assert bd is not None
+    if not isinstance(data, (bytes, bytearray)) or not data:
+        raise FeatureBuilderError("cached feature blob is empty")
+    if not HAS_OCP_COMPAT_IO or _brep_tools_read is None:
+        raise FeatureBuilderError("cached feature blobs require OCP BREP IO")
+    import os
+    import tempfile
+
+    from OCP.BRep import BRep_Builder
+    from OCP.BRepTools import BRepTools
+    from OCP.TopAbs import TopAbs_SOLID
+    from OCP.TopExp import TopExp_Explorer
+    from OCP.TopoDS import TopoDS, TopoDS_Shape
+
+    fd, path = tempfile.mkstemp(prefix="nuke_feat_", suffix=".brep")
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(bytes(data))
+        shape = TopoDS_Shape()
+        builder = BRep_Builder()
+        if not _brep_tools_read(BRepTools, shape, builder, path):
+            raise FeatureBuilderError("cached feature blob failed BREP IO")
+        solids: list[Any] = []
+        explorer = TopExp_Explorer(shape, TopAbs_SOLID)
+        while explorer.More():
+            solids.append(bd.Solid(TopoDS.Solid_s(explorer.Current())))
+            explorer.Next()
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+    if not solids:
+        raise FeatureBuilderError("cached feature blob contains no solids")
+    if len(solids) == 1:
+        return solids[0]
+    return bd.Compound(children=solids)
+
+
+def _open_cache(cache_path: str | None) -> Any | None:
+    """Open the zip sidecar for a build, or ``None`` when caching is off/broken.
+
+    ``cache_path`` is the ``<stem>.nuke-cache.zip`` file path the caller
+    resolved (the geometry service composes it from the cache dir + document
+    stem). Never raises: without a path, without the C1 module, or on any IO
+    error the build simply proceeds uncached.
+    """
+    if not cache_path or not HAS_DOC_CACHE or _doc_cache is None:
+        return None
+    try:
+        return _doc_cache.DocCache(cache_path)
+    except Exception:
+        return None
+
+
+def _cache_read_feature(
+    cache: Any | None, feature_id: str, input_key: str
+) -> tuple[bytes | None, bytes | None, dict[str, Any]]:
+    """Read one feature's cached blobs: ``(body_bytes, tool_bytes, meta)``.
+
+    A miss — no cache, no entry, key mismatch, malformed entry, or any IO
+    error — returns ``(None, None, {})``. Never raises.
+    """
+    if cache is None:
+        return None, None, {}
+    try:
+        entry = cache.lookup(feature_id, input_key)
+    except Exception:
+        return None, None, {}
+    if entry is None:
+        return None, None, {}
+    body = entry.brep_bytes
+    tool = entry.tool_bytes
+    meta = entry.meta if isinstance(entry.meta, dict) else {}
+    if body is None and tool is None:
+        return None, None, {}
+    return body, tool, meta
+
+
+def _cache_write_feature(
+    cache: Any | None,
+    feature_id: str,
+    input_key: str,
+    body_bytes: bytes | None,
+    tool_bytes: bytes | None,
+    meta: dict[str, Any],
+    shape_fingerprint: str,
+) -> bool:
+    """Persist one feature's blobs via the C1 interface. Never raises.
+
+    Returns True when the write landed; False (no cache, any error) means
+    the caller carries on without a cache entry.
+    """
+    if cache is None:
+        return False
+    try:
+        cache.store(
+            feature_id,
+            input_key=input_key,
+            shape_fingerprint=shape_fingerprint,
+            brep_bytes=body_bytes,
+            tool_bytes=tool_bytes,
+            meta=dict(meta or {}),
+        )
+    except Exception:
+        return False
+    return True
+
+
+def _restore_cached_feature(
+    state: _BuildState, feature: dict[str, Any], cache: Any | None, input_key: str
+) -> bool:
+    """Restore a clean predecessor's state from its cached blobs.
+
+    Hydrates the body accumulator snapshot, the historical ``feature_shapes``
+    entry (for TopologyRef resolution by later dirty features), the pattern
+    source ``tool_shapes`` entry when present, and the boolean consumed-body
+    set from ``meta``. Appends a ``cached`` feature record. Returns False on
+    any miss or inconsistency so the caller falls back to executing.
+    """
+    feature_id = feature["id"]
+    feature_type = feature.get("type", "")
+    body_bytes, tool_bytes, meta = _cache_read_feature(cache, feature_id, input_key)
+    if body_bytes is None:
+        return False
+    consumed: list[str] = []
+    if feature_type in ("booleanFuse", "booleanCut", "booleanCommon"):
+        params = feature.get("params", {}) if isinstance(feature.get("params"), dict) else {}
+        target_body = params.get("targetBody", "")
+        if not isinstance(target_body, str) or not target_body:
+            return False
+        if meta.get("target", target_body) != target_body:
+            return False
+        raw_consumed = meta.get("consumed")
+        if not isinstance(raw_consumed, list) or not all(isinstance(c, str) for c in raw_consumed):
+            return False
+        body_id = target_body
+        consumed = list(raw_consumed)
+    else:
+        body_id = feature.get("body", "")
+        if not isinstance(body_id, str) or not body_id:
+            return False
+    try:
+        body_shape = _shape_from_brep_bytes(body_bytes)
+        tool_shape = _shape_from_brep_bytes(tool_bytes) if tool_bytes is not None else None
+    except Exception:
+        return False
+    state.accumulators[body_id] = body_shape
+    state.feature_shapes[feature_id] = getattr(body_shape, "wrapped", body_shape)
+    if tool_shape is not None:
+        state.tool_shapes[feature_id] = tool_shape
+    state.consumed_bodies.update(consumed)
+    state.feature_results.append({"featureId": feature_id, "bodyId": body_id, "status": "cached"})
+    return True
+
+
+def _write_back_feature(
+    state: _BuildState, feature: dict[str, Any], cache: Any | None, input_key: str
+) -> bool:
+    """Write one freshly executed feature's blobs back through the C1 interface.
+
+    Only ``built`` executions are cached (``stale``/``failed`` leave no blobs,
+    so a later restore can never resurrect them). Booleans additionally store
+    ``meta`` with the target body and the ``consumedBodyIds`` of this
+    execution. Best-effort: returns False instead of raising, and the build
+    result never depends on it.
+    """
+    if cache is None:
+        return False
+    feature_id = feature["id"]
+    if not state.feature_results:
+        return False
+    record = state.feature_results[-1]
+    if record.get("featureId") != feature_id or record.get("status") != "built":
+        return False
+    feature_type = feature.get("type", "")
+    meta: dict[str, Any] = {}
+    if feature_type in ("booleanFuse", "booleanCut", "booleanCommon"):
+        params = feature.get("params", {}) if isinstance(feature.get("params"), dict) else {}
+        target_body = params.get("targetBody", "")
+        if not isinstance(target_body, str) or not target_body:
+            return False
+        body_shape = state.accumulators.get(target_body)
+        consumed = record.get("consumedBodyIds", [])
+        meta = {
+            "target": target_body,
+            "consumed": list(consumed) if isinstance(consumed, list) else [],
+        }
+    else:
+        body_id = feature.get("body", "")
+        if not isinstance(body_id, str) or not body_id:
+            return False
+        body_shape = state.accumulators.get(body_id)
+    if body_shape is None:
+        return False
+    tool_shape = state.tool_shapes.get(feature_id)
+    try:
+        body_bytes = _shape_to_brep_bytes(body_shape)
+        tool_bytes = _shape_to_brep_bytes(tool_shape) if tool_shape is not None else None
+    except Exception:
+        return False
+    if body_bytes is None:
+        return False
+    fingerprint = _shape_fingerprint(getattr(body_shape, "wrapped", body_shape))
+    return _cache_write_feature(
+        cache, feature_id, input_key, body_bytes, tool_bytes, meta, fingerprint
+    )
+
+
+def _must_execute_partial(state: _BuildState, feature: dict[str, Any]) -> bool:
+    """Return True when a non-dirty feature cannot be restored from cache.
+
+    Mirrors the staleness guards inside :func:`_execute_feature` so the
+    partial walk reproduces the full build's stale propagation exactly:
+    suppressed features, dependents of stale/failed features, and non-boolean
+    features targeting a boolean-consumed body always execute (and land
+    ``stale`` without building, as today).
+    """
+    if feature.get("suppressed"):
+        return True
+    if any(dep in state.stale_or_failed for dep in feature.get("dependsOn", [])):
+        return True
+    if feature.get("type") not in ("booleanFuse", "booleanCut", "booleanCommon"):
+        if feature.get("body", "") in state.consumed_bodies:
+            return True
+    return False
+
+
+def build_document_shape_partial(
+    document: dict[str, Any],
+    dirty_feature_ids: list[str],
+    curve_results: dict[str, dict[str, Any]] | None = None,
+    cache_path: str | None = None,
+) -> dict[str, Any]:
+    """Build only the dirty closure of a document, restoring the rest from cache.
+
+    ``dirty_feature_ids`` is the TS-planned dirty closure (``FeatureGraph``
+    ``markDirty``/``recomputePlan`` output): those features execute in
+    topological order (via :func:`topo_sort_features`, same order as the full
+    build) while every other feature restores its clean-predecessor inputs —
+    body accumulator, historical shape, pattern source tool, boolean consumed
+    set — from cached B-rep blobs deserialized through the C1 interface. Each
+    successful execution writes its fresh blobs back. A cache miss on a clean
+    feature degrades to executing it, so with an empty cache this is exactly
+    the full build. Unknown feature ids are a hard error.
+
+    Pattern fast path (brief section 8): a dirty pattern whose source is
+    clean reuses the CACHED source tool shape, transforming it ×N through the
+    unchanged :func:`_apply_pattern_or_mirror` — pairwise bbox-disjoint
+    layouts skip the booleans entirely (zero fuse, flat ``Compound``), while
+    overlapping (fused) layouts keep the GFOP-first call with the sequential
+    loop as fallback, verbatim. Suppression interplay follows the existing
+    contract (suppressed features and their dependents go ``stale``).
+
+    Returns the same dict shape as :func:`build_document_shape`, except clean
+    features carry the ``cached`` status in ``featureResults``.
+    """
+    if bd is None:
+        raise FeatureBuilderError("build123d is not available; cannot build document shape")
+
+    state = _prepare_build_state(document, curve_results)
+
+    dirty = set(dirty_feature_ids or [])
+    unknown = sorted(fid for fid in dirty if fid not in state.feature_map)
+    if unknown:
+        raise FeatureBuilderError(f"partial build names unknown features: {', '.join(unknown)}")
+
+    # Content keys are computed once from the doc JSON (no OCP): the restore
+    # path looks entries up by key and the write-back path stores under the
+    # same key, so the two sides stay consistent without comparing anything
+    # across the TS/Python boundary. Key failure degrades to a full execute.
+    cache = _open_cache(cache_path)
+    try:
+        keys = _content_keys_for_document(document) if cache is not None else {}
+    except Exception:
+        cache = None
+        keys = {}
+
+    for feature_id in state.order:
+        feature = state.feature_map[feature_id]
+        key = keys.get(feature_id, "")
+        if feature_id in dirty or _must_execute_partial(state, feature):
+            _execute_feature(state, feature_id)
+            _write_back_feature(state, feature, cache, key)
+        elif not _restore_cached_feature(state, feature, cache, key):
+            _execute_feature(state, feature_id)
+            _write_back_feature(state, feature, cache, key)
+
+    return _assemble_final_shape(state)
+
+
+def _content_keys_for_document(document: dict[str, Any]) -> dict[str, str]:
+    """Per-feature content keys for the zip sidecar, computed without OCP.
+
+    Uses the C1 key scheme (self-consistent within Python: the write-back
+    path stores under these keys and the restore path looks them up).
+    Raises on dependency cycles or dangling references like the builder.
+    """
+    if not HAS_DOC_CACHE or _doc_cache is None:
+        raise FeatureBuilderError("result-cache backend is unavailable")
+    return _doc_cache.compute_document_keys(document, ocp_version=_doc_cache.current_ocp_version())
