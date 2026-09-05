@@ -139,16 +139,24 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   dialogs pick the path curve from a dropdown or a viewport curve-pick mode
   (click-through banner, hover highlight, right-click/Escape cancel; picks are
   guarded against deleted curves by `resolveCurvePick`), and offer an optional
-  ghosted preview: the dialog debounces a validated draft (~300 ms) into a
-  `FeaturePreviewRequest`, the widget assembles a tentative mini-document
-  (`buildFeaturePreviewDocument` — empty v3 doc + the referenced sketches and
-  their datums, the referenced path curves, and the draft feature on a fresh
-  `preview-body`), builds it through the normal geometry-service path, and
-  renders the tessellation faces in a dedicated `cad-preview` scene group with
-  the ghost (x-ray) opacity; preview failures clear the preview silently. The
-  same preview machinery serves the sweep/pipe, loft, and helicalSweep dialogs
+  ghosted preview: every feature dialog offers it via a `previewEnabled`
+  checkbox driving a debounced (~300 ms) `FeaturePreviewRequest`; the widget
+  assembles a tentative mini-document (`buildFeaturePreviewDocument`) through
+  the normal geometry-service path and renders the tessellation faces in a
+  dedicated `cad-preview` scene group with the ghost (x-ray) opacity;
+  preview failures clear the preview silently. Solid producers
+  (pad/revolve/sweep/pipe/loft/helicalSweep/primitive) build standalone on a
+  fresh `preview-body`; modifiers (pocket/groove/dress-up/hole/boolean) pull
+  the referenced bodies' FULL feature chains (to a fixpoint, so cross-body
+  booleans never replay against an empty tool body) and retarget the draft
+  onto the real body, so TopologyRef fingerprints resolve against identical
+  geometry. Blind ends, angles, and validated numerics preview; non-blind
+  extrude ends and invalid drafts show the validator reason as hint text
+  with no preview. Costly chains simply hit the backend timeout and clear
+  per the contract. The
+  same preview machinery serves all dialogs
   (`sweep-pipe.ts` stays the single home for the draft validators, the section
-  reorder helper, and the preview-document builder): the loft dialog picks an
+  reorder helper, the closure collector, and the preview-document builder): the loft dialog picks an
   ordered section list in-dialog (no selected-sketch guard, like pipe) with
   per-row remove and up/down reorder, and the helicalSweep dialog derives the
   path from axis/startRadius/pitch/turns with the fixed-binormal vector

@@ -343,7 +343,10 @@ commands in the Feature Tree:
   thread flag.
 
 Each solid feature dialog asks for the target body, extrude direction/revolve
-axis, length or angle, and an optional **Label**. Boolean dialogs ask for a
+axis, length or angle, and an optional **Label**. Every dialog also offers a
+**Preview** checkbox that ghosts the tentative result in the viewport while
+you edit (blind ends and valid inputs only; cuts and dress-ups preview
+against the body's current geometry). Boolean dialogs ask for a
 target body, one or more tool bodies, and whether to keep the tool bodies after
 the operation. Labels are important because they map to the region manifest: a
 labeled body or feature becomes a named volume in `selector_map`, and the

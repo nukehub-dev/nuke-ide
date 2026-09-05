@@ -26,16 +26,21 @@
 // *****************************************************************************
 
 import { describe, expect, it } from 'vitest';
-import { type CurveDef, type NukeCadDocument, validateNukeCadDocument } from '../../../common/cad-document';
+import { type CurveDef, type FeatureDef, type NukeCadDocument, validateNukeCadDocument } from '../../../common/cad-document';
+import type { TopologyRef } from '../../../common/topology-refs';
 import { createEmptyNukeCadDocument } from '../../../common/document-templates';
 import {
     buildFeaturePreviewDocument,
+    collectPreviewClosure,
     helicalSweepDraftFromParams,
     loftDraftFromParams,
     moveLoftSection,
     resolveCurvePick,
+    validateExtrudeDraft,
     validateHelicalSweepDraft,
     validateLoftDraft,
+    validatePrimitiveDraft,
+    validateRevolveDraft,
     validateSweepPipeDraft
 } from './sweep-pipe';
 
@@ -532,5 +537,489 @@ describe('edit-parameters prefill helpers', () => {
         expect(draft.orientation).toBe('fixedBinormal');
         expect(draft.binormal).toEqual(['0', '0', '1']);
         expect(validateHelicalSweepDraft(draft).ok).toBe(true);
+    });
+});
+
+function faceRef(featureId: string): TopologyRef {
+    return { featureId, kind: 'face', fingerprint: { surfaceType: 'plane', area: 1, center: [0, 0, 0] } };
+}
+
+function edgeRef(featureId: string): TopologyRef {
+    return { featureId, kind: 'edge', fingerprint: { curveType: 'line', length: 1, start: [0, 0, 0], end: [1, 0, 0] } };
+}
+
+/** Document chaining every reference type the preview closure must follow. */
+function closureDocument(): NukeCadDocument {
+    const doc = createEmptyNukeCadDocument('closure');
+    const feature = (id: string, partial: Partial<FeatureDef>): FeatureDef => ({
+        id,
+        name: id,
+        type: 'pad',
+        body: 'b1',
+        params: {},
+        suppressed: false,
+        dependsOn: [],
+        ...partial
+    });
+    return {
+        ...doc,
+        bodies: [
+            { id: 'b1', name: 'Body 1' },
+            { id: 'b2', name: 'Body 2' }
+        ],
+        datums: [
+            ...doc.datums,
+            { id: 'datum-face', kind: 'face', name: 'Face', reference: faceRef('f1') },
+            { id: 'datum-mid', kind: 'midplane', name: 'Mid', faces: [faceRef('f1'), faceRef('f2')] }
+        ],
+        sketches: [
+            { id: 'sk1', name: 'S1', datumId: 'datum-xy', primitives: [], constraints: [] },
+            { id: 'sk2', name: 'S2', datumId: 'datum-face', primitives: [], constraints: [] },
+            { id: 'sk3', name: 'S3', datumId: 'datum-xy', primitives: [], constraints: [], externalRefs: [edgeRef('f1')] },
+            { id: 'sk4', name: 'S4', datumId: 'datum-mid', primitives: [], constraints: [] }
+        ],
+        curves: [pathCurve()],
+        features: [
+            feature('f1', { sketchId: 'sk1', params: { length: 10 } }),
+            feature('f2', { type: 'pocket', sketchId: 'sk2', params: { length: 5 }, dependsOn: ['f1'] }),
+            feature('f3', { type: 'fillet', params: { edges: [edgeRef('f1')], radius: 1 }, dependsOn: ['f2'] }),
+            feature('f4', {
+                type: 'linearPattern',
+                params: { source: 'f1', count: 2, spacing: 5, axis: 'x' },
+                dependsOn: ['f3']
+            }),
+            feature('f5', { type: 'mirror', params: { source: 'f1', plane: 'XY' }, dependsOn: ['f4'] }),
+            feature('f6', { type: 'multiTransform', params: { first: 'f4', second: 'f5' }, dependsOn: ['f5'] }),
+            feature('f7', {
+                type: 'sweep',
+                sketchId: 'sk1',
+                params: { pathCurveId: 'c1', orientation: 'frenet' },
+                dependsOn: ['f6']
+            }),
+            feature('f8', {
+                type: 'loft',
+                params: { sectionSketchIds: ['sk1', 'sk3'], ruled: false },
+                dependsOn: ['f7']
+            }),
+            feature('f9', {
+                type: 'pocket',
+                sketchId: 'sk3',
+                params: { end: 'upToFace', upToFace: faceRef('f1') },
+                dependsOn: ['f8']
+            }),
+            feature('f10', {
+                type: 'booleanFuse',
+                params: { targetBody: 'b1', toolBodies: ['b2'] },
+                dependsOn: ['f9']
+            }),
+            feature('f11', {
+                type: 'hole',
+                params: { face: faceRef('f1'), center: [0, 0], diameter: 5 },
+                dependsOn: ['f10']
+            }),
+            feature('f12', { type: 'primitive', body: 'b2', params: { shape: 'box', dimensions: [1, 2, 3], datumId: 'datum-xy' } })
+        ]
+    };
+}
+
+const emptySeeds = { featureIds: [], sketchIds: [], curveIds: [], bodyIds: [] };
+
+describe('collectPreviewClosure', () => {
+    it('collects a dress-up seed transitively in document order', () => {
+        const closure = collectPreviewClosure(closureDocument(), { ...emptySeeds, featureIds: ['f3'] });
+        expect(closure.features.map((f) => f.id)).toEqual(['f1', 'f2', 'f3']);
+        expect(closure.sketches.map((s) => s.id)).toEqual(['sk1', 'sk2']);
+        expect(closure.datums.map((d) => d.id)).toEqual(['datum-xy', 'datum-face']);
+        expect(closure.bodies.map((b) => b.id)).toEqual(['b1']);
+        expect(closure.curves).toEqual([]);
+    });
+
+    it('follows pattern source/first/second links', () => {
+        const closure = collectPreviewClosure(closureDocument(), { ...emptySeeds, featureIds: ['f6'] });
+        expect(closure.features.map((f) => f.id)).toEqual(['f1', 'f2', 'f3', 'f4', 'f5', 'f6']);
+    });
+
+    it('follows sketch externalRefs to their producing features', () => {
+        const closure = collectPreviewClosure(closureDocument(), { ...emptySeeds, sketchIds: ['sk3'] });
+        expect(closure.sketches.map((s) => s.id)).toEqual(['sk1', 'sk3']);
+        expect(closure.features.map((f) => f.id)).toEqual(['f1']);
+        expect(closure.datums.map((d) => d.id)).toEqual(['datum-xy']);
+    });
+
+    it('follows datum face references', () => {
+        const closure = collectPreviewClosure(closureDocument(), { ...emptySeeds, sketchIds: ['sk2'] });
+        expect(closure.features.map((f) => f.id)).toEqual(['f1']);
+        expect(closure.datums.map((d) => d.id)).toEqual(['datum-xy', 'datum-face']);
+    });
+
+    it('follows midplane datum faces', () => {
+        const closure = collectPreviewClosure(closureDocument(), { ...emptySeeds, sketchIds: ['sk4'] });
+        expect(closure.features.map((f) => f.id)).toEqual(['f1', 'f2']);
+        expect(closure.datums.map((d) => d.id)).toEqual(['datum-xy', 'datum-face', 'datum-mid']);
+    });
+
+    it('follows sweep pathCurveId and loft sectionSketchIds', () => {
+        const closure = collectPreviewClosure(closureDocument(), { ...emptySeeds, featureIds: ['f7', 'f8'] });
+        expect(closure.curves.map((c) => c.id)).toEqual(['c1']);
+        // sk2 arrives transitively through the f7->f6->...->f2 dependency chain.
+        expect(closure.sketches.map((s) => s.id)).toEqual(['sk1', 'sk2', 'sk3']);
+    });
+
+    it('follows upToFace refs and boolean toolBodies', () => {
+        const closure = collectPreviewClosure(closureDocument(), { ...emptySeeds, featureIds: ['f9', 'f10'] });
+        expect(closure.features.map((f) => f.id)).toEqual(['f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'f9', 'f10']);
+        expect(closure.bodies.map((b) => b.id)).toEqual(['b1', 'b2']);
+    });
+
+    it('passes seeded bodies and curves through with no outgoing edges', () => {
+        const closure = collectPreviewClosure(closureDocument(), { ...emptySeeds, bodyIds: ['b2'], curveIds: ['c1'] });
+        expect(closure.bodies.map((b) => b.id)).toEqual(['b2']);
+        expect(closure.curves.map((c) => c.id)).toEqual(['c1']);
+        expect(closure.features).toEqual([]);
+    });
+
+    it('skips unknown ids and leaves the input document untouched', () => {
+        const doc = closureDocument();
+        const before = JSON.stringify(doc);
+        const closure = collectPreviewClosure(doc, {
+            featureIds: ['missing'],
+            sketchIds: ['missing'],
+            curveIds: ['missing'],
+            bodyIds: ['missing']
+        });
+        expect(closure.features).toEqual([]);
+        expect(closure.sketches).toEqual([]);
+        expect(closure.datums).toEqual([]);
+        expect(closure.curves).toEqual([]);
+        expect(closure.bodies).toEqual([]);
+        expect(JSON.stringify(doc)).toBe(before);
+    });
+});
+
+describe('buildFeaturePreviewDocument with history', () => {
+    it('replays history verbatim and puts the draft on preview-body', () => {
+        const doc = closureDocument();
+        const preview = buildFeaturePreviewDocument(
+            doc,
+            { type: 'pad', sketchId: 'sk3', params: { length: 5, axis: 'z', symmetric: false } },
+            ['f1']
+        );
+        expect(preview).toBeDefined();
+        if (preview === undefined) {
+            return;
+        }
+        expect(preview.features.map((f) => f.id)).toEqual(['f1', 'preview-feature']);
+        expect(preview.features[0]).toBe(doc.features[0]);
+        const draft = preview.features[1];
+        expect(draft.type).toBe('pad');
+        expect(draft.body).toBe('preview-body');
+        expect(draft.sketchId).toBe('sk3');
+        expect(draft.dependsOn).toEqual([]);
+        expect(preview.bodies.map((b) => b.id)).toEqual(['b1', 'preview-body']);
+        expect(preview.sketches.map((s) => s.id)).toEqual(['sk1', 'sk3']);
+        expect(preview.datums.some((d) => d.id === 'datum-xy')).toBe(true);
+        expect(preview.parameters).toEqual(doc.parameters);
+        expect(validateNukeCadDocument(preview).valid).toBe(true);
+    });
+
+    it('accepts history as feature records', () => {
+        const doc = closureDocument();
+        const preview = buildFeaturePreviewDocument(doc, { type: 'revolve', sketchId: 'sk3', params: { axis: 'z', angle: 270 } }, [
+            doc.features[0]
+        ]);
+        expect(preview?.features.map((f) => f.id)).toEqual(['f1', 'preview-feature']);
+        expect(preview !== undefined && validateNukeCadDocument(preview).valid).toBe(true);
+    });
+
+    it('builds a primitive preview without history', () => {
+        const preview = buildFeaturePreviewDocument(closureDocument(), {
+            type: 'primitive',
+            params: { shape: 'box', dimensions: [1, 2, 3] }
+        });
+        expect(preview).toBeDefined();
+        if (preview === undefined) {
+            return;
+        }
+        expect(preview.features.map((f) => f.id)).toEqual(['preview-feature']);
+        expect(preview.features[0].sketchId).toBeUndefined();
+        expect(preview.bodies).toEqual([{ id: 'preview-body', name: 'Preview' }]);
+        expect(preview.datums.some((d) => d.id === 'datum-xy')).toBe(true);
+        expect(validateNukeCadDocument(preview).valid).toBe(true);
+    });
+
+    it('carries a dress-up draft through opaquely without history', () => {
+        const preview = buildFeaturePreviewDocument(closureDocument(), {
+            type: 'fillet',
+            params: { edges: [edgeRef('f1')], radius: 1 }
+        });
+        expect(preview).toBeDefined();
+        // The edge target rides along through the closure so the backend can
+        // resolve it (or fail silently when it cannot).
+        expect(preview?.features.map((f) => f.id)).toEqual(['f1', 'preview-feature']);
+        expect(preview?.sketches.map((s) => s.id)).toEqual(['sk1']);
+        expect(preview?.bodies.map((b) => b.id)).toEqual(['b1', 'preview-body']);
+    });
+
+    it('resolves a dress-up draft against its history', () => {
+        const preview = buildFeaturePreviewDocument(closureDocument(), { type: 'fillet', params: { edges: [edgeRef('f2')], radius: 1 } }, [
+            'f1',
+            'f2'
+        ]);
+        expect(preview?.features.map((f) => f.id)).toEqual(['f1', 'f2', 'preview-feature']);
+        expect(preview !== undefined && validateNukeCadDocument(preview).valid).toBe(true);
+    });
+
+    it('includes boolean bodies from the draft and the history', () => {
+        const preview = buildFeaturePreviewDocument(
+            closureDocument(),
+            { type: 'booleanFuse', params: { targetBody: 'b1', toolBodies: ['b2'] } },
+            ['f1']
+        );
+        expect(preview?.bodies.map((b) => b.id)).toEqual(['b1', 'b2', 'preview-body']);
+        expect(preview !== undefined && validateNukeCadDocument(preview).valid).toBe(true);
+    });
+
+    it('returns undefined when a history-path draft sketch is missing', () => {
+        const preview = buildFeaturePreviewDocument(
+            closureDocument(),
+            { type: 'pad', sketchId: 'missing', params: { length: 5, axis: 'z', symmetric: false } },
+            ['f1']
+        );
+        expect(preview).toBeUndefined();
+    });
+
+    it('returns undefined when a history-path sweep curve is missing', () => {
+        const preview = buildFeaturePreviewDocument(
+            closureDocument(),
+            { type: 'sweep', sketchId: 'sk1', params: { pathCurveId: 'missing', orientation: 'frenet' } },
+            ['f1']
+        );
+        expect(preview).toBeUndefined();
+    });
+
+    it('returns undefined when the primitive datum is missing', () => {
+        const preview = buildFeaturePreviewDocument(closureDocument(), {
+            type: 'primitive',
+            params: { shape: 'box', dimensions: [1, 2, 3], datumId: 'missing' }
+        });
+        expect(preview).toBeUndefined();
+    });
+
+    it('skips unknown history ids', () => {
+        const preview = buildFeaturePreviewDocument(
+            closureDocument(),
+            { type: 'pad', sketchId: 'sk1', params: { length: 5, axis: 'z', symmetric: false } },
+            ['missing']
+        );
+        expect(preview?.features.map((f) => f.id)).toEqual(['preview-feature']);
+    });
+});
+
+describe('validateExtrudeDraft', () => {
+    const blind = { type: 'pad' as const, length: '10', axis: 'z' as const, symmetric: false, twoSided: false, end: 'blind' as const };
+
+    it('accepts a blind pad and keeps the dialog conventions', () => {
+        const result = validateExtrudeDraft(blind);
+        expect(result.ok).toBe(true);
+        if (result.ok) {
+            expect(result.params).toEqual({ length: 10, axis: 'z', symmetric: false });
+        }
+    });
+
+    it('keeps twoSided only when set', () => {
+        const result = validateExtrudeDraft({ ...blind, type: 'pocket', symmetric: true, twoSided: true });
+        expect(result.ok).toBe(true);
+        if (result.ok) {
+            expect(result.params).toMatchObject({ length: 10, symmetric: true, twoSided: true });
+        }
+    });
+
+    it.each(['', '0', '-2', 'abc'])('rejects length %j', (length) => {
+        const result = validateExtrudeDraft({ ...blind, length });
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+            expect(result.error).toContain('Length');
+        }
+    });
+
+    it.each(['upToFirst', 'upToLast', 'upToFace', 'throughAll'] as const)('refuses to preview %s ends', (end) => {
+        const result = validateExtrudeDraft({ ...blind, end });
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+            expect(result.error).toContain('blind');
+        }
+    });
+});
+
+describe('validateRevolveDraft', () => {
+    it('accepts an axis and an angle in (0, 360]', () => {
+        const result = validateRevolveDraft({ axis: 'z', angle: '270' });
+        expect(result.ok).toBe(true);
+        if (result.ok) {
+            expect(result.params).toEqual({ axis: 'z', angle: 270 });
+        }
+    });
+
+    it('rejects an unknown axis', () => {
+        const result = validateRevolveDraft({ axis: 'q', angle: '90' });
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+            expect(result.error).toContain('Axis');
+        }
+    });
+
+    it.each(['0', '-5', '361', 'abc', ''])('rejects angle %j', (angle) => {
+        const result = validateRevolveDraft({ axis: 'x', angle });
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+            expect(result.error).toContain('Angle');
+        }
+    });
+});
+
+describe('validatePrimitiveDraft', () => {
+    it('accepts a box on the default datum', () => {
+        const result = validatePrimitiveDraft({ shape: 'box', dimensions: ['2', '3', '4'], datumId: '' }, []);
+        expect(result.ok).toBe(true);
+        if (result.ok) {
+            expect(result.params).toEqual({ shape: 'box', dimensions: [2, 3, 4] });
+        }
+    });
+
+    it('reads only the shape arity and keeps a known datum', () => {
+        const doc = closureDocument();
+        const result = validatePrimitiveDraft({ shape: 'sphere', dimensions: ['5', 'nope', 'nope'], datumId: 'datum-xy' }, doc.datums);
+        expect(result.ok).toBe(true);
+        if (result.ok) {
+            expect(result.params).toEqual({ shape: 'sphere', dimensions: [5], datumId: 'datum-xy' });
+        }
+    });
+
+    it('rejects non-positive dimensions', () => {
+        const result = validatePrimitiveDraft({ shape: 'cylinder', dimensions: ['2', '0'], datumId: '' }, []);
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+            expect(result.error).toContain('Dimensions');
+        }
+    });
+
+    it('rejects a short dimension list', () => {
+        expect(validatePrimitiveDraft({ shape: 'box', dimensions: ['1'], datumId: '' }, []).ok).toBe(false);
+    });
+
+    it('rejects an unknown datum when the datum list is provided', () => {
+        const result = validatePrimitiveDraft({ shape: 'box', dimensions: ['1', '2', '3'], datumId: 'missing' }, closureDocument().datums);
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+            expect(result.error).toContain('missing');
+        }
+    });
+
+    it('passes a datum through opaquely without the datum list', () => {
+        const result = validatePrimitiveDraft({ shape: 'box', dimensions: ['1', '2', '3'], datumId: 'datum-custom' });
+        expect(result.ok).toBe(true);
+        if (result.ok) {
+            expect(result.params).toMatchObject({ datumId: 'datum-custom' });
+        }
+    });
+});
+
+describe('buildFeaturePreviewDocument modifier retarget', () => {
+    it('retargets a fillet draft onto the referenced body with its full chain', () => {
+        const preview = buildFeaturePreviewDocument(closureDocument(), {
+            type: 'fillet',
+            params: { edges: [edgeRef('f2')], radius: 1 },
+            bodyId: 'b1'
+        });
+        expect(preview).toBeDefined();
+        if (preview === undefined) {
+            return;
+        }
+        // The whole b1 chain (f1..f11) replays so the edge fingerprint resolves;
+        // f10 names tool body b2, so b2's chain (f12) rides along too rather
+        // than replaying the boolean against an empty tool body.
+        expect(preview.features.map((f) => f.id)).toEqual([
+            'f1',
+            'f2',
+            'f3',
+            'f4',
+            'f5',
+            'f6',
+            'f7',
+            'f8',
+            'f9',
+            'f10',
+            'f11',
+            'f12',
+            'preview-feature'
+        ]);
+        const draft = preview.features[preview.features.length - 1];
+        expect(draft.type).toBe('fillet');
+        expect(draft.body).toBe('b1');
+        expect(preview.bodies.map((b) => b.id)).toEqual(['b1', 'b2', 'preview-body']);
+        expect(validateNukeCadDocument(preview).valid).toBe(true);
+    });
+
+    it('retargets a pocket draft onto its body', () => {
+        const preview = buildFeaturePreviewDocument(closureDocument(), {
+            type: 'pocket',
+            sketchId: 'sk3',
+            params: { length: 2 },
+            bodyId: 'b1'
+        });
+        expect(preview).toBeDefined();
+        if (preview === undefined) {
+            return;
+        }
+        const draft = preview.features[preview.features.length - 1];
+        expect(draft.type).toBe('pocket');
+        expect(draft.body).toBe('b1');
+        expect(draft.sketchId).toBe('sk3');
+        expect(validateNukeCadDocument(preview).valid).toBe(true);
+    });
+
+    it('keeps a pocket without a body on preview-body', () => {
+        const preview = buildFeaturePreviewDocument(closureDocument(), {
+            type: 'pocket',
+            sketchId: 'sk3',
+            params: { length: 2 }
+        });
+        expect(preview?.features[preview.features.length - 1].body).toBe('preview-body');
+    });
+
+    it('retargets a booleanFuse onto the target body with both chains', () => {
+        const preview = buildFeaturePreviewDocument(closureDocument(), {
+            type: 'booleanFuse',
+            params: { targetBody: 'b1', toolBodies: ['b2'] }
+        });
+        expect(preview).toBeDefined();
+        if (preview === undefined) {
+            return;
+        }
+        // b2's primitive chain rides along with b1's so the tools exist.
+        expect(preview.features.map((f) => f.id)).toContain('f12');
+        const draft = preview.features[preview.features.length - 1];
+        expect(draft.body).toBe('b1');
+        expect(preview.bodies.map((b) => b.id)).toContain('b2');
+        expect(validateNukeCadDocument(preview).valid).toBe(true);
+    });
+
+    it('retargets a hole onto its body', () => {
+        const preview = buildFeaturePreviewDocument(closureDocument(), {
+            type: 'hole',
+            params: { face: faceRef('f1'), center: [0, 0], diameter: 5 },
+            bodyId: 'b1'
+        });
+        expect(preview?.features[preview.features.length - 1].body).toBe('b1');
+        expect(preview !== undefined && validateNukeCadDocument(preview).valid).toBe(true);
+    });
+
+    it('falls back to preview-body when the named body is absent', () => {
+        const preview = buildFeaturePreviewDocument(closureDocument(), {
+            type: 'fillet',
+            params: { edges: [edgeRef('f2')], radius: 1 },
+            bodyId: 'nope'
+        });
+        expect(preview?.features[preview.features.length - 1].body).toBe('preview-body');
     });
 });

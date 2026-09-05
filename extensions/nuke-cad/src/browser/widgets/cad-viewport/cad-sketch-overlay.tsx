@@ -55,7 +55,12 @@ import {
     type FeatureType,
     type FeatureParams,
     type FeatureDef,
-    type CurvePoint
+    type CurvePoint,
+    type FilletParams,
+    type DraftParams,
+    type ShellParams,
+    type HoleParams,
+    type BooleanParams
 } from '../../../common/cad-document';
 import { type TopologyRef } from '../../../common/topology-refs';
 import { CadDocumentStore } from '../../document/cad-document-store';
@@ -76,6 +81,9 @@ import {
     helicalSweepDraftFromParams,
     helixAxisUnit,
     moveLoftSection,
+    validateExtrudeDraft,
+    validateRevolveDraft,
+    validatePrimitiveDraft,
     type FeaturePreviewRequest,
     type HelixAxis
 } from './sweep-pipe';
@@ -2046,6 +2054,27 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [props.editFeature]);
 
+    // Hole wizard inputs shared by the submit path and the ghosted preview so
+    // the two never drift apart (validation itself lives in the helper below).
+    // Like `curves`/`sketches` above it is derived per render; the preview
+    // effect lists the raw hole fields as deps.
+    const holeInputs: HoleDialogInputs = {
+        face: holeFaceRef,
+        center: holeCenterUv,
+        diameterText: holeDiameter,
+        depthText: holeDepth,
+        holeType,
+        counterboreDiameterText: holeCounterboreDiameter,
+        counterboreDepthText: holeCounterboreDepth,
+        countersinkDiameterText: holeCountersinkDiameter,
+        countersinkAngleText: holeCountersinkAngle,
+        counterdrillDiameterText: holeCounterdrillDiameter,
+        counterdrillDepthText: holeCounterdrillDepth,
+        taperAngleText: holeTaperAngle,
+        drillPointAngleText: holeDrillPointAngle,
+        thread: holeThread
+    };
+
     // Ghosted preview: a valid draft is debounced into a preview request the
     // widget builds through the normal geometry-service path; any invalid or
     // disabled state clears the preview.
@@ -2087,6 +2116,86 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
             if (validation.ok) {
                 request = { type: 'helicalSweep', sketchId: props.sketchId, params: validation.params };
             }
+        } else if (isExtrude) {
+            // Non-blind ends are intentionally un-previewable: the validator
+            // rejects them with a reason the dialog surfaces as hint text.
+            const validation = validateExtrudeDraft({
+                type: type === 'pocket' ? 'pocket' : 'pad',
+                length,
+                axis,
+                symmetric,
+                twoSided,
+                end: extrudeEnd
+            });
+            if (validation.ok) {
+                // Subtractive drafts preview against their target body (the
+                // builder retargets onto it); additive pads preview standalone.
+                const previewBodyId = type === 'pocket' && bodyId !== NEW_BODY_SENTINEL ? bodyId : undefined;
+                request = {
+                    type: type === 'pocket' ? 'pocket' : 'pad',
+                    sketchId: props.sketchId,
+                    params: validation.params,
+                    ...(previewBodyId !== undefined ? { bodyId: previewBodyId } : {})
+                };
+            }
+        } else if (isRevolve) {
+            const validation = validateRevolveDraft({ angle, axis });
+            if (validation.ok) {
+                const previewBodyId = type === 'groove' && bodyId !== NEW_BODY_SENTINEL ? bodyId : undefined;
+                request = {
+                    type: type === 'groove' ? 'groove' : 'revolve',
+                    sketchId: props.sketchId,
+                    params: validation.params,
+                    ...(previewBodyId !== undefined ? { bodyId: previewBodyId } : {})
+                };
+            }
+        } else if (isPrimitive) {
+            const validation = validatePrimitiveDraft(
+                { shape: primitiveShape, dimensions: primitiveDims, datumId: primitiveDatumId },
+                doc?.datums
+            );
+            if (validation.ok) {
+                request = { type: 'primitive', params: validation.params };
+            }
+        } else if (isDressUp) {
+            // Dress-up refs resolve against the target body's history inside
+            // the preview build; the refs themselves pass through opaquely.
+            if (dressUpBodyId !== '') {
+                if (type === 'fillet') {
+                    const result = validateFilletDialogInputs(filletRadius, refs);
+                    if (result.ok) {
+                        request = { type: 'fillet', params: result.params, bodyId: dressUpBodyId };
+                    }
+                } else if (type === 'chamfer') {
+                    const result = validateChamferDialogInputs(chamferMode, chamferDistance, chamferDistance2, chamferAngle, refs);
+                    if (result.ok) {
+                        request = { type: 'chamfer', params: result.params, bodyId: dressUpBodyId };
+                    }
+                } else if (type === 'draft') {
+                    const result = validateDraftDialogInputs(draftAngle, pullDirection, refs, neutralPlaneRef);
+                    if (result.ok) {
+                        request = { type: 'draft', params: result.params, bodyId: dressUpBodyId };
+                    }
+                } else if (type === 'shell') {
+                    const result = validateShellDialogInputs(shellThickness, refs, shellAllFaces);
+                    if (result.ok) {
+                        request = { type: 'shell', params: result.params, bodyId: dressUpBodyId };
+                    }
+                }
+            }
+        } else if (isHole) {
+            if (holeBodyId !== '') {
+                const result = validateHoleDialogInputs(holeInputs);
+                if (result.ok) {
+                    request = { type: 'hole', params: result.params, bodyId: holeBodyId };
+                }
+            }
+        } else if (isBoolean) {
+            const result = validateBooleanDialogInputs(targetBody, toolBodies);
+            if (result.ok) {
+                const booleanType = type === 'booleanCut' ? 'booleanCut' : type === 'booleanCommon' ? 'booleanCommon' : 'booleanFuse';
+                request = { type: booleanType, params: { ...result.params, keepTools } };
+            }
         }
         if (request === undefined) {
             props.onPreviewChange?.(undefined);
@@ -2112,6 +2221,46 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
         helixLeftHanded,
         helixOrientation,
         helixBinormal,
+        length,
+        axis,
+        symmetric,
+        twoSided,
+        extrudeEnd,
+        bodyId,
+        angle,
+        primitiveShape,
+        primitiveDims,
+        primitiveDatumId,
+        dressUpBodyId,
+        refs,
+        filletRadius,
+        chamferMode,
+        chamferDistance,
+        chamferDistance2,
+        chamferAngle,
+        draftAngle,
+        pullDirection,
+        neutralPlaneRef,
+        shellThickness,
+        shellAllFaces,
+        holeBodyId,
+        holeFaceRef,
+        holeCenterUv,
+        holeDiameter,
+        holeDepth,
+        holeType,
+        holeCounterboreDiameter,
+        holeCounterboreDepth,
+        holeCountersinkDiameter,
+        holeCountersinkAngle,
+        holeCounterdrillDiameter,
+        holeCounterdrillDepth,
+        holeTaperAngle,
+        holeDrillPointAngle,
+        holeThread,
+        targetBody,
+        toolBodies,
+        keepTools,
         props.sketchId,
         type
     ]);
@@ -2189,15 +2338,12 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
             return;
         }
         if (isBoolean) {
-            if (!targetBody) {
-                setError('Select a target body.');
+            const result = validateBooleanDialogInputs(targetBody, toolBodies);
+            if (!result.ok) {
+                setError(result.error);
                 return;
             }
-            if (toolBodies.length === 0) {
-                setError('Select at least one tool body.');
-                return;
-            }
-            finish({ targetBody, toolBodies, keepTools });
+            finish({ targetBody: result.params.targetBody, toolBodies: result.params.toolBodies, keepTools });
             return;
         }
         if (isDressUp) {
@@ -2205,76 +2351,52 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                 setError('Select a target body.');
                 return;
             }
-            if (type !== 'shell' && refs.length === 0) {
-                setError(`Select at least one ${selecting} for ${capitalize(type)}.`);
-                return;
-            }
             const params: Record<string, unknown> = { bodyId: dressUpBodyId, label };
             if (type === 'fillet') {
-                const radius = Number(filletRadius);
-                if (!Number.isFinite(radius) || radius <= 0) {
-                    setError('Radius must be a positive number.');
+                const result = validateFilletDialogInputs(filletRadius, refs);
+                if (!result.ok) {
+                    setError(result.error);
                     return;
                 }
-                params.edges = refs;
-                params.radius = radius;
+                params.edges = result.params.edges;
+                params.radius = result.params.radius;
             } else if (type === 'chamfer') {
-                params.edges = refs;
-                if (chamferMode === 'symmetric') {
-                    const distance = Number(chamferDistance);
-                    if (!Number.isFinite(distance) || distance <= 0) {
-                        setError('Distance must be a positive number.');
-                        return;
-                    }
-                    params.distance = distance;
-                } else if (chamferMode === 'twoDistance') {
-                    const d1 = Number(chamferDistance);
-                    const d2 = Number(chamferDistance2);
-                    if (!Number.isFinite(d1) || d1 <= 0 || !Number.isFinite(d2) || d2 <= 0) {
-                        setError('Both distances must be positive numbers.');
-                        return;
-                    }
-                    params.distances = [d1, d2];
-                } else {
-                    const distance = Number(chamferDistance);
-                    const angle = Number(chamferAngle);
-                    if (!Number.isFinite(distance) || distance <= 0) {
-                        setError('Distance must be a positive number.');
-                        return;
-                    }
-                    if (!Number.isFinite(angle) || angle <= 0 || angle >= 90) {
-                        setError('Angle must be in (0, 90) degrees.');
-                        return;
-                    }
-                    params.distance = distance;
-                    params.angle = angle;
+                const result = validateChamferDialogInputs(chamferMode, chamferDistance, chamferDistance2, chamferAngle, refs);
+                if (!result.ok) {
+                    setError(result.error);
+                    return;
+                }
+                params.edges = result.params.edges;
+                if (result.params.distance !== undefined) {
+                    params.distance = result.params.distance;
+                }
+                if (result.params.distances !== undefined) {
+                    params.distances = result.params.distances;
+                }
+                if (result.params.angle !== undefined) {
+                    params.angle = result.params.angle;
                 }
             } else if (type === 'draft') {
-                const angle = Number(draftAngle);
-                if (!Number.isFinite(angle) || angle <= -90 || angle >= 90) {
-                    setError('Draft angle must be in (-90, 90) degrees.');
+                const result = validateDraftDialogInputs(draftAngle, pullDirection, refs, neutralPlaneRef);
+                if (!result.ok) {
+                    setError(result.error);
                     return;
                 }
-                const dir: [number, number, number] = [Number(pullDirection[0]), Number(pullDirection[1]), Number(pullDirection[2])];
-                if (!dir.every((v) => Number.isFinite(v)) || (dir[0] === 0 && dir[1] === 0 && dir[2] === 0)) {
-                    setError('Pull direction must be a non-zero [x, y, z] vector.');
-                    return;
-                }
-                params.faces = refs;
-                params.angle = angle;
-                params.pullDirection = dir;
+                params.faces = result.params.faces;
+                params.angle = result.params.angle;
+                params.pullDirection = result.params.pullDirection;
                 // Optional neutral plane; omitted when unpicked.
-                if (neutralPlaneRef !== undefined) {
-                    params.neutralPlane = neutralPlaneRef;
+                if (result.params.neutralPlane !== undefined) {
+                    params.neutralPlane = result.params.neutralPlane;
                 }
             } else if (type === 'shell') {
-                const thickness = Number(shellThickness);
-                if (!Number.isFinite(thickness) || thickness <= 0) {
-                    setError('Thickness must be a positive number.');
+                const result = validateShellDialogInputs(shellThickness, refs, shellAllFaces);
+                if (!result.ok) {
+                    setError(result.error);
                     return;
                 }
-                params.faces = shellAllFaces ? [] : refs;
-                params.thickness = thickness;
+                params.faces = result.params.faces;
+                params.thickness = result.params.thickness;
             }
             finish(params);
             return;
@@ -2341,88 +2463,14 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                 setError('Select a target body.');
                 return;
             }
-            if (holeFaceRef === undefined || holeCenterUv === undefined) {
-                setError('Pick a planar face in the viewport to place the hole.');
+            const holeResult = validateHoleDialogInputs(holeInputs);
+            if (!holeResult.ok) {
+                setError(holeResult.error);
                 return;
-            }
-            const diameter = Number(holeDiameter);
-            if (!Number.isFinite(diameter) || diameter <= 0) {
-                setError('Diameter must be a positive number.');
-                return;
-            }
-            const params: Record<string, unknown> = {
-                face: holeFaceRef,
-                center: holeCenterUv,
-                diameter,
-                bodyId: holeBodyId,
-                label
-            };
-            const depth = holeDepth.trim() === '' ? undefined : Number(holeDepth);
-            if (depth !== undefined && (!Number.isFinite(depth) || depth <= 0)) {
-                setError('Depth must be a positive number when provided.');
-                return;
-            }
-            if (holeType === 'simple' && depth !== undefined) {
-                params.depth = depth;
-            }
-            if (holeType === 'counterbore') {
-                const cbDiameter = Number(holeCounterboreDiameter);
-                const cbDepth = Number(holeCounterboreDepth);
-                if (!Number.isFinite(cbDiameter) || cbDiameter <= 0 || !Number.isFinite(cbDepth) || cbDepth <= 0) {
-                    setError('Counterbore diameter and depth must be positive numbers.');
-                    return;
-                }
-                params.counterboreDiameter = cbDiameter;
-                params.counterboreDepth = cbDepth;
-            }
-            if (holeType === 'countersink') {
-                const csDiameter = Number(holeCountersinkDiameter);
-                const csAngle = Number(holeCountersinkAngle);
-                if (!Number.isFinite(csDiameter) || csDiameter <= 0) {
-                    setError('Countersink diameter must be a positive number.');
-                    return;
-                }
-                if (!Number.isFinite(csAngle) || csAngle <= 0 || csAngle >= 90) {
-                    setError('Countersink angle must be in (0, 90) degrees.');
-                    return;
-                }
-                params.countersinkDiameter = csDiameter;
-                params.countersinkAngle = csAngle;
-            }
-            if (holeType === 'counterdrill') {
-                const cdDiameter = Number(holeCounterdrillDiameter);
-                const cdDepth = Number(holeCounterdrillDepth);
-                if (!Number.isFinite(cdDiameter) || cdDiameter <= 0 || !Number.isFinite(cdDepth) || cdDepth <= 0) {
-                    setError('Counterdrill diameter and depth must be positive numbers.');
-                    return;
-                }
-                params.counterdrillDiameter = cdDiameter;
-                params.counterdrillDepth = cdDepth;
-            }
-            const taperText = holeTaperAngle.trim();
-            if (taperText !== '') {
-                const taper = Number(taperText);
-                if (!Number.isFinite(taper) || taper <= 0 || taper > 45) {
-                    setError('Taper angle must be in (0, 45] degrees.');
-                    return;
-                }
-                params.taperAngle = taper;
-            }
-            const drillPointText = holeDrillPointAngle.trim();
-            if (drillPointText !== '') {
-                const drillPoint = Number(drillPointText);
-                if (!Number.isFinite(drillPoint) || drillPoint <= 0 || drillPoint >= 180) {
-                    setError('Drill point angle must be in (0, 180) degrees.');
-                    return;
-                }
-                params.drillPointAngle = drillPoint;
             }
             // Omitted drill point = flat bottom = today's behavior exactly.
             // Thread is stored + validated only (default 'none').
-            if (holeThread !== 'none') {
-                params.thread = holeThread;
-            }
-            finish(params);
+            finish({ ...holeResult.params, bodyId: holeBodyId, label });
             return;
         }
         if (isCurveSweep) {
@@ -2703,6 +2751,19 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
     // its modal backdrop while a pick is active.
     const pickActive = isPicking || props.holePickMode === true || props.curvePickMode === true;
 
+    // Extrude preview hint: the validator's reason when no preview builds
+    // (non-blind ends, or blind ends with invalid numerics).
+    const extrudePreviewValidation = isExtrude
+        ? validateExtrudeDraft({
+              type: type === 'pocket' ? 'pocket' : 'pad',
+              length,
+              axis,
+              symmetric,
+              twoSided,
+              end: extrudeEnd
+          })
+        : undefined;
+
     // The dialog floats like the sketch chrome: drag by the header, double-click
     // or right-click the header to reset; clamping to the viewport comes free
     // because the backdrop's positioned ancestor is the viewport root.
@@ -2738,6 +2799,12 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                         <input type="number" value={filletRadius} onChange={(e) => setFilletRadius(e.target.value)} autoFocus />
                     </label>
                     {refList}
+                    {props.onPreviewChange !== undefined && (
+                        <label className="cad-feature-dialog-row check">
+                            <input type="checkbox" checked={previewEnabled} onChange={(e) => setPreviewEnabled(e.target.checked)} />
+                            Preview (ghosted build)
+                        </label>
+                    )}
                 </>
             )}
             {isDressUp && type === 'chamfer' && (
@@ -2791,6 +2858,12 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                         </>
                     )}
                     {refList}
+                    {props.onPreviewChange !== undefined && (
+                        <label className="cad-feature-dialog-row check">
+                            <input type="checkbox" checked={previewEnabled} onChange={(e) => setPreviewEnabled(e.target.checked)} />
+                            Preview (ghosted build)
+                        </label>
+                    )}
                 </>
             )}
             {isDressUp && type === 'draft' && (
@@ -2851,6 +2924,12 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                         </div>
                     </div>
                     {refList}
+                    {props.onPreviewChange !== undefined && (
+                        <label className="cad-feature-dialog-row check">
+                            <input type="checkbox" checked={previewEnabled} onChange={(e) => setPreviewEnabled(e.target.checked)} />
+                            Preview (ghosted build)
+                        </label>
+                    )}
                 </>
             )}
             {isDressUp && type === 'shell' && (
@@ -2864,6 +2943,12 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                         Hollow all faces (closed shell)
                     </label>
                     {!shellAllFaces && refList}
+                    {props.onPreviewChange !== undefined && (
+                        <label className="cad-feature-dialog-row check">
+                            <input type="checkbox" checked={previewEnabled} onChange={(e) => setPreviewEnabled(e.target.checked)} />
+                            Preview (ghosted build)
+                        </label>
+                    )}
                 </>
             )}
             {isExtrude && (
@@ -2954,6 +3039,21 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                             <input type="checkbox" checked={twoSided} onChange={(e) => setTwoSided(e.target.checked)} />
                         </NukeFormRow>
                     </NukeSection>
+                    {props.onPreviewChange !== undefined && (
+                        <label className="cad-feature-dialog-row check">
+                            <input
+                                type="checkbox"
+                                checked={previewEnabled}
+                                disabled={extrudeEnd !== 'blind'}
+                                onChange={(e) => setPreviewEnabled(e.target.checked)}
+                            />
+                            Preview (ghosted build)
+                        </label>
+                    )}
+                    {extrudePreviewValidation !== undefined && !extrudePreviewValidation.ok && (
+                        <span className="cad-feature-dialog-label">{extrudePreviewValidation.error}</span>
+                    )}
+                    {extrudeEnd !== 'blind' && <span className="cad-feature-dialog-label">Preview is only available for blind ends.</span>}
                 </>
             )}
             {isRevolve && (
@@ -2970,6 +3070,12 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                         Angle (°)
                         <input type="number" value={angle} onChange={(e) => setAngle(e.target.value)} autoFocus />
                     </label>
+                    {props.onPreviewChange !== undefined && (
+                        <label className="cad-feature-dialog-row check">
+                            <input type="checkbox" checked={previewEnabled} onChange={(e) => setPreviewEnabled(e.target.checked)} />
+                            Preview (ghosted build)
+                        </label>
+                    )}
                 </>
             )}
             {isCurveSweep && (
@@ -3431,6 +3537,12 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                             <option value="cosmetic">Cosmetic</option>
                         </select>
                     </label>
+                    {props.onPreviewChange !== undefined && (
+                        <label className="cad-feature-dialog-row check">
+                            <input type="checkbox" checked={previewEnabled} onChange={(e) => setPreviewEnabled(e.target.checked)} />
+                            Preview (ghosted build)
+                        </label>
+                    )}
                 </>
             )}
             {isDefeature && dressUpBodySelector}
@@ -3465,6 +3577,12 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                             ))}
                         </select>
                     </NukeFormRow>
+                    {props.onPreviewChange !== undefined && (
+                        <label className="cad-feature-dialog-row check">
+                            <input type="checkbox" checked={previewEnabled} onChange={(e) => setPreviewEnabled(e.target.checked)} />
+                            Preview (ghosted build)
+                        </label>
+                    )}
                 </>
             )}
             {isMultiTransform && (
@@ -3494,6 +3612,12 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                 </>
             )}
             {isBoolean && booleanBodySelectors}
+            {isBoolean && props.onPreviewChange !== undefined && (
+                <label className="cad-feature-dialog-row check">
+                    <input type="checkbox" checked={previewEnabled} onChange={(e) => setPreviewEnabled(e.target.checked)} />
+                    Preview (ghosted build)
+                </label>
+            )}
             {!isBoolean && labelInput}
         </NukeDialog>
     );
@@ -3501,6 +3625,197 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
 
 function capitalize(value: string): string {
     return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+/** Validated dialog inputs shared by a submit path and its ghosted preview. */
+type DialogValidation<T> = { readonly ok: true; readonly params: T } | { readonly ok: false; readonly error: string };
+
+/** Fillet numerics plus the picked edges (refs pass through opaquely). */
+function validateFilletDialogInputs(radiusText: string, refs: TopologyRef[]): DialogValidation<FilletParams> {
+    if (refs.length === 0) {
+        return { ok: false, error: 'Select at least one edge for Fillet.' };
+    }
+    const radius = Number(radiusText);
+    if (!Number.isFinite(radius) || radius <= 0) {
+        return { ok: false, error: 'Radius must be a positive number.' };
+    }
+    return { ok: true, params: { edges: refs, radius } };
+}
+
+/** Chamfer numerics plus the picked edges (refs pass through opaquely). */
+function validateChamferDialogInputs(
+    mode: ChamferMode,
+    distanceText: string,
+    distance2Text: string,
+    angleText: string,
+    refs: TopologyRef[]
+): DialogValidation<FilletParams> {
+    if (refs.length === 0) {
+        return { ok: false, error: 'Select at least one edge for Chamfer.' };
+    }
+    if (mode === 'symmetric') {
+        const distance = Number(distanceText);
+        if (!Number.isFinite(distance) || distance <= 0) {
+            return { ok: false, error: 'Distance must be a positive number.' };
+        }
+        return { ok: true, params: { edges: refs, distance } };
+    }
+    if (mode === 'twoDistance') {
+        const d1 = Number(distanceText);
+        const d2 = Number(distance2Text);
+        if (!Number.isFinite(d1) || d1 <= 0 || !Number.isFinite(d2) || d2 <= 0) {
+            return { ok: false, error: 'Both distances must be positive numbers.' };
+        }
+        return { ok: true, params: { edges: refs, distances: [d1, d2] } };
+    }
+    const distance = Number(distanceText);
+    const angle = Number(angleText);
+    if (!Number.isFinite(distance) || distance <= 0) {
+        return { ok: false, error: 'Distance must be a positive number.' };
+    }
+    if (!Number.isFinite(angle) || angle <= 0 || angle >= 90) {
+        return { ok: false, error: 'Angle must be in (0, 90) degrees.' };
+    }
+    return { ok: true, params: { edges: refs, distance, angle } };
+}
+
+/** Draft numerics plus the picked faces (refs pass through opaquely). */
+function validateDraftDialogInputs(
+    angleText: string,
+    pullDirection: readonly [string, string, string],
+    refs: TopologyRef[],
+    neutralPlaneRef: TopologyRef | undefined
+): DialogValidation<DraftParams> {
+    if (refs.length === 0) {
+        return { ok: false, error: 'Select at least one face for Draft.' };
+    }
+    const angle = Number(angleText);
+    if (!Number.isFinite(angle) || angle <= -90 || angle >= 90) {
+        return { ok: false, error: 'Draft angle must be in (-90, 90) degrees.' };
+    }
+    const dir: [number, number, number] = [Number(pullDirection[0]), Number(pullDirection[1]), Number(pullDirection[2])];
+    if (!dir.every((v) => Number.isFinite(v)) || (dir[0] === 0 && dir[1] === 0 && dir[2] === 0)) {
+        return { ok: false, error: 'Pull direction must be a non-zero [x, y, z] vector.' };
+    }
+    return {
+        ok: true,
+        params: { faces: refs, angle, pullDirection: dir, ...(neutralPlaneRef !== undefined ? { neutralPlane: neutralPlaneRef } : {}) }
+    };
+}
+
+/** Shell numerics plus the picked faces (refs pass through opaquely). */
+function validateShellDialogInputs(thicknessText: string, refs: TopologyRef[], allFaces: boolean): DialogValidation<ShellParams> {
+    const thickness = Number(thicknessText);
+    if (!Number.isFinite(thickness) || thickness <= 0) {
+        return { ok: false, error: 'Thickness must be a positive number.' };
+    }
+    return { ok: true, params: { faces: allFaces ? [] : refs, thickness } };
+}
+
+/** String-state inputs of the hole wizard dialog. */
+interface HoleDialogInputs {
+    readonly face: TopologyRef | undefined;
+    readonly center: [number, number] | undefined;
+    readonly diameterText: string;
+    readonly depthText: string;
+    readonly holeType: 'simple' | 'counterbore' | 'countersink' | 'counterdrill';
+    readonly counterboreDiameterText: string;
+    readonly counterboreDepthText: string;
+    readonly countersinkDiameterText: string;
+    readonly countersinkAngleText: string;
+    readonly counterdrillDiameterText: string;
+    readonly counterdrillDepthText: string;
+    readonly taperAngleText: string;
+    readonly drillPointAngleText: string;
+    readonly thread: 'none' | 'cosmetic';
+}
+
+/**
+ * Hole wizard validation shared by the submit path and the ghosted preview.
+ *
+ * Returns the feature params without `bodyId`/`label` (the submit path adds
+ * those); the preview carries the target body's history instead.
+ */
+function validateHoleDialogInputs(inputs: HoleDialogInputs): DialogValidation<HoleParams> {
+    if (inputs.face === undefined || inputs.center === undefined) {
+        return { ok: false, error: 'Pick a planar face in the viewport to place the hole.' };
+    }
+    const diameter = Number(inputs.diameterText);
+    if (!Number.isFinite(diameter) || diameter <= 0) {
+        return { ok: false, error: 'Diameter must be a positive number.' };
+    }
+    const params: HoleParams = { face: inputs.face, center: inputs.center, diameter };
+    const depth = inputs.depthText.trim() === '' ? undefined : Number(inputs.depthText);
+    if (depth !== undefined && (!Number.isFinite(depth) || depth <= 0)) {
+        return { ok: false, error: 'Depth must be a positive number when provided.' };
+    }
+    if (inputs.holeType === 'simple' && depth !== undefined) {
+        params.depth = depth;
+    }
+    if (inputs.holeType === 'counterbore') {
+        const cbDiameter = Number(inputs.counterboreDiameterText);
+        const cbDepth = Number(inputs.counterboreDepthText);
+        if (!Number.isFinite(cbDiameter) || cbDiameter <= 0 || !Number.isFinite(cbDepth) || cbDepth <= 0) {
+            return { ok: false, error: 'Counterbore diameter and depth must be positive numbers.' };
+        }
+        params.counterboreDiameter = cbDiameter;
+        params.counterboreDepth = cbDepth;
+    }
+    if (inputs.holeType === 'countersink') {
+        const csDiameter = Number(inputs.countersinkDiameterText);
+        const csAngle = Number(inputs.countersinkAngleText);
+        if (!Number.isFinite(csDiameter) || csDiameter <= 0) {
+            return { ok: false, error: 'Countersink diameter must be a positive number.' };
+        }
+        if (!Number.isFinite(csAngle) || csAngle <= 0 || csAngle >= 90) {
+            return { ok: false, error: 'Countersink angle must be in (0, 90) degrees.' };
+        }
+        params.countersinkDiameter = csDiameter;
+        params.countersinkAngle = csAngle;
+    }
+    if (inputs.holeType === 'counterdrill') {
+        const cdDiameter = Number(inputs.counterdrillDiameterText);
+        const cdDepth = Number(inputs.counterdrillDepthText);
+        if (!Number.isFinite(cdDiameter) || cdDiameter <= 0 || !Number.isFinite(cdDepth) || cdDepth <= 0) {
+            return { ok: false, error: 'Counterdrill diameter and depth must be positive numbers.' };
+        }
+        params.counterdrillDiameter = cdDiameter;
+        params.counterdrillDepth = cdDepth;
+    }
+    const taperText = inputs.taperAngleText.trim();
+    if (taperText !== '') {
+        const taper = Number(taperText);
+        if (!Number.isFinite(taper) || taper <= 0 || taper > 45) {
+            return { ok: false, error: 'Taper angle must be in (0, 45] degrees.' };
+        }
+        params.taperAngle = taper;
+    }
+    const drillPointText = inputs.drillPointAngleText.trim();
+    if (drillPointText !== '') {
+        const drillPoint = Number(drillPointText);
+        if (!Number.isFinite(drillPoint) || drillPoint <= 0 || drillPoint >= 180) {
+            return { ok: false, error: 'Drill point angle must be in (0, 180) degrees.' };
+        }
+        params.drillPointAngle = drillPoint;
+    }
+    if (inputs.thread !== 'none') {
+        params.thread = inputs.thread;
+    }
+    return { ok: true, params };
+}
+
+/** Boolean body selection shared by the submit path and the ghosted preview. */
+function validateBooleanDialogInputs(
+    targetBody: string,
+    toolBodies: readonly string[]
+): DialogValidation<Pick<BooleanParams, 'targetBody' | 'toolBodies'>> {
+    if (!targetBody) {
+        return { ok: false, error: 'Select a target body.' };
+    }
+    if (toolBodies.length === 0) {
+        return { ok: false, error: 'Select at least one tool body.' };
+    }
+    return { ok: true, params: { targetBody, toolBodies: [...toolBodies] } };
 }
 
 interface DimensionEditPopoverProps {

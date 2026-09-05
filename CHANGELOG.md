@@ -278,6 +278,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   solids can start a new body or fuse into an existing one, patterns and mirror
   can replicate them, and **Export as Python** emits the corresponding
   `bd.sweep(...)` calls.
+- nuke-cad: **ghosted preview in every feature dialog** — pad/pocket/revolve/
+  groove/primitive/dress-up/hole/boolean dialogs offer the same ghosted
+  **Preview** as sweep (blind ends and validated inputs only; the reason
+  shows as hint text otherwise). Cuts, dress-ups, holes, and booleans preview
+  against the referenced bodies' full feature chains with the draft retargeted
+  onto the real body, so the ghost shows the operation on true geometry.
 - nuke-cad: **Model Outline interactivity round** — `Ctrl`/`Cmd`-click rows
   (list and table view) to build a multi-selection; every selected solid
   highlights in the viewport while the last-clicked one drives the Properties
