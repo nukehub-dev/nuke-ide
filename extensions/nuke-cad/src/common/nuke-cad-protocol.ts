@@ -449,6 +449,12 @@ export interface BuildFeaturesPartialRequest {
      */
     readonly cacheDir?: string;
     /**
+     * Maximum zip sidecar size in MB before LRU eviction. Mirrors the
+     * ``nukeCad.resultCacheSizeMB`` preference; TS only threads the value
+     * through — enforcement stays backend-side.
+     */
+    readonly sizeCapMB?: number;
+    /**
      * Optional caller-chosen job id for cancellation via
      * {@link NukeCadBackendService.cancelJob}. The backend generates one when
      * omitted and echoes it back on the result.

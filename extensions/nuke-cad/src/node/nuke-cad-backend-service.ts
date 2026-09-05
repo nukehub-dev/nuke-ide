@@ -159,7 +159,9 @@ export function buildDocumentArgs(request: BuildDocumentRequest, scriptPath: str
  *
  * ``featureIds`` travel as a single comma-separated ``--partial-features``
  * argument; ``cacheDir`` travels as ``--cache-dir`` when supplied (otherwise
- * the backend defaults to the document file's directory). DAGMC and FEM mesh
+ * the backend defaults to the document file's directory) and ``sizeCapMB``
+ * travels as ``--size-cap-mb`` when supplied (otherwise the backend default
+ * applies). DAGMC and FEM mesh
  * export stay skipped exactly like {@link buildDocumentArgs} — partial
  * rebuilds are viewport-only operations.
  *
@@ -171,6 +173,9 @@ export function buildFeaturesPartialArgs(request: BuildFeaturesPartialRequest, s
     args.push('--no-dagmc', '--no-mesh');
     if (request.cacheDir !== undefined && request.cacheDir.length > 0) {
         args.push('--cache-dir', request.cacheDir);
+    }
+    if (request.sizeCapMB !== undefined) {
+        args.push('--size-cap-mb', String(request.sizeCapMB));
     }
     return args;
 }

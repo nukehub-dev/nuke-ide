@@ -1089,6 +1089,7 @@ export class CadViewportWidget extends ReactWidget {
                 scriptPath: filePath,
                 featureIds,
                 cacheDir: partialCacheDirForDocument(filePath),
+                sizeCapMB: this.preferences['nukeCad.resultCacheSizeMB'],
                 jobId
             });
         } catch (error) {

@@ -694,6 +694,11 @@ auto`). For models where each rebuild is expensive (patterned assemblies),
   **Rebuild CAD Geometry** runs — opening still always builds. Suppressing an
   expensive pattern/mirror feature in the Feature Tree has the same effect for
   that subtree and composes with either mode.
+- **Result cache:** rebuilds persist per-feature B-reps plus a doc-level
+  tessellation blob to a `<stem>.nuke-cache.zip` sidecar next to the document,
+  so edits rebuild only the dirty closure and cache-hit opens skip meshing.
+  `nukeCad.resultCacheSizeMB` (default 1024 MB) caps the sidecar size before
+  old entries are evicted.
 
 ## Demo model: tokamak with divertor
 

@@ -26,6 +26,16 @@ always miss at best and poison at worst.
 
 Pure stdlib only (hashlib/json/zipfile/...) so this module stays importable
 in the minimal pytest profile (pytest + numpy, no OCP).
+
+Doc-level tessellation blob (brief §9, DOC-LEVEL revision): besides the
+per-feature blobs the sidecar holds ONE ``__doc__.tess.json`` blob with the
+whole document tessellation text, described by the manifest ``tess`` section
+(``docHash``/``tolerance``/``lengthScale``/``updatedAt``/``sizeBytes``).
+Doc-level — not per-feature — because per-feature facet blobs cannot survive
+boolean reindexing (fuse/cut renumber solids and faces), while a doc-level
+blob keyed by :func:`compute_tess_doc_hash` skips meshing soundly: any
+geometry-affecting edit changes the hash and the blob is simply a miss. The
+blob counts toward the LRU/size cap like any feature entry.
 """
 
 from __future__ import annotations
@@ -303,6 +313,39 @@ def _tool_name(feature_id: str) -> str:
     return f"{feature_id}.tool.brep"
 
 
+#: Blob name for the DOC-LEVEL tessellation cache (brief §9 revision): one
+#: ``__doc__.tess.json`` blob per sidecar holds the whole document
+#: tessellation text. The ``__doc__`` prefix cannot collide with a feature id
+#: blob (``<featureId>.tess.json`` always carries the feature id).
+TESS_BLOB_NAME = "__doc__.tess.json"
+
+
+def compute_tess_doc_hash(
+    document: Mapping[str, Any],
+    tolerance: float,
+    length_scale: float,
+    *,
+    builder_version: int = BUILDER_VERSION,
+    ocp_version: str = UNKNOWN_OCP_VERSION,
+) -> str:
+    """Content hash keying the doc-level tessellation blob (brief §9).
+
+    SHA-256 over the C1-canonical JSON of the sorted per-feature keys from
+    :func:`compute_document_keys` plus ``tolerance`` and ``lengthScale``.
+    OCP-free (feature keys hash document JSON only), so the geometry service
+    computes it before meshing. Any edit that changes built geometry changes
+    a feature key and therefore this hash; tolerance and length-scale changes
+    are key inputs because they change the emitted facets.
+    """
+    keys = compute_document_keys(document, builder_version=builder_version, ocp_version=ocp_version)
+    payload = {
+        "features": {fid: keys[fid] for fid in sorted(keys)},
+        "lengthScale": length_scale,
+        "tolerance": tolerance,
+    }
+    return hashlib.sha256(canonical_bytes(payload)).hexdigest()
+
+
 def _empty_manifest(ocp_version: str = UNKNOWN_OCP_VERSION) -> dict[str, Any]:
     return {
         "version": MANIFEST_VERSION,
@@ -349,38 +392,74 @@ def _record_size(record: Mapping[str, Any]) -> int:
     return 0
 
 
+def _tess_size(record: Mapping[str, Any]) -> int:
+    size = record.get("sizeBytes")
+    if isinstance(size, int) and size >= 0:
+        return size
+    return 0
+
+
+def _tess_record(manifest: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Return the manifest ``tess`` section, or ``None`` when absent/malformed."""
+    tess = manifest.get("tess")
+    return tess if isinstance(tess, dict) else None
+
+
+def _manifest_total(manifest: Mapping[str, Any]) -> int:
+    """Summed ``sizeBytes`` over feature records plus the doc-level tess blob."""
+    total = 0
+    records = manifest.get("features", {})
+    if isinstance(records, dict):
+        total += sum(_record_size(r) for r in records.values() if isinstance(r, dict))
+    tess = _tess_record(manifest)
+    if tess is not None:
+        total += _tess_size(tess)
+    return total
+
+
 def _evict_lru(
-    records: dict[str, dict[str, Any]],
+    manifest: dict[str, Any],
     blobs: dict[str, bytes],
     size_cap_bytes: int,
     keep_id: str | None = None,
+    keep_tess: bool = False,
 ) -> None:
     """Drop least-recently-used entries until under the cap (brief §6).
 
-    Never evicts ``keep_id`` (the just-stored entry) unless it is the only
-    entry left; a single oversized entry is kept with a warning instead of
-    making the store a no-op.
+    The doc-level tess blob counts toward the cap like any feature entry.
+    Feature entries evict oldest-first, sparing ``keep_id`` (the just-stored
+    feature) while anything else can go; the tess section evicts next unless
+    ``keep_tess`` protects the just-stored blob. A single oversized kept
+    entry is held with a warning instead of making the store a no-op.
     """
-    total = sum(_record_size(r) for r in records.values())
-    if total <= size_cap_bytes:
+    if _manifest_total(manifest) <= size_cap_bytes:
+        return
+    records = manifest.get("features", {})
+    if not isinstance(records, dict):
         return
     for fid in sorted(records, key=lambda f: records[f].get("updatedAt", 0.0)):
-        if total <= size_cap_bytes:
+        if _manifest_total(manifest) <= size_cap_bytes:
             break
-        if fid == keep_id and len(records) > 1:
+        if fid == keep_id and (len(records) > 1 or _tess_record(manifest) is not None):
             continue
-        if fid == keep_id:
-            _warn(
-                f"Result-cache entry {fid!r} alone exceeds the size cap "
-                f"({total} > {size_cap_bytes} bytes); keeping it"
-            )
-            break
         record = records.pop(fid)
         _ = record
         blobs.pop(_brep_name(fid), None)
         blobs.pop(_tess_name(fid), None)
         blobs.pop(_tool_name(fid), None)
-        total = sum(_record_size(r) for r in records.values())
+    if _manifest_total(manifest) <= size_cap_bytes:
+        return
+    if _tess_record(manifest) is not None and not keep_tess:
+        del manifest["tess"]
+        blobs.pop(TESS_BLOB_NAME, None)
+        return
+    if _manifest_total(manifest) <= size_cap_bytes:
+        return
+    kept = TESS_BLOB_NAME if keep_tess else repr(keep_id)
+    _warn(
+        f"Result-cache entry {kept} alone exceeds the size cap "
+        f"({_manifest_total(manifest)} > {size_cap_bytes} bytes); keeping it"
+    )
 
 
 def _write_zip_atomic(path: Path, manifest: dict[str, Any], blobs: dict[str, bytes]) -> None:
@@ -518,10 +597,75 @@ class DocCache:
             blobs[_tool_name(feature_id)] = bytes(tool_bytes)
         else:
             blobs.pop(_tool_name(feature_id), None)
-        _evict_lru(records, blobs, self._size_cap_bytes, keep_id=feature_id)
+        _evict_lru(manifest, blobs, self._size_cap_bytes, keep_id=feature_id)
         _write_zip_atomic(self._path, manifest, blobs)
         stored = records[feature_id]
         return _build_entry(feature_id, stored, blobs)  # type: ignore[return-value]
+
+    def store_tess(
+        self,
+        doc_hash: str,
+        tolerance: float,
+        length_scale: float,
+        tess_text: str | bytes,
+        *,
+        updated_at: float | None = None,
+    ) -> None:
+        """Write the DOC-LEVEL tessellation blob (brief §9 revision).
+
+        Persists ``tess_text`` as ``__doc__.tess.json`` plus the manifest
+        ``tess`` section (``docHash``/``tolerance``/``lengthScale``/
+        ``updatedAt``/``sizeBytes``). The blob counts toward the LRU/size cap
+        like any feature entry. Raises ``TypeError``/``UnicodeDecodeError``
+        for non-text payloads; zip IO failures propagate to the caller (the
+        geometry-service hook guards the store so a build never breaks).
+        """
+        if isinstance(tess_text, bytes):
+            raw = bytes(tess_text)
+            raw.decode("utf-8")  # validate text; raises UnicodeDecodeError otherwise
+        elif isinstance(tess_text, str):
+            raw = tess_text.encode("utf-8")
+        else:
+            raise TypeError(f"tess_text must be str or utf-8 bytes, got {type(tess_text).__name__}")
+        manifest, blobs = _load_zip(self._path)
+        now = time.time() if updated_at is None else updated_at
+        manifest["tess"] = {
+            "docHash": doc_hash,
+            "tolerance": tolerance,
+            "lengthScale": length_scale,
+            "updatedAt": now,
+            "sizeBytes": len(raw),
+        }
+        blobs[TESS_BLOB_NAME] = raw
+        _evict_lru(manifest, blobs, self._size_cap_bytes, keep_tess=True)
+        _write_zip_atomic(self._path, manifest, blobs)
+
+    def lookup_tess(self, doc_hash: str, tolerance: float, length_scale: float) -> str | None:
+        """Return the cached tessellation text on an exact key match, else ``None``.
+
+        The ``docHash``/``tolerance``/``lengthScale`` triple must match
+        exactly; a missing/corrupt zip or section is a miss (warns like the
+        feature path, never raises for IO damage).
+        """
+        manifest, blobs = _load_zip(self._path)
+        record = _tess_record(manifest)
+        if record is None:
+            return None
+        if record.get("docHash") != doc_hash:
+            return None
+        if record.get("tolerance") != tolerance:
+            return None
+        if record.get("lengthScale") != length_scale:
+            return None
+        raw = blobs.get(TESS_BLOB_NAME)
+        if raw is None:
+            _warn(f"Ignoring corrupt result-cache tess entry in {self._path}")
+            return None
+        try:
+            return raw.decode("utf-8")
+        except UnicodeDecodeError:
+            _warn(f"Ignoring corrupt result-cache tess entry in {self._path}")
+            return None
 
     def invalidate(self, feature_id: str) -> bool:
         """Drop one entry; ``False`` when absent (missing zip counts as absent)."""
@@ -533,7 +677,7 @@ class DocCache:
         blobs.pop(_brep_name(feature_id), None)
         blobs.pop(_tess_name(feature_id), None)
         blobs.pop(_tool_name(feature_id), None)
-        if not records:
+        if not records and _tess_record(manifest) is None:
             try:
                 self._path.unlink(missing_ok=True)
             except OSError as exc:
@@ -559,7 +703,7 @@ class DocCache:
             blobs.pop(_brep_name(fid), None)
             blobs.pop(_tess_name(fid), None)
             blobs.pop(_tool_name(fid), None)
-        if not records:
+        if not records and _tess_record(manifest) is None:
             try:
                 self._path.unlink(missing_ok=True)
             except OSError as exc:
@@ -583,12 +727,11 @@ class DocCache:
         return sorted(records) if isinstance(records, dict) else []
 
     def total_bytes(self) -> int:
-        """Summed ``sizeBytes`` over manifest records (0 when missing/corrupt)."""
+        """Summed ``sizeBytes`` over manifest records plus the tess blob (0 when missing)."""
         manifest, _ = _load_zip(self._path)
-        records = manifest.get("features", {})
-        if not isinstance(records, dict):
+        if not isinstance(manifest, dict):
             return 0
-        return sum(_record_size(r) for r in records.values() if isinstance(r, dict))
+        return _manifest_total(manifest)
 
     def __len__(self) -> int:
         return len(self.feature_ids())
@@ -601,6 +744,19 @@ class MemoryDocCache:
         self._size_cap_bytes = size_cap_bytes
         self._records: dict[str, dict[str, Any]] = {}
         self._blobs: dict[str, bytes] = {}
+        self._tess: dict[str, Any] | None = None
+
+    def _facade(self) -> dict[str, Any]:
+        """Manifest-shaped view over the memory entries for shared eviction."""
+        facade: dict[str, Any] = {"features": self._records}
+        if self._tess is not None:
+            facade["tess"] = self._tess
+        return facade
+
+    def _sync_tess(self, facade: dict[str, Any]) -> None:
+        """Mirror a facade-side tess eviction back onto the memory entry."""
+        if "tess" not in facade:
+            self._tess = None
 
     @property
     def size_cap_bytes(self) -> int:
@@ -652,8 +808,59 @@ class MemoryDocCache:
             self._blobs[_tool_name(feature_id)] = bytes(tool_bytes)
         else:
             self._blobs.pop(_tool_name(feature_id), None)
-        _evict_lru(self._records, self._blobs, self._size_cap_bytes, keep_id=feature_id)
+        facade = self._facade()
+        _evict_lru(facade, self._blobs, self._size_cap_bytes, keep_id=feature_id)
+        self._sync_tess(facade)
         return _build_entry(feature_id, self._records[feature_id], self._blobs)  # type: ignore[return-value]
+
+    def store_tess(
+        self,
+        doc_hash: str,
+        tolerance: float,
+        length_scale: float,
+        tess_text: str | bytes,
+        *,
+        updated_at: float | None = None,
+    ) -> None:
+        """Memory twin of :meth:`DocCache.store_tess` (same key grammar, no zip)."""
+        if isinstance(tess_text, bytes):
+            raw = bytes(tess_text)
+            raw.decode("utf-8")  # validate text; raises UnicodeDecodeError otherwise
+        elif isinstance(tess_text, str):
+            raw = tess_text.encode("utf-8")
+        else:
+            raise TypeError(f"tess_text must be str or utf-8 bytes, got {type(tess_text).__name__}")
+        now = time.time() if updated_at is None else updated_at
+        self._tess = {
+            "docHash": doc_hash,
+            "tolerance": tolerance,
+            "lengthScale": length_scale,
+            "updatedAt": now,
+            "sizeBytes": len(raw),
+        }
+        self._blobs[TESS_BLOB_NAME] = raw
+        facade = self._facade()
+        _evict_lru(facade, self._blobs, self._size_cap_bytes, keep_tess=True)
+        self._sync_tess(facade)
+
+    def lookup_tess(self, doc_hash: str, tolerance: float, length_scale: float) -> str | None:
+        """Memory twin of :meth:`DocCache.lookup_tess` (exact triple match, else miss)."""
+        record = self._tess
+        if record is None:
+            return None
+        if record.get("docHash") != doc_hash:
+            return None
+        if record.get("tolerance") != tolerance:
+            return None
+        if record.get("lengthScale") != length_scale:
+            return None
+        raw = self._blobs.get(TESS_BLOB_NAME)
+        if raw is None:
+            return None
+        try:
+            return raw.decode("utf-8")
+        except UnicodeDecodeError:
+            return None
 
     def invalidate(self, feature_id: str) -> bool:
         if feature_id not in self._records:
@@ -677,12 +884,16 @@ class MemoryDocCache:
     def clear(self) -> None:
         self._records.clear()
         self._blobs.clear()
+        self._tess = None
 
     def feature_ids(self) -> list[str]:
         return sorted(self._records)
 
     def total_bytes(self) -> int:
-        return sum(_record_size(r) for r in self._records.values())
+        total = sum(_record_size(r) for r in self._records.values())
+        if self._tess is not None:
+            total += _tess_size(self._tess)
+        return total
 
     def __len__(self) -> int:
         return len(self._records)

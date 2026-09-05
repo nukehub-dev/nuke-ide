@@ -40,3 +40,16 @@ describe('NukeCadPreferenceSchema rebuildOnEdit', () => {
         expect(prop.enum).toEqual(['auto', 'manual']);
     });
 });
+
+describe('NukeCadPreferenceSchema resultCacheSizeMB', () => {
+    it('defaults to 1024 MB', () => {
+        const prop = NukeCadPreferenceSchema.properties['nukeCad.resultCacheSizeMB'];
+        expect(prop.type).toBe('number');
+        expect(prop.default).toBe(1024);
+    });
+
+    it('requires at least 1 MB', () => {
+        const prop = NukeCadPreferenceSchema.properties['nukeCad.resultCacheSizeMB'];
+        expect(prop.minimum).toBe(1);
+    });
+});

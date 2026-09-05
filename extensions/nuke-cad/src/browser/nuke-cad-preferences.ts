@@ -102,6 +102,14 @@ export const NukeCadPreferenceSchema: PreferenceSchema = {
                 'Rebuild .nuke-cad documents automatically after each edit (auto), or only on demand (manual). ' +
                 'Manual mode skips the debounced edit-triggered rebuild and marks the model stale until Rebuild runs; ' +
                 'opening a document always builds. Prefer manual for large documents where each rebuild is expensive.'
+        },
+        'nukeCad.resultCacheSizeMB': {
+            type: 'number',
+            default: 1024,
+            minimum: 1,
+            description:
+                'Maximum size in MB of the .nuke-cad result-cache sidecar (<stem>.nuke-cache.zip) before LRU eviction. ' +
+                'Sent on every partial build; applies to builds started after the change.'
         }
     }
 };
@@ -120,6 +128,8 @@ export interface NukeCadConfiguration {
     'nukeCad.viewportBackground': string;
     /** Rebuild behavior for document edits: auto rebuilds after each edit, manual marks the model stale until rebuilt. */
     'nukeCad.rebuildOnEdit': 'auto' | 'manual';
+    /** Maximum size in MB of the result-cache sidecar before LRU eviction. */
+    'nukeCad.resultCacheSizeMB': number;
 }
 
 /** Symbol used to bind the {@link PreferenceContribution} for Nuke CAD. */

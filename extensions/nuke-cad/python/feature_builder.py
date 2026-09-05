@@ -4863,18 +4863,21 @@ def _shape_from_brep_bytes(data: bytes | bytearray) -> Any:
     return bd.Compound(children=solids)
 
 
-def _open_cache(cache_path: str | None) -> Any | None:
+def _open_cache(cache_path: str | None, size_cap_bytes: int | None = None) -> Any | None:
     """Open the zip sidecar for a build, or ``None`` when caching is off/broken.
 
     ``cache_path`` is the ``<stem>.nuke-cache.zip`` file path the caller
     resolved (the geometry service composes it from the cache dir + document
-    stem). Never raises: without a path, without the C1 module, or on any IO
-    error the build simply proceeds uncached.
+    stem). ``size_cap_bytes`` overrides the default LRU cap (None = default).
+    Never raises: without a path, without the C1 module, or on any IO error
+    the build simply proceeds uncached.
     """
     if not cache_path or not HAS_DOC_CACHE or _doc_cache is None:
         return None
     try:
-        return _doc_cache.DocCache(cache_path)
+        if size_cap_bytes is None:
+            return _doc_cache.DocCache(cache_path)
+        return _doc_cache.DocCache(cache_path, size_cap_bytes=size_cap_bytes)
     except Exception:
         return None
 
@@ -5057,6 +5060,7 @@ def build_document_shape_partial(
     dirty_feature_ids: list[str],
     curve_results: dict[str, dict[str, Any]] | None = None,
     cache_path: str | None = None,
+    size_cap_bytes: int | None = None,
 ) -> dict[str, Any]:
     """Build only the dirty closure of a document, restoring the rest from cache.
 
@@ -5095,7 +5099,7 @@ def build_document_shape_partial(
     # path looks entries up by key and the write-back path stores under the
     # same key, so the two sides stay consistent without comparing anything
     # across the TS/Python boundary. Key failure degrades to a full execute.
-    cache = _open_cache(cache_path)
+    cache = _open_cache(cache_path, size_cap_bytes)
     try:
         keys = _content_keys_for_document(document) if cache is not None else {}
     except Exception:

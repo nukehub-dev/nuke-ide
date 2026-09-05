@@ -392,6 +392,9 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   gates edit-triggered rebuilds: `manual` marks the model stale (banner +
   Rebuild button) instead of rebuilding; opening a document always builds,
   and plain Save never builds.
+  `nukeCad.resultCacheSizeMB` (number, default 1024, minimum 1) caps the
+  `<stem>.nuke-cache.zip` sidecar before LRU eviction; the widget threads it
+  as `sizeCapMB` on every partial call.
 - STEP/STP/BREP files open in nuke-cad by default (higher open-handler priority
   than nuke-visualizer); the geometry service reads them through OCP and runs
   the same tessellation pipeline as script builds. IGES/BREP/glTF read-write,
@@ -656,9 +659,12 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
     self-consistent key systems, never compared across languages: TS keys
     back the in-session memory cache, C1 content keys back the zip (sketch
     params, external refs, the datum table, and document order are key
-    inputs on both sides). A per-feature **tessellation** cache is still
-    deferred (facet blobs keyed pre-assembly): opens restore shapes but
-    re-tessellate.
+    inputs on both sides). Per-feature tessellation rides the same sidecar as
+    a doc-level `tess` blob in the manifest section, keyed by doc-hash
+    (`store_tess`/`lookup_tess`, `python/doc_cache.py`): a hash hit restores
+    shapes and skips meshing (reported via `tessCacheHit`), while any miss
+    re-tessellates. `nukeCad.resultCacheSizeMB` caps the zip size before LRU
+    eviction.
   - Datum support includes `XY`/`YZ`/`XZ`/`offset`/`face`/`threePoint`/
     `midplane`/`line2Point`. `offset` datums are
     interpreted as offsets of the XY plane along +Z. `face` datums resolve a

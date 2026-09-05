@@ -1627,6 +1627,103 @@ def _curve_tess_entry(curve_id: str, result: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# ---------------------------------------------------------------------------
+# P2 doc-level tessellation cache (brief §9, DOC-LEVEL revision).
+#
+# One ``__doc__.tess.json`` blob per sidecar holds the whole document
+# tessellation text, keyed by ``doc_cache.compute_tess_doc_hash`` (sorted
+# per-feature keys + tolerance + lengthScale). Doc-level — not per-feature —
+# because per-feature facet blobs cannot survive boolean reindexing, while a
+# doc-level blob skips meshing soundly. The hook engages only for document
+# builds with an explicit cache dir; script/STEP/IGES/BREP/glTF paths never
+# pass a cache path, and the gmsh DAGMC/mesh path is untouched (it refacets
+# from the STEP file itself, never from this blob).
+# ---------------------------------------------------------------------------
+
+
+def _tess_cache_path_for(cache_dir: str | None, stem: str) -> str | None:
+    """Resolve the tess sidecar zip from a cache dir + document stem (None = inactive)."""
+    if not cache_dir or not HAS_DOC_CACHE or doc_cache is None:
+        return None
+    try:
+        return str(Path(cache_dir) / f"{stem}.nuke-cache.zip")
+    except Exception:
+        return None
+
+
+def _size_cap_bytes(size_cap_mb: float | None) -> int | None:
+    """MiB sidecar cap → bytes for ``DocCache``; None/non-positive means the backend default."""
+    try:
+        cap = float(size_cap_mb) if size_cap_mb is not None else None
+    except (TypeError, ValueError):
+        return None
+    if cap is None or not math.isfinite(cap) or cap <= 0:
+        return None
+    return int(cap * 1024 * 1024)
+
+
+def _tess_doc_hash_for(
+    document: dict[str, Any], tolerance: float, length_scale: float
+) -> str | None:
+    """Content hash for the doc-level tess blob; None when unhashable (miss path)."""
+    if not HAS_DOC_CACHE or doc_cache is None:
+        return None
+    try:
+        return doc_cache.compute_tess_doc_hash(
+            document,
+            tolerance,
+            length_scale,
+            ocp_version=doc_cache.current_ocp_version(),
+        )
+    except Exception:
+        return None
+
+
+def _lookup_tess_blob(
+    cache_path: str | None,
+    doc_hash: str | None,
+    tolerance: float,
+    length_scale: float,
+    size_cap_bytes: int | None = None,
+) -> str | None:
+    """Return the cached tessellation text on an exact key match, else None.
+
+    Caching inactive (no path/hash, no doc_cache module) is a miss. Never raises.
+    """
+    if not cache_path or not doc_hash or not HAS_DOC_CACHE or doc_cache is None:
+        return None
+    try:
+        if size_cap_bytes is None:
+            return doc_cache.DocCache(cache_path).lookup_tess(doc_hash, tolerance, length_scale)
+        return doc_cache.DocCache(cache_path, size_cap_bytes=size_cap_bytes).lookup_tess(
+            doc_hash, tolerance, length_scale
+        )
+    except Exception:
+        return None
+
+
+def _store_tess_blob(
+    cache_path: str | None,
+    doc_hash: str | None,
+    tolerance: float,
+    length_scale: float,
+    tess_text: str,
+    size_cap_bytes: int | None = None,
+) -> None:
+    """Persist the just-written tessellation text; failures warn to stderr, never raise."""
+    if not cache_path or not doc_hash or not HAS_DOC_CACHE or doc_cache is None:
+        return
+    try:
+        if size_cap_bytes is None:
+            doc_cache.DocCache(cache_path).store_tess(doc_hash, tolerance, length_scale, tess_text)
+        else:
+            doc_cache.DocCache(cache_path, size_cap_bytes=size_cap_bytes).store_tess(
+                doc_hash, tolerance, length_scale, tess_text
+            )
+    except Exception as exc:
+        _print_progress(f"Tessellation cache store skipped: {exc}")
+
+
 def _process_shape(
     shape: object | None,
     source_file: Path,
@@ -1646,12 +1743,26 @@ def _process_shape(
     length_scale: float = 1.0,
     body_ids: list[str] | None = None,
     curve_results: dict[str, dict[str, Any]] | None = None,
+    tess_cache_path: str | None = None,
+    tess_doc_hash: str | None = None,
+    tess_size_cap_bytes: int | None = None,
 ) -> dict:
     """Tessellate ``shape`` and write canonical artifacts.
 
     This is the shared backend of both script-based builds and STEP imports.
     Returns the stdout-JSON result dict. When ``shape`` is ``None`` and
     ``curve_results`` is provided, only the curve tessellation is produced.
+
+    Document builds may pass ``tess_cache_path`` (a ``<stem>.nuke-cache.zip``
+    sidecar) plus ``tess_doc_hash`` (``doc_cache.compute_tess_doc_hash`` over
+    the built document, tolerance, and length scale). On an exact cache hit
+    the cached tessellation text is written verbatim to the standard tess
+    path and ONLY the ``_tessellate_shape`` meshing call is skipped — STEP,
+    manifest, selectorMap, DAGMC, and mesh emission run normally, and the
+    result reports ``tessCacheHit: True``. On a miss the shape is meshed
+    normally, the fresh text is stored, and ``tessCacheHit`` is ``False``
+    (also ``False`` whenever caching is inactive, with byte-identical output
+    to a cache-disabled build).
     """
     selector_map = selector_map or {}
     curve_results = curve_results or {}
@@ -1679,6 +1790,7 @@ def _process_shape(
         "meshReport": None,
         "warnings": [],
         "selectorMap": selector_map,
+        "tessCacheHit": False,
     }
 
     # ------------------------------------------------------------------
@@ -1710,10 +1822,28 @@ def _process_shape(
             return result
 
     # ------------------------------------------------------------------
-    # 2. Tessellate and write viewport stream.
+    # 2. Tessellate and write viewport stream (document builds may reuse
+    #    the P2 doc-level tess blob: on a content-hash hit the cached text
+    #    is written verbatim and ONLY the meshing call is skipped).
     # ------------------------------------------------------------------
     solids: list[dict] = []
+    cached_text: str | None = None
     if has_solids:
+        cached_text = _lookup_tess_blob(
+            tess_cache_path, tess_doc_hash, tolerance, length_scale, tess_size_cap_bytes
+        )
+        if cached_text is not None:
+            try:
+                parsed = json.loads(cached_text)
+                hit_solids = parsed.get("solids") if isinstance(parsed, dict) else None
+                if not isinstance(hit_solids, list):
+                    raise ValueError("cached tessellation has no solids list")
+                solids = hit_solids
+            except Exception as exc:
+                _print_progress(f"Ignoring cached tessellation ({exc}); re-meshing")
+                cached_text = None
+                solids = []
+    if cached_text is None and has_solids:
         _print_progress("Tessellating B-rep")
         try:
             solids = _tessellate_shape(shape, tolerance, body_ids=body_ids)
@@ -1734,22 +1864,40 @@ def _process_shape(
     total_triangles = sum(len(face["triangles"]) for solid in solids for face in solid["faces"])
     total_faces = sum(len(solid["faces"]) for solid in solids)
 
-    tess_data: dict[str, Any] = {
-        "version": 1,
-        "tolerance": tolerance,
-        "boundingBox": bbox,
-        "solids": solids,
-    }
-    if curve_results:
-        tess_data["curves"] = [
-            _curve_tess_entry(curve_id, curve_result)
-            for curve_id, curve_result in curve_results.items()
-        ]
-    try:
-        paths["tess"].write_text(json.dumps(tess_data), encoding="utf-8")
-    except Exception as exc:
-        result["error"] = f"Failed to write tessellation stream: {exc}"
-        return result
+    if cached_text is not None:
+        try:
+            paths["tess"].write_text(cached_text, encoding="utf-8")
+        except Exception as exc:
+            result["error"] = f"Failed to write tessellation stream: {exc}"
+            return result
+        result["tessCacheHit"] = True
+    else:
+        tess_data: dict[str, Any] = {
+            "version": 1,
+            "tolerance": tolerance,
+            "boundingBox": bbox,
+            "solids": solids,
+        }
+        if curve_results:
+            tess_data["curves"] = [
+                _curve_tess_entry(curve_id, curve_result)
+                for curve_id, curve_result in curve_results.items()
+            ]
+        try:
+            tess_text = json.dumps(tess_data)
+            paths["tess"].write_text(tess_text, encoding="utf-8")
+        except Exception as exc:
+            result["error"] = f"Failed to write tessellation stream: {exc}"
+            return result
+        if has_solids:
+            _store_tess_blob(
+                tess_cache_path,
+                tess_doc_hash,
+                tolerance,
+                length_scale,
+                tess_text,
+                tess_size_cap_bytes,
+            )
 
     # ------------------------------------------------------------------
     # 3. Apply region manifest (script builds only; STEP has no selectors).
@@ -2547,6 +2695,8 @@ def build_document(
     mesh_max_size: float | None = None,
     mesh_order: int = 1,
     length_scale: float = 1.0,
+    cache_dir: str | None = None,
+    size_cap_mb: float | None = None,
 ) -> dict:
     """Build geometry from a ``.nuke-cad`` document and write canonical artifacts.
 
@@ -2554,6 +2704,11 @@ def build_document(
     through ``_process_shape`` verbatim so STEP, tessellation, DAGMC, and mesh
     artifacts are identical to script builds. Per-feature status is returned in
     ``featureResults``.
+
+    ``cache_dir`` enables the P2 doc-level tessellation cache (sidecar
+    ``<stem>.nuke-cache.zip`` resolved inside it; ``None`` disables caching
+    and the result reports ``tessCacheHit: False`` with byte-identical output
+    to a cache-disabled build).
     """
     document_file = Path(document_path).resolve()
     if not document_file.exists():
@@ -2682,6 +2837,10 @@ def build_document(
     wrapped = getattr(shape, "wrapped", None) if shape is not None else None
 
     manifest, manifest_warnings = _load_manifest(document_file)
+    tess_cache_path = _tess_cache_path_for(cache_dir, document_file.stem)
+    tess_doc_hash = (
+        _tess_doc_hash_for(document, tolerance, length_scale) if tess_cache_path else None
+    )
     result = _process_shape(
         wrapped,
         document_file,
@@ -2701,6 +2860,9 @@ def build_document(
         length_scale=length_scale,
         body_ids=build_result.get("solidBodyIds"),
         curve_results=curve_results,
+        tess_cache_path=tess_cache_path,
+        tess_doc_hash=tess_doc_hash,
+        tess_size_cap_bytes=_size_cap_bytes(size_cap_mb),
     )
     result["featureResults"] = build_result.get("featureResults", [])
     result["referenceResults"] = build_result.get("referenceResults", [])
@@ -2715,6 +2877,7 @@ def build_document_partial(
     document_path: str,
     feature_ids: list[str] | None,
     cache_dir: str | None = None,
+    size_cap_mb: float | None = None,
     output_dir: str | None = None,
     tolerance: float = 0.001,
     export_dagmc: bool = True,
@@ -2849,6 +3012,7 @@ def build_document_partial(
             list(feature_ids or []),
             curve_results=curve_results,
             cache_path=cache_path,
+            size_cap_bytes=_size_cap_bytes(size_cap_mb),
         )
     except (feature_builder.FeatureBuilderError, sketch_builder.SketchError) as exc:
         return {
@@ -2879,6 +3043,7 @@ def build_document_partial(
     wrapped = getattr(shape, "wrapped", None) if shape is not None else None
 
     manifest, manifest_warnings = _load_manifest(document_file)
+    tess_doc_hash = _tess_doc_hash_for(document, tolerance, length_scale) if cache_path else None
     result = _process_shape(
         wrapped,
         document_file,
@@ -2898,6 +3063,9 @@ def build_document_partial(
         length_scale=length_scale,
         body_ids=build_result.get("solidBodyIds"),
         curve_results=curve_results,
+        tess_cache_path=cache_path,
+        tess_doc_hash=tess_doc_hash,
+        tess_size_cap_bytes=_size_cap_bytes(size_cap_mb),
     )
     result["featureResults"] = build_result.get("featureResults", [])
     result["referenceResults"] = build_result.get("referenceResults", [])
@@ -2933,9 +3101,15 @@ def main() -> None:
         "--cache-dir",
         default=None,
         help=(
-            "Result-cache directory for partial document rebuilds "
+            "Result-cache directory for document rebuilds "
             "(passed through opaquely; cache policy is owned by the TS orchestrator)"
         ),
+    )
+    parser.add_argument(
+        "--size-cap-mb",
+        type=float,
+        default=None,
+        help="Result-cache sidecar size cap in MiB (LRU eviction; default: backend default)",
     )
     # Internal child-process entry point used by build_geometry for isolated
     # script execution; not part of the public CLI.
@@ -3027,6 +3201,7 @@ def main() -> None:
                 args.script,
                 [fid.strip() for fid in args.partial_feature_ids.split(",") if fid.strip()],
                 cache_dir=args.cache_dir,
+                size_cap_mb=args.size_cap_mb,
                 output_dir=args.output_dir,
                 tolerance=args.tolerance,
                 export_dagmc=not args.no_dagmc,
@@ -3042,6 +3217,7 @@ def main() -> None:
         else:
             result = build_document(
                 args.script,
+                size_cap_mb=args.size_cap_mb,
                 output_dir=args.output_dir,
                 tolerance=args.tolerance,
                 export_dagmc=not args.no_dagmc,
@@ -3053,6 +3229,7 @@ def main() -> None:
                 mesh_max_size=args.mesh_max_size,
                 mesh_order=args.mesh_order,
                 length_scale=args.length_scale,
+                cache_dir=args.cache_dir,
             )
     else:
         result = build_geometry(

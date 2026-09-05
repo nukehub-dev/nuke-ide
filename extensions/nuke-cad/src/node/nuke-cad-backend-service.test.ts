@@ -172,6 +172,34 @@ describe('buildFeaturesPartialArgs', () => {
         expect(args).not.toContain('--cache-dir');
     });
 
+    it('passes --size-cap-mb when the caller threads the size preference', () => {
+        const request: BuildFeaturesPartialRequest = {
+            scriptPath: MODEL_PATH,
+            featureIds: ['f1', 'f2'],
+            cacheDir: '/tmp/out',
+            sizeCapMB: 1024
+        };
+        expect(buildFeaturesPartialArgs(request, SCRIPT_PATH)).toEqual([
+            SCRIPT_PATH,
+            MODEL_PATH,
+            '--from-document',
+            '--partial-features',
+            'f1,f2',
+            '--no-dagmc',
+            '--no-mesh',
+            '--cache-dir',
+            '/tmp/out',
+            '--size-cap-mb',
+            '1024'
+        ]);
+    });
+
+    it('omits --size-cap-mb when the caller leaves the cap to the backend default', () => {
+        const request: BuildFeaturesPartialRequest = { scriptPath: MODEL_PATH, featureIds: ['f1'] };
+        const args = buildFeaturesPartialArgs(request, SCRIPT_PATH);
+        expect(args).not.toContain('--size-cap-mb');
+    });
+
     it('passes a single id without separators', () => {
         const request: BuildFeaturesPartialRequest = { scriptPath: MODEL_PATH, featureIds: ['only'] };
         const args = buildFeaturesPartialArgs(request, SCRIPT_PATH);

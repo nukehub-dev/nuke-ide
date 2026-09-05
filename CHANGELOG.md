@@ -58,6 +58,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   model stale (banner + Rebuild button) instead, for documents where each
   rebuild is expensive; opening a document always builds, and plain Save
   never builds.
+- nuke-cad: **tessellation cache + `nukeCad.resultCacheSizeMB`** — the
+  result-cache sidecar now also stores a doc-level tessellation blob keyed
+  by doc-hash, so cache-hit opens skip meshing entirely (reported via
+  `tessCacheHit`); the new `nukeCad.resultCacheSizeMB` preference (default
+  1024 MB, minimum 1) caps the sidecar size before LRU eviction and is sent
+  on every partial build.
 - nuke-cad: **extrude end-conditions** — pad/pocket dialogs gain an End
   selector (`blind` as before, plus first/last-face-hit, picked face, or
   through-all) with optional two-sided extrusion; a missed end fails with
