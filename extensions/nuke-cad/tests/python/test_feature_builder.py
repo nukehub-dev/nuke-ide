@@ -3143,9 +3143,13 @@ def test_pocket_disjoint_from_body_fails() -> None:
     assert "does not intersect" in by_id["pocket1"]["error"].lower()
 
 
-def test_pad_rejects_unsupported_up_to_face() -> None:
-    """Pad upToFace is validated and resolved but not implemented; the builder
-    must reject it explicitly instead of silently ignoring it."""
+def test_pad_up_to_face_builds_to_named_face() -> None:
+    """Pad upToFace extrudes the profile exactly to the named face's plane.
+
+    The upToFace end condition replaces the old "not yet supported" failure:
+    a profile sketched below the base body extrudes up to the base's top face
+    and fuses into the body.
+    """
     pytest.importorskip("build123d", reason="build123d not installed")
     top_ref, _base_doc = _build_base_and_capture_top_face(length=5.0)
     doc = _document(
@@ -3164,7 +3168,7 @@ def test_pad_rejects_unsupported_up_to_face() -> None:
                 "name": "pad2",
                 "type": "pad",
                 "sketchId": "rect",
-                "params": {"length": 2.0, "upToFace": top_ref},
+                "params": {"end": "upToFace", "upToFace": top_ref},
                 "dependsOn": [],
                 "suppressed": False,
             },
@@ -3173,9 +3177,10 @@ def test_pad_rejects_unsupported_up_to_face() -> None:
     )
     result = fb.build_document_shape(doc)
     by_id = {r["featureId"]: r for r in result["featureResults"]}
-    assert by_id["pad2"]["status"] == "failed"
-    assert "not yet supported" in by_id["pad2"]["error"].lower()
-    assert "upToFace" in by_id["pad2"]["error"]
+    assert by_id["pad2"]["status"] == "built"
+    # The coincident 10x10 profile fuses flush with the 10x10x5 base.
+    assert result["shape"] is not None
+    assert math.isclose(result["shape"].volume, 10.0 * 10.0 * 5.0, rel_tol=1e-6)
 
 
 def test_pad_rejects_unsupported_angle_and_up_to_body() -> None:

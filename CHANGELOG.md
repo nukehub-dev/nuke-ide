@@ -51,6 +51,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   model stale (banner + Rebuild button) instead, for documents where each
   rebuild is expensive; opening a document always builds, and plain Save
   never builds.
+- nuke-cad: **extrude end-conditions** — pad/pocket dialogs gain an End
+  selector (`blind` as before, plus first/last-face-hit, picked face, or
+  through-all) with optional two-sided extrusion; a missed end fails with
+  the existing "does not intersect" error instead of a silent no-op.
+- nuke-cad: **datum-lite** — the Sketch Plane picker offers 3-Point planes,
+  midplanes between two picked faces, and two-point line datums (pattern
+  axes only); sketch entry derives the same workplanes client-side with no
+  build round-trip.
+- nuke-cad: **hole upgrade** — counterdrill preset, taper angle, blind-only
+  drill-point angle (blank stays flat, existing holes unchanged), and a
+  stored-only cosmetic thread flag.
+- nuke-cad: **primitives, scale, multi-transform, defeature** — datum-placed
+  box/cylinder/sphere/cone/torus features (no sketch needed,
+  pattern-source eligible); per-instance scale on patterns/mirror; a
+  multiTransform chaining two same-body pattern/mirror sources; face-delete
+  defeaturing for pre-mesh cleanup; and an optional draft neutral plane.
+- nuke-cad: **sketcher round** — Slot tool (`O`), PointOnObject,
+  DistanceX/DistanceY, Diameter, and Block-freeze constraints; diagnostics
+  now tag partially-redundant constraints and flag missing coincidents,
+  open profiles, and fully-constrained state.
+- nuke-cad: **expression units layer** — the mini-language enforces unit
+  algebra (`10mm + 1cm`, angle-gated trig, convert-or-fail coercion); the
+  unit-less document paths reject unit syntax until a document-unit
+  convention lands, so existing behavior is unchanged.
+- nuke-cad: **export fidelity** — STEP carries per-solid labels and face
+  colors with one object per solid on re-import; region manifests accept
+  physical-model UUIDs (surfaced on OpenMC import as copy provenance);
+  warnings-only mass-property and mesh-vs-CAD deviation gates run before
+  DAGMC export.
 - nuke-cad: **`nukeCad.viewportBackground` preference** — the 3D canvas
   backdrop is now choosable: `theme` (default, follows the active Theia
   theme as before), `dark`, `light`, or `gradient` (a dark gradient backdrop

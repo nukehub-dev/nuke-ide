@@ -26,7 +26,7 @@
 // *****************************************************************************
 
 import { describe, it, expect, beforeAll } from 'vitest';
-import { PlanegcsSketchSolver, type SketchPoint, type SketchCircle } from './sketch-solver';
+import { PlanegcsSketchSolver, buildSolverDiagnostics, type SketchPoint, type SketchCircle, type SolverResult } from './sketch-solver';
 
 describe('PlanegcsSketchSolver', () => {
     let solver: PlanegcsSketchSolver;
@@ -554,5 +554,96 @@ describe('PlanegcsSketchSolver', () => {
         expect(() => solver.addBSpline('bad', ['p0', 'p1', 'missing'], [1, 1, 1], [0, 1], [3, 3], 2, false)).toThrow(/unknown primitive/);
         expect(() => solver.addBSpline('bad', ['p0', 'p1', 'p2'], [1, 1, 1], [0, 1], [3, 3], 2, true)).toThrow(/periodic/);
         expect(() => solver.addBSpline('bad', ['p0', 'p1', 'p2'], [1, 1, 1], [0, 1, 2], [3, 3], 2, false)).toThrow(/knot/);
+    });
+
+    it('reports partially-redundant tags on every solve shape', async () => {
+        solver = await PlanegcsSketchSolver.create();
+        solver.addPoint('p', 0, 0);
+        const solved = await solver.solve();
+        expect(Array.isArray(solved.partiallyRedundant)).toBe(true);
+        expect(Array.isArray(solved.conflicting)).toBe(true);
+        expect(Array.isArray(solved.redundant)).toBe(true);
+
+        const pushed = await solver.pushTemporaryConstraints([{ type: 'fix', id: 'dragFix', pointId: 'p', x: 3, y: 4 }]);
+        expect(Array.isArray(pushed.partiallyRedundant)).toBe(true);
+        const popped = await solver.popTemporaryConstraints();
+        expect(Array.isArray(popped.partiallyRedundant)).toBe(true);
+    });
+
+    it('flags conflicting distance constraints', async () => {
+        solver = await PlanegcsSketchSolver.create();
+        solver.addPoint('a', 0, 0);
+        solver.addPoint('b', 5, 0);
+        solver.addConstraintFix('fixA', 'a');
+        solver.addConstraintDistance('d1', 'a', 'b', 5);
+        solver.addConstraintDistance('d2', 'a', 'b', 6);
+        const result = await solver.solve();
+        expect(result.status).toBe('failed');
+        expect(result.conflicting).toContain('d1');
+        expect(result.conflicting).toContain('d2');
+    });
+
+    describe('buildSolverDiagnostics', () => {
+        function emptyResult(): SolverResult {
+            return { status: 'converged', dof: 2, conflicting: [], redundant: [], partiallyRedundant: [] };
+        }
+
+        it('returns no diagnostics for a clean result', () => {
+            expect(buildSolverDiagnostics(emptyResult())).toEqual([]);
+        });
+
+        it('builds an error message for conflicting constraints with kind labels', () => {
+            const result: SolverResult = {
+                ...emptyResult(),
+                status: 'failed',
+                conflicting: ['dist-2', 'dist-1']
+            };
+            const diagnostics = buildSolverDiagnostics(
+                result,
+                new Map([
+                    ['dist-1', 'distance'],
+                    ['dist-2', 'distance']
+                ])
+            );
+            expect(diagnostics).toHaveLength(1);
+            expect(diagnostics[0].severity).toBe('error');
+            expect(diagnostics[0].code).toBe('conflicting');
+            expect(diagnostics[0].constraintIds).toEqual(['dist-1', 'dist-2']);
+            expect(diagnostics[0].message).toContain('Conflicting constraints (2)');
+            expect(diagnostics[0].message).toContain('dist-1 (distance)');
+        });
+
+        it('builds a warning for redundant constraints', () => {
+            const result: SolverResult = { ...emptyResult(), redundant: ['h2'] };
+            const diagnostics = buildSolverDiagnostics(result, new Map([['h2', 'horizontal']]));
+            expect(diagnostics).toHaveLength(1);
+            expect(diagnostics[0].severity).toBe('warning');
+            expect(diagnostics[0].code).toBe('redundant');
+            expect(diagnostics[0].message).toContain('Redundant constraints (1)');
+            expect(diagnostics[0].message).toContain('h2 (horizontal)');
+        });
+
+        it('builds a warning for partially-redundant constraints', () => {
+            const result: SolverResult = { ...emptyResult(), partiallyRedundant: ['eq1'] };
+            const diagnostics = buildSolverDiagnostics(result);
+            expect(diagnostics).toHaveLength(1);
+            expect(diagnostics[0].severity).toBe('warning');
+            expect(diagnostics[0].code).toBe('partially-redundant');
+            expect(diagnostics[0].constraintIds).toEqual(['eq1']);
+            expect(diagnostics[0].message).toContain('Partially redundant');
+            expect(diagnostics[0].message).toContain('eq1');
+        });
+
+        it('emits one entry per non-empty tag group', () => {
+            const result: SolverResult = {
+                status: 'failed',
+                dof: 1,
+                conflicting: ['c1'],
+                redundant: ['r1'],
+                partiallyRedundant: ['p1']
+            };
+            const codes = buildSolverDiagnostics(result).map((d) => d.code);
+            expect(codes).toEqual(['conflicting', 'redundant', 'partially-redundant']);
+        });
     });
 });

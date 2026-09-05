@@ -391,11 +391,41 @@ describe('computeDependsOn', () => {
     it('returns undefined for non-solid features', () => {
         expect(computeDependsOn('fillet', 'body-1', [])).toBeUndefined();
     });
-
     it('ignores solid-producing features on other bodies', () => {
         const features = [feature('pad1', 'pad', [], undefined, 'body-a'), feature('pad2', 'pad', [], undefined, 'body-b')];
         expect(computeDependsOn('pocket', 'body-b', features)).toBe('pad2');
         expect(computeDependsOn('pocket', 'body-a', features)).toBe('pad1');
+    });
+
+    it('treats primitive as a body-tip producer like pad', () => {
+        expect(computeDependsOn('primitive', 'body-1', [])).toBeUndefined();
+        const features = [feature('pad1', 'pad')];
+        expect(computeDependsOn('primitive', 'body-1', features)).toBe('pad1');
+        const primitive: FeatureDef = {
+            ...feature('prim1', 'primitive', ['pad1']),
+            params: { shape: 'box', dimensions: [1, 2, 3] }
+        };
+        expect(computeDependsOn('pocket', 'body-1', [...features, primitive])).toBe('prim1');
+    });
+
+    it('chains multiTransform after the body tip (sources ride explicit dependsOn)', () => {
+        const features = [feature('pad1', 'pad'), feature('lin1', 'linearPattern', ['pad1'])];
+        expect(computeDependsOn('multiTransform', 'body-1', features)).toBe('lin1');
+        const multi: FeatureDef = {
+            id: 'mt1',
+            name: 'mt1',
+            type: 'multiTransform',
+            body: 'body-1',
+            params: { first: 'lin1', second: 'lin1' },
+            suppressed: false,
+            dependsOn: ['lin1']
+        };
+        expect(computeDependsOn('fillet', 'body-1', [...features, multi])).toBe('mt1');
+    });
+
+    it('returns undefined for defeature (not a solid producer)', () => {
+        const features = [feature('pad1', 'pad')];
+        expect(computeDependsOn('defeature', 'body-1', features)).toBeUndefined();
     });
 });
 
@@ -1373,5 +1403,174 @@ describe('curve operations', () => {
         store.createDocument('test');
         store.addCurve(pointsCurve('c1', 'Circle'));
         expect(count).toBeGreaterThan(0);
+    });
+});
+
+describe('datum-lite addDatum payloads', () => {
+    const threePoints: [number, number, number][] = [
+        [0, 0, 0],
+        [1, 0, 0],
+        [0, 1, 0]
+    ];
+
+    it('persists threePoint points on the datum record', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        const result = store.addDatum('threePoint', 0, undefined, { points: threePoints });
+        expect(result.success).toBe(true);
+        const datum = store.document?.datums.find((d) => d.id === result.value);
+        expect(datum?.kind).toBe('threePoint');
+        expect(datum?.points).toEqual(threePoints);
+    });
+
+    it('rejects a threePoint datum without exactly 3 points', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        expect(store.addDatum('threePoint').success).toBe(false);
+        const wrongCount = store.addDatum('threePoint', 0, undefined, { points: threePoints.slice(0, 2) });
+        expect(wrongCount.success).toBe(false);
+        expect(wrongCount.error).toContain('exactly 3 points');
+    });
+
+    it('leaves collinear threePoint points to commit-time schema validation', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        const result = store.addDatum('threePoint', 0, undefined, {
+            points: [
+                [0, 0, 0],
+                [1, 0, 0],
+                [2, 0, 0]
+            ]
+        });
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('collinear');
+    });
+
+    it('persists midplane faces on the datum record', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        const faces = [faceRef('pad1', [0, 0, 0]), faceRef('pad1', [0, 0, 10])];
+        const result = store.addDatum('midplane', 1, undefined, { faces });
+        expect(result.success).toBe(true);
+        const datum = store.document?.datums.find((d) => d.id === result.value);
+        expect(datum?.kind).toBe('midplane');
+        expect(datum?.faces).toHaveLength(2);
+        expect(datum?.offset).toBe(1);
+    });
+
+    it('rejects a midplane datum without exactly 2 faces', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        expect(store.addDatum('midplane').success).toBe(false);
+        const oneFace = store.addDatum('midplane', 0, undefined, { faces: [faceRef('pad1')] });
+        expect(oneFace.success).toBe(false);
+        expect(oneFace.error).toContain('exactly 2 face references');
+    });
+
+    it('persists line2Point points on the datum record', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        const result = store.addDatum('line2Point', 0, undefined, { points: threePoints.slice(0, 2) });
+        expect(result.success).toBe(true);
+        expect(store.document?.datums.find((d) => d.id === result.value)?.points).toHaveLength(2);
+    });
+
+    it('rejects a line2Point datum without exactly 2 points', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        const result = store.addDatum('line2Point', 0, undefined, { points: threePoints });
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('exactly 2 points');
+    });
+
+    it('leaves coincident line2Point points to commit-time schema validation', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        const result = store.addDatum('line2Point', 0, undefined, {
+            points: [
+                [1, 1, 1],
+                [1, 1, 1]
+            ]
+        });
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('distinct');
+    });
+});
+
+describe('multiTransform store cascade', () => {
+    function patternFeature(id: string, source: string): FeatureDef {
+        return {
+            id,
+            name: id,
+            type: 'linearPattern',
+            body: 'body-1',
+            params: { source, count: 2, spacing: 1, axis: 'x' },
+            suppressed: false,
+            dependsOn: [source]
+        };
+    }
+
+    function multiTransformTree(): CadDocumentStore {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        store.addBody('Body 1');
+        store.addFeature(feature('pad1', 'pad'));
+        store.addFeature(patternFeature('linA', 'pad1'));
+        store.addFeature(patternFeature('linB', 'pad1'));
+        // dependsOn names only the first input; the second rides first/second.
+        store.addFeature({
+            id: 'mt1',
+            name: 'mt1',
+            type: 'multiTransform',
+            body: 'body-1',
+            params: { first: 'linA', second: 'linB' },
+            suppressed: false,
+            dependsOn: ['linA']
+        });
+        expect(store.document?.features.map((f) => f.id)).toEqual(['pad1', 'linA', 'linB', 'mt1']);
+        return store;
+    }
+
+    it('rejects deleting a pattern used as a multiTransform second input', () => {
+        const store = multiTransformTree();
+        const result = store.deleteFeature('linB');
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('mt1');
+    });
+
+    it('cascades deletes through multiTransform first/second', () => {
+        const store = multiTransformTree();
+        const result = store.deleteFeature('linA', 'cascade');
+        expect(result.success).toBe(true);
+        expect(store.document?.features.map((f) => f.id)).toEqual(['pad1', 'linB']);
+    });
+
+    it('cascades a source delete through patterns into the multiTransform', () => {
+        const store = multiTransformTree();
+        const result = store.deleteFeature('pad1', 'cascade');
+        expect(result.success).toBe(true);
+        expect(store.document?.features).toHaveLength(0);
+    });
+
+    it('rejects reordering a multiTransform before its second input', () => {
+        const store = multiTransformTree();
+        const result = store.reorderFeatures(['pad1', 'linA', 'mt1', 'linB']);
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('mt1 depends on linB');
+    });
+
+    it('rejects reordering a multiTransform before its first input', () => {
+        const store = multiTransformTree();
+        const result = store.reorderFeatures(['mt1', 'pad1', 'linA', 'linB']);
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('mt1 depends on linA');
+    });
+
+    it('allows reordering that preserves multiTransform source order', () => {
+        const store = multiTransformTree();
+        // linA/linB are independent of each other, so swapping them is valid.
+        const result = store.reorderFeatures(['pad1', 'linB', 'linA', 'mt1']);
+        expect(result.success).toBe(true);
+        expect(store.document?.features.map((f) => f.id)).toEqual(['pad1', 'linB', 'linA', 'mt1']);
     });
 });

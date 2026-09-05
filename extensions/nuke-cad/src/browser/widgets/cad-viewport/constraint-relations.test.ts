@@ -38,10 +38,15 @@ describe('validRelations', () => {
         }
     });
 
-    it('point + anything offers only coincident', () => {
-        const others: SketchEntityType[] = ['point', 'line', 'circle', 'arc'];
-        for (const other of others) {
-            expect(validRelations('point', other)).toEqual(['coincident']);
+    it('point + point offers only coincident', () => {
+        expect(validRelations('point', 'point')).toEqual(['coincident']);
+    });
+
+    it('point + curve offers point-on-object', () => {
+        const curves: SketchEntityType[] = ['line', 'circle', 'arc'];
+        for (const curve of curves) {
+            expect(validRelations('point', curve)).toEqual(['pointOnObject']);
+            expect(validRelations(curve, 'point')).toEqual(['pointOnObject']);
         }
     });
 
@@ -78,6 +83,6 @@ describe('validRelations', () => {
                 }
             }
         }
-        expect(all).toEqual(new Set(['coincident', 'parallel', 'perpendicular', 'equal', 'tangent', 'concentric']));
+        expect(all).toEqual(new Set(['coincident', 'pointOnObject', 'parallel', 'perpendicular', 'equal', 'tangent', 'concentric']));
     });
 });

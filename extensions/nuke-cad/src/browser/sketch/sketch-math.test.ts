@@ -29,6 +29,8 @@ import { describe, it, expect } from 'vitest';
 import {
     buildDatumPlane,
     buildDatumPlaneFromFace,
+    buildDatumPlaneFromMidplane,
+    buildDatumPlaneFromPoints,
     intersectRayPlane,
     worldToSketch,
     sketchToWorld,
@@ -36,6 +38,20 @@ import {
     projectPointOntoSegment,
     dist
 } from './sketch-math';
+import { type TopologyRef } from '../../common/topology-refs';
+
+function planarFaceRef(center: [number, number, number], normal: [number, number, number]): TopologyRef {
+    return {
+        featureId: 'base',
+        kind: 'face',
+        fingerprint: {
+            surfaceType: 'plane',
+            area: 100,
+            center,
+            normal
+        }
+    };
+}
 
 describe('sketch-math', () => {
     describe('buildDatumPlane', () => {
@@ -60,6 +76,12 @@ describe('sketch-math', () => {
             const plane = buildDatumPlane('XZ', -3);
             expect(plane.normal).toEqual({ x: 0, y: 1, z: 0 });
             expect(plane.origin).toEqual({ x: 0, y: -3, z: 0 });
+        });
+
+        it('throws for unsupported datum kinds', () => {
+            expect(() => buildDatumPlane('threePoint' as 'XY', 0)).toThrow('Unsupported datum kind');
+            expect(() => buildDatumPlane('midplane' as 'XY', 0)).toThrow('Unsupported datum kind');
+            expect(() => buildDatumPlane('line2Point' as 'XY', 0)).toThrow('Unsupported datum kind');
         });
     });
 
@@ -216,6 +238,84 @@ describe('sketch-math', () => {
             expect(bottom.yAxis).toEqual({ x: 0, y: -1, z: 0 });
             const world = sketchToWorld({ x: 1, y: 2 }, bottom);
             expect(world).toEqual({ x: 6, y: 3, z: 0 });
+        });
+    });
+
+    describe('buildDatumPlaneFromPoints', () => {
+        it('builds an XY plane through three axis points', () => {
+            const plane = buildDatumPlaneFromPoints([0, 0, 0], [1, 0, 0], [0, 1, 0], 0);
+            expect(plane.kind).toBe('threePoint');
+            expect(plane.normal).toEqual({ x: 0, y: 0, z: 1 });
+            expect(plane.origin).toEqual({ x: 0, y: 0, z: 0 });
+            expect(plane.offset).toBe(0);
+        });
+
+        it('offsets the origin along the plane normal', () => {
+            const plane = buildDatumPlaneFromPoints([0, 0, 0], [1, 0, 0], [0, 1, 0], 2);
+            expect(plane.origin).toEqual({ x: 0, y: 0, z: 2 });
+        });
+
+        it('uses the face-datum xAxis rule for tilted planes', () => {
+            const plane = buildDatumPlaneFromPoints([0, 0, 0], [0, 1, 0], [0, 0, 1], 0);
+            // Normal is +X, far from world Z: x = normalize(Z x n), matching the YZ convention.
+            expect(plane.normal).toEqual({ x: 1, y: 0, z: 0 });
+            expect(plane.xAxis).toEqual({ x: 0, y: 1, z: 0 });
+            expect(plane.yAxis).toEqual({ x: 0, y: 0, z: 1 });
+            // Round-trips through the frame.
+            expect(sketchToWorld(worldToSketch({ x: 0, y: 0, z: 0 }, plane), plane)).toEqual({ x: 0, y: 0, z: 0 });
+        });
+
+        it('throws for collinear points', () => {
+            expect(() => buildDatumPlaneFromPoints([0, 0, 0], [1, 0, 0], [2, 0, 0])).toThrow('non-collinear');
+        });
+
+        it('throws for coincident points', () => {
+            expect(() => buildDatumPlaneFromPoints([1, 1, 1], [1, 1, 1], [0, 1, 0])).toThrow('non-collinear');
+        });
+    });
+
+    describe('buildDatumPlaneFromMidplane', () => {
+        it('builds the plane midway between two opposing faces', () => {
+            const plane = buildDatumPlaneFromMidplane(planarFaceRef([0, 0, 0], [0, 0, 1]), planarFaceRef([0, 0, 10], [0, 0, -1]), 0);
+            expect(plane.kind).toBe('midplane');
+            expect(plane.normal).toEqual({ x: 0, y: 0, z: 1 });
+            expect(plane.origin).toEqual({ x: 0, y: 0, z: 5 });
+        });
+
+        it('orients the normal from the first face toward the second', () => {
+            const plane = buildDatumPlaneFromMidplane(planarFaceRef([0, 0, 10], [0, 0, -1]), planarFaceRef([0, 0, 0], [0, 0, 1]), 0);
+            expect(plane.normal).toEqual({ x: 0, y: 0, z: -1 });
+            expect(plane.origin).toEqual({ x: 0, y: 0, z: 5 });
+        });
+
+        it('applies offset along the oriented normal', () => {
+            const plane = buildDatumPlaneFromMidplane(planarFaceRef([0, 0, 0], [0, 0, 1]), planarFaceRef([0, 0, 10], [0, 0, -1]), 2);
+            expect(plane.origin).toEqual({ x: 0, y: 0, z: 7 });
+        });
+
+        it('accepts faces whose normals agree (same-side pair)', () => {
+            const plane = buildDatumPlaneFromMidplane(planarFaceRef([0, 0, 0], [0, 0, 1]), planarFaceRef([0, 0, 10], [0, 0, 1]), 0);
+            expect(plane.normal).toEqual({ x: 0, y: 0, z: 1 });
+            expect(plane.origin).toEqual({ x: 0, y: 0, z: 5 });
+        });
+
+        it('throws for non-parallel faces', () => {
+            expect(() => buildDatumPlaneFromMidplane(planarFaceRef([0, 0, 0], [0, 0, 1]), planarFaceRef([0, 0, 10], [0, 1, 0]))).toThrow(
+                'parallel'
+            );
+        });
+
+        it('throws when a face has no planar normal', () => {
+            const cylindrical: TopologyRef = {
+                featureId: 'base',
+                kind: 'face',
+                fingerprint: {
+                    surfaceType: 'cylinder',
+                    area: 100,
+                    center: [0, 0, 5]
+                }
+            };
+            expect(() => buildDatumPlaneFromMidplane(cylindrical, planarFaceRef([0, 0, 0], [0, 0, 1]))).toThrow('planar');
         });
     });
 });

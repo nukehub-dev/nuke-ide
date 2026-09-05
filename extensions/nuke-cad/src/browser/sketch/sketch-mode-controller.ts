@@ -45,6 +45,8 @@ import { sharedEllipsePolyline, sharedBSplinePolyline } from '../../common/sketc
 import {
     buildDatumPlane,
     buildDatumPlaneFromFace,
+    buildDatumPlaneFromMidplane,
+    buildDatumPlaneFromPoints,
     type DatumKind,
     type DatumPlane,
     type Point2,
@@ -556,6 +558,30 @@ export class SketchModeController {
                 throw new Error('face datum requires a TopologyRef reference');
             }
             this.datumPlane = buildDatumPlaneFromFace(reference, offset);
+        } else if (kind === 'threePoint' || kind === 'midplane') {
+            const datumId = sketchDef?.datumId;
+            if (datumId === undefined) {
+                throw new Error(`${kind} datum requires a sketch datum id`);
+            }
+            const datum = this.documentStore?.document?.datums.find((d) => d.id === datumId);
+            if (datum === undefined) {
+                throw new Error(`Unknown datum '${datumId}'`);
+            }
+            if (kind === 'threePoint') {
+                const points = datum.points;
+                if (points === undefined || points.length !== 3) {
+                    throw new Error(`Datum '${datumId}' requires exactly 3 points`);
+                }
+                this.datumPlane = buildDatumPlaneFromPoints(points[0], points[1], points[2], offset);
+            } else {
+                const faces = datum.faces;
+                if (faces === undefined || faces.length !== 2) {
+                    throw new Error(`Datum '${datumId}' requires exactly 2 face references`);
+                }
+                this.datumPlane = buildDatumPlaneFromMidplane(faces[0], faces[1], offset);
+            }
+        } else if (kind === 'line2Point') {
+            throw new Error('line2Point datum is a line and cannot be used as sketch placement');
         } else {
             this.datumPlane = buildDatumPlane(kind, offset);
         }

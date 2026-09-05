@@ -31,6 +31,7 @@ import {
     validateNukeCadDocument,
     migrateNukeCadDocument,
     type NukeCadDocument,
+    type ValidationIssue,
     type DimensionKind
 } from './cad-document';
 import { type Point3, type TopologyRef } from './topology-refs';
@@ -1516,5 +1517,510 @@ describe('loft and helicalSweep validation', () => {
         const result = validateNukeCadDocument(doc);
         expect(result.issues).toEqual([]);
         expect(result.valid).toBe(true);
+    });
+});
+
+describe('extended feature validation', () => {
+    function makeBaseDocument(): NukeCadDocument {
+        return {
+            version: NUKE_CAD_SCHEMA_VERSION,
+            name: 'extended',
+            parameters: {},
+            datums: [{ id: 'xy', kind: 'XY', name: 'XY' }],
+            bodies: [{ id: 'body-1', name: 'Body 1' }],
+            sketches: [
+                {
+                    id: 'sketch1',
+                    name: 'Profile',
+                    datumId: 'xy',
+                    primitives: [{ id: 'p1', type: 'point', x: 0, y: 0 }],
+                    constraints: []
+                }
+            ],
+            features: [
+                {
+                    id: 'pad1',
+                    name: 'Base',
+                    type: 'pad',
+                    body: 'body-1',
+                    sketchId: 'sketch1',
+                    params: { length: 10 },
+                    suppressed: false,
+                    dependsOn: []
+                }
+            ],
+            curves: []
+        };
+    }
+
+    const goodFaceRef: TopologyRef = {
+        featureId: 'pad1',
+        kind: 'face',
+        fingerprint: { surfaceType: 'plane', area: 100, center: [0, 0, 0], normal: [0, 0, 1] }
+    };
+
+    function padParams(doc: NukeCadDocument, params: Record<string, unknown>): ValidationIssue[] {
+        doc.features.push({
+            id: 'pad2',
+            name: 'Second',
+            type: 'pad',
+            body: 'body-1',
+            sketchId: 'sketch1',
+            params: params as unknown as Record<string, number>,
+            suppressed: false,
+            dependsOn: ['pad1']
+        });
+        return validateNukeCadDocument(doc).issues;
+    }
+
+    it('accepts blind pads with and without explicit end, and twoSided blind pads', () => {
+        for (const params of [{ length: 5 }, { length: 5, end: 'blind' }, { length: 5, twoSided: true }, { length: 5, symmetric: true }]) {
+            const issues = padParams(makeBaseDocument(), params);
+            expect(issues).toEqual([]);
+        }
+    });
+
+    it('accepts non-blind ends without length and requires upToFace for the face end', () => {
+        for (const end of ['upToFirst', 'upToLast', 'throughAll']) {
+            expect(padParams(makeBaseDocument(), { end })).toEqual([]);
+        }
+        const faceEnd = makeBaseDocument();
+        faceEnd.features.push({
+            id: 'pad2',
+            name: 'Second',
+            type: 'pad',
+            body: 'body-1',
+            sketchId: 'sketch1',
+            params: { end: 'upToFace', upToFace: goodFaceRef } as unknown as Record<string, number>,
+            suppressed: false,
+            dependsOn: ['pad1']
+        });
+        expect(validateNukeCadDocument(faceEnd).valid).toBe(true);
+    });
+
+    it('rejects bad extrude ends, stray length, symmetric clashes, and missing face refs', () => {
+        expect(padParams(makeBaseDocument(), { length: 5, end: 'sideways' }).some((i) => i.path === 'features[1].params.end')).toBe(true);
+        expect(padParams(makeBaseDocument(), { end: 'throughAll', length: 5 }).some((i) => i.path === 'features[1].params.length')).toBe(
+            true
+        );
+        expect(padParams(makeBaseDocument(), { end: 'upToFirst' }).some((i) => i.path === 'features[1].params.length')).toBe(false);
+        const symmetric = padParams(makeBaseDocument(), { end: 'upToLast', symmetric: true });
+        expect(symmetric.some((i) => i.path === 'features[1].params.symmetric')).toBe(true);
+        const missingFace = padParams(makeBaseDocument(), { end: 'upToFace' });
+        expect(missingFace.some((i) => i.path === 'features[1].params.upToFace')).toBe(true);
+        const badTwoSided = padParams(makeBaseDocument(), { length: 5, twoSided: 'yes' });
+        expect(badTwoSided.some((i) => i.path === 'features[1].params.twoSided')).toBe(true);
+    });
+
+    it('accepts threePoint, midplane, and line2Point datums', () => {
+        const doc = makeBaseDocument();
+        doc.datums.push(
+            {
+                id: 'd3',
+                kind: 'threePoint',
+                name: 'Three',
+                points: [
+                    [0, 0, 0],
+                    [1, 0, 0],
+                    [0, 1, 0]
+                ]
+            },
+            { id: 'dm', kind: 'midplane', name: 'Mid', faces: [goodFaceRef, goodFaceRef] },
+            {
+                id: 'dl',
+                kind: 'line2Point',
+                name: 'Axis',
+                points: [
+                    [0, 0, 0],
+                    [0, 0, 5]
+                ]
+            }
+        );
+        expect(validateNukeCadDocument(doc).valid).toBe(true);
+    });
+
+    it('rejects collinear threePoint, short midplane, and coincident line2Point datums', () => {
+        const collinear = makeBaseDocument();
+        collinear.datums.push({
+            id: 'd3',
+            kind: 'threePoint',
+            name: 'Three',
+            points: [
+                [0, 0, 0],
+                [1, 0, 0],
+                [2, 0, 0]
+            ]
+        });
+        let result = validateNukeCadDocument(collinear);
+        expect(result.valid).toBe(false);
+        expect(result.issues.some((i) => i.path === 'datums[1].points')).toBe(true);
+
+        const shortPoints = makeBaseDocument();
+        shortPoints.datums.push({
+            id: 'd3',
+            kind: 'threePoint',
+            name: 'Three',
+            points: [
+                [0, 0, 0],
+                [1, 0, 0]
+            ]
+        });
+        result = validateNukeCadDocument(shortPoints);
+        expect(result.valid).toBe(false);
+        expect(result.issues.some((i) => i.path === 'datums[1].points')).toBe(true);
+
+        const shortFaces = makeBaseDocument();
+        shortFaces.datums.push({ id: 'dm', kind: 'midplane', name: 'Mid', faces: [goodFaceRef] });
+        result = validateNukeCadDocument(shortFaces);
+        expect(result.valid).toBe(false);
+        expect(result.issues.some((i) => i.path === 'datums[1].faces')).toBe(true);
+
+        const coincident = makeBaseDocument();
+        coincident.datums.push({
+            id: 'dl',
+            kind: 'line2Point',
+            name: 'Axis',
+            points: [
+                [1, 1, 1],
+                [1, 1, 1]
+            ]
+        });
+        result = validateNukeCadDocument(coincident);
+        expect(result.valid).toBe(false);
+        expect(result.issues.some((i) => i.path === 'datums[1].points')).toBe(true);
+    });
+
+    it('rejects sketches placed on a line datum but allows plane datums', () => {
+        const doc = makeBaseDocument();
+        doc.datums.push({
+            id: 'dl',
+            kind: 'line2Point',
+            name: 'Axis',
+            points: [
+                [0, 0, 0],
+                [0, 0, 5]
+            ]
+        });
+        doc.sketches[0].datumId = 'dl';
+        const result = validateNukeCadDocument(doc);
+        expect(result.valid).toBe(false);
+        expect(result.issues.some((i) => i.path === 'sketches[0].datumId')).toBe(true);
+
+        const planeOk = makeBaseDocument();
+        planeOk.datums.push({
+            id: 'd3',
+            kind: 'threePoint',
+            name: 'Three',
+            points: [
+                [0, 0, 0],
+                [1, 0, 0],
+                [0, 1, 0]
+            ]
+        });
+        planeOk.sketches[0].datumId = 'd3';
+        expect(validateNukeCadDocument(planeOk).valid).toBe(true);
+    });
+
+    it('accepts counterdrill, taper, drill-point, and thread hole params', () => {
+        const doc = makeBaseDocument();
+        doc.features.push({
+            id: 'hole1',
+            name: 'Hole',
+            type: 'hole',
+            body: 'body-1',
+            params: {
+                face: goodFaceRef,
+                center: [0, 0],
+                diameter: 0.5,
+                depth: 2,
+                counterdrillDiameter: 1,
+                counterdrillDepth: 0.25,
+                taperAngle: 5,
+                drillPointAngle: 118,
+                thread: 'cosmetic'
+            },
+            suppressed: false,
+            dependsOn: ['pad1']
+        });
+        expect(validateNukeCadDocument(doc).valid).toBe(true);
+    });
+
+    it('rejects counterdrill clashes and out-of-range hole params', () => {
+        const clash = makeBaseDocument();
+        clash.features.push({
+            id: 'hole1',
+            name: 'Hole',
+            type: 'hole',
+            body: 'body-1',
+            params: {
+                face: goodFaceRef,
+                center: [0, 0],
+                diameter: 0.5,
+                counterboreDiameter: 1,
+                counterboreDepth: 0.25,
+                counterdrillDiameter: 1.2,
+                counterdrillDepth: 0.3
+            },
+            suppressed: false,
+            dependsOn: ['pad1']
+        });
+        let result = validateNukeCadDocument(clash);
+        expect(result.valid).toBe(false);
+        expect(result.issues.some((i) => i.path === 'features[1].params.counterdrillDiameter')).toBe(true);
+
+        for (const [key, value] of [
+            ['taperAngle', 0],
+            ['taperAngle', 45.5],
+            ['drillPointAngle', 0],
+            ['drillPointAngle', 180],
+            ['thread', 'modeled']
+        ] as const) {
+            const doc = makeBaseDocument();
+            doc.features.push({
+                id: 'hole1',
+                name: 'Hole',
+                type: 'hole',
+                body: 'body-1',
+                params: { face: goodFaceRef, center: [0, 0], diameter: 0.5, [key]: value },
+                suppressed: false,
+                dependsOn: ['pad1']
+            });
+            result = validateNukeCadDocument(doc);
+            expect(result.valid).toBe(false);
+            expect(result.issues.some((i) => i.path === `features[1].params.${key}`)).toBe(true);
+        }
+    });
+
+    it('accepts every primitive shape with its dimension arity', () => {
+        const cases: [string, number[]][] = [
+            ['box', [2, 3, 4]],
+            ['cylinder', [1, 5]],
+            ['sphere', [2]],
+            ['cone', [1, 5]],
+            ['torus', [5, 1]]
+        ];
+        for (const [shape, dimensions] of cases) {
+            const doc = makeBaseDocument();
+            doc.features.push({
+                id: 'prim1',
+                name: 'Primitive',
+                type: 'primitive',
+                body: 'body-1',
+                params: { shape, dimensions },
+                suppressed: false,
+                dependsOn: ['pad1']
+            });
+            expect(validateNukeCadDocument(doc).valid).toBe(true);
+        }
+    });
+
+    it('rejects bad primitive shapes, arities, dimensions, and datum refs', () => {
+        const badShape = makeBaseDocument();
+        badShape.features.push({
+            id: 'prim1',
+            name: 'Primitive',
+            type: 'primitive',
+            body: 'body-1',
+            params: { shape: 'pyramid', dimensions: [1, 2, 3] },
+            suppressed: false,
+            dependsOn: ['pad1']
+        });
+        let result = validateNukeCadDocument(badShape);
+        expect(result.valid).toBe(false);
+        expect(result.issues.some((i) => i.path === 'features[1].params.shape')).toBe(true);
+
+        const badArity = makeBaseDocument();
+        badArity.features.push({
+            id: 'prim1',
+            name: 'Primitive',
+            type: 'primitive',
+            body: 'body-1',
+            params: { shape: 'box', dimensions: [1, 2] },
+            suppressed: false,
+            dependsOn: ['pad1']
+        });
+        result = validateNukeCadDocument(badArity);
+        expect(result.valid).toBe(false);
+        expect(result.issues.some((i) => i.path === 'features[1].params.dimensions')).toBe(true);
+
+        const badDim = makeBaseDocument();
+        badDim.features.push({
+            id: 'prim1',
+            name: 'Primitive',
+            type: 'primitive',
+            body: 'body-1',
+            params: { shape: 'sphere', dimensions: [-1] },
+            suppressed: false,
+            dependsOn: ['pad1']
+        });
+        result = validateNukeCadDocument(badDim);
+        expect(result.valid).toBe(false);
+        expect(result.issues.some((i) => i.path === 'features[1].params.dimensions[0]')).toBe(true);
+
+        const badDatum = makeBaseDocument();
+        badDatum.features.push({
+            id: 'prim1',
+            name: 'Primitive',
+            type: 'primitive',
+            body: 'body-1',
+            params: { shape: 'sphere', dimensions: [1], datumId: 'missing' },
+            suppressed: false,
+            dependsOn: ['pad1']
+        });
+        result = validateNukeCadDocument(badDatum);
+        expect(result.valid).toBe(false);
+        expect(result.issues.some((i) => i.path === 'features[1].params.datumId')).toBe(true);
+    });
+
+    it('accepts pattern scale of 1 and rejects non-positive scales', () => {
+        const scaled = makeBaseDocument();
+        scaled.features.push({
+            id: 'lin1',
+            name: 'Scaled',
+            type: 'linearPattern',
+            body: 'body-1',
+            params: { source: 'pad1', count: 3, spacing: 2, axis: 'x', scale: 1.5 },
+            suppressed: false,
+            dependsOn: ['pad1']
+        });
+        expect(validateNukeCadDocument(scaled).valid).toBe(true);
+
+        for (const scale of [0, -2]) {
+            const doc = makeBaseDocument();
+            doc.features.push({
+                id: 'lin1',
+                name: 'Scaled',
+                type: 'linearPattern',
+                body: 'body-1',
+                params: { source: 'pad1', count: 3, spacing: 2, axis: 'x', scale },
+                suppressed: false,
+                dependsOn: ['pad1']
+            });
+            const result = validateNukeCadDocument(doc);
+            expect(result.valid).toBe(false);
+            expect(result.issues.some((i) => i.path === 'features[1].params.scale')).toBe(true);
+        }
+    });
+
+    it('accepts a valid multiTransform and rejects missing or dangling sources', () => {
+        const doc = makeBaseDocument();
+        doc.features.push(
+            {
+                id: 'lin1',
+                name: 'First',
+                type: 'linearPattern',
+                body: 'body-1',
+                params: { source: 'pad1', count: 2, spacing: 3, axis: 'x' },
+                suppressed: false,
+                dependsOn: ['pad1']
+            },
+            {
+                id: 'mir1',
+                name: 'Second',
+                type: 'mirror',
+                body: 'body-1',
+                params: { source: 'pad1', plane: 'XY' },
+                suppressed: false,
+                dependsOn: ['pad1']
+            },
+            {
+                id: 'mt1',
+                name: 'Combined',
+                type: 'multiTransform',
+                body: 'body-1',
+                params: { first: 'lin1', second: 'mir1' },
+                suppressed: false,
+                dependsOn: ['lin1', 'mir1']
+            }
+        );
+        expect(validateNukeCadDocument(doc).valid).toBe(true);
+
+        const missing = makeBaseDocument();
+        missing.features.push({
+            id: 'mt1',
+            name: 'Combined',
+            type: 'multiTransform',
+            body: 'body-1',
+            params: { first: 'lin1' },
+            suppressed: false,
+            dependsOn: []
+        });
+        let result = validateNukeCadDocument(missing);
+        expect(result.valid).toBe(false);
+        expect(result.issues.some((i) => i.path === 'features[1].params.second')).toBe(true);
+
+        const dangling = makeBaseDocument();
+        dangling.features.push({
+            id: 'mt1',
+            name: 'Combined',
+            type: 'multiTransform',
+            body: 'body-1',
+            params: { first: 'lin1', second: 'ghost' },
+            suppressed: false,
+            dependsOn: []
+        });
+        result = validateNukeCadDocument(dangling);
+        expect(result.valid).toBe(false);
+        expect(result.issues.some((i) => i.path === 'features[1].params.second')).toBe(true);
+    });
+
+    it('accepts defeature with faces and a draft neutral plane, rejecting empties', () => {
+        const doc = makeBaseDocument();
+        doc.features.push({
+            id: 'def1',
+            name: 'Clean',
+            type: 'defeature',
+            body: 'body-1',
+            params: { faces: [goodFaceRef] },
+            suppressed: false,
+            dependsOn: ['pad1']
+        });
+        expect(validateNukeCadDocument(doc).valid).toBe(true);
+
+        const empty = makeBaseDocument();
+        empty.features.push({
+            id: 'def1',
+            name: 'Clean',
+            type: 'defeature',
+            body: 'body-1',
+            params: { faces: [] },
+            suppressed: false,
+            dependsOn: ['pad1']
+        });
+        let result = validateNukeCadDocument(empty);
+        expect(result.valid).toBe(false);
+        expect(result.issues.some((i) => i.path === 'features[1].params.faces')).toBe(true);
+
+        const draft = makeBaseDocument();
+        draft.features.push({
+            id: 'draft1',
+            name: 'Draft',
+            type: 'draft',
+            body: 'body-1',
+            params: { faces: [goodFaceRef], angle: 5, pullDirection: [0, 0, 1], neutralPlane: goodFaceRef },
+            suppressed: false,
+            dependsOn: ['pad1']
+        });
+        expect(validateNukeCadDocument(draft).valid).toBe(true);
+
+        const badNeutral = makeBaseDocument();
+        badNeutral.features.push({
+            id: 'draft1',
+            name: 'Draft',
+            type: 'draft',
+            body: 'body-1',
+            params: { faces: [goodFaceRef], angle: 5, pullDirection: [0, 0, 1], neutralPlane: 'nope' },
+            suppressed: false,
+            dependsOn: ['pad1']
+        });
+        result = validateNukeCadDocument(badNeutral);
+        expect(result.valid).toBe(false);
+        expect(result.issues.some((i) => i.path === 'features[1].params.neutralPlane')).toBe(true);
+    });
+
+    it('still accepts legacy documents (no schema bump)', () => {
+        const doc = makeBaseDocument();
+        expect(validateNukeCadDocument(doc).valid).toBe(true);
+        expect(NUKE_CAD_SCHEMA_VERSION).toBe(3);
     });
 });

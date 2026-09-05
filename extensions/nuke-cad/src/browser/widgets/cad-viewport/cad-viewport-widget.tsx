@@ -75,11 +75,11 @@ import {
 } from '../../sketch/sketch-math';
 import { createSnapConfig, snap } from '../../sketch/snap';
 import { ensureNukeCadExtension } from './cad-save-path';
-import { CadSketchOverlay, DocumentTemplatePicker } from './cad-sketch-overlay';
+import { CadSketchOverlay, DocumentTemplatePicker, type DatumDraft } from './cad-sketch-overlay';
 import { CadDocumentStore, createSketchId, createFeatureId, computeDependsOn } from '../../document/cad-document-store';
 import { NukeCadPreferences } from '../../nuke-cad-preferences';
 import { DOCUMENT_TEMPLATES } from '../../../common/document-templates';
-import { type SketchDef, type FeatureDef, type FeatureType, type FeatureParams } from '../../../common/cad-document';
+import { type SketchDef, type FeatureDef, type FeatureType, type FeatureParams, type CurvePoint } from '../../../common/cad-document';
 import { type TopologyRef } from '../../../common/topology-refs';
 import { FaceHighlighter, type FacePickHit, buildTopologyRef, pointerToNdc, projectHitToFaceUv, raycastFace } from './face-picker';
 import { cadViewportColors, resolveViewportBackground, type ViewportBackgroundStyle } from './viewport-colors';
@@ -327,6 +327,14 @@ export class CadViewportWidget extends ReactWidget {
         void this.doEnterSketch(kind, offset);
     };
 
+    protected readonly handleEnterSketchDraft = (draft: DatumDraft, offset: number): void => {
+        this.sketchSetupVisible = false;
+        this.sketchEntering = true;
+        this.update();
+        const extra = draft.kind === 'midplane' ? { faces: [...draft.faces] } : { points: [...draft.points] };
+        void this.doEnterSketch(draft.kind, offset, undefined, extra);
+    };
+
     protected readonly handleExitSketch = (): Promise<void> => this.doExitSketch();
 
     /** Tab toggles sketch mode. */
@@ -543,6 +551,9 @@ export class CadViewportWidget extends ReactWidget {
             'linearPattern',
             'circularPattern',
             'hole',
+            'primitive',
+            'multiTransform',
+            'defeature',
             'booleanFuse',
             'booleanCut',
             'booleanCommon'
@@ -977,7 +988,12 @@ export class CadViewportWidget extends ReactWidget {
         }
     }
 
-    private async doEnterSketch(kind: DatumKind, offset: number, reference?: TopologyRef): Promise<void> {
+    private async doEnterSketch(
+        kind: DatumKind,
+        offset: number,
+        reference?: TopologyRef,
+        extra?: { points?: readonly CurvePoint[]; faces?: TopologyRef[] }
+    ): Promise<void> {
         const doc = this.documentStore.document;
         if (doc === undefined) {
             return;
@@ -992,7 +1008,7 @@ export class CadViewportWidget extends ReactWidget {
             if (kind !== 'face' && offset === 0 && builtInId !== undefined) {
                 datumId = builtInId;
             } else {
-                const datumResult = this.documentStore.addDatum(kind, offset, reference);
+                const datumResult = this.documentStore.addDatum(kind, offset, reference, extra);
                 if (!datumResult.success) {
                     this.showBuildError(datumResult.error || 'Failed to create datum.');
                     this.messageService.error(datumResult.error || 'Failed to create datum.');
@@ -1382,6 +1398,7 @@ export class CadViewportWidget extends ReactWidget {
                 onRebuildDocument={this.handleRebuildDocument}
                 onControllerReady={this.handleControllerReady}
                 onEnterSketch={this.handleEnterSketch}
+                onEnterSketchDraft={this.handleEnterSketchDraft}
                 onExitSketch={this.handleExitSketch}
                 onToggleSketchMode={this.handleToggleSketchMode}
                 onStartFeatureCreation={(type) => this.startFeatureCreation(type)}
@@ -1464,6 +1481,7 @@ interface CadViewportComponentProps {
     readonly onRebuildDocument: () => void;
     readonly onControllerReady: (controller: SketchModeController, camera: THREE.PerspectiveCamera) => void;
     readonly onEnterSketch: (kind: DatumKind, offset: number) => void;
+    readonly onEnterSketchDraft: (draft: DatumDraft, offset: number) => void;
     readonly onExitSketch: () => Promise<void>;
     readonly onToggleSketchMode: () => void;
     readonly onStartFeatureCreation: (type: FeatureType) => void;
@@ -2003,6 +2021,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             sketchAutoDimension={props.sketchAutoDimension}
             templates={props.templates}
             onEnterSketch={props.onEnterSketch}
+            onEnterSketchDraft={props.onEnterSketchDraft}
             onExitSketch={props.onExitSketch}
             onStartFeatureCreation={props.onStartFeatureCreation}
             onAddFeature={props.onAddFeature}

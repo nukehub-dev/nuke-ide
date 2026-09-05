@@ -26,7 +26,22 @@
 // *****************************************************************************
 
 import { describe, it, expect } from 'vitest';
-import { parseExpression, evaluateExpression, sampleParametric, sampleFourier } from './expression';
+import {
+    parseExpression,
+    evaluateExpression,
+    evaluateQuantity,
+    parseAndEvaluateQuantity,
+    convertQuantity,
+    coerceToQuantity,
+    unitToString,
+    quantityToString,
+    unitEquals,
+    isKnownUnit,
+    parseUnit,
+    DIMENSIONLESS,
+    sampleParametric,
+    sampleFourier
+} from './expression';
 
 describe('parseExpression', () => {
     it('parses numbers, identifiers, and arithmetic operators', () => {
@@ -317,5 +332,213 @@ describe('sampleFourier', () => {
         const a = sampleFourier(source);
         const b = sampleFourier(source);
         expect(a).toEqual(b);
+    });
+});
+
+describe('unit registry', () => {
+    it('recognizes known units and rejects unknown ones', () => {
+        expect(isKnownUnit('mm')).toBe(true);
+        expect(isKnownUnit('deg')).toBe(true);
+        expect(isKnownUnit('furlong')).toBe(false);
+        expect(parseUnit('mm')).toEqual({ scale: 0.001, unit: { length: 1 } });
+        expect(() => parseUnit('furlong')).toThrow("Unknown unit 'furlong'");
+    });
+
+    it('compares and renders units', () => {
+        expect(unitEquals({ length: 1 }, { length: 1 })).toBe(true);
+        expect(unitEquals({ length: 1 }, { time: 1 })).toBe(false);
+        expect(unitToString(DIMENSIONLESS)).toBe('');
+        expect(unitToString({ length: 1 })).toBe('m');
+        expect(unitToString({ length: 2 })).toBe('m^2');
+        expect(quantityToString({ value: 2, unit: DIMENSIONLESS })).toBe('2');
+        expect(quantityToString({ value: 0.01, unit: { length: 1 } })).toBe('0.01 m');
+    });
+});
+
+describe('unit literals', () => {
+    it('parses quantity literals with and without a space', () => {
+        for (const src of ['10mm', '10 mm']) {
+            const parsed = parseExpression(src);
+            expect(parsed.ok).toBe(true);
+            if (!parsed.ok) {
+                continue;
+            }
+            expect(parsed.ast).toEqual({ type: 'quantity', value: 10, unit: 'mm' });
+        }
+    });
+
+    it('evaluates bare unit names as one of that unit', () => {
+        expect(parseAndEvaluateQuantity('mm', {})).toEqual({ value: 0.001, unit: { length: 1 } });
+        expect(parseAndEvaluateQuantity('deg', {})).toEqual({ value: Math.PI / 180, unit: { angle: 1 } });
+    });
+
+    it('lets scope bindings shadow unit names', () => {
+        expect(parseAndEvaluateQuantity('m', { m: 3 })).toEqual({ value: 3, unit: DIMENSIONLESS });
+    });
+
+    it('keeps explicit multiplication with unit-named parameters working', () => {
+        expect(parseAndEvaluateQuantity('2*m', { m: 3 })).toEqual({ value: 6, unit: DIMENSIONLESS });
+    });
+
+    it('rejects quantity literals on the unit-less path', () => {
+        const parsed = parseExpression('10mm');
+        expect(parsed.ok).toBe(true);
+        if (!parsed.ok) {
+            return;
+        }
+        expect(() => evaluateExpression(parsed.ast, {})).toThrow(/unit-less.*quantities|unit 'mm'/);
+    });
+
+    it('rejects quantities nested inside larger unit-less expressions', () => {
+        for (const src of ['2 * 3mm', 'sin(90deg)', '10mm + 1']) {
+            const parsed = parseExpression(src);
+            expect(parsed.ok).toBe(true);
+            if (!parsed.ok) {
+                continue;
+            }
+            expect(() => evaluateExpression(parsed.ast, {})).toThrow(/does not accept quantities/);
+        }
+    });
+
+    it('still rejects bare unit names as unknown identifiers on the unit-less path', () => {
+        const parsed = parseExpression('mm');
+        expect(parsed.ok).toBe(true);
+        if (!parsed.ok) {
+            return;
+        }
+        expect(() => evaluateExpression(parsed.ast, {})).toThrow("Unknown identifier 'mm'");
+    });
+
+    it('rejects unit syntax when sampling parametric curves', () => {
+        expect(() =>
+            sampleParametric(
+                {
+                    kind: 'parametric',
+                    x: '10mm * t',
+                    y: '0',
+                    z: '0',
+                    tStart: 0,
+                    tEnd: 1,
+                    sampleCount: 8
+                },
+                {}
+            )
+        ).toThrow(/does not accept quantities/);
+    });
+});
+
+describe('evaluateQuantity operators', () => {
+    it('treats unit-less expressions as dimensionless', () => {
+        const parsed = parseExpression('1 + 2 * 3');
+        expect(parsed.ok).toBe(true);
+        if (!parsed.ok) {
+            return;
+        }
+        expect(evaluateQuantity(parsed.ast, {})).toEqual({ value: 7, unit: DIMENSIONLESS });
+    });
+
+    it('adds and subtracts equal units with conversion', () => {
+        expect(parseAndEvaluateQuantity('10mm + 1cm', {}).value).toBeCloseTo(0.02, 12);
+        expect(parseAndEvaluateQuantity('10mm - 1cm', {}).value).toBeCloseTo(0, 12);
+    });
+
+    it('rejects adding inconsistent units', () => {
+        expect(() => parseAndEvaluateQuantity('10mm + 5s', {})).toThrow('inconsistent units');
+        expect(() => parseAndEvaluateQuantity('10mm + 5', {})).toThrow('inconsistent units');
+    });
+
+    it('combines units for multiplication and division', () => {
+        const area = parseAndEvaluateQuantity('2mm * 3mm', {});
+        expect(area.value).toBeCloseTo(6e-6, 15);
+        expect(area.unit).toEqual({ length: 2 });
+        const speed = parseAndEvaluateQuantity('10mm / 2s', {});
+        expect(speed.value).toBeCloseTo(0.005, 12);
+        expect(speed.unit).toEqual({ length: 1, time: -1 });
+        expect(parseAndEvaluateQuantity('2 * 3mm', {}).value).toBeCloseTo(0.006, 12);
+    });
+
+    it('throws division by zero for dimensioned divisors', () => {
+        expect(() => parseAndEvaluateQuantity('1mm / 0s', {})).toThrow('Division by zero');
+    });
+
+    it('requires a dimensionless exponent for pow', () => {
+        expect(parseAndEvaluateQuantity('2 ^ 3', {}).value).toBe(8);
+        const square = parseAndEvaluateQuantity('(2mm) ^ 2', {});
+        expect(square.value).toBeCloseTo(4e-6, 15);
+        expect(square.unit).toEqual({ length: 2 });
+        expect(() => parseAndEvaluateQuantity('2 ^ 3mm', {})).toThrow('dimensionless');
+    });
+
+    it('requires an integer exponent for dimensioned bases', () => {
+        expect(() => parseAndEvaluateQuantity('(2mm) ^ 0.5', {})).toThrow('must be an integer');
+        expect(parseAndEvaluateQuantity('(4m^2) ^ -1', {}).unit).toEqual({ length: -2 });
+    });
+
+    it('negates quantities preserving the unit', () => {
+        expect(parseAndEvaluateQuantity('-5mm', {})).toEqual({ value: -0.005, unit: { length: 1 } });
+    });
+});
+
+describe('evaluateQuantity functions', () => {
+    it('takes angles in trig and returns dimensionless', () => {
+        expect(parseAndEvaluateQuantity('sin(90deg)', {}).value).toBeCloseTo(1, 10);
+        expect(parseAndEvaluateQuantity('cos(0deg)', {}).value).toBeCloseTo(1, 10);
+        expect(() => parseAndEvaluateQuantity('sin(1)', {})).toThrow('expects an angle');
+    });
+
+    it('returns angles from inverse trig of dimensionless args', () => {
+        const angle = parseAndEvaluateQuantity('asin(1)', {});
+        expect(angle.unit).toEqual({ angle: 1 });
+        expect(angle.value).toBeCloseTo(Math.PI / 2, 10);
+        expect(() => parseAndEvaluateQuantity('asin(1mm)', {})).toThrow('dimensionless');
+    });
+
+    it('halves units in sqrt and rejects odd exponents', () => {
+        const root = parseAndEvaluateQuantity('sqrt(4mm^2)', {});
+        expect(root.value).toBeCloseTo(0.004, 12);
+        expect(root.unit).toEqual({ length: 1 });
+        expect(() => parseAndEvaluateQuantity('sqrt(2mm)', {})).toThrow('even unit exponents');
+    });
+
+    it('gates exp/log to dimensionless and preserves units in abs/min/max', () => {
+        expect(parseAndEvaluateQuantity('log(e)', {}).value).toBeCloseTo(1, 10);
+        expect(() => parseAndEvaluateQuantity('exp(1mm)', {})).toThrow('dimensionless');
+        expect(() => parseAndEvaluateQuantity('log(2s)', {})).toThrow('dimensionless');
+        expect(parseAndEvaluateQuantity('abs(-5mm)', {})).toEqual({ value: 0.005, unit: { length: 1 } });
+        expect(parseAndEvaluateQuantity('min(1mm, 5mm)', {})).toEqual({ value: 0.001, unit: { length: 1 } });
+        expect(() => parseAndEvaluateQuantity('min(1mm, 5s)', {})).toThrow('equal units');
+    });
+
+    it('resolves quantity scope values and reports errors like the unit-less path', () => {
+        expect(parseAndEvaluateQuantity('r * 2mm', { r: 3 }).value).toBeCloseTo(0.006, 12);
+        expect(parseAndEvaluateQuantity('r * 2', { r: { value: 0.01, unit: { length: 1 } } }).unit).toEqual({ length: 1 });
+        expect(() => parseAndEvaluateQuantity('missing', {})).toThrow("Unknown identifier 'missing'");
+        expect(() => parseAndEvaluateQuantity('foo(1)', {})).toThrow("Unknown function 'foo'");
+        expect(() => parseAndEvaluateQuantity('1 / 0', {})).toThrow('Division by zero');
+    });
+});
+
+describe('unit conversion and assignment coercion', () => {
+    it('reads values back in target units', () => {
+        expect(convertQuantity({ value: 1, unit: { length: 1 } }, 'mm')).toBeCloseTo(1000, 10);
+        expect(convertQuantity({ value: 0.01, unit: { length: 1 } }, 'cm')).toBeCloseTo(1, 10);
+        expect(convertQuantity({ value: 2, unit: DIMENSIONLESS }, DIMENSIONLESS)).toBe(2);
+    });
+
+    it('fails conversion with a clear error on mismatch', () => {
+        expect(() => convertQuantity({ value: 1, unit: { length: 1 } }, 's')).toThrow('Failed to convert');
+        expect(() => convertQuantity({ value: 1, unit: { length: 1 } }, 'furlong')).toThrow("Unknown unit 'furlong'");
+    });
+
+    it('treats assigned numbers as expressed in the declared unit', () => {
+        expect(coerceToQuantity(5, 'mm')).toEqual({ value: 0.005, unit: { length: 1 } });
+        expect(coerceToQuantity(5)).toEqual({ value: 5, unit: DIMENSIONLESS });
+    });
+
+    it('converts assigned quantities and names the parameter on failure', () => {
+        const coerced = coerceToQuantity({ value: 0.02, unit: { length: 1 } }, 'mm', 'width');
+        expect(coerced.value).toBeCloseTo(0.02, 12);
+        expect(coerced.unit).toEqual({ length: 1 });
+        expect(() => coerceToQuantity({ value: 5, unit: { time: 1 } }, 'mm', 'width')).toThrow(/Failed to convert.*parameter 'width'/);
     });
 });

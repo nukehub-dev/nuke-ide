@@ -35,7 +35,10 @@
 import { type TopologyRef } from '../../common/topology-refs';
 
 /** Supported datum plane identifiers. */
-export type DatumKind = 'XY' | 'YZ' | 'XZ' | 'face';
+export type DatumKind = 'XY' | 'YZ' | 'XZ' | 'face' | 'threePoint' | 'midplane' | 'line2Point';
+
+/** A literal 3D point, as stored on `threePoint`/`line2Point` datums. */
+export type DatumPoint = readonly [number, number, number];
 
 /** A 3D vector/point. */
 export interface Vec3 {
@@ -123,6 +126,8 @@ export function buildDatumPlane(kind: Exclude<DatumKind, 'face'>, offset = 0): D
                 xAxis: v3(1, 0, 0),
                 yAxis: v3(0, 0, 1)
             };
+        default:
+            throw new Error(`Unsupported datum kind '${kind}'`);
     }
 }
 
@@ -164,7 +169,7 @@ export function buildDatumPlaneFromFace(reference: TopologyRef, offset = 0): Dat
     // Mirrors `_deterministic_x_dir` in python/feature_builder.py: for normals
     // near world Z the cross product with (0, 0, 1) collapses, so the backend
     // falls back to world X.
-    const xAxis = Math.abs(normal.z) < 0.999 ? v3normalize(v3cross(v3(0, 0, 1), normal)) : v3(1, 0, 0);
+    const xAxis = deterministicXAxis(normal);
     const yAxis = v3normalize(v3cross(normal, xAxis));
     const origin = v3(center.x + normal.x * offset, center.y + normal.y * offset, center.z + normal.z * offset);
     return {
@@ -175,6 +180,91 @@ export function buildDatumPlaneFromFace(reference: TopologyRef, offset = 0): Dat
         xAxis,
         yAxis,
         reference
+    };
+}
+
+/**
+ * Derive the deterministic in-plane X axis for a datum normal.
+ *
+ * Mirrors `_deterministic_x_dir` in the Python backend (and
+ * {@link buildDatumPlaneFromFace}): for normals near world Z the cross
+ * product with (0, 0, 1) collapses, so the basis falls back to world X.
+ */
+function deterministicXAxis(normal: Vec3): Vec3 {
+    return Math.abs(normal.z) < 0.999 ? v3normalize(v3cross(v3(0, 0, 1), normal)) : v3(1, 0, 0);
+}
+
+/**
+ * Build a datum plane through three non-collinear points.
+ *
+ * The origin is the first point plus ``offset`` along the plane normal
+ * (``normalize(cross(p2 - p1, p3 - p1))``). The X/Y axes follow the same
+ * world-Z rule as {@link buildDatumPlaneFromFace} so sketches placed on the
+ * same plane share a consistent coordinate system.
+ *
+ * @throws Error if the points are coincident or collinear (triangle area at
+ * or below 1e-9, matching the backend's `_three_point_frame`).
+ */
+export function buildDatumPlaneFromPoints(p1: DatumPoint, p2: DatumPoint, p3: DatumPoint, offset = 0): DatumPlane {
+    const a = v3(p1[0], p1[1], p1[2]);
+    const b = v3(p2[0], p2[1], p2[2]);
+    const c = v3(p3[0], p3[1], p3[2]);
+    const cross = v3cross(sub(b, a), sub(c, a));
+    const area = 0.5 * v3len(cross);
+    if (area <= 1e-9) {
+        throw new Error('Three-point datum requires three non-collinear points');
+    }
+    const normal = v3normalize(cross);
+    const xAxis = deterministicXAxis(normal);
+    const yAxis = v3normalize(v3cross(normal, xAxis));
+    const origin = add(a, scale(normal, offset));
+    return {
+        kind: 'threePoint',
+        offset,
+        origin,
+        normal,
+        xAxis,
+        yAxis
+    };
+}
+
+/**
+ * Build a datum plane midway between two planar faces.
+ *
+ * Both fingerprints must carry a planar normal; the faces must be parallel
+ * within a 1-degree dihedral tolerance (matching the backend's
+ * `_midplane_frame_from_normals`). The normal is oriented from the first face
+ * toward the second (negating the first normal when it points away), and the
+ * origin is the face-center midpoint plus ``offset`` along the normal. The
+ * X/Y axes follow the same world-Z rule as {@link buildDatumPlaneFromFace}.
+ *
+ * @throws Error if either face lacks a planar normal or the faces are not parallel.
+ */
+export function buildDatumPlaneFromMidplane(refA: TopologyRef, refB: TopologyRef, offset = 0): DatumPlane {
+    const fpA = refA.fingerprint;
+    const fpB = refB.fingerprint;
+    if (!('normal' in fpA) || fpA.normal === undefined || !('normal' in fpB) || fpB.normal === undefined) {
+        throw new Error('Midplane datum requires two planar faces with normals');
+    }
+    const n1 = v3normalize(v3(fpA.normal[0], fpA.normal[1], fpA.normal[2]));
+    const n2 = v3normalize(v3(fpB.normal[0], fpB.normal[1], fpB.normal[2]));
+    if (Math.abs(dot(n1, n2)) < Math.cos(Math.PI / 180)) {
+        throw new Error('Midplane datum requires two parallel faces');
+    }
+    const c1 = v3(fpA.center[0], fpA.center[1], fpA.center[2]);
+    const c2 = v3(fpB.center[0], fpB.center[1], fpB.center[2]);
+    const normal = dot(n1, sub(c2, c1)) < 0 ? scale(n1, -1) : n1;
+    const midpoint = scale(add(c1, c2), 0.5);
+    const origin = add(midpoint, scale(normal, offset));
+    const xAxis = deterministicXAxis(normal);
+    const yAxis = v3normalize(v3cross(normal, xAxis));
+    return {
+        kind: 'midplane',
+        offset,
+        origin,
+        normal,
+        xAxis,
+        yAxis
     };
 }
 

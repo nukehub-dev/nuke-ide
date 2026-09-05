@@ -39,7 +39,8 @@ import type { ConstraintKind } from '../../sketch/sketch-session';
 /** Entity types supported by the constraint relation matrix. */
 export type SketchEntityType = 'point' | 'line' | 'circle' | 'arc';
 
-const POINT_RELATIONS: ReadonlyArray<ConstraintKind> = ['coincident'];
+const POINT_POINT_RELATIONS: ReadonlyArray<ConstraintKind> = ['coincident'];
+const POINT_CURVE_RELATIONS: ReadonlyArray<ConstraintKind> = ['pointOnObject'];
 const LINE_LINE_RELATIONS: ReadonlyArray<ConstraintKind> = ['coincident', 'parallel', 'perpendicular', 'equal'];
 const LINE_CURVE_RELATIONS: ReadonlyArray<ConstraintKind> = ['tangent', 'coincident'];
 const CURVE_CURVE_RELATIONS: ReadonlyArray<ConstraintKind> = ['concentric', 'equal', 'tangent', 'coincident'];
@@ -49,15 +50,19 @@ const CURVE_CURVE_RELATIONS: ReadonlyArray<ConstraintKind> = ['concentric', 'equ
  *
  * The matrix intentionally omits single-entity constraints (horizontal,
  * vertical, fix), value-taking dimensions (distance, angle, radius, diameter),
- * and symmetry (which needs a third axis entity). The returned array is stable
- * and symmetric.
+ * and symmetry (which needs a third axis entity). A point paired with a curve
+ * offers point-on-object (point-to-curve); point/point pairs offer coincident.
+ * The returned array is stable and symmetric.
  */
 export function validRelations(typeA: SketchEntityType, typeB: SketchEntityType): ConstraintKind[] {
     const a = normalize(typeA);
     const b = normalize(typeB);
 
+    if (a === 'point' && b === 'point') {
+        return [...POINT_POINT_RELATIONS];
+    }
     if (a === 'point' || b === 'point') {
-        return [...POINT_RELATIONS];
+        return [...POINT_CURVE_RELATIONS];
     }
     if (a === 'line' && b === 'line') {
         return [...LINE_LINE_RELATIONS];

@@ -114,14 +114,17 @@ Geometry`).
 3. The **Sketch Plane** picker appears. Choose `XY`, `YZ`, or `XZ`, optionally
    enter an offset, then click **Start Sketch**. To sketch on a face of an
    existing body, click **On Face…**, then click the desired face in the
-   viewport.
+   viewport. The picker also offers **3-Point** (plane through three
+   coordinates), **Midplane** (midway between two picked faces), and
+   **Line-2Pt** (an axis through two coordinates, for pattern axes only —
+   sketches cannot be placed on it).
 
 The viewport switches to an orthographic view looking straight at the datum,
 grays out the 3D model, and shows a sketch grid.
 
 ### Draw with snap and auto-constraints
 
-The sketch toolbar has eight tools (press the letter, or use the keyboard icon
+The sketch toolbar has nine tools (press the letter, or use the keyboard icon
 on the toolbar header for the full cheat sheet — shortcuts apply while the
 viewport has focus):
 
@@ -141,6 +144,9 @@ viewport has focus):
   drawn through the polygon (clamped, interpolating the first and last pole).
   Press **Enter** or **double-click** to finish (two or more poles; a lone
   pole is discarded), or **Escape** to cancel.
+- **Slot** (`O`) — two center clicks plus a width click; creates two lines
+  joined by tangent arcs with equal radii. A zero width is rejected with a
+  hint.
 
 The snap engine prioritizes endpoint → midpoint → center → quadrant →
 on-curve → grid. Hovering shows a snap marker; clicks commit the snapped
@@ -161,6 +167,8 @@ add geometric constraints:
 - Parallel, perpendicular, tangent
 - Equal, concentric, symmetry
 - Point on object
+- Axis-locked distance (`DistanceX`/`DistanceY`), diameter, block
+  (freeze-in-place)
 
 Most constraints are applied by selecting the required number of primitives.
 `distance`, `radius`, and `angle` additionally ask for a numeric value or
@@ -241,7 +249,9 @@ from the list at any time.
 The status line at the bottom shows remaining degrees of freedom, conflicting
 constraints, redundant constraints, and the last auto-constraints applied. Click
 it when diagnostics exist to open the **Solver Diagnostics** popover and see
-which constraints are conflicting or redundant.
+which constraints are conflicting, redundant, or partially redundant. The
+diagnostics also flag missing coincident constraints on touching endpoints,
+open profile vertices, and whether the sketch is fully constrained.
 
 - **Pan**: middle-drag or Shift+left-drag.
 - **Zoom**: mouse wheel around the cursor.
@@ -281,10 +291,15 @@ builder raises an error if two non-consumed bodies occupy the same volume.
 Sketches become solid features through the document toolbar or the **Add**
 commands in the Feature Tree:
 
-- **Pad** — extrude a sketch additively into a body.
-- **Pocket** — extrude a sketch as a cut (requires an existing solid body).
+- **Pad** — extrude a sketch additively into a body. Besides a blind
+  length, the end can terminate at the first/last face hit, at a picked
+  face, or through the whole body, optionally two-sided.
+- **Pocket** — extrude a sketch as a cut (requires an existing solid body),
+  with the same end conditions as pad.
 - **Revolve** — revolve a sketch around `X`, `Y`, or `Z` by an angle in `(0, 360]`.
 - **Groove** — revolve-cut (requires an existing solid body).
+- **Primitive** — place a box, cylinder, sphere, cone, or torus on a datum,
+  no sketch required.
 - **Sweep** — sweep a sketch section along a 3D curve.
 - **Pipe** — sweep a circular section of a given radius along a 3D curve (no
   sketch required).
@@ -297,16 +312,22 @@ commands in the Feature Tree:
 - **Fillet** — round selected edges of a body.
 - **Chamfer** — bevel selected edges with symmetric, two-distance, or
   distance-angle modes.
-- **Draft** — taper selected faces by an angle along a pull direction.
+- **Draft** — taper selected faces by an angle along a pull direction, with
+  an optional neutral plane.
 - **Shell** — hollow a body by a uniform wall thickness, optionally leaving
   selected faces open.
+- **Defeature** — delete selected faces (small holes, logos, and other
+  detail to remove before meshing/export).
 - **Linear Pattern** — replicate a sketch-based solid feature along `X`, `Y`, or
   `Z`.
 - **Circular Pattern** — replicate a sketch-based solid feature around a global
-  axis or a datum axis.
+  axis or a datum axis (including two-point line datums).
 - **Mirror** — mirror a sketch-based solid feature across a coordinate plane or
   a datum plane.
-- **Hole** — place a simple, counterbore, or countersink hole on a planar face.
+- **Multi-Transform** — chain two pattern/mirror features on the same body.
+- **Hole** — place a simple, counterbore, countersink, or counterdrill hole
+  on a planar face, with optional taper, drill-point angle, and a cosmetic
+  thread flag.
 
 Each solid feature dialog asks for the target body, extrude direction/revolve
 axis, length or angle, and an optional **Label**. Boolean dialogs ask for a
@@ -346,8 +367,14 @@ They are available from the document toolbar and the Feature Tree **Add** menu.
 2. Click **Pick faces** and select the faces to taper.
 3. Enter a **Draft angle** in degrees.
 4. Set the **Pull direction** vector (the direction along which the faces are
-   tapered; the default is `+Z`).
+   tapered; the default is `+Z`), and optionally pick a **Neutral plane**.
 5. Click **Create**.
+
+### Defeature
+
+1. Select the target body.
+2. Click **Pick faces** and select the faces to delete (heals the solid).
+3. Click **Create**.
 
 ### Shell
 
@@ -367,9 +394,10 @@ reports `ambiguous` or `unmatched` status in the Feature Tree if it cannot.
 ## Patterns
 
 Patterns replicate an existing solid feature (`pad`, `pocket`, `revolve`,
-`groove`, `sweep`, `pipe`, `loft`, or `helicalSweep`) on the same body. The
-source feature must be earlier in the document order, and the pattern feature
-itself targets the source's body.
+`groove`, `sweep`, `pipe`, `loft`, `helicalSweep`, or `primitive`) on the same
+body. The source feature must be earlier in the document order, and the
+pattern feature itself targets the source's body. A per-instance **Scale**
+scales each copy about its own center (`1` = unchanged).
 
 ### Linear pattern
 
@@ -397,6 +425,12 @@ A full `360°` sweep places instances at `k * 360/count` with no duplicate at
 `2π`. A partial sweep distributes instances evenly between the start angle and
 the sweep angle and requires count ≥ 2.
 
+### Multi-transform
+
+Chain two pattern/mirror features on the same body (the first earlier in
+document order): pick both sources and the body. The second transform applies
+over the first transform's full instance set.
+
 ## Mirror
 
 1. Select the target body and the **Source feature** to mirror.
@@ -413,8 +447,8 @@ sources fail with the same clear overlap error as overlapping additive features.
 
 ## Hole wizard
 
-The hole wizard places a cylindrical, counterbore, or countersink hole on a
-planar face of an existing body.
+The hole wizard places a cylindrical, counterbore, countersink, or
+counterdrill hole on a planar face of an existing body.
 
 1. Select the target body.
 2. Click **Pick face**; the viewport enters hole face-pick mode. Hover
@@ -424,11 +458,16 @@ planar face of an existing body.
    - **Simple** — straight cylinder.
    - **Counterbore** — cylinder with a larger cylindrical clearance at the top.
    - **Countersink** — cylinder with a conical clearance at the top.
+   - **Counterdrill** — stepped cylinder with a flat seat.
 4. Enter **Diameter**. For a blind hole, enter **Depth**; omit depth for a
-   through-hole.
+   through-hole. A **Taper angle** widens the mouth; a **Drill-point angle**
+   adds a conical tip to blind holes (blank = flat).
 5. For counterbore, enter **Counterbore diameter** and **Counterbore depth**.
 6. For countersink, enter **Countersink diameter** and **Countersink angle**.
-7. Click **Create**.
+7. For counterdrill, enter **Counterdrill diameter** and **Counterdrill depth**.
+8. A cosmetic **Thread** flag is stored for downstream use without modeling
+   threads.
+9. Click **Create**.
 
 The placement face is stored as a `TopologyRef`, so the hole survives parametric
 edits that reshape the body as long as the resolver can still identify the face.

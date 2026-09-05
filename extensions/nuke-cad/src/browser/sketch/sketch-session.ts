@@ -44,7 +44,9 @@ import {
     type SketchArc,
     type SketchEllipse,
     type TemporaryConstraint,
-    type SolverResult
+    type SolverResult,
+    type SolverDiagnostic,
+    buildSolverDiagnostics
 } from '../../common/sketch-solver';
 import {
     NUKE_CAD_SCHEMA_VERSION,
@@ -108,7 +110,7 @@ function cloneTopologyRef(ref: TopologyRef): TopologyRef {
 export type SketchPrimitive = SolverSketchPrimitive & { construction: boolean };
 
 /** Tools supported by the sketch session. */
-export type SketchTool = 'select' | 'point' | 'line' | 'circle' | 'arc3' | 'rectangle' | 'ellipse' | 'bspline';
+export type SketchTool = 'select' | 'point' | 'line' | 'circle' | 'arc3' | 'rectangle' | 'slot' | 'ellipse' | 'bspline';
 
 /**
  * Single-key tool shortcuts routed by the CAD viewport while a sketch session
@@ -121,6 +123,7 @@ export const SKETCH_TOOL_SHORTCUTS: Readonly<Record<string, SketchTool>> = {
     c: 'circle',
     a: 'arc3',
     r: 'rectangle',
+    o: 'slot',
     p: 'point',
     e: 'ellipse',
     b: 'bspline'
@@ -167,7 +170,17 @@ export interface SketchStatus {
     conflicting: string[];
     /** Caller-assigned ids of redundant constraints. */
     redundant: string[];
-    /** True when the sketch has zero remaining DOF. */
+    /**
+     * Caller-assigned ids of partially-redundant constraints (GCS QR-rank
+     * analysis: consistent now, may turn conflicting after later edits).
+     */
+    partiallyRedundant?: string[];
+    /**
+     * Human-readable solver/validator diagnostics (one entry per tag group
+     * plus validator findings). Rendered by the Solver Diagnostics popover.
+     */
+    diagnostics?: SolverDiagnostic[];
+    /** True when the sketch has zero remaining DOF and no conflicts. */
     fullyConstrained: boolean;
     /** Auto-constraints produced by the last user action. */
     lastAutoConstraints: AutoConstraintFeedback[];
@@ -247,6 +260,35 @@ export interface AddDimensionResult {
     error?: string;
 }
 
+/** A point pair that nearly coincides without a coincident constraint. */
+export interface MissingCoincident {
+    p1Id: string;
+    p2Id: string;
+    distance: number;
+}
+
+/** An open wire end: a vertex used by exactly one sketch segment. */
+export interface OpenVertex {
+    pointId: string;
+    segmentIds: string[];
+}
+
+/** Result of {@link SketchSession.blockPrimitives}. */
+export interface BlockResult {
+    success: boolean;
+    error?: string;
+    constraintIds?: string[];
+}
+
+/** Result of {@link SketchSession.filletCorner}. */
+export interface FilletResult {
+    success: boolean;
+    error?: string;
+    arcId?: string;
+    dimensionId?: string;
+    constraintId?: string;
+}
+
 /** Options for {@link SketchSession.editDimension}. */
 export interface EditDimensionOptions {
     /** New literal value; ignored when parameter is set. */
@@ -299,6 +341,15 @@ interface InProgressRectangle {
     p1: Point2;
 }
 
+interface InProgressSlot {
+    tool: 'slot';
+    stage: 1 | 2;
+    c1Id: string;
+    c1: Point2;
+    c2Id?: string;
+    c2?: Point2;
+}
+
 interface InProgressEllipse {
     tool: 'ellipse';
     stage: 1 | 2 | 3;
@@ -314,7 +365,8 @@ interface InProgressBSpline {
     poles: Point2[];
 }
 
-type InProgressState = InProgressLine | InProgressCircle | InProgressArc3 | InProgressRectangle | InProgressEllipse | InProgressBSpline;
+type InProgressState =
+    InProgressLine | InProgressCircle | InProgressArc3 | InProgressRectangle | InProgressSlot | InProgressEllipse | InProgressBSpline;
 
 interface DragState {
     pointIds: string[];
@@ -882,6 +934,11 @@ export class SketchSession {
             }
         } else if (this.inProgress.tool === 'rectangle') {
             ids.push(this.inProgress.p1Id);
+        } else if (this.inProgress.tool === 'slot') {
+            ids.push(this.inProgress.c1Id);
+            if (this.inProgress.c2Id !== undefined) {
+                ids.push(this.inProgress.c2Id);
+            }
         } else if (this.inProgress.tool === 'ellipse') {
             ids.push(this.inProgress.centerId);
             if (this.inProgress.majorId !== undefined) {
@@ -1064,6 +1121,48 @@ export class SketchSession {
                 }
                 break;
             }
+            case 'slot': {
+                if (this.inProgress === undefined || this.inProgress.tool !== 'slot') {
+                    const c1Id = this.addPointForTool(snapped, auto);
+                    this.inProgress = { tool: 'slot', stage: 1, c1Id, c1: snapped.point };
+                    this.status = { ...this.status, lastAutoConstraints: auto };
+                    this.emitChange();
+                } else if (this.inProgress.stage === 1) {
+                    const c1 = this.inProgress.c1;
+                    if (Math.hypot(snapped.point.x - c1.x, snapped.point.y - c1.y) < 1e-12) {
+                        this.status = { ...this.status, lastAutoConstraints: [] };
+                        this.emitChange();
+                        return;
+                    }
+                    const c2Id = this.addPointForTool(snapped, auto);
+                    this.inProgress = {
+                        tool: 'slot',
+                        stage: 2,
+                        c1Id: this.inProgress.c1Id,
+                        c1,
+                        c2Id,
+                        c2: snapped.point
+                    };
+                    this.status = { ...this.status, lastAutoConstraints: auto };
+                    this.emitChange();
+                } else {
+                    const { c1, c2 } = this.inProgress;
+                    if (c2 === undefined) {
+                        return;
+                    }
+                    const width = snapped.point;
+                    const error = this.buildSlot(this.inProgress.c1Id, c1, this.inProgress.c2Id!, c2, width, auto);
+                    if (error !== undefined) {
+                        this.status = { ...this.status, lastAutoConstraints: [], hint: error };
+                        this.emitChange();
+                        return;
+                    }
+                    this.inProgress = undefined;
+                    await this.commit(auto);
+                    this.emitChange();
+                }
+                break;
+            }
             case 'ellipse': {
                 if (this.inProgress === undefined || this.inProgress.tool !== 'ellipse') {
                     const centerId = this.addPointForTool(snapped, auto);
@@ -1180,6 +1279,79 @@ export class SketchSession {
         this.emitChange();
     }
 
+    /**
+     * Build a slot (two parallel lines joined by two semicircular arcs)
+     * through the staged center points c1/c2 with the width measured from w.
+     *
+     * The arc centers reuse the staged points so the slot stays editable;
+     * tangency plus equal-radii constraints keep the profile consistent.
+     * Returns an error message when the gesture is degenerate, else undefined.
+     */
+    private buildSlot(c1Id: string, c1: Point2, c2Id: string, c2: Point2, w: Point2, auto: AutoConstraintFeedback[]): string | undefined {
+        const ux = c2.x - c1.x;
+        const uy = c2.y - c1.y;
+        const length = Math.hypot(ux, uy);
+        if (length < 1e-9) {
+            return 'Slot centers must be distinct points';
+        }
+        const dx = ux / length;
+        const dy = uy / length;
+        const nx = -dy;
+        const ny = dx;
+        const radius = Math.abs((w.x - c1.x) * nx + (w.y - c1.y) * ny);
+        if (radius < 1e-9) {
+            return 'Slot width must be non-zero — pick a third point off the centerline';
+        }
+
+        const a = { x: c1.x + nx * radius, y: c1.y + ny * radius };
+        const b = { x: c2.x + nx * radius, y: c2.y + ny * radius };
+        const c = { x: c2.x - nx * radius, y: c2.y - ny * radius };
+        const d = { x: c1.x - nx * radius, y: c1.y - ny * radius };
+        const aId = this.nextId('point');
+        const bId = this.nextId('point');
+        const cId = this.nextId('point');
+        const dId = this.nextId('point');
+        this.addPointInternal(aId, a.x, a.y, false);
+        this.addPointInternal(bId, b.x, b.y, false);
+        this.addPointInternal(cId, c.x, c.y, false);
+        this.addPointInternal(dId, d.x, d.y, false);
+
+        const lineAB = this.nextId('line');
+        const lineCD = this.nextId('line');
+        this.addLineInternal(lineAB, aId, bId, false);
+        this.addLineInternal(lineCD, cId, dId, false);
+
+        // Outward bulge points pick the correct semicircle sweep.
+        const out1 = { x: c1.x - dx * radius, y: c1.y - dy * radius };
+        const out2 = { x: c2.x + dx * radius, y: c2.y + dy * radius };
+        const angles1 = arcAnglesFromThreePoints(c1, d, out1, a);
+        const angles2 = arcAnglesFromThreePoints(c2, b, out2, c);
+        const arc1 = this.nextId('arc');
+        const arc2 = this.nextId('arc');
+        this.addArcInternal(arc1, c1Id, radius, angles1.startAngle, angles1.endAngle, dId, aId, false);
+        this.addArcInternal(arc2, c2Id, radius, angles2.startAngle, angles2.endAngle, bId, cId, false);
+
+        for (const [lineId, arcId] of [
+            [lineAB, arc1],
+            [lineAB, arc2],
+            [lineCD, arc1],
+            [lineCD, arc2]
+        ] as Array<[string, string]>) {
+            const tangentId = this.nextId('tangent');
+            this.solver.addConstraintTangent(tangentId, lineId, arcId, { driving: true });
+            this.constraints.set(tangentId, { id: tangentId, kind: 'tangent', targetIds: [lineId, arcId], driving: true });
+            auto.push({ kind: 'tangent', ids: [tangentId] });
+        }
+        const equalId = this.nextId('equal');
+        this.solver.addConstraintEqual(equalId, arc1, arc2, { driving: true });
+        this.constraints.set(equalId, { id: equalId, kind: 'equal', targetIds: [arc1, arc2], driving: true });
+        auto.push({ kind: 'equal', ids: [equalId] });
+
+        this.addAxisAutoConstraint(lineAB, a, b, auto);
+        this.addAxisAutoConstraint(lineCD, c, d, auto);
+        return undefined;
+    }
+
     private createRectangle(p1: Point2, p2: Point2, p1Id: string, p2Id: string, _auto: AutoConstraintFeedback[]): string[] {
         const p3Id = this.nextId('point');
         const p4Id = this.nextId('point');
@@ -1277,6 +1449,7 @@ export class SketchSession {
                 this.tool === 'line' ||
                 this.tool === 'arc3' ||
                 this.tool === 'rectangle' ||
+                this.tool === 'slot' ||
                 this.tool === 'ellipse' ||
                 this.tool === 'bspline'
             ) {
@@ -1313,6 +1486,11 @@ export class SketchSession {
 
         if (this.inProgress.tool === 'rectangle') {
             return { type: 'rectangle', p1: this.inProgress.p1, p2: snapped.point };
+        }
+
+        if (this.inProgress.tool === 'slot') {
+            // Centerline preview; the width/arc preview resolves on the third click.
+            return { type: 'line', p1: this.inProgress.c1, p2: snapped.point };
         }
 
         if (this.inProgress.tool === 'ellipse') {
@@ -1365,15 +1543,40 @@ export class SketchSession {
 
     private async solve(): Promise<void> {
         const result = await this.solver.solve();
+        this.applyResult(result, true);
+    }
+
+    /**
+     * Fold a solver result into the session status.
+     *
+     * Solver-tag diagnostics always apply; validator findings are included
+     * for committed solves and skipped for transient drag solves.
+     */
+    private applyResult(result: SolverResult, runValidators: boolean): void {
+        const diagnostics = buildSolverDiagnostics(result, this.constraintKinds());
+        const fullyConstrained = result.dof === 0 && result.conflicting.length === 0;
+        if (runValidators && this.primitives.size > 0) {
+            diagnostics.push(...this.runValidators(result.dof, fullyConstrained));
+        }
         this.status = {
             dof: result.dof,
             conflicting: result.conflicting,
             redundant: result.redundant,
-            fullyConstrained: result.dof === 0,
+            partiallyRedundant: result.partiallyRedundant ?? [],
+            diagnostics,
+            fullyConstrained,
             lastAutoConstraints: this.status.lastAutoConstraints,
             hint: this.status.hint
         };
         this.refreshDimensionValues();
+    }
+
+    private constraintKinds(): Map<string, string> {
+        const kinds = new Map<string, string>();
+        for (const record of this.constraints.values()) {
+            kinds.set(record.id, record.kind);
+        }
+        return kinds;
     }
 
     private refreshDimensionValues(): void {
@@ -1535,6 +1738,15 @@ export class SketchSession {
         value?: number | string,
         options?: AddConstraintOptions
     ): Promise<AddConstraintResult> {
+        // The relation popover passes ids in selection order; point-on-object
+        // needs the point first, so normalize before validating.
+        if (kind === 'pointOnObject' && targetIds.length === 2) {
+            const firstType = this.primitives.get(targetIds[0])?.type;
+            const secondType = this.primitives.get(targetIds[1])?.type;
+            if (firstType !== 'point' && secondType === 'point') {
+                targetIds = [targetIds[1], targetIds[0]];
+            }
+        }
         const error = this.validateConstraint(kind, targetIds, value);
         if (error !== undefined) {
             return { success: false, error };
@@ -2002,6 +2214,431 @@ export class SketchSession {
         }
     }
 
+    /** Default tolerance in model units for missing-coincident detection. */
+    static readonly MISSING_COINCIDENT_TOLERANCE = 1e-6;
+
+    /**
+     * Detect point pairs that nearly coincide but share no coincident constraint.
+     *
+     * Pairs where both points are fixed are skipped (a coincident there would
+     * be redundant). The result feeds the diagnostics channel; callers that
+     * want an auto-fix can add coincident constraints for the reported pairs.
+     */
+    detectMissingCoincidents(tolerance: number = SketchSession.MISSING_COINCIDENT_TOLERANCE): MissingCoincident[] {
+        finite(tolerance, 'Missing-coincident tolerance');
+        const coincidentPairs = new Set<string>();
+        for (const record of this.constraints.values()) {
+            if (record.kind === 'coincident' && record.targetIds.length === 2) {
+                const [a, b] = record.targetIds;
+                coincidentPairs.add(a < b ? `${a}|${b}` : `${b}|${a}`);
+            }
+        }
+        const points: Array<{ id: string; position: Point2 }> = [];
+        for (const primitive of this.primitives.values()) {
+            if (primitive.type !== 'point') {
+                continue;
+            }
+            const position = this.getPointPosition(primitive.id);
+            if (position !== undefined) {
+                points.push({ id: primitive.id, position });
+            }
+        }
+        const missing: MissingCoincident[] = [];
+        for (let i = 0; i < points.length; i++) {
+            for (let j = i + 1; j < points.length; j++) {
+                const a = points[i];
+                const b = points[j];
+                const key = a.id < b.id ? `${a.id}|${b.id}` : `${b.id}|${a.id}`;
+                if (coincidentPairs.has(key)) {
+                    continue;
+                }
+                if (this.fixConstraintIds.has(a.id) && this.fixConstraintIds.has(b.id)) {
+                    continue;
+                }
+                const distance = Math.hypot(b.position.x - a.position.x, b.position.y - a.position.y);
+                if (distance <= tolerance) {
+                    missing.push({ p1Id: a.id, p2Id: b.id, distance });
+                }
+            }
+        }
+        missing.sort((x, y) => x.distance - y.distance);
+        return missing;
+    }
+
+    /**
+     * Find open wire ends: non-construction line/arc endpoints and B-spline
+     * end poles used by exactly one segment.
+     *
+     * Points joined by coincident constraints are merged before counting, so
+     * properly closed corners are not reported. Circles and ellipses are
+     * closed by definition and never contribute.
+     */
+    findOpenVertices(): OpenVertex[] {
+        const parent = new Map<string, string>();
+        const find = (id: string): string => {
+            const p = parent.get(id) ?? id;
+            if (p === id) {
+                return id;
+            }
+            const root = find(p);
+            parent.set(id, root);
+            return root;
+        };
+        const union = (a: string, b: string): void => {
+            const ra = find(a);
+            const rb = find(b);
+            if (ra !== rb) {
+                parent.set(ra < rb ? rb : ra, ra < rb ? ra : rb);
+            }
+        };
+        for (const primitive of this.primitives.values()) {
+            if (primitive.type === 'point') {
+                find(primitive.id);
+            }
+        }
+        for (const record of this.constraints.values()) {
+            if (record.kind === 'coincident' && record.targetIds.length === 2) {
+                union(record.targetIds[0], record.targetIds[1]);
+            }
+        }
+        const incidence = new Map<string, { members: Set<string>; segments: string[] }>();
+        const touch = (pointId: string, segmentId: string): void => {
+            const root = find(pointId);
+            let entry = incidence.get(root);
+            if (entry === undefined) {
+                entry = { members: new Set(), segments: [] };
+                incidence.set(root, entry);
+            }
+            entry.members.add(pointId);
+            entry.segments.push(segmentId);
+        };
+        for (const primitive of this.primitives.values()) {
+            if (primitive.construction) {
+                continue;
+            }
+            if (primitive.type === 'line') {
+                touch(primitive.p1Id, primitive.id);
+                touch(primitive.p2Id, primitive.id);
+            } else if (primitive.type === 'arc') {
+                touch(primitive.startId, primitive.id);
+                touch(primitive.endId, primitive.id);
+            } else if (primitive.type === 'bspline' && primitive.poleIds.length > 0) {
+                touch(primitive.poleIds[0], primitive.id);
+                touch(primitive.poleIds[primitive.poleIds.length - 1], primitive.id);
+            }
+        }
+        const open: OpenVertex[] = [];
+        for (const entry of incidence.values()) {
+            if (entry.segments.length === 1) {
+                open.push({ pointId: [...entry.members].sort()[0], segmentIds: [...entry.segments] });
+            }
+        }
+        open.sort((a, b) => (a.pointId < b.pointId ? -1 : 1));
+        return open;
+    }
+
+    private runValidators(dof: number, fullyConstrained: boolean): SolverDiagnostic[] {
+        const diagnostics: SolverDiagnostic[] = [];
+        const missing = this.detectMissingCoincidents();
+        if (missing.length > 0) {
+            const shown = missing.slice(0, 5).map((m) => `${m.p1Id} ≈ ${m.p2Id}`);
+            const suffix = missing.length > 5 ? ` and ${missing.length - 5} more` : '';
+            diagnostics.push({
+                severity: 'warning',
+                code: 'missing-coincident',
+                constraintIds: [],
+                message:
+                    `Missing coincident constraints (${missing.length}): ${shown.join(', ')}${suffix}. ` +
+                    'Add coincident constraints to close the sketch.'
+            });
+        }
+        const open = this.findOpenVertices();
+        if (open.length > 0) {
+            const shown = open.slice(0, 5).map((v) => v.pointId);
+            const suffix = open.length > 5 ? ` and ${open.length - 5} more` : '';
+            diagnostics.push({
+                severity: 'warning',
+                code: 'open-profile',
+                constraintIds: [],
+                message: `Open profile: ${open.length} open vert${open.length === 1 ? 'ex' : 'ices'} (${shown.join(', ')}${suffix}).`
+            });
+        }
+        if (fullyConstrained) {
+            diagnostics.push({
+                severity: 'info',
+                code: 'fully-constrained',
+                constraintIds: [],
+                message: 'Sketch is fully constrained (0 DOF).'
+            });
+        } else {
+            diagnostics.push({
+                severity: 'info',
+                code: 'under-constrained',
+                constraintIds: [],
+                message: `Sketch has ${dof} degree${dof === 1 ? '' : 's'} of freedom remaining.`
+            });
+        }
+        return diagnostics;
+    }
+
+    /**
+     * Freeze primitives in place (FreeCAD "Block" semantics).
+     *
+     * PlaneGCS has no native block constraint, so a block is emulated with
+     * one fix constraint per owned point (line endpoints, circle/arc centers
+     * and arc endpoints, ellipse center/focus, B-spline poles) — point-level
+     * only, honoring the curve-level scope rule. Already-fixed points are
+     * skipped. The created records are ordinary `fix` constraints, so they
+     * serialize, restore, and render through the existing channels.
+     */
+    async blockPrimitives(primitiveIds: string[]): Promise<BlockResult> {
+        const owned = new Set<string>();
+        for (const id of primitiveIds) {
+            const primitive = this.primitives.get(id);
+            if (primitive === undefined) {
+                return { success: false, error: `Unknown primitive '${id}'` };
+            }
+            for (const pointId of SketchSession.ownedPointIds(primitive)) {
+                owned.add(pointId);
+            }
+        }
+        const created: string[] = [];
+        for (const pointId of [...owned].sort()) {
+            if (this.fixConstraintIds.has(pointId)) {
+                continue;
+            }
+            const fixId = this.nextId('fix');
+            try {
+                this.solver.addConstraintFix(fixId, pointId);
+            } catch (err) {
+                const message = err instanceof Error ? err.message : String(err);
+                return { success: false, error: message };
+            }
+            this.constraints.set(fixId, { id: fixId, kind: 'fix', targetIds: [pointId], driving: true });
+            this.fixConstraintIds.set(pointId, fixId);
+            created.push(fixId);
+        }
+        await this.commit([]);
+        this.emitChange();
+        return { success: true, constraintIds: created };
+    }
+
+    private static ownedPointIds(primitive: SketchPrimitive): string[] {
+        switch (primitive.type) {
+            case 'point':
+                return [primitive.id];
+            case 'line':
+                return [primitive.p1Id, primitive.p2Id];
+            case 'circle':
+                return [primitive.centerId];
+            case 'arc':
+                return [primitive.centerId, primitive.startId, primitive.endId];
+            case 'ellipse':
+                return [primitive.centerId, primitive.focus1Id];
+            case 'bspline':
+                return [...primitive.poleIds];
+        }
+    }
+
+    /**
+     * Insert a tangent arc fillet between two lines sharing a corner point.
+     *
+     * The shared corner is replaced by two tangent points (both lines are
+     * rebuilt in the solver with the same ids, so line-level constraints such
+     * as horizontal/parallel/angle are preserved via replay) and the corner
+     * point is removed. The fillet radius goes through the normal dimension
+     * path, so it stays editable and parameter-bindable.
+     *
+     * The corner point must carry no other constraints or dimensions;
+     * otherwise the fillet is rejected with a descriptive error.
+     */
+    async filletCorner(lineId1: string, lineId2: string, radius: number | string): Promise<FilletResult> {
+        const l1 = this.primitives.get(lineId1);
+        const l2 = this.primitives.get(lineId2);
+        if (l1?.type !== 'line' || l2?.type !== 'line') {
+            return { success: false, error: 'fillet requires two lines' };
+        }
+        if (lineId1 === lineId2) {
+            return { success: false, error: 'fillet requires two distinct lines' };
+        }
+        const corner = [l1.p1Id, l1.p2Id].find((e) => e === l2.p1Id || e === l2.p2Id);
+        if (corner === undefined) {
+            return { success: false, error: 'fillet requires two lines sharing a corner point' };
+        }
+        let radiusValue: number;
+        if (typeof radius === 'string') {
+            const bound = this.parameters.get(radius);
+            if (bound === undefined) {
+                return { success: false, error: `Unknown parameter '${radius}'` };
+            }
+            radiusValue = bound;
+        } else {
+            radiusValue = radius;
+        }
+        if (!Number.isFinite(radiusValue) || radiusValue <= 0) {
+            return { success: false, error: `Fillet radius must be positive, got ${radius}` };
+        }
+        const other1 = l1.p1Id === corner ? l1.p2Id : l1.p1Id;
+        const other2 = l2.p1Id === corner ? l2.p2Id : l2.p1Id;
+        const cornerPos = this.getPointPosition(corner);
+        const pos1 = this.getPointPosition(other1);
+        const pos2 = this.getPointPosition(other2);
+        if (cornerPos === undefined || pos1 === undefined || pos2 === undefined) {
+            return { success: false, error: 'fillet corner references unsolved geometry' };
+        }
+        const len1 = Math.hypot(pos1.x - cornerPos.x, pos1.y - cornerPos.y);
+        const len2 = Math.hypot(pos2.x - cornerPos.x, pos2.y - cornerPos.y);
+        if (len1 < 1e-12 || len2 < 1e-12) {
+            return { success: false, error: 'fillet requires non-degenerate lines' };
+        }
+        const u = { x: (pos1.x - cornerPos.x) / len1, y: (pos1.y - cornerPos.y) / len1 };
+        const v = { x: (pos2.x - cornerPos.x) / len2, y: (pos2.y - cornerPos.y) / len2 };
+        const cosTheta = Math.min(1, Math.max(-1, u.x * v.x + u.y * v.y));
+        const theta = Math.acos(cosTheta);
+        if (theta < 1e-6 || Math.PI - theta < 1e-6) {
+            return { success: false, error: 'fillet requires non-collinear lines' };
+        }
+        const tangentDistance = radiusValue / Math.tan(theta / 2);
+        if (tangentDistance >= len1 || tangentDistance >= len2) {
+            return {
+                success: false,
+                error: `Fillet radius ${radiusValue} is too large for the corner (max ${Math.min(len1, len2).toFixed(6)})`
+            };
+        }
+        const blockers = [...this.constraints.values()].filter((record) => record.targetIds.includes(corner));
+        if (blockers.length > 0) {
+            return {
+                success: false,
+                error: `Corner point '${corner}' is constrained (${blockers.map((r) => r.id).join(', ')}); remove those constraints first`
+            };
+        }
+        const dimensionBlockers = [...this.dimensions.values()].filter((dimension) => dimension.targetIds.includes(corner));
+        if (dimensionBlockers.length > 0) {
+            return {
+                success: false,
+                error: `Corner point '${corner}' drives dimension(s) (${dimensionBlockers.map((d) => d.id).join(', ')}); remove them first`
+            };
+        }
+
+        const t1 = { x: cornerPos.x + u.x * tangentDistance, y: cornerPos.y + u.y * tangentDistance };
+        const t2 = { x: cornerPos.x + v.x * tangentDistance, y: cornerPos.y + v.y * tangentDistance };
+        const bisector = { x: u.x + v.x, y: u.y + v.y };
+        const bisectorLength = Math.hypot(bisector.x, bisector.y);
+        const center = {
+            x: cornerPos.x + (bisector.x / bisectorLength) * (radiusValue / Math.sin(theta / 2)),
+            y: cornerPos.y + (bisector.y / bisectorLength) * (radiusValue / Math.sin(theta / 2))
+        };
+        const t1Id = this.nextId('point');
+        const t2Id = this.nextId('point');
+        const centerId = this.nextId('point');
+        this.addPointInternal(t1Id, t1.x, t1.y, false);
+        this.addPointInternal(t2Id, t2.x, t2.y, false);
+        this.addPointInternal(centerId, center.x, center.y, false);
+
+        try {
+            const refs = [...this.constraints.values()].filter(
+                (record) => record.targetIds.includes(lineId1) || record.targetIds.includes(lineId2)
+            );
+            this.solver.removePrimitive(lineId1);
+            this.solver.removePrimitive(lineId2);
+            const newEnds1: [string, string] = [l1.p1Id === corner ? t1Id : l1.p1Id, l1.p2Id === corner ? t1Id : l1.p2Id];
+            const newEnds2: [string, string] = [l2.p1Id === corner ? t2Id : l2.p1Id, l2.p2Id === corner ? t2Id : l2.p2Id];
+            this.solver.addLine(lineId1, newEnds1[0], newEnds1[1], { construction: l1.construction });
+            this.solver.addLine(lineId2, newEnds2[0], newEnds2[1], { construction: l2.construction });
+            this.primitives.set(lineId1, { ...l1, p1Id: newEnds1[0], p2Id: newEnds1[1] });
+            this.primitives.set(lineId2, { ...l2, p1Id: newEnds2[0], p2Id: newEnds2[1] });
+            for (const record of refs) {
+                this.replayConstraintRecord(record);
+            }
+            this.solver.removePrimitive(corner);
+            this.primitives.delete(corner);
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            await this.commit([]);
+            this.emitChange();
+            return { success: false, error: message };
+        }
+
+        // The sweep through the old corner side picks the outward fillet arc.
+        const angles = arcAnglesFromThreePoints(center, t1, cornerPos, t2);
+        const arcId = this.nextId('arc');
+        this.addArcInternal(arcId, centerId, radiusValue, angles.startAngle, angles.endAngle, t1Id, t2Id, false);
+        const tangentIds: string[] = [];
+        for (const lineId of [lineId1, lineId2]) {
+            const tangentId = this.nextId('tangent');
+            this.solver.addConstraintTangent(tangentId, lineId, arcId, { driving: true });
+            this.constraints.set(tangentId, { id: tangentId, kind: 'tangent', targetIds: [lineId, arcId], driving: true });
+            tangentIds.push(tangentId);
+        }
+        const radiusResult = await this.addConstraint('radius', [arcId], radius);
+        if (!radiusResult.success) {
+            return { success: false, error: radiusResult.error };
+        }
+        return { success: true, arcId, dimensionId: radiusResult.dimensionId, constraintId: radiusResult.constraintId };
+    }
+
+    /**
+     * Re-apply a session constraint record to the solver under its same id.
+     *
+     * Used after solver-side primitive surgery (sketch fillet) that drops the
+     * solver's constraint copies while the session records survive.
+     */
+    private replayConstraintRecord(record: ConstraintRecord): void {
+        const driving = record.driving;
+        const ids = record.targetIds;
+        switch (record.kind) {
+            case 'coincident':
+                this.solver.addConstraintCoincident(record.id, ids[0], ids[1], { driving });
+                break;
+            case 'fix':
+                this.solver.addConstraintFix(record.id, ids[0]);
+                break;
+            case 'horizontal':
+                this.solver.addConstraintHorizontal(record.id, ids[0], { driving });
+                break;
+            case 'vertical':
+                this.solver.addConstraintVertical(record.id, ids[0], { driving });
+                break;
+            case 'parallel':
+                this.solver.addConstraintParallel(record.id, ids[0], ids[1], { driving });
+                break;
+            case 'perpendicular':
+                this.solver.addConstraintPerpendicular(record.id, ids[0], ids[1], { driving });
+                break;
+            case 'tangent':
+                this.solver.addConstraintTangent(record.id, ids[0], ids[1], { driving });
+                break;
+            case 'equal':
+                this.solver.addConstraintEqual(record.id, ids[0], ids[1], { driving });
+                break;
+            case 'angle':
+                this.solver.addConstraintAngle(record.id, ids[0], ids[1], record.value as number | string, { driving });
+                break;
+            case 'pointOnObject':
+                this.solver.addConstraintPointOnObject(record.id, ids[0], ids[1], { driving });
+                break;
+            case 'symmetry':
+                this.solver.addConstraintSymmetry(record.id, ids[0], ids[1], ids[2], { driving });
+                break;
+            case 'concentric':
+                this.solver.addConstraintConcentric(record.id, ids[0], ids[1], { driving });
+                break;
+            case 'distance':
+                this.solver.addConstraintDistance(record.id, ids[0], ids[1], record.value as number | string, {
+                    driving,
+                    direction: record.direction ?? 'point-point'
+                });
+                break;
+            case 'radius':
+                if (record.diameter) {
+                    this.solver.addConstraintDiameter(record.id, ids[0], record.value as number | string, { driving });
+                } else {
+                    this.solver.addConstraintRadius(record.id, ids[0], record.value as number | string, { driving });
+                }
+                break;
+        }
+    }
+
     /** Toggle or set the construction flag on a primitive. */
     async setConstruction(id: string, construction: boolean): Promise<void> {
         const primitive = this.primitives.get(id);
@@ -2060,7 +2697,9 @@ export class SketchSession {
             dof: result.dof,
             conflicting: result.conflicting,
             redundant: result.redundant,
-            fullyConstrained: result.dof === 0,
+            partiallyRedundant: result.partiallyRedundant ?? [],
+            diagnostics: buildSolverDiagnostics(result, this.constraintKinds()),
+            fullyConstrained: result.dof === 0 && result.conflicting.length === 0,
             lastAutoConstraints: []
         };
         this.emitChange();
@@ -2119,7 +2758,9 @@ export class SketchSession {
             dof: result.dof,
             conflicting: result.conflicting,
             redundant: result.redundant,
-            fullyConstrained: result.dof === 0,
+            partiallyRedundant: result.partiallyRedundant ?? [],
+            diagnostics: buildSolverDiagnostics(result, this.constraintKinds()),
+            fullyConstrained: result.dof === 0 && result.conflicting.length === 0,
             lastAutoConstraints: []
         };
         this.emitChange();

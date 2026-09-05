@@ -52,7 +52,8 @@ import {
     type DimensionKind,
     type FeatureType,
     type FeatureParams,
-    type FeatureDef
+    type FeatureDef,
+    type CurvePoint
 } from '../../../common/cad-document';
 import { type TopologyRef } from '../../../common/topology-refs';
 import { CadDocumentStore } from '../../document/cad-document-store';
@@ -108,6 +109,8 @@ interface CadSketchOverlayProps {
     readonly sketchAutoDimension: boolean;
     readonly templates: ReadonlyArray<DocumentTemplate>;
     readonly onEnterSketch: (kind: DatumKind, offset: number) => void;
+    /** Receives the full validated new-kind datum draft plus the picker offset. */
+    readonly onEnterSketchDraft: (draft: DatumDraft, offset: number) => void;
     readonly onExitSketch: () => Promise<void>;
     readonly onStartFeatureCreation: (type: FeatureType) => void;
     readonly onAddFeature: (type: FeatureType, params: FeatureParams) => void;
@@ -155,7 +158,7 @@ const SNAP_RADIUS_PRESETS: ReadonlyArray<{ label: string; px: number }> = [
     { label: 'L', px: 24 }
 ];
 
-const SOLID_PRODUCERS: FeatureType[] = ['pad', 'pocket', 'revolve', 'groove', 'sweep', 'pipe', 'loft', 'helicalSweep'];
+const SOLID_PRODUCERS: FeatureType[] = ['pad', 'pocket', 'revolve', 'groove', 'sweep', 'pipe', 'loft', 'helicalSweep', 'primitive'];
 
 const CONSTRAINT_OPTIONS: Array<{ kind: ConstraintKind; label: string }> = [
     { kind: 'coincident', label: 'Coincident' },
@@ -189,6 +192,7 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
         shortcutBar,
         sketchAutoDimension,
         onEnterSketch,
+        onEnterSketchDraft,
         onExitSketch,
         onStartFeatureCreation,
         onAddFeature,
@@ -394,12 +398,16 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
                     datumKind={datumKind}
                     offset={offset}
                     facePickMode={facePickMode}
+                    holePickMode={holePickMode}
                     onDatumKindChange={setDatumKind}
                     onOffsetChange={setOffset}
                     onEnter={() => onEnterSketch(datumKind, Number(offset))}
+                    onEnterExtendedKind={(draft) => onEnterSketchDraft(draft, Number(offset))}
                     onCancel={() => void onExitSketch()}
                     onStartFacePick={() => onStartFacePick(Number(offset))}
                     onCancelFacePick={onCancelFacePick}
+                    onStartHolePick={onStartHolePick}
+                    onHolePickCancel={onHolePickCancel}
                 />
             )}
 
@@ -654,7 +662,7 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
                             errors={paramErrors}
                             onAdd={addParameter}
                             onRename={() => {
-                                // Rename is intentionally not supported in Tier 1.
+                                // Rename is intentionally not supported yet.
                             }}
                             onSet={setParameter}
                             onRemove={removeParameter}
@@ -687,20 +695,173 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
     );
 }
 
+/** Datum kinds the datum-lite forms can author. */
+export type DatumFormKind = DatumKind | 'threePoint' | 'midplane' | 'line2Point';
+
+/** Validated three-point datum draft: a plane through three non-collinear points. */
+export interface ThreePointDatumDraft {
+    readonly kind: 'threePoint';
+    readonly points: readonly [CurvePoint, CurvePoint, CurvePoint];
+}
+
+/** Validated midplane datum draft: the plane midway between two planar faces. */
+export interface MidplaneDatumDraft {
+    readonly kind: 'midplane';
+    readonly faces: readonly [TopologyRef, TopologyRef];
+}
+
+/** Validated two-point line datum draft: an axis through two distinct points. */
+export interface Line2PointDatumDraft {
+    readonly kind: 'line2Point';
+    readonly points: readonly [CurvePoint, CurvePoint];
+}
+
+/** Validated new-kind datum draft handed to the sketch-entry seam. */
+export type DatumDraft = ThreePointDatumDraft | MidplaneDatumDraft | Line2PointDatumDraft;
+
+/** Absolute floor for two datum points to count as distinct (model units). */
+const MIN_DATUM_POINT_SEPARATION = 1e-9;
+
+/** Absolute floor for three datum points to count as non-collinear (area in model units^2). */
+const MIN_DATUM_TRIANGLE_AREA = 1e-9;
+
+function parseDatumPoint(values: readonly [string, string, string]): CurvePoint | undefined {
+    const nums = values.map((v) => Number(v));
+    if (!nums.every((n) => Number.isFinite(n))) {
+        return undefined;
+    }
+    return [nums[0], nums[1], nums[2]];
+}
+
+function datumTriangleArea(a: CurvePoint, b: CurvePoint, c: CurvePoint): number {
+    const ab: CurvePoint = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    const ac: CurvePoint = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+    const cross = [ab[1] * ac[2] - ab[2] * ac[1], ab[2] * ac[0] - ab[0] * ac[2], ab[0] * ac[1] - ab[1] * ac[0]];
+    return 0.5 * Math.sqrt(cross[0] * cross[0] + cross[1] * cross[1] + cross[2] * cross[2]);
+}
+
+function datumPointDistance(a: CurvePoint, b: CurvePoint): number {
+    return Math.sqrt((b[0] - a[0]) * (b[0] - a[0]) + (b[1] - a[1]) * (b[1] - a[1]) + (b[2] - a[2]) * (b[2] - a[2]));
+}
+
 interface DatumPickerProps {
     datumKind: DatumKind;
     offset: string;
     facePickMode?: 'sketchDatum' | 'externalGeometry';
+    holePickMode?: boolean;
     onDatumKindChange: (kind: DatumKind) => void;
     onOffsetChange: (value: string) => void;
     onEnter: () => void;
+    /** Receives the validated new-kind draft; the overlay adapts it to the sketch-entry seam. */
+    onEnterExtendedKind: (draft: DatumDraft) => void;
     onCancel: () => void;
     onStartFacePick: () => void;
     onCancelFacePick: () => void;
+    onStartHolePick: (callback: (ref: TopologyRef, uv: [number, number]) => void) => void;
+    onHolePickCancel: () => void;
 }
 
 function DatumPicker(props: DatumPickerProps): React.ReactElement {
     const picking = props.facePickMode === 'sketchDatum';
+    const [formKind, setFormKind] = React.useState<DatumFormKind>(props.datumKind);
+    const [pointInputs, setPointInputs] = React.useState<string[]>(['0', '0', '0', '0', '0', '0', '1', '0', '0']);
+    const [midplaneFaces, setMidplaneFaces] = React.useState<TopologyRef[]>([]);
+    const [midplaneSlot, setMidplaneSlot] = React.useState<0 | 1 | undefined>(undefined);
+    const [datumError, setDatumError] = React.useState<string | undefined>();
+    const midplanePicking = props.holePickMode === true && midplaneSlot !== undefined;
+
+    // The hole channel is shared with the hole dialog; a pick that ends
+    // anywhere (viewport pick or Escape-cancel) releases our slot.
+    React.useEffect(() => {
+        if (props.holePickMode !== true) {
+            setMidplaneSlot(undefined);
+        }
+    }, [props.holePickMode]);
+
+    const pickClassic = (kind: DatumKind): void => {
+        setFormKind(kind);
+        setDatumError(undefined);
+        props.onDatumKindChange(kind);
+    };
+
+    const pickExtended = (kind: 'threePoint' | 'midplane' | 'line2Point'): void => {
+        setFormKind(kind);
+        setDatumError(undefined);
+    };
+
+    const setPointInput = (index: number, value: string): void => {
+        setPointInputs((prev) => {
+            const next = [...prev];
+            next[index] = value;
+            return next;
+        });
+    };
+
+    const startMidplanePick = (slot: 0 | 1): void => {
+        if (midplanePicking && midplaneSlot === slot) {
+            setMidplaneSlot(undefined);
+            props.onHolePickCancel();
+            return;
+        }
+        setMidplaneSlot(slot);
+        props.onStartHolePick((ref) => {
+            // Hole-style face pick: keep the face ref, ignore the placement uv.
+            setMidplaneFaces((prev) => {
+                const next = [...prev];
+                next[slot] = ref;
+                return next;
+            });
+        });
+    };
+
+    const startExtended = (): void => {
+        if (formKind === 'threePoint') {
+            const parsed = [
+                parseDatumPoint([pointInputs[0], pointInputs[1], pointInputs[2]]),
+                parseDatumPoint([pointInputs[3], pointInputs[4], pointInputs[5]]),
+                parseDatumPoint([pointInputs[6], pointInputs[7], pointInputs[8]])
+            ];
+            if (parsed.some((p) => p === undefined)) {
+                setDatumError('Each point needs three finite numbers.');
+                return;
+            }
+            const [a, b, c] = parsed as [CurvePoint, CurvePoint, CurvePoint];
+            if (datumTriangleArea(a, b, c) < MIN_DATUM_TRIANGLE_AREA) {
+                setDatumError('The three points must not be collinear.');
+                return;
+            }
+            setDatumError(undefined);
+            props.onEnterExtendedKind({ kind: 'threePoint', points: [a, b, c] });
+            return;
+        }
+        if (formKind === 'line2Point') {
+            const parsed = [
+                parseDatumPoint([pointInputs[0], pointInputs[1], pointInputs[2]]),
+                parseDatumPoint([pointInputs[3], pointInputs[4], pointInputs[5]])
+            ];
+            if (parsed.some((p) => p === undefined)) {
+                setDatumError('Each point needs three finite numbers.');
+                return;
+            }
+            const [a, b] = parsed as [CurvePoint, CurvePoint];
+            if (datumPointDistance(a, b) < MIN_DATUM_POINT_SEPARATION) {
+                setDatumError('The two points must be distinct.');
+                return;
+            }
+            setDatumError(undefined);
+            props.onEnterExtendedKind({ kind: 'line2Point', points: [a, b] });
+            return;
+        }
+        if (midplaneFaces.length < 2 || midplaneFaces[0] === undefined || midplaneFaces[1] === undefined) {
+            setDatumError('Pick two planar faces in the viewport for the midplane.');
+            return;
+        }
+        setDatumError(undefined);
+        props.onEnterExtendedKind({ kind: 'midplane', faces: [midplaneFaces[0], midplaneFaces[1]] });
+    };
+
+    const isExtended = formKind === 'threePoint' || formKind === 'midplane' || formKind === 'line2Point';
+    const pointRowCount = formKind === 'line2Point' ? 2 : 3;
     return (
         <div className={`cad-sketch-datum-picker${picking ? ' picking' : ''}`}>
             <div className="cad-sketch-datum-title">Sketch Plane</div>
@@ -718,8 +879,8 @@ function DatumPicker(props: DatumPickerProps): React.ReactElement {
                         {(['XY', 'YZ', 'XZ'] as DatumKind[]).map((kind) => (
                             <button
                                 key={kind}
-                                className={`theia-button secondary ${props.datumKind === kind ? 'active' : ''}`}
-                                onClick={() => props.onDatumKindChange(kind)}
+                                className={`theia-button secondary ${formKind === kind ? 'active' : ''}`}
+                                onClick={() => pickClassic(kind)}
                             >
                                 {kind}
                             </button>
@@ -730,6 +891,78 @@ function DatumPicker(props: DatumPickerProps): React.ReactElement {
                             </button>
                         </Tooltip>
                     </div>
+                    <div className="cad-sketch-datum-buttons">
+                        {(
+                            [
+                                { kind: 'threePoint', label: '3-Point' },
+                                { kind: 'midplane', label: 'Midplane' },
+                                { kind: 'line2Point', label: 'Line 2-Pt' }
+                            ] as const
+                        ).map(({ kind, label }) => (
+                            <button
+                                key={kind}
+                                className={`theia-button secondary ${formKind === kind ? 'active' : ''}`}
+                                onClick={() => pickExtended(kind)}
+                            >
+                                {label}
+                            </button>
+                        ))}
+                    </div>
+                    {formKind === 'midplane' ? (
+                        <>
+                            {[0, 1].map((slot) => (
+                                <div key={slot} className="cad-sketch-datum-actions">
+                                    <span className="cad-feature-dialog-label">
+                                        Face {slot + 1}{' '}
+                                        {midplaneFaces[slot] !== undefined ? `(${midplaneFaces[slot].featureId})` : '(none)'}
+                                    </span>
+                                    <button
+                                        className={`theia-button secondary ${midplanePicking && midplaneSlot === slot ? 'active' : ''}`}
+                                        onClick={() => startMidplanePick(slot as 0 | 1)}
+                                    >
+                                        <span className="codicon codicon-target" />{' '}
+                                        {midplanePicking && midplaneSlot === slot ? 'Cancel pick' : 'Pick face'}
+                                    </button>
+                                    {midplaneFaces[slot] !== undefined && (
+                                        <button
+                                            className="theia-button secondary"
+                                            onClick={() => setMidplaneFaces((prev) => prev.filter((_, i) => i !== slot))}
+                                        >
+                                            <span className="codicon codicon-close" />
+                                        </button>
+                                    )}
+                                </div>
+                            ))}
+                        </>
+                    ) : (
+                        isExtended && (
+                            <>
+                                {Array.from({ length: pointRowCount }, (_, row) => (
+                                    <label key={row} className="cad-sketch-datum-offset">
+                                        P{row + 1}
+                                        {(['x', 'y', 'z'] as const).map((axis, col) => (
+                                            <input
+                                                key={axis}
+                                                type="number"
+                                                placeholder={axis}
+                                                value={pointInputs[row * 3 + col]}
+                                                onChange={(e) => setPointInput(row * 3 + col, e.target.value)}
+                                            />
+                                        ))}
+                                    </label>
+                                ))}
+                            </>
+                        )
+                    )}
+                    {midplanePicking && (
+                        <div className="cad-sketch-face-pick-banner">
+                            <span className="codicon codicon-target" />
+                            <span>Click a planar face in the viewport for midplane face {(midplaneSlot ?? 0) + 1} of 2.</span>
+                            <button className="theia-button secondary" onClick={props.onHolePickCancel}>
+                                Cancel
+                            </button>
+                        </div>
+                    )}
                     <label className="cad-sketch-datum-offset">
                         Offset
                         <input
@@ -738,15 +971,29 @@ function DatumPicker(props: DatumPickerProps): React.ReactElement {
                             onChange={(e) => props.onOffsetChange(e.target.value)}
                             onKeyDown={(e) => {
                                 if (e.key === 'Enter') {
-                                    props.onEnter();
+                                    if (isExtended) {
+                                        startExtended();
+                                    } else {
+                                        props.onEnter();
+                                    }
                                 } else if (e.key === 'Escape') {
                                     props.onCancel();
                                 }
                             }}
                         />
                     </label>
+                    {datumError !== undefined && <div className="cad-feature-dialog-error">{datumError}</div>}
                     <div className="cad-sketch-datum-actions">
-                        <button className="theia-button secondary" onClick={props.onEnter}>
+                        <button
+                            className="theia-button secondary"
+                            onClick={() => {
+                                if (isExtended) {
+                                    startExtended();
+                                } else {
+                                    props.onEnter();
+                                }
+                            }}
+                        >
                             Start Sketch
                         </button>
                         <button className="theia-button secondary" onClick={props.onCancel}>
@@ -1485,6 +1732,12 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
     const isCurveSweep = isSweep || isPipe;
     const isLoft = type === 'loft';
     const isHelicalSweep = type === 'helicalSweep';
+    // Newer feature types compare as strings; params flow as
+    // Record<string, unknown> through the existing finish() path.
+    const typeName = type as string;
+    const isPrimitive = typeName === 'primitive';
+    const isMultiTransform = typeName === 'multiTransform';
+    const isDefeature = typeName === 'defeature';
     const doc = props.documentStore.document;
     const bodies = doc?.bodies ?? [];
     const [length, setLength] = React.useState('1');
@@ -1529,11 +1782,19 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
     const [holeCenterUv, setHoleCenterUv] = React.useState<[number, number] | undefined>();
     const [holeDiameter, setHoleDiameter] = React.useState('1');
     const [holeDepth, setHoleDepth] = React.useState('');
-    const [holeType, setHoleType] = React.useState<'simple' | 'counterbore' | 'countersink'>('simple');
+    const [holeType, setHoleType] = React.useState<'simple' | 'counterbore' | 'countersink' | 'counterdrill'>('simple');
     const [holeCounterboreDiameter, setHoleCounterboreDiameter] = React.useState('1.5');
     const [holeCounterboreDepth, setHoleCounterboreDepth] = React.useState('0.5');
     const [holeCountersinkDiameter, setHoleCountersinkDiameter] = React.useState('1.5');
     const [holeCountersinkAngle, setHoleCountersinkAngle] = React.useState('82');
+    // Hole expansion: stepped counterdrill seat, conical taper,
+    // drill-point cone tip (blank = flat bottom, today's behavior), and a
+    // stored-only thread flag (default 'none').
+    const [holeCounterdrillDiameter, setHoleCounterdrillDiameter] = React.useState('1.5');
+    const [holeCounterdrillDepth, setHoleCounterdrillDepth] = React.useState('0.5');
+    const [holeTaperAngle, setHoleTaperAngle] = React.useState('');
+    const [holeDrillPointAngle, setHoleDrillPointAngle] = React.useState('');
+    const [holeThread, setHoleThread] = React.useState<'none' | 'cosmetic'>('none');
 
     // Sweep/pipe state.
     const curves = doc?.curves ?? [];
@@ -1558,6 +1819,29 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
     const [helixBinormal, setHelixBinormal] = React.useState<[string, string, string]>(['0', '0', '1']);
     const [previewEnabled, setPreviewEnabled] = React.useState(false);
 
+    // Extrude end-conditions (pad/pocket only; revolve/groove stay blind).
+    const [extrudeEnd, setExtrudeEnd] = React.useState<'blind' | 'upToFirst' | 'upToLast' | 'upToFace' | 'throughAll'>('blind');
+    const [twoSided, setTwoSided] = React.useState(false);
+    const [upToFaceRef, setUpToFaceRef] = React.useState<TopologyRef | undefined>();
+
+    // Pattern scale (blank/1 = unscaled, exactly today's behavior).
+    const [patternScale, setPatternScale] = React.useState('1');
+
+    // Additive primitive (datum-xy default; datumId names a datum).
+    const [primitiveShape, setPrimitiveShape] = React.useState<'box' | 'cylinder' | 'sphere' | 'cone' | 'torus'>('box');
+    const [primitiveDims, setPrimitiveDims] = React.useState<[string, string, string]>(['1', '1', '1']);
+    const [primitiveDatumId, setPrimitiveDatumId] = React.useState('');
+
+    // Multi-transform: two pattern/mirror source features.
+    const patternLikeSources =
+        doc?.features.filter((f) => ['linearPattern', 'circularPattern', 'mirror'].includes(f.type as string) && !f.suppressed) ?? [];
+    const [multiFirst, setMultiFirst] = React.useState('');
+    const [multiSecond, setMultiSecond] = React.useState('');
+
+    // Draft neutral plane (optional face ref; pull direction unchanged).
+    const [neutralPlaneRef, setNeutralPlaneRef] = React.useState<TopologyRef | undefined>();
+    const [neutralPlanePicking, setNeutralPlanePicking] = React.useState(false);
+
     // Prefill the dialog when editing an existing feature.
     React.useEffect(() => {
         const feature = props.editFeature;
@@ -1574,6 +1858,10 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
             setLength(p.length !== undefined ? String(p.length) : '1');
             setAxis((p.axis as 'x' | 'y' | 'z') ?? 'z');
             setSymmetric(Boolean(p.symmetric));
+            const end = p.end as string | undefined;
+            setExtrudeEnd(end === 'upToFirst' || end === 'upToLast' || end === 'upToFace' || end === 'throughAll' ? end : 'blind');
+            setTwoSided(Boolean(p.twoSided));
+            setUpToFaceRef(p.upToFace as TopologyRef | undefined);
         }
         if (isRevolve) {
             setAngle(p.angle !== undefined ? String(p.angle) : '90');
@@ -1608,6 +1896,8 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                 setDraftAngle(p.angle !== undefined ? String(p.angle) : '5');
                 const dir = p.pullDirection as [number, number, number] | undefined;
                 setPullDirection(dir !== undefined ? [String(dir[0]), String(dir[1]), String(dir[2])] : ['0', '0', '1']);
+                setNeutralPlaneRef(p.neutralPlane as TopologyRef | undefined);
+                setNeutralPlanePicking(false);
             }
             if (type === 'shell') {
                 const faces = (p.faces as TopologyRef[] | undefined) ?? [];
@@ -1618,6 +1908,7 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
         if (isPattern || isHole) {
             if (isPattern) {
                 setPatternSource(typeof p.source === 'string' ? p.source : '');
+                setPatternScale(p.scale !== undefined ? String(p.scale) : '1');
             }
             if (type === 'linearPattern') {
                 setPatternCount(p.count !== undefined ? String(p.count) : '2');
@@ -1656,9 +1947,16 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                 setHoleType('countersink');
                 setHoleCountersinkDiameter(String(p.countersinkDiameter ?? 1.5));
                 setHoleCountersinkAngle(String(p.countersinkAngle ?? 82));
+            } else if (p.counterdrillDiameter !== undefined || p.counterdrillDepth !== undefined) {
+                setHoleType('counterdrill');
+                setHoleCounterdrillDiameter(String(p.counterdrillDiameter ?? 1.5));
+                setHoleCounterdrillDepth(String(p.counterdrillDepth ?? 0.5));
             } else {
                 setHoleType('simple');
             }
+            setHoleTaperAngle(p.taperAngle !== undefined ? String(p.taperAngle) : '');
+            setHoleDrillPointAngle(p.drillPointAngle !== undefined ? String(p.drillPointAngle) : '');
+            setHoleThread(p.thread === 'cosmetic' ? 'cosmetic' : 'none');
         }
         if (isCurveSweep) {
             setPathCurveId(typeof p.pathCurveId === 'string' ? p.pathCurveId : '');
@@ -1681,6 +1979,24 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
             setHelixLeftHanded(draft.leftHanded);
             setHelixOrientation(draft.orientation);
             setHelixBinormal([draft.binormal[0], draft.binormal[1], draft.binormal[2]]);
+        }
+        if (isPrimitive) {
+            const shape = p.shape as string | undefined;
+            setPrimitiveShape(shape === 'cylinder' || shape === 'sphere' || shape === 'cone' || shape === 'torus' ? shape : 'box');
+            const dims = Array.isArray(p.dimensions) ? (p.dimensions as unknown[]) : [];
+            setPrimitiveDims([
+                dims[0] !== undefined ? String(dims[0]) : '1',
+                dims[1] !== undefined ? String(dims[1]) : '1',
+                dims[2] !== undefined ? String(dims[2]) : '1'
+            ]);
+            setPrimitiveDatumId(typeof p.datumId === 'string' ? p.datumId : '');
+        }
+        if (isMultiTransform) {
+            setMultiFirst(typeof p.first === 'string' ? p.first : '');
+            setMultiSecond(typeof p.second === 'string' ? p.second : '');
+        }
+        if (isDefeature) {
+            setRefs(Array.isArray(p.faces) ? (p.faces as TopologyRef[]) : []);
         }
         setError(undefined);
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1765,9 +2081,41 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
         setRefs((prev) => [...prev, ref]);
     }, []);
 
+    const setPrimitiveDim = React.useCallback((index: number, value: string) => {
+        setPrimitiveDims((prev) => {
+            const next: [string, string, string] = [prev[0], prev[1], prev[2]];
+            if (index === 0) {
+                next[0] = value;
+            } else if (index === 1) {
+                next[1] = value;
+            } else {
+                next[2] = value;
+            }
+            return next;
+        });
+    }, []);
+
+    const primitiveDimLabels =
+        primitiveShape === 'box'
+            ? ['dx', 'dy', 'dz']
+            : primitiveShape === 'sphere'
+              ? ['Radius']
+              : primitiveShape === 'torus'
+                ? ['Major radius R', 'Minor radius r']
+                : ['Radius', 'Height'];
+
     const selecting = type === 'fillet' || type === 'chamfer' ? 'edge' : 'face';
     const isPicking =
         props.dressUpPickMode !== undefined && props.dressUpPickMode.type === type && props.dressUpPickMode.selecting === selecting;
+
+    // The dress-up face channel is shared between the draft faces list and the
+    // neutral-plane slot; a pick that ends anywhere (viewport pick or
+    // Escape-cancel) releases the neutral-plane slot.
+    React.useEffect(() => {
+        if (!isPicking) {
+            setNeutralPlanePicking(false);
+        }
+    }, [isPicking]);
 
     const finish = (params: Record<string, unknown>): void => {
         if (props.editFeature !== undefined && props.onEditFeature !== undefined) {
@@ -1781,7 +2129,18 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
     };
 
     const submit = (): void => {
-        if (!isBoolean && !isDressUp && !isPipe && !isLoft && props.sketchId === undefined) {
+        // Primitives sit on a datum, multiTransforms on pattern sources, and
+        // defeatures on picked faces — none of them consume the selected sketch.
+        if (
+            !isBoolean &&
+            !isDressUp &&
+            !isPipe &&
+            !isLoft &&
+            !isPrimitive &&
+            !isMultiTransform &&
+            !isDefeature &&
+            props.sketchId === undefined
+        ) {
             setError('No sketch is selected.');
             return;
         }
@@ -1860,6 +2219,10 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                 params.faces = refs;
                 params.angle = angle;
                 params.pullDirection = dir;
+                // Optional neutral plane; omitted when unpicked.
+                if (neutralPlaneRef !== undefined) {
+                    params.neutralPlane = neutralPlaneRef;
+                }
             } else if (type === 'shell') {
                 const thickness = Number(shellThickness);
                 if (!Number.isFinite(thickness) || thickness <= 0) {
@@ -1883,6 +2246,19 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                 return;
             }
             const params: Record<string, unknown> = { source: patternSource, bodyId, label };
+            // Per-instance scale about each instance's bbox center.
+            const scaleText = patternScale.trim();
+            if (scaleText !== '') {
+                const scale = Number(scaleText);
+                if (!Number.isFinite(scale) || scale <= 0) {
+                    setError('Scale must be a positive finite number.');
+                    return;
+                }
+                // 1 (the default) is today's behavior exactly — omit it.
+                if (scale !== 1) {
+                    params.scale = scale;
+                }
+            }
             if (type === 'linearPattern') {
                 const spacing = Number(patternSpacing);
                 if (!Number.isFinite(spacing) || spacing === 0) {
@@ -1969,6 +2345,39 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                 params.countersinkDiameter = csDiameter;
                 params.countersinkAngle = csAngle;
             }
+            if (holeType === 'counterdrill') {
+                const cdDiameter = Number(holeCounterdrillDiameter);
+                const cdDepth = Number(holeCounterdrillDepth);
+                if (!Number.isFinite(cdDiameter) || cdDiameter <= 0 || !Number.isFinite(cdDepth) || cdDepth <= 0) {
+                    setError('Counterdrill diameter and depth must be positive numbers.');
+                    return;
+                }
+                params.counterdrillDiameter = cdDiameter;
+                params.counterdrillDepth = cdDepth;
+            }
+            const taperText = holeTaperAngle.trim();
+            if (taperText !== '') {
+                const taper = Number(taperText);
+                if (!Number.isFinite(taper) || taper <= 0 || taper > 45) {
+                    setError('Taper angle must be in (0, 45] degrees.');
+                    return;
+                }
+                params.taperAngle = taper;
+            }
+            const drillPointText = holeDrillPointAngle.trim();
+            if (drillPointText !== '') {
+                const drillPoint = Number(drillPointText);
+                if (!Number.isFinite(drillPoint) || drillPoint <= 0 || drillPoint >= 180) {
+                    setError('Drill point angle must be in (0, 180) degrees.');
+                    return;
+                }
+                params.drillPointAngle = drillPoint;
+            }
+            // Omitted drill point = flat bottom = today's behavior exactly.
+            // Thread is stored + validated only (default 'none').
+            if (holeThread !== 'none') {
+                params.thread = holeThread;
+            }
             finish(params);
             return;
         }
@@ -2019,14 +2428,110 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
             finish({ ...result.params, bodyId: effectiveBodyId, label });
             return;
         }
-        if (isExtrude) {
-            const value = Number(length);
-            if (!Number.isFinite(value) || value <= 0) {
-                setError('Length must be a positive number.');
+        if (isPrimitive) {
+            const arity = primitiveShape === 'box' ? 3 : primitiveShape === 'sphere' ? 1 : 2;
+            const dims = primitiveDims.slice(0, arity).map((d) => Number(d));
+            if (dims.some((d) => !Number.isFinite(d) || d <= 0)) {
+                setError('Dimensions must be positive finite numbers.');
+                return;
+            }
+            const datumId = primitiveDatumId.trim();
+            if (datumId !== '' && (doc?.datums ?? []).every((d) => d.id !== datumId)) {
+                setError(`Unknown datum '${datumId}'.`);
                 return;
             }
             const effectiveBodyId = bodyId === NEW_BODY_SENTINEL ? undefined : bodyId;
-            finish({ length: value, axis, symmetric, bodyId: effectiveBodyId, label });
+            const params: Record<string, unknown> = {
+                shape: primitiveShape,
+                dimensions: dims,
+                bodyId: effectiveBodyId,
+                label
+            };
+            // Omitted datumId = datum-xy default.
+            if (datumId !== '') {
+                params.datumId = datumId;
+            }
+            finish(params);
+            return;
+        }
+        if (isMultiTransform) {
+            if (multiFirst === '' || multiSecond === '') {
+                setError('Select two source pattern features.');
+                return;
+            }
+            if (multiFirst === multiSecond) {
+                setError('The two multiTransform sources must be different features.');
+                return;
+            }
+            const features = doc?.features ?? [];
+            const first = features.find((f) => f.id === multiFirst);
+            const second = features.find((f) => f.id === multiSecond);
+            if (first === undefined || second === undefined) {
+                setError('Select two source pattern features.');
+                return;
+            }
+            if (first.body !== second.body) {
+                setError('Both multiTransform sources must be on the same body.');
+                return;
+            }
+            if (features.indexOf(first) > features.indexOf(second)) {
+                setError('The first source must come earlier in document order than the second.');
+                return;
+            }
+            const effectiveBodyId = bodyId === NEW_BODY_SENTINEL ? undefined : bodyId;
+            if (effectiveBodyId !== undefined && effectiveBodyId !== first.body) {
+                setError('The multiTransform body must match the body of its sources.');
+                return;
+            }
+            finish({ first: multiFirst, second: multiSecond, bodyId: effectiveBodyId ?? first.body, label });
+            return;
+        }
+        if (isDefeature) {
+            if (!dressUpBodyId) {
+                setError('Select a target body.');
+                return;
+            }
+            if (refs.length === 0) {
+                setError('Select at least one face for Defeature.');
+                return;
+            }
+            finish({ faces: refs, bodyId: dressUpBodyId, label });
+            return;
+        }
+        if (isExtrude) {
+            // Length is required iff blind; symmetric/twoSided split
+            // it equally both ways and are blind-only.
+            if (extrudeEnd !== 'blind' && symmetric) {
+                setError('Symmetric is only valid with a blind end.');
+                return;
+            }
+            if (extrudeEnd !== 'blind' && twoSided) {
+                setError('Two-sided is only valid with a blind end.');
+                return;
+            }
+            const effectiveBodyId = bodyId === NEW_BODY_SENTINEL ? undefined : bodyId;
+            const params: Record<string, unknown> = { axis, symmetric, bodyId: effectiveBodyId, label };
+            if (extrudeEnd !== 'blind') {
+                params.end = extrudeEnd;
+            } else {
+                const value = Number(length);
+                if (!Number.isFinite(value) || value <= 0) {
+                    setError('Length must be a positive number.');
+                    return;
+                }
+                params.length = value;
+            }
+            if (twoSided) {
+                params.twoSided = true;
+            }
+            if (extrudeEnd === 'upToFace') {
+                if (upToFaceRef === undefined) {
+                    setError('Pick a face in the viewport for Up to Face.');
+                    return;
+                }
+                params.upToFace = upToFaceRef;
+            }
+            finish(params);
         } else if (isRevolve) {
             const value = Number(angle);
             if (!Number.isFinite(value) || value <= 0 || value > 360) {
@@ -2046,7 +2551,8 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                 type === 'sweep' ||
                 type === 'pipe' ||
                 type === 'loft' ||
-                type === 'helicalSweep' ? (
+                type === 'helicalSweep' ||
+                isPrimitive ? (
                     <option value={NEW_BODY_SENTINEL}>New body</option>
                 ) : null}
                 {bodies.map((b) => (
@@ -2273,6 +2779,33 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                             onChange={(e) => setPullDirection(([x, y, _]) => [x, y, e.target.value])}
                         />
                     </label>
+                    <div className="cad-feature-dialog-row vertical">
+                        <span className="cad-feature-dialog-label">
+                            Neutral plane{' '}
+                            {neutralPlaneRef !== undefined ? `(${neutralPlaneRef.featureId})` : '(none — pull direction only)'}
+                        </span>
+                        <div className="cad-feature-dialog-actions">
+                            <button
+                                className={`theia-button secondary ${isPicking && neutralPlanePicking ? 'active' : ''}`}
+                                onClick={() => {
+                                    if (isPicking && neutralPlanePicking) {
+                                        props.onDressUpPickCancel();
+                                    } else {
+                                        setNeutralPlanePicking(true);
+                                        props.onStartDressUpPick(type, 'face', (ref) => setNeutralPlaneRef(ref));
+                                    }
+                                }}
+                            >
+                                <span className="codicon codicon-target" />{' '}
+                                {isPicking && neutralPlanePicking ? 'Cancel pick' : 'Pick neutral plane'}
+                            </button>
+                            {neutralPlaneRef !== undefined && (
+                                <button className="theia-button secondary" onClick={() => setNeutralPlaneRef(undefined)}>
+                                    <span className="codicon codicon-close" /> Clear
+                                </button>
+                            )}
+                        </div>
+                    </div>
                     {refList}
                 </>
             )}
@@ -2292,8 +2825,18 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
             {isExtrude && (
                 <>
                     <NukeSection title="Dimensions">
-                        <NukeFormRow label="Length" hint="Model units" className="cad-feature-dialog-row">
-                            <input type="number" value={length} onChange={(e) => setLength(e.target.value)} autoFocus />
+                        <NukeFormRow
+                            label="Length"
+                            hint={extrudeEnd === 'blind' ? 'Model units' : 'Blind ends only'}
+                            className="cad-feature-dialog-row"
+                        >
+                            <input
+                                type="number"
+                                value={length}
+                                disabled={extrudeEnd !== 'blind'}
+                                onChange={(e) => setLength(e.target.value)}
+                                autoFocus
+                            />
                         </NukeFormRow>
                         <NukeFormRow label="Direction" className="cad-feature-dialog-row">
                             <select value={axis} onChange={(e) => setAxis(e.target.value as 'x' | 'y' | 'z')}>
@@ -2303,6 +2846,52 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                             </select>
                         </NukeFormRow>
                     </NukeSection>
+                    <NukeSection title="End condition">
+                        <NukeFormRow
+                            label="End"
+                            hint="First/Last span the body's intersections along the direction"
+                            className="cad-feature-dialog-row"
+                        >
+                            <select
+                                value={extrudeEnd}
+                                onChange={(e) =>
+                                    setExtrudeEnd(e.target.value as 'blind' | 'upToFirst' | 'upToLast' | 'upToFace' | 'throughAll')
+                                }
+                            >
+                                <option value="blind">Blind</option>
+                                <option value="upToFirst">Up to first</option>
+                                <option value="upToLast">Up to last</option>
+                                <option value="upToFace">Up to face</option>
+                                <option value="throughAll">Through all</option>
+                            </select>
+                        </NukeFormRow>
+                        {extrudeEnd === 'upToFace' && (
+                            <div className="cad-feature-dialog-row vertical">
+                                <span className="cad-feature-dialog-label">
+                                    Limit face {upToFaceRef !== undefined ? `(${upToFaceRef.featureId})` : '(none)'}
+                                </span>
+                                <div className="cad-feature-dialog-actions">
+                                    <button
+                                        className={`theia-button secondary ${isPicking && isExtrude ? 'active' : ''}`}
+                                        onClick={() => {
+                                            if (isPicking) {
+                                                props.onDressUpPickCancel();
+                                            } else {
+                                                props.onStartDressUpPick(type, 'face', (ref) => setUpToFaceRef(ref));
+                                            }
+                                        }}
+                                    >
+                                        <span className="codicon codicon-target" /> {isPicking && isExtrude ? 'Cancel pick' : 'Pick face'}
+                                    </button>
+                                    {upToFaceRef !== undefined && (
+                                        <button className="theia-button secondary" onClick={() => setUpToFaceRef(undefined)}>
+                                            <span className="codicon codicon-close" /> Clear
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                    </NukeSection>
                     <NukeSection title="Options">
                         <NukeFormRow
                             label="Symmetric"
@@ -2311,6 +2900,14 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                             className="cad-feature-dialog-row check"
                         >
                             <input type="checkbox" checked={symmetric} onChange={(e) => setSymmetric(e.target.checked)} />
+                        </NukeFormRow>
+                        <NukeFormRow
+                            label="Two-sided"
+                            hint="Splits a blind length equally both ways"
+                            checkbox
+                            className="cad-feature-dialog-row check"
+                        >
+                            <input type="checkbox" checked={twoSided} onChange={(e) => setTwoSided(e.target.checked)} />
                         </NukeFormRow>
                     </NukeSection>
                 </>
@@ -2581,6 +3178,10 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                             ))}
                         </select>
                     </label>
+                    <label className="cad-feature-dialog-row">
+                        Scale (blank/1 = unscaled)
+                        <input type="number" value={patternScale} onChange={(e) => setPatternScale(e.target.value)} />
+                    </label>
                     {type !== 'mirror' && (
                         <label className="cad-feature-dialog-row">
                             Count
@@ -2695,10 +3296,14 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                     </label>
                     <label className="cad-feature-dialog-row">
                         Type
-                        <select value={holeType} onChange={(e) => setHoleType(e.target.value as 'simple' | 'counterbore' | 'countersink')}>
+                        <select
+                            value={holeType}
+                            onChange={(e) => setHoleType(e.target.value as 'simple' | 'counterbore' | 'countersink' | 'counterdrill')}
+                        >
                             <option value="simple">Simple / through</option>
                             <option value="counterbore">Counterbore</option>
                             <option value="countersink">Countersink</option>
+                            <option value="counterdrill">Counterdrill (stepped)</option>
                         </select>
                     </label>
                     {holeType === 'simple' && (
@@ -2747,6 +3352,101 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                             </label>
                         </>
                     )}
+                    {holeType === 'counterdrill' && (
+                        <>
+                            <label className="cad-feature-dialog-row">
+                                Counterdrill diameter
+                                <input
+                                    type="number"
+                                    value={holeCounterdrillDiameter}
+                                    onChange={(e) => setHoleCounterdrillDiameter(e.target.value)}
+                                />
+                            </label>
+                            <label className="cad-feature-dialog-row">
+                                Counterdrill depth
+                                <input
+                                    type="number"
+                                    value={holeCounterdrillDepth}
+                                    onChange={(e) => setHoleCounterdrillDepth(e.target.value)}
+                                />
+                            </label>
+                        </>
+                    )}
+                    <label className="cad-feature-dialog-row">
+                        Taper angle ° (blank = straight)
+                        <input type="number" value={holeTaperAngle} onChange={(e) => setHoleTaperAngle(e.target.value)} />
+                    </label>
+                    <label className="cad-feature-dialog-row">
+                        Drill point ° (blank = flat)
+                        <input type="number" value={holeDrillPointAngle} onChange={(e) => setHoleDrillPointAngle(e.target.value)} />
+                    </label>
+                    <label className="cad-feature-dialog-row">
+                        Thread
+                        <select value={holeThread} onChange={(e) => setHoleThread(e.target.value as 'none' | 'cosmetic')}>
+                            <option value="none">None</option>
+                            <option value="cosmetic">Cosmetic</option>
+                        </select>
+                    </label>
+                </>
+            )}
+            {isDefeature && dressUpBodySelector}
+            {isDefeature && refList}
+            {isPrimitive && (
+                <>
+                    <NukeFormRow label="Shape" className="cad-feature-dialog-row">
+                        <select
+                            value={primitiveShape}
+                            onChange={(e) => setPrimitiveShape(e.target.value as 'box' | 'cylinder' | 'sphere' | 'cone' | 'torus')}
+                            autoFocus
+                        >
+                            <option value="box">Box (dx, dy, dz about datum origin)</option>
+                            <option value="cylinder">Cylinder (radius, height along normal)</option>
+                            <option value="sphere">Sphere (radius at origin)</option>
+                            <option value="cone">Cone (radius, height along normal)</option>
+                            <option value="torus">Torus (major R, minor r in plane)</option>
+                        </select>
+                    </NukeFormRow>
+                    {primitiveDimLabels.map((dimLabel, index) => (
+                        <NukeFormRow key={dimLabel} label={dimLabel} hint="Model units" className="cad-feature-dialog-row">
+                            <input type="number" value={primitiveDims[index]} onChange={(e) => setPrimitiveDim(index, e.target.value)} />
+                        </NukeFormRow>
+                    ))}
+                    <NukeFormRow label="Datum" hint="Blank = datum-xy" className="cad-feature-dialog-row">
+                        <select value={primitiveDatumId} onChange={(e) => setPrimitiveDatumId(e.target.value)}>
+                            <option value="">datum-xy (default)</option>
+                            {datumOptions.map((d) => (
+                                <option key={d.id} value={d.id}>
+                                    {d.name}
+                                </option>
+                            ))}
+                        </select>
+                    </NukeFormRow>
+                </>
+            )}
+            {isMultiTransform && (
+                <>
+                    <label className="cad-feature-dialog-row">
+                        First source (earlier)
+                        <select value={multiFirst} onChange={(e) => setMultiFirst(e.target.value)} autoFocus>
+                            <option value="">Select a pattern…</option>
+                            {patternLikeSources.map((f) => (
+                                <option key={f.id} value={f.id}>
+                                    {f.name}
+                                </option>
+                            ))}
+                        </select>
+                    </label>
+                    <label className="cad-feature-dialog-row">
+                        Second source (later)
+                        <select value={multiSecond} onChange={(e) => setMultiSecond(e.target.value)}>
+                            <option value="">Select a pattern…</option>
+                            {patternLikeSources.map((f) => (
+                                <option key={f.id} value={f.id}>
+                                    {f.name}
+                                </option>
+                            ))}
+                        </select>
+                    </label>
                 </>
             )}
             {isBoolean && booleanBodySelectors}

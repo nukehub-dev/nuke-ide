@@ -922,3 +922,298 @@ describe('generatePythonScript ellipse/B-spline emission', () => {
         expect(holeBody).toContain('bd.Ellipse(5, 4, rotation=0, mode=bd.Mode.SUBTRACT)');
     });
 });
+
+function extendedDocument(): NukeCadDocument {
+    return {
+        version: NUKE_CAD_SCHEMA_VERSION,
+        name: 'extended export',
+        parameters: {},
+        datums: [{ id: 'datum-xy', kind: 'XY', name: 'XY' }],
+        bodies: [{ id: 'b1', name: 'B1' }],
+        sketches: [
+            {
+                id: 'sk1',
+                name: 'Square',
+                datumId: 'datum-xy',
+                constraints: [],
+                primitives: [
+                    { id: 'p1', type: 'point', x: 0, y: 0 },
+                    { id: 'p2', type: 'point', x: 2, y: 0 },
+                    { id: 'p3', type: 'point', x: 2, y: 1 },
+                    { id: 'p4', type: 'point', x: 0, y: 1 },
+                    { id: 'l1', type: 'line', p1_id: 'p1', p2_id: 'p2' },
+                    { id: 'l2', type: 'line', p1_id: 'p2', p2_id: 'p3' },
+                    { id: 'l3', type: 'line', p1_id: 'p3', p2_id: 'p4' },
+                    { id: 'l4', type: 'line', p1_id: 'p4', p2_id: 'p1' }
+                ]
+            }
+        ],
+        features: [
+            {
+                id: 'pad1',
+                name: 'Base',
+                type: 'pad',
+                body: 'b1',
+                sketchId: 'sk1',
+                params: { length: 2 } as FeatureDef['params'],
+                suppressed: false,
+                dependsOn: []
+            }
+        ],
+        curves: []
+    };
+}
+
+function pushExtendedFeature(doc: NukeCadDocument, feature: FeatureDef): void {
+    doc.features.push(feature);
+}
+
+describe('generatePythonScript extended feature emission', () => {
+    it('emits blind pads as today and twoSided pads with both=True', () => {
+        const doc = extendedDocument();
+        const script = generatePythonScript(doc);
+        expect(script).toContain('body_B1 = body_B1 + bd.extrude(sketch_Square_sk1(), amount=2) if body_B1 is not None else bd.extrude(');
+
+        const twoSided = extendedDocument();
+        (twoSided.features[0].params as Record<string, unknown>).twoSided = true;
+        const twoSidedScript = generatePythonScript(twoSided);
+        expect(twoSidedScript).toContain('amount=2 / 2');
+        expect(twoSidedScript).toContain('both=True');
+    });
+
+    it('degrades non-blind extrude ends to TODO(manual)', () => {
+        for (const end of ['upToFirst', 'upToLast', 'throughAll']) {
+            const doc = extendedDocument();
+            (doc.features[0].params as Record<string, unknown>).end = end;
+            const script = generatePythonScript(doc);
+            expect(script).toContain('# TODO(manual): pad feature "Base"');
+            expect(script).not.toContain('bd.extrude');
+        }
+        const faceEnd = extendedDocument();
+        (faceEnd.features[0].params as Record<string, unknown>).end = 'upToFace';
+        (faceEnd.features[0].params as Record<string, unknown>).upToFace = {
+            featureId: 'pad1',
+            kind: 'face',
+            fingerprint: { surfaceType: 'plane', area: 2, center: [0, 0, 2], normal: [0, 0, 1] }
+        };
+        expect(generatePythonScript(faceEnd)).toContain('# TODO(manual): pad feature "Base"');
+    });
+
+    it('degrades new datum kinds to TODO(manual) and hatches sketches placed on them', () => {
+        const doc = extendedDocument();
+        doc.datums.push({
+            id: 'd3',
+            kind: 'threePoint',
+            name: 'Three',
+            points: [
+                [0, 0, 0],
+                [1, 0, 0],
+                [0, 1, 0]
+            ]
+        });
+        doc.sketches[0].datumId = 'd3';
+        const script = generatePythonScript(doc);
+        expect(script).toContain('# TODO(manual): datum "Three" (threePoint datum)');
+        expect(script).toContain('# TODO(manual): sketch "Square" is on a threePoint datum');
+        expect(script).toContain('# TODO(manual): pad feature "Base"');
+    });
+
+    it('emits exact bd.* primitives on the datum workplane', () => {
+        const cases: [string, number[], string][] = [
+            ['box', [2, 3, 4], 'bd.Box(2, 3, 4).moved(datum_XY_datum_xy.location)'],
+            ['cylinder', [1, 5], 'bd.Cylinder(1, 5, align=(bd.Align.CENTER, bd.Align.CENTER, bd.Align.MIN)).moved('],
+            ['sphere', [2], 'bd.Sphere(2).moved(datum_XY_datum_xy.location)'],
+            ['cone', [1, 5], 'bd.Cone(1, 0, 5, align=(bd.Align.CENTER, bd.Align.CENTER, bd.Align.MIN)).moved('],
+            ['torus', [5, 1], 'bd.Torus(5, 1).moved(datum_XY_datum_xy.location)']
+        ];
+        for (const [shape, dimensions, snippet] of cases) {
+            const doc = extendedDocument();
+            doc.features.length = 0;
+            pushExtendedFeature(doc, {
+                id: 'prim1',
+                name: 'Prim',
+                type: 'primitive',
+                body: 'b1',
+                params: { shape, dimensions } as FeatureDef['params'],
+                suppressed: false,
+                dependsOn: []
+            });
+            const script = generatePythonScript(doc);
+            expect(script).toContain(`body_B1 = body_B1 + ${snippet}`);
+        }
+    });
+
+    it('hatches primitives on reference-dependent datums', () => {
+        const doc = extendedDocument();
+        doc.features.length = 0;
+        doc.datums.push({
+            id: 'df',
+            kind: 'face',
+            name: 'Face',
+            reference: {
+                featureId: 'pad1',
+                kind: 'face',
+                fingerprint: { surfaceType: 'plane', area: 2, center: [0, 0, 0], normal: [0, 0, 1] }
+            }
+        });
+        pushExtendedFeature(doc, {
+            id: 'prim1',
+            name: 'Prim',
+            type: 'primitive',
+            body: 'b1',
+            params: { shape: 'sphere', dimensions: [1], datumId: 'df' } as FeatureDef['params'],
+            suppressed: false,
+            dependsOn: []
+        });
+        const script = generatePythonScript(doc);
+        expect(script).toContain('# TODO(manual): primitive feature "Prim"');
+        expect(script).not.toContain('bd.Sphere');
+    });
+
+    it('emits scaled patterns through the bbox-center helper', () => {
+        const doc = extendedDocument();
+        pushExtendedFeature(doc, {
+            id: 'lin1',
+            name: 'Scaled rows',
+            type: 'linearPattern',
+            body: 'b1',
+            params: { source: 'pad1', count: 3, spacing: 4, axis: 'x', scale: 2 } as FeatureDef['params'],
+            suppressed: false,
+            dependsOn: ['pad1']
+        });
+        const script = generatePythonScript(doc);
+        expect(script).toContain('def _scaled_about_center(shape, factor):');
+        expect(script).toContain('center = shape.bounding_box().center()');
+        expect(script).toContain('_scaled_about_center(_tool_lin1.moved(bd.Location((4 * _k, 0 * _k, 0 * _k))), 2)');
+    });
+
+    it('leaves unit-scale patterns byte-identical (no helper)', () => {
+        const doc = extendedDocument();
+        pushExtendedFeature(doc, {
+            id: 'lin1',
+            name: 'Rows',
+            type: 'linearPattern',
+            body: 'b1',
+            params: { source: 'pad1', count: 2, spacing: 4, axis: 'x', scale: 1 } as FeatureDef['params'],
+            suppressed: false,
+            dependsOn: ['pad1']
+        });
+        const script = generatePythonScript(doc);
+        expect(script).not.toContain('_scaled_about_center');
+        expect(script).toContain('body_B1 = body_B1 + _tool_lin1.moved(bd.Location((4 * _k, 0 * _k, 0 * _k)))');
+    });
+
+    it('emits a static axis for circular patterns on a line2Point datum', () => {
+        const doc = extendedDocument();
+        doc.datums.push({
+            id: 'dl',
+            kind: 'line2Point',
+            name: 'Axis',
+            points: [
+                [1, 0, 0],
+                [1, 0, 5]
+            ]
+        });
+        pushExtendedFeature(doc, {
+            id: 'circ1',
+            name: 'Around',
+            type: 'circularPattern',
+            body: 'b1',
+            params: { source: 'pad1', count: 4, axisDatumId: 'dl' } as FeatureDef['params'],
+            suppressed: false,
+            dependsOn: ['pad1']
+        });
+        const script = generatePythonScript(doc);
+        expect(script).toContain('# TODO(manual): datum "Axis" (line2Point datum)');
+        expect(script).toContain('_tool_circ1.rotate(bd.Axis((1, 0, 0), (0, 0, 1)), _k * 90)');
+    });
+
+    it('emits a static plane for mirrors on a threePoint datum', () => {
+        const doc = extendedDocument();
+        doc.datums.push({
+            id: 'd3',
+            kind: 'threePoint',
+            name: 'Three',
+            points: [
+                [0, 0, 0],
+                [1, 0, 0],
+                [0, 1, 0]
+            ]
+        });
+        pushExtendedFeature(doc, {
+            id: 'mir1',
+            name: 'Flip',
+            type: 'mirror',
+            body: 'b1',
+            params: { source: 'pad1', planeDatumId: 'd3' } as FeatureDef['params'],
+            suppressed: false,
+            dependsOn: ['pad1']
+        });
+        const script = generatePythonScript(doc);
+        expect(script).toContain('.mirror(bd.Plane((0, 0, 0), z_dir=(0, 0, 1)))');
+    });
+
+    it('hatches multiTransform, defeature, and taper/drill-point holes with their params', () => {
+        const doc = extendedDocument();
+        pushExtendedFeature(doc, {
+            id: 'lin1',
+            name: 'Rows',
+            type: 'linearPattern',
+            body: 'b1',
+            params: { source: 'pad1', count: 2, spacing: 4, axis: 'x' } as FeatureDef['params'],
+            suppressed: false,
+            dependsOn: ['pad1']
+        });
+        pushExtendedFeature(doc, {
+            id: 'mt1',
+            name: 'Combined',
+            type: 'multiTransform',
+            body: 'b1',
+            params: { first: 'lin1', second: 'lin1' } as FeatureDef['params'],
+            suppressed: false,
+            dependsOn: ['lin1']
+        });
+        pushExtendedFeature(doc, {
+            id: 'def1',
+            name: 'Clean',
+            type: 'defeature',
+            body: 'b1',
+            params: {
+                faces: [
+                    {
+                        featureId: 'pad1',
+                        kind: 'face',
+                        fingerprint: { surfaceType: 'plane', area: 2, center: [0, 0, 2], normal: [0, 0, 1] }
+                    }
+                ]
+            } as FeatureDef['params'],
+            suppressed: false,
+            dependsOn: ['pad1']
+        });
+        pushExtendedFeature(doc, {
+            id: 'hole1',
+            name: 'Mounting hole',
+            type: 'hole',
+            body: 'b1',
+            params: {
+                face: {
+                    featureId: 'pad1',
+                    kind: 'face',
+                    fingerprint: { surfaceType: 'plane', area: 2, center: [0, 0, 2], normal: [0, 0, 1] }
+                },
+                center: [0.5, 0.5],
+                diameter: 0.2,
+                taperAngle: 5,
+                drillPointAngle: 118
+            } as FeatureDef['params'],
+            suppressed: false,
+            dependsOn: ['pad1']
+        });
+        const script = generatePythonScript(doc);
+        expect(script).toContain('# TODO(manual): multiTransform feature "Combined"');
+        expect(script).toContain('# TODO(manual): defeature feature "Clean"');
+        expect(script).toContain('# TODO(manual): hole feature "Mounting hole"');
+        expect(script).toContain('#   taperAngle: 5');
+        expect(script).toContain('#   drillPointAngle: 118');
+    });
+});

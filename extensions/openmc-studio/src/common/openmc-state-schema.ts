@@ -398,6 +398,10 @@ export interface OpenMCMaterial {
     temperature?: number;
     /** Material color for visualization (hex code) */
     color?: string;
+    /** nuke-cad physical-model UUID carried through DAGMC import (copy provenance; never used for naming). */
+    nukeCadMaterialId?: string;
+    /** Parent physical-model UUID from the nuke-cad manifest. */
+    nukeCadParentId?: string;
 }
 
 // ============================================================================

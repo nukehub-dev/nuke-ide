@@ -30,6 +30,8 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   lines/circles/arcs only; ellipses and B-splines accept point-level
   constraints on their points (center/focus/poles) but never curve-level
   ones, even though PlaneGCS has native ellipse/B-spline constraint types.
+  Also available: axis-locked DistanceX/DistanceY, Diameter, and Block
+  (freeze-in-place, recorded as plain fixes).
   Ellipse and B-spline evaluation for rendering, snapping, and codegen
   (analytic ellipse polyline, De Boor sampling, clamped-uniform knots) lives
   in `src/common/sketch-curves.ts`, shared by the browser sketch layer and
@@ -66,7 +68,8 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   fingerprint-based resolver as sketch external geometry and face datums.
   Fillet requires `edges` and `radius`; chamfer supports symmetric (`distance`),
   two-distance (`distances`), and distance-angle (`distance` + `angle`) modes;
-  draft requires `faces`, `angle`, and a non-zero `pullDirection`; shell
+  draft requires `faces`, `angle`, and a non-zero `pullDirection`, with an
+  optional `neutralPlane` face ref; shell
   requires `thickness` and an optional `faces` list (empty means hollow all
   faces). The viewport enters an edge-pick or face-pick mode when a dress-up
   dialog asks for references; hover highlights the candidate and a click adds
@@ -81,16 +84,23 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   merged with a boolean union so overlapping pattern instances fuse into one
   solid (required for toroidal/poloidal coil assemblies), subtractive sources
   are cut. `linearPattern` uses `count`, `spacing`, and `axis`; `circularPattern`
-  uses `count`, optional `angle`, and either `axis` or `axisDatumId`; `mirror`
-  uses either `plane` (`XY`/`YZ`/`XZ`) or `planeDatumId`. Face datums behind
+  uses `count`, optional `angle`, and either `axis` or `axisDatumId`
+  (`axisDatumId` also accepts `line2Point` datums); `mirror`
+  uses either `plane` (`XY`/`YZ`/`XZ`) or `planeDatumId`. All three pattern
+  types take an optional per-instance `scale` about each instance's bbox
+  center (default 1). `multiTransform` chains two same-body pattern/mirror
+  sources (`first`, `second`, document-ordered) over the cartesian product
+  of their instances. Face datums behind
   `axisDatumId`/`planeDatumId` resolve against the referenced feature's
   historical shape (same scope as sketch datums), while the hole placement
   face resolves against the pattern/hole body's current B-rep. The hole wizard
   stores a single feature record with a face `TopologyRef` and a center
   `[u, v]` in the resolved face's workplane coordinates; the backend expands it
   internally into an extrude-cut plus optional counterbore/countersink
-  geometry. Omitted `depth` means through-hole; counterbore and countersink are
-  mutually exclusive. `sweep` sweeps a sketch section along a document curve
+  geometry. Omitted `depth` means through-hole; counterbore, countersink, and
+  counterdrill are mutually exclusive, with optional `taperAngle`, a blind-only
+  `drillPointAngle` (omitted = flat, as before), and a stored-only `thread`
+  flag. `defeature` deletes named faces. `sweep` sweeps a sketch section along a document curve
   (`pathCurveId`); `pipe` sweeps a circular section of a given `radius` along a
   document curve. Both support `frenet`/`fixedBinormal` orientation (with a
   non-zero `binormal` required for the latter), auto-position the section at
@@ -168,10 +178,13 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   warnings box offers a one-click **Fuse** auto-fix per overlap warning
   (appends a `booleanFuse` merging the pair, then rebuilds); assemblies that
   overlap intentionally can simply keep the warnings.
-- Pad/pocket `upToFace`, `upToBody`, and `angle` parameters are
-  schema-accepted and validated (so badges and repair paths work), but the
-  builder does not implement them: it fails the feature with an explicit
-  "not yet supported" error rather than silently ignoring them.
+- Pad/pocket take an `end` condition (`blind` default, `upToFirst`/`upToLast`/
+  `upToFace`/`throughAll`) with optional `twoSided` (splits `length` like
+  `symmetric`; combining either with a non-blind end is a validation error).
+  A missed end fails with the existing "does not intersect" error. `upToBody`
+  and `angle` on pad/pocket stay schema-accepted but unimplemented: the
+  builder fails them with an explicit "not yet supported" error rather than
+  silently ignoring them.
 - Python backend lives in `python/` and is not pip-installed; the IDE spawns
   it as a subprocess via `nuke-core` environment detection.
 - The CAD viewport is a purpose-built three.js widget (documented exception to
@@ -402,7 +415,12 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   imprint/merge pass runs in gmsh (`occ.fragment` + `removeAllDuplicates`) and
   the optional `mat:graveyard` bounding box is added and fragmented in gmsh as
   well; the old OCP boolean graveyard cut is avoided because it re-duplicates
-  coincident model-model faces and causes DAGMC particle leaks.
+  coincident model-model faces and causes DAGMC particle leaks. STEP export
+  carries per-solid labels as product names plus deterministic face colors
+  (OCAF writer when names exist, legacy writer otherwise); STEP import
+  restores product names and keeps one object per solid for DAGMC. Before
+  export, `inspection_gates.py` runs warnings-only mass-property and
+  mesh-vs-CAD deviation checks, reported as `result["inspectionGates"]`.
 - `ocp_compat.py` owns the OCP 7.8/7.9 dual-flavor support. OCP 7.9 removed
   the `TopoDS.TopoDS.<X>_s` downcast statics (7.8 has only the `_s` names);
   `ensure_topo_ds_static_aliases()` re-attaches them from the non-suffixed
@@ -442,8 +460,9 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   is saved.
 - `.nuke-cad` v2 introduced **bodies** and **boolean features**; v3 adds a
   top-level **`curves`** array. Every solid feature (`pad`/`pocket`/`revolve`/
-  `groove`, plus `sweep`/`pipe` which also reference a curve, and `loft`/
-  `helicalSweep`) targets a body id;
+  `groove`, plus `sweep`/`pipe` which also reference a curve, `loft`/
+  `helicalSweep`, additive `primitive` on a datum, and `multiTransform` over
+  two pattern/mirror sources) targets a body id;
   boolean features (`booleanFuse`/`booleanCut`/`booleanCommon`) consume one
   target body and one or more tool bodies. Bodies carry an optional `label`
   that maps to the region manifest / `selector_map` for DAGMC and mesh export.
@@ -454,7 +473,10 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   Sources may be `points` (explicit samples), `parametric` (expressions for
   `x(t)`, `y(t)`, `z(t)` sampled uniformly over `[tStart, tEnd]`), or `fourier`
   (cos/sin coefficients sampled over `[0, 2π)`). The expression mini-language
-  lives in `src/common/expression.ts`; the document store resamples parametric
+  lives in `src/common/expression.ts` (with a units layer — `Quantity`,
+  per-operator unit rules, coercion — that stays dormant until a
+  document-unit convention lands; the unit-less sampler path rejects unit
+  syntax rather than folding it); the document store resamples parametric
   and Fourier curves when they are added or edited. Closed curves repeat the
   first sample exactly at the end of `samples` — the Fourier sampler always
   does this (the series is periodic) and the parametric sampler does it when
@@ -483,12 +505,14 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
     screen projections would overlap; a dragged label pins a session-scoped
     screen offset that survives zoom/pan and opts out of auto-shift),
     parameters panel, external-geometry
-    reference list, diagnostics popover (with reference-resolution status), and
+    reference list, diagnostics popover (with reference-resolution status,
+    conflicting/redundant/partially-redundant tags, missing-coincident and
+    open-profile validator warnings, and a fully-constrained flag), and
     status line (leads with `Click: select · Ctrl+Click: multi-select / relations
 · Q: shortcut bar · Del: delete · Esc: clear` while the Select tool is active
     and no constraint pick is in progress). Sketch tools have single-key shortcuts
     (S select, L line, C circle, A arc, R rectangle, P point, E ellipse, B
-    B-spline; guarded against pick modes, dialogs, measure, text fields, and
+    B-spline, O slot; guarded against pick modes, dialogs, measure, text fields, and
     modifier keys), and Escape falls
     through: dismiss auto-dimension / constraint popover, cancel in-progress entity,
     clear selection, return to the Select tool. The B-spline tool finishes on
@@ -578,8 +602,9 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   - `python/sketch_builder.py` consumes the solved sketch primitives stored in
     the document and emits build123d `Face` objects on the sketch datum plane.
   - `python/feature_builder.py` executes `pad`/`pocket`/`revolve`/`groove`,
-    `sweep`/`pipe`/`loft`/`helicalSweep`, pattern (`linearPattern`/
-    `circularPattern`), `mirror`, and `hole` features in topological order over
+    `sweep`/`pipe`/`loft`/`helicalSweep`, `primitive`, pattern (`linearPattern`/
+    `circularPattern`), `mirror`, `multiTransform`, `defeature`, and `hole`
+    features in topological order over
     explicit `dependsOn` edges,
     maintaining a separate accumulated body per `body` id. Additive features
     combine into their target body; subtractive features cut from it.
@@ -616,11 +641,17 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
     rebuilds, and an on-disk fragment cache needs a boolean-safe re-indexing
     design (booleans relocate solids; tessellation is post-assembly) — a
     larger design than a perf-phase line item.
-  - Datum support includes `XY`/`YZ`/`XZ`/`offset`/`face`. `offset` datums are
+  - Datum support includes `XY`/`YZ`/`XZ`/`offset`/`face`/`threePoint`/
+    `midplane`/`line2Point`. `offset` datums are
     interpreted as offsets of the XY plane along +Z. `face` datums resolve a
     referenced planar face by fingerprint, derive a deterministic workplane from
     its origin/normal, and apply an optional `offset` along the normal; a
-    non-planar resolved face is a clear build error.
+    non-planar resolved face is a clear build error. `threePoint` builds the
+    plane through three points, `midplane` the plane midway between two
+    resolved planar faces (normal face1→face2, ~1° parallelism tolerance),
+    and `line2Point` is an axis for `circularPattern.axisDatumId` only —
+    sketch placement on it is a validation error. The frontend derives the
+    same planes client-side (`sketch-math.ts`) so sketch entry needs no build.
   - Sketches may declare `externalRefs` to edges or faces of predecessor
     features. Resolved entities are projected into the sketch plane and passed
     to the sketch builder as `construction` primitives; they do not become part
@@ -801,7 +832,12 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
 - Heavy Python imports must be guarded so the module stays importable in the
   minimal pytest profile (`pytest` + `numpy` only).
 - Region manifest volume entries may include an optional `meshSize` number
-  for per-region mesh refinement.
+  for per-region mesh refinement, plus optional `materialId`/`parentId`
+  physical-model UUIDs (additive; the nuclear sidecar stays keyed by
+  `material`/`name`) and a per-body `default` entry with copy propagation
+  (`parentId` ← default's `materialId`); openmc-studio's nuke-cad import
+  surfaces these as `materialLinks` and stamps them onto placeholder
+  materials as copy provenance.
 - Region manifest surface entries drive FEM boundary conditions in the FEM
   analysis panel; `name` is the selector used to bind loads and constraints.
 

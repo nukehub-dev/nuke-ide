@@ -1394,6 +1394,17 @@ export interface NukeCADImportRequest {
     manifestPath?: string;
 }
 
+/** Physical-model link from a nuke-cad region manifest volume. */
+export interface NukeCADMaterialLink {
+    selector: string;
+    name?: string;
+    material?: string;
+    materialId?: string;
+    parentId?: string;
+    /** True when inherited from the manifest's default entry. */
+    fromDefault?: boolean;
+}
+
 /** Nuke-cad import result */
 export interface NukeCADImportResult {
     /** Whether import was successful */
@@ -1413,6 +1424,9 @@ export interface NukeCADImportResult {
             selector: string;
             name?: string;
             material?: string;
+            materialId?: string;
+            parentId?: string;
+            default?: boolean;
             tags?: string[];
             meshSize?: number;
         }>;
@@ -1424,6 +1438,8 @@ export interface NukeCADImportResult {
     };
     /** Material names extracted from the manifest or DAGMC file */
     materialNames?: string[];
+    /** Physical-model links from the manifest (additive; nuclear sidecar stays keyed by material name). */
+    materialLinks?: NukeCADMaterialLink[];
 }
 
 // ============================================================================

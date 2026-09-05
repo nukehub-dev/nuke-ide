@@ -335,6 +335,7 @@ interface PgGcsWrapper {
     apply_solution(): void;
     get_gcs_conflicting_constraints(): string[];
     get_gcs_redundant_constraints(): string[];
+    get_gcs_partially_redundant_constraints(): string[];
     destroy_gcs_module(): void;
 }
 
@@ -365,6 +366,87 @@ export interface SolverResult {
     conflicting: string[];
     /** Caller-assigned ids of redundant constraints, if any. */
     redundant: string[];
+    /**
+     * Caller-assigned ids of partially-redundant constraints, if any.
+     *
+     * Reported by the GCS QR-with-column-pivoting rank analysis (the same
+     * pattern FreeCAD's sketcher uses): these constraints are consistent
+     * today but share rank, so a later edit can turn them conflicting.
+     */
+    partiallyRedundant: string[];
+}
+
+/** Severity of a solver diagnostic message. */
+export type SolverDiagnosticSeverity = 'error' | 'warning' | 'info';
+
+/** Machine-readable code for a solver diagnostic message. */
+export type SolverDiagnosticCode =
+    'conflicting' | 'redundant' | 'partially-redundant' | 'missing-coincident' | 'open-profile' | 'fully-constrained' | 'under-constrained';
+
+/**
+ * Human-readable solver/validator diagnostic.
+ *
+ * Produced by {@link buildSolverDiagnostics} (solver tags) and by the sketch
+ * session validators (missing-coincident, open-profile). Surfaced to the UI
+ * through the existing diagnostics channel (`SketchStatus.diagnostics`) so the
+ * diagnostics popover can render one row per entry.
+ */
+export interface SolverDiagnostic {
+    severity: SolverDiagnosticSeverity;
+    code: SolverDiagnosticCode;
+    /** Caller-assigned constraint ids involved, if any. */
+    constraintIds: string[];
+    /** Human-readable message, FreeCAD-GCS style. */
+    message: string;
+}
+
+/**
+ * Build human-readable diagnostics for one solver result.
+ *
+ * One entry per non-empty tag group (conflicting / redundant /
+ * partially-redundant), following the FreeCAD GCS wording. When `kinds` maps
+ * constraint ids to their UI kind names, each id is annotated with its kind.
+ */
+export function buildSolverDiagnostics(result: SolverResult, kinds?: ReadonlyMap<string, string>): SolverDiagnostic[] {
+    const diagnostics: SolverDiagnostic[] = [];
+    const label = (id: string): string => {
+        const kind = kinds?.get(id);
+        return kind !== undefined ? `${id} (${kind})` : id;
+    };
+    if (result.conflicting.length > 0) {
+        const ids = [...result.conflicting].sort();
+        diagnostics.push({
+            severity: 'error',
+            code: 'conflicting',
+            constraintIds: ids,
+            message:
+                `Conflicting constraints (${ids.length}): ${ids.map(label).join(', ')}. ` +
+                'Remove or relax one of them to restore convergence.'
+        });
+    }
+    if (result.redundant.length > 0) {
+        const ids = [...result.redundant].sort();
+        diagnostics.push({
+            severity: 'warning',
+            code: 'redundant',
+            constraintIds: ids,
+            message:
+                `Redundant constraints (${ids.length}): ${ids.map(label).join(', ')}. ` + 'They add no new information and can be removed.'
+        });
+    }
+    const partial = result.partiallyRedundant ?? [];
+    if (partial.length > 0) {
+        const ids = [...partial].sort();
+        diagnostics.push({
+            severity: 'warning',
+            code: 'partially-redundant',
+            constraintIds: ids,
+            message:
+                `Partially redundant constraints (${ids.length}): ${ids.map(label).join(', ')}. ` +
+                'They are consistent now but share solver rank and may become conflicting after later edits.'
+        });
+    }
+    return diagnostics;
 }
 
 /** A solved 2D point. */
@@ -1317,7 +1399,8 @@ export class PlanegcsSketchSolver implements SketchSolver {
             status: converged ? 'converged' : 'failed',
             dof: this.wrapper.gcs.dof(),
             conflicting: this.wrapper.get_gcs_conflicting_constraints(),
-            redundant: this.wrapper.get_gcs_redundant_constraints()
+            redundant: this.wrapper.get_gcs_redundant_constraints(),
+            partiallyRedundant: this.wrapper.get_gcs_partially_redundant_constraints()
         };
     }
 

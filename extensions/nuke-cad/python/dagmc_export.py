@@ -72,6 +72,16 @@ except ImportError:
     moab_types = None  # type: ignore
     HAS_PYMOLAB = False
 
+# Pre-export validation gates are warnings-only; the export never fails
+# because a gate tripped. The module stays importable without them.
+try:
+    import inspection_gates
+
+    HAS_INSPECTION_GATES = True
+except Exception:
+    inspection_gates = None  # type: ignore
+    HAS_INSPECTION_GATES = False
+
 
 def _require_deps() -> None:
     """Raise a clear error if any required heavy dependency is missing."""
@@ -534,6 +544,39 @@ def _fragment_and_track(
     return current_to_pre
 
 
+def _mesh_volumes_by_tag(
+    vertices: Any, face_triangles: dict[int, Any], face_to_volumes: dict[int, list[int]]
+) -> dict[int, float]:
+    """Return the enclosed mesh volume per gmsh volume tag.
+
+    Each volume's boundary is the union of its adjacent faces' triangles
+    (shared faces legitimately count toward both neighbors), integrated with
+    the divergence theorem. Failures yield an empty dict; never raises.
+    """
+    volumes: dict[int, float] = {}
+    if inspection_gates is None:
+        return volumes
+    try:
+        vol_faces: dict[int, list[int]] = {}
+        for face_tag, vols in face_to_volumes.items():
+            if face_tag not in face_triangles:
+                continue
+            for vol in vols:
+                vol_faces.setdefault(int(vol), []).append(face_tag)
+        for vol_id, face_tags in vol_faces.items():
+            parts = [face_triangles[tag] for tag in face_tags if tag in face_triangles]
+            if not parts:
+                continue
+            if HAS_NUMPY and np is not None:
+                stacked = np.concatenate(parts, axis=0)
+            else:
+                stacked = [tri for part in parts for tri in part]
+            volumes[vol_id] = inspection_gates.mesh_enclosed_volume(vertices, stacked)
+    except Exception:
+        return {}
+    return volumes
+
+
 def _extract_gmsh_surface_mesh(
     warnings: list[str],
 ) -> tuple[np.ndarray, dict[int, np.ndarray], dict[int, list[int]], dict[int, int]]:
@@ -887,6 +930,16 @@ def convert_to_dagmc(
         except Exception as exc:
             warnings.append(f"Overlap check skipped: {exc}")
 
+        # Pre-export gate 1: mass-property sanity (volume/COM sanity per
+        # solid). Warnings only — never fatal.
+        mass_gate_warnings: list[str] = []
+        if HAS_INSPECTION_GATES and inspection_gates is not None:
+            try:
+                mass_gate_warnings = inspection_gates.check_solid_mass_properties(shape)
+                warnings.extend(mass_gate_warnings)
+            except Exception as exc:
+                warnings.append(f"Mass-property gate skipped: {exc}")
+
         # ------------------------------------------------------------------
         # 2. gmsh imprint/merge, optional graveyard, and surface mesh.
         # ------------------------------------------------------------------
@@ -991,6 +1044,32 @@ def convert_to_dagmc(
         if not all_vol_ids:
             raise RuntimeError("No volumes were found after surface mesh extraction")
 
+        # Pre-export gate 2: mesh-vs-CAD deviation as an overlap/gap
+        # detector. Per-volume mesh volumes (divergence theorem over each
+        # volume's boundary faces) are compared against the CAD masses from
+        # the OCC kernel; large deviations suggest imprint/merge artifacts or
+        # under-resolved facets. Warnings only — never fatal.
+        mesh_gate_warnings: list[str] = []
+        if HAS_INSPECTION_GATES and inspection_gates is not None:
+            try:
+                mesh_volumes = _mesh_volumes_by_tag(vertices, face_triangles, face_to_volumes)
+                cad_volumes: dict[int, float] = {}
+                for _dim, tag in gmsh.model.getEntities(3):
+                    try:
+                        cad_volumes[int(tag)] = float(gmsh.model.occ.getMass(3, int(tag)))
+                    except Exception:
+                        continue
+                # Report under pre-fragment indices so manifest selectors and
+                # graveyard IDs line up with the names in other warnings.
+                cad_by_pre = {post_to_pre.get(tag, tag): vol for tag, vol in cad_volumes.items()}
+                mesh_by_pre = {post_to_pre.get(tag, tag): vol for tag, vol in mesh_volumes.items()}
+                mesh_gate_warnings = inspection_gates.check_mesh_vs_cad(cad_by_pre, mesh_by_pre)
+                warnings.extend(mesh_gate_warnings)
+            except Exception as exc:
+                warnings.append(f"Mesh-vs-CAD deviation gate skipped: {exc}")
+        else:
+            mesh_gate_warnings = []
+
         gmsh.finalize()
         gmsh_initialized = False
 
@@ -1056,6 +1135,10 @@ def convert_to_dagmc(
                 "warnings": warnings,
                 "watertight": watertight,
                 "overlapCheck": overlap_report,
+                "inspectionGates": {
+                    "massProperties": mass_gate_warnings,
+                    "meshDeviation": mesh_gate_warnings,
+                },
             }
         )
 

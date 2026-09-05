@@ -376,13 +376,15 @@ def _build_plane(datum: dict[str, Any]) -> Any:
     """Return a build123d ``Plane`` for a datum definition.
 
     Raises ``SketchError`` for datum kinds that need a resolved face workplane
-    (``face`` datums are handled by the feature builder before this is called)
-    or are otherwise unknown.
+    (``face`` and ``midplane`` datums are handled by the feature builder
+    before this is called), for ``line2Point`` datums (axes, not planes), or
+    for otherwise unknown kinds.
     """
     if bd is None:
         raise SketchError("build123d is not available; cannot build sketch geometry")
 
     kind = datum.get("kind")
+    datum_id = datum.get("id", "<unknown>")
     if kind == "XY":
         return bd.Plane.XY
     if kind == "YZ":
@@ -391,14 +393,57 @@ def _build_plane(datum: dict[str, Any]) -> Any:
         return bd.Plane.XZ
     if kind == "offset":
         offset = _as_finite_number(datum.get("offset"), "datum.offset")
-        # Tier 1: offset datums are offsets of the XY plane along +Z. A future
+        # Offset datums are offsets of the XY plane along +Z. A future
         # schema revision will add an explicit base/normal reference.
         return bd.Plane.XY.offset(offset)
+    if kind == "threePoint":
+        points = datum.get("points")
+        if not isinstance(points, (list, tuple)) or len(points) != 3:
+            raise SketchError(f"datum '{datum_id}' requires exactly 3 points")
+        coords: list[tuple[float, float, float]] = []
+        for point in points:
+            if (
+                not isinstance(point, (list, tuple))
+                or len(point) != 3
+                or any(
+                    not isinstance(v, (int, float)) or isinstance(v, bool) or not math.isfinite(v)
+                    for v in point
+                )
+            ):
+                raise SketchError(f"datum '{datum_id}' points must be finite [x, y, z]")
+            coords.append((float(point[0]), float(point[1]), float(point[2])))
+        (ax, ay, az), (bx, by, bz), (cx, cy, cz) = coords
+        ab = (bx - ax, by - ay, bz - az)
+        ac = (cx - ax, cy - ay, cz - az)
+        cross = (
+            ab[1] * ac[2] - ab[2] * ac[1],
+            ab[2] * ac[0] - ab[0] * ac[2],
+            ab[0] * ac[1] - ab[1] * ac[0],
+        )
+        area = 0.5 * math.sqrt(cross[0] ** 2 + cross[1] ** 2 + cross[2] ** 2)
+        ab_len = math.sqrt(ab[0] ** 2 + ab[1] ** 2 + ab[2] ** 2)
+        ac_len = math.sqrt(ac[0] ** 2 + ac[1] ** 2 + ac[2] ** 2)
+        if ab_len == 0.0 or ac_len == 0.0:
+            raise SketchError(f"datum '{datum_id}' has coincident points")
+        if area <= 1e-9:
+            raise SketchError(f"datum '{datum_id}' points are collinear")
+        length = math.sqrt(cross[0] ** 2 + cross[1] ** 2 + cross[2] ** 2)
+        normal = (cross[0] / length, cross[1] / length, cross[2] / length)
+        x_len = math.sqrt(ab[0] ** 2 + ab[1] ** 2 + ab[2] ** 2)
+        x_dir = (ab[0] / x_len, ab[1] / x_len, ab[2] / x_len)
+        return bd.Plane(origin=(ax, ay, az), x_dir=x_dir, z_dir=normal)
     if kind == "face":
         raise SketchError(
             "'face' datums must be resolved to a workplane by the feature builder; "
             "sketch_builder only handles coordinate datums"
         )
+    if kind == "midplane":
+        raise SketchError(
+            "'midplane' datums must be resolved to a workplane by the feature builder; "
+            "sketch_builder only handles coordinate datums"
+        )
+    if kind == "line2Point":
+        raise SketchError(f"datum '{datum_id}' is a line and cannot be used as a sketch plane")
     raise SketchError(f"unknown datum kind '{kind}'")
 
 

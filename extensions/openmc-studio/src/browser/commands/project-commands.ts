@@ -220,11 +220,15 @@ export class ProjectCommands {
             }
 
             // Create placeholder materials for any manifest material names that are missing.
+            // Placeholders are created from `material` (never from `materialId`); the
+            // physical-model UUIDs ride along as copy-provenance metadata.
             const existingNames = new Set(this.stateManager.getState().materials.map((m) => m.name));
             const materialNames = (result.materialNames || []).filter((name) => !existingNames.has(name));
             if (materialNames.length > 0) {
+                const linkByMaterial = new Map((result.materialLinks || []).map((l) => [l.material, l]));
                 let nextId = this.stateManager.getNextMaterialId();
                 for (const name of materialNames) {
+                    const link = linkByMaterial.get(name);
                     const material: OpenMCMaterial = {
                         id: nextId++,
                         name,
@@ -233,6 +237,12 @@ export class ProjectCommands {
                         nuclides: [],
                         thermalScattering: []
                     };
+                    if (link?.materialId) {
+                        material.nukeCadMaterialId = link.materialId;
+                    }
+                    if (link?.parentId) {
+                        material.nukeCadParentId = link.parentId;
+                    }
                     this.stateManager.addMaterial(material);
                 }
                 this.messageService.info(`Created ${materialNames.length} placeholder material(s): ${materialNames.join(', ')}`);

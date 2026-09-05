@@ -88,6 +88,11 @@ export function generatePythonScript(doc: NukeCadDocument): string {
         lines.push('');
     }
 
+    if (documentUsesScaledPattern(doc)) {
+        lines.push(...scaledPatternHelperLines());
+        lines.push('');
+    }
+
     const parameterNames = Object.keys(doc.parameters).sort();
     if (parameterNames.length > 0) {
         lines.push('# Parameters');
@@ -114,6 +119,13 @@ export function generatePythonScript(doc: NukeCadDocument): string {
             lines.push(`# TODO(manual): datum "${datum.name}" is a face datum and cannot be exported automatically.`);
             lines.push(`# ${varName} = bd.Plane(...)  # reference: ${summarizeRef(datum.reference)}`);
             manualFeatures.push(`datum "${datum.name}" (face datum)`);
+        } else if (datum.kind === 'threePoint' || datum.kind === 'midplane' || datum.kind === 'line2Point') {
+            lines.push(`# TODO(manual): datum "${datum.name}" is a ${datum.kind} datum and cannot be exported automatically.`);
+            lines.push(`# ${varName} = bd.Plane(...)  # ${summarizeDatumParams(datum)}`);
+            manualFeatures.push(`datum "${datum.name}" (${datum.kind} datum)`);
+        } else {
+            lines.push(`# TODO(manual): datum "${datum.name}" has unknown kind '${datum.kind}' and cannot be exported automatically.`);
+            manualFeatures.push(`datum "${datum.name}" (unknown datum kind)`);
         }
     }
     lines.push('');
@@ -206,6 +218,32 @@ function documentUsesBSpline(doc: NukeCadDocument): boolean {
     );
 }
 
+/** True when any pattern/mirror feature carries a non-unit scale factor. */
+function documentUsesScaledPattern(doc: NukeCadDocument): boolean {
+    return doc.features.some((feature) => {
+        if (feature.type !== 'linearPattern' && feature.type !== 'circularPattern' && feature.type !== 'mirror') {
+            return false;
+        }
+        const scale = (feature.params as Record<string, unknown>).scale;
+        return typeof scale === 'number' && scale !== 1;
+    });
+}
+
+/**
+ * Module-level helper emitted once whenever a pattern/mirror feature scales
+ * its instances. `bd.scale` scales about the global origin, so each instance
+ * is translated to the origin, scaled, and translated back — a uniform scale
+ * about the instance's own bounding-box center, applied after its transform.
+ */
+function scaledPatternHelperLines(): string[] {
+    return [
+        'def _scaled_about_center(shape, factor):',
+        '    """Uniformly scaled copy of a shape about its own bounding-box center."""',
+        '    center = shape.bounding_box().center()',
+        '    return bd.scale(shape.moved(bd.Location(center * -1)), factor).moved(bd.Location(center))'
+    ];
+}
+
 /**
  * Module-level helper emitted once whenever a sketch uses a B-spline edge.
  * `bd.Spline` interpolates through points, so it cannot express control-polygon
@@ -269,6 +307,19 @@ function summarizeRef(ref: TopologyRef | undefined): string {
     }
     const fp = ref.fingerprint as EdgeFingerprint;
     return `edge ${fp.curveType} length=${formatNumber(fp.length)}`;
+}
+
+/** One-line summary of a reference-dependent datum's stored parameters. */
+function summarizeDatumParams(datum: DatumPlane): string {
+    if (datum.kind === 'threePoint' || datum.kind === 'line2Point') {
+        const points = Array.isArray(datum.points) ? datum.points.map((p) => tuple(p as [number, number, number])).join(', ') : 'none';
+        return `${datum.kind} points: ${points}`;
+    }
+    if (datum.kind === 'midplane') {
+        const faces = Array.isArray(datum.faces) ? datum.faces.map((f) => summarizeRef(f)).join(' | ') : 'none';
+        return `midplane faces: ${faces}`;
+    }
+    return `${datum.kind} datum`;
 }
 
 function tuple(point: readonly number[]): string {
@@ -730,8 +781,8 @@ function emitSketchFunction(
     datumVarById: Map<string, string>
 ): { lines: string[]; buildable: boolean } {
     const datum = datumById.get(sketch.datumId);
-    if (datum === undefined || datum.kind === 'face') {
-        const reason = datum === undefined ? 'an unknown datum' : 'a face datum';
+    if (datum === undefined || !datumKindExportable(datum.kind)) {
+        const reason = datum === undefined ? 'an unknown datum' : `a ${datum.kind} datum`;
         return {
             buildable: false,
             lines: [`# TODO(manual): sketch "${sketch.name}" is on ${reason} and cannot be exported automatically.`]
@@ -808,6 +859,16 @@ function emitSketchFunction(
 // Feature emission
 // ---------------------------------------------------------------------------
 
+/**
+ * Datum kinds with a direct `bd.Plane` assignment in the export. Face datums
+ * and reference-dependent datums (threePoint/midplane/line2Point)
+ * degrade to `# TODO(manual):`, so sketches and datum-referencing features
+ * built on them hatch as well.
+ */
+function datumKindExportable(kind: string): boolean {
+    return kind === 'XY' || kind === 'YZ' || kind === 'XZ' || kind === 'offset';
+}
+
 function topologicalFeatureOrder(doc: NukeCadDocument): FeatureDef[] {
     const graph = new FeatureGraph(doc.features);
     const order = graph.topologicalOrder();
@@ -832,11 +893,18 @@ function sketchSolidExpr(feature: FeatureDef, sketchFuncById: Map<string, string
         if (params.upToFace !== undefined || params.upToBody !== undefined) {
             return undefined;
         }
+        // Only blind ends are statically exportable; First/Last/Face/ThroughAll
+        // depend on the target body's current B-rep and hatch to # TODO(manual):.
+        const end = typeof params.end === 'string' ? params.end : 'blind';
+        if (end !== 'blind') {
+            return undefined;
+        }
         const length = Number(params.length);
         if (!Number.isFinite(length)) {
             return undefined;
         }
-        const symmetric = Boolean(params.symmetric);
+        // twoSided splits the length equally both ways, like symmetric.
+        const symmetric = Boolean(params.symmetric) || Boolean(params.twoSided);
         const args = [`amount=${symmetric ? `${formatNumber(length)} / 2` : formatNumber(length)}`];
         if (typeof params.axis === 'string') {
             args.push(`dir=${tuple(axisComponents(params.axis))}`);
@@ -912,6 +980,15 @@ function emitFeature(
             return undefined;
         }
         return [...tool.lines, `${bodyVar} = ${bodyVar} + ${tool.expr} if ${bodyVar} is not None else ${tool.expr}  # ${feature.name}`];
+    }
+
+    if (feature.type === 'primitive') {
+        const expr = primitiveSolidExpr(feature, datumVarById, datumById);
+        if (expr === undefined) {
+            return undefined;
+        }
+        // Primitives are additive-only, like pad/revolve.
+        return [`${bodyVar} = ${bodyVar} + ${expr} if ${bodyVar} is not None else ${expr}  # ${feature.name}`];
     }
 
     if (feature.type === 'booleanFuse' || feature.type === 'booleanCut' || feature.type === 'booleanCommon') {
@@ -1115,6 +1192,71 @@ function helicalSweepTool(
     return { lines, expr: `bd.sweep(${section}, path=${helixVar})` };
 }
 
+/**
+ * Solid-producing expression for a primitive feature, or undefined when it
+ * cannot be exported.
+ *
+ * Primitives are fully static: the shape constructor places the solid on the
+ * datum workplane (box centered on the datum origin, cylinder/cone bases in
+ * the plane, sphere at the origin, torus in the plane) via the datum plane's
+ * location. Reference-dependent datums (face/threePoint/midplane/line2Point)
+ * have no exported plane value, so the feature hatches.
+ */
+function primitiveSolidExpr(
+    feature: FeatureDef,
+    datumVarById: Map<string, string>,
+    datumById: Map<string, DatumPlane>
+): string | undefined {
+    const params = feature.params as Record<string, unknown>;
+    const dimensions = Array.isArray(params.dimensions) ? (params.dimensions as unknown[]).map(Number) : [];
+    if (dimensions.some((d) => !Number.isFinite(d) || d <= 0)) {
+        return undefined;
+    }
+    const fmt = dimensions.map(formatNumber);
+    let base: string;
+    switch (params.shape) {
+        case 'box':
+            if (fmt.length !== 3) {
+                return undefined;
+            }
+            base = `bd.Box(${fmt.join(', ')})`;
+            break;
+        case 'cylinder':
+            if (fmt.length !== 2) {
+                return undefined;
+            }
+            base = `bd.Cylinder(${fmt.join(', ')}, align=(bd.Align.CENTER, bd.Align.CENTER, bd.Align.MIN))`;
+            break;
+        case 'sphere':
+            if (fmt.length !== 1) {
+                return undefined;
+            }
+            base = `bd.Sphere(${fmt.join(', ')})`;
+            break;
+        case 'cone':
+            if (fmt.length !== 2) {
+                return undefined;
+            }
+            base = `bd.Cone(${fmt[0]}, 0, ${fmt[1]}, align=(bd.Align.CENTER, bd.Align.CENTER, bd.Align.MIN))`;
+            break;
+        case 'torus':
+            if (fmt.length !== 2) {
+                return undefined;
+            }
+            base = `bd.Torus(${fmt.join(', ')})`;
+            break;
+        default:
+            return undefined;
+    }
+    const datumId = typeof params.datumId === 'string' && params.datumId.length > 0 ? params.datumId : 'datum-xy';
+    const datum = datumById.get(datumId);
+    const datumVar = datumVarById.get(datumId);
+    if (datum === undefined || datumVar === undefined || !datumKindExportable(datum.kind)) {
+        return undefined;
+    }
+    return `${base}.moved(${datumVar}.location)`;
+}
+
 function emitPatternOrMirror(
     feature: FeatureDef,
     doc: NukeCadDocument,
@@ -1182,12 +1324,21 @@ function emitPatternOrMirror(
             ? '+'
             : '-';
 
+    // Per-instance uniform scale about each instance's own bbox center,
+    // applied after its transform. Scale 1 (or absent) emits exactly as
+    // before; anything else goes through the module-level helper.
+    const scale = params.scale === undefined ? 1 : Number(params.scale);
+    if (!Number.isFinite(scale) || scale <= 0) {
+        return undefined;
+    }
+    const scaleInstance = (expr: string): string => (scale === 1 ? expr : `_scaled_about_center(${expr}, ${formatNumber(scale)})`);
+
     if (feature.type === 'mirror') {
         const planeExpr = mirrorPlaneExpr(params, datumVarById, datumById);
         if (planeExpr === undefined) {
             return undefined;
         }
-        return [`${bodyVar} = ${bodyVar} ${op} ${toolExpr}.mirror(${planeExpr})  # ${feature.name}`];
+        return [`${bodyVar} = ${bodyVar} ${op} ${scaleInstance(`${toolExpr}.mirror(${planeExpr})`)}  # ${feature.name}`];
     }
 
     const count = Number(params.count);
@@ -1205,7 +1356,9 @@ function emitPatternOrMirror(
         }
         const [sx, sy, sz] = axisComponents(axis).map((c) => formatNumber(c * spacing));
         lines.push(`for _k in range(1, ${count}):`);
-        lines.push(`${INDENT}${bodyVar} = ${bodyVar} ${op} ${toolVar}.moved(bd.Location((${sx} * _k, ${sy} * _k, ${sz} * _k)))`);
+        lines.push(
+            `${INDENT}${bodyVar} = ${bodyVar} ${op} ${scaleInstance(`${toolVar}.moved(bd.Location((${sx} * _k, ${sy} * _k, ${sz} * _k)))`)}`
+        );
         lines.push(`# ${feature.name}`);
         return lines;
     }
@@ -1221,7 +1374,7 @@ function emitPatternOrMirror(
     }
     const step = angle === 360 ? 360 / count : angle / (count - 1);
     lines.push(`for _k in range(1, ${count}):`);
-    lines.push(`${INDENT}${bodyVar} = ${bodyVar} ${op} ${toolVar}.rotate(${axisExpr}, _k * ${formatNumber(step)})`);
+    lines.push(`${INDENT}${bodyVar} = ${bodyVar} ${op} ${scaleInstance(`${toolVar}.rotate(${axisExpr}, _k * ${formatNumber(step)})`)}`);
     lines.push(`# ${feature.name}`);
     return lines;
 }
@@ -1235,13 +1388,69 @@ function circularAxisExpr(
     if (typeof params.axisDatumId === 'string') {
         const datum = datumById.get(params.axisDatumId);
         const datumVar = datumVarById.get(params.axisDatumId);
-        if (datum === undefined || datum.kind === 'face' || datumVar === undefined) {
+        if (datum === undefined || datumVar === undefined) {
+            return undefined;
+        }
+        // A line2Point datum's axis is fully static: emit it inline instead of
+        // referencing the hatched datum variable.
+        if (datum.kind === 'line2Point') {
+            return lineDatumAxisExpr(datum);
+        }
+        if (!datumKindExportable(datum.kind)) {
             return undefined;
         }
         return `bd.Axis(${datumVar}.origin, ${datumVar}.z_dir)`;
     }
     const axis = String(params.axis ?? 'z');
     return `bd.Axis.${axis.toUpperCase()}`;
+}
+
+/**
+ * Static `bd.Axis` for a line2Point datum, or undefined when its points are
+ * malformed (validation rejects those documents; codegen stays defensive).
+ */
+function lineDatumAxisExpr(datum: DatumPlane): string | undefined {
+    if (!Array.isArray(datum.points) || datum.points.length !== 2) {
+        return undefined;
+    }
+    const [a, b] = datum.points;
+    if (!isFiniteTriple(a) || !isFiniteTriple(b)) {
+        return undefined;
+    }
+    const dir = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    const length = Math.sqrt(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);
+    if (!(length > 0) || !Number.isFinite(length)) {
+        return undefined;
+    }
+    const unit: [number, number, number] = [dir[0] / length, dir[1] / length, dir[2] / length];
+    return `bd.Axis(${tuple(a as [number, number, number])}, ${tuple(unit)})`;
+}
+
+/**
+ * Static `bd.Plane` for a threePoint datum, or undefined when its points are
+ * malformed or collinear (validation rejects those documents).
+ */
+function threePointDatumPlaneExpr(datum: DatumPlane): string | undefined {
+    if (!Array.isArray(datum.points) || datum.points.length !== 3) {
+        return undefined;
+    }
+    const [a, b, c] = datum.points;
+    if (!isFiniteTriple(a) || !isFiniteTriple(b) || !isFiniteTriple(c)) {
+        return undefined;
+    }
+    const ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    const ac = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+    const normal = [ab[1] * ac[2] - ab[2] * ac[1], ab[2] * ac[0] - ab[0] * ac[2], ab[0] * ac[1] - ab[1] * ac[0]];
+    const length = Math.sqrt(normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2]);
+    if (!(length > 0) || !Number.isFinite(length)) {
+        return undefined;
+    }
+    const unit: [number, number, number] = [normal[0] / length, normal[1] / length, normal[2] / length];
+    return `bd.Plane(${tuple(a as [number, number, number])}, z_dir=${tuple(unit)})`;
+}
+
+function isFiniteTriple(value: unknown): value is [number, number, number] {
+    return Array.isArray(value) && value.length === 3 && value.every((v) => typeof v === 'number' && Number.isFinite(v));
 }
 
 /** Plane expression for a mirror feature; undefined when not exportable. */
@@ -1253,7 +1462,15 @@ function mirrorPlaneExpr(
     if (typeof params.planeDatumId === 'string') {
         const datum = datumById.get(params.planeDatumId);
         const datumVar = datumVarById.get(params.planeDatumId);
-        if (datum === undefined || datum.kind === 'face' || datumVar === undefined) {
+        if (datum === undefined || datumVar === undefined) {
+            return undefined;
+        }
+        // A threePoint datum's plane is fully static: emit it inline instead
+        // of referencing the hatched datum variable.
+        if (datum.kind === 'threePoint') {
+            return threePointDatumPlaneExpr(datum);
+        }
+        if (!datumKindExportable(datum.kind)) {
             return undefined;
         }
         return datumVar;

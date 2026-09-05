@@ -44,6 +44,7 @@ import {
     type FeatureDef,
     type FeatureParams,
     type DatumKind,
+    type CurvePoint,
     type ValidationIssue,
     type CurveDef,
     type CurveSource,
@@ -135,7 +136,12 @@ function cloneDocument(doc: NukeCadDocument): NukeCadDocument {
         version: doc.version,
         name: doc.name,
         parameters: { ...doc.parameters },
-        datums: doc.datums.map((d) => ({ ...d, reference: d.reference !== undefined ? cloneTopologyRef(d.reference) : undefined })),
+        datums: doc.datums.map((d) => ({
+            ...d,
+            reference: d.reference !== undefined ? cloneTopologyRef(d.reference) : undefined,
+            points: d.points !== undefined ? d.points.map((p) => [p[0], p[1], p[2]] as CurvePoint) : undefined,
+            faces: d.faces !== undefined ? d.faces.map((f) => cloneTopologyRef(f)) : undefined
+        })),
         bodies: doc.bodies.map((b) => ({ ...b })),
         sketches: doc.sketches.map((s) => ({
             ...s,
@@ -230,9 +236,21 @@ function curveNameInUse(doc: NukeCadDocument, name: string, excludeId?: string):
     return doc.curves.some((c) => c.name === name && c.id !== excludeId);
 }
 
-function getSourceFeatureId(feature: FeatureDef): string {
-    const source = (feature.params as Record<string, unknown>).source;
-    return typeof source === 'string' ? source : '';
+function getPatternSourceIds(feature: FeatureDef): string[] {
+    const params = feature.params as Record<string, unknown>;
+    const ids: string[] = [];
+    const source = params.source;
+    if (typeof source === 'string' && source.length > 0) {
+        ids.push(source);
+    }
+    // multiTransform names its two pattern/mirror inputs as `first`/`second`.
+    for (const key of ['first', 'second'] as const) {
+        const peer = params[key];
+        if (typeof peer === 'string' && peer.length > 0 && !ids.includes(peer)) {
+            ids.push(peer);
+        }
+    }
+    return ids;
 }
 
 /**
@@ -255,7 +273,7 @@ function featureConsumesSketch(feature: FeatureDef, sketchId: string): boolean {
 function collectDependentFeatureIds(doc: NukeCadDocument, id: string): string[] {
     const dependents: string[] = [];
     for (const feature of doc.features) {
-        if (feature.dependsOn.includes(id) || getSourceFeatureId(feature) === id) {
+        if (feature.dependsOn.includes(id) || getPatternSourceIds(feature).includes(id)) {
             dependents.push(feature.id);
         }
     }
@@ -694,7 +712,10 @@ export class CadDocumentStore {
                     if (removal.has(feature.id)) {
                         continue;
                     }
-                    if (feature.dependsOn.some((dep) => removal.has(dep)) || removal.has(getSourceFeatureId(feature))) {
+                    if (
+                        feature.dependsOn.some((dep) => removal.has(dep)) ||
+                        getPatternSourceIds(feature).some((source) => removal.has(source))
+                    ) {
                         removal.add(feature.id);
                         changed = true;
                     }
@@ -731,9 +752,10 @@ export class CadDocumentStore {
         for (const id of orderedIds) {
             const feature = doc.features.find((f) => f.id === id)!;
             const dependencies = [...feature.dependsOn];
-            const source = getSourceFeatureId(feature);
-            if (source !== '' && !dependencies.includes(source)) {
-                dependencies.push(source);
+            for (const source of getPatternSourceIds(feature)) {
+                if (!dependencies.includes(source)) {
+                    dependencies.push(source);
+                }
             }
             for (const dep of dependencies) {
                 if ((position.get(dep) ?? -1) > (position.get(id) ?? -1)) {
@@ -1025,14 +1047,33 @@ export class CadDocumentStore {
      * Face datums that reference the same face fingerprint and offset are reused
      * so repeated sketch-on-face operations do not multiply datums. Other datum
      * kinds always create a new datum.
+     *
+     * New-kind datums carry their validated payload in ``extra``: `threePoint`
+     * needs exactly 3 points, `midplane` exactly 2 faces, `line2Point` exactly
+     * 2 points. Only presence is checked here; deep validation (collinearity,
+     * distinctness, planarity) stays with commit-time schema validation.
      */
-    addDatum(kind: DatumKind, offset?: number, reference?: TopologyRef): DocumentMutationResult<string> {
+    addDatum(
+        kind: DatumKind,
+        offset?: number,
+        reference?: TopologyRef,
+        extra?: { points?: readonly CurvePoint[]; faces?: TopologyRef[] }
+    ): DocumentMutationResult<string> {
         const check = this.requireDocument();
         if (!check.success) {
             return { success: false, error: check.error, issues: check.issues };
         }
         if (kind === 'face' && reference === undefined) {
             return { success: false, error: 'Face datum requires a topology reference' };
+        }
+        if (kind === 'threePoint' && (extra?.points === undefined || extra.points.length !== 3)) {
+            return { success: false, error: 'threePoint datum requires exactly 3 points' };
+        }
+        if (kind === 'midplane' && (extra?.faces === undefined || extra.faces.length !== 2)) {
+            return { success: false, error: 'midplane datum requires exactly 2 face references' };
+        }
+        if (kind === 'line2Point' && (extra?.points === undefined || extra.points.length !== 2)) {
+            return { success: false, error: 'line2Point datum requires exactly 2 points' };
         }
         const doc = cloneDocument(check.value!);
         if (kind === 'face' && reference !== undefined) {
@@ -1050,7 +1091,15 @@ export class CadDocumentStore {
             }
         }
         const id = createDatumId();
-        doc.datums.push({ id, kind, name: `${kind} Datum`, offset, reference });
+        doc.datums.push({
+            id,
+            kind,
+            name: `${kind} Datum`,
+            offset,
+            reference,
+            ...(extra?.points !== undefined ? { points: extra.points.map((p) => [p[0], p[1], p[2]] as CurvePoint) } : {}),
+            ...(extra?.faces !== undefined ? { faces: extra.faces.map((f) => cloneTopologyRef(f)) } : {})
+        });
         const result = this.commit(doc);
         if (!result.success) {
             return { success: false, error: result.error, issues: result.issues };
@@ -1323,6 +1372,8 @@ export function computeDependsOn(type: FeatureDef['type'], bodyId: string, featu
         'linearPattern',
         'circularPattern',
         'hole',
+        'primitive',
+        'multiTransform',
         'booleanFuse',
         'booleanCut',
         'booleanCommon'

@@ -174,6 +174,17 @@ export interface NukeCADImportRequest {
     manifestPath?: string;
 }
 
+/** Physical-model link from a nuke-cad region manifest volume. */
+export interface NukeCADMaterialLink {
+    selector: string;
+    name?: string;
+    material?: string;
+    materialId?: string;
+    parentId?: string;
+    /** True when inherited from the manifest's default entry. */
+    fromDefault?: boolean;
+}
+
 /** Nuke-cad import result */
 export interface NukeCADImportResult {
     /** Whether import was successful */
@@ -193,6 +204,9 @@ export interface NukeCADImportResult {
             selector: string;
             name?: string;
             material?: string;
+            materialId?: string;
+            parentId?: string;
+            default?: boolean;
             tags?: string[];
             meshSize?: number;
         }>;
@@ -204,6 +218,8 @@ export interface NukeCADImportResult {
     };
     /** Material names extracted from the manifest or DAGMC file */
     materialNames?: string[];
+    /** Physical-model links from the manifest (additive; nuclear sidecar stays keyed by material name). */
+    materialLinks?: NukeCADMaterialLink[];
 }
 
 /**
@@ -459,6 +475,18 @@ export class OpenMCCADImportService {
             }
 
             // Collect material names from the manifest first, then from the DAGMC file.
+            // Physical-model links from the nuke-cad region manifest (additive; the
+            // nuclear sidecar stays keyed by material name as today).
+            const defaultEntry = manifest?.volumes?.find((v) => v.default === true);
+            const materialLinks: NukeCADMaterialLink[] = (manifest?.volumes ?? [])
+                .filter((v) => v.selector && v.selector !== defaultEntry?.selector)
+                .map((v) => ({
+                    selector: v.selector,
+                    name: v.name,
+                    material: v.material,
+                    materialId: v.materialId,
+                    parentId: v.parentId
+                }));
             const materialSet = new Set<string>();
             if (manifest?.volumes) {
                 for (const vol of manifest.volumes) {
@@ -475,13 +503,32 @@ export class OpenMCCADImportService {
                 }
             }
 
+            // Per-body default: DAGMC selectors without an explicit entry inherit it.
+            if (defaultEntry) {
+                const explicitSelectors = new Set(materialLinks.map((l) => l.selector));
+                const dagmcSelectors: string[] = Object.keys(dagmcResult.dagmcInfo?.materials ?? {});
+                for (const sel of dagmcSelectors) {
+                    if (!explicitSelectors.has(sel)) {
+                        materialLinks.push({
+                            selector: sel,
+                            name: defaultEntry.name,
+                            material: defaultEntry.material,
+                            materialId: defaultEntry.materialId,
+                            parentId: defaultEntry.materialId ?? undefined,
+                            fromDefault: true
+                        });
+                    }
+                }
+            }
+
             return {
                 success: true,
                 warnings,
                 dagmcFile: h5mPath,
                 dagmcInfo: dagmcResult.dagmcInfo,
                 manifest,
-                materialNames: Array.from(materialSet)
+                materialNames: Array.from(materialSet),
+                materialLinks
             };
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);

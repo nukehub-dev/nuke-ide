@@ -46,7 +46,7 @@ import { validateTopologyRef, type TopologyRef } from './topology-refs';
 export const NUKE_CAD_SCHEMA_VERSION = 3;
 
 /** Supported datum plane kinds. */
-export type DatumKind = 'XY' | 'YZ' | 'XZ' | 'offset' | 'face';
+export type DatumKind = 'XY' | 'YZ' | 'XZ' | 'offset' | 'face' | 'threePoint' | 'midplane' | 'line2Point';
 
 /** A datum plane or face reference on which a sketch can be placed. */
 export interface DatumPlane {
@@ -57,6 +57,13 @@ export interface DatumPlane {
     offset?: number;
     /** Topological face reference for `face` datums (sketch-on-face). */
     reference?: TopologyRef;
+    /**
+     * Literal 3D points for `threePoint` (exactly 3, non-collinear) and
+     * `line2Point` (exactly 2, distinct) datums.
+     */
+    points?: CurvePoint[];
+    /** Face references for `midplane` datums (exactly 2 planar faces). */
+    faces?: TopologyRef[];
 }
 
 /** Supported dimension kinds. */
@@ -182,7 +189,10 @@ export type FeatureType =
     | 'booleanFuse'
     | 'booleanCut'
     | 'booleanCommon'
-    | 'hole';
+    | 'hole'
+    | 'primitive'
+    | 'multiTransform'
+    | 'defeature';
 
 /** Feature types that create or modify solid geometry. */
 export type SolidFeatureType =
@@ -203,7 +213,12 @@ export type SolidFeatureType =
     | 'circularPattern'
     | 'booleanFuse'
     | 'booleanCut'
-    | 'booleanCommon';
+    | 'booleanCommon'
+    | 'primitive'
+    | 'multiTransform';
+
+/** Extrusion end condition for pad/pocket (revolve/groove stay blind). */
+export type ExtrudeEnd = 'blind' | 'upToFirst' | 'upToLast' | 'upToFace' | 'throughAll';
 
 /** Parameters common to extrude-like features. */
 export interface ExtrudeParams {
@@ -211,6 +226,10 @@ export interface ExtrudeParams {
     angle?: number;
     axis?: 'x' | 'y' | 'z';
     symmetric?: boolean;
+    /** Extrusion end condition; default `blind` (length required iff blind). */
+    end?: ExtrudeEnd;
+    /** Split `length` equally both ways (same convention as `symmetric`). */
+    twoSided?: boolean;
     upToFace?: TopologyRef;
     upToBody?: string;
 }
@@ -296,6 +315,8 @@ export interface DraftParams {
     faces: TopologyRef[];
     angle: number;
     pullDirection: [number, number, number];
+    /** Optional neutral-plane face reference (pull direction unchanged). */
+    neutralPlane?: TopologyRef;
 }
 
 /** Parameters for a linear pattern. */
@@ -306,6 +327,8 @@ export interface LinearPatternParams {
     /** Spacing between instances along the axis. */
     spacing: number;
     axis: 'x' | 'y' | 'z';
+    /** Per-instance uniform scale about each instance's bbox center (default 1). */
+    scale?: number;
 }
 
 /** Parameters for a circular pattern. */
@@ -319,6 +342,8 @@ export interface CircularPatternParams {
     axis?: 'x' | 'y' | 'z';
     /** Datum axis id; mutually exclusive with axis. */
     axisDatumId?: string;
+    /** Per-instance uniform scale about each instance's bbox center (default 1). */
+    scale?: number;
 }
 
 /** Parameters for a mirror feature. */
@@ -329,6 +354,8 @@ export interface MirrorParams {
     plane?: 'XY' | 'YZ' | 'XZ';
     /** Datum plane id; mutually exclusive with plane. */
     planeDatumId?: string;
+    /** Per-instance uniform scale about each instance's bbox center (default 1). */
+    scale?: number;
 }
 
 /** Parameters for booleans. */
@@ -351,6 +378,42 @@ export interface HoleParams {
     counterboreDepth?: number;
     countersinkDiameter?: number;
     countersinkAngle?: number;
+    counterdrillDiameter?: number;
+    counterdrillDepth?: number;
+    /** Taper angle in (0, 45] degrees. */
+    taperAngle?: number;
+    /** Drill-point cone angle in (0, 180) degrees; omitted = flat bottom. */
+    drillPointAngle?: number;
+    /** Stored and validated only (default 'none'). */
+    thread?: 'none' | 'cosmetic';
+}
+
+/** Additive primitive shapes and their dimension arities. */
+export type PrimitiveShape = 'box' | 'cylinder' | 'sphere' | 'cone' | 'torus';
+
+/** Parameters for an additive primitive (box/cylinder/sphere/cone/torus). */
+export interface PrimitiveParams {
+    shape: PrimitiveShape;
+    /**
+     * All-positive dimensions: box `[dx, dy, dz]`, cylinder/cone `[r, h]`,
+     * sphere `[r]`, torus `[R, r]`.
+     */
+    dimensions: number[];
+    /** Datum the primitive is placed on; defaults to `datum-xy`. */
+    datumId?: string;
+}
+
+/** Parameters for a multiTransform (cartesian product of two patterns/mirrors). */
+export interface MultiTransformParams {
+    /** First pattern/mirror feature id (earlier in document order). */
+    first: string;
+    /** Second pattern/mirror feature id. */
+    second: string;
+}
+
+/** Parameters for defeature (face removal). */
+export interface DefeatureParams {
+    faces: TopologyRef[];
 }
 
 /** Union of all feature parameter shapes. */
@@ -369,6 +432,9 @@ export type FeatureParams =
     | MirrorParams
     | BooleanParams
     | HoleParams
+    | PrimitiveParams
+    | MultiTransformParams
+    | DefeatureParams
     | Record<string, unknown>;
 
 /** A parametric feature in the model tree. */
@@ -463,7 +529,7 @@ function validateDatum(ctx: MutableValidationContext, datum: DatumPlane, index: 
     if (!isString(datum.name)) {
         issue(ctx, `${path}.name`, 'name must be a string');
     }
-    const kinds: DatumKind[] = ['XY', 'YZ', 'XZ', 'offset', 'face'];
+    const kinds: DatumKind[] = ['XY', 'YZ', 'XZ', 'offset', 'face', 'threePoint', 'midplane', 'line2Point'];
     if (!kinds.includes(datum.kind)) {
         issue(ctx, `${path}.kind`, `unknown datum kind '${datum.kind}'`);
     }
@@ -477,6 +543,66 @@ function validateDatum(ctx: MutableValidationContext, datum: DatumPlane, index: 
             validateEmbeddedTopologyRef(ctx, `${path}.reference`, datum.reference);
         }
     }
+    if (datum.kind === 'threePoint') {
+        validateDatumPoints(ctx, `${path}.points`, datum.points, 3);
+        if (Array.isArray(datum.points) && datum.points.length === 3 && datum.points.every(isFinitePoint3)) {
+            const [a, b, c] = datum.points as CurvePoint[];
+            if (triangleArea(a, b, c) <= THREE_POINT_COLLINEAR_AREA) {
+                issue(ctx, `${path}.points`, 'threePoint datum points must not be collinear');
+            }
+        }
+    }
+    if (datum.kind === 'midplane') {
+        if (!Array.isArray(datum.faces) || datum.faces.length !== 2) {
+            issue(ctx, `${path}.faces`, 'midplane datum requires exactly 2 face references');
+        } else {
+            for (const [i, face] of datum.faces.entries()) {
+                validateEmbeddedTopologyRef(ctx, `${path}.faces[${i}]`, face);
+            }
+        }
+    }
+    if (datum.kind === 'line2Point') {
+        validateDatumPoints(ctx, `${path}.points`, datum.points, 2);
+        if (Array.isArray(datum.points) && datum.points.length === 2 && datum.points.every(isFinitePoint3)) {
+            const [a, b] = datum.points as CurvePoint[];
+            if (pointDistance(a, b) <= LINE_DATUM_COINCIDENT_DISTANCE) {
+                issue(ctx, `${path}.points`, 'line2Point datum points must be distinct');
+            }
+        }
+    }
+}
+
+/** Absolute triangle-area threshold below which three datum points count as collinear. */
+const THREE_POINT_COLLINEAR_AREA = 1e-9;
+
+/** Absolute distance threshold below which two line-datum points count as coincident. */
+const LINE_DATUM_COINCIDENT_DISTANCE = 1e-9;
+
+function isFinitePoint3(value: unknown): value is CurvePoint {
+    return Array.isArray(value) && value.length === 3 && value.every((v: unknown) => isFiniteNumber(v));
+}
+
+function validateDatumPoints(ctx: MutableValidationContext, path: string, points: unknown, expected: number): void {
+    if (!Array.isArray(points) || points.length !== expected) {
+        issue(ctx, path, `datum requires exactly ${expected} points`);
+        return;
+    }
+    for (const [i, point] of points.entries()) {
+        if (!isFinitePoint3(point)) {
+            issue(ctx, `${path}[${i}]`, 'datum point must be a [x, y, z] tuple of finite numbers');
+        }
+    }
+}
+
+function triangleArea(a: CurvePoint, b: CurvePoint, c: CurvePoint): number {
+    const ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    const ac = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+    const cross = [ab[1] * ac[2] - ab[2] * ac[1], ab[2] * ac[0] - ab[0] * ac[2], ab[0] * ac[1] - ab[1] * ac[0]];
+    return Math.sqrt(cross[0] * cross[0] + cross[1] * cross[1] + cross[2] * cross[2]) / 2;
+}
+
+function pointDistance(a: CurvePoint, b: CurvePoint): number {
+    return Math.sqrt((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2 + (b[2] - a[2]) ** 2);
 }
 
 function validateBody(ctx: MutableValidationContext, body: BodyDef, index: number): void {
@@ -636,7 +762,10 @@ function validateFeature(ctx: MutableValidationContext, feature: FeatureDef, ind
         'booleanFuse',
         'booleanCut',
         'booleanCommon',
-        'hole'
+        'hole',
+        'primitive',
+        'multiTransform',
+        'defeature'
     ];
     if (!knownTypes.includes(feature.type)) {
         issue(ctx, `${path}.type`, `unknown feature type '${feature.type}'`);
@@ -699,21 +828,46 @@ function validateSweepOrientation(ctx: MutableValidationContext, path: string, p
     }
 }
 
+function validatePatternScale(ctx: MutableValidationContext, path: string, p: Record<string, unknown>): void {
+    if (p.scale !== undefined && (!isFiniteNumber(p.scale) || (p.scale as number) <= 0)) {
+        issue(ctx, `${path}.scale`, 'scale must be a positive finite number when present');
+    }
+}
+
 function validateFeatureParams(ctx: MutableValidationContext, path: string, type: FeatureType, params: FeatureParams): void {
     const p = params as Record<string, unknown>;
     switch (type) {
         case 'pad':
-        case 'pocket':
-            if (!isFiniteNumber(p.length) || p.length <= 0) {
-                issue(ctx, `${path}.length`, 'length is required and must be a positive finite number');
+        case 'pocket': {
+            const ends = ['blind', 'upToFirst', 'upToLast', 'upToFace', 'throughAll'];
+            if (p.end !== undefined && !ends.includes(p.end as string)) {
+                issue(ctx, `${path}.end`, `unknown extrude end '${p.end}'`);
             }
-            if (p.angle !== undefined && (!isFiniteNumber(p.angle) || p.angle < -360 || p.angle > 360)) {
+            const end = p.end === undefined || !ends.includes(p.end as string) ? 'blind' : (p.end as string);
+            if (end === 'blind') {
+                if (!isFiniteNumber(p.length) || (p.length as number) <= 0) {
+                    issue(ctx, `${path}.length`, 'length is required and must be a positive finite number');
+                }
+            } else if (p.length !== undefined) {
+                issue(ctx, `${path}.length`, `length must be omitted for '${end}' ends`);
+            }
+            if (p.symmetric === true && end !== 'blind') {
+                issue(ctx, `${path}.symmetric`, `symmetric requires a blind end (got '${end}')`);
+            }
+            if (p.twoSided !== undefined && typeof p.twoSided !== 'boolean') {
+                issue(ctx, `${path}.twoSided`, 'twoSided must be a boolean when present');
+            }
+            if (p.angle !== undefined && (!isFiniteNumber(p.angle) || (p.angle as number) < -360 || (p.angle as number) > 360)) {
                 issue(ctx, `${path}.angle`, 'draft angle must be between -360 and 360 degrees');
             }
             if (p.upToFace !== undefined) {
                 validateEmbeddedTopologyRef(ctx, `${path}.upToFace`, p.upToFace);
             }
+            if (end === 'upToFace' && p.upToFace === undefined) {
+                issue(ctx, `${path}.upToFace`, 'upToFace end requires an upToFace reference');
+            }
             break;
+        }
         case 'revolve':
         case 'groove': {
             const axis = p.axis;
@@ -871,6 +1025,13 @@ function validateFeatureParams(ctx: MutableValidationContext, path: string, type
                     issue(ctx, `${path}.pullDirection`, 'draft requires a non-zero pullDirection [x, y, z]');
                 }
             }
+            if (p.neutralPlane !== undefined) {
+                if (!isPlainObject(p.neutralPlane)) {
+                    issue(ctx, `${path}.neutralPlane`, 'neutralPlane must be a TopologyRef when present');
+                } else {
+                    validateEmbeddedTopologyRef(ctx, `${path}.neutralPlane`, p.neutralPlane);
+                }
+            }
             break;
         case 'linearPattern': {
             if (!isString(p.source) || p.source.length === 0) {
@@ -885,6 +1046,7 @@ function validateFeatureParams(ctx: MutableValidationContext, path: string, type
             if (p.axis !== 'x' && p.axis !== 'y' && p.axis !== 'z') {
                 issue(ctx, `${path}.axis`, "axis must be 'x', 'y' or 'z'");
             }
+            validatePatternScale(ctx, path, p);
             break;
         }
         case 'circularPattern': {
@@ -908,6 +1070,7 @@ function validateFeatureParams(ctx: MutableValidationContext, path: string, type
             if (p.angle !== undefined && p.angle !== 360 && (p.count as number) < 2) {
                 issue(ctx, `${path}.count`, 'partial sweep requires count >= 2');
             }
+            validatePatternScale(ctx, path, p);
             break;
         }
         case 'mirror': {
@@ -922,6 +1085,7 @@ function validateFeatureParams(ctx: MutableValidationContext, path: string, type
             if (hasPlane && hasPlaneDatum) {
                 issue(ctx, `${path}.plane`, 'plane and planeDatumId are mutually exclusive');
             }
+            validatePatternScale(ctx, path, p);
             break;
         }
         case 'booleanFuse':
@@ -967,8 +1131,12 @@ function validateFeatureParams(ctx: MutableValidationContext, path: string, type
             }
             const hasCounterbore = p.counterboreDiameter !== undefined || p.counterboreDepth !== undefined;
             const hasCountersink = p.countersinkDiameter !== undefined || p.countersinkAngle !== undefined;
+            const hasCounterdrill = p.counterdrillDiameter !== undefined || p.counterdrillDepth !== undefined;
             if (hasCounterbore && hasCountersink) {
                 issue(ctx, `${path}.counterboreDiameter`, 'counterbore and countersink are mutually exclusive');
+            }
+            if (hasCounterdrill && (hasCounterbore || hasCountersink)) {
+                issue(ctx, `${path}.counterdrillDiameter`, 'counterdrill is mutually exclusive with counterbore/countersink');
             }
             if (hasCounterbore) {
                 if (!isFiniteNumber(p.counterboreDiameter) || (p.counterboreDiameter as number) <= 0) {
@@ -984,6 +1152,70 @@ function validateFeatureParams(ctx: MutableValidationContext, path: string, type
                 }
                 if (!isFiniteNumber(p.countersinkAngle) || (p.countersinkAngle as number) <= 0 || (p.countersinkAngle as number) >= 90) {
                     issue(ctx, `${path}.countersinkAngle`, 'countersinkAngle must be in (0, 90) degrees');
+                }
+            }
+            if (hasCounterdrill) {
+                if (!isFiniteNumber(p.counterdrillDiameter) || (p.counterdrillDiameter as number) <= 0) {
+                    issue(ctx, `${path}.counterdrillDiameter`, 'counterdrillDiameter must be positive');
+                }
+                if (!isFiniteNumber(p.counterdrillDepth) || (p.counterdrillDepth as number) <= 0) {
+                    issue(ctx, `${path}.counterdrillDepth`, 'counterdrillDepth must be positive');
+                }
+            }
+            if (
+                p.taperAngle !== undefined &&
+                (!isFiniteNumber(p.taperAngle) || (p.taperAngle as number) <= 0 || (p.taperAngle as number) > 45)
+            ) {
+                issue(ctx, `${path}.taperAngle`, 'taperAngle must be in (0, 45] degrees');
+            }
+            if (
+                p.drillPointAngle !== undefined &&
+                (!isFiniteNumber(p.drillPointAngle) || (p.drillPointAngle as number) <= 0 || (p.drillPointAngle as number) >= 180)
+            ) {
+                issue(ctx, `${path}.drillPointAngle`, 'drillPointAngle must be in (0, 180) degrees');
+            }
+            if (p.thread !== undefined && p.thread !== 'none' && p.thread !== 'cosmetic') {
+                issue(ctx, `${path}.thread`, `unknown hole thread '${p.thread}'`);
+            }
+            break;
+        }
+        case 'primitive': {
+            const shapes = ['box', 'cylinder', 'sphere', 'cone', 'torus'];
+            if (!shapes.includes(p.shape as string)) {
+                issue(ctx, `${path}.shape`, `unknown primitive shape '${p.shape}'`);
+            }
+            const arities: Record<string, number> = { box: 3, cylinder: 2, sphere: 1, cone: 2, torus: 2 };
+            const expectedArity = arities[p.shape as string];
+            if (!Array.isArray(p.dimensions)) {
+                issue(ctx, `${path}.dimensions`, 'primitive requires a dimensions array');
+            } else if (expectedArity !== undefined && p.dimensions.length !== expectedArity) {
+                issue(ctx, `${path}.dimensions`, `primitive shape '${p.shape}' requires exactly ${expectedArity} dimensions`);
+            } else {
+                for (const [i, dim] of p.dimensions.entries()) {
+                    if (!isFiniteNumber(dim) || (dim as number) <= 0) {
+                        issue(ctx, `${path}.dimensions[${i}]`, 'primitive dimensions must be positive finite numbers');
+                    }
+                }
+            }
+            if (p.datumId !== undefined && (!isString(p.datumId) || p.datumId.length === 0)) {
+                issue(ctx, `${path}.datumId`, 'datumId must be a non-empty string when present');
+            }
+            break;
+        }
+        case 'multiTransform': {
+            for (const key of ['first', 'second'] as const) {
+                if (!isString(p[key]) || (p[key] as string).length === 0) {
+                    issue(ctx, `${path}.${key}`, `${key} is required and must be a pattern/mirror feature id`);
+                }
+            }
+            break;
+        }
+        case 'defeature': {
+            if (!Array.isArray(p.faces) || p.faces.length === 0) {
+                issue(ctx, `${path}.faces`, 'faces must be a non-empty array of TopologyRefs');
+            } else {
+                for (const [i, face] of p.faces.entries()) {
+                    validateEmbeddedTopologyRef(ctx, `${path}.faces[${i}]`, face);
                 }
             }
             break;
@@ -1172,6 +1404,7 @@ export function validateNukeCadDocument(doc: NukeCadDocument): ValidationResult 
 
     // Dangling reference pass.
     const datumIds = new Set<string>(doc.datums?.map((d) => (d as DatumPlane).id).filter(isString) ?? []);
+    const datumById = new Map<string, DatumPlane>((doc.datums ?? []).map((d) => [(d as DatumPlane).id, d as DatumPlane]));
     const bodyIds = new Set<string>(doc.bodies?.map((b) => (b as BodyDef).id).filter(isString) ?? []);
     const sketchIds = new Set<string>(doc.sketches?.map((s) => (s as SketchDef).id).filter(isString) ?? []);
     const featureIds = new Set<string>(doc.features?.map((f) => (f as FeatureDef).id).filter(isString) ?? []);
@@ -1181,6 +1414,8 @@ export function validateNukeCadDocument(doc: NukeCadDocument): ValidationResult 
         const s = sketch as SketchDef;
         if (s.datumId && !datumIds.has(s.datumId)) {
             issue(ctx, `sketches[${i}].datumId`, `unknown datum '${s.datumId}'`);
+        } else if (s.datumId && datumById.get(s.datumId)?.kind === 'line2Point') {
+            issue(ctx, `sketches[${i}].datumId`, `datum '${s.datumId}' is a line datum and cannot place a sketch`);
         }
     }
     for (const [i, feature] of (doc.features ?? []).entries()) {
@@ -1247,6 +1482,20 @@ export function validateNukeCadDocument(doc: NukeCadDocument): ValidationResult 
             const p = f.params as Record<string, unknown>;
             if (isPlainObject(p.face)) {
                 validateEmbeddedTopologyRef(ctx, `features[${i}].params.face`, p.face);
+            }
+        }
+        if (f.type === 'primitive') {
+            const p = f.params as Record<string, unknown>;
+            if (isString(p.datumId) && p.datumId.length > 0 && !datumIds.has(p.datumId)) {
+                issue(ctx, `features[${i}].params.datumId`, `unknown datum '${p.datumId}'`);
+            }
+        }
+        if (f.type === 'multiTransform') {
+            const p = f.params as Record<string, unknown>;
+            for (const key of ['first', 'second'] as const) {
+                if (isString(p[key]) && !featureIds.has(p[key] as string)) {
+                    issue(ctx, `features[${i}].params.${key}`, `unknown feature '${p[key]}'`);
+                }
             }
         }
     }

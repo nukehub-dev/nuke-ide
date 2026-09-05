@@ -468,8 +468,114 @@ def _execute_script_isolated(
         return shape, selector_map, None
 
 
-def _write_step(shape: object, step_path: Path) -> None:
-    """Write ``shape`` to a STEP file using OCP."""
+def _label_color(label: str) -> tuple[float, float, float]:
+    """Return a deterministic, human-readable RGB triple for a solid label.
+
+    Stable across processes (md5, not ``hash``) with channels clamped to
+    [0.25, 0.95] so faces stay visible on both dark and light viewports.
+    """
+    import hashlib
+
+    digest = hashlib.md5(label.encode("utf-8")).digest()
+    return tuple(0.25 + (byte / 255.0) * 0.70 for byte in digest[:3])
+
+
+def _solid_names_from_selector_map(
+    selector_map: dict[str, list[int]], solid_count: int
+) -> list[str | None]:
+    """Invert ``selector_map`` to per-solid (0-based) STEP product names.
+
+    The first selector in sorted order wins when several selectors cover the
+    same solid, so the mapping is deterministic. Uncovered solids get None.
+    """
+    names: list[str | None] = [None] * solid_count
+    for selector in sorted(selector_map):
+        for index in selector_map[selector] or []:
+            if isinstance(index, int) and 1 <= index <= solid_count and names[index - 1] is None:
+                names[index - 1] = selector
+    return names
+
+
+def _write_step_ocaf(
+    shape: object,
+    step_path: Path,
+    solid_names: list[str | None] | None,
+    face_colors: list[tuple[float, float, float] | None] | None,
+) -> None:
+    """Write ``shape`` to STEP with per-solid product names and face colors.
+
+    FreeCAD ExportOCAF2 pattern adapted to the OCP API already in use: one
+    free product label per explorer-order solid (``merge=false`` — solids are
+    never fused), each carrying its label as the STEP product name plus a
+    surface color. Raises on failure so the caller can fall back to the plain
+    writer.
+    """
+    from OCP.Quantity import Quantity_Color, Quantity_TOC_RGB
+    from OCP.STEPCAFControl import STEPCAFControl_Writer
+    from OCP.TCollection import TCollection_ExtendedString
+    from OCP.TDataStd import TDataStd_Name
+    from OCP.TDocStd import TDocStd_Document
+    from OCP.XCAFDoc import XCAFDoc_ColorType, XCAFDoc_DocumentTool
+
+    solids = _solids_in_explorer_order(shape)
+    if not solids:
+        raise RuntimeError("OCAF STEP export found no solids")
+
+    doc = TDocStd_Document(TCollection_ExtendedString("nuke-cad"))
+    shape_tool = XCAFDoc_DocumentTool.ShapeTool_s(doc.Main())
+    color_tool = XCAFDoc_DocumentTool.ColorTool_s(doc.Main())
+    for i, solid in enumerate(solids):
+        label = shape_tool.NewShape()
+        shape_tool.SetShape(label, solid)
+        name = solid_names[i] if solid_names is not None and i < len(solid_names) else None
+        color: tuple[float, float, float] | None = None
+        if face_colors is not None and i < len(face_colors):
+            color = face_colors[i]
+        if name:
+            TDataStd_Name.Set_s(label, TCollection_ExtendedString(str(name)))
+            if color is None:
+                color = _label_color(str(name))
+        if color is not None:
+            quantity = Quantity_Color(
+                float(color[0]), float(color[1]), float(color[2]), Quantity_TOC_RGB
+            )
+            color_tool.SetColor(label, quantity, XCAFDoc_ColorType.XCAFDoc_ColorSurf)
+
+    writer = STEPCAFControl_Writer()
+    writer.SetNameMode(True)
+    writer.SetColorMode(True)
+    if not writer.Transfer(doc):
+        raise RuntimeError("OCAF STEP transfer failed")
+
+    from OCP.IFSelect import IFSelect_RetDone
+
+    if writer.Write(str(step_path)) != IFSelect_RetDone:
+        raise RuntimeError(f"OCAF STEP writer failed for {step_path}")
+
+
+def _write_step(
+    shape: object,
+    step_path: Path,
+    solid_names: list[str | None] | None = None,
+    face_colors: list[tuple[float, float, float] | None] | None = None,
+) -> str | None:
+    """Write ``shape`` to a STEP file using OCP.
+
+    With per-solid ``solid_names``/``face_colors`` the OCAF writer is used so
+    labels survive as STEP product names (plus face colors); without them the
+    legacy ``STEPControl`` writer runs verbatim. Returns a warning string when
+    the OCAF path fell back to the legacy writer (names dropped), else None.
+    """
+    wants_fidelity = bool(solid_names and any(solid_names)) or bool(
+        face_colors and any(face_colors)
+    )
+    if wants_fidelity:
+        try:
+            _write_step_ocaf(shape, step_path, solid_names, face_colors)
+            return None
+        except Exception as exc:
+            _print_progress(f"OCAF STEP export failed ({exc}); falling back to plain writer")
+
     from OCP.Interface import Interface_Static
     from OCP.STEPControl import STEPControl_AsIs, STEPControl_Writer
 
@@ -479,6 +585,9 @@ def _write_step(shape: object, step_path: Path) -> None:
     status = writer.Write(str(step_path))
     if status != 1:
         raise RuntimeError(f"STEP writer returned status {status}")
+    if wants_fidelity:
+        return "STEP product names were dropped (plain STEP writer fallback)"
+    return None
 
 
 def _read_step(step_path: Path) -> object:
@@ -495,6 +604,92 @@ def _read_step(step_path: Path) -> object:
     if shape is None:
         raise RuntimeError(f"No shape transferred from {step_path}")
     return shape
+
+
+def _read_step_names(step_path: Path, solid_count: int) -> dict[int, str]:
+    """Best-effort per-solid STEP product names keyed by 1-based solid index.
+
+    FreeCAD AppImportPy pattern adapted to the readers already in use: the
+    CAF reader (name mode) maps free product labels — in file order — onto
+    consecutive explorer-order solids. Returns {} whenever OCAF is
+    unavailable, the file carries no names, or the label/solid counts do not
+    line up. Never raises.
+    """
+    try:
+        from OCP.STEPCAFControl import STEPCAFControl_Reader
+        from OCP.TCollection import TCollection_ExtendedString
+        from OCP.TDataStd import TDataStd_Name
+        from OCP.TDocStd import TDocStd_Document
+        from OCP.TopAbs import TopAbs_SOLID
+        from OCP.TopExp import TopExp_Explorer
+        from OCP.XCAFDoc import XCAFDoc_DocumentTool
+
+        reader = STEPCAFControl_Reader()
+        reader.SetNameMode(True)
+        reader.SetColorMode(True)
+        if reader.ReadFile(str(step_path)) != 1:
+            return {}
+        doc = TDocStd_Document(TCollection_ExtendedString("nuke-cad-import"))
+        if not reader.Transfer(doc):
+            return {}
+
+        from OCP.TDF import TDF_LabelSequence
+
+        shape_tool = XCAFDoc_DocumentTool.ShapeTool_s(doc.Main())
+        free_shapes = TDF_LabelSequence()
+        shape_tool.GetFreeShapes(free_shapes)
+
+        names: dict[int, str] = {}
+        next_index = 1
+        total = 0
+        for i in range(1, free_shapes.Length() + 1):
+            label = free_shapes.Value(i)
+            product = shape_tool.GetShape_s(label)
+            count = 0
+            exp = TopExp_Explorer(product, TopAbs_SOLID)
+            while exp.More():
+                count += 1
+                exp.Next()
+            name_attr = TDataStd_Name()
+            name: str | None = None
+            if label.FindAttribute(TDataStd_Name.GetID_s(), name_attr):
+                try:
+                    candidate = name_attr.Get().ToExtString()
+                    if candidate:
+                        name = candidate
+                except Exception:
+                    name = None
+            for _ in range(count):
+                if name:
+                    names[next_index] = name
+                next_index += 1
+            total += count
+
+        if total != solid_count:
+            return {}
+        return names
+    except Exception:
+        return {}
+
+
+def _fuse_solids(shape: object) -> object:
+    """Fuse every explorer-order solid of ``shape`` into one (``merge=true``).
+
+    Raises on failure; callers fall back to the unfused shape with a warning.
+    """
+    from OCP.BRepAlgoAPI import BRepAlgoAPI_Fuse
+
+    solids = _solids_in_explorer_order(shape)
+    if len(solids) < 2:
+        return shape
+    fused: object = solids[0]
+    for other in solids[1:]:
+        operation = BRepAlgoAPI_Fuse(fused, other)
+        operation.Build()
+        if not operation.IsDone():
+            raise RuntimeError("BRepAlgoAPI_Fuse failed")
+        fused = operation.Shape()
+    return fused
 
 
 def _tessellate_shape(
@@ -814,7 +1009,19 @@ def _process_shape(
                 _print_progress(f"Reusing input STEP: {paths['step']}")
             else:
                 _print_progress(f"Writing STEP: {paths['step']}")
-                _write_step(shape, paths["step"])
+                solid_names: list[str | None] | None = None
+                try:
+                    solid_total = len(_solids_in_explorer_order(shape))
+                    solid_names = _solid_names_from_selector_map(selector_map, solid_total)
+                except Exception:
+                    solid_names = None
+                step_warning = _write_step(shape, paths["step"], solid_names=solid_names)
+                if step_warning:
+                    result["warnings"].append(step_warning)
+                if solid_names and any(solid_names):
+                    result["stepNames"] = {
+                        str(i + 1): name for i, name in enumerate(solid_names) if name
+                    }
         except Exception as exc:
             result["error"] = str(exc)
             result["traceback"] = traceback.format_exc()
@@ -1024,12 +1231,27 @@ def import_step_file(
     mesh_max_size: float | None = None,
     mesh_order: int = 1,
     length_scale: float = 1.0,
+    merge: bool = False,
+    expand_compound: bool = True,
+    one_object_per_solid: bool = True,
 ) -> dict:
     """Import an existing STEP file and write canonical artifacts.
+
+    Import-flag parity with the FreeCAD AppImportPy pattern: ``merge`` is
+    False by default (imported solids are never fused), compounds are always
+    expanded, and the pipeline always yields one object per solid for DAGMC.
+    STEP product names written by :func:`_write_step` are restored into the
+    returned ``selectorMap`` (best-effort; missing names simply stay absent).
 
     STEP imports skip DAGMC/mesh export by default (opt in explicitly);
     script builds keep them on by default. Returns the stdout-JSON result dict.
     """
+    if not expand_compound or not one_object_per_solid:
+        raise ValueError(
+            "nuke-cad STEP import always expands compounds to one object per solid "
+            "(required by the DAGMC pipeline); expand_compound=False / "
+            "one_object_per_solid=False are not supported"
+        )
     step_file = Path(step_path).resolve()
     if not step_file.exists():
         return {"success": False, "error": f"STEP file not found: {step_path}"}
@@ -1050,7 +1272,25 @@ def import_step_file(
             "scriptPath": str(step_file),
         }
 
-    return _process_shape(
+    warnings: list[str] = []
+    if merge:
+        try:
+            shape = _fuse_solids(shape)
+        except Exception as exc:
+            warnings.append(f"STEP merge requested but the fuse failed; kept unfused solids: {exc}")
+
+    selector_map: dict[str, list[int]] = {}
+    try:
+        solid_count = len(_solids_in_explorer_order(shape))
+        for index, name in _read_step_names(step_file, solid_count).items():
+            selector_map.setdefault(name, [])
+            if index not in selector_map[name]:
+                selector_map[name].append(index)
+                selector_map[name].sort()
+    except Exception:
+        selector_map = {}
+
+    result = _process_shape(
         shape,
         step_file,
         out_dir,
@@ -1064,10 +1304,13 @@ def import_step_file(
         mesh_min_size=mesh_min_size,
         mesh_max_size=mesh_max_size,
         mesh_order=mesh_order,
-        selector_map={},
+        selector_map=selector_map,
         manifest=None,
         length_scale=length_scale,
     )
+    if warnings:
+        result["warnings"] = (result.get("warnings") or []) + warnings
+    return result
 
 
 def _migrate_v1_to_v2(document: dict[str, Any]) -> dict[str, Any]:
