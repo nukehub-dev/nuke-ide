@@ -35,7 +35,7 @@ import {
     type SketchEllipse,
     type SketchBSpline
 } from '../../common/sketch-solver';
-import { SketchSession, type ConstraintKind, type SketchTool, type SketchPreview } from './sketch-session';
+import { SketchSession, SKETCH_TOOL_SHORTCUTS, type ConstraintKind, type SketchTool, type SketchPreview } from './sketch-session';
 import { type SketchDef } from '../../common/cad-document';
 import { type TopologyRef } from '../../common/topology-refs';
 
@@ -1580,6 +1580,774 @@ describe('SketchSession', () => {
             const result = await session.filletCorner(a.id, b.id, 1);
             expect(result.success).toBe(false);
             expect(result.error).toContain('constrained');
+        });
+    });
+
+    describe('tool shortcuts', () => {
+        const allTools: SketchTool[] = [
+            'select',
+            'point',
+            'line',
+            'circle',
+            'arc3',
+            'rectangle',
+            'slot',
+            'ellipse',
+            'bspline',
+            'trim',
+            'extend',
+            'split',
+            'sketchFillet',
+            'sketchChamfer',
+            'polyline',
+            'polygon',
+            'arcSlot'
+        ];
+
+        it('assigns every tool exactly one unique key', () => {
+            const entries = Object.entries(SKETCH_TOOL_SHORTCUTS);
+            expect(entries).toHaveLength(allTools.length);
+            expect(new Set(entries.map(([key]) => key)).size).toBe(entries.length);
+            for (const tool of allTools) {
+                expect(entries.filter(([, value]) => value === tool)).toHaveLength(1);
+            }
+        });
+
+        it('avoids the reserved bindings and the M mode key', () => {
+            const reserved = new Set(['delete', 'backspace', 'escape', 'tab', 'f', '.', 'q', 'm']);
+            for (const key of Object.keys(SKETCH_TOOL_SHORTCUTS)) {
+                expect(reserved.has(key)).toBe(false);
+            }
+        });
+
+        it('uses the exact tool ids the toolbar keys off', () => {
+            expect(SKETCH_TOOL_SHORTCUTS.t).toBe('trim');
+            expect(SKETCH_TOOL_SHORTCUTS.x).toBe('extend');
+            expect(SKETCH_TOOL_SHORTCUTS.d).toBe('split');
+            expect(SKETCH_TOOL_SHORTCUTS.j).toBe('sketchFillet');
+            expect(SKETCH_TOOL_SHORTCUTS.k).toBe('sketchChamfer');
+            expect(SKETCH_TOOL_SHORTCUTS.w).toBe('polyline');
+            expect(SKETCH_TOOL_SHORTCUTS.y).toBe('polygon');
+            expect(SKETCH_TOOL_SHORTCUTS.u).toBe('arcSlot');
+        });
+    });
+
+    describe('trim tool', () => {
+        async function crossingLines(): Promise<SketchSession> {
+            const session = await makeSession('line');
+            session.setSnapEnabled(false);
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 10, y: 0 });
+            await session.click({ x: 5, y: -5 });
+            await session.click({ x: 5, y: 5 });
+            return session;
+        }
+
+        function lineEnds(session: SketchSession, lineId: string): Array<{ x: number; y: number }> {
+            const line = session.getPrimitive(lineId) as SketchLine;
+            return [point(session, line.p1Id), point(session, line.p2Id)];
+        }
+
+        it('clips a line back to the nearest intersection via clicks', async () => {
+            const session = await crossingLines();
+            session.setTool('trim');
+            await session.click({ x: 8, y: 0 });
+            expect(session.getStatus().hint).toBeUndefined();
+
+            const horizontal = (session.getPrimitives().filter((p) => p.type === 'line') as SketchLine[]).find((l) =>
+                lineEnds(session, l.id).some((p) => Math.abs(p.x) < 1e-9)
+            )!;
+            const ends = lineEnds(session, horizontal.id);
+            expect(ends.map((p) => p.x).sort((a, b) => a - b)).toEqual([0, 5]);
+            for (const end of ends) {
+                expect(end.y).toBeCloseTo(0, 9);
+            }
+            const coincident = session.getConstraints().filter((c) => c.kind === 'coincident');
+            expect(coincident).toHaveLength(1);
+            const pointOnObject = session.getConstraints().filter((c) => c.kind === 'pointOnObject');
+            expect(pointOnObject).toHaveLength(1);
+            expect(session.getStatus().conflicting).toHaveLength(0);
+        });
+
+        it('trims a line against a circle', async () => {
+            const session = await makeSession('line');
+            session.setSnapEnabled(false);
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 10, y: 0 });
+            session.setTool('circle');
+            await session.click({ x: 5, y: 0 });
+            await session.click({ x: 8, y: 0 });
+            session.setTool('trim');
+            await session.click({ x: 5, y: 0 });
+            expect(session.getStatus().hint).toBeUndefined();
+
+            const line = session.getPrimitives().filter((p) => p.type === 'line')[0] as SketchLine;
+            const xs = lineEnds(session, line.id)
+                .map((p) => p.x)
+                .sort((a, b) => a - b);
+            expect(xs[0]).toBeCloseTo(2, 9);
+            expect(xs[1]).toBeCloseTo(10, 9);
+        });
+
+        it('opens a circle into an arc dropping the clicked span', async () => {
+            const session = await makeSession('circle');
+            session.setSnapEnabled(false);
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 5, y: 0 });
+            session.setTool('line');
+            await session.click({ x: -6, y: 3 });
+            await session.click({ x: 6, y: 3 });
+            session.setTool('trim');
+            await session.click({ x: 0, y: 5 });
+            expect(session.getStatus().hint).toBeUndefined();
+
+            expect(session.getPrimitives().filter((p) => p.type === 'circle')).toHaveLength(0);
+            const arcs = session.getPrimitives().filter((p) => p.type === 'arc') as SketchArc[];
+            expect(arcs).toHaveLength(1);
+            expect(arcs[0].radius).toBeCloseTo(5, 6);
+            const start = point(session, arcs[0].startId);
+            const end = point(session, arcs[0].endId);
+            const xs = [start.x, end.x].sort((a, b) => a - b);
+            expect(xs[0]).toBeCloseTo(-4, 6);
+            expect(xs[1]).toBeCloseTo(4, 6);
+            // The kept arc runs along the bottom (y < 0 side).
+            expect(start.y).toBeCloseTo(3, 6);
+            expect(end.y).toBeCloseTo(3, 6);
+            expect(session.getConstraints().filter((c) => c.kind === 'coincident')).toHaveLength(2);
+        });
+
+        it('shortens an arc to the nearest intersection', async () => {
+            const session = await makeSession('arc3');
+            session.setSnapEnabled(false);
+            await session.click({ x: 10, y: 0 });
+            await session.click({ x: 5, y: 5 });
+            await session.click({ x: 0, y: 0 });
+            session.setTool('line');
+            await session.click({ x: 7.5, y: -5 });
+            await session.click({ x: 7.5, y: 5 });
+            session.setTool('trim');
+            await session.click({ x: 9.857, y: 1.189 });
+            expect(session.getStatus().hint).toBeUndefined();
+
+            const arc = session.getPrimitives().filter((p) => p.type === 'arc')[0] as SketchArc;
+            expect(arc.radius).toBeCloseTo(5, 6);
+            const start = point(session, arc.startId);
+            expect(start.x).toBeCloseTo(7.5, 6);
+            expect(start.y).toBeCloseTo(4.3301270187, 6);
+            const end = point(session, arc.endId);
+            expect(end.x).toBeCloseTo(0, 9);
+            expect(end.y).toBeCloseTo(0, 9);
+        });
+
+        it('deletes point-on-object constraints owned by the removed portion', async () => {
+            const session = await crossingLines();
+            session.setTool('point');
+            await session.click({ x: 8, y: 0 });
+            const dot = (session.getPrimitives().filter((p) => p.type === 'point') as SketchPoint[]).find(
+                (p) => Math.abs(p.x - 8) < 1e-9 && Math.abs(p.y) < 1e-9
+            )!.id;
+            const horizontal = (session.getPrimitives().filter((p) => p.type === 'line') as SketchLine[]).find((l) =>
+                lineEnds(session, l.id).some((p) => Math.abs(p.x) < 1e-9)
+            )!.id;
+            const added = await session.addConstraint('pointOnObject', [dot, horizontal]);
+            expect(added.success).toBe(true);
+
+            session.setTool('trim');
+            await session.click({ x: 8, y: 0 });
+            expect(session.getStatus().hint).toBeUndefined();
+            const leftovers = session.getConstraints().filter((c) => c.kind === 'pointOnObject' && c.targetIds[1] === horizontal);
+            expect(leftovers).toHaveLength(0);
+        });
+
+        it('errors clearly with no intersection', async () => {
+            const session = await makeSession('line');
+            session.setSnapEnabled(false);
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 10, y: 0 });
+            const result = await session.trimAt({ x: 5, y: 0 });
+            expect(result.success).toBe(false);
+            expect(result.error).toContain('no intersection');
+            expect(session.getStatus().hint).toContain('no intersection');
+            const line = session.getPrimitives().filter((p) => p.type === 'line')[0] as SketchLine;
+            expectPoint(session, line.p2Id, 10, 0);
+        });
+
+        it('errors on an empty click', async () => {
+            const session = await makeSession('trim');
+            session.setSnapEnabled(false);
+            const result = await session.trimAt({ x: 50, y: 50 });
+            expect(result.success).toBe(false);
+            expect(result.error).toContain('no line, circle, or arc');
+        });
+
+        it('previews nothing while idle', async () => {
+            const session = await makeSession('trim');
+            expect(session.hover({ x: 1, y: 1 }).type).toBe('none');
+        });
+    });
+
+    describe('extend tool', () => {
+        it('extends a line end to the next intersecting curve via clicks', async () => {
+            const session = await makeSession('line');
+            session.setSnapEnabled(false);
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 5, y: 0 });
+            await session.click({ x: 8, y: -5 });
+            await session.click({ x: 8, y: 5 });
+            session.setTool('extend');
+            await session.click({ x: 5.1, y: 0 });
+            expect(session.getStatus().hint).toBeUndefined();
+
+            const horizontal = (session.getPrimitives().filter((p) => p.type === 'line') as SketchLine[]).find((l) => {
+                const a = point(session, l.p1Id);
+                return Math.abs(a.x) < 1e-9 && Math.abs(a.y) < 1e-9;
+            })!;
+            const a = point(session, horizontal.p1Id);
+            const b = point(session, horizontal.p2Id);
+            const xs = [a.x, b.x].sort((x, y) => x - y);
+            expect(xs).toEqual([0, 8]);
+            expect(a.y).toBeCloseTo(0, 9);
+            expect(b.y).toBeCloseTo(0, 9);
+            expect(session.getConstraints().some((c) => c.kind === 'coincident')).toBe(true);
+        });
+
+        it('uses the endpoint snap pick when snapping is on', async () => {
+            const session = await makeSession('line');
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 5, y: 0 });
+            await session.click({ x: 8, y: -5 });
+            await session.click({ x: 8, y: 5 });
+            session.setTool('extend');
+            await session.click({ x: 5, y: 0 });
+            expect(session.getStatus().hint).toBeUndefined();
+            const horizontal = (session.getPrimitives().filter((p) => p.type === 'line') as SketchLine[]).find((l) => {
+                const a = point(session, l.p1Id);
+                return Math.abs(a.x) < 1e-9;
+            })!;
+            const xs = [point(session, horizontal.p1Id).x, point(session, horizontal.p2Id).x].sort((x, y) => x - y);
+            expect(xs[1]).toBeCloseTo(8, 9);
+        });
+
+        it('extends an arc end along its tangent', async () => {
+            const session = await makeSession('arc3');
+            session.setSnapEnabled(false);
+            await session.click({ x: 10, y: 0 });
+            await session.click({ x: 5, y: 5 });
+            await session.click({ x: 0, y: 0 });
+            session.setTool('line');
+            await session.click({ x: -5, y: -5 });
+            await session.click({ x: 5, y: -5 });
+            session.setTool('extend');
+            await session.click({ x: 0, y: 0 });
+            expect(session.getStatus().hint).toBeUndefined();
+
+            const arc = session.getPrimitives().filter((p) => p.type === 'arc')[0] as SketchArc;
+            expect(arc.radius).toBeCloseTo(Math.SQRT2 * 5, 6);
+            const end = point(session, arc.endId);
+            expect(end.x).toBeCloseTo(0, 6);
+            expect(end.y).toBeCloseTo(-5, 6);
+        });
+
+        it('errors with no end nearby', async () => {
+            const session = await makeSession('extend');
+            session.setSnapEnabled(false);
+            const result = await session.extendAt({ x: 50, y: 50 });
+            expect(result.success).toBe(false);
+            expect(result.error).toContain('no line or arc end');
+        });
+
+        it('errors with nothing ahead of the end', async () => {
+            const session = await makeSession('line');
+            session.setSnapEnabled(false);
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 5, y: 0 });
+            const result = await session.extendAt({ x: 5, y: 0 });
+            expect(result.success).toBe(false);
+            expect(result.error).toContain('no intersecting curve');
+            expect(session.getStatus().hint).toContain('no intersecting curve');
+        });
+    });
+
+    describe('split tool', () => {
+        it('breaks a line into two entities sharing a point via clicks', async () => {
+            const session = await makeSession('line');
+            session.setSnapEnabled(false);
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 10, y: 0 });
+            const before = session.getPrimitives().filter((p) => p.type === 'line')[0] as SketchLine;
+            await session.setConstruction(before.id, true);
+            session.setTool('split');
+            await session.click({ x: 4, y: 0 });
+            expect(session.getStatus().hint).toBeUndefined();
+
+            const lines = session.getPrimitives().filter((p) => p.type === 'line') as Array<SketchLine & { construction: boolean }>;
+            expect(lines).toHaveLength(2);
+            for (const line of lines) {
+                expect(line.construction).toBe(true);
+            }
+            const shared = lines[0].p1Id === lines[1].p1Id || lines[0].p1Id === lines[1].p2Id ? lines[0].p1Id : lines[0].p2Id;
+            expect([lines[1].p1Id, lines[1].p2Id]).toContain(shared);
+            expectPoint(session, shared, 4, 0);
+        });
+
+        it('breaks an arc into two arcs sharing the split point', async () => {
+            const session = await makeSession('arc3');
+            session.setSnapEnabled(false);
+            await session.click({ x: 10, y: 0 });
+            await session.click({ x: 5, y: 5 });
+            await session.click({ x: 0, y: 0 });
+            session.setTool('split');
+            await session.click({ x: 5, y: 5 });
+            expect(session.getStatus().hint).toBeUndefined();
+
+            const arcs = session.getPrimitives().filter((p) => p.type === 'arc') as SketchArc[];
+            expect(arcs).toHaveLength(2);
+            for (const arc of arcs) {
+                expect(arc.radius).toBeCloseTo(5, 6);
+            }
+            const shared = arcs[0].startId === arcs[1].startId || arcs[0].startId === arcs[1].endId ? arcs[0].startId : arcs[0].endId;
+            expect([arcs[1].startId, arcs[1].endId]).toContain(shared);
+            expectPoint(session, shared, 5, 5);
+        });
+
+        it('breaks a circle into two semicircular arcs', async () => {
+            const session = await makeSession('circle');
+            session.setSnapEnabled(false);
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 5, y: 0 });
+            session.setTool('split');
+            await session.click({ x: 5, y: 0 });
+            expect(session.getStatus().hint).toBeUndefined();
+
+            expect(session.getPrimitives().filter((p) => p.type === 'circle')).toHaveLength(0);
+            const arcs = session.getPrimitives().filter((p) => p.type === 'arc') as SketchArc[];
+            expect(arcs).toHaveLength(2);
+            for (const arc of arcs) {
+                expect(arc.radius).toBeCloseTo(5, 6);
+            }
+            const split = arcs[0].startId === arcs[1].endId ? arcs[0].startId : arcs[0].endId;
+            expectPoint(session, split, 5, 0);
+            const antipode = [arcs[0].startId, arcs[0].endId].find((id) => id !== split)!;
+            expect([arcs[1].startId, arcs[1].endId]).toContain(antipode);
+            expectPoint(session, antipode, -5, 0);
+        });
+
+        it('drops circle constraints owned by the removed circle', async () => {
+            const session = await makeSession('circle');
+            session.setSnapEnabled(false);
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 5, y: 0 });
+            const circleId = session.getPrimitives().filter((p) => p.type === 'circle')[0].id;
+            const radius = await session.addConstraint('radius', [circleId], 5);
+            expect(radius.success).toBe(true);
+            session.setTool('split');
+            await session.click({ x: 5, y: 0 });
+            expect(session.getStatus().hint).toBeUndefined();
+            expect(session.getConstraints().filter((c) => c.targetIds.includes(circleId))).toHaveLength(0);
+        });
+
+        it('rejects a click too close to the end', async () => {
+            const session = await makeSession('line');
+            session.setSnapEnabled(false);
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 10, y: 0 });
+            const result = await session.splitAt({ x: 0, y: 0 });
+            expect(result.success).toBe(false);
+            expect(result.error).toContain('interior');
+            expect(session.getPrimitives().filter((p) => p.type === 'line')).toHaveLength(1);
+        });
+
+        it('rejects ellipse targets with the point-level rule', async () => {
+            const session = await makeSession('ellipse');
+            session.setSnapEnabled(false);
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 5, y: 0 });
+            await session.click({ x: 2, y: 3 });
+            session.setTool('split');
+            const result = await session.splitAt({ x: 5, y: 0.05 });
+            expect(result.success).toBe(false);
+            expect(result.error).toContain('point-level');
+        });
+    });
+
+    describe('sketchFillet tool', () => {
+        async function rectangleSession(): Promise<SketchSession> {
+            const session = await makeSession('rectangle');
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 10, y: 5 });
+            return session;
+        }
+
+        it('fillets a corner from three clicks driving the fillet core', async () => {
+            const session = await rectangleSession();
+            session.setSnapEnabled(false);
+            session.setTool('sketchFillet');
+            await session.click({ x: 5, y: 0 });
+            expect(session.isInProgress()).toBe(true);
+            await session.click({ x: 10, y: 2 });
+            expect(session.isInProgress()).toBe(true);
+            await session.click({ x: 8, y: 0 });
+            expect(session.getStatus().hint).toBeUndefined();
+            expect(session.isInProgress()).toBe(false);
+            expect(session.getTool()).toBe('sketchFillet');
+
+            const arcs = session.getPrimitives().filter((p) => p.type === 'arc') as SketchArc[];
+            expect(arcs).toHaveLength(1);
+            expect(arcs[0].radius).toBeCloseTo(2, 6);
+            const tangents = session.getConstraints().filter((c) => c.kind === 'tangent');
+            expect(tangents).toHaveLength(2);
+            expect(session.getDimensions().some((d) => d.kind === 'radius')).toBe(true);
+        });
+
+        it('rejects a second line with no shared corner', async () => {
+            const session = await makeSession('line');
+            session.setSnapEnabled(false);
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 5, y: 0 });
+            await session.click({ x: 0, y: 5 });
+            await session.click({ x: 5, y: 5 });
+            session.setTool('sketchFillet');
+            await session.click({ x: 2.5, y: 0 });
+            await session.click({ x: 2.5, y: 5 });
+            expect(session.getStatus().hint).toContain('corner');
+            expect(session.getPrimitives().filter((p) => p.type === 'arc')).toHaveLength(0);
+        });
+
+        it('cancels staged picks with Escape', async () => {
+            const session = await rectangleSession();
+            session.setSnapEnabled(false);
+            session.setTool('sketchFillet');
+            await session.click({ x: 5, y: 0 });
+            expect(session.isInProgress()).toBe(true);
+            session.cancel();
+            expect(session.isInProgress()).toBe(false);
+            expect(session.getPrimitives().filter((p) => p.type === 'line')).toHaveLength(4);
+        });
+    });
+
+    describe('sketchChamfer tool', () => {
+        it('chamfers a corner with equal legs from three clicks', async () => {
+            const session = await makeSession('rectangle');
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 10, y: 5 });
+            session.setSnapEnabled(false);
+            session.setTool('sketchChamfer');
+            await session.click({ x: 5, y: 0 });
+            await session.click({ x: 10, y: 2 });
+            await session.click({ x: 8, y: 0 });
+            expect(session.getStatus().hint).toBeUndefined();
+            expect(session.isInProgress()).toBe(false);
+
+            const lines = session.getPrimitives().filter((p) => p.type === 'line') as SketchLine[];
+            // Two shortened sides plus the connector.
+            expect(lines).toHaveLength(5);
+            const coincident = session.getConstraints().filter((c) => c.kind === 'coincident');
+            expect(coincident).toHaveLength(2);
+            // Equal legs: both new corners sit 2 units from the old corner (10, 0).
+            const cornerEnds = coincident.map((c) => point(session, c.targetIds[0]));
+            for (const end of cornerEnds) {
+                expect(Math.hypot(end.x - 10, end.y)).toBeCloseTo(2, 6);
+            }
+        });
+
+        it('rejects an oversized chamfer distance', async () => {
+            const session = await makeSession('rectangle');
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 10, y: 5 });
+            const lines = session.getPrimitives().filter((p) => p.type === 'line') as SketchLine[];
+            const adjacent = lines[0];
+            const partner = lines.find(
+                (l) => l.id !== adjacent.id && [l.p1Id, l.p2Id].some((e) => e === adjacent.p1Id || e === adjacent.p2Id)
+            )!;
+            const result = await session.chamferCorner(adjacent.id, partner.id, 100);
+            expect(result.success).toBe(false);
+            expect(result.error).toContain('too large');
+        });
+
+        it('rejects non-line targets', async () => {
+            const session = await makeSession('circle');
+            session.setSnapEnabled(false);
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 5, y: 0 });
+            const circleId = session.getPrimitives().filter((p) => p.type === 'circle')[0].id;
+            const result = await session.chamferCorner(circleId, circleId, 1);
+            expect(result.success).toBe(false);
+            expect(result.error).toContain('two lines');
+        });
+    });
+
+    describe('polyline tool', () => {
+        it('chains line segments sharing points and finishes on Enter', async () => {
+            const session = await makeSession('polyline');
+            session.setSnapEnabled(false);
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 10, y: 0 });
+            await session.click({ x: 10, y: 10 });
+            expect(session.isInProgress()).toBe(true);
+
+            const lines = session.getPrimitives().filter((p) => p.type === 'line') as SketchLine[];
+            expect(lines).toHaveLength(2);
+            const shared = [lines[0].p1Id, lines[0].p2Id].find((e) => e === lines[1].p1Id || e === lines[1].p2Id);
+            expect(shared).toBeDefined();
+
+            await session.finish();
+            expect(session.isInProgress()).toBe(false);
+            expect(session.getPrimitives().filter((p) => p.type === 'line')).toHaveLength(2);
+        });
+
+        it('cycles to arc mode with M and appends an arc segment', async () => {
+            const session = await makeSession('polyline');
+            session.setSnapEnabled(false);
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 10, y: 0 });
+            expect(session.getPolylineMode()).toBe('line');
+            session.cycleMode();
+            expect(session.getPolylineMode()).toBe('arc');
+            expect(session.getStatus().hint).toContain('arc');
+            await session.click({ x: 12, y: 2 });
+            await session.click({ x: 14, y: 0 });
+
+            const arcs = session.getPrimitives().filter((p) => p.type === 'arc') as SketchArc[];
+            expect(arcs).toHaveLength(1);
+            expect(arcs[0].radius).toBeCloseTo(2, 6);
+            expectPoint(session, arcs[0].startId, 10, 0);
+            expectPoint(session, arcs[0].endId, 14, 0);
+        });
+
+        it('reports collinear arc points and keeps chaining', async () => {
+            const session = await makeSession('polyline');
+            session.setSnapEnabled(false);
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 10, y: 0 });
+            session.cycleMode();
+            await session.click({ x: 12, y: 0 });
+            await session.click({ x: 14, y: 0 });
+            expect(session.getStatus().hint).toContain('collinear');
+            expect(session.getPrimitives().filter((p) => p.type === 'arc')).toHaveLength(0);
+            expect(session.isInProgress()).toBe(true);
+        });
+
+        it('cancels a staged arc midpoint with Escape and ends the chain next', async () => {
+            const session = await makeSession('polyline');
+            session.setSnapEnabled(false);
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 10, y: 0 });
+            session.cycleMode();
+            await session.click({ x: 12, y: 2 });
+            const before = session.getPrimitiveIds().length;
+            session.cancel();
+            // The midpoint is dropped but the committed chain survives and stays open.
+            expect(session.getPrimitiveIds().length).toBe(before - 1);
+            expect(session.isInProgress()).toBe(true);
+            session.cancel();
+            expect(session.isInProgress()).toBe(false);
+            expect(session.getPrimitives().filter((p) => p.type === 'line')).toHaveLength(1);
+        });
+
+        it('previews the pending segment while chaining', async () => {
+            const session = await makeSession('polyline');
+            session.setSnapEnabled(false);
+            await session.click({ x: 0, y: 0 });
+            const preview = session.hover({ x: 5, y: 0 }) as { type: string };
+            expect(preview.type).toBe('line');
+        });
+    });
+
+    describe('rectangle modes', () => {
+        it('cycles corner/center/rounded with M', async () => {
+            const session = await makeSession('rectangle');
+            expect(session.getRectangleMode()).toBe('corner');
+            session.cycleMode();
+            expect(session.getRectangleMode()).toBe('center');
+            expect(session.getStatus().hint).toContain('center');
+            session.cycleMode();
+            expect(session.getRectangleMode()).toBe('rounded');
+            session.cycleMode();
+            expect(session.getRectangleMode()).toBe('corner');
+        });
+
+        it('builds a center rectangle with mirrored corners', async () => {
+            const session = await makeSession('rectangle');
+            session.setSnapEnabled(false);
+            session.cycleMode();
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 10, y: 5 });
+
+            const lines = session.getPrimitives().filter((p) => p.type === 'line') as SketchLine[];
+            expect(lines).toHaveLength(4);
+            // Only the four corners remain; the staged center point is removed.
+            expect(session.getPrimitives().filter((p) => p.type === 'point')).toHaveLength(4);
+            const xs = new Set<number>();
+            const ys = new Set<number>();
+            for (const line of lines) {
+                for (const endId of [line.p1Id, line.p2Id]) {
+                    const p = point(session, endId);
+                    xs.add(Math.round(p.x));
+                    ys.add(Math.round(p.y));
+                }
+            }
+            expect([...xs].sort((a, b) => a - b)).toEqual([-10, 10]);
+            expect([...ys].sort((a, b) => a - b)).toEqual([-5, 5]);
+        });
+
+        it('builds a rounded rectangle with four fillet arcs', async () => {
+            const session = await makeSession('rectangle');
+            session.setSnapEnabled(false);
+            session.cycleMode();
+            session.cycleMode();
+            expect(session.getRectangleMode()).toBe('rounded');
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 10, y: 5 });
+
+            const lines = session.getPrimitives().filter((p) => p.type === 'line');
+            const arcs = session.getPrimitives().filter((p) => p.type === 'arc') as SketchArc[];
+            expect(lines).toHaveLength(4);
+            expect(arcs).toHaveLength(4);
+            for (const arc of arcs) {
+                expect(arc.radius).toBeCloseTo(1, 6);
+            }
+            expect(session.getStatus().conflicting).toHaveLength(0);
+        });
+    });
+
+    describe('polygon tool', () => {
+        it('builds a closed hexagon with equal sides from two clicks', async () => {
+            const session = await makeSession('polygon');
+            session.setSnapEnabled(false);
+            expect(session.getPolygonSides()).toBe(6);
+            await session.click({ x: 0, y: 0 });
+            const preview = session.hover({ x: 5, y: 0 });
+            expect(preview.type).toBe('line');
+            await session.click({ x: 10, y: 0 });
+            expect(session.isInProgress()).toBe(false);
+
+            const lines = session.getPrimitives().filter((p) => p.type === 'line') as SketchLine[];
+            expect(lines).toHaveLength(6);
+            expect(session.getConstraints().filter((c) => c.kind === 'equal')).toHaveLength(5);
+            // Every vertex sits on the circumradius and every corner is shared.
+            const seen = new Map<string, number>();
+            for (const line of lines) {
+                for (const endId of [line.p1Id, line.p2Id]) {
+                    const p = point(session, endId);
+                    expect(Math.hypot(p.x, p.y)).toBeCloseTo(10, 6);
+                    seen.set(endId, (seen.get(endId) ?? 0) + 1);
+                }
+            }
+            expect(seen.size).toBe(6);
+            for (const count of seen.values()) {
+                expect(count).toBe(2);
+            }
+        });
+
+        it('wraps the side count 3-12 with M', async () => {
+            const session = await makeSession('polygon');
+            session.cycleMode();
+            expect(session.getPolygonSides()).toBe(7);
+            for (let i = 0; i < 5; i++) {
+                session.cycleMode();
+            }
+            expect(session.getPolygonSides()).toBe(12);
+            session.cycleMode();
+            expect(session.getPolygonSides()).toBe(3);
+        });
+
+        it('builds a triangle after cycling', async () => {
+            const session = await makeSession('polygon');
+            session.setSnapEnabled(false);
+            for (let i = 0; i < 7; i++) {
+                session.cycleMode();
+            }
+            expect(session.getPolygonSides()).toBe(3);
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 10, y: 0 });
+            expect(session.getPrimitives().filter((p) => p.type === 'line')).toHaveLength(3);
+        });
+
+        it('rejects a zero-radius vertex click', async () => {
+            const session = await makeSession('polygon');
+            session.setSnapEnabled(false);
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 0, y: 0 });
+            expect(session.getStatus().hint).toContain('vertex');
+            expect(session.getPrimitives().filter((p) => p.type === 'line')).toHaveLength(0);
+        });
+    });
+
+    describe('arcSlot tool', () => {
+        it('builds two arcs, two lines, and tangents from four clicks', async () => {
+            const session = await makeSession('arcSlot');
+            session.setSnapEnabled(false);
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 10, y: 0 });
+            await session.click({ x: 0, y: 10 });
+            await session.click({ x: 0, y: 13 });
+            expect(session.getStatus().hint).toBeUndefined();
+            expect(session.isInProgress()).toBe(false);
+
+            const arcs = session.getPrimitives().filter((p) => p.type === 'arc') as SketchArc[];
+            const lines = session.getPrimitives().filter((p) => p.type === 'line') as SketchLine[];
+            expect(arcs).toHaveLength(2);
+            expect(lines).toHaveLength(2);
+            const radii = arcs.map((a) => a.radius).sort((a, b) => a - b);
+            expect(radii[0]).toBeCloseTo(10, 6);
+            expect(radii[1]).toBeCloseTo(13, 6);
+            const kinds = session.getConstraints().map((c) => c.kind);
+            expect(kinds.filter((k) => k === 'tangent')).toHaveLength(2);
+            expect(kinds.filter((k) => k === 'equal')).toHaveLength(1);
+            for (const line of lines) {
+                const a = point(session, line.p1Id);
+                const b = point(session, line.p2Id);
+                expect(Math.hypot(a.x - b.x, a.y - b.y)).toBeCloseTo(Math.sqrt(69), 6);
+            }
+            expect(session.getStatus().conflicting).toHaveLength(0);
+        });
+
+        it('rejects a zero-width fourth click with a hint', async () => {
+            const session = await makeSession('arcSlot');
+            session.setSnapEnabled(false);
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 10, y: 0 });
+            await session.click({ x: 0, y: 10 });
+            await session.click({ x: 0, y: 10 });
+            expect(session.getStatus().hint).toContain('width');
+            expect(session.getPrimitives().filter((p) => p.type === 'arc')).toHaveLength(0);
+        });
+
+        it('cancels staged arc slot points', async () => {
+            const session = await makeSession('arcSlot');
+            session.setSnapEnabled(false);
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 10, y: 0 });
+            session.cancel();
+            expect(session.getPrimitives()).toHaveLength(0);
+            expect(session.isInProgress()).toBe(false);
+        });
+    });
+
+    describe('removeRedundantConstraints', () => {
+        it('drops solver-tagged redundant constraints and returns the count', async () => {
+            const session = await makeSession('point');
+            session.setSnapEnabled(false);
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 10, y: 0 });
+            const points = session.getPrimitives().filter((p) => p.type === 'point');
+            const first = await session.addConstraint('distance', [points[0].id, points[1].id], 10);
+            const second = await session.addConstraint('distance', [points[0].id, points[1].id], 10);
+            expect(first.success).toBe(true);
+            expect(second.success).toBe(true);
+            expect(session.getStatus().redundant.length).toBeGreaterThan(0);
+
+            const removed = await session.removeRedundantConstraints();
+            expect(removed).toBeGreaterThanOrEqual(1);
+            expect(session.getStatus().redundant).toHaveLength(0);
+            expect(session.getConstraints().filter((c) => c.kind === 'distance')).toHaveLength(1);
+        });
+
+        it('returns zero when nothing is redundant', async () => {
+            const session = await makeSession('point');
+            session.setSnapEnabled(false);
+            await session.click({ x: 0, y: 0 });
+            expect(await session.removeRedundantConstraints()).toBe(0);
         });
     });
 

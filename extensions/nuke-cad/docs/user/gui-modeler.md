@@ -152,6 +152,19 @@ viewport has focus):
 - **Slot** (`O`) — two center clicks plus a width click; creates two lines
   joined by tangent arcs with equal radii. A zero width is rejected with a
   hint.
+- **Trim** (`T`) — click a segment to clip it back to the nearest
+  intersections; constraints on removed portions are cleaned up.
+- **Extend** (`X`) — click near an open line/arc end to extend it to the
+  next curve.
+- **Split** (`D`) — click a point on a curve to break it in two.
+- **Sketch Fillet** (`J`) — click two lines, then a point setting the
+  radius; **Sketch Chamfer** (`K`) works the same with a distance point.
+- **Polyline** (`W`) — chained line/arc segments (`M` toggles line/arc),
+  double-click or Enter finishes.
+- **Polygon** (`Y`) — center and vertex clicks (`M` cycles sides 3–12);
+  **Arc Slot** (`U`) — center, start, end, and width clicks.
+- Rectangle modes (`M` while drawing): corner, center, or rounded.
+- The diagnostics popover offers **Remove redundants** in one click.
 
 The snap engine prioritizes endpoint → midpoint → center → quadrant →
 on-curve → grid. Hovering shows a snap marker; clicks commit the snapped

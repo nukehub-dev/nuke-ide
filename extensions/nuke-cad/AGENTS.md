@@ -534,15 +534,18 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
     screen offset that survives zoom/pan and opts out of auto-shift),
     parameters panel, external-geometry
     reference list, carbon-copy button (imports the Feature-Tree-selected
-    sketch with fresh ids), diagnostics popover (with reference-resolution status,
+    sketch with fresh ids), remove-redundants button (session fixpoint),
+    diagnostics popover (with reference-resolution status,
     conflicting/redundant/partially-redundant tags, missing-coincident and
     open-profile validator warnings, and a fully-constrained flag), and
     status line (leads with `Click: select · Ctrl+Click: multi-select / relations
 · Q: shortcut bar · Del: delete · Esc: clear` while the Select tool is active
     and no constraint pick is in progress). Sketch tools have single-key shortcuts
     (S select, L line, C circle, A arc, R rectangle, P point, E ellipse, B
-    B-spline, O slot; guarded against pick modes, dialogs, measure, text fields, and
-    modifier keys), and Escape falls
+    B-spline, O slot, T trim, X extend, D split, J sketch-fillet, K sketch-chamfer,
+    W polyline, Y polygon, U arc-slot; M cycles tool modes — rectangle
+    corner/center/rounded, polyline line/arc, polygon sides; guarded against pick
+    modes, dialogs, measure, text fields, and modifier keys), and Escape falls
     through: dismiss auto-dimension / constraint popover, cancel in-progress entity,
     clear selection, return to the Select tool. The B-spline tool finishes on
     Enter or double-click (`SketchSession.finish()`, committing at two or more

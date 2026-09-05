@@ -36,7 +36,17 @@ import {
     sketchToWorld,
     pixelRadiusToModelUnits,
     projectPointOntoSegment,
-    dist
+    dist,
+    lineLineIntersection,
+    lineCircleIntersections,
+    circleCircleIntersections,
+    segmentParameter,
+    pointToLineDistance,
+    pointToSegmentDistance,
+    angleOfPoint,
+    arcPointAt,
+    isAngleOnArc,
+    normalizeAngle2Pi
 } from './sketch-math';
 import { type TopologyRef } from '../../common/topology-refs';
 
@@ -316,6 +326,118 @@ describe('sketch-math', () => {
                 }
             };
             expect(() => buildDatumPlaneFromMidplane(cylindrical, planarFaceRef([0, 0, 0], [0, 0, 1]))).toThrow('planar');
+        });
+    });
+
+    describe('lineLineIntersection', () => {
+        it('intersects two crossing lines', () => {
+            const hit = lineLineIntersection({ x: 0, y: 0 }, { x: 4, y: 4 }, { x: 0, y: 4 }, { x: 4, y: 0 });
+            expect(hit).toEqual({ x: 2, y: 2 });
+        });
+
+        it('returns undefined for parallel lines', () => {
+            expect(lineLineIntersection({ x: 0, y: 0 }, { x: 4, y: 0 }, { x: 0, y: 1 }, { x: 4, y: 1 })).toBeUndefined();
+        });
+
+        it('returns undefined for coincident lines', () => {
+            expect(lineLineIntersection({ x: 0, y: 0 }, { x: 4, y: 0 }, { x: 1, y: 0 }, { x: 5, y: 0 })).toBeUndefined();
+        });
+    });
+
+    describe('segmentParameter / point distances', () => {
+        it('measures the projection parameter', () => {
+            expect(segmentParameter({ x: 2, y: 0 }, { x: 0, y: 0 }, { x: 4, y: 0 })).toBeCloseTo(0.5, 12);
+            expect(segmentParameter({ x: 6, y: 0 }, { x: 0, y: 0 }, { x: 4, y: 0 })).toBeCloseTo(1.5, 12);
+            expect(segmentParameter({ x: 1, y: 1 }, { x: 0, y: 0 }, { x: 0, y: 0 })).toBe(0);
+        });
+
+        it('measures point-to-line and point-to-segment distance', () => {
+            expect(pointToLineDistance({ x: 1, y: 1 }, { x: 0, y: 0 }, { x: 4, y: 0 })).toBeCloseTo(1, 12);
+            expect(pointToSegmentDistance({ x: 1, y: 1 }, { x: 0, y: 0 }, { x: 4, y: 0 })).toBeCloseTo(1, 12);
+            expect(pointToSegmentDistance({ x: 6, y: 0 }, { x: 0, y: 0 }, { x: 4, y: 0 })).toBeCloseTo(2, 12);
+        });
+    });
+
+    describe('lineCircleIntersections', () => {
+        it('returns two points ordered along the line', () => {
+            const hits = lineCircleIntersections({ x: -5, y: 0 }, { x: 5, y: 0 }, { x: 0, y: 0 }, 2);
+            expect(hits).toHaveLength(2);
+            expect(hits[0]).toEqual({ x: -2, y: 0 });
+            expect(hits[1]).toEqual({ x: 2, y: 0 });
+        });
+
+        it('returns one point for a tangent line', () => {
+            const hits = lineCircleIntersections({ x: -5, y: 2 }, { x: 5, y: 2 }, { x: 0, y: 0 }, 2);
+            expect(hits).toHaveLength(1);
+            expect(hits[0].x).toBeCloseTo(0, 10);
+            expect(hits[0].y).toBeCloseTo(2, 10);
+        });
+
+        it('returns no points on a miss', () => {
+            expect(lineCircleIntersections({ x: -5, y: 3 }, { x: 5, y: 3 }, { x: 0, y: 0 }, 2)).toHaveLength(0);
+            expect(lineCircleIntersections({ x: 0, y: 0 }, { x: 0, y: 0 }, { x: 0, y: 0 }, 2)).toHaveLength(0);
+        });
+    });
+
+    describe('circleCircleIntersections', () => {
+        it('returns two intersection points', () => {
+            const hits = circleCircleIntersections({ x: 0, y: 0 }, 5, { x: 8, y: 0 }, 5);
+            expect(hits).toHaveLength(2);
+            expect(hits[0].x).toBeCloseTo(4, 10);
+            expect(hits[1].x).toBeCloseTo(4, 10);
+            const ys = [hits[0].y, hits[1].y].sort((a, b) => a - b);
+            expect(ys[0]).toBeCloseTo(-3, 10);
+            expect(ys[1]).toBeCloseTo(3, 10);
+        });
+
+        it('returns one point for tangent circles', () => {
+            const hits = circleCircleIntersections({ x: 0, y: 0 }, 2, { x: 4, y: 0 }, 2);
+            expect(hits).toHaveLength(1);
+            expect(hits[0].x).toBeCloseTo(2, 10);
+            expect(hits[0].y).toBeCloseTo(0, 10);
+        });
+
+        it('returns no points for separate, contained, or coincident circles', () => {
+            expect(circleCircleIntersections({ x: 0, y: 0 }, 1, { x: 10, y: 0 }, 1)).toHaveLength(0);
+            expect(circleCircleIntersections({ x: 0, y: 0 }, 5, { x: 1, y: 0 }, 1)).toHaveLength(0);
+            expect(circleCircleIntersections({ x: 0, y: 0 }, 2, { x: 0, y: 0 }, 2)).toHaveLength(0);
+        });
+    });
+
+    describe('angleOfPoint / arcPointAt', () => {
+        it('round-trips through polar coordinates', () => {
+            const center = { x: 1, y: 2 };
+            const point = arcPointAt(center, 5, Math.PI / 3);
+            expect(angleOfPoint(point, center)).toBeCloseTo(Math.PI / 3, 12);
+            expect(Math.hypot(point.x - center.x, point.y - center.y)).toBeCloseTo(5, 12);
+        });
+
+        it('normalizes negative angles into [0, TAU)', () => {
+            expect(normalizeAngle2Pi(-Math.PI / 2)).toBeCloseTo((3 * Math.PI) / 2, 12);
+            expect(normalizeAngle2Pi(3 * Math.PI)).toBeCloseTo(Math.PI, 12);
+        });
+    });
+
+    describe('isAngleOnArc', () => {
+        it('tests a counter-clockwise span', () => {
+            expect(isAngleOnArc(Math.PI / 4, 0, Math.PI / 2)).toBe(true);
+            expect(isAngleOnArc(Math.PI, 0, Math.PI / 2)).toBe(false);
+            expect(isAngleOnArc(Math.PI / 2, 0, Math.PI / 2)).toBe(true);
+        });
+
+        it('tests a wrapped counter-clockwise span', () => {
+            expect(isAngleOnArc(0, (3 * Math.PI) / 2, (5 * Math.PI) / 2)).toBe(true);
+            expect(isAngleOnArc(Math.PI, (3 * Math.PI) / 2, (5 * Math.PI) / 2)).toBe(false);
+        });
+
+        it('tests a clockwise span', () => {
+            expect(isAngleOnArc(0, Math.PI / 2, -Math.PI / 2)).toBe(true);
+            expect(isAngleOnArc(Math.PI, Math.PI / 2, -Math.PI / 2)).toBe(false);
+        });
+
+        it('contains every angle for a full circle', () => {
+            expect(isAngleOnArc(2.5, 0, 2 * Math.PI)).toBe(true);
+            expect(isAngleOnArc(2.5, 1, 1 - 2 * Math.PI)).toBe(true);
         });
     });
 });

@@ -4378,6 +4378,12 @@ function initViewport(
                 console.error('[CAD] finish in-progress failed:', err);
             });
         } else if (!event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey) {
+            if (event.key === 'm' || event.key === 'M') {
+                // Mode key for polyline/rectangle/polygon variants (not a tool shortcut).
+                event.preventDefault();
+                controller.cycleToolMode();
+                return;
+            }
             const tool = SKETCH_TOOL_SHORTCUTS[event.key.toLowerCase()];
             if (tool !== undefined) {
                 event.preventDefault();

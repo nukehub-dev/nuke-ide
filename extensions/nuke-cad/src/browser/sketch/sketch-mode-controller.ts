@@ -852,6 +852,13 @@ export class SketchModeController {
         this.emitChange();
     }
 
+    /** Cycle the active tool's mode, if it has modes (polyline line/arc, rectangle variants, polygon sides). */
+    cycleToolMode(): void {
+        this.session?.cycleMode();
+        this.renderPreview();
+        this.emitChange();
+    }
+
     /** Toggle construction geometry for new entities. */
     setConstruction(construction: boolean): void {
         this.construction = construction;

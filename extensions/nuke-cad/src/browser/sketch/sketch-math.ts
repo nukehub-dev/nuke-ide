@@ -333,3 +333,155 @@ export function projectPointOntoSegment(point: Point2, segStart: Point2, segEnd:
 export function defaultSketchViewSize(): number {
     return 20;
 }
+
+/** Full circle in radians. */
+const TAU = 2 * Math.PI;
+
+/** Normalize an angle into [0, TAU). */
+export function normalizeAngle2Pi(angle: number): number {
+    let a = angle % TAU;
+    if (a < 0) {
+        a += TAU;
+    }
+    return a;
+}
+
+/**
+ * Intersect two infinite lines; returns undefined when parallel.
+ *
+ * Each line is given by two points. Callers clip the result to segments or
+ * arc spans with {@link segmentParameter} / {@link isAngleOnArc}.
+ */
+export function lineLineIntersection(a1: Point2, a2: Point2, b1: Point2, b2: Point2): Point2 | undefined {
+    const d1x = a2.x - a1.x;
+    const d1y = a2.y - a1.y;
+    const d2x = b2.x - b1.x;
+    const d2y = b2.y - b1.y;
+    const denom = d1x * d2y - d1y * d2x;
+    if (Math.abs(denom) < 1e-12) {
+        return undefined;
+    }
+    const t = ((b1.x - a1.x) * d2y - (b1.y - a1.y) * d2x) / denom;
+    return { x: a1.x + d1x * t, y: a1.y + d1y * t };
+}
+
+/** Unclamped projection parameter of a point onto the infinite line through a/b (0 = a, 1 = b). */
+export function segmentParameter(point: Point2, a: Point2, b: Point2): number {
+    const abx = b.x - a.x;
+    const aby = b.y - a.y;
+    const denom = abx * abx + aby * aby;
+    if (denom < 1e-12) {
+        return 0;
+    }
+    return ((point.x - a.x) * abx + (point.y - a.y) * aby) / denom;
+}
+
+/** Distance from a point to the infinite line through a/b. */
+export function pointToLineDistance(point: Point2, a: Point2, b: Point2): number {
+    const len = Math.hypot(b.x - a.x, b.y - a.y);
+    if (len < 1e-12) {
+        return dist(point, a);
+    }
+    return Math.abs((b.x - a.x) * (a.y - point.y) - (a.x - point.x) * (b.y - a.y)) / len;
+}
+
+/** Distance from a point to the segment a/b. */
+export function pointToSegmentDistance(point: Point2, a: Point2, b: Point2): number {
+    return dist(point, projectPointOntoSegment(point, a, b));
+}
+
+/**
+ * Intersect the infinite line through p1/p2 with a circle.
+ *
+ * Returns zero, one (tangent), or two points ordered along the line direction.
+ */
+export function lineCircleIntersections(p1: Point2, p2: Point2, center: Point2, radius: number): Point2[] {
+    const dx = p2.x - p1.x;
+    const dy = p2.y - p1.y;
+    const len = Math.hypot(dx, dy);
+    if (len < 1e-12 || radius < 0) {
+        return [];
+    }
+    const ux = dx / len;
+    const uy = dy / len;
+    // Signed distance from p1 to the closest approach, and the half-chord.
+    const fx = center.x - p1.x;
+    const fy = center.y - p1.y;
+    const along = fx * ux + fy * uy;
+    const closest2 = fx * fx + fy * fy - along * along;
+    const r2 = radius * radius;
+    if (closest2 > r2 + 1e-12) {
+        return [];
+    }
+    const half = Math.sqrt(Math.max(0, r2 - closest2));
+    if (half < 1e-12) {
+        return [{ x: p1.x + ux * along, y: p1.y + uy * along }];
+    }
+    return [
+        { x: p1.x + ux * (along - half), y: p1.y + uy * (along - half) },
+        { x: p1.x + ux * (along + half), y: p1.y + uy * (along + half) }
+    ];
+}
+
+/**
+ * Intersect two circles; returns zero, one (tangent), or two points.
+ *
+ * Coincident circles (same center and radius) intersect everywhere and yield
+ * an empty list — callers treat that as "no usable trim boundary".
+ */
+export function circleCircleIntersections(c0: Point2, r0: number, c1: Point2, r1: number): Point2[] {
+    const dx = c1.x - c0.x;
+    const dy = c1.y - c0.y;
+    const d = Math.hypot(dx, dy);
+    if (d < 1e-12 || d > r0 + r1 + 1e-12 || d < Math.abs(r0 - r1) - 1e-12) {
+        return [];
+    }
+    // Distance from c0 along the center line to the radical line.
+    const a = (r0 * r0 - r1 * r1 + d * d) / (2 * d);
+    const h2 = r0 * r0 - a * a;
+    const h = Math.sqrt(Math.max(0, h2));
+    const mx = c0.x + (dx / d) * a;
+    const my = c0.y + (dy / d) * a;
+    if (h < 1e-12) {
+        return [{ x: mx, y: my }];
+    }
+    const ox = (-dy / d) * h;
+    const oy = (dx / d) * h;
+    return [
+        { x: mx + ox, y: my + oy },
+        { x: mx - ox, y: my - oy }
+    ];
+}
+
+/** Polar angle of a point around a center. */
+export function angleOfPoint(point: Point2, center: Point2): number {
+    return Math.atan2(point.y - center.y, point.x - center.x);
+}
+
+/** Point on a circle at the given angle. */
+export function arcPointAt(center: Point2, radius: number, angle: number): Point2 {
+    return { x: center.x + radius * Math.cos(angle), y: center.y + radius * Math.sin(angle) };
+}
+
+/**
+ * True when an angle lies on the arc span from startAngle to endAngle.
+ *
+ * The sweep is signed (endAngle - startAngle): positive sweeps run
+ * counter-clockwise, negative clockwise, mirroring the session's
+ * three-point arc convention. Full-circle sweeps (|sweep| ~= TAU) contain
+ * every angle.
+ */
+export function isAngleOnArc(angle: number, startAngle: number, endAngle: number, eps = 1e-9): boolean {
+    const sweep = endAngle - startAngle;
+    if (Math.abs(Math.abs(sweep) - TAU) < 1e-9 || Math.abs(sweep) >= TAU - eps) {
+        return true;
+    }
+    let d = (angle - startAngle) % TAU;
+    if (d < 0) {
+        d += TAU;
+    }
+    if (sweep >= 0) {
+        return d <= sweep + eps;
+    }
+    return d >= TAU + sweep - eps;
+}

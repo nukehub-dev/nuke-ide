@@ -50,7 +50,16 @@
 .codicon-nuke-cad-measure,
 .codicon-nuke-cad-keyboard,
 .codicon-nuke-cad-edges,
-.codicon-nuke-cad-section {
+.codicon-nuke-cad-section,
+.codicon-nuke-cad-slot,
+.codicon-nuke-cad-sketch-fillet,
+.codicon-nuke-cad-sketch-chamfer,
+.codicon-nuke-cad-trim,
+.codicon-nuke-cad-extend,
+.codicon-nuke-cad-split,
+.codicon-nuke-cad-polyline,
+.codicon-nuke-cad-polygon,
+.codicon-nuke-cad-arc-slot {
     display: inline-block;
     width: 16px;
     height: 16px;
@@ -313,4 +322,58 @@
     mask-size: 16px 16px;
     -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 12c2-6 4-6 6 0s4 6 6 0'/%3E%3Ccircle cx='2' cy='12' r='1.3' fill='black' stroke='none'/%3E%3Ccircle cx='14' cy='12' r='1.3' fill='black' stroke='none'/%3E%3C/svg%3E");
     mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 12c2-6 4-6 6 0s4 6 6 0'/%3E%3Ccircle cx='2' cy='12' r='1.3' fill='black' stroke='none'/%3E%3Ccircle cx='14' cy='12' r='1.3' fill='black' stroke='none'/%3E%3C/svg%3E");
+}
+
+/* Capsule outline — Slot sketch tool. */
+.codicon-nuke-cad-slot {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2'%3E%3Crect x='2' y='5.5' width='12' height='5' rx='2.5'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2'%3E%3Crect x='2' y='5.5' width='12' height='5' rx='2.5'/%3E%3C/svg%3E");
+}
+
+/* Corner with inner arc — Sketch Fillet tool. */
+.codicon-nuke-cad-sketch-fillet {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round'%3E%3Cpath d='M3 13.5V2.5h11'/%3E%3Cpath d='M3 9.5a7 7 0 0 1 7-7'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round'%3E%3Cpath d='M3 13.5V2.5h11'/%3E%3Cpath d='M3 9.5a7 7 0 0 1 7-7'/%3E%3C/svg%3E");
+}
+
+/* Corner with straight cut — Sketch Chamfer tool. */
+.codicon-nuke-cad-sketch-chamfer {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 13.5V2.5h11'/%3E%3Cpath d='M3 7.5 8 2.5'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 13.5V2.5h11'/%3E%3Cpath d='M3 7.5 8 2.5'/%3E%3C/svg%3E");
+}
+
+/* Line with cut gap — Trim tool. */
+.codicon-nuke-cad-trim {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round'%3E%3Cpath d='M1.5 8h4M10.5 8h4'/%3E%3Cpath d='M6.3 6.3l3.4 3.4M9.7 6.3 6.3 9.7'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round'%3E%3Cpath d='M1.5 8h4M10.5 8h4'/%3E%3Cpath d='M6.3 6.3l3.4 3.4M9.7 6.3 6.3 9.7'/%3E%3C/svg%3E");
+}
+
+/* Line with dashed extension — Extend tool. */
+.codicon-nuke-cad-extend {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1.5 8h6'/%3E%3Cpath d='M8.5 8h4' stroke-dasharray='2 1.4'/%3E%3Cpath d='M11 5.8 13.5 8 11 10.2'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1.5 8h6'/%3E%3Cpath d='M8.5 8h4' stroke-dasharray='2 1.4'/%3E%3Cpath d='M11 5.8 13.5 8 11 10.2'/%3E%3C/svg%3E");
+}
+
+/* Line with split node — Split tool. */
+.codicon-nuke-cad-split {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round'%3E%3Cpath d='M1.5 8h13'/%3E%3Ccircle cx='8' cy='8' r='1.6' fill='black' stroke='none'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round'%3E%3Cpath d='M1.5 8h13'/%3E%3Ccircle cx='8' cy='8' r='1.6' fill='black' stroke='none'/%3E%3C/svg%3E");
+}
+
+/* Connected segments — Polyline tool. */
+.codicon-nuke-cad-polyline {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.5 13 6 4.5 10 9.5 13.5 3'/%3E%3Ccircle cx='2.5' cy='13' r='1.3' fill='black' stroke='none'/%3E%3Ccircle cx='13.5' cy='3' r='1.3' fill='black' stroke='none'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.5 13 6 4.5 10 9.5 13.5 3'/%3E%3Ccircle cx='2.5' cy='13' r='1.3' fill='black' stroke='none'/%3E%3Ccircle cx='13.5' cy='3' r='1.3' fill='black' stroke='none'/%3E%3C/svg%3E");
+}
+
+/* Pentagon with center — Polygon tool. */
+.codicon-nuke-cad-polygon {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linejoin='round'%3E%3Cpath d='M8 2.3 13.7 6.4 11.5 13 4.5 13 2.3 6.4Z'/%3E%3Ccircle cx='8' cy='8.3' r='1.1' fill='black' stroke='none'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linejoin='round'%3E%3Cpath d='M8 2.3 13.7 6.4 11.5 13 4.5 13 2.3 6.4Z'/%3E%3Ccircle cx='8' cy='8.3' r='1.1' fill='black' stroke='none'/%3E%3C/svg%3E");
+}
+
+/* Concentric arcs — Arc Slot tool. */
+.codicon-nuke-cad-arc-slot {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.3 12.5a6.6 6.6 0 0 1 11.4 0'/%3E%3Cpath d='M5 12.5a4 4 0 0 1 6 0'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.3 12.5a6.6 6.6 0 0 1 11.4 0'/%3E%3Cpath d='M5 12.5a4 4 0 0 1 6 0'/%3E%3C/svg%3E");
 }

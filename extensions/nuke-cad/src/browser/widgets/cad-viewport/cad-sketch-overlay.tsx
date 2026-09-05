@@ -46,7 +46,7 @@ import {
     NukeToolbarGroup
 } from 'nuke-essentials/lib/theme/browser/components';
 import { SketchModeController } from '../../sketch/sketch-mode-controller';
-import { type SketchTool, type ConstraintKind, type SketchStatus } from '../../sketch/sketch-session';
+import { SKETCH_TOOL_SHORTCUTS, type SketchTool, type ConstraintKind, type SketchStatus } from '../../sketch/sketch-session';
 import { type DatumKind } from '../../sketch/sketch-math';
 import {
     type SketchDimension,
@@ -151,15 +151,37 @@ interface CadSketchOverlayProps {
     readonly onCloseShortcutBar: () => void;
 }
 
+/**
+ * Display key for a sketch tool, derived from the session module's shortcut
+ * registry (single source of truth — never hardcoded per tool).
+ */
+function keyFor(tool: SketchTool): string {
+    for (const [key, mapped] of Object.entries(SKETCH_TOOL_SHORTCUTS)) {
+        if (mapped === tool) {
+            return key.toUpperCase();
+        }
+    }
+    return '';
+}
+
 const TOOLS: Array<{ tool: SketchTool; label: string; icon: string; key: string }> = [
-    { tool: 'select', label: 'Select', icon: 'codicon-nuke-cad-select', key: 'S' },
-    { tool: 'point', label: 'Point', icon: 'codicon-nuke-cad-point', key: 'P' },
-    { tool: 'line', label: 'Line', icon: 'codicon-nuke-cad-line', key: 'L' },
-    { tool: 'circle', label: 'Circle', icon: 'codicon-nuke-cad-circle', key: 'C' },
-    { tool: 'arc3', label: '3-Point Arc', icon: 'codicon-nuke-cad-arc', key: 'A' },
-    { tool: 'rectangle', label: 'Rectangle', icon: 'codicon-nuke-cad-rectangle', key: 'R' },
-    { tool: 'ellipse', label: 'Ellipse', icon: 'codicon-nuke-cad-ellipse', key: 'E' },
-    { tool: 'bspline', label: 'B-Spline', icon: 'codicon-nuke-cad-bspline', key: 'B' }
+    { tool: 'select', label: 'Select', icon: 'codicon-nuke-cad-select', key: keyFor('select') },
+    { tool: 'point', label: 'Point', icon: 'codicon-nuke-cad-point', key: keyFor('point') },
+    { tool: 'line', label: 'Line', icon: 'codicon-nuke-cad-line', key: keyFor('line') },
+    { tool: 'circle', label: 'Circle', icon: 'codicon-nuke-cad-circle', key: keyFor('circle') },
+    { tool: 'arc3', label: '3-Point Arc', icon: 'codicon-nuke-cad-arc', key: keyFor('arc3') },
+    { tool: 'rectangle', label: 'Rectangle', icon: 'codicon-nuke-cad-rectangle', key: keyFor('rectangle') },
+    { tool: 'slot', label: 'Slot', icon: 'codicon-nuke-cad-slot', key: keyFor('slot') },
+    { tool: 'trim', label: 'Trim', icon: 'codicon-nuke-cad-trim', key: keyFor('trim') },
+    { tool: 'extend', label: 'Extend', icon: 'codicon-nuke-cad-extend', key: keyFor('extend') },
+    { tool: 'split', label: 'Split', icon: 'codicon-nuke-cad-split', key: keyFor('split') },
+    { tool: 'sketchFillet', label: 'Sketch Fillet', icon: 'codicon-nuke-cad-sketch-fillet', key: keyFor('sketchFillet') },
+    { tool: 'sketchChamfer', label: 'Sketch Chamfer', icon: 'codicon-nuke-cad-sketch-chamfer', key: keyFor('sketchChamfer') },
+    { tool: 'polyline', label: 'Polyline', icon: 'codicon-nuke-cad-polyline', key: keyFor('polyline') },
+    { tool: 'polygon', label: 'Polygon', icon: 'codicon-nuke-cad-polygon', key: keyFor('polygon') },
+    { tool: 'arcSlot', label: 'Arc Slot', icon: 'codicon-nuke-cad-arc-slot', key: keyFor('arcSlot') },
+    { tool: 'ellipse', label: 'Ellipse', icon: 'codicon-nuke-cad-ellipse', key: keyFor('ellipse') },
+    { tool: 'bspline', label: 'B-Spline', icon: 'codicon-nuke-cad-bspline', key: keyFor('bspline') }
 ];
 
 /** Snap-radius presets in screen pixels; M matches the session default. */
@@ -403,6 +425,21 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
     const statusText = buildStatusText(status, refCounts, snapSummary, selectHint);
     const hasDiagnostics =
         status.conflicting.length > 0 || status.redundant.length > 0 || refCounts.ambiguous > 0 || refCounts.unmatched > 0;
+
+    const removeRedundantConstraints = async (): Promise<void> => {
+        const liveSession = controller.getSession();
+        if (liveSession === undefined) {
+            return;
+        }
+        try {
+            const removed = await liveSession.removeRedundantConstraints();
+            if (removed === 0) {
+                messageService?.warn('No redundant constraints to remove.');
+            }
+        } catch (error) {
+            messageService?.warn(`Failed to remove redundant constraints: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    };
 
     return (
         <div className="cad-sketch-overlay">
@@ -693,6 +730,7 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
                             constraints={session?.getConstraints() ?? []}
                             referenceResults={relevantRefs}
                             onHighlight={(kind) => controller.highlightDiagnostics(kind)}
+                            onRemoveRedundant={() => void removeRedundantConstraints()}
                             onClose={() => setDiagnosticsOpen(false)}
                         />
                     )}
@@ -1686,6 +1724,13 @@ function SketchShortcutsPopover(props: SketchShortcutsPopoverProps): React.React
                         <span>{label}</span>
                     </div>
                 ))}
+            </div>
+            <div className="cad-sketch-shortcuts-section">
+                <div className="cad-sketch-shortcuts-title">Tool modes (M key)</div>
+                <div className="cad-sketch-shortcuts-row">
+                    <span className="cad-sketch-shortcuts-key">M</span>
+                    <span>Cycle mode inside the active tool: rectangle corner/center/rounded, polyline line/arc, polygon sides 3–12</span>
+                </div>
             </div>
             <div className="cad-sketch-shortcuts-section">
                 <div className="cad-sketch-shortcuts-title">Select tool</div>
@@ -4002,11 +4047,12 @@ interface DiagnosticsPopoverProps {
     constraints: Array<{ id: string; kind: ConstraintKind; targetIds: string[] }>;
     referenceResults: import('../../../common/nuke-cad-protocol').ReferenceResolutionResult[];
     onHighlight: (kind: 'conflicting' | 'redundant') => void;
+    onRemoveRedundant: () => void;
     onClose: () => void;
 }
 
 function DiagnosticsPopover(props: DiagnosticsPopoverProps): React.ReactElement {
-    const { status, constraints, referenceResults, onHighlight, onClose } = props;
+    const { status, constraints, referenceResults, onHighlight, onRemoveRedundant, onClose } = props;
     const findConstraint = (id: string) => constraints.find((c) => c.id === id);
     const refCounts = countReferenceResults(referenceResults);
 
@@ -4077,6 +4123,13 @@ function DiagnosticsPopover(props: DiagnosticsPopoverProps): React.ReactElement 
                 refCounts.matched === 0 &&
                 refCounts.ambiguous === 0 &&
                 refCounts.unmatched === 0 && <div className="cad-sketch-diagnostics-empty">No diagnostics to report.</div>}
+            <div className="cad-sketch-diagnostics-section">
+                <Tooltip content="Delete every redundant constraint from the sketch" position="top">
+                    <button className="theia-button secondary" onClick={onRemoveRedundant}>
+                        Remove redundants ({status.redundant.length})
+                    </button>
+                </Tooltip>
+            </div>
         </DraggableNukePanel>
     );
 }

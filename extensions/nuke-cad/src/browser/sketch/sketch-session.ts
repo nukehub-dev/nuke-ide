@@ -57,7 +57,18 @@ import {
     type DimensionKind
 } from '../../common/cad-document';
 import { snap, createSnapConfig, type Point2, type SnapConfig, type SnapResult } from './snap';
-import { clampedUniformKnots } from '../../common/sketch-curves';
+import {
+    lineLineIntersection,
+    lineCircleIntersections,
+    circleCircleIntersections,
+    segmentParameter,
+    projectPointOntoSegment,
+    pointToSegmentDistance,
+    angleOfPoint,
+    arcPointAt,
+    isAngleOnArc
+} from './sketch-math';
+import { clampedUniformKnots, sharedEllipsePolyline, sharedBSplinePolyline, nearestPolylinePoint } from '../../common/sketch-curves';
 import { type TopologyRef } from '../../common/topology-refs';
 
 function clonePoint3(p: import('../../common/topology-refs').Point3): import('../../common/topology-refs').Point3 {
@@ -110,12 +121,31 @@ function cloneTopologyRef(ref: TopologyRef): TopologyRef {
 export type SketchPrimitive = SolverSketchPrimitive & { construction: boolean };
 
 /** Tools supported by the sketch session. */
-export type SketchTool = 'select' | 'point' | 'line' | 'circle' | 'arc3' | 'rectangle' | 'slot' | 'ellipse' | 'bspline';
+export type SketchTool =
+    | 'select'
+    | 'point'
+    | 'line'
+    | 'circle'
+    | 'arc3'
+    | 'rectangle'
+    | 'slot'
+    | 'ellipse'
+    | 'bspline'
+    | 'trim'
+    | 'extend'
+    | 'split'
+    | 'sketchFillet'
+    | 'sketchChamfer'
+    | 'polyline'
+    | 'polygon'
+    | 'arcSlot';
 
 /**
  * Single-key tool shortcuts routed by the CAD viewport while a sketch session
  * is active and the viewport holds focus. Keys avoid the reserved bindings
- * (Delete/Backspace/Escape/Tab, the 3D-only F/., and Q for the shortcut bar).
+ * (Delete/Backspace/Escape/Tab, the 3D-only F/., and Q for the shortcut bar)
+ * plus M, which cycles the rectangle/polyline/polygon mode of the active tool
+ * via {@link SketchSession.cycleMode} instead of switching tools.
  */
 export const SKETCH_TOOL_SHORTCUTS: Readonly<Record<string, SketchTool>> = {
     s: 'select',
@@ -126,8 +156,30 @@ export const SKETCH_TOOL_SHORTCUTS: Readonly<Record<string, SketchTool>> = {
     o: 'slot',
     p: 'point',
     e: 'ellipse',
-    b: 'bspline'
+    b: 'bspline',
+    t: 'trim',
+    x: 'extend',
+    d: 'split',
+    j: 'sketchFillet',
+    k: 'sketchChamfer',
+    w: 'polyline',
+    y: 'polygon',
+    u: 'arcSlot'
 };
+
+/** Rectangle construction modes, cycled with M while the rectangle tool is active. */
+export type RectangleMode = 'corner' | 'center' | 'rounded';
+
+/** Polyline segment modes, cycled with M while the polyline tool is active. */
+export type PolylineMode = 'line' | 'arc';
+
+/** Minimum/maximum polygon side counts; M wraps the side count through this range. */
+export const POLYGON_MIN_SIDES = 3;
+export const POLYGON_MAX_SIDES = 12;
+/** Default polygon side count. */
+export const POLYGON_DEFAULT_SIDES = 6;
+/** Rounded-rectangle fillet radius as a fraction of the shorter edge. */
+export const ROUNDED_RECTANGLE_RADIUS_RATIO = 0.2;
 
 /** Constraint kinds exposed by the UI-facing constraint API. */
 export type ConstraintKind =
@@ -309,6 +361,25 @@ export interface FilletResult {
     constraintId?: string;
 }
 
+/** Result of {@link SketchSession.chamferCorner}. */
+export interface ChamferResult {
+    success: boolean;
+    error?: string;
+    lineId?: string;
+}
+
+/** Result of the single-click curve edit operations (trim/extend/split). */
+export interface EditCurveResult {
+    success: boolean;
+    error?: string;
+    /** Id of the curve that was edited. */
+    targetId?: string;
+    /** Primary new/edited point (moved end, split point, trim anchor), when applicable. */
+    pointId?: string;
+    /** Curve ids produced by the edit (split halves, replacement arcs), when applicable. */
+    newIds?: string[];
+}
+
 /** Options for {@link SketchSession.editDimension}. */
 export interface EditDimensionOptions {
     /** New literal value; ignored when parameter is set. */
@@ -385,8 +456,60 @@ interface InProgressBSpline {
     poles: Point2[];
 }
 
+interface InProgressSketchFillet {
+    tool: 'sketchFillet';
+    stage: 1 | 2;
+    lineAId: string;
+    lineBId?: string;
+}
+
+interface InProgressSketchChamfer {
+    tool: 'sketchChamfer';
+    stage: 1 | 2;
+    lineAId: string;
+    lineBId?: string;
+}
+
+interface InProgressPolyline {
+    tool: 'polyline';
+    lastId: string;
+    last: Point2;
+    segmentIds: string[];
+    arcMidId?: string;
+    arcMid?: Point2;
+}
+
+interface InProgressPolygon {
+    tool: 'polygon';
+    stage: 1;
+    centerId: string;
+    center: Point2;
+}
+
+interface InProgressArcSlot {
+    tool: 'arcSlot';
+    stage: 1 | 2 | 3;
+    centerId: string;
+    center: Point2;
+    startId?: string;
+    start?: Point2;
+    endId?: string;
+    end?: Point2;
+}
+
 type InProgressState =
-    InProgressLine | InProgressCircle | InProgressArc3 | InProgressRectangle | InProgressSlot | InProgressEllipse | InProgressBSpline;
+    | InProgressLine
+    | InProgressCircle
+    | InProgressArc3
+    | InProgressRectangle
+    | InProgressSlot
+    | InProgressEllipse
+    | InProgressBSpline
+    | InProgressSketchFillet
+    | InProgressSketchChamfer
+    | InProgressPolyline
+    | InProgressPolygon
+    | InProgressArcSlot;
 
 interface DragState {
     pointIds: string[];
@@ -504,6 +627,18 @@ function arcAnglesFromThreePoints(center: Point2, start: Point2, mid: Point2, en
     return { startAngle: s, endAngle: e };
 }
 
+/** Curve kinds the trim/extend/split tools can target (never ellipses or B-splines). */
+const TRIM_CURVE_TARGETS: ReadonlySet<'line' | 'circle' | 'arc'> = new Set(['line', 'circle', 'arc']);
+
+/** Curve kinds the sketch fillet/chamfer staging picks accept. */
+const LINE_TARGET: ReadonlySet<'line' | 'circle' | 'arc'> = new Set(['line']);
+
+/** An intersection of the edited curve with a cutting curve. */
+interface CurveIntersection {
+    point: Point2;
+    otherId: string;
+}
+
 /**
  * Sketch session controller.
  *
@@ -532,6 +667,9 @@ export class SketchSession {
 
     private tool: SketchTool = 'select';
     private inProgress: InProgressState | undefined;
+    private rectangleMode: RectangleMode = 'corner';
+    private polylineMode: PolylineMode = 'line';
+    private polygonSides = POLYGON_DEFAULT_SIDES;
     private drag: DragState | undefined;
     private status: SketchStatus;
     private readonly listeners = new Set<ChangeListener>();
@@ -789,6 +927,49 @@ export class SketchSession {
         return this.tool;
     }
 
+    /** Current rectangle construction mode (M cycles corner/center/rounded). */
+    getRectangleMode(): RectangleMode {
+        return this.rectangleMode;
+    }
+
+    /** Current polyline segment mode (M cycles line/arc). */
+    getPolylineMode(): PolylineMode {
+        return this.polylineMode;
+    }
+
+    /** Current polygon side count (M wraps 3-12). */
+    getPolygonSides(): number {
+        return this.polygonSides;
+    }
+
+    /**
+     * Cycle the mode of the active tool (M key semantics).
+     *
+     * Rectangle cycles corner/center/rounded, polyline toggles line/arc
+     * (dropping a staged arc midpoint), and polygon wraps the side count
+     * 3-12. Other tools are unaffected. The new mode is reported through the
+     * transient `SketchStatus.hint` status line.
+     */
+    cycleMode(): void {
+        if (this.tool === 'rectangle') {
+            this.rectangleMode = this.rectangleMode === 'corner' ? 'center' : this.rectangleMode === 'center' ? 'rounded' : 'corner';
+            this.status = { ...this.status, hint: `Rectangle mode: ${this.rectangleMode}` };
+            this.emitChange();
+        } else if (this.tool === 'polyline') {
+            this.polylineMode = this.polylineMode === 'line' ? 'arc' : 'line';
+            if (this.inProgress !== undefined && this.inProgress.tool === 'polyline' && this.inProgress.arcMidId !== undefined) {
+                this.removePrimitiveAndConstraints(this.inProgress.arcMidId);
+                this.inProgress = { ...this.inProgress, arcMidId: undefined, arcMid: undefined };
+            }
+            this.status = { ...this.status, hint: `Polyline mode: ${this.polylineMode}` };
+            this.emitChange();
+        } else if (this.tool === 'polygon') {
+            this.polygonSides = this.polygonSides >= POLYGON_MAX_SIDES ? POLYGON_MIN_SIDES : this.polygonSides + 1;
+            this.status = { ...this.status, hint: `Polygon sides: ${this.polygonSides}` };
+            this.emitChange();
+        }
+    }
+
     /** True while an entity is mid-placement (Esc's first escape hatch). */
     isInProgress(): boolean {
         return this.inProgress !== undefined;
@@ -965,6 +1146,19 @@ export class SketchSession {
             this.status = { ...this.status, lastAutoConstraints: [] };
             return;
         }
+        if (this.inProgress.tool === 'polyline') {
+            // Committed chain segments survive: Esc drops a staged arc
+            // midpoint when one exists, otherwise it just ends the chain.
+            this.clearInProgressPoints();
+            if (this.inProgress.tool === 'polyline' && this.inProgress.arcMidId !== undefined) {
+                this.inProgress = { ...this.inProgress, arcMidId: undefined, arcMid: undefined };
+            } else {
+                this.inProgress = undefined;
+            }
+            this.status = { ...this.status, lastAutoConstraints: [] };
+            this.emitChange();
+            return;
+        }
         this.clearInProgressPoints();
         this.inProgress = undefined;
         this.status = { ...this.status, lastAutoConstraints: [] };
@@ -999,6 +1193,24 @@ export class SketchSession {
             }
         } else if (this.inProgress.tool === 'bspline') {
             ids.push(...this.inProgress.poleIds);
+        } else if (this.inProgress.tool === 'sketchFillet' || this.inProgress.tool === 'sketchChamfer') {
+            // Staged line picks create no geometry; nothing to delete.
+        } else if (this.inProgress.tool === 'polyline') {
+            // Polyline segments commit per click, so a full cancel only drops
+            // a staged arc midpoint; the chain itself is handled by cancel().
+            if (this.inProgress.arcMidId !== undefined) {
+                ids.push(this.inProgress.arcMidId);
+            }
+        } else if (this.inProgress.tool === 'polygon') {
+            ids.push(this.inProgress.centerId);
+        } else if (this.inProgress.tool === 'arcSlot') {
+            ids.push(this.inProgress.centerId);
+            if (this.inProgress.startId !== undefined) {
+                ids.push(this.inProgress.startId);
+            }
+            if (this.inProgress.endId !== undefined) {
+                ids.push(this.inProgress.endId);
+            }
         }
         for (const id of ids) {
             this.removePrimitiveAndConstraints(id);
@@ -1010,12 +1222,20 @@ export class SketchSession {
      *
      * All closed-form tools finish automatically on their final click; the
      * B-spline tool finishes here (Enter / double-click) once at least two
-     * poles are placed. The method also resets the last-action
-     * auto-constraint feedback.
+     * poles are placed, and the polyline tool finishes here by ending the
+     * chain while keeping every committed segment. The method also resets the
+     * last-action auto-constraint feedback.
      */
     async finish(): Promise<void> {
         if (this.inProgress !== undefined && this.inProgress.tool === 'bspline') {
             await this.commitBSpline(this.inProgress, []);
+        } else if (this.inProgress !== undefined && this.inProgress.tool === 'polyline') {
+            if (this.inProgress.arcMidId !== undefined) {
+                this.removePrimitiveAndConstraints(this.inProgress.arcMidId);
+            }
+            this.inProgress = undefined;
+            await this.commit([]);
+            this.emitChange();
         }
         this.status = { ...this.status, lastAutoConstraints: [] };
     }
@@ -1149,6 +1369,10 @@ export class SketchSession {
                     this.inProgress = { tool: 'rectangle', stage: 1, p1Id, p1: snapped.point };
                     this.status = { ...this.status, lastAutoConstraints: auto };
                     this.emitChange();
+                } else if (this.rectangleMode === 'center') {
+                    await this.commitCenterRectangle(this.inProgress, snapped, auto);
+                } else if (this.rectangleMode === 'rounded') {
+                    await this.commitRoundedRectangle(this.inProgress, snapped, auto);
                 } else {
                     const p1 = this.inProgress.p1;
                     const p2 = snapped.point;
@@ -1309,6 +1533,50 @@ export class SketchSession {
                 }
                 break;
             }
+            case 'trim': {
+                const result = await this.trimAt(raw, modifiers);
+                this.status = result.success
+                    ? { ...this.status, lastAutoConstraints: [] }
+                    : { ...this.status, lastAutoConstraints: [], hint: result.error };
+                this.emitChange();
+                break;
+            }
+            case 'extend': {
+                const result = await this.extendAt(raw, modifiers);
+                this.status = result.success
+                    ? { ...this.status, lastAutoConstraints: [] }
+                    : { ...this.status, lastAutoConstraints: [], hint: result.error };
+                this.emitChange();
+                break;
+            }
+            case 'split': {
+                const result = await this.splitAt(raw, modifiers);
+                this.status = result.success
+                    ? { ...this.status, lastAutoConstraints: [] }
+                    : { ...this.status, lastAutoConstraints: [], hint: result.error };
+                this.emitChange();
+                break;
+            }
+            case 'sketchFillet': {
+                await this.clickSketchFillet(snapped, raw);
+                break;
+            }
+            case 'sketchChamfer': {
+                await this.clickSketchChamfer(snapped, raw);
+                break;
+            }
+            case 'polyline': {
+                await this.clickPolyline(snapped);
+                break;
+            }
+            case 'polygon': {
+                await this.clickPolygon(snapped);
+                break;
+            }
+            case 'arcSlot': {
+                await this.clickArcSlot(snapped);
+                break;
+            }
         }
     }
 
@@ -1403,6 +1671,1653 @@ export class SketchSession {
         this.addAxisAutoConstraint(lineAB, a, b, auto);
         this.addAxisAutoConstraint(lineCD, c, d, auto);
         return undefined;
+    }
+
+    /**
+     * Commit a center-mode rectangle: the staged point is the center, the
+     * click is one corner, and the opposite corner is mirrored through the
+     * center. The staged center point is removed afterwards so only the four
+     * corner points remain.
+     */
+    private async commitCenterRectangle(state: InProgressRectangle, snapped: SnapResult, auto: AutoConstraintFeedback[]): Promise<void> {
+        const c = state.p1;
+        const k = snapped.point;
+        if (Math.abs(c.x - k.x) < 1e-12 || Math.abs(c.y - k.y) < 1e-12) {
+            this.status = { ...this.status, lastAutoConstraints: [] };
+            this.emitChange();
+            return;
+        }
+        const mirror = { x: 2 * c.x - k.x, y: 2 * c.y - k.y };
+        const cornerId = this.addPointForTool(snapped, auto);
+        const mirrorId = this.nextId('point');
+        this.addPointInternal(mirrorId, mirror.x, mirror.y, false);
+        const lineIds = this.createRectangle(k, mirror, cornerId, mirrorId, auto);
+        this.applyRectangleAxisAutos(lineIds, auto);
+        this.removePrimitiveAndConstraints(state.p1Id);
+        this.inProgress = undefined;
+        await this.commit(auto);
+        this.emitChange();
+    }
+
+    /**
+     * Commit a rounded rectangle: a corner-mode rectangle whose four corners
+     * each go through the {@link filletCorner} core with an automatic radius
+     * of {@link ROUNDED_RECTANGLE_RADIUS_RATIO} times the shorter edge.
+     */
+    private async commitRoundedRectangle(state: InProgressRectangle, snapped: SnapResult, auto: AutoConstraintFeedback[]): Promise<void> {
+        const p1 = state.p1;
+        const p2 = snapped.point;
+        if (Math.abs(p1.x - p2.x) < 1e-12 || Math.abs(p1.y - p2.y) < 1e-12) {
+            this.status = { ...this.status, lastAutoConstraints: [] };
+            this.emitChange();
+            return;
+        }
+        const p1Id = state.p1Id;
+        const p2Id = this.addPointForTool(snapped, auto);
+        const lineIds = this.createRectangle(p1, p2, p1Id, p2Id, auto);
+        const radius = ROUNDED_RECTANGLE_RADIUS_RATIO * Math.min(Math.abs(p2.x - p1.x), Math.abs(p2.y - p1.y));
+        const pairs: Array<[string, string]> = [
+            [lineIds[0], lineIds[1]],
+            [lineIds[1], lineIds[2]],
+            [lineIds[2], lineIds[3]],
+            [lineIds[3], lineIds[0]]
+        ];
+        for (const [a, b] of pairs) {
+            const result = await this.filletCorner(a, b, radius);
+            if (!result.success) {
+                this.inProgress = undefined;
+                this.status = { ...this.status, lastAutoConstraints: [], hint: result.error };
+                this.emitChange();
+                return;
+            }
+        }
+        this.applyRectangleAxisAutos(lineIds, auto);
+        this.inProgress = undefined;
+        await this.commit(auto);
+        this.emitChange();
+    }
+
+    private applyRectangleAxisAutos(lineIds: string[], auto: AutoConstraintFeedback[]): void {
+        for (const lineId of lineIds) {
+            const line = this.primitives.get(lineId) as SketchLine & PrimitiveMeta;
+            const a = this.getPointPosition(line.p1Id);
+            const b = this.getPointPosition(line.p2Id);
+            if (a !== undefined && b !== undefined) {
+                this.addAxisAutoConstraint(lineId, a, b, auto);
+            }
+        }
+    }
+
+    /**
+     * Build a regular polygon around a staged center through a vertex.
+     *
+     * Consecutive sides share endpoint ids (coincident closure, like the
+     * rectangle tool) and carry equal-length constraints around the ring.
+     */
+    private buildPolygon(center: Point2, vertex: Point2, vertexId: string, auto: AutoConstraintFeedback[]): void {
+        const n = this.polygonSides;
+        const radius = Math.hypot(vertex.x - center.x, vertex.y - center.y);
+        const base = Math.atan2(vertex.y - center.y, vertex.x - center.x);
+        const pointIds = [vertexId];
+        for (let i = 1; i < n; i++) {
+            const corner = arcPointAt(center, radius, base + (i * 2 * Math.PI) / n);
+            const id = this.nextId('point');
+            this.addPointInternal(id, corner.x, corner.y, false);
+            pointIds.push(id);
+        }
+        const lineIds: string[] = [];
+        for (let i = 0; i < n; i++) {
+            const lineId = this.nextId('line');
+            this.addLineInternal(lineId, pointIds[i], pointIds[(i + 1) % n], false);
+            lineIds.push(lineId);
+        }
+        for (let i = 0; i < n - 1; i++) {
+            const equalId = this.nextId('equal');
+            this.solver.addConstraintEqual(equalId, lineIds[i], lineIds[i + 1], { driving: true });
+            this.constraints.set(equalId, { id: equalId, kind: 'equal', targetIds: [lineIds[i], lineIds[i + 1]], driving: true });
+            auto.push({ kind: 'equal', ids: [equalId] });
+        }
+    }
+
+    private async clickPolygon(snapped: SnapResult): Promise<void> {
+        const auto: AutoConstraintFeedback[] = [];
+        if (this.inProgress === undefined || this.inProgress.tool !== 'polygon') {
+            const centerId = this.addPointForTool(snapped, auto);
+            this.inProgress = { tool: 'polygon', stage: 1, centerId, center: snapped.point };
+            this.status = { ...this.status, lastAutoConstraints: auto };
+            this.emitChange();
+            return;
+        }
+        const radius = Math.hypot(snapped.point.x - this.inProgress.center.x, snapped.point.y - this.inProgress.center.y);
+        if (radius < 1e-9) {
+            this.status = { ...this.status, lastAutoConstraints: [], hint: 'Polygon needs a vertex away from the center' };
+            this.emitChange();
+            return;
+        }
+        const vertexId = this.addPointForTool(snapped, auto);
+        this.buildPolygon(this.inProgress.center, snapped.point, vertexId, auto);
+        this.inProgress = undefined;
+        await this.commit(auto);
+        this.emitChange();
+    }
+
+    /**
+     * Build an annular-sector arc slot: two concentric arcs (the long walls)
+     * joined by two chord end caps, each tangent to the inner arc at the
+     * staged start angle. The staged start point is reused as the first inner
+     * junction; the staged end point only fixed the angular span and is
+     * removed. Returns an error message when the gesture is degenerate.
+     */
+    private buildArcSlot(
+        centerId: string,
+        center: Point2,
+        start: Point2,
+        startId: string,
+        span: number,
+        outerRadius: number,
+        auto: AutoConstraintFeedback[]
+    ): void {
+        const innerRadius = Math.hypot(start.x - center.x, start.y - center.y);
+        const startAngle = angleOfPoint(start, center);
+        const midAngle = startAngle + span / 2;
+        const delta = Math.acos(Math.min(1, innerRadius / outerRadius));
+        const innerMid = arcPointAt(center, innerRadius, midAngle);
+        const outerMid = arcPointAt(center, outerRadius, midAngle);
+
+        const innerEnd = arcPointAt(center, innerRadius, startAngle + span);
+        const innerEndId = this.nextId('point');
+        this.addPointInternal(innerEndId, innerEnd.x, innerEnd.y, false);
+        const outerStart = arcPointAt(center, outerRadius, startAngle - delta);
+        const outerStartId = this.nextId('point');
+        this.addPointInternal(outerStartId, outerStart.x, outerStart.y, false);
+        const outerEnd = arcPointAt(center, outerRadius, startAngle + span + delta);
+        const outerEndId = this.nextId('point');
+        this.addPointInternal(outerEndId, outerEnd.x, outerEnd.y, false);
+
+        const outerAngles = arcAnglesFromThreePoints(center, outerStart, outerMid, outerEnd);
+        const outerId = this.nextId('arc');
+        this.addArcInternal(outerId, centerId, outerRadius, outerAngles.startAngle, outerAngles.endAngle, outerStartId, outerEndId, false);
+        const innerAngles = arcAnglesFromThreePoints(center, innerEnd, innerMid, start);
+        const innerId = this.nextId('arc');
+        this.addArcInternal(innerId, centerId, innerRadius, innerAngles.startAngle, innerAngles.endAngle, innerEndId, startId, false);
+
+        const line1Id = this.nextId('line');
+        const line2Id = this.nextId('line');
+        this.addLineInternal(line1Id, startId, outerStartId, false);
+        this.addLineInternal(line2Id, innerEndId, outerEndId, false);
+
+        for (const [lineId, arcId] of [
+            [line1Id, innerId],
+            [line2Id, innerId]
+        ] as Array<[string, string]>) {
+            const tangentId = this.nextId('tangent');
+            this.solver.addConstraintTangent(tangentId, lineId, arcId, { driving: true });
+            this.constraints.set(tangentId, { id: tangentId, kind: 'tangent', targetIds: [lineId, arcId], driving: true });
+            auto.push({ kind: 'tangent', ids: [tangentId] });
+        }
+        const equalId = this.nextId('equal');
+        this.solver.addConstraintEqual(equalId, line1Id, line2Id, { driving: true });
+        this.constraints.set(equalId, { id: equalId, kind: 'equal', targetIds: [line1Id, line2Id], driving: true });
+        auto.push({ kind: 'equal', ids: [equalId] });
+    }
+
+    private async clickArcSlot(snapped: SnapResult): Promise<void> {
+        const auto: AutoConstraintFeedback[] = [];
+        if (this.inProgress === undefined || this.inProgress.tool !== 'arcSlot') {
+            const centerId = this.addPointForTool(snapped, auto);
+            this.inProgress = { tool: 'arcSlot', stage: 1, centerId, center: snapped.point };
+            this.status = { ...this.status, lastAutoConstraints: auto };
+            this.emitChange();
+            return;
+        }
+        if (this.inProgress.stage === 1) {
+            const radius = Math.hypot(snapped.point.x - this.inProgress.center.x, snapped.point.y - this.inProgress.center.y);
+            if (radius < 1e-9) {
+                this.status = { ...this.status, lastAutoConstraints: [], hint: 'Arc slot needs a start point away from the center' };
+                this.emitChange();
+                return;
+            }
+            const startId = this.addPointForTool(snapped, auto);
+            this.inProgress = {
+                tool: 'arcSlot',
+                stage: 2,
+                centerId: this.inProgress.centerId,
+                center: this.inProgress.center,
+                startId,
+                start: snapped.point
+            };
+            this.status = { ...this.status, lastAutoConstraints: auto };
+            this.emitChange();
+            return;
+        }
+        if (this.inProgress.stage === 2) {
+            const { center, start } = this.inProgress;
+            if (start === undefined) {
+                return;
+            }
+            if (Math.hypot(snapped.point.x - center.x, snapped.point.y - center.y) < 1e-9) {
+                this.status = { ...this.status, lastAutoConstraints: [], hint: 'Arc slot needs an end point away from the center' };
+                this.emitChange();
+                return;
+            }
+            const startAngle = angleOfPoint(start, center);
+            let span = (angleOfPoint(snapped.point, center) - startAngle) % (2 * Math.PI);
+            if (span < 0) {
+                span += 2 * Math.PI;
+            }
+            if (span < 1e-6 || 2 * Math.PI - span < 1e-6) {
+                this.status = { ...this.status, lastAutoConstraints: [], hint: 'Arc slot start and end angles must differ' };
+                this.emitChange();
+                return;
+            }
+            const endId = this.addPointForTool(snapped, auto);
+            this.inProgress = {
+                tool: 'arcSlot',
+                stage: 3,
+                centerId: this.inProgress.centerId,
+                center,
+                startId: this.inProgress.startId,
+                start,
+                endId,
+                end: snapped.point
+            };
+            this.status = { ...this.status, lastAutoConstraints: auto };
+            this.emitChange();
+            return;
+        }
+        const { centerId, center, start, startId, endId } = this.inProgress;
+        if (start === undefined || startId === undefined || endId === undefined) {
+            return;
+        }
+        const innerRadius = Math.hypot(start.x - center.x, start.y - center.y);
+        const width = Math.abs(Math.hypot(snapped.point.x - center.x, snapped.point.y - center.y) - innerRadius);
+        if (width < 1e-9) {
+            this.status = {
+                ...this.status,
+                lastAutoConstraints: [],
+                hint: 'Slot width must be non-zero — pick a width point off the wall'
+            };
+            this.emitChange();
+            return;
+        }
+        const startAngle = angleOfPoint(start, center);
+        let span = (angleOfPoint(this.inProgress.end!, center) - startAngle) % (2 * Math.PI);
+        if (span < 0) {
+            span += 2 * Math.PI;
+        }
+        this.buildArcSlot(centerId, center, start, startId, span, innerRadius + width, auto);
+        this.removePrimitiveAndConstraints(endId);
+        this.inProgress = undefined;
+        await this.commit(auto);
+        this.emitChange();
+    }
+
+    /** Shared corner point id of two lines, or undefined when they meet nowhere. */
+    private sharedCornerOf(lineId1: string, lineId2: string): string | undefined {
+        const l1 = this.primitives.get(lineId1);
+        const l2 = this.primitives.get(lineId2);
+        if (l1?.type !== 'line' || l2?.type !== 'line') {
+            return undefined;
+        }
+        return [l1.p1Id, l1.p2Id].find((e) => e === l2.p1Id || e === l2.p2Id);
+    }
+
+    /** Nearest line to a click within the pick tolerance, for fillet/chamfer staging. */
+    private resolveLineTarget(snapped: SnapResult, raw: Point2): string | undefined {
+        if (snapped.sourceId !== undefined) {
+            const target = this.primitives.get(snapped.sourceId);
+            if (target?.type === 'line') {
+                return target.id;
+            }
+        }
+        return this.findNearestCurve(raw, LINE_TARGET, this.pickTolerance())?.id;
+    }
+
+    private async clickSketchFillet(snapped: SnapResult, raw: Point2): Promise<void> {
+        if (this.inProgress === undefined || this.inProgress.tool !== 'sketchFillet') {
+            const lineId = this.resolveLineTarget(snapped, raw);
+            if (lineId === undefined) {
+                this.status = { ...this.status, lastAutoConstraints: [], hint: 'Sketch fillet: click the first line' };
+                this.emitChange();
+                return;
+            }
+            this.inProgress = { tool: 'sketchFillet', stage: 1, lineAId: lineId };
+            this.status = { ...this.status, lastAutoConstraints: [] };
+            this.emitChange();
+            return;
+        }
+        if (this.inProgress.stage === 1) {
+            const lineId = this.resolveLineTarget(snapped, raw);
+            if (
+                lineId === undefined ||
+                lineId === this.inProgress.lineAId ||
+                this.sharedCornerOf(this.inProgress.lineAId, lineId) === undefined
+            ) {
+                this.status = {
+                    ...this.status,
+                    lastAutoConstraints: [],
+                    hint: 'Sketch fillet needs a second line sharing a corner with the first'
+                };
+                this.emitChange();
+                return;
+            }
+            this.inProgress = { tool: 'sketchFillet', stage: 2, lineAId: this.inProgress.lineAId, lineBId: lineId };
+            this.status = { ...this.status, lastAutoConstraints: [] };
+            this.emitChange();
+            return;
+        }
+        const { lineAId, lineBId } = this.inProgress;
+        if (lineBId === undefined) {
+            return;
+        }
+        const corner = this.sharedCornerOf(lineAId, lineBId);
+        const cornerPos = corner === undefined ? undefined : this.getPointPosition(corner);
+        if (corner === undefined || cornerPos === undefined) {
+            this.status = { ...this.status, lastAutoConstraints: [], hint: 'Sketch fillet needs two lines sharing a corner point' };
+            this.emitChange();
+            return;
+        }
+        const radius = Math.hypot(snapped.point.x - cornerPos.x, snapped.point.y - cornerPos.y);
+        if (!(radius > 1e-9)) {
+            this.status = {
+                ...this.status,
+                lastAutoConstraints: [],
+                hint: 'Sketch fillet radius must be positive — click farther from the corner'
+            };
+            this.emitChange();
+            return;
+        }
+        const result = await this.filletCorner(lineAId, lineBId, radius);
+        if (!result.success) {
+            this.status = { ...this.status, lastAutoConstraints: [], hint: result.error };
+            this.emitChange();
+            return;
+        }
+        this.inProgress = undefined;
+        this.emitChange();
+    }
+
+    private async clickSketchChamfer(snapped: SnapResult, raw: Point2): Promise<void> {
+        if (this.inProgress === undefined || this.inProgress.tool !== 'sketchChamfer') {
+            const lineId = this.resolveLineTarget(snapped, raw);
+            if (lineId === undefined) {
+                this.status = { ...this.status, lastAutoConstraints: [], hint: 'Sketch chamfer: click the first line' };
+                this.emitChange();
+                return;
+            }
+            this.inProgress = { tool: 'sketchChamfer', stage: 1, lineAId: lineId };
+            this.status = { ...this.status, lastAutoConstraints: [] };
+            this.emitChange();
+            return;
+        }
+        if (this.inProgress.stage === 1) {
+            const lineId = this.resolveLineTarget(snapped, raw);
+            if (
+                lineId === undefined ||
+                lineId === this.inProgress.lineAId ||
+                this.sharedCornerOf(this.inProgress.lineAId, lineId) === undefined
+            ) {
+                this.status = {
+                    ...this.status,
+                    lastAutoConstraints: [],
+                    hint: 'Sketch chamfer needs a second line sharing a corner with the first'
+                };
+                this.emitChange();
+                return;
+            }
+            this.inProgress = { tool: 'sketchChamfer', stage: 2, lineAId: this.inProgress.lineAId, lineBId: lineId };
+            this.status = { ...this.status, lastAutoConstraints: [] };
+            this.emitChange();
+            return;
+        }
+        const { lineAId, lineBId } = this.inProgress;
+        if (lineBId === undefined) {
+            return;
+        }
+        const corner = this.sharedCornerOf(lineAId, lineBId);
+        const cornerPos = corner === undefined ? undefined : this.getPointPosition(corner);
+        if (corner === undefined || cornerPos === undefined) {
+            this.status = { ...this.status, lastAutoConstraints: [], hint: 'Sketch chamfer needs two lines sharing a corner point' };
+            this.emitChange();
+            return;
+        }
+        const distance = Math.hypot(snapped.point.x - cornerPos.x, snapped.point.y - cornerPos.y);
+        if (!(distance > 1e-9)) {
+            this.status = {
+                ...this.status,
+                lastAutoConstraints: [],
+                hint: 'Sketch chamfer distance must be positive — click farther from the corner'
+            };
+            this.emitChange();
+            return;
+        }
+        const result = await this.chamferCorner(lineAId, lineBId, distance);
+        if (!result.success) {
+            this.status = { ...this.status, lastAutoConstraints: [], hint: result.error };
+            this.emitChange();
+            return;
+        }
+        this.inProgress = undefined;
+        this.emitChange();
+    }
+
+    private async clickPolyline(snapped: SnapResult): Promise<void> {
+        const auto: AutoConstraintFeedback[] = [];
+        if (this.inProgress === undefined || this.inProgress.tool !== 'polyline') {
+            const id = this.addPointForTool(snapped, auto);
+            this.inProgress = { tool: 'polyline', lastId: id, last: snapped.point, segmentIds: [] };
+            this.status = { ...this.status, lastAutoConstraints: auto };
+            this.emitChange();
+            return;
+        }
+        if (this.polylineMode === 'line') {
+            const p2 = snapped.point;
+            if (Math.hypot(p2.x - this.inProgress.last.x, p2.y - this.inProgress.last.y) < 1e-12) {
+                this.status = { ...this.status, lastAutoConstraints: [] };
+                this.emitChange();
+                return;
+            }
+            const p2Id = this.addPointForTool(snapped, auto);
+            const lineId = this.nextId('line');
+            this.addLineInternal(lineId, this.inProgress.lastId, p2Id, false);
+            this.addAxisAutoConstraint(lineId, this.inProgress.last, p2, auto);
+            this.inProgress = {
+                tool: 'polyline',
+                lastId: p2Id,
+                last: p2,
+                segmentIds: [...this.inProgress.segmentIds, lineId]
+            };
+            await this.commit(auto);
+            this.emitChange();
+            return;
+        }
+        if (this.inProgress.arcMid === undefined) {
+            const midId = this.addPointForTool(snapped, auto);
+            this.inProgress = { ...this.inProgress, arcMidId: midId, arcMid: snapped.point };
+            this.status = { ...this.status, lastAutoConstraints: auto };
+            this.emitChange();
+            return;
+        }
+        const { last, arcMid } = this.inProgress;
+        const end = snapped.point;
+        if (Math.hypot(end.x - last.x, end.y - last.y) < 1e-12 || Math.hypot(end.x - arcMid.x, end.y - arcMid.y) < 1e-12) {
+            this.status = { ...this.status, lastAutoConstraints: [] };
+            this.emitChange();
+            return;
+        }
+        let center: Point2;
+        try {
+            center = circleCenterFromThreePoints(last, arcMid, end);
+        } catch {
+            this.status = {
+                ...this.status,
+                lastAutoConstraints: [],
+                hint: 'Polyline arc points are collinear — pick a different endpoint'
+            };
+            this.emitChange();
+            return;
+        }
+        const radius = Math.hypot(last.x - center.x, last.y - center.y);
+        const angles = arcAnglesFromThreePoints(center, last, arcMid, end);
+        const centerId = this.nextId('point');
+        this.addPointInternal(centerId, center.x, center.y, false);
+        const endId = this.addPointForTool(snapped, auto);
+        const arcId = this.nextId('arc');
+        this.addArcInternal(arcId, centerId, radius, angles.startAngle, angles.endAngle, this.inProgress.lastId, endId, false);
+        this.inProgress = {
+            tool: 'polyline',
+            lastId: endId,
+            last: end,
+            segmentIds: [...this.inProgress.segmentIds, arcId]
+        };
+        await this.commit(auto);
+        this.emitChange();
+    }
+
+    /**
+     * Insert a chamfer between two lines sharing a corner point.
+     *
+     * Mirrors {@link filletCorner}: both lines are shortened to equal legs of
+     * the given distance from the corner (same-id rebuild, so line-level
+     * constraints survive via replay) and the corner point is removed. The
+     * legs meet a fresh connecting line whose ends are joined with coincident
+     * constraints at the two new corners.
+     */
+    async chamferCorner(lineId1: string, lineId2: string, distance: number): Promise<ChamferResult> {
+        const l1 = this.primitives.get(lineId1);
+        const l2 = this.primitives.get(lineId2);
+        if (l1?.type !== 'line' || l2?.type !== 'line') {
+            return { success: false, error: 'chamfer requires two lines' };
+        }
+        if (lineId1 === lineId2) {
+            return { success: false, error: 'chamfer requires two distinct lines' };
+        }
+        const corner = this.sharedCornerOf(lineId1, lineId2);
+        if (corner === undefined) {
+            return { success: false, error: 'chamfer requires two lines sharing a corner point' };
+        }
+        if (!Number.isFinite(distance) || distance <= 0) {
+            return { success: false, error: `Chamfer distance must be positive, got ${distance}` };
+        }
+        const cornerPos = this.getPointPosition(corner);
+        const pos1 = this.getPointPosition(l1.p1Id === corner ? l1.p2Id : l1.p1Id);
+        const pos2 = this.getPointPosition(l2.p1Id === corner ? l2.p2Id : l2.p1Id);
+        if (cornerPos === undefined || pos1 === undefined || pos2 === undefined) {
+            return { success: false, error: 'chamfer corner references unsolved geometry' };
+        }
+        const len1 = Math.hypot(pos1.x - cornerPos.x, pos1.y - cornerPos.y);
+        const len2 = Math.hypot(pos2.x - cornerPos.x, pos2.y - cornerPos.y);
+        if (distance >= len1 || distance >= len2) {
+            return {
+                success: false,
+                error: `Chamfer distance ${distance} is too large for the corner (max ${Math.min(len1, len2).toFixed(6)})`
+            };
+        }
+        const blockers = [...this.constraints.values()].filter((record) => record.targetIds.includes(corner));
+        if (blockers.length > 0) {
+            return {
+                success: false,
+                error: `Corner point '${corner}' is constrained (${blockers.map((r) => r.id).join(', ')}); remove those constraints first`
+            };
+        }
+        const dimensionBlockers = [...this.dimensions.values()].filter((dimension) => dimension.targetIds.includes(corner));
+        if (dimensionBlockers.length > 0) {
+            return {
+                success: false,
+                error: `Corner point '${corner}' drives dimension(s) (${dimensionBlockers.map((d) => d.id).join(', ')}); remove them first`
+            };
+        }
+
+        const u = { x: (pos1.x - cornerPos.x) / len1, y: (pos1.y - cornerPos.y) / len1 };
+        const v = { x: (pos2.x - cornerPos.x) / len2, y: (pos2.y - cornerPos.y) / len2 };
+        const t1 = { x: cornerPos.x + u.x * distance, y: cornerPos.y + u.y * distance };
+        const t2 = { x: cornerPos.x + v.x * distance, y: cornerPos.y + v.y * distance };
+        const e1Id = this.nextId('point');
+        const e2Id = this.nextId('point');
+        const f1Id = this.nextId('point');
+        const f2Id = this.nextId('point');
+        this.addPointInternal(e1Id, t1.x, t1.y, false);
+        this.addPointInternal(e2Id, t2.x, t2.y, false);
+        this.addPointInternal(f1Id, t1.x, t1.y, false);
+        this.addPointInternal(f2Id, t2.x, t2.y, false);
+
+        try {
+            const refs = [...this.constraints.values()].filter(
+                (record) => record.targetIds.includes(lineId1) || record.targetIds.includes(lineId2)
+            );
+            this.solver.removePrimitive(lineId1);
+            this.solver.removePrimitive(lineId2);
+            const newEnds1: [string, string] = [l1.p1Id === corner ? e1Id : l1.p1Id, l1.p2Id === corner ? e1Id : l1.p2Id];
+            const newEnds2: [string, string] = [l2.p1Id === corner ? e2Id : l2.p1Id, l2.p2Id === corner ? e2Id : l2.p2Id];
+            this.solver.addLine(lineId1, newEnds1[0], newEnds1[1], { construction: l1.construction });
+            this.solver.addLine(lineId2, newEnds2[0], newEnds2[1], { construction: l2.construction });
+            this.primitives.set(lineId1, { ...l1, p1Id: newEnds1[0], p2Id: newEnds1[1] });
+            this.primitives.set(lineId2, { ...l2, p1Id: newEnds2[0], p2Id: newEnds2[1] });
+            for (const record of refs) {
+                this.replayConstraintRecord(record);
+            }
+            this.solver.removePrimitive(corner);
+            this.primitives.delete(corner);
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            await this.commit([]);
+            this.emitChange();
+            return { success: false, error: message };
+        }
+
+        const lineId = this.nextId('line');
+        this.addLineInternal(lineId, f1Id, f2Id, false);
+        for (const [a, b] of [
+            [e1Id, f1Id],
+            [e2Id, f2Id]
+        ] as Array<[string, string]>) {
+            const coincidentId = this.nextId('coincident');
+            this.solver.addConstraintCoincident(coincidentId, a, b, { driving: true });
+            this.constraints.set(coincidentId, { id: coincidentId, kind: 'coincident', targetIds: [a, b], driving: true });
+        }
+        await this.commit([]);
+        this.emitChange();
+        return { success: true, lineId };
+    }
+
+    /**
+     * Clip a segment back to its nearest intersection with another curve.
+     *
+     * Lines and arcs are shortened by moving the nearer end onto the
+     * intersection; circles are opened into an arc that drops the span
+     * containing the click. Constraints owned solely by removed portions
+     * (point-on-object records whose point left the curve) are deleted, and
+     * the new trim endpoints gain coincident/point-on-object hygiene. Fails
+     * clearly when nothing intersects the target.
+     */
+    async trimAt(raw: Point2, modifiers?: { disableSnap?: boolean }): Promise<EditCurveResult> {
+        const { result, auto } = await this.doTrim(raw, modifiers);
+        this.status = result.success
+            ? { ...this.status, lastAutoConstraints: auto }
+            : { ...this.status, lastAutoConstraints: [], hint: result.error };
+        this.emitChange();
+        return result;
+    }
+
+    /**
+     * Extend an open line/arc end to the next intersecting curve.
+     *
+     * The end nearest the click is extended along the line direction (or the
+     * arc end tangent) until it meets another curve. Same constraint hygiene
+     * as {@link trimAt}. Fails clearly with no end nearby or nothing ahead.
+     */
+    async extendAt(raw: Point2, modifiers?: { disableSnap?: boolean }): Promise<EditCurveResult> {
+        const { result, auto } = await this.doExtend(raw, modifiers);
+        this.status = result.success
+            ? { ...this.status, lastAutoConstraints: auto }
+            : { ...this.status, lastAutoConstraints: [], hint: result.error };
+        this.emitChange();
+        return result;
+    }
+
+    /**
+     * Split a line, arc, or circle at the clicked interior point.
+     *
+     * Lines and arcs become two entities sharing the new split point (the
+     * first half keeps the original id so its constraints survive; drifting
+     * point-on-object records are remapped onto the correct half). Circles
+     * become two semicircular arcs sharing the split point and its antipode.
+     * Construction flags are preserved on every new entity.
+     */
+    async splitAt(raw: Point2, modifiers?: { disableSnap?: boolean }): Promise<EditCurveResult> {
+        const { result, auto } = await this.doSplit(raw, modifiers);
+        this.status = result.success
+            ? { ...this.status, lastAutoConstraints: auto }
+            : { ...this.status, lastAutoConstraints: [], hint: result.error };
+        this.emitChange();
+        return result;
+    }
+
+    /**
+     * Drop every solver-tagged redundant constraint and return the count.
+     *
+     * Re-solves to a fixpoint so cascades are fully cleared. Partially
+     * redundant constraints are left alone (they are consistent today).
+     */
+    async removeRedundantConstraints(): Promise<number> {
+        let removed = 0;
+        for (;;) {
+            const result = await this.solver.solve();
+            const tagged = result.redundant.filter((id) => this.constraints.has(id));
+            if (tagged.length === 0) {
+                break;
+            }
+            for (const id of tagged) {
+                this.removeConstraintInternal(id);
+            }
+            removed += tagged.length;
+        }
+        await this.commit([]);
+        this.emitChange();
+        return removed;
+    }
+
+    private async doTrim(
+        raw: Point2,
+        modifiers?: { disableSnap?: boolean }
+    ): Promise<{ result: EditCurveResult; auto: AutoConstraintFeedback[] }> {
+        const auto: AutoConstraintFeedback[] = [];
+        const snapped = this.applySnap(raw, modifiers?.disableSnap);
+        const hit = this.findNearestCurve(snapped.point, TRIM_CURVE_TARGETS, this.pickTolerance());
+        if (hit === undefined) {
+            return { result: { success: false, error: this.curveTargetError(snapped.point, 'Trim') }, auto };
+        }
+        try {
+            if (hit.kind === 'line') {
+                return { result: await this.trimLine(hit.id, snapped.point, auto), auto };
+            }
+            if (hit.kind === 'circle') {
+                return { result: await this.trimCircle(hit.id, snapped.point, auto), auto };
+            }
+            return { result: await this.trimArc(hit.id, snapped.point, auto), auto };
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            return { result: { success: false, error: message }, auto };
+        }
+    }
+
+    private async doExtend(
+        raw: Point2,
+        modifiers?: { disableSnap?: boolean }
+    ): Promise<{ result: EditCurveResult; auto: AutoConstraintFeedback[] }> {
+        const auto: AutoConstraintFeedback[] = [];
+        const snapped = this.applySnap(raw, modifiers?.disableSnap);
+        const click = snapped.point;
+        const tol = this.pickTolerance();
+        let picked: { curveId: string; kind: 'line' | 'arc'; endId: string } | undefined;
+        if (snapped.kind === 'endpoint' && snapped.pointId !== undefined) {
+            picked = this.ownerEndOf(snapped.pointId);
+        }
+        if (picked === undefined) {
+            picked = this.findNearestEnd(click, tol);
+        }
+        if (picked === undefined) {
+            return { result: { success: false, error: 'Extend found no line or arc end near the click' }, auto };
+        }
+        try {
+            return { result: await this.extendEnd(picked.curveId, picked.kind, picked.endId, auto), auto };
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            return { result: { success: false, error: message }, auto };
+        }
+    }
+
+    private async doSplit(
+        raw: Point2,
+        modifiers?: { disableSnap?: boolean }
+    ): Promise<{ result: EditCurveResult; auto: AutoConstraintFeedback[] }> {
+        const auto: AutoConstraintFeedback[] = [];
+        const snapped = this.applySnap(raw, modifiers?.disableSnap);
+        const hit = this.findNearestCurve(snapped.point, TRIM_CURVE_TARGETS, this.pickTolerance());
+        if (hit === undefined) {
+            return { result: { success: false, error: this.curveTargetError(snapped.point, 'Split') }, auto };
+        }
+        try {
+            if (hit.kind === 'line') {
+                return { result: await this.splitLine(hit.id, snapped.point, auto), auto };
+            }
+            if (hit.kind === 'circle') {
+                return { result: await this.splitCircle(hit.id, snapped.point, auto), auto };
+            }
+            return { result: await this.splitArc(hit.id, snapped.point, auto), auto };
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            return { result: { success: false, error: message }, auto };
+        }
+    }
+
+    /** Snap-scaled pick tolerance in model units (applies even with snapping off). */
+    private pickTolerance(): number {
+        return this.snapConfig.radius * (this.snapRadiusPx / SketchSession.DEFAULT_SNAP_RADIUS_PX);
+    }
+
+    private curveDistance(kind: 'line' | 'circle' | 'arc', id: string, point: Point2): number | undefined {
+        if (kind === 'line') {
+            const line = this.primitives.get(id);
+            if (line?.type !== 'line') {
+                return undefined;
+            }
+            const a = this.getPointPosition(line.p1Id);
+            const b = this.getPointPosition(line.p2Id);
+            if (a === undefined || b === undefined) {
+                return undefined;
+            }
+            return pointToSegmentDistance(point, a, b);
+        }
+        const frame = kind === 'circle' ? this.circleFrame(id) : this.arcFrame(id);
+        if (frame === undefined) {
+            return undefined;
+        }
+        const radial = Math.abs(Math.hypot(point.x - frame.center.x, point.y - frame.center.y) - frame.radius);
+        if (kind === 'circle') {
+            return radial;
+        }
+        const arcSpan = this.arcFrame(id);
+        if (arcSpan === undefined) {
+            return undefined;
+        }
+        if (isAngleOnArc(angleOfPoint(point, arcSpan.center), arcSpan.startAngle, arcSpan.endAngle)) {
+            return radial;
+        }
+        const arc = this.primitives.get(id);
+        if (arc?.type !== 'arc') {
+            return undefined;
+        }
+        const s = this.getPointPosition(arc.startId);
+        const e = this.getPointPosition(arc.endId);
+        if (s === undefined || e === undefined) {
+            return undefined;
+        }
+        return Math.min(Math.hypot(point.x - s.x, point.y - s.y), Math.hypot(point.x - e.x, point.y - e.y));
+    }
+
+    private findNearestCurve(
+        point: Point2,
+        allowed: ReadonlySet<'line' | 'circle' | 'arc'>,
+        maxDist: number
+    ): { id: string; kind: 'line' | 'circle' | 'arc' } | undefined {
+        let best: { id: string; kind: 'line' | 'circle' | 'arc'; distance: number } | undefined;
+        for (const [id, primitive] of this.primitives) {
+            if (primitive.type !== 'line' && primitive.type !== 'circle' && primitive.type !== 'arc') {
+                continue;
+            }
+            if (!allowed.has(primitive.type)) {
+                continue;
+            }
+            const distance = this.curveDistance(primitive.type, id, point);
+            if (distance === undefined || distance > maxDist) {
+                continue;
+            }
+            if (best === undefined || distance < best.distance) {
+                best = { id, kind: primitive.type, distance };
+            }
+        }
+        return best === undefined ? undefined : { id: best.id, kind: best.kind };
+    }
+
+    /**
+     * True when the click is near an ellipse/B-spline (which trim/extend/split
+     * never edit: those curves carry point-level constraints only).
+     */
+    private nearUnsupportedCurve(point: Point2, maxDist: number): 'ellipse' | 'bspline' | undefined {
+        for (const primitive of this.primitives.values()) {
+            if (primitive.type === 'ellipse') {
+                const center = this.getPointPosition(primitive.centerId);
+                const focus1 = this.getPointPosition(primitive.focus1Id);
+                if (center === undefined || focus1 === undefined) {
+                    continue;
+                }
+                const solved = this.solver.getPrimitive(primitive.id);
+                const radmin = solved?.type === 'ellipse' ? solved.radmin : primitive.radmin;
+                const nearest = nearestPolylinePoint(point, sharedEllipsePolyline(center, focus1, radmin));
+                if (nearest !== undefined && nearest.distance <= maxDist) {
+                    return 'ellipse';
+                }
+            } else if (primitive.type === 'bspline') {
+                const poles: Point2[] = [];
+                let resolved = true;
+                for (const poleId of primitive.poleIds) {
+                    const pos = this.getPointPosition(poleId);
+                    if (pos === undefined) {
+                        resolved = false;
+                        break;
+                    }
+                    poles.push(pos);
+                }
+                if (!resolved) {
+                    continue;
+                }
+                const nearest = nearestPolylinePoint(
+                    point,
+                    sharedBSplinePolyline(poles, primitive.knots, primitive.mult, primitive.degree)
+                );
+                if (nearest !== undefined && nearest.distance <= maxDist) {
+                    return 'bspline';
+                }
+            }
+        }
+        return undefined;
+    }
+
+    private curveTargetError(point: Point2, verb: string): string {
+        const bad = this.nearUnsupportedCurve(point, this.pickTolerance());
+        if (bad === 'ellipse') {
+            return `${verb} supports lines, circles, and arcs — ellipses carry point-level constraints only`;
+        }
+        if (bad === 'bspline') {
+            return `${verb} supports lines, circles, and arcs — B-splines carry point-level constraints only`;
+        }
+        return `${verb} found no line, circle, or arc near the click`;
+    }
+
+    private circleFrame(id: string): { center: Point2; radius: number } | undefined {
+        const primitive = this.primitives.get(id);
+        if (primitive?.type !== 'circle') {
+            return undefined;
+        }
+        const center = this.getPointPosition(primitive.centerId);
+        if (center === undefined) {
+            return undefined;
+        }
+        const solved = this.solver.getPrimitive(id);
+        return { center, radius: solved?.type === 'circle' ? solved.radius : primitive.radius };
+    }
+
+    private arcFrame(id: string): { center: Point2; radius: number; startAngle: number; endAngle: number } | undefined {
+        const primitive = this.primitives.get(id);
+        if (primitive?.type !== 'arc') {
+            return undefined;
+        }
+        const center = this.getPointPosition(primitive.centerId);
+        if (center === undefined) {
+            return undefined;
+        }
+        const solved = this.solver.getPrimitive(id);
+        if (solved?.type === 'arc') {
+            return { center, radius: solved.radius, startAngle: solved.startAngle, endAngle: solved.endAngle };
+        }
+        return { center, radius: primitive.radius, startAngle: primitive.startAngle, endAngle: primitive.endAngle };
+    }
+
+    /** Intersections of other curves with the infinite line through a/b, clipped per mode. */
+    private lineTargetIntersections(targetId: string, a: Point2, b: Point2, ray?: { origin: Point2; dir: Point2 }): CurveIntersection[] {
+        const hits: CurveIntersection[] = [];
+        for (const [id, primitive] of this.primitives) {
+            if (id === targetId) {
+                continue;
+            }
+            if (primitive.type === 'line') {
+                const c = this.getPointPosition(primitive.p1Id);
+                const d = this.getPointPosition(primitive.p2Id);
+                if (c === undefined || d === undefined) {
+                    continue;
+                }
+                const hit = lineLineIntersection(a, b, c, d);
+                if (hit === undefined) {
+                    continue;
+                }
+                if (ray !== undefined) {
+                    if ((hit.x - ray.origin.x) * ray.dir.x + (hit.y - ray.origin.y) * ray.dir.y <= 1e-9) {
+                        continue;
+                    }
+                } else {
+                    const t = segmentParameter(hit, a, b);
+                    if (t < -1e-9 || t > 1 + 1e-9) {
+                        continue;
+                    }
+                }
+                const u = segmentParameter(hit, c, d);
+                if (u < -1e-9 || u > 1 + 1e-9) {
+                    continue;
+                }
+                hits.push({ point: hit, otherId: id });
+            } else if (primitive.type === 'circle' || primitive.type === 'arc') {
+                const frame = primitive.type === 'circle' ? this.circleFrame(id) : this.arcFrame(id);
+                if (frame === undefined) {
+                    continue;
+                }
+                for (const hit of lineCircleIntersections(a, b, frame.center, frame.radius)) {
+                    if (ray !== undefined) {
+                        if ((hit.x - ray.origin.x) * ray.dir.x + (hit.y - ray.origin.y) * ray.dir.y <= 1e-9) {
+                            continue;
+                        }
+                    } else {
+                        const t = segmentParameter(hit, a, b);
+                        if (t < -1e-9 || t > 1 + 1e-9) {
+                            continue;
+                        }
+                    }
+                    if (primitive.type === 'arc') {
+                        const arc = this.arcFrame(id);
+                        if (arc === undefined || !isAngleOnArc(angleOfPoint(hit, arc.center), arc.startAngle, arc.endAngle)) {
+                            continue;
+                        }
+                    }
+                    hits.push({ point: hit, otherId: id });
+                }
+            }
+        }
+        return hits;
+    }
+
+    /** Intersections of other curves with a circle; optionally clipped to an arc span. */
+    private circleTargetIntersections(
+        targetId: string,
+        center: Point2,
+        radius: number,
+        span?: { startAngle: number; endAngle: number }
+    ): Array<CurveIntersection & { angle: number }> {
+        const hits: Array<CurveIntersection & { angle: number }> = [];
+        const accept = (hit: Point2, otherId: string): void => {
+            const angle = angleOfPoint(hit, center);
+            if (span !== undefined && !isAngleOnArc(angle, span.startAngle, span.endAngle)) {
+                return;
+            }
+            hits.push({ point: hit, otherId, angle });
+        };
+        for (const [id, primitive] of this.primitives) {
+            if (id === targetId) {
+                continue;
+            }
+            if (primitive.type === 'line') {
+                const a = this.getPointPosition(primitive.p1Id);
+                const b = this.getPointPosition(primitive.p2Id);
+                if (a === undefined || b === undefined) {
+                    continue;
+                }
+                for (const hit of lineCircleIntersections(a, b, center, radius)) {
+                    const t = segmentParameter(hit, a, b);
+                    if (t < -1e-9 || t > 1 + 1e-9) {
+                        continue;
+                    }
+                    accept(hit, id);
+                }
+            } else if (primitive.type === 'circle' || primitive.type === 'arc') {
+                const frame = primitive.type === 'circle' ? this.circleFrame(id) : this.arcFrame(id);
+                if (frame === undefined) {
+                    continue;
+                }
+                for (const hit of circleCircleIntersections(center, radius, frame.center, frame.radius)) {
+                    if (primitive.type === 'arc') {
+                        const arc = this.arcFrame(id);
+                        if (arc === undefined || !isAngleOnArc(angleOfPoint(hit, arc.center), arc.startAngle, arc.endAngle)) {
+                            continue;
+                        }
+                    }
+                    accept(hit, id);
+                }
+            }
+        }
+        return hits;
+    }
+
+    /** Forward-ray intersections with every curve except the excluded one. */
+    private castRay(origin: Point2, dir: Point2, excludeId: string): CurveIntersection[] {
+        const far = { x: origin.x + dir.x, y: origin.y + dir.y };
+        const hits: CurveIntersection[] = [];
+        for (const [id, primitive] of this.primitives) {
+            if (id === excludeId) {
+                continue;
+            }
+            if (primitive.type === 'line') {
+                const a = this.getPointPosition(primitive.p1Id);
+                const b = this.getPointPosition(primitive.p2Id);
+                if (a === undefined || b === undefined) {
+                    continue;
+                }
+                const hit = lineLineIntersection(origin, far, a, b);
+                if (hit === undefined) {
+                    continue;
+                }
+                if ((hit.x - origin.x) * dir.x + (hit.y - origin.y) * dir.y <= 1e-9) {
+                    continue;
+                }
+                const u = segmentParameter(hit, a, b);
+                if (u < -1e-9 || u > 1 + 1e-9) {
+                    continue;
+                }
+                hits.push({ point: hit, otherId: id });
+            } else if (primitive.type === 'circle' || primitive.type === 'arc') {
+                const frame = primitive.type === 'circle' ? this.circleFrame(id) : this.arcFrame(id);
+                if (frame === undefined) {
+                    continue;
+                }
+                for (const hit of lineCircleIntersections(origin, far, frame.center, frame.radius)) {
+                    if ((hit.x - origin.x) * dir.x + (hit.y - origin.y) * dir.y <= 1e-9) {
+                        continue;
+                    }
+                    if (primitive.type === 'arc') {
+                        const arc = this.arcFrame(id);
+                        if (arc === undefined || !isAngleOnArc(angleOfPoint(hit, arc.center), arc.startAngle, arc.endAngle)) {
+                            continue;
+                        }
+                    }
+                    hits.push({ point: hit, otherId: id });
+                }
+            }
+        }
+        hits.sort(
+            (x, y) => Math.hypot(x.point.x - origin.x, x.point.y - origin.y) - Math.hypot(y.point.x - origin.x, y.point.y - origin.y)
+        );
+        return hits;
+    }
+
+    /** Permanently move a point, letting the solver reconcile dependents. */
+    private async movePointTo(pointId: string, pos: Point2): Promise<void> {
+        finite(pos.x, 'Target x');
+        finite(pos.y, 'Target y');
+        const coords = this.solver.setPointCoordinates(pointId, pos.x, pos.y);
+        await this.solve();
+        this.solver.removeConstraint(coords.xConstraintId);
+        this.solver.removeConstraint(coords.yConstraintId);
+        await this.solve();
+    }
+
+    /**
+     * Trim-endpoint hygiene: anchor the moved end at the intersection with a
+     * coincident constraint, creating a point-on-object anchor on the cutting
+     * curve when no point exists there yet.
+     */
+    private addTrimEndpointHygiene(movedEndId: string, hit: CurveIntersection, auto: AutoConstraintFeedback[]): string {
+        let anchorId: string | undefined;
+        for (const primitive of this.primitives.values()) {
+            if (primitive.type !== 'point' || primitive.id === movedEndId) {
+                continue;
+            }
+            const pos = this.getPointPosition(primitive.id);
+            if (pos !== undefined && Math.hypot(pos.x - hit.point.x, pos.y - hit.point.y) <= 1e-6) {
+                anchorId = primitive.id;
+                break;
+            }
+        }
+        if (anchorId === undefined) {
+            anchorId = this.nextId('point');
+            this.addPointInternal(anchorId, hit.point.x, hit.point.y, false);
+            const pointOnObjectId = this.nextId('point-on-object');
+            this.solver.addConstraintPointOnObject(pointOnObjectId, anchorId, hit.otherId, { driving: true });
+            this.constraints.set(pointOnObjectId, {
+                id: pointOnObjectId,
+                kind: 'pointOnObject',
+                targetIds: [anchorId, hit.otherId],
+                driving: true
+            });
+            auto.push({ kind: 'pointOnObject', ids: [pointOnObjectId] });
+        }
+        const coincidentId = this.nextId('coincident');
+        this.solver.addConstraintCoincident(coincidentId, movedEndId, anchorId, { driving: true });
+        this.constraints.set(coincidentId, { id: coincidentId, kind: 'coincident', targetIds: [movedEndId, anchorId], driving: true });
+        auto.push({ kind: 'coincident', ids: [coincidentId] });
+        return anchorId;
+    }
+
+    /** Drop point-on-object constraints whose point no longer lies on the curve. */
+    private pruneDetachedPointOnObjects(curveId: string): void {
+        for (const [id, record] of [...this.constraints]) {
+            if (record.kind !== 'pointOnObject' || record.targetIds[1] !== curveId) {
+                continue;
+            }
+            const pos = this.getPointPosition(record.targetIds[0]);
+            if (pos === undefined) {
+                continue;
+            }
+            if (!this.pointOnCurve(pos, curveId, 1e-6)) {
+                this.removeConstraintInternal(id);
+            }
+        }
+    }
+
+    private pointOnCurve(pos: Point2, curveId: string, tolerance: number): boolean {
+        const primitive = this.primitives.get(curveId);
+        if (primitive?.type === 'line') {
+            const a = this.getPointPosition(primitive.p1Id);
+            const b = this.getPointPosition(primitive.p2Id);
+            if (a === undefined || b === undefined) {
+                return true;
+            }
+            return pointToSegmentDistance(pos, a, b) <= tolerance;
+        }
+        if (primitive?.type === 'circle') {
+            const frame = this.circleFrame(curveId);
+            if (frame === undefined) {
+                return true;
+            }
+            return Math.abs(Math.hypot(pos.x - frame.center.x, pos.y - frame.center.y) - frame.radius) <= tolerance;
+        }
+        if (primitive?.type === 'arc') {
+            const frame = this.arcFrame(curveId);
+            if (frame === undefined) {
+                return true;
+            }
+            if (Math.abs(Math.hypot(pos.x - frame.center.x, pos.y - frame.center.y) - frame.radius) > tolerance) {
+                return false;
+            }
+            return isAngleOnArc(angleOfPoint(pos, frame.center), frame.startAngle, frame.endAngle, 1e-6);
+        }
+        return true;
+    }
+
+    /** Rebuild an arc in place (same id) and replay every constraint referencing it. */
+    private rebuildArcInPlace(
+        arcId: string,
+        centerId: string,
+        radius: number,
+        startAngle: number,
+        endAngle: number,
+        startId: string,
+        endId: string,
+        construction: boolean
+    ): void {
+        const refs = [...this.constraints.values()].filter((record) => record.targetIds.includes(arcId));
+        this.solver.removePrimitive(arcId);
+        this.solver.addArc(arcId, centerId, radius, startAngle, endAngle, startId, endId, { construction });
+        this.primitives.set(arcId, { type: 'arc', id: arcId, centerId, radius, startAngle, endAngle, startId, endId, construction });
+        for (const record of refs) {
+            this.solver.removeConstraint(record.id);
+            this.replayConstraintRecord(record);
+        }
+    }
+
+    private async trimLine(lineId: string, click: Point2, auto: AutoConstraintFeedback[]): Promise<EditCurveResult> {
+        const line = this.primitives.get(lineId);
+        if (line?.type !== 'line') {
+            return { success: false, error: `Trim needs a line, got '${lineId}'` };
+        }
+        const a = this.getPointPosition(line.p1Id);
+        const b = this.getPointPosition(line.p2Id);
+        if (a === undefined || b === undefined) {
+            return { success: false, error: `Trim references unsolved geometry on '${lineId}'` };
+        }
+        const hits = this.lineTargetIntersections(lineId, a, b);
+        if (hits.length === 0) {
+            return { success: false, error: `Trim found no intersection with '${lineId}' — nothing to clip` };
+        }
+        hits.sort((x, y) => Math.hypot(x.point.x - click.x, x.point.y - click.y) - Math.hypot(y.point.x - click.x, y.point.y - click.y));
+        const hit = hits[0];
+        const moveId = Math.hypot(click.x - a.x, click.y - a.y) <= Math.hypot(click.x - b.x, click.y - b.y) ? line.p1Id : line.p2Id;
+        const oldPos = moveId === line.p1Id ? a : b;
+        let pointId: string | undefined;
+        if (Math.hypot(oldPos.x - hit.point.x, oldPos.y - hit.point.y) > 1e-9) {
+            await this.movePointTo(moveId, hit.point);
+            this.pruneDetachedPointOnObjects(lineId);
+            pointId = this.addTrimEndpointHygiene(moveId, hit, auto);
+        }
+        await this.commit(auto);
+        return { success: true, targetId: lineId, pointId, newIds: [lineId] };
+    }
+
+    private async trimCircle(circleId: string, click: Point2, auto: AutoConstraintFeedback[]): Promise<EditCurveResult> {
+        const circle = this.primitives.get(circleId);
+        if (circle?.type !== 'circle') {
+            return { success: false, error: `Trim needs a circle, got '${circleId}'` };
+        }
+        const frame = this.circleFrame(circleId);
+        if (frame === undefined) {
+            return { success: false, error: `Trim references unsolved geometry on '${circleId}'` };
+        }
+        const hits = this.circleTargetIntersections(circleId, frame.center, frame.radius);
+        if (hits.length === 0) {
+            return { success: false, error: `Trim found no intersection with '${circleId}' — nothing to clip` };
+        }
+        if (hits.length === 1) {
+            return { success: false, error: `Trim needs at least two intersections to open '${circleId}' (found one)` };
+        }
+        const twoPi = 2 * Math.PI;
+        const sorted = [...hits].sort((x, y) => (((x.angle % twoPi) + twoPi) % twoPi) - (((y.angle % twoPi) + twoPi) % twoPi));
+        const clickAngle = angleOfPoint(click, frame.center);
+        let bracket = 0;
+        for (let i = 0; i < sorted.length; i++) {
+            const a0 = ((sorted[i].angle % twoPi) + twoPi) % twoPi;
+            const a1 = ((sorted[(i + 1) % sorted.length].angle % twoPi) + twoPi) % twoPi;
+            let span = (a1 - a0) % twoPi;
+            if (span < 0) {
+                span += twoPi;
+            }
+            let d = (clickAngle - a0) % twoPi;
+            if (d < 0) {
+                d += twoPi;
+            }
+            if (d < span) {
+                bracket = i;
+                break;
+            }
+        }
+        const from = sorted[bracket];
+        const to = sorted[(bracket + 1) % sorted.length];
+        const fromAngle = ((from.angle % twoPi) + twoPi) % twoPi;
+        let toAngle = ((to.angle % twoPi) + twoPi) % twoPi;
+        if (toAngle <= fromAngle) {
+            toAngle += twoPi;
+        }
+        // The kept arc runs from the next intersection around to the previous one.
+        const startPt = arcPointAt(frame.center, frame.radius, toAngle);
+        const endPt = arcPointAt(frame.center, frame.radius, fromAngle);
+        const startId = this.nextId('point');
+        const endId = this.nextId('point');
+        this.addPointInternal(startId, startPt.x, startPt.y, circle.construction);
+        this.addPointInternal(endId, endPt.x, endPt.y, circle.construction);
+        for (const [id, record] of [...this.constraints]) {
+            if (record.kind === 'pointOnObject' && record.targetIds[1] === circleId) {
+                const pos = this.getPointPosition(record.targetIds[0]);
+                if (pos !== undefined && !isAngleOnArc(angleOfPoint(pos, frame.center), toAngle, fromAngle + twoPi, 1e-6)) {
+                    this.removeConstraintInternal(id);
+                }
+            }
+        }
+        const refs = [...this.constraints.values()].filter((record) => record.targetIds.includes(circleId));
+        this.solver.removePrimitive(circleId);
+        this.solver.addArc(circleId, circle.centerId, frame.radius, toAngle, fromAngle + twoPi, startId, endId, {
+            construction: circle.construction
+        });
+        this.primitives.set(circleId, {
+            type: 'arc',
+            id: circleId,
+            centerId: circle.centerId,
+            radius: frame.radius,
+            startAngle: toAngle,
+            endAngle: fromAngle + twoPi,
+            startId,
+            endId,
+            construction: circle.construction
+        });
+        for (const record of refs) {
+            this.solver.removeConstraint(record.id);
+            this.replayConstraintRecord(record);
+        }
+        this.addTrimEndpointHygiene(startId, { point: startPt, otherId: to.otherId }, auto);
+        this.addTrimEndpointHygiene(endId, { point: endPt, otherId: from.otherId }, auto);
+        this.pruneDetachedPointOnObjects(circleId);
+        await this.commit(auto);
+        return { success: true, targetId: circleId, newIds: [circleId] };
+    }
+
+    private async trimArc(arcId: string, click: Point2, auto: AutoConstraintFeedback[]): Promise<EditCurveResult> {
+        const arc = this.primitives.get(arcId);
+        if (arc?.type !== 'arc') {
+            return { success: false, error: `Trim needs an arc, got '${arcId}'` };
+        }
+        const frame = this.arcFrame(arcId);
+        const startPos = this.getPointPosition(arc.startId);
+        const endPos = this.getPointPosition(arc.endId);
+        if (frame === undefined || startPos === undefined || endPos === undefined) {
+            return { success: false, error: `Trim references unsolved geometry on '${arcId}'` };
+        }
+        const hits = this.circleTargetIntersections(arcId, frame.center, frame.radius, {
+            startAngle: frame.startAngle,
+            endAngle: frame.endAngle
+        });
+        if (hits.length === 0) {
+            return { success: false, error: `Trim found no intersection with '${arcId}' — nothing to clip` };
+        }
+        hits.sort((x, y) => Math.hypot(x.point.x - click.x, x.point.y - click.y) - Math.hypot(y.point.x - click.x, y.point.y - click.y));
+        const hit = hits[0];
+        const moveStart = Math.hypot(click.x - startPos.x, click.y - startPos.y) <= Math.hypot(click.x - endPos.x, click.y - endPos.y);
+        const moveId = moveStart ? arc.startId : arc.endId;
+        const oldPos = moveStart ? startPos : endPos;
+        const sweep = frame.endAngle - frame.startAngle;
+        let hitAngle = hit.angle;
+        if (sweep >= 0) {
+            let d = (hitAngle - frame.startAngle) % (2 * Math.PI);
+            if (d < 0) {
+                d += 2 * Math.PI;
+            }
+            hitAngle = frame.startAngle + d;
+        } else {
+            let d = (frame.startAngle - hitAngle) % (2 * Math.PI);
+            if (d < 0) {
+                d += 2 * Math.PI;
+            }
+            hitAngle = frame.startAngle - d;
+        }
+        const newStart = moveStart ? hitAngle : frame.startAngle;
+        const newEnd = moveStart ? frame.endAngle : hitAngle;
+        const newRadius = Math.hypot(hit.point.x - frame.center.x, hit.point.y - frame.center.y);
+        for (const [id, record] of [...this.constraints]) {
+            if (record.kind === 'pointOnObject' && record.targetIds[1] === arcId) {
+                const pos = this.getPointPosition(record.targetIds[0]);
+                if (pos !== undefined && !isAngleOnArc(angleOfPoint(pos, frame.center), newStart, newEnd, 1e-6)) {
+                    this.removeConstraintInternal(id);
+                }
+            }
+        }
+        const coords = this.solver.setPointCoordinates(moveId, hit.point.x, hit.point.y);
+        this.rebuildArcInPlace(arcId, arc.centerId, newRadius, newStart, newEnd, arc.startId, arc.endId, arc.construction);
+        await this.solve();
+        this.solver.removeConstraint(coords.xConstraintId);
+        this.solver.removeConstraint(coords.yConstraintId);
+        await this.solve();
+        let pointId: string | undefined;
+        if (Math.hypot(oldPos.x - hit.point.x, oldPos.y - hit.point.y) > 1e-9) {
+            pointId = this.addTrimEndpointHygiene(moveId, hit, auto);
+        }
+        this.pruneDetachedPointOnObjects(arcId);
+        await this.commit(auto);
+        return { success: true, targetId: arcId, pointId, newIds: [arcId] };
+    }
+
+    /** Line/arc end nearest the click within tolerance. */
+    private findNearestEnd(click: Point2, tolerance: number): { curveId: string; kind: 'line' | 'arc'; endId: string } | undefined {
+        let best: { curveId: string; kind: 'line' | 'arc'; endId: string; distance: number } | undefined;
+        const consider = (curveId: string, kind: 'line' | 'arc', endId: string): void => {
+            const pos = this.getPointPosition(endId);
+            if (pos === undefined) {
+                return;
+            }
+            const distance = Math.hypot(pos.x - click.x, pos.y - click.y);
+            if (distance <= tolerance && (best === undefined || distance < best.distance)) {
+                best = { curveId, kind, endId, distance };
+            }
+        };
+        for (const [id, primitive] of this.primitives) {
+            if (primitive.type === 'line') {
+                consider(id, 'line', primitive.p1Id);
+                consider(id, 'line', primitive.p2Id);
+            } else if (primitive.type === 'arc') {
+                consider(id, 'arc', primitive.startId);
+                consider(id, 'arc', primitive.endId);
+            }
+        }
+        return best === undefined ? undefined : { curveId: best.curveId, kind: best.kind, endId: best.endId };
+    }
+
+    /** Curve id and end role owning a point id, for snap-resolved extend picks. */
+    private ownerEndOf(pointId: string): { curveId: string; kind: 'line' | 'arc'; endId: string } | undefined {
+        for (const [id, primitive] of this.primitives) {
+            if (primitive.type === 'line' && (primitive.p1Id === pointId || primitive.p2Id === pointId)) {
+                return { curveId: id, kind: 'line', endId: pointId };
+            }
+            if (primitive.type === 'arc' && (primitive.startId === pointId || primitive.endId === pointId)) {
+                return { curveId: id, kind: 'arc', endId: pointId };
+            }
+        }
+        return undefined;
+    }
+
+    private async extendEnd(
+        curveId: string,
+        kind: 'line' | 'arc',
+        endId: string,
+        auto: AutoConstraintFeedback[]
+    ): Promise<EditCurveResult> {
+        const endPos = this.getPointPosition(endId);
+        if (endPos === undefined) {
+            return { success: false, error: `Extend references unsolved geometry on '${curveId}'` };
+        }
+        const origin = endPos;
+        let dir: Point2;
+        if (kind === 'line') {
+            const line = this.primitives.get(curveId);
+            if (line?.type !== 'line') {
+                return { success: false, error: `Extend needs a line, got '${curveId}'` };
+            }
+            const otherId = line.p1Id === endId ? line.p2Id : line.p1Id;
+            const other = this.getPointPosition(otherId);
+            if (other === undefined) {
+                return { success: false, error: `Extend references unsolved geometry on '${curveId}'` };
+            }
+            const len = Math.hypot(endPos.x - other.x, endPos.y - other.y);
+            if (len < 1e-12) {
+                return { success: false, error: `Extend needs a non-degenerate line ('${curveId}')` };
+            }
+            dir = { x: (endPos.x - other.x) / len, y: (endPos.y - other.y) / len };
+        } else {
+            const arc = this.primitives.get(curveId);
+            const frame = this.arcFrame(curveId);
+            if (arc?.type !== 'arc' || frame === undefined) {
+                return { success: false, error: `Extend needs an arc, got '${curveId}'` };
+            }
+            const rx = endPos.x - frame.center.x;
+            const ry = endPos.y - frame.center.y;
+            const len = Math.hypot(rx, ry);
+            if (len < 1e-12) {
+                return { success: false, error: `Extend needs a non-degenerate arc ('${curveId}')` };
+            }
+            const travel = { x: -ry / len, y: rx / len };
+            const atStart = arc.startId === endId;
+            const sign = frame.endAngle >= frame.startAngle !== atStart ? 1 : -1;
+            dir = { x: travel.x * sign, y: travel.y * sign };
+        }
+        const hits = this.castRay(origin, dir, curveId);
+        if (hits.length === 0) {
+            return { success: false, error: `Extend found no intersecting curve ahead of '${endId}'` };
+        }
+        const hit = hits[0];
+        if (kind === 'line') {
+            await this.movePointTo(endId, hit.point);
+            this.pruneDetachedPointOnObjects(curveId);
+            const pointId = this.addTrimEndpointHygiene(endId, hit, auto);
+            await this.commit(auto);
+            return { success: true, targetId: curveId, pointId, newIds: [curveId] };
+        }
+        const arc = this.primitives.get(curveId);
+        const frame = this.arcFrame(curveId);
+        if (arc?.type !== 'arc' || frame === undefined) {
+            return { success: false, error: `Extend needs an arc, got '${curveId}'` };
+        }
+        const atStart = arc.startId === endId;
+        const hitAngle = angleOfPoint(hit.point, frame.center);
+        const twoPi = 2 * Math.PI;
+        let newAngle: number;
+        if (frame.endAngle >= frame.startAngle) {
+            let d = (hitAngle - (atStart ? frame.startAngle : frame.endAngle)) % twoPi;
+            if (d < 0) {
+                d += twoPi;
+            }
+            newAngle = (atStart ? frame.startAngle : frame.endAngle) + (atStart ? d - twoPi : d);
+        } else {
+            let d = ((atStart ? frame.startAngle : frame.endAngle) - hitAngle) % twoPi;
+            if (d < 0) {
+                d += twoPi;
+            }
+            newAngle = (atStart ? frame.startAngle : frame.endAngle) + (atStart ? d : -d);
+        }
+        const newRadius = Math.hypot(hit.point.x - frame.center.x, hit.point.y - frame.center.y);
+        const newStart = atStart ? newAngle : frame.startAngle;
+        const newEnd = atStart ? frame.endAngle : newAngle;
+        const coords = this.solver.setPointCoordinates(endId, hit.point.x, hit.point.y);
+        this.rebuildArcInPlace(curveId, arc.centerId, newRadius, newStart, newEnd, arc.startId, arc.endId, arc.construction);
+        await this.solve();
+        this.solver.removeConstraint(coords.xConstraintId);
+        this.solver.removeConstraint(coords.yConstraintId);
+        await this.solve();
+        const pointId = this.addTrimEndpointHygiene(endId, hit, auto);
+        this.pruneDetachedPointOnObjects(curveId);
+        await this.commit(auto);
+        return { success: true, targetId: curveId, pointId, newIds: [curveId] };
+    }
+
+    private async splitLine(lineId: string, click: Point2, _auto: AutoConstraintFeedback[]): Promise<EditCurveResult> {
+        const line = this.primitives.get(lineId);
+        if (line?.type !== 'line') {
+            return { success: false, error: `Split needs a line, got '${lineId}'` };
+        }
+        const a = this.getPointPosition(line.p1Id);
+        const b = this.getPointPosition(line.p2Id);
+        if (a === undefined || b === undefined) {
+            return { success: false, error: `Split references unsolved geometry on '${lineId}'` };
+        }
+        const projected = projectPointOntoSegment(click, a, b);
+        const t = segmentParameter(projected, a, b);
+        if (t <= 1e-9 || t >= 1 - 1e-9) {
+            return { success: false, error: `Split needs a click on the interior of '${lineId}' — too close to the end` };
+        }
+        const splitId = this.nextId('point');
+        this.addPointInternal(splitId, projected.x, projected.y, line.construction);
+        const refs = [...this.constraints.values()].filter((record) => record.targetIds.includes(lineId));
+        this.solver.removePrimitive(lineId);
+        this.solver.addLine(lineId, line.p1Id, splitId, { construction: line.construction });
+        const lineId2 = this.nextId('line');
+        this.solver.addLine(lineId2, splitId, line.p2Id, { construction: line.construction });
+        this.primitives.set(lineId, { ...line, p2Id: splitId });
+        this.primitives.set(lineId2, { type: 'line', id: lineId2, p1Id: splitId, p2Id: line.p2Id, construction: line.construction });
+        for (const record of refs) {
+            this.solver.removeConstraint(record.id);
+            if (record.kind === 'pointOnObject' && record.targetIds[1] === lineId) {
+                const pos = this.getPointPosition(record.targetIds[0]);
+                if (pos !== undefined && pointToSegmentDistance(pos, projected, b) <= 1e-6) {
+                    record.targetIds = [record.targetIds[0], lineId2];
+                    this.constraints.set(record.id, record);
+                }
+            }
+            this.replayConstraintRecord(record);
+        }
+        await this.commit([]);
+        return { success: true, targetId: lineId, pointId: splitId, newIds: [lineId, lineId2] };
+    }
+
+    private async splitArc(arcId: string, click: Point2, _auto: AutoConstraintFeedback[]): Promise<EditCurveResult> {
+        const arc = this.primitives.get(arcId);
+        if (arc?.type !== 'arc') {
+            return { success: false, error: `Split needs an arc, got '${arcId}'` };
+        }
+        const frame = this.arcFrame(arcId);
+        if (frame === undefined) {
+            return { success: false, error: `Split references unsolved geometry on '${arcId}'` };
+        }
+        const twoPi = 2 * Math.PI;
+        const sweep = frame.endAngle - frame.startAngle;
+        let splitAngle: number;
+        if (sweep >= 0) {
+            let d = (angleOfPoint(click, frame.center) - frame.startAngle) % twoPi;
+            if (d < 0) {
+                d += twoPi;
+            }
+            if (d <= 1e-9 || sweep - d <= 1e-9) {
+                return { success: false, error: `Split needs a click on the interior of '${arcId}' — too close to the end` };
+            }
+            splitAngle = frame.startAngle + d;
+        } else {
+            let d = (frame.startAngle - angleOfPoint(click, frame.center)) % twoPi;
+            if (d < 0) {
+                d += twoPi;
+            }
+            if (d <= 1e-9 || -sweep - d <= 1e-9) {
+                return { success: false, error: `Split needs a click on the interior of '${arcId}' — too close to the end` };
+            }
+            splitAngle = frame.startAngle - d;
+        }
+        const splitPt = arcPointAt(frame.center, frame.radius, splitAngle);
+        const splitId = this.nextId('point');
+        this.addPointInternal(splitId, splitPt.x, splitPt.y, arc.construction);
+        const refs = [...this.constraints.values()].filter((record) => record.targetIds.includes(arcId));
+        this.solver.removePrimitive(arcId);
+        this.solver.addArc(arcId, arc.centerId, frame.radius, frame.startAngle, splitAngle, arc.startId, splitId, {
+            construction: arc.construction
+        });
+        const arcId2 = this.nextId('arc');
+        this.solver.addArc(arcId2, arc.centerId, frame.radius, splitAngle, frame.endAngle, splitId, arc.endId, {
+            construction: arc.construction
+        });
+        this.primitives.set(arcId, { ...arc, endAngle: splitAngle, endId: splitId });
+        this.primitives.set(arcId2, {
+            type: 'arc',
+            id: arcId2,
+            centerId: arc.centerId,
+            radius: frame.radius,
+            startAngle: splitAngle,
+            endAngle: frame.endAngle,
+            startId: splitId,
+            endId: arc.endId,
+            construction: arc.construction
+        });
+        for (const record of refs) {
+            this.solver.removeConstraint(record.id);
+            if (record.kind === 'pointOnObject' && record.targetIds[1] === arcId) {
+                const pos = this.getPointPosition(record.targetIds[0]);
+                if (pos !== undefined && !isAngleOnArc(angleOfPoint(pos, frame.center), frame.startAngle, splitAngle)) {
+                    record.targetIds = [record.targetIds[0], arcId2];
+                    this.constraints.set(record.id, record);
+                }
+            }
+            this.replayConstraintRecord(record);
+        }
+        await this.commit([]);
+        return { success: true, targetId: arcId, pointId: splitId, newIds: [arcId, arcId2] };
+    }
+
+    private async splitCircle(circleId: string, click: Point2, _auto: AutoConstraintFeedback[]): Promise<EditCurveResult> {
+        const circle = this.primitives.get(circleId);
+        if (circle?.type !== 'circle') {
+            return { success: false, error: `Split needs a circle, got '${circleId}'` };
+        }
+        const frame = this.circleFrame(circleId);
+        if (frame === undefined) {
+            return { success: false, error: `Split references unsolved geometry on '${circleId}'` };
+        }
+        const angle = angleOfPoint(click, frame.center);
+        const splitPt = arcPointAt(frame.center, frame.radius, angle);
+        const oppositePt = arcPointAt(frame.center, frame.radius, angle + Math.PI);
+        const splitId = this.nextId('point');
+        const oppositeId = this.nextId('point');
+        this.addPointInternal(splitId, splitPt.x, splitPt.y, circle.construction);
+        this.addPointInternal(oppositeId, oppositePt.x, oppositePt.y, circle.construction);
+        // The circle is fully removed, so every constraint it owned goes with it.
+        for (const [id, record] of [...this.constraints]) {
+            if (record.targetIds.includes(circleId)) {
+                this.removeConstraintInternal(id);
+            }
+        }
+        this.solver.removePrimitive(circleId);
+        this.primitives.delete(circleId);
+        const arcId1 = this.nextId('arc');
+        const arcId2 = this.nextId('arc');
+        this.addArcInternal(arcId1, circle.centerId, frame.radius, angle, angle + Math.PI, splitId, oppositeId, circle.construction);
+        this.addArcInternal(
+            arcId2,
+            circle.centerId,
+            frame.radius,
+            angle + Math.PI,
+            angle + 2 * Math.PI,
+            oppositeId,
+            splitId,
+            circle.construction
+        );
+        await this.commit([]);
+        return { success: true, targetId: circleId, pointId: splitId, newIds: [arcId1, arcId2] };
     }
 
     private createRectangle(p1: Point2, p2: Point2, p1Id: string, p2Id: string, _auto: AutoConstraintFeedback[]): string[] {
@@ -1504,7 +3419,10 @@ export class SketchSession {
                 this.tool === 'rectangle' ||
                 this.tool === 'slot' ||
                 this.tool === 'ellipse' ||
-                this.tool === 'bspline'
+                this.tool === 'bspline' ||
+                this.tool === 'polyline' ||
+                this.tool === 'polygon' ||
+                this.tool === 'arcSlot'
             ) {
                 return { type: 'point', point: snapped.point };
             }
@@ -1577,6 +3495,33 @@ export class SketchSession {
 
         if (this.inProgress.tool === 'bspline') {
             return { type: 'bspline', poles: [...this.inProgress.poles, snapped.point] };
+        }
+
+        if (this.inProgress.tool === 'sketchFillet' || this.inProgress.tool === 'sketchChamfer') {
+            return { type: 'none' };
+        }
+
+        if (this.inProgress.tool === 'polyline') {
+            if (this.inProgress.arcMid !== undefined && this.polylineMode === 'arc') {
+                try {
+                    const center = circleCenterFromThreePoints(this.inProgress.last, this.inProgress.arcMid, snapped.point);
+                    const radius = Math.hypot(this.inProgress.last.x - center.x, this.inProgress.last.y - center.y);
+                    const angles = arcAnglesFromThreePoints(center, this.inProgress.last, this.inProgress.arcMid, snapped.point);
+                    return { type: 'arc', center, radius, startAngle: angles.startAngle, endAngle: angles.endAngle };
+                } catch {
+                    return { type: 'point', point: snapped.point };
+                }
+            }
+            return { type: 'line', p1: this.inProgress.last, p2: snapped.point };
+        }
+
+        if (this.inProgress.tool === 'polygon') {
+            return { type: 'line', p1: this.inProgress.center, p2: snapped.point };
+        }
+
+        if (this.inProgress.tool === 'arcSlot') {
+            const from = this.inProgress.end ?? this.inProgress.start ?? this.inProgress.center;
+            return { type: 'line', p1: from, p2: snapped.point };
         }
 
         return { type: 'none' };

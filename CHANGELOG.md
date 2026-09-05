@@ -99,6 +99,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   only on this OCP), STL export, IGES face-sewing import, STEP-style
   names/colors where formats support them. Plus versioned ISO/UNC thread
   tables for later hole recognition.
+- nuke-cad: **sketch modify tools** — Trim, Extend, and Split (click with
+  intersection math and constraint hygiene), 3-click sketch Fillet/Chamfer,
+  chained Polyline with line/arc modes, rectangle corner/center/rounded
+  modes, regular Polygon (3–12 sides), and 4-click Arc Slot, all on
+  single-key shortcuts with M-key mode cycling; the diagnostics popover
+  gains one-click redundant removal.
 - nuke-cad: **carbon copy + ellipse internals** — a sketch toolbar button
   imports the Feature-Tree-selected sketch (fresh ids, constraints and
   dimensions remapped); ellipses expose their second focus plus major/minor
