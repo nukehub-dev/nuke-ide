@@ -150,9 +150,13 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   `_combine_additive`; overlapping additive pattern instances are fused by the
   boolean union in `_apply_pattern_or_mirror` instead. When the body and every
   additive instance are pairwise bbox-disjoint the union equals their plain
-  compound exactly, so `_pattern_instances_are_disjoint` skips the sequential
-  fuse in favor of a flat `Compound` of all solids (touching counts as
-  intersecting → conservative fuse; subtractive cuts always run sequentially).
+  compound exactly, so `_pattern_instances_are_disjoint` skips the fuse in
+  favor of a flat `Compound` of all solids (touching counts as intersecting
+  → conservative fuse; subtractive cuts always run sequentially). Otherwise
+  one parallel `BRepAlgoAPI_Fuse` (`_pattern_parallel_fuse`: Arguments=body,
+  Tools=instances, RunParallel + NonDestructive) is tried first — measured
+  ~1.5× the sequential loop on the tokamak TF pattern, slower on trivial
+  boxes — with the sequential loop kept verbatim as the fallback.
 - Cross-body overlap is reported as a warning (with overlap volume) rather than
   a fatal error. Pure CAD assemblies such as the tokamak demo intentionally
   contain overlapping parts, so the B-rep build completes and callers that

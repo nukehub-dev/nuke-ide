@@ -4351,3 +4351,71 @@ def test_helical_sweep_rejects_bad_params() -> None:
     by_id = {r["featureId"]: r for r in result["featureResults"]}
     assert by_id["h1"]["status"] == "failed"
     assert "orientation" in by_id["h1"]["error"]
+
+
+def test_overlapping_pattern_parallel_fuse_matches_sequential() -> None:
+    """The GFOP fuse of overlapping boxes matches the sequential loop solid set."""
+    bd = pytest.importorskip("build123d", reason="build123d not installed")
+    body = bd.Compound(children=[bd.Solid.make_box(10.0, 10.0, 5.0)])
+    instances = [
+        body.moved(bd.Location((5.0, 0.0, 0.0))),
+        body.moved(bd.Location((2.0, 5.0, 0.0))),
+    ]
+    assert fb._pattern_instances_are_disjoint(body, instances) is False
+
+    result = fb._apply_pattern_or_mirror(body, None, "pad", instances, "test")
+    assert isinstance(result, bd.Compound)
+    expected: Any = body
+    for instance in instances:
+        expected = expected + instance
+    _assert_same_solid_set(result, expected)
+    assert result.volume == pytest.approx(expected.volume, rel=1e-6)
+
+
+def test_overlapping_pattern_parallel_fuse_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Forcing the GFOP attempt to fail still yields the correct sequential union."""
+    bd = pytest.importorskip("build123d", reason="build123d not installed")
+
+    def _boom(_body: Any, _instances: list[Any]) -> Any:
+        raise RuntimeError("synthetic GFOP failure")
+
+    monkeypatch.setattr(fb, "_pattern_parallel_fuse", _boom)
+    body = bd.Compound(children=[bd.Solid.make_box(10.0, 10.0, 5.0)])
+    instances = [body.moved(bd.Location((5.0, 0.0, 0.0)))]
+    assert fb._pattern_instances_are_disjoint(body, instances) is False
+
+    result = fb._apply_pattern_or_mirror(body, None, "pad", instances, "test")
+    expected = body + instances[0]
+    _assert_same_solid_set(result, expected)
+    assert result.volume == pytest.approx(10.0 * 10.0 * 5.0 + 5.0 * 10.0 * 5.0, rel=1e-6)
+
+
+def test_overlapping_pattern_parallel_fuse_timing() -> None:
+    """Measure sequential vs GFOP fuse on overlapping boxes; GFOP must agree."""
+    import time
+
+    bd = pytest.importorskip("build123d", reason="build123d not installed")
+    count = 16
+    body = bd.Compound(children=[bd.Solid.make_box(10.0, 10.0, 5.0)])
+    instances = [body.moved(bd.Location((float(k), 0.0, 0.0))) for k in range(1, count)]
+    assert fb._pattern_instances_are_disjoint(body, instances) is False
+
+    start = time.perf_counter()
+    sequential: Any = body
+    for instance in instances:
+        sequential = sequential + instance
+    sequential_time = time.perf_counter() - start
+
+    start = time.perf_counter()
+    parallel = fb._pattern_parallel_fuse(body, instances)
+    parallel_time = time.perf_counter() - start
+
+    print(
+        f"pattern fuse x{count}: sequential={sequential_time:.3f}s "
+        f"parallel={parallel_time:.3f}s "
+        f"speedup={sequential_time / max(parallel_time, 1e-9):.2f}x"
+    )
+    _assert_same_solid_set(parallel, sequential)
+    assert parallel.volume == pytest.approx(sequential.volume, rel=1e-6)

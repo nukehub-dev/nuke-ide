@@ -910,6 +910,50 @@ def _pattern_instances_are_disjoint(body: Any, instances: list[Any]) -> bool:
     return True
 
 
+def _pattern_parallel_fuse(body: Any, instances: list[Any]) -> Any:
+    """Fuse ``body`` with all ``instances`` in a single parallel GFOP call.
+
+    Arguments=[body], Tools=[instances] with ``SetRunParallel(True)`` and
+    ``SetNonDestructive(True)`` (inputs are referenced elsewhere, e.g. stored
+    tool shapes, and must never be mutated). The fused ``TopoDS`` result is
+    exploded into solids and returned as a flat ``Compound`` of wrapped solids
+    (mirrors the ``bd.Solid(TopoDS)`` wrapping used by ``_pipe_shell_result``).
+    Any failure raises so the caller can fall back to the sequential loop.
+    """
+    _require_build123d()
+    assert bd is not None
+    from OCP.BRepAlgoAPI import BRepAlgoAPI_Fuse
+    from OCP.TopAbs import TopAbs_SOLID
+    from OCP.TopExp import TopExp_Explorer
+    from OCP.TopoDS import TopoDS
+    from OCP.TopTools import TopTools_ListOfShape
+
+    body_wrapped = body.wrapped if hasattr(body, "wrapped") else body
+    arguments = TopTools_ListOfShape()
+    arguments.Append(body_wrapped)
+    tools = TopTools_ListOfShape()
+    for instance in instances:
+        wrapped = instance.wrapped if hasattr(instance, "wrapped") else instance
+        tools.Append(wrapped)
+    operation = BRepAlgoAPI_Fuse()
+    operation.SetArguments(arguments)
+    operation.SetTools(tools)
+    operation.SetRunParallel(True)
+    operation.SetNonDestructive(True)
+    operation.Build()
+    if not operation.IsDone():
+        raise FeatureBuilderError("parallel pattern fuse did not complete")
+    fused = operation.Shape()
+    solids: list[Any] = []
+    explorer = TopExp_Explorer(fused, TopAbs_SOLID)
+    while explorer.More():
+        solids.append(bd.Solid(TopoDS.Solid_s(explorer.Current())))
+        explorer.Next()
+    if not solids:
+        raise FeatureBuilderError("parallel pattern fuse produced no solids")
+    return bd.Compound(children=solids)
+
+
 def _apply_pattern_or_mirror(
     body: Any,
     source_tool: Any,
@@ -925,7 +969,9 @@ def _apply_pattern_or_mirror(
     instance are pairwise bbox-disjoint the union equals the plain compound of
     their solids exactly, so the (expensive) sequential fuse is skipped in favor
     of a flat ``Compound`` of ``body.solids() + all instance solids``.
-    Subtractive sources cut each instance from the body, always sequentially:
+    Otherwise a single parallel GFOP fuse is tried first, falling back to the
+    sequential pairwise loop on any failure. Subtractive sources cut each
+    instance from the body, always sequentially:
     each cut mutates the body, so skipping is unsound there.
     """
     _require_build123d()
@@ -938,6 +984,10 @@ def _apply_pattern_or_mirror(
             for instance in instances:
                 solids.extend(instance.solids())
             return bd.Compound(children=solids)
+        try:
+            return _pattern_parallel_fuse(body, instances)
+        except Exception:
+            pass
         result = body
         for instance in instances:
             result = result + instance

@@ -179,6 +179,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   exactly their compound, so the builder returns it directly. Overlapping
   instances still fuse as before, and subtractive cuts always run
   sequentially. Touching counts as intersecting (conservative fuse).
+  Overlapping instances now fuse in a single parallel `BRepAlgoAPI_Fuse`
+  (Arguments=body, Tools=instances) instead of a sequential pairwise loop,
+  falling back to the loop on any failure — measured ~1.5× on the tokamak TF
+  pattern with identical results.
 - nuke-cad: **closed-loop sweeps/pipes now survive STEP export** — a sweep or
   pipe whose path curve is a closed loop (e.g. a coil centerline) previously
   produced a tube whose periodic-seam edges carried meter-scale tolerances;
