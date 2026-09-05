@@ -280,6 +280,26 @@ export interface BlockResult {
     constraintIds?: string[];
 }
 
+/** Result of {@link SketchSession.carbonCopyFrom}. */
+export interface CarbonCopyResult {
+    /** Fresh primitive ids added to this session, in copy order (points first). */
+    addedPrimitiveIds: string[];
+    /** Human-readable error when the copy was rejected or failed. */
+    error?: string;
+}
+
+/** Result of {@link SketchSession.exposeEllipseInternals}. */
+export interface ExposeEllipseInternalsResult {
+    success: boolean;
+    error?: string;
+    /** Fresh id of the mirrored second-focus construction point. */
+    focus2Id?: string;
+    /** Fresh id of the major-axis construction line (focus1 to focus2). */
+    majorAxisLineId?: string;
+    /** Fresh id of the minor-axis construction line (through the center). */
+    minorAxisLineId?: string;
+}
+
 /** Result of {@link SketchSession.filletCorner}. */
 export interface FilletResult {
     success: boolean;
@@ -392,6 +412,38 @@ function validateParameterValue(value: number, name: string): string | undefined
     return undefined;
 }
 
+/**
+ * Planegcs constraint fields that reference sketch primitives, including the
+ * camelCase aliases accepted on load. Used to remap endpoint ids when a
+ * sketch is carbon-copied into another session.
+ */
+const CARBON_COPY_PRIMITIVE_ID_FIELDS: ReadonlySet<string> = new Set([
+    'p1_id',
+    'p2_id',
+    'p_id',
+    'l_id',
+    'l1_id',
+    'l2_id',
+    'c_id',
+    'c1_id',
+    'c2_id',
+    'a_id',
+    'a1_id',
+    'a2_id',
+    'p1Id',
+    'p2Id',
+    'pId',
+    'lId',
+    'l1Id',
+    'l2Id',
+    'cId',
+    'c1Id',
+    'c2Id',
+    'aId',
+    'a1Id',
+    'a2Id'
+]);
+
 function circleCenterFromThreePoints(a: Point2, b: Point2, c: Point2): Point2 {
     const d = 2 * (a.x * (b.y - c.y) + b.x * (c.y - a.y) + c.x * (a.y - b.y));
     if (Math.abs(d) < 1e-12) {
@@ -484,6 +536,7 @@ export class SketchSession {
     private status: SketchStatus;
     private readonly listeners = new Set<ChangeListener>();
     private idCounter = 0;
+    private carbonCopyCount = 0;
 
     private constructor(solver: SketchSolver, options: SketchSessionOptions = {}) {
         this.solver = solver;
@@ -2653,6 +2706,337 @@ export class SketchSession {
         this.primitives.set(id, { ...primitive, construction });
         await this.commit([]);
         this.emitChange();
+    }
+
+    /**
+     * Import another sketch's content into this session (FreeCAD "carbon copy").
+     *
+     * Every primitive, constraint, and dimension id is remapped into a
+     * `cc<N>-` namespace unique to this copy operation, so repeated copies
+     * never collide with each other or with existing session ids. Constraint
+     * endpoint ids and dimension `constraintId`/`targetIds` follow the remap;
+     * construction flags, fixed points, driving flags, parameter bindings
+     * (missing sketch-local parameters are added), and dimension label
+     * offsets are preserved. Source `externalRefs` are copied as-is: they
+     * reference document features, which stay valid in the target session.
+     *
+     * Copying a sketch onto itself is rejected with a clear error. The copy
+     * is validated before anything is mutated, so a failure leaves the
+     * session unchanged; the result round-trips through {@link toSketchDef}
+     * and re-validates via {@link validateDocument}.
+     */
+    async carbonCopyFrom(source: SketchDef): Promise<CarbonCopyResult> {
+        if (source.id === this.id) {
+            return { addedPrimitiveIds: [], error: `Cannot carbon-copy sketch '${source.id}' onto itself` };
+        }
+        this.carbonCopyCount += 1;
+        const namespace = `cc${this.carbonCopyCount}`;
+        const claimed = new Set<string>();
+        const claimId = (base: string): string => {
+            let candidate = base;
+            let suffix = 0;
+            while (this.primitives.has(candidate) || this.constraints.has(candidate) || claimed.has(candidate)) {
+                suffix += 1;
+                candidate = `${base}-x${suffix}`;
+            }
+            claimed.add(candidate);
+            return candidate;
+        };
+
+        // Phase 1 (no mutation): remap every id and validate references, so a
+        // malformed source fails before the session is touched.
+        const primitiveMap = new Map<string, string>();
+        const seenSourceIds = new Set<string>();
+        for (const raw of source.primitives) {
+            const oldId = String(raw.id);
+            if (seenSourceIds.has(oldId)) {
+                return { addedPrimitiveIds: [], error: `Cannot carbon-copy sketch '${source.id}': duplicate primitive id '${oldId}'` };
+            }
+            seenSourceIds.add(oldId);
+            primitiveMap.set(oldId, claimId(`${namespace}-${oldId}`));
+        }
+        const remapPrimitive = (id: unknown): string => {
+            const mapped = primitiveMap.get(String(id));
+            if (mapped === undefined) {
+                throw new Error(`Cannot carbon-copy sketch '${source.id}': unknown primitive reference '${String(id)}'`);
+            }
+            return mapped;
+        };
+
+        const stagedApplies: Array<() => void | Promise<void>> = [];
+        const addedPrimitiveIds: string[] = [];
+        const fixedPointIds: string[] = [];
+        try {
+            for (const [name, value] of Object.entries(source.parameters ?? {})) {
+                if (!Number.isFinite(value)) {
+                    throw new Error(`Cannot carbon-copy sketch '${source.id}': parameter '${name}' is not finite`);
+                }
+                if (!this.parameters.has(name)) {
+                    stagedApplies.push(() => this.addParameterInternal(name, value));
+                }
+            }
+
+            // Points first because higher geometry references them.
+            for (const raw of source.primitives) {
+                if (typeof raw.type !== 'string' || raw.type !== 'point') {
+                    continue;
+                }
+                const x = Number(raw.x);
+                const y = Number(raw.y);
+                finite(x, `Point '${String(raw.id)}' x`);
+                finite(y, `Point '${String(raw.id)}' y`);
+                const newId = primitiveMap.get(String(raw.id))!;
+                const construction = Boolean(raw.construction);
+                const fixed = Boolean(raw.fixed);
+                stagedApplies.push(() => {
+                    this.addPointInternal(newId, x, y, construction);
+                    addedPrimitiveIds.push(newId);
+                    if (fixed) {
+                        fixedPointIds.push(newId);
+                    }
+                });
+            }
+
+            for (const raw of source.primitives) {
+                if (typeof raw.type !== 'string' || raw.type === 'point') {
+                    continue;
+                }
+                const newId = primitiveMap.get(String(raw.id));
+                if (newId === undefined) {
+                    continue;
+                }
+                const construction = Boolean(raw.construction);
+                if (raw.type === 'line') {
+                    const p1Id = remapPrimitive(raw.p1_id ?? raw.p1Id);
+                    const p2Id = remapPrimitive(raw.p2_id ?? raw.p2Id);
+                    stagedApplies.push(() => {
+                        this.addLineInternal(newId, p1Id, p2Id, construction);
+                        addedPrimitiveIds.push(newId);
+                    });
+                } else if (raw.type === 'circle') {
+                    const centerId = remapPrimitive(raw.c_id ?? raw.centerId);
+                    const radius = Number(raw.radius);
+                    finite(radius, `Circle '${String(raw.id)}' radius`);
+                    stagedApplies.push(() => {
+                        this.addCircleInternal(newId, centerId, radius, construction);
+                        addedPrimitiveIds.push(newId);
+                    });
+                } else if (raw.type === 'arc') {
+                    const centerId = remapPrimitive(raw.c_id ?? raw.centerId);
+                    const radius = Number(raw.radius);
+                    const startAngle = Number(raw.start_angle ?? raw.startAngle);
+                    const endAngle = Number(raw.end_angle ?? raw.endAngle);
+                    const startId = remapPrimitive(raw.start_id ?? raw.startId);
+                    const endId = remapPrimitive(raw.end_id ?? raw.endId);
+                    finite(radius, `Arc '${String(raw.id)}' radius`);
+                    finite(startAngle, `Arc '${String(raw.id)}' startAngle`);
+                    finite(endAngle, `Arc '${String(raw.id)}' endAngle`);
+                    stagedApplies.push(() => {
+                        this.addArcInternal(newId, centerId, radius, startAngle, endAngle, startId, endId, construction);
+                        addedPrimitiveIds.push(newId);
+                    });
+                } else if (raw.type === 'ellipse') {
+                    const centerId = remapPrimitive(raw.c_id ?? raw.centerId);
+                    const focus1Id = remapPrimitive(raw.focus1_id ?? raw.focus1Id);
+                    const radmin = Number(raw.radmin);
+                    finite(radmin, `Ellipse '${String(raw.id)}' radmin`);
+                    stagedApplies.push(() => {
+                        this.addEllipseInternal(newId, centerId, focus1Id, radmin, construction);
+                        addedPrimitiveIds.push(newId);
+                    });
+                } else if (raw.type === 'bspline') {
+                    const poleIds = ((raw.pole_ids ?? raw.poleIds ?? []) as unknown[]).map(remapPrimitive);
+                    const weights = ((raw.weights ?? []) as unknown[]).map(Number);
+                    const knots = ((raw.knots ?? []) as unknown[]).map(Number);
+                    const mult = ((raw.mult ?? []) as unknown[]).map(Number);
+                    const degree = Number(raw.degree);
+                    if (poleIds.length < 2) {
+                        throw new Error(`Cannot carbon-copy sketch '${source.id}': BSpline '${String(raw.id)}' needs at least 2 poles`);
+                    }
+                    stagedApplies.push(() => {
+                        this.addBSplineInternal(newId, poleIds, weights, knots, mult, degree, construction);
+                        addedPrimitiveIds.push(newId);
+                    });
+                }
+                // Unknown primitive types are ignored, mirroring fromSketchDef.
+            }
+
+            // Remap constraint endpoint ids; the fresh constraint id is
+            // recorded only when the load actually registers it (unknown
+            // planegcs types are ignored by the loader, mirroring
+            // fromSketchDef), so dangling dimension references can be skipped.
+            const stagedConstraints: Array<{ oldId: string; newId: string; record: Record<string, unknown> }> = [];
+            for (const raw of source.constraints) {
+                const oldId = String(raw.id);
+                const newId = claimId(`${namespace}-${oldId}`);
+                const record: Record<string, unknown> = { ...raw, id: newId };
+                this.remapCarbonCopyConstraintIds(record, remapPrimitive, source.id);
+                stagedConstraints.push({ oldId, newId, record });
+            }
+            const copiedConstraintIds = new Map<string, string>();
+            stagedApplies.push(async () => {
+                for (const staged of stagedConstraints) {
+                    await this.loadConstraintFromPg(staged.record);
+                    if (this.constraints.has(staged.newId)) {
+                        copiedConstraintIds.set(staged.oldId, staged.newId);
+                    }
+                }
+            });
+
+            stagedApplies.push(() => {
+                for (const pointId of fixedPointIds) {
+                    const constraintId = this.nextId('fix');
+                    this.solver.addConstraintFix(constraintId, pointId);
+                    this.constraints.set(constraintId, { id: constraintId, kind: 'fix', targetIds: [pointId], driving: true });
+                    this.fixConstraintIds.set(pointId, constraintId);
+                }
+            });
+
+            // Dimensions resolve against the loaded constraints, so they are
+            // staged to run after the constraint load above. Dimensions whose
+            // constraint was not copied (unknown planegcs type) or whose
+            // targets are missing are skipped: dimensions are UI metadata and
+            // must never fail the geometry copy.
+            stagedApplies.push(() => {
+                for (const dimension of source.dimensions ?? []) {
+                    const targetIds: string[] = [];
+                    let resolved = true;
+                    for (const targetId of dimension.targetIds) {
+                        const mapped = primitiveMap.get(targetId);
+                        if (mapped === undefined) {
+                            resolved = false;
+                            break;
+                        }
+                        targetIds.push(mapped);
+                    }
+                    const newConstraintId = copiedConstraintIds.get(dimension.constraintId);
+                    if (!resolved || newConstraintId === undefined) {
+                        continue;
+                    }
+                    const newId = claimId(`${namespace}-${dimension.id}`);
+                    const numericValue =
+                        typeof dimension.value === 'number' && Number.isFinite(dimension.value)
+                            ? dimension.value
+                            : this.resolveParameterValue(dimension.parameter ?? dimension.value);
+                    this.dimensions.set(newId, {
+                        id: newId,
+                        constraintId: newConstraintId,
+                        kind: dimension.kind,
+                        targetIds,
+                        driving: dimension.driving,
+                        parameter: dimension.parameter,
+                        value: numericValue,
+                        labelOffset: dimension.labelOffset === undefined ? undefined : [dimension.labelOffset[0], dimension.labelOffset[1]]
+                    });
+                }
+            });
+
+            if (source.externalRefs !== undefined) {
+                const refs = source.externalRefs.map((ref) => cloneTopologyRef(ref));
+                stagedApplies.push(() => {
+                    for (const ref of refs) {
+                        this.externalRefs.push(ref);
+                    }
+                });
+            }
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            return { addedPrimitiveIds: [], error: message };
+        }
+
+        // Phase 2: the staged work only touches validated ids, so a solver
+        // failure here is unexpected; still solve (which refreshes status)
+        // and report rather than throw.
+        try {
+            for (const apply of stagedApplies) {
+                await apply();
+            }
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            await this.solveAndNotify();
+            return { addedPrimitiveIds, error: message };
+        }
+        await this.solveAndNotify();
+        return { addedPrimitiveIds };
+    }
+
+    /**
+     * Remap the primitive endpoint ids inside one planegcs-verbatim
+     * constraint record in place (constraint `id` is handled by the caller).
+     */
+    private remapCarbonCopyConstraintIds(record: Record<string, unknown>, remapPrimitive: (id: unknown) => string, sourceId: string): void {
+        void sourceId;
+        for (const [key, value] of Object.entries(record)) {
+            if (CARBON_COPY_PRIMITIVE_ID_FIELDS.has(key) && typeof value === 'string') {
+                record[key] = remapPrimitive(value);
+            } else if ((key === 'param1' || key === 'param2') && typeof value === 'object' && value !== null) {
+                const param = value as Record<string, unknown>;
+                for (const nested of ['o_id', 'oId']) {
+                    if (typeof param[nested] === 'string') {
+                        param[nested] = remapPrimitive(param[nested]);
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Expose an ellipse's internal alignment geometry as construction aids.
+     *
+     * Adds the second focus (mirrored through the center: `f2 = 2c - f1`) as
+     * a construction point, plus major-axis and minor-axis construction lines
+     * through the foci/center. The major-axis line reuses the existing focus1
+     * point and the new focus2 point as its endpoints, so it tracks later
+     * edits; the minor-axis line is centered on the ellipse center,
+     * perpendicular to the major axis, with the minor semi-axis as its
+     * half-length. Deliberately no constraints are added, so every new
+     * primitive is non-driving and the sketch can never be over-constrained
+     * by exposed internals.
+     *
+     * Note: B-spline poles need nothing here — they are already ordinary
+     * session points, so there is no internal-exposure API for B-splines and
+     * no knot UI.
+     */
+    async exposeEllipseInternals(ellipseId: string): Promise<ExposeEllipseInternalsResult> {
+        const ellipse = this.primitives.get(ellipseId);
+        if (ellipse === undefined) {
+            return { success: false, error: `Unknown primitive '${ellipseId}'` };
+        }
+        if (ellipse.type !== 'ellipse') {
+            return { success: false, error: `Primitive '${ellipseId}' is a ${ellipse.type}, not an ellipse` };
+        }
+        const center = this.getPointPosition(ellipse.centerId);
+        const focus1 = this.getPointPosition(ellipse.focus1Id);
+        if (center === undefined || focus1 === undefined) {
+            return { success: false, error: `Ellipse '${ellipseId}' references unsolved geometry` };
+        }
+        const dx = focus1.x - center.x;
+        const dy = focus1.y - center.y;
+        const focal = Math.hypot(dx, dy);
+        if (focal < 1e-12) {
+            return { success: false, error: `Ellipse '${ellipseId}' is degenerate (center coincides with focus); no axis to expose` };
+        }
+        const solved = this.solver.getPrimitive(ellipseId);
+        const radmin = solved?.type === 'ellipse' ? solved.radmin : ellipse.radmin;
+
+        const focus2Id = this.nextId('point');
+        this.addPointInternal(focus2Id, 2 * center.x - focus1.x, 2 * center.y - focus1.y, true);
+
+        const majorAxisLineId = this.nextId('line');
+        this.addLineInternal(majorAxisLineId, ellipse.focus1Id, focus2Id, true);
+
+        const nx = -dy / focal;
+        const ny = dx / focal;
+        const minor1Id = this.nextId('point');
+        const minor2Id = this.nextId('point');
+        this.addPointInternal(minor1Id, center.x + nx * radmin, center.y + ny * radmin, true);
+        this.addPointInternal(minor2Id, center.x - nx * radmin, center.y - ny * radmin, true);
+        const minorAxisLineId = this.nextId('line');
+        this.addLineInternal(minorAxisLineId, minor1Id, minor2Id, true);
+
+        await this.commit([]);
+        this.emitChange();
+        return { success: true, focus2Id, majorAxisLineId, minorAxisLineId };
     }
 
     /** Begin dragging one or more points. */

@@ -244,6 +244,14 @@ External geometry does not become part of the sketch's output wires or faces; it
 is only a reference for snapping and constraints. You can remove a reference
 from the list at any time.
 
+### Carbon copy
+
+To reuse another sketch's content, select it in the Feature Tree, enter the
+target sketch, and click the **Carbon Copy** toolbar button: the source
+sketch's primitives, constraints, and dimensions are imported with fresh ids
+(construction flags and parameter bindings preserved). Copying a sketch onto
+itself is rejected.
+
 ### Diagnostics, pan, zoom, and exit
 
 The status line at the bottom shows remaining degrees of freedom, conflicting

@@ -2011,6 +2011,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
         <CadSketchOverlay
             controller={controller}
             documentStore={props.documentStore}
+            messageService={props.messageService}
             setupVisible={props.sketchSetupVisible}
             featureCreationType={props.featureCreationType}
             editFeature={editFeature}

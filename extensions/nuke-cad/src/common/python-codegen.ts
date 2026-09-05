@@ -1279,7 +1279,8 @@ function emitPatternOrMirror(
             sourceFeature.type !== 'sweep' &&
             sourceFeature.type !== 'pipe' &&
             sourceFeature.type !== 'loft' &&
-            sourceFeature.type !== 'helicalSweep')
+            sourceFeature.type !== 'helicalSweep' &&
+            sourceFeature.type !== 'primitive')
     ) {
         return undefined;
     }
@@ -1306,6 +1307,13 @@ function emitPatternOrMirror(
         }
         toolExpr = expr;
         toolLines = [];
+    } else if (sourceFeature.type === 'primitive') {
+        const expr = primitiveSolidExpr(sourceFeature, datumVarById, datumById);
+        if (expr === undefined) {
+            return undefined;
+        }
+        toolExpr = expr;
+        toolLines = [];
     } else {
         const expr = sketchSolidExpr(sourceFeature, sketchFuncById, unbuildableSketches);
         if (expr === undefined) {
@@ -1320,7 +1328,8 @@ function emitPatternOrMirror(
         sourceFeature.type === 'sweep' ||
         sourceFeature.type === 'pipe' ||
         sourceFeature.type === 'loft' ||
-        sourceFeature.type === 'helicalSweep'
+        sourceFeature.type === 'helicalSweep' ||
+        sourceFeature.type === 'primitive'
             ? '+'
             : '-';
 

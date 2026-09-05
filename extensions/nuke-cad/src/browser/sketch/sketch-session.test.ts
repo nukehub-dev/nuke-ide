@@ -36,6 +36,7 @@ import {
     type SketchBSpline
 } from '../../common/sketch-solver';
 import { SketchSession, type ConstraintKind, type SketchTool, type SketchPreview } from './sketch-session';
+import { type SketchDef } from '../../common/cad-document';
 import { type TopologyRef } from '../../common/topology-refs';
 
 describe('SketchSession', () => {
@@ -1579,6 +1580,223 @@ describe('SketchSession', () => {
             const result = await session.filletCorner(a.id, b.id, 1);
             expect(result.success).toBe(false);
             expect(result.error).toContain('constrained');
+        });
+    });
+
+    describe('carbonCopyFrom', () => {
+        async function makeSourceDef(): Promise<SketchDef> {
+            const solver = await PlanegcsSketchSolver.create();
+            const source = await SketchSession.create(solver, {
+                id: 'sketch-source',
+                name: 'Source Sketch',
+                datumId: 'xy',
+                snap: { radius: 0.25, gridPitch: 1 }
+            });
+            source.setTool('point');
+            await source.click({ x: 0, y: 0 });
+            await source.click({ x: 10, y: 0 });
+            const pointIds = source.getPrimitiveIds();
+            await source.addConstraint('fix', [pointIds[0]]);
+            await source.addParameter('span', 10);
+            await source.addDimension('distance', [pointIds[0], pointIds[1]], 'span');
+
+            source.setTool('line');
+            await source.click({ x: 20, y: 0 });
+            await source.click({ x: 20, y: 10 });
+            const lineId = source.getPrimitives().filter((p) => p.type === 'line')[0].id;
+            await source.setConstruction(lineId, true);
+
+            source.setTool('circle');
+            await source.click({ x: 30, y: 0 });
+            await source.click({ x: 35, y: 0 });
+            const circleId = source.getPrimitives().filter((p) => p.type === 'circle')[0].id;
+            await source.setConstruction(circleId, true);
+
+            source.addExternalRef(faceRef('base'));
+            return source.toSketchDef();
+        }
+
+        it('copies geometry with fresh namespaced ids', async () => {
+            const def = await makeSourceDef();
+            const sourceIds = new Set(def.primitives.map((p) => String(p.id)));
+            const session = await makeSession();
+            const result = await session.carbonCopyFrom(def);
+            expect(result.error).toBeUndefined();
+            expect(result.addedPrimitiveIds).toHaveLength(def.primitives.length);
+            for (const id of result.addedPrimitiveIds) {
+                expect(sourceIds.has(id)).toBe(false);
+                expect(id.startsWith('cc1-')).toBe(true);
+            }
+            // Coordinates survive the copy.
+            const positions = session
+                .getPrimitives()
+                .filter((p) => p.type === 'point')
+                .map((p) => point(session, p.id));
+            for (const [x, y] of [
+                [0, 0],
+                [10, 0],
+                [20, 0],
+                [20, 10],
+                [30, 0]
+            ]) {
+                expect(positions.some((p) => Math.hypot(p.x - x, p.y - y) < 1e-9)).toBe(true);
+            }
+        });
+
+        it('remaps constraints and dimensions onto the copied ids', async () => {
+            const def = await makeSourceDef();
+            const session = await makeSession();
+            await session.carbonCopyFrom(def);
+            const added = new Set(session.getPrimitiveIds());
+            for (const record of session.getConstraints()) {
+                for (const targetId of record.targetIds) {
+                    expect(added.has(targetId)).toBe(true);
+                }
+            }
+            // Fix (restored from the fixed flag) + distance + auto-vertical.
+            expect(
+                session
+                    .getConstraints()
+                    .map((c) => c.kind)
+                    .sort()
+            ).toEqual(['distance', 'fix', 'vertical']);
+
+            const dimensions = session.getDimensions();
+            expect(dimensions).toHaveLength(1);
+            const dimension = dimensions[0];
+            expect(dimension.parameter).toBe('span');
+            expect(dimension.value).toBeCloseTo(10, 10);
+            const constraintIds = new Set(session.getConstraints().map((c) => c.id));
+            expect(constraintIds.has(dimension.constraintId)).toBe(true);
+            const distance = session.getConstraints().find((c) => c.id === dimension.constraintId)!;
+            expect(distance.targetIds).toEqual(dimension.targetIds);
+            expect(session.getParameters().span).toBe(10);
+        });
+
+        it('preserves construction flags and external refs', async () => {
+            const def = await makeSourceDef();
+            const session = await makeSession();
+            await session.carbonCopyFrom(def);
+            const lines = session.getPrimitives().filter((p) => p.type === 'line');
+            expect(lines).toHaveLength(1);
+            expect(lines[0].construction).toBe(true);
+            const circles = session.getPrimitives().filter((p) => p.type === 'circle');
+            expect(circles).toHaveLength(1);
+            expect(circles[0].construction).toBe(true);
+            for (const p of session.getPrimitives().filter((p) => p.type === 'point')) {
+                expect(p.construction).toBe(false);
+            }
+            expect(session.getExternalRefs()).toHaveLength(1);
+            expect(session.getExternalRefs()[0].featureId).toBe('base');
+        });
+
+        it('rejects copying a sketch onto itself', async () => {
+            const session = await makeSession();
+            session.setTool('point');
+            await session.click({ x: 1, y: 1 });
+            const before = session.getPrimitiveIds().length;
+            const result = await session.carbonCopyFrom(session.toSketchDef());
+            expect(result.error).toContain('itself');
+            expect(result.addedPrimitiveIds).toHaveLength(0);
+            expect(session.getPrimitiveIds()).toHaveLength(before);
+        });
+
+        it('namespaces repeat copies so they never collide', async () => {
+            const def = await makeSourceDef();
+            const session = await makeSession();
+            const first = await session.carbonCopyFrom(def);
+            const second = await session.carbonCopyFrom(def);
+            expect(first.error).toBeUndefined();
+            expect(second.error).toBeUndefined();
+            expect(second.addedPrimitiveIds.every((id) => id.startsWith('cc2-'))).toBe(true);
+            const overlap = first.addedPrimitiveIds.filter((id) => second.addedPrimitiveIds.includes(id));
+            expect(overlap).toHaveLength(0);
+        });
+
+        it('round-trips copied geometry through SketchDef and re-validates', async () => {
+            const def = await makeSourceDef();
+            const session = await makeSession();
+            const result = await session.carbonCopyFrom(def);
+            expect(result.error).toBeUndefined();
+            const validation = session.validateDocument();
+            expect(validation.issues).toEqual([]);
+            expect(validation.valid).toBe(true);
+
+            const solver = await PlanegcsSketchSolver.create();
+            const restored = await SketchSession.fromSketchDef(session.toSketchDef(), solver);
+            expect(restored.getPrimitiveIds().sort()).toEqual(session.getPrimitiveIds().sort());
+            expect(
+                restored
+                    .getConstraints()
+                    .map((c) => c.kind)
+                    .sort()
+            ).toEqual(
+                session
+                    .getConstraints()
+                    .map((c) => c.kind)
+                    .sort()
+            );
+        });
+    });
+
+    describe('exposeEllipseInternals', () => {
+        async function makeEllipseSession(): Promise<{ session: SketchSession; ellipse: SketchEllipse }> {
+            const session = await makeSession('ellipse');
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 5, y: 0 });
+            await session.click({ x: 2, y: 3 });
+            const ellipse = session.getPrimitives().filter((p) => p.type === 'ellipse')[0] as SketchEllipse;
+            return { session, ellipse };
+        }
+
+        it('adds the mirrored focus and axis construction lines', async () => {
+            const { session, ellipse } = await makeEllipseSession();
+            const constraintsBefore = session.getConstraints().length;
+            const result = await session.exposeEllipseInternals(ellipse.id);
+            expect(result.success).toBe(true);
+
+            // focus2 = 2c - f1 = (-4, 0).
+            const focus2 = point(session, result.focus2Id!);
+            expect(focus2.x).toBeCloseTo(-4, 10);
+            expect(focus2.y).toBeCloseTo(0, 10);
+            expect(session.getPrimitive(result.focus2Id!)?.construction).toBe(true);
+
+            // The major axis reuses focus1/focus2 and runs through the center.
+            const major = session.getPrimitive(result.majorAxisLineId!) as SketchLine & { construction: boolean };
+            expect(major.construction).toBe(true);
+            expect(new Set([major.p1Id, major.p2Id])).toEqual(new Set([ellipse.focus1Id, result.focus2Id]));
+            const center = point(session, ellipse.centerId);
+            const f1 = point(session, ellipse.focus1Id);
+            const cross = (f1.x - center.x) * (focus2.y - center.y) - (f1.y - center.y) * (focus2.x - center.x);
+            expect(cross).toBeCloseTo(0, 10);
+
+            // The minor axis is centered on c, perpendicular, radmin half-length.
+            const minor = session.getPrimitive(result.minorAxisLineId!) as SketchLine & { construction: boolean };
+            expect(minor.construction).toBe(true);
+            const m1 = point(session, minor.p1Id);
+            const m2 = point(session, minor.p2Id);
+            expect((m1.x + m2.x) / 2).toBeCloseTo(center.x, 10);
+            expect((m1.y + m2.y) / 2).toBeCloseTo(center.y, 10);
+            const dot = (m2.x - m1.x) * (f1.x - center.x) + (m2.y - m1.y) * (f1.y - center.y);
+            expect(dot).toBeCloseTo(0, 10);
+            expect(Math.hypot(m2.x - m1.x, m2.y - m1.y)).toBeCloseTo(2 * ellipse.radmin, 10);
+
+            // Non-driving: no constraints are added.
+            expect(session.getConstraints()).toHaveLength(constraintsBefore);
+        });
+
+        it('rejects non-ellipse primitives with a clear error', async () => {
+            const session = await makeSession('line');
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 10, y: 0 });
+            const lineId = session.getPrimitives().filter((p) => p.type === 'line')[0].id;
+            const result = await session.exposeEllipseInternals(lineId);
+            expect(result.success).toBe(false);
+            expect(result.error).toContain('not an ellipse');
+
+            const unknown = await session.exposeEllipseInternals('no-such-primitive');
+            expect(unknown.success).toBe(false);
+            expect(unknown.error).toContain('Unknown primitive');
         });
     });
 });

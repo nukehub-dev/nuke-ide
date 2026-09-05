@@ -1153,6 +1153,61 @@ describe('generatePythonScript extended feature emission', () => {
         expect(script).toContain('.mirror(bd.Plane((0, 0, 0), z_dir=(0, 0, 1)))');
     });
 
+    it('emits primitive sources re-derived with instance transforms for linear patterns', () => {
+        const doc = extendedDocument();
+        doc.features.length = 0;
+        pushExtendedFeature(doc, {
+            id: 'prim1',
+            name: 'Prim',
+            type: 'primitive',
+            body: 'b1',
+            params: { shape: 'box', dimensions: [2, 3, 4] } as FeatureDef['params'],
+            suppressed: false,
+            dependsOn: []
+        });
+        pushExtendedFeature(doc, {
+            id: 'linprim',
+            name: 'Prim rows',
+            type: 'linearPattern',
+            body: 'b1',
+            params: { source: 'prim1', count: 3, spacing: 4, axis: 'x' } as FeatureDef['params'],
+            suppressed: false,
+            dependsOn: ['prim1']
+        });
+        const script = generatePythonScript(doc);
+        expect(script).toContain('_tool_linprim = bd.Box(2, 3, 4).moved(datum_XY_datum_xy.location)  # source: Prim');
+        expect(script).toContain('for _k in range(1, 3):');
+        expect(script).toContain('body_B1 = body_B1 + _tool_linprim.moved(bd.Location((4 * _k, 0 * _k, 0 * _k)))');
+        expect(script).not.toContain('# TODO(manual): linearPattern feature "Prim rows"');
+    });
+
+    it('emits primitive sources re-derived with instance transforms for circular patterns', () => {
+        const doc = extendedDocument();
+        doc.features.length = 0;
+        pushExtendedFeature(doc, {
+            id: 'prim1',
+            name: 'Prim',
+            type: 'primitive',
+            body: 'b1',
+            params: { shape: 'cylinder', dimensions: [1, 5] } as FeatureDef['params'],
+            suppressed: false,
+            dependsOn: []
+        });
+        pushExtendedFeature(doc, {
+            id: 'circprim',
+            name: 'Prim ring',
+            type: 'circularPattern',
+            body: 'b1',
+            params: { source: 'prim1', count: 3, angle: 360, axis: 'z' } as FeatureDef['params'],
+            suppressed: false,
+            dependsOn: ['prim1']
+        });
+        const script = generatePythonScript(doc);
+        expect(script).toContain('_tool_circprim = bd.Cylinder(1, 5, align=(bd.Align.CENTER, bd.Align.CENTER, bd.Align.MIN))');
+        expect(script).toContain('body_B1 = body_B1 + _tool_circprim.rotate(bd.Axis.Z, _k * 120)');
+        expect(script).not.toContain('# TODO(manual): circularPattern feature "Prim ring"');
+    });
+
     it('hatches multiTransform, defeature, and taper/drill-point holes with their params', () => {
         const doc = extendedDocument();
         pushExtendedFeature(doc, {

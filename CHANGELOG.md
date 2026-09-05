@@ -71,6 +71,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   DistanceX/DistanceY, Diameter, and Block-freeze constraints; diagnostics
   now tag partially-redundant constraints and flag missing coincidents,
   open profiles, and fully-constrained state.
+- nuke-cad: **carbon copy + ellipse internals** — a sketch toolbar button
+  imports the Feature-Tree-selected sketch (fresh ids, constraints and
+  dimensions remapped); ellipses expose their second focus plus major/minor
+  axis construction lines for constraining.
+- nuke-cad: **exact Python export for primitive pattern sources** —
+  patterns/mirrors over primitives re-derive the primitive instead of
+  hatching (multiTransform still degrades honestly).
 - nuke-cad: **expression units layer** — the mini-language enforces unit
   algebra (`10mm + 1cm`, angle-gated trig, convert-or-fail coercion); the
   unit-less document paths reject unit syntax until a document-unit

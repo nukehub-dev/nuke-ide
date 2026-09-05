@@ -35,6 +35,7 @@
  */
 
 import * as React from '@theia/core/shared/react';
+import { type MessageService } from '@theia/core/lib/common/message-service';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
 import {
     NukeDialog,
@@ -99,6 +100,7 @@ const NUKE_DIALOG_HEADER_TARGET = headerRegionTarget('.nuke-dialog-header');
 interface CadSketchOverlayProps {
     readonly controller: SketchModeController;
     readonly documentStore: CadDocumentStore;
+    readonly messageService: MessageService;
     readonly setupVisible: boolean;
     readonly featureCreationType?: FeatureType;
     readonly editFeature?: FeatureDef;
@@ -183,6 +185,7 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
     const {
         controller,
         documentStore,
+        messageService,
         setupVisible,
         featureCreationType,
         editFeature,
@@ -508,6 +511,8 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
                         measureListOpen={measureListOpen}
                         onToggleMeasure={onToggleMeasure}
                         onToggleMeasureList={onToggleMeasureList}
+                        documentStore={documentStore}
+                        messageService={messageService}
                     />
 
                     <div className="cad-sketch-constraint-bar">
@@ -1380,6 +1385,9 @@ interface SketchToolbarProps {
     readonly measureListOpen?: boolean;
     readonly onToggleMeasure?: () => void;
     readonly onToggleMeasureList?: () => void;
+    /** Document store: the carbon-copy button reads the Feature-Tree-selected sketch from its selection. */
+    readonly documentStore: CadDocumentStore;
+    readonly messageService: MessageService;
 }
 
 function SketchToolbar(props: SketchToolbarProps): React.ReactElement {
@@ -1401,7 +1409,9 @@ function SketchToolbar(props: SketchToolbarProps): React.ReactElement {
         measureCount,
         measureListOpen,
         onToggleMeasure,
-        onToggleMeasureList
+        onToggleMeasureList,
+        documentStore,
+        messageService
     } = props;
     const drag = useDraggablePanel({ canDrag: TOOLBAR_DRAG_TARGET, canResetFrom: TOOLBAR_RESET_TARGET, resetOnContextMenu: false });
 
@@ -1411,6 +1421,28 @@ function SketchToolbar(props: SketchToolbarProps): React.ReactElement {
     const cycleSnapRadius = (): void => {
         const next = SNAP_RADIUS_PRESETS[(SNAP_RADIUS_PRESETS.indexOf(snapPreset) + 1) % SNAP_RADIUS_PRESETS.length];
         controller.setSnapRadius(next.px);
+    };
+
+    const selectedSketchId = documentStore.selection.selectedSketchId;
+
+    const handleCarbonCopy = async (): Promise<void> => {
+        const session = controller.getSession();
+        if (session === undefined) {
+            return;
+        }
+        if (selectedSketchId === undefined) {
+            messageService?.warn('Select a sketch in the Feature Tree to carbon-copy it into this sketch.');
+            return;
+        }
+        const source = documentStore.document?.sketches.find((sketch) => sketch.id === selectedSketchId);
+        if (source === undefined) {
+            messageService?.warn(`Selected sketch '${selectedSketchId}' no longer exists in the document.`);
+            return;
+        }
+        const result = await session.carbonCopyFrom(source);
+        if (result.error !== undefined) {
+            messageService?.warn(result.error);
+        }
     };
 
     const resetPosition = (): void => {
@@ -1561,6 +1593,11 @@ function SketchToolbar(props: SketchToolbarProps): React.ReactElement {
                                 <span className="codicon codicon-nuke-cad-external-ref" />
                             </button>
                         </Tooltip>
+                        <Tooltip content="Carbon Copy (import the Feature-Tree-selected sketch)" position="bottom">
+                            <button className="theia-button secondary cad-sketch-tool-button" onClick={() => void handleCarbonCopy()}>
+                                <span className="codicon codicon-copy" />
+                            </button>
+                        </Tooltip>
                         <Tooltip content={snapEnabled ? 'Disable Snapping' : 'Enable Snapping'} position="bottom">
                             <button
                                 className={`theia-button secondary cad-sketch-tool-button ${snapEnabled ? 'active' : ''}`}
@@ -1685,6 +1722,10 @@ function SketchShortcutsPopover(props: SketchShortcutsPopoverProps): React.React
                 <div className="cad-sketch-shortcuts-row">
                     <span className="cad-sketch-shortcuts-key">Tab</span>
                     <span>Enter / exit sketch mode</span>
+                </div>
+                <div className="cad-sketch-shortcuts-row">
+                    <span className="cad-sketch-shortcuts-key">Carbon copy</span>
+                    <span>Import the Feature-Tree-selected sketch into this sketch</span>
                 </div>
                 <div className="cad-sketch-shortcuts-row">
                     <span className="cad-sketch-shortcuts-key">Finish Sketch</span>

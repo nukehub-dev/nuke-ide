@@ -505,7 +505,8 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
     screen projections would overlap; a dragged label pins a session-scoped
     screen offset that survives zoom/pan and opts out of auto-shift),
     parameters panel, external-geometry
-    reference list, diagnostics popover (with reference-resolution status,
+    reference list, carbon-copy button (imports the Feature-Tree-selected
+    sketch with fresh ids), diagnostics popover (with reference-resolution status,
     conflicting/redundant/partially-redundant tags, missing-coincident and
     open-profile validator warnings, and a fully-constrained flag), and
     status line (leads with `Click: select · Ctrl+Click: multi-select / relations
@@ -722,7 +723,8 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
     radians), revolve uses `revolution_arc`, pattern counts include the
     original with full/partial circular sweeps stepped `360/count` resp.
     `angle/(count-1)`, pattern/mirror instances transform a re-derived source
-    solid (never the sketch), boolean tools are combined before the operation,
+    solid (never the sketch; primitive sources re-derive exactly like
+    sketch-based ones, multiTransform still hatches), boolean tools are combined before the operation,
     and contained sketch profiles (any nesting depth) are holes emitted with
     `bd.Mode.SUBTRACT` — matching the backend's outer/inner-wire pairing.
     Ellipses become `bd.Ellipse(x_radius, y_radius, rotation=deg)` under
