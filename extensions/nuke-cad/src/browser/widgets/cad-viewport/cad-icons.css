@@ -59,7 +59,14 @@
 .codicon-nuke-cad-split,
 .codicon-nuke-cad-polyline,
 .codicon-nuke-cad-polygon,
-.codicon-nuke-cad-arc-slot {
+.codicon-nuke-cad-arc-slot,
+.codicon-nuke-cad-move,
+.codicon-nuke-cad-copy,
+.codicon-nuke-cad-rotate,
+.codicon-nuke-cad-scale,
+.codicon-nuke-cad-array,
+.codicon-nuke-cad-offset,
+.codicon-nuke-cad-join {
     display: inline-block;
     width: 16px;
     height: 16px;
@@ -376,4 +383,46 @@
 .codicon-nuke-cad-arc-slot {
     -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.3 12.5a6.6 6.6 0 0 1 11.4 0'/%3E%3Cpath d='M5 12.5a4 4 0 0 1 6 0'/%3E%3C/svg%3E");
     mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.3 12.5a6.6 6.6 0 0 1 11.4 0'/%3E%3Cpath d='M5 12.5a4 4 0 0 1 6 0'/%3E%3C/svg%3E");
+}
+
+/* Four arrows from the center — Move sketch tool. */
+.codicon-nuke-cad-move {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M8 1.8v12.4M1.8 8h12.4'/%3E%3Cpath d='M8 1.8 5.8 4M8 1.8l2.2 2.2M8 14.2l-2.2-2.2M8 14.2l2.2-2.2M1.8 8l2.2-2.2M1.8 8l2.2 2.2M14.2 8l-2.2-2.2M14.2 8l-2.2 2.2'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M8 1.8v12.4M1.8 8h12.4'/%3E%3Cpath d='M8 1.8 5.8 4M8 1.8l2.2 2.2M8 14.2l-2.2-2.2M8 14.2l2.2-2.2M1.8 8l2.2-2.2M1.8 8l2.2 2.2M14.2 8l-2.2-2.2M14.2 8l-2.2 2.2'/%3E%3C/svg%3E");
+}
+
+/* Doubled offset squares — Copy sketch tool. */
+.codicon-nuke-cad-copy {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linejoin='round'%3E%3Crect x='5.5' y='5.5' width='8' height='8' rx='.5'/%3E%3Cpath d='M10.5 5.5v-2a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linejoin='round'%3E%3Cpath d='M10.5 5.5v-2a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2'/%3E%3C/svg%3E");
+}
+
+/* Circular arrow — Rotate sketch tool. */
+.codicon-nuke-cad-rotate {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M13.6 8a5.6 5.6 0 1 1-1.7-4'/%3E%3Cpath d='M13.9 1.7v3.1h-3.1'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M13.6 8a5.6 5.6 0 1 1-1.7-4'/%3E%3Cpath d='M13.9 1.7v3.1h-3.1'/%3E%3C/svg%3E");
+}
+
+/* Box with an expanding corner arrow — Scale sketch op. */
+.codicon-nuke-cad-scale {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='1.8' y='9.2' width='5' height='5' rx='.5'/%3E%3Cpath d='M7.5 8.5 14 2M14 2h-3.2M14 2v3.2'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='1.8' y='9.2' width='5' height='5' rx='.5'/%3E%3Cpath d='M7.5 8.5 14 2M14 2h-3.2M14 2v3.2'/%3E%3C/svg%3E");
+}
+
+/* 2x2 grid — Rectangular Array sketch op. */
+.codicon-nuke-cad-array {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linejoin='round'%3E%3Crect x='2' y='2' width='5.5' height='5.5' rx='.5'/%3E%3Crect x='8.5' y='2' width='5.5' height='5.5' rx='.5'/%3E%3Crect x='2' y='8.5' width='5.5' height='5.5' rx='.5'/%3E%3Crect x='8.5' y='8.5' width='5.5' height='5.5' rx='.5'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linejoin='round'%3E%3Crect x='2' y='2' width='5.5' height='5.5' rx='.5'/%3E%3Crect x='8.5' y='2' width='5.5' height='5.5' rx='.5'/%3E%3Crect x='2' y='8.5' width='5.5' height='5.5' rx='.5'/%3E%3Crect x='8.5' y='8.5' width='5.5' height='5.5' rx='.5'/%3E%3C/svg%3E");
+}
+
+/* Two parallel diagonals — Offset sketch op. */
+.codicon-nuke-cad-offset {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round'%3E%3Cpath d='M2.5 10 11 3'/%3E%3Cpath d='M5 13.5 13.5 6'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round'%3E%3Cpath d='M2.5 10 11 3'/%3E%3Cpath d='M5 13.5 13.5 6'/%3E%3C/svg%3E");
+}
+
+/* Two nodes joined by a link — Join-open-ends sketch op. */
+.codicon-nuke-cad-join {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round'%3E%3Cpath d='M5.4 10.6l5.2-5.2'/%3E%3Ccircle cx='4' cy='12' r='2' fill='black' stroke='none'/%3E%3Ccircle cx='12' cy='4' r='2' fill='black' stroke='none'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round'%3E%3Cpath d='M5.4 10.6l5.2-5.2'/%3E%3Ccircle cx='4' cy='12' r='2' fill='black' stroke='none'/%3E%3Ccircle cx='12' cy='4' r='2' fill='black' stroke='none'/%3E%3C/svg%3E");
 }

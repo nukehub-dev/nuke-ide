@@ -464,6 +464,105 @@ export function arcPointAt(center: Point2, radius: number, angle: number): Point
 }
 
 /**
+ * Translate a 2D point by a vector.
+ *
+ * @param point Point to translate.
+ * @param vector Translation vector (dx, dy).
+ */
+export function translatePoint(point: Point2, vector: Point2): Point2 {
+    return { x: point.x + vector.x, y: point.y + vector.y };
+}
+
+/**
+ * Rotate a 2D point about a center by an angle in radians.
+ *
+ * Positive angles run counter-clockwise, matching the session's arc convention.
+ */
+export function rotatePoint(point: Point2, center: Point2, angleRad: number): Point2 {
+    const cos = Math.cos(angleRad);
+    const sin = Math.sin(angleRad);
+    const dx = point.x - center.x;
+    const dy = point.y - center.y;
+    return { x: center.x + dx * cos - dy * sin, y: center.y + dx * sin + dy * cos };
+}
+
+/**
+ * Scale a 2D point about a center by a uniform factor.
+ */
+export function scalePoint(point: Point2, center: Point2, factor: number): Point2 {
+    return { x: center.x + (point.x - center.x) * factor, y: center.y + (point.y - center.y) * factor };
+}
+
+/**
+ * Project a point onto the infinite line through a/b.
+ *
+ * Unlike {@link projectPointOntoSegment} the result is not clamped to the
+ * segment; a degenerate line (a == b) projects to a itself.
+ */
+export function projectPointOntoLine(point: Point2, a: Point2, b: Point2): Point2 {
+    const abx = b.x - a.x;
+    const aby = b.y - a.y;
+    const denom = abx * abx + aby * aby;
+    if (denom < 1e-12) {
+        return { x: a.x, y: a.y };
+    }
+    const t = ((point.x - a.x) * abx + (point.y - a.y) * aby) / denom;
+    return { x: a.x + abx * t, y: a.y + aby * t };
+}
+
+/**
+ * Mirror a 2D point across the infinite line through a/b.
+ *
+ * A degenerate axis (a == b) mirrors through the point a itself
+ * (central inversion: `2a - p`).
+ */
+export function mirrorPointAcrossLine(point: Point2, a: Point2, b: Point2): Point2 {
+    const projected = projectPointOntoLine(point, a, b);
+    return { x: 2 * projected.x - point.x, y: 2 * projected.y - point.y };
+}
+
+/** Direction angle of the axis through a/b (atan2 of the axis direction). */
+export function axisAngle(a: Point2, b: Point2): number {
+    return Math.atan2(b.y - a.y, b.x - a.x);
+}
+
+/**
+ * Rotate a direction angle by a delta (radians).
+ */
+export function rotateAngle(angle: number, delta: number): number {
+    return angle + delta;
+}
+
+/**
+ * Mirror a direction angle across an axis with the given direction angle.
+ *
+ * Mirroring `(cos a, sin a)` across a line at `axis` yields
+ * `2 * axis - a`, matching {@link mirrorPointAcrossLine} for points.
+ */
+export function mirrorAngle(angle: number, axis: number): number {
+    return 2 * axis - angle;
+}
+
+/**
+ * Offset a line's endpoints by a signed distance along the left normal.
+ *
+ * The normal is `(-dy, dx) / len` of the `a -> b` direction, so a positive
+ * distance shifts to the left of the direction. The result carries the
+ * documented no-auto-trim contract: overlapping offsets are left as-is.
+ */
+export function offsetLinePoints(a: Point2, b: Point2, distance: number): { a: Point2; b: Point2 } {
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const len = Math.hypot(dx, dy);
+    if (len < 1e-12) {
+        return { a: { x: a.x, y: a.y }, b: { x: b.x, y: b.y } };
+    }
+    const nx = -dy / len;
+    const ny = dx / len;
+    return { a: { x: a.x + nx * distance, y: a.y + ny * distance }, b: { x: b.x + nx * distance, y: b.y + ny * distance } };
+}
+
+/**
  * True when an angle lies on the arc span from startAngle to endAngle.
  *
  * The sweep is signed (endAngle - startAngle): positive sweeps run

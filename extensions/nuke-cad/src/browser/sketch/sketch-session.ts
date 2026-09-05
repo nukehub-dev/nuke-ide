@@ -66,7 +66,15 @@ import {
     pointToSegmentDistance,
     angleOfPoint,
     arcPointAt,
-    isAngleOnArc
+    isAngleOnArc,
+    translatePoint,
+    rotatePoint,
+    scalePoint,
+    mirrorPointAcrossLine,
+    axisAngle,
+    rotateAngle,
+    mirrorAngle,
+    offsetLinePoints
 } from './sketch-math';
 import { clampedUniformKnots, sharedEllipsePolyline, sharedBSplinePolyline, nearestPolylinePoint } from '../../common/sketch-curves';
 import { type TopologyRef } from '../../common/topology-refs';
@@ -138,7 +146,11 @@ export type SketchTool =
     | 'sketchChamfer'
     | 'polyline'
     | 'polygon'
-    | 'arcSlot';
+    | 'arcSlot'
+    | 'move'
+    | 'copy'
+    | 'rotate'
+    | 'mirrorTool';
 
 /**
  * Single-key tool shortcuts routed by the CAD viewport while a sketch session
@@ -164,7 +176,11 @@ export const SKETCH_TOOL_SHORTCUTS: Readonly<Record<string, SketchTool>> = {
     k: 'sketchChamfer',
     w: 'polyline',
     y: 'polygon',
-    u: 'arcSlot'
+    u: 'arcSlot',
+    v: 'move',
+    g: 'copy',
+    i: 'rotate',
+    n: 'mirrorTool'
 };
 
 /** Rectangle construction modes, cycled with M while the rectangle tool is active. */
@@ -380,6 +396,24 @@ export interface EditCurveResult {
     newIds?: string[];
 }
 
+/** Result of selection-transform operations (move/copy/rotate/mirror/scale/array/offset). */
+export interface TransformResult {
+    success: boolean;
+    error?: string;
+    /** Fresh primitive ids added by the operation (copies, array instances, offset survivors). */
+    addedPrimitiveIds?: string[];
+    /** Primitive ids modified in place (move/rotate/scale/offset targets). */
+    movedPrimitiveIds?: string[];
+}
+
+/** Result of {@link SketchSession.joinOpenEnds}. */
+export interface JoinResult {
+    success: boolean;
+    error?: string;
+    /** Id of the connecting line, when the join succeeded. */
+    lineId?: string;
+}
+
 /** Options for {@link SketchSession.editDimension}. */
 export interface EditDimensionOptions {
     /** New literal value; ignored when parameter is set. */
@@ -497,6 +531,24 @@ interface InProgressArcSlot {
     end?: Point2;
 }
 
+interface InProgressMove {
+    tool: 'move';
+    stage: 1;
+    base: Point2;
+}
+
+interface InProgressCopy {
+    tool: 'copy';
+    stage: 1;
+    base: Point2;
+}
+
+interface InProgressRotate {
+    tool: 'rotate';
+    stage: 1;
+    center: Point2;
+}
+
 type InProgressState =
     | InProgressLine
     | InProgressCircle
@@ -509,7 +561,10 @@ type InProgressState =
     | InProgressSketchChamfer
     | InProgressPolyline
     | InProgressPolygon
-    | InProgressArcSlot;
+    | InProgressArcSlot
+    | InProgressMove
+    | InProgressCopy
+    | InProgressRotate;
 
 interface DragState {
     pointIds: string[];
@@ -666,6 +721,7 @@ export class SketchSession {
     private readonly externalRefs: TopologyRef[] = [];
 
     private tool: SketchTool = 'select';
+    private readonly selectedIds = new Set<string>();
     private inProgress: InProgressState | undefined;
     private rectangleMode: RectangleMode = 'corner';
     private polylineMode: PolylineMode = 'line';
@@ -1140,6 +1196,36 @@ export class SketchSession {
         this.emitChange();
     }
 
+    /**
+     * Set the session selection driving the selection-transform tools.
+     *
+     * The viewport owns click selection while the Select tool is active; it
+     * publishes the ids here before the user switches to move/copy/rotate/
+     * mirrorTool, and the inline popovers read it for joinEnds. Unknown ids
+     * are kept as-is so the transform entry points can report them clearly.
+     */
+    setSelection(ids: string[]): void {
+        this.selectedIds.clear();
+        for (const id of ids) {
+            this.selectedIds.add(id);
+        }
+        this.emitChange();
+    }
+
+    /** Ids currently driving the selection-transform tools. */
+    getSelection(): string[] {
+        return [...this.selectedIds];
+    }
+
+    /** Clear the session selection. */
+    clearSelection(): void {
+        if (this.selectedIds.size === 0) {
+            return;
+        }
+        this.selectedIds.clear();
+        this.emitChange();
+    }
+
     /** Cancel the in-progress entity (Esc semantics). */
     cancel(): void {
         if (this.inProgress === undefined) {
@@ -1211,6 +1297,8 @@ export class SketchSession {
             if (this.inProgress.endId !== undefined) {
                 ids.push(this.inProgress.endId);
             }
+        } else if (this.inProgress.tool === 'move' || this.inProgress.tool === 'copy' || this.inProgress.tool === 'rotate') {
+            // Transform gestures stage raw clicks only; no primitives to delete.
         }
         for (const id of ids) {
             this.removePrimitiveAndConstraints(id);
@@ -1575,6 +1663,22 @@ export class SketchSession {
             }
             case 'arcSlot': {
                 await this.clickArcSlot(snapped);
+                break;
+            }
+            case 'move': {
+                await this.clickMove(snapped);
+                break;
+            }
+            case 'copy': {
+                await this.clickCopy(snapped);
+                break;
+            }
+            case 'rotate': {
+                await this.clickRotate(snapped);
+                break;
+            }
+            case 'mirrorTool': {
+                await this.clickMirrorTool(snapped, raw);
                 break;
             }
         }
@@ -2355,6 +2459,1046 @@ export class SketchSession {
         await this.commit([]);
         this.emitChange();
         return removed;
+    }
+
+    /**
+     * Translate the selected entities by a base-to-target vector (Move tool core).
+     *
+     * In-place rigid translation: owned points move by the vector while curve
+     * scalars (radii, angles, radmin) are preserved. Bridging constraints
+     * (mixed moved/unmoved targets) and fixes on moved points are dropped so
+     * the solver cannot fight the translation; fully-internal constraints are
+     * kept. New coincident joins are added where moved points land on existing
+     * points. Re-solves after the op. Rejects empty selections.
+     */
+    async moveSelection(base: Point2, target: Point2): Promise<TransformResult> {
+        const vector = { x: target.x - base.x, y: target.y - base.y };
+        if (Math.hypot(vector.x, vector.y) < 1e-12) {
+            return { success: false, error: 'Move needs a base point and a distinct target point' };
+        }
+        return this.applyRigidTransformToSelection((p) => translatePoint(p, vector), 'Move');
+    }
+
+    /**
+     * Copy the selected entities translated by a base-to-target vector.
+     *
+     * Originals are kept; fresh copies carry transformed coordinates with
+     * construction flags preserved. Internal constraints (all targets inside
+     * the selection closure) are remapped onto the copies like
+     * {@link carbonCopyFrom}; bridging constraints are not copied. Rejects
+     * empty selections.
+     */
+    async copySelection(base: Point2, target: Point2): Promise<TransformResult> {
+        const vector = { x: target.x - base.x, y: target.y - base.y };
+        if (Math.hypot(vector.x, vector.y) < 1e-12) {
+            return { success: false, error: 'Copy needs a base point and a distinct target point' };
+        }
+        return this.copySelectionWithPointTransform((p) => translatePoint(p, vector), undefined, 'Copy');
+    }
+
+    /**
+     * Rotate the selected entities about a center by the swept angle.
+     *
+     * The angle is measured from the +X axis to the angle point
+     * (`atan2(anglePoint - center)`). Arc start/end angles rotate with the
+     * points; radii and ellipse radmin are preserved. Internal
+     * horizontal/vertical constraints are dropped (rotation changes
+     * orientation) plus the usual bridging/fix hygiene. Rejects empty
+     * selections.
+     */
+    async rotateSelection(center: Point2, anglePoint: Point2): Promise<TransformResult> {
+        if (Math.hypot(anglePoint.x - center.x, anglePoint.y - center.y) < 1e-12) {
+            return { success: false, error: 'Rotate needs a center and an angle point away from the center' };
+        }
+        const angle = angleOfPoint(anglePoint, center);
+        return this.applyRotationToSelection(center, angle);
+    }
+
+    /**
+     * Mirror the selected entities across an axis line into fresh copies.
+     *
+     * Copies carry mirrored coordinates with construction flags preserved and
+     * internal constraints remapped like {@link carbonCopyFrom}; each original
+     * point is then paired to its copy with a solver symmetry constraint about
+     * the axis line (point-level only, honoring the ellipse/B-spline scope
+     * rule). Rejects empty selections.
+     */
+    async mirrorSelection(axisLineId: string): Promise<TransformResult> {
+        const axis = this.primitives.get(axisLineId);
+        if (axis === undefined) {
+            return { success: false, error: `Unknown primitive '${axisLineId}'` };
+        }
+        if (axis.type !== 'line') {
+            return { success: false, error: `Mirror needs an axis line, got '${axisLineId}' (${axis.type})` };
+        }
+        const a = this.getPointPosition(axis.type === 'line' ? axis.p1Id : '');
+        const b = this.getPointPosition(axis.type === 'line' ? axis.p2Id : '');
+        if (a === undefined || b === undefined) {
+            return { success: false, error: `Mirror axis '${axisLineId}' references unsolved geometry` };
+        }
+        if (Math.hypot(b.x - a.x, b.y - a.y) < 1e-12) {
+            return { success: false, error: `Mirror axis '${axisLineId}' is degenerate` };
+        }
+        return this.mirrorSelectionAcrossAxis(axisLineId, a, b);
+    }
+
+    /**
+     * Scale primitives about a center by a uniform factor (inline popover core).
+     *
+     * Contract name `scale` is an alias of this method for the UI agent.
+     * In-place: owned points scale about the center while circle/arc radii
+     * and ellipse radmin multiply by the factor (arc angles preserved).
+     * Internal distance/radius/diameter values scale with the factor;
+     * horizontal/vertical survive (orientation preserved); fixes on moved
+     * points and bridging constraints are dropped. Re-solves after the op.
+     */
+    async scalePrimitives(ids: string[], center: Point2, factor: number): Promise<TransformResult> {
+        if (ids.length === 0) {
+            return { success: false, error: 'Scale needs at least one selected primitive' };
+        }
+        if (!Number.isFinite(factor) || factor <= 0) {
+            return { success: false, error: `Scale factor must be finite positive, got ${factor}` };
+        }
+        if (!Number.isFinite(center.x) || !Number.isFinite(center.y)) {
+            return { success: false, error: 'Scale center must be finite coordinates' };
+        }
+        return this.applyScaleToIds(ids, center, factor);
+    }
+
+    /** Alias of {@link scalePrimitives} under the UI-agent contract name. */
+    async scale(ids: string[], center: Point2, factor: number): Promise<TransformResult> {
+        return this.scalePrimitives(ids, center, factor);
+    }
+
+    /**
+     * Copy primitives into a rows-by-cols grid spaced by (dx, dy).
+     *
+     * Contract name `arrayRect` is an alias of this method for the UI agent.
+     * Plain copies: construction flags preserved, no constraints or dimensions
+     * on the copies. The (0, 0) cell is the original; every other cell is a
+     * fresh copy offset by `(col * dx, row * dy)`. Counts must be positive
+     * integers; spacing must be finite with at least one nonzero component.
+     */
+    async rectangularArray(ids: string[], dx: number, dy: number, rows: number, cols: number): Promise<TransformResult> {
+        if (ids.length === 0) {
+            return { success: false, error: 'Rectangular array needs at least one selected primitive' };
+        }
+        if (!Number.isInteger(rows) || rows <= 0) {
+            return { success: false, error: `Rectangular array rows must be a positive integer, got ${rows}` };
+        }
+        if (!Number.isInteger(cols) || cols <= 0) {
+            return { success: false, error: `Rectangular array cols must be a positive integer, got ${cols}` };
+        }
+        if (!Number.isFinite(dx) || !Number.isFinite(dy)) {
+            return { success: false, error: `Rectangular array spacing must be finite, got (${dx}, ${dy})` };
+        }
+        if (Math.hypot(dx, dy) < 1e-12) {
+            return { success: false, error: 'Rectangular array spacing must be nonzero' };
+        }
+        return this.applyRectangularArray(ids, dx, dy, rows, cols);
+    }
+
+    /** Alias of {@link rectangularArray} under the UI-agent contract name. */
+    async arrayRect(ids: string[], dx: number, dy: number, rows: number, cols: number): Promise<TransformResult> {
+        return this.rectangularArray(ids, dx, dy, rows, cols);
+    }
+
+    /**
+     * Offset each listed wire entity in parallel by a signed distance.
+     *
+     * Lines shift along the left normal of their `p1 -> p2` direction;
+     * circles/arcs grow their radius by the distance (arcs keep center and
+     * angles, start/end points re-derived). Only lines, circles, and arcs are
+     * accepted (point-level-only rule: ellipses and B-splines are rejected
+     * with a clear error). Radius constraints on offset circles/arcs are
+     * dropped (they pin the old radius); detached point-on-object records are
+     * pruned. Documented: no auto-trim of the resulting overlaps.
+     */
+    async offsetWire(ids: string[], distance: number): Promise<TransformResult> {
+        if (ids.length === 0) {
+            return { success: false, error: 'Offset needs at least one selected wire entity' };
+        }
+        if (!Number.isFinite(distance) || Math.abs(distance) < 1e-12) {
+            return { success: false, error: `Offset distance must be finite nonzero, got ${distance}` };
+        }
+        return this.applyOffsetWire(ids, distance);
+    }
+
+    /**
+     * Join exactly two caller-selected open endpoints with a line.
+     *
+     * With no argument the session selection is used; pass explicit point ids
+     * for headless use. Both ids must be open wire ends per
+     * {@link findOpenVertices} (non-construction line/arc endpoints or
+     * B-spline end poles used by exactly one segment). The new line's ends
+     * gain coincident constraints to the joined points. Any other count or
+     * non-open endpoints fail with a clear error.
+     */
+    async joinOpenEnds(pointIds?: string[]): Promise<JoinResult> {
+        const selected = pointIds ?? this.getSelection();
+        if (selected.length !== 2) {
+            return { success: false, error: `Join needs exactly 2 selected open endpoints, got ${selected.length}` };
+        }
+        const [first, second] = selected;
+        const firstPrimitive = this.primitives.get(first);
+        const secondPrimitive = this.primitives.get(second);
+        if (firstPrimitive === undefined) {
+            return { success: false, error: `Unknown primitive '${first}'` };
+        }
+        if (secondPrimitive === undefined) {
+            return { success: false, error: `Unknown primitive '${second}'` };
+        }
+        if (firstPrimitive.type !== 'point' || secondPrimitive.type !== 'point') {
+            return { success: false, error: `Join needs two points, got ${firstPrimitive.type}/${secondPrimitive.type}` };
+        }
+        const openRoots = this.openVertexRoots();
+        if (!openRoots.has(first) || !openRoots.has(second)) {
+            return {
+                success: false,
+                error: `Join needs two open endpoints ('${first}', '${second}'): one or both are closed or construction-only`
+            };
+        }
+        if (first === second) {
+            return { success: false, error: 'Join needs two distinct open endpoints' };
+        }
+        const firstPos = this.getPointPosition(first);
+        const secondPos = this.getPointPosition(second);
+        if (firstPos === undefined || secondPos === undefined) {
+            return { success: false, error: 'Join references unsolved geometry' };
+        }
+        if (Math.hypot(secondPos.x - firstPos.x, secondPos.y - firstPos.y) < 1e-12) {
+            return { success: false, error: 'Join endpoints coincide; add a coincident constraint instead' };
+        }
+        const e1Id = this.nextId('point');
+        const e2Id = this.nextId('point');
+        this.addPointInternal(e1Id, firstPos.x, firstPos.y, false);
+        this.addPointInternal(e2Id, secondPos.x, secondPos.y, false);
+        const lineId = this.nextId('line');
+        this.addLineInternal(lineId, e1Id, e2Id, false);
+        for (const [a, b] of [
+            [first, e1Id],
+            [second, e2Id]
+        ] as Array<[string, string]>) {
+            const coincidentId = this.nextId('coincident');
+            this.solver.addConstraintCoincident(coincidentId, a, b, { driving: true });
+            this.constraints.set(coincidentId, { id: coincidentId, kind: 'coincident', targetIds: [a, b], driving: true });
+        }
+        await this.commit([]);
+        this.emitChange();
+        return { success: true, lineId };
+    }
+
+    /** Alias of {@link joinOpenEnds} under the UI-agent contract name. */
+    async joinEnds(pointIds?: string[]): Promise<JoinResult> {
+        return this.joinOpenEnds(pointIds);
+    }
+
+    private async clickMove(snapped: SnapResult): Promise<void> {
+        if (this.inProgress === undefined || this.inProgress.tool !== 'move') {
+            if (this.selectedIds.size === 0) {
+                this.status = {
+                    ...this.status,
+                    lastAutoConstraints: [],
+                    hint: 'Move needs a selection — select entities with the Select tool first'
+                };
+                this.emitChange();
+                return;
+            }
+            this.inProgress = { tool: 'move', stage: 1, base: snapped.point };
+            this.status = { ...this.status, lastAutoConstraints: [] };
+            this.emitChange();
+            return;
+        }
+        const result = await this.moveSelection(this.inProgress.base, snapped.point);
+        this.inProgress = undefined;
+        this.status = result.success
+            ? { ...this.status, lastAutoConstraints: [] }
+            : { ...this.status, lastAutoConstraints: [], hint: result.error };
+        this.emitChange();
+    }
+
+    private async clickCopy(snapped: SnapResult): Promise<void> {
+        if (this.inProgress === undefined || this.inProgress.tool !== 'copy') {
+            if (this.selectedIds.size === 0) {
+                this.status = {
+                    ...this.status,
+                    lastAutoConstraints: [],
+                    hint: 'Copy needs a selection — select entities with the Select tool first'
+                };
+                this.emitChange();
+                return;
+            }
+            this.inProgress = { tool: 'copy', stage: 1, base: snapped.point };
+            this.status = { ...this.status, lastAutoConstraints: [] };
+            this.emitChange();
+            return;
+        }
+        const result = await this.copySelection(this.inProgress.base, snapped.point);
+        this.inProgress = undefined;
+        this.status = result.success
+            ? { ...this.status, lastAutoConstraints: [] }
+            : { ...this.status, lastAutoConstraints: [], hint: result.error };
+        this.emitChange();
+    }
+
+    private async clickRotate(snapped: SnapResult): Promise<void> {
+        if (this.inProgress === undefined || this.inProgress.tool !== 'rotate') {
+            if (this.selectedIds.size === 0) {
+                this.status = {
+                    ...this.status,
+                    lastAutoConstraints: [],
+                    hint: 'Rotate needs a selection — select entities with the Select tool first'
+                };
+                this.emitChange();
+                return;
+            }
+            this.inProgress = { tool: 'rotate', stage: 1, center: snapped.point };
+            this.status = { ...this.status, lastAutoConstraints: [] };
+            this.emitChange();
+            return;
+        }
+        const result = await this.rotateSelection(this.inProgress.center, snapped.point);
+        this.inProgress = undefined;
+        this.status = result.success
+            ? { ...this.status, lastAutoConstraints: [] }
+            : { ...this.status, lastAutoConstraints: [], hint: result.error };
+        this.emitChange();
+    }
+
+    private async clickMirrorTool(snapped: SnapResult, raw: Point2): Promise<void> {
+        if (this.selectedIds.size === 0) {
+            this.status = {
+                ...this.status,
+                lastAutoConstraints: [],
+                hint: 'Mirror needs a selection — select entities with the Select tool first'
+            };
+            this.emitChange();
+            return;
+        }
+        let axisLineId: string | undefined;
+        if (snapped.sourceId !== undefined) {
+            const target = this.primitives.get(snapped.sourceId);
+            if (target?.type === 'line') {
+                axisLineId = target.id;
+            }
+        }
+        if (axisLineId === undefined) {
+            axisLineId = this.findNearestCurve(raw, LINE_TARGET, this.pickTolerance())?.id;
+        }
+        if (axisLineId === undefined) {
+            this.status = { ...this.status, lastAutoConstraints: [], hint: 'Mirror needs an axis line — click a line in the sketch' };
+            this.emitChange();
+            return;
+        }
+        const result = await this.mirrorSelection(axisLineId);
+        this.status = result.success
+            ? { ...this.status, lastAutoConstraints: [] }
+            : { ...this.status, lastAutoConstraints: [], hint: result.error };
+        this.emitChange();
+    }
+
+    /** Open wire-end roots (coincident-merged) backing {@link joinOpenEnds} validation. */
+    private openVertexRoots(): Set<string> {
+        const roots = new Set<string>();
+        for (const vertex of this.findOpenVertices()) {
+            roots.add(vertex.pointId);
+        }
+        // findOpenVertices merges coincident points and reports the smallest
+        // member; joins also accept any other member of the same root.
+        const parent = new Map<string, string>();
+        const find = (id: string): string => {
+            const p = parent.get(id) ?? id;
+            if (p === id) {
+                return id;
+            }
+            const root = find(p);
+            parent.set(id, root);
+            return root;
+        };
+        const union = (a: string, b: string): void => {
+            const ra = find(a);
+            const rb = find(b);
+            if (ra !== rb) {
+                parent.set(ra < rb ? rb : ra, ra < rb ? ra : rb);
+            }
+        };
+        for (const primitive of this.primitives.values()) {
+            if (primitive.type === 'point') {
+                find(primitive.id);
+            }
+        }
+        for (const record of this.constraints.values()) {
+            if (record.kind === 'coincident' && record.targetIds.length === 2) {
+                union(record.targetIds[0], record.targetIds[1]);
+            }
+        }
+        const openRoots = new Set<string>();
+        for (const vertex of this.findOpenVertices()) {
+            openRoots.add(find(vertex.pointId));
+        }
+        for (const primitive of this.primitives.values()) {
+            if (primitive.type === 'point' && openRoots.has(find(primitive.id))) {
+                roots.add(primitive.id);
+            }
+        }
+        return roots;
+    }
+
+    /** Expand selected ids into the curve + owned-point closure for transforms. */
+    private transformClosure(ids: string[]): { pointIds: Set<string>; curveIds: Set<string>; allIds: Set<string> } | { error: string } {
+        const pointIds = new Set<string>();
+        const curveIds = new Set<string>();
+        const allIds = new Set<string>();
+        for (const id of ids) {
+            const primitive = this.primitives.get(id);
+            if (primitive === undefined) {
+                return { error: `Unknown primitive '${id}'` };
+            }
+            allIds.add(id);
+            if (primitive.type === 'point') {
+                pointIds.add(id);
+            } else if (primitive.type === 'line') {
+                curveIds.add(id);
+                for (const endId of [primitive.p1Id, primitive.p2Id]) {
+                    pointIds.add(endId);
+                    allIds.add(endId);
+                }
+            } else if (primitive.type === 'circle') {
+                curveIds.add(id);
+                pointIds.add(primitive.centerId);
+                allIds.add(primitive.centerId);
+            } else if (primitive.type === 'arc') {
+                curveIds.add(id);
+                for (const owned of [primitive.centerId, primitive.startId, primitive.endId]) {
+                    pointIds.add(owned);
+                    allIds.add(owned);
+                }
+            } else if (primitive.type === 'ellipse') {
+                curveIds.add(id);
+                for (const owned of [primitive.centerId, primitive.focus1Id]) {
+                    pointIds.add(owned);
+                    allIds.add(owned);
+                }
+            } else if (primitive.type === 'bspline') {
+                curveIds.add(id);
+                for (const poleId of primitive.poleIds) {
+                    pointIds.add(poleId);
+                    allIds.add(poleId);
+                }
+            }
+        }
+        return { pointIds, curveIds, allIds };
+    }
+
+    /** Drop bridging constraints plus fixes on moved points before an in-place transform. */
+    private dropTransformBlockers(allIds: Set<string>, pointIds: Set<string>): void {
+        for (const [id, record] of [...this.constraints]) {
+            const inside = record.targetIds.filter((target) => allIds.has(target));
+            if (inside.length === 0) {
+                continue;
+            }
+            if (record.kind === 'fix' && record.targetIds.length === 1 && pointIds.has(record.targetIds[0])) {
+                this.removeConstraintInternal(id);
+                continue;
+            }
+            const outside = record.targetIds.filter((target) => !allIds.has(target));
+            if (outside.length > 0) {
+                this.removeConstraintInternal(id);
+            }
+        }
+    }
+
+    /** Move owned points to computed positions through the solver pin/solve/unpin cycle. */
+    private async applyPointMoves(moves: Map<string, Point2>): Promise<void> {
+        const pinned: Array<{ xId: string; yId: string }> = [];
+        for (const [pointId, pos] of moves) {
+            finite(pos.x, `Target x for '${pointId}'`);
+            finite(pos.y, `Target y for '${pointId}'`);
+            const coords = this.solver.setPointCoordinates(pointId, pos.x, pos.y);
+            pinned.push({ xId: coords.xConstraintId, yId: coords.yConstraintId });
+        }
+        await this.solve();
+        for (const { xId, yId } of pinned) {
+            this.solver.removeConstraint(xId);
+            this.solver.removeConstraint(yId);
+        }
+        await this.solve();
+    }
+
+    /** Add coincident joins where moved points land on existing points (1e-6). */
+    private addLandingCoincidents(movedPointIds: Set<string>): void {
+        const moved = [...movedPointIds];
+        for (const movedId of moved) {
+            const pos = this.getPointPosition(movedId);
+            if (pos === undefined) {
+                continue;
+            }
+            for (const primitive of this.primitives.values()) {
+                if (primitive.type !== 'point' || primitive.id === movedId || movedPointIds.has(primitive.id)) {
+                    continue;
+                }
+                const other = this.getPointPosition(primitive.id);
+                if (other === undefined) {
+                    continue;
+                }
+                if (Math.hypot(other.x - pos.x, other.y - pos.y) <= 1e-6) {
+                    const coincidentId = this.nextId('coincident');
+                    this.solver.addConstraintCoincident(coincidentId, movedId, primitive.id, { driving: true });
+                    this.constraints.set(coincidentId, {
+                        id: coincidentId,
+                        kind: 'coincident',
+                        targetIds: [movedId, primitive.id],
+                        driving: true
+                    });
+                    break;
+                }
+            }
+        }
+    }
+
+    /** In-place rigid translation/rotation core shared by move and rotate. */
+    private async applyRigidTransformToSelection(transform: (p: Point2) => Point2, verb: string): Promise<TransformResult> {
+        const ids = this.getSelection();
+        if (ids.length === 0) {
+            return { success: false, error: `${verb} needs at least one selected primitive` };
+        }
+        const closure = this.transformClosure(ids);
+        if ('error' in closure) {
+            return { success: false, error: closure.error };
+        }
+        const moves = new Map<string, Point2>();
+        for (const pointId of closure.pointIds) {
+            const pos = this.getPointPosition(pointId);
+            if (pos === undefined) {
+                return { success: false, error: `${verb} references unsolved geometry on '${pointId}'` };
+            }
+            moves.set(pointId, transform(pos));
+        }
+        this.dropTransformBlockers(closure.allIds, closure.pointIds);
+        await this.applyPointMoves(moves);
+        this.addLandingCoincidents(closure.pointIds);
+        await this.commit([]);
+        this.emitChange();
+        return { success: true, movedPrimitiveIds: [...closure.allIds] };
+    }
+
+    private async applyRotationToSelection(center: Point2, angle: number): Promise<TransformResult> {
+        const ids = this.getSelection();
+        if (ids.length === 0) {
+            return { success: false, error: 'Rotate needs at least one selected primitive' };
+        }
+        const closure = this.transformClosure(ids);
+        if ('error' in closure) {
+            return { success: false, error: closure.error };
+        }
+        const moves = new Map<string, Point2>();
+        for (const pointId of closure.pointIds) {
+            const pos = this.getPointPosition(pointId);
+            if (pos === undefined) {
+                return { success: false, error: `Rotate references unsolved geometry on '${pointId}'` };
+            }
+            moves.set(pointId, rotatePoint(pos, center, angle));
+        }
+        this.dropTransformBlockers(closure.allIds, closure.pointIds);
+        // Rotation changes line orientation: drop axis locks on rotated lines.
+        for (const [id, record] of [...this.constraints]) {
+            if ((record.kind === 'horizontal' || record.kind === 'vertical') && closure.allIds.has(record.targetIds[0])) {
+                this.removeConstraintInternal(id);
+            }
+        }
+        await this.applyPointMoves(moves);
+        for (const curveId of closure.curveIds) {
+            const curve = this.primitives.get(curveId);
+            if (curve?.type !== 'arc') {
+                continue;
+            }
+            const solved = this.solver.getPrimitive(curveId);
+            const radius = solved?.type === 'arc' ? solved.radius : curve.radius;
+            const startAngle = rotateAngle(curve.startAngle, angle);
+            const endAngle = rotateAngle(curve.endAngle, angle);
+            this.rebuildArcInPlace(curveId, curve.centerId, radius, startAngle, endAngle, curve.startId, curve.endId, curve.construction);
+        }
+        this.addLandingCoincidents(closure.pointIds);
+        await this.commit([]);
+        this.emitChange();
+        return { success: true, movedPrimitiveIds: [...closure.allIds] };
+    }
+
+    private async applyScaleToIds(ids: string[], center: Point2, factor: number): Promise<TransformResult> {
+        const closure = this.transformClosure(ids);
+        if ('error' in closure) {
+            return { success: false, error: closure.error };
+        }
+        const moves = new Map<string, Point2>();
+        for (const pointId of closure.pointIds) {
+            const pos = this.getPointPosition(pointId);
+            if (pos === undefined) {
+                return { success: false, error: `Scale references unsolved geometry on '${pointId}'` };
+            }
+            moves.set(pointId, scalePoint(pos, center, factor));
+        }
+        this.dropTransformBlockers(closure.allIds, closure.pointIds);
+        await this.applyPointMoves(moves);
+        for (const curveId of closure.curveIds) {
+            const curve = this.primitives.get(curveId);
+            if (curve?.type === 'circle') {
+                const solved = this.solver.getPrimitive(curveId);
+                const radius = (solved?.type === 'circle' ? solved.radius : curve.radius) * factor;
+                const refs = [...this.constraints.values()].filter((record) => record.targetIds.includes(curveId));
+                this.solver.removePrimitive(curveId);
+                this.solver.addCircle(curveId, curve.centerId, radius, { construction: curve.construction });
+                this.primitives.set(curveId, { ...curve, radius });
+                for (const record of refs) {
+                    if (record.kind === 'radius') {
+                        if (typeof record.value === 'number') {
+                            record.value = record.value * factor;
+                            this.constraints.set(record.id, record);
+                            const dimension = [...this.dimensions.values()].find((d) => d.constraintId === record.id);
+                            if (dimension !== undefined && typeof dimension.value === 'number') {
+                                dimension.value = dimension.value * factor;
+                            }
+                        } else {
+                            this.removeConstraintInternal(record.id);
+                            continue;
+                        }
+                    }
+                    this.solver.removeConstraint(record.id);
+                    this.replayConstraintRecord(record);
+                }
+            } else if (curve?.type === 'arc') {
+                const solved = this.solver.getPrimitive(curveId);
+                const radius = (solved?.type === 'arc' ? solved.radius : curve.radius) * factor;
+                this.rebuildArcInPlace(
+                    curveId,
+                    curve.centerId,
+                    radius,
+                    curve.startAngle,
+                    curve.endAngle,
+                    curve.startId,
+                    curve.endId,
+                    curve.construction
+                );
+                for (const record of [...this.constraints.values()].filter((r) => r.targetIds.includes(curveId) && r.kind === 'radius')) {
+                    if (typeof record.value === 'number') {
+                        record.value = record.value * factor;
+                        this.constraints.set(record.id, record);
+                        const dimension = [...this.dimensions.values()].find((d) => d.constraintId === record.id);
+                        if (dimension !== undefined && typeof dimension.value === 'number') {
+                            dimension.value = dimension.value * factor;
+                        }
+                        this.solver.removeConstraint(record.id);
+                        this.replayConstraintRecord(record);
+                    } else {
+                        this.removeConstraintInternal(record.id);
+                    }
+                }
+            } else if (curve?.type === 'ellipse') {
+                const solved = this.solver.getPrimitive(curveId);
+                const radmin = (solved?.type === 'ellipse' ? solved.radmin : curve.radmin) * factor;
+                const refs = [...this.constraints.values()].filter((record) => record.targetIds.includes(curveId));
+                this.solver.removePrimitive(curveId);
+                this.solver.addEllipse(curveId, curve.centerId, curve.focus1Id, radmin, { construction: curve.construction });
+                this.primitives.set(curveId, { ...curve, radmin });
+                for (const record of refs) {
+                    this.solver.removeConstraint(record.id);
+                    this.replayConstraintRecord(record);
+                }
+            }
+        }
+        for (const record of [...this.constraints.values()].filter((r) => r.kind === 'distance')) {
+            if (record.targetIds.every((target) => closure.allIds.has(target)) && typeof record.value === 'number') {
+                record.value = record.value * factor;
+                this.constraints.set(record.id, record);
+                const dimension = [...this.dimensions.values()].find((d) => d.constraintId === record.id);
+                if (dimension !== undefined && typeof dimension.value === 'number') {
+                    dimension.value = dimension.value * factor;
+                }
+                this.solver.removeConstraint(record.id);
+                this.replayConstraintRecord(record);
+            }
+        }
+        this.addLandingCoincidents(closure.pointIds);
+        await this.commit([]);
+        this.emitChange();
+        return { success: true, movedPrimitiveIds: [...closure.allIds] };
+    }
+
+    /**
+     * Copy the selection closure with a point transform and an optional arc
+     * angle transform, remapping fully-internal constraints and dimensions.
+     */
+    private async copySelectionWithPointTransform(
+        transform: (p: Point2) => Point2,
+        transformArcAngles: ((startAngle: number, endAngle: number) => { startAngle: number; endAngle: number }) | undefined,
+        verb: string
+    ): Promise<TransformResult> {
+        const ids = this.getSelection();
+        if (ids.length === 0) {
+            return { success: false, error: `${verb} needs at least one selected primitive` };
+        }
+        return this.copyIdsWithPointTransform(ids, transform, transformArcAngles, true);
+    }
+
+    /** Copy explicit ids (gestures use the selection; array/offset paths reuse this core). */
+    private async copyIdsWithPointTransform(
+        ids: string[],
+        transform: (p: Point2) => Point2,
+        transformArcAngles: ((startAngle: number, endAngle: number) => { startAngle: number; endAngle: number }) | undefined,
+        remapConstraints: boolean
+    ): Promise<TransformResult> {
+        const closure = this.transformClosure(ids);
+        if ('error' in closure) {
+            return { success: false, error: closure.error };
+        }
+        const pointMap = new Map<string, string>();
+        const addedPrimitiveIds: string[] = [];
+        const positions = new Map<string, Point2>();
+        for (const pointId of closure.pointIds) {
+            const pos = this.getPointPosition(pointId);
+            if (pos === undefined) {
+                return { success: false, error: `Copy references unsolved geometry on '${pointId}'` };
+            }
+            positions.set(pointId, transform(pos));
+        }
+        const pointConstruction = new Map<string, boolean>();
+        for (const pointId of closure.pointIds) {
+            const original = this.primitives.get(pointId);
+            pointConstruction.set(pointId, original?.construction ?? false);
+        }
+        // Points first so curves can reference the fresh ids.
+        const orderedPoints = [...closure.pointIds].sort();
+        for (const oldId of orderedPoints) {
+            const pos = positions.get(oldId)!;
+            const newId = this.nextId('point');
+            this.addPointInternal(newId, pos.x, pos.y, pointConstruction.get(oldId) ?? false);
+            pointMap.set(oldId, newId);
+            addedPrimitiveIds.push(newId);
+        }
+        const curveRemap = new Map<string, string>();
+        const orderedCurves = [...closure.curveIds].sort();
+        for (const oldId of orderedCurves) {
+            const original = this.primitives.get(oldId)!;
+            const newId = this.nextId(oldId.split('-')[0] ?? 'curve');
+            const construction = original.construction;
+            if (original.type === 'line') {
+                this.addLineInternal(newId, pointMap.get(original.p1Id)!, pointMap.get(original.p2Id)!, construction);
+            } else if (original.type === 'circle') {
+                const solved = this.solver.getPrimitive(oldId);
+                const radius = solved?.type === 'circle' ? solved.radius : original.radius;
+                this.addCircleInternal(newId, pointMap.get(original.centerId)!, radius, construction);
+            } else if (original.type === 'arc') {
+                const solved = this.solver.getPrimitive(oldId);
+                const radius = solved?.type === 'arc' ? solved.radius : original.radius;
+                const angles =
+                    transformArcAngles !== undefined
+                        ? transformArcAngles(original.startAngle, original.endAngle)
+                        : { startAngle: original.startAngle, endAngle: original.endAngle };
+                this.addArcInternal(
+                    newId,
+                    pointMap.get(original.centerId)!,
+                    radius,
+                    angles.startAngle,
+                    angles.endAngle,
+                    pointMap.get(original.startId)!,
+                    pointMap.get(original.endId)!,
+                    construction
+                );
+            } else if (original.type === 'ellipse') {
+                const solved = this.solver.getPrimitive(oldId);
+                const radmin = solved?.type === 'ellipse' ? solved.radmin : original.radmin;
+                this.addEllipseInternal(newId, pointMap.get(original.centerId)!, pointMap.get(original.focus1Id)!, radmin, construction);
+            } else if (original.type === 'bspline') {
+                const poles = original.poleIds.map((poleId) => pointMap.get(poleId)!);
+                this.addBSplineInternal(
+                    newId,
+                    poles,
+                    [...original.weights],
+                    [...original.knots],
+                    [...original.mult],
+                    original.degree,
+                    construction
+                );
+            }
+            curveRemap.set(oldId, newId);
+            addedPrimitiveIds.push(newId);
+        }
+        const fullRemap = new Map<string, string>([...pointMap, ...curveRemap]);
+        if (remapConstraints) {
+            const internal = [...this.constraints.values()].filter((record) =>
+                record.targetIds.every((target) => closure.allIds.has(target))
+            );
+            const constraintIdMap = new Map<string, string>();
+            for (const record of internal) {
+                const remappedTargets = record.targetIds.map((target) => fullRemap.get(target)!);
+                const newId = this.nextId(record.kind);
+                try {
+                    this.applyConstraintRecordToSolver(newId, record.kind, remappedTargets, record);
+                } catch (err) {
+                    const message = err instanceof Error ? err.message : String(err);
+                    return { success: false, error: message };
+                }
+                const stored: ConstraintRecord = { id: newId, kind: record.kind, targetIds: remappedTargets, driving: record.driving };
+                if (record.value !== undefined) {
+                    stored.value = record.value;
+                }
+                if (record.direction !== undefined) {
+                    stored.direction = record.direction;
+                }
+                if (record.diameter !== undefined) {
+                    stored.diameter = record.diameter;
+                }
+                this.constraints.set(newId, stored);
+                constraintIdMap.set(record.id, newId);
+            }
+            // Remap dimensions whose constraint was duplicated above (mirrors
+            // carbonCopyFrom: dimensions are UI metadata and never fail the copy).
+            for (const dimension of [...this.dimensions.values()]) {
+                const newConstraintId = constraintIdMap.get(dimension.constraintId);
+                if (newConstraintId === undefined) {
+                    continue;
+                }
+                if (!dimension.targetIds.every((target) => closure.allIds.has(target))) {
+                    continue;
+                }
+                const remappedTargets = dimension.targetIds.map((target) => fullRemap.get(target)!);
+                const newDimensionId = this.nextId('dimension');
+                this.dimensions.set(newDimensionId, {
+                    id: newDimensionId,
+                    constraintId: newConstraintId,
+                    kind: dimension.kind,
+                    targetIds: remappedTargets,
+                    driving: dimension.driving,
+                    parameter: dimension.parameter,
+                    value: dimension.value,
+                    labelOffset: dimension.labelOffset === undefined ? undefined : [dimension.labelOffset[0], dimension.labelOffset[1]]
+                });
+            }
+        }
+        await this.commit([]);
+        this.emitChange();
+        return { success: true, addedPrimitiveIds };
+    }
+
+    /** Replay one stored constraint kind onto fresh target ids under a new id. */
+    private applyConstraintRecordToSolver(
+        newId: string,
+        kind: ConstraintRecord['kind'],
+        targetIds: string[],
+        record: ConstraintRecord
+    ): void {
+        const driving = record.driving;
+        switch (kind) {
+            case 'coincident':
+                this.solver.addConstraintCoincident(newId, targetIds[0], targetIds[1], { driving });
+                break;
+            case 'fix':
+                this.solver.addConstraintFix(newId, targetIds[0]);
+                break;
+            case 'horizontal':
+                this.solver.addConstraintHorizontal(newId, targetIds[0], { driving });
+                break;
+            case 'vertical':
+                this.solver.addConstraintVertical(newId, targetIds[0], { driving });
+                break;
+            case 'parallel':
+                this.solver.addConstraintParallel(newId, targetIds[0], targetIds[1], { driving });
+                break;
+            case 'perpendicular':
+                this.solver.addConstraintPerpendicular(newId, targetIds[0], targetIds[1], { driving });
+                break;
+            case 'tangent':
+                this.solver.addConstraintTangent(newId, targetIds[0], targetIds[1], { driving });
+                break;
+            case 'equal':
+                this.solver.addConstraintEqual(newId, targetIds[0], targetIds[1], { driving });
+                break;
+            case 'concentric':
+                this.solver.addConstraintConcentric(newId, targetIds[0], targetIds[1], { driving });
+                break;
+            case 'distance':
+                this.solver.addConstraintDistance(newId, targetIds[0], targetIds[1], record.value as number | string, {
+                    driving,
+                    direction: record.direction ?? 'point-point'
+                });
+                break;
+            case 'angle':
+                this.solver.addConstraintAngle(newId, targetIds[0], targetIds[1], record.value as number | string, { driving });
+                break;
+            case 'radius':
+                if (record.diameter) {
+                    this.solver.addConstraintDiameter(newId, targetIds[0], record.value as number | string, { driving });
+                } else {
+                    this.solver.addConstraintRadius(newId, targetIds[0], record.value as number | string, { driving });
+                }
+                break;
+            case 'symmetry':
+                this.solver.addConstraintSymmetry(newId, targetIds[0], targetIds[1], targetIds[2], { driving });
+                break;
+            case 'pointOnObject':
+                this.solver.addConstraintPointOnObject(newId, targetIds[0], targetIds[1], { driving });
+                break;
+        }
+    }
+
+    private async mirrorSelectionAcrossAxis(axisLineId: string, a: Point2, b: Point2): Promise<TransformResult> {
+        const ids = this.getSelection().filter((id) => id !== axisLineId);
+        if (ids.length === 0) {
+            return { success: false, error: 'Mirror needs at least one selected primitive besides the axis line' };
+        }
+        const axis = axisAngle(a, b);
+        const result = await this.copyIdsWithPointTransform(
+            ids,
+            (p) => mirrorPointAcrossLine(p, a, b),
+            (startAngle, endAngle) => ({ startAngle: mirrorAngle(startAngle, axis), endAngle: mirrorAngle(endAngle, axis) }),
+            true
+        );
+        if (!result.success) {
+            return result;
+        }
+        // Pair each original point to its mirrored copy with a symmetry
+        // constraint about the axis line. Curve pairing follows through the
+        // shared points (point-level only for ellipse/B-spline scope).
+        const closure = this.transformClosure(ids);
+        if ('error' in closure) {
+            return { success: false, error: closure.error };
+        }
+        const copies = result.addedPrimitiveIds ?? [];
+        const orderedOriginals = [...closure.pointIds].sort();
+        // copyIdsWithPointTransform creates points in sorted order, so the
+        // first N added ids are the mirrored points in the same order.
+        const mirroredPointIds = copies.slice(0, orderedOriginals.length);
+        for (let index = 0; index < orderedOriginals.length; index++) {
+            const symmetryId = this.nextId('symmetry');
+            try {
+                this.solver.addConstraintSymmetry(symmetryId, orderedOriginals[index], mirroredPointIds[index], axisLineId, {
+                    driving: true
+                });
+            } catch (err) {
+                const message = err instanceof Error ? err.message : String(err);
+                return { success: false, error: message };
+            }
+            this.constraints.set(symmetryId, {
+                id: symmetryId,
+                kind: 'symmetry',
+                targetIds: [orderedOriginals[index], mirroredPointIds[index], axisLineId],
+                driving: true
+            });
+        }
+        await this.commit([]);
+        this.emitChange();
+        return result;
+    }
+
+    private async applyRectangularArray(ids: string[], dx: number, dy: number, rows: number, cols: number): Promise<TransformResult> {
+        const closure = this.transformClosure(ids);
+        if ('error' in closure) {
+            return { success: false, error: closure.error };
+        }
+        const addedPrimitiveIds: string[] = [];
+        for (let row = 0; row < rows; row++) {
+            for (let col = 0; col < cols; col++) {
+                if (row === 0 && col === 0) {
+                    continue;
+                }
+                const vector = { x: col * dx, y: row * dy };
+                const result = await this.copyIdsWithPointTransform(ids, (p) => translatePoint(p, vector), undefined, false);
+                if (!result.success) {
+                    return result;
+                }
+                addedPrimitiveIds.push(...(result.addedPrimitiveIds ?? []));
+            }
+        }
+        return { success: true, addedPrimitiveIds };
+    }
+
+    private async applyOffsetWire(ids: string[], distance: number): Promise<TransformResult> {
+        const movedPrimitiveIds: string[] = [];
+        for (const id of ids) {
+            const primitive = this.primitives.get(id);
+            if (primitive === undefined) {
+                return { success: false, error: `Unknown primitive '${id}'` };
+            }
+            if (primitive.type === 'line') {
+                const a = this.getPointPosition(primitive.p1Id);
+                const b = this.getPointPosition(primitive.p2Id);
+                if (a === undefined || b === undefined) {
+                    return { success: false, error: `Offset references unsolved geometry on '${id}'` };
+                }
+                const shifted = offsetLinePoints(a, b, distance);
+                await this.movePointTo(primitive.p1Id, shifted.a);
+                await this.movePointTo(primitive.p2Id, shifted.b);
+                this.pruneDetachedPointOnObjects(id);
+                movedPrimitiveIds.push(id);
+            } else if (primitive.type === 'circle') {
+                const frame = this.circleFrame(id);
+                if (frame === undefined) {
+                    return { success: false, error: `Offset references unsolved geometry on '${id}'` };
+                }
+                const radius = frame.radius + distance;
+                if (!(radius > 1e-9)) {
+                    return { success: false, error: `Offset distance ${distance} collapses circle '${id}' (radius ${frame.radius})` };
+                }
+                const refs = [...this.constraints.values()].filter((record) => record.targetIds.includes(id));
+                this.solver.removePrimitive(id);
+                this.solver.addCircle(id, primitive.centerId, radius, { construction: primitive.construction });
+                this.primitives.set(id, { ...primitive, radius });
+                for (const record of refs) {
+                    if (record.kind === 'radius') {
+                        this.removeConstraintInternal(record.id);
+                        continue;
+                    }
+                    this.solver.removeConstraint(record.id);
+                    this.replayConstraintRecord(record);
+                }
+                this.pruneDetachedPointOnObjects(id);
+                movedPrimitiveIds.push(id);
+            } else if (primitive.type === 'arc') {
+                const frame = this.arcFrame(id);
+                if (frame === undefined) {
+                    return { success: false, error: `Offset references unsolved geometry on '${id}'` };
+                }
+                const radius = frame.radius + distance;
+                if (!(radius > 1e-9)) {
+                    return { success: false, error: `Offset distance ${distance} collapses arc '${id}' (radius ${frame.radius})` };
+                }
+                const startPt = arcPointAt(frame.center, radius, frame.startAngle);
+                const endPt = arcPointAt(frame.center, radius, frame.endAngle);
+                const startCoords = this.solver.setPointCoordinates(primitive.startId, startPt.x, startPt.y);
+                const endCoords = this.solver.setPointCoordinates(primitive.endId, endPt.x, endPt.y);
+                this.rebuildArcInPlace(
+                    id,
+                    primitive.centerId,
+                    radius,
+                    frame.startAngle,
+                    frame.endAngle,
+                    primitive.startId,
+                    primitive.endId,
+                    primitive.construction
+                );
+                await this.solve();
+                this.solver.removeConstraint(startCoords.xConstraintId);
+                this.solver.removeConstraint(startCoords.yConstraintId);
+                this.solver.removeConstraint(endCoords.xConstraintId);
+                this.solver.removeConstraint(endCoords.yConstraintId);
+                await this.solve();
+                for (const [constraintId, record] of [...this.constraints]) {
+                    if (record.targetIds.includes(id) && record.kind === 'radius') {
+                        this.removeConstraintInternal(constraintId);
+                    }
+                }
+                this.pruneDetachedPointOnObjects(id);
+                movedPrimitiveIds.push(id);
+            } else if (primitive.type === 'point') {
+                return { success: false, error: `Offset supports lines, circles, and arcs — '${id}' is a point` };
+            } else if (primitive.type === 'ellipse') {
+                return { success: false, error: `Offset supports lines, circles, and arcs — ellipses carry point-level constraints only` };
+            } else {
+                return { success: false, error: `Offset supports lines, circles, and arcs — B-splines carry point-level constraints only` };
+            }
+        }
+        await this.commit([]);
+        this.emitChange();
+        return { success: true, movedPrimitiveIds };
     }
 
     private async doTrim(
@@ -3422,7 +4566,11 @@ export class SketchSession {
                 this.tool === 'bspline' ||
                 this.tool === 'polyline' ||
                 this.tool === 'polygon' ||
-                this.tool === 'arcSlot'
+                this.tool === 'arcSlot' ||
+                this.tool === 'move' ||
+                this.tool === 'copy' ||
+                this.tool === 'rotate' ||
+                this.tool === 'mirrorTool'
             ) {
                 return { type: 'point', point: snapped.point };
             }
@@ -3522,6 +4670,14 @@ export class SketchSession {
         if (this.inProgress.tool === 'arcSlot') {
             const from = this.inProgress.end ?? this.inProgress.start ?? this.inProgress.center;
             return { type: 'line', p1: from, p2: snapped.point };
+        }
+
+        if (this.inProgress.tool === 'move' || this.inProgress.tool === 'copy') {
+            return { type: 'line', p1: this.inProgress.base, p2: snapped.point };
+        }
+
+        if (this.inProgress.tool === 'rotate') {
+            return { type: 'line', p1: this.inProgress.center, p2: snapped.point };
         }
 
         return { type: 'none' };

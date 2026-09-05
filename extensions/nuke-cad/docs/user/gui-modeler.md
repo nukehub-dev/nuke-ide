@@ -166,6 +166,15 @@ viewport has focus):
 - Rectangle modes (`M` while drawing): corner, center, or rounded.
 - The diagnostics popover offers **Remove redundants** in one click.
 
+### Transform selection
+
+With entities selected, the transform group offers **Move** (`V`) and
+**Copy** (`G`, click base then target points), **Rotate** (`I`, click center
+then an angle point), and **Mirror** (`N`, exactly one selected line as the
+axis, mirrored copies plus symmetry constraints). **Scale**, **Rectangular
+Array** (rows/columns/spacing), and **Offset** (distance) open inline
+popovers; **Join** connects two selected open endpoints immediately.
+
 The snap engine prioritizes endpoint → midpoint → center → quadrant →
 on-curve → grid. Hovering shows a snap marker; clicks commit the snapped
 position. When a click lands on an existing endpoint or curve, an auto-

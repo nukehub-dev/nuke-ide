@@ -46,7 +46,16 @@ import {
     angleOfPoint,
     arcPointAt,
     isAngleOnArc,
-    normalizeAngle2Pi
+    normalizeAngle2Pi,
+    translatePoint,
+    rotatePoint,
+    scalePoint,
+    projectPointOntoLine,
+    mirrorPointAcrossLine,
+    axisAngle,
+    rotateAngle,
+    mirrorAngle,
+    offsetLinePoints
 } from './sketch-math';
 import { type TopologyRef } from '../../common/topology-refs';
 
@@ -415,6 +424,69 @@ describe('sketch-math', () => {
         it('normalizes negative angles into [0, TAU)', () => {
             expect(normalizeAngle2Pi(-Math.PI / 2)).toBeCloseTo((3 * Math.PI) / 2, 12);
             expect(normalizeAngle2Pi(3 * Math.PI)).toBeCloseTo(Math.PI, 12);
+        });
+    });
+
+    describe('selection-transform helpers', () => {
+        it('translates a point by a vector', () => {
+            expect(translatePoint({ x: 1, y: 2 }, { x: 3, y: -1 })).toEqual({ x: 4, y: 1 });
+        });
+
+        it('rotates a point about a center', () => {
+            const rotated = rotatePoint({ x: 1, y: 0 }, { x: 0, y: 0 }, Math.PI / 2);
+            expect(rotated.x).toBeCloseTo(0, 12);
+            expect(rotated.y).toBeCloseTo(1, 12);
+            // Full turn restores the point.
+            const full = rotatePoint({ x: 2, y: 3 }, { x: 1, y: 1 }, 2 * Math.PI);
+            expect(full.x).toBeCloseTo(2, 12);
+            expect(full.y).toBeCloseTo(3, 12);
+        });
+
+        it('scales a point about a center', () => {
+            expect(scalePoint({ x: 3, y: 4 }, { x: 1, y: 2 }, 2)).toEqual({ x: 5, y: 6 });
+            expect(scalePoint({ x: 3, y: 4 }, { x: 1, y: 2 }, 1)).toEqual({ x: 3, y: 4 });
+        });
+
+        it('projects onto the infinite line without clamping', () => {
+            expect(projectPointOntoLine({ x: 6, y: 2 }, { x: 0, y: 0 }, { x: 4, y: 0 })).toEqual({ x: 6, y: 0 });
+            expect(projectPointOntoLine({ x: 1, y: 1 }, { x: 0, y: 0 }, { x: 0, y: 0 })).toEqual({ x: 0, y: 0 });
+        });
+
+        it('mirrors a point across an axis line', () => {
+            // Across the x-axis.
+            expect(mirrorPointAcrossLine({ x: 1, y: 2 }, { x: 0, y: 0 }, { x: 1, y: 0 })).toEqual({ x: 1, y: -2 });
+            // Across the vertical line x=1.
+            const mirrored = mirrorPointAcrossLine({ x: 3, y: 4 }, { x: 1, y: 0 }, { x: 1, y: 1 });
+            expect(mirrored.x).toBeCloseTo(-1, 12);
+            expect(mirrored.y).toBeCloseTo(4, 12);
+            // Degenerate axis mirrors through the point.
+            expect(mirrorPointAcrossLine({ x: 3, y: 4 }, { x: 1, y: 1 }, { x: 1, y: 1 })).toEqual({ x: -1, y: -2 });
+        });
+
+        it('mirrors twice back to the original', () => {
+            const a = { x: 0, y: 0 };
+            const b = { x: 1, y: 1 };
+            const p = { x: 3, y: 1 };
+            const twice = mirrorPointAcrossLine(mirrorPointAcrossLine(p, a, b), a, b);
+            expect(twice.x).toBeCloseTo(p.x, 12);
+            expect(twice.y).toBeCloseTo(p.y, 12);
+        });
+
+        it('rotates and mirrors direction angles consistently with points', () => {
+            expect(rotateAngle(0.5, Math.PI)).toBeCloseTo(0.5 + Math.PI, 12);
+            expect(axisAngle({ x: 0, y: 0 }, { x: 0, y: 1 })).toBeCloseTo(Math.PI / 2, 12);
+            // Mirror of angle 0 across the y-axis (PI/2) is PI.
+            expect(mirrorAngle(0, Math.PI / 2)).toBeCloseTo(Math.PI, 12);
+            // Mirror of PI/4 across the x-axis (0) is -PI/4.
+            expect(mirrorAngle(Math.PI / 4, 0)).toBeCloseTo(-Math.PI / 4, 12);
+        });
+
+        it('offsets line points along the left normal', () => {
+            const shifted = offsetLinePoints({ x: 0, y: 0 }, { x: 4, y: 0 }, 2);
+            expect(shifted.a).toEqual({ x: 0, y: 2 });
+            expect(shifted.b).toEqual({ x: 4, y: 2 });
+            const back = offsetLinePoints({ x: 0, y: 0 }, { x: 4, y: 0 }, -1);
+            expect(back.a).toEqual({ x: 0, y: -1 });
         });
     });
 

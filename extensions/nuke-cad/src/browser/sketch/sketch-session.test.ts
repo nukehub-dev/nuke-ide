@@ -1601,7 +1601,11 @@ describe('SketchSession', () => {
             'sketchChamfer',
             'polyline',
             'polygon',
-            'arcSlot'
+            'arcSlot',
+            'move',
+            'copy',
+            'rotate',
+            'mirrorTool'
         ];
 
         it('assigns every tool exactly one unique key', () => {
@@ -1629,6 +1633,10 @@ describe('SketchSession', () => {
             expect(SKETCH_TOOL_SHORTCUTS.w).toBe('polyline');
             expect(SKETCH_TOOL_SHORTCUTS.y).toBe('polygon');
             expect(SKETCH_TOOL_SHORTCUTS.u).toBe('arcSlot');
+            expect(SKETCH_TOOL_SHORTCUTS.v).toBe('move');
+            expect(SKETCH_TOOL_SHORTCUTS.g).toBe('copy');
+            expect(SKETCH_TOOL_SHORTCUTS.i).toBe('rotate');
+            expect(SKETCH_TOOL_SHORTCUTS.n).toBe('mirrorTool');
         });
     });
 
@@ -2565,6 +2573,277 @@ describe('SketchSession', () => {
             const unknown = await session.exposeEllipseInternals('no-such-primitive');
             expect(unknown.success).toBe(false);
             expect(unknown.error).toContain('Unknown primitive');
+        });
+    });
+
+    describe('selection-transform gestures', () => {
+        async function lineSession(): Promise<{ session: SketchSession; lineId: string }> {
+            const session = await makeSession('line');
+            session.setSnapEnabled(false);
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 4, y: 0 });
+            const lineId = session.getPrimitives().filter((p) => p.type === 'line')[0].id;
+            return { session, lineId };
+        }
+
+        it('moves the selection by the base-to-target vector', async () => {
+            const { session, lineId } = await lineSession();
+            session.setSelection([lineId]);
+            session.setTool('move');
+            await session.click({ x: 0, y: 0 });
+            expect(session.isInProgress()).toBe(true);
+            await session.click({ x: 1, y: 2 });
+            expect(session.isInProgress()).toBe(false);
+            const line = session.getPrimitive(lineId) as SketchLine;
+            expectPoint(session, line.p1Id, 1, 2);
+            expectPoint(session, line.p2Id, 5, 2);
+        });
+
+        it('cancels a staged move with Escape semantics', async () => {
+            const { session, lineId } = await lineSession();
+            session.setSelection([lineId]);
+            session.setTool('move');
+            await session.click({ x: 0, y: 0 });
+            session.cancel();
+            expect(session.isInProgress()).toBe(false);
+            const line = session.getPrimitive(lineId) as SketchLine;
+            expectPoint(session, line.p1Id, 0, 0);
+        });
+
+        it('reports an empty move selection through the hint line', async () => {
+            const session = await makeSession('move');
+            session.setSnapEnabled(false);
+            await session.click({ x: 0, y: 0 });
+            expect(session.getStatus().hint).toContain('selection');
+        });
+
+        it('copies the selection leaving the originals in place', async () => {
+            const { session, lineId } = await lineSession();
+            const before = session.getPrimitiveIds().length;
+            session.setSelection([lineId]);
+            session.setTool('copy');
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 10, y: 0 });
+            const lines = session.getPrimitives().filter((p) => p.type === 'line') as SketchLine[];
+            expect(lines).toHaveLength(2);
+            expect(session.getPrimitiveIds().length).toBeGreaterThan(before);
+            const original = session.getPrimitive(lineId) as SketchLine;
+            expectPoint(session, original.p1Id, 0, 0);
+            const copy = lines.find((l) => l.id !== lineId)!;
+            const c1 = point(session, copy.p1Id);
+            const c2 = point(session, copy.p2Id);
+            expect(c1.x).toBeCloseTo(10, 9);
+            expect(c2.x).toBeCloseTo(14, 9);
+        });
+
+        it('remaps internal constraints onto copies', async () => {
+            const { session, lineId } = await lineSession();
+            const line = session.getPrimitive(lineId) as SketchLine;
+            await session.addConstraint('fix', [line.p1Id]);
+            const fixesBefore = session.getConstraints().filter((c) => c.kind === 'fix').length;
+            session.setSelection([lineId]);
+            const result = await session.copySelection({ x: 0, y: 0 }, { x: 5, y: 0 });
+            expect(result.success).toBe(true);
+            expect(session.getConstraints().filter((c) => c.kind === 'fix').length).toBeGreaterThan(fixesBefore);
+        });
+
+        it('rotates the selection about the center', async () => {
+            const { session, lineId } = await lineSession();
+            session.setSelection([lineId]);
+            session.setTool('rotate');
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 0, y: 1 });
+            const line = session.getPrimitive(lineId) as SketchLine;
+            // 90 degrees CCW: (0,0)->(0,0), (4,0)->(0,4).
+            expectPoint(session, line.p1Id, 0, 0);
+            expectPoint(session, line.p2Id, 0, 4);
+        });
+
+        it('mirrors the selection across an axis line with symmetry pairs', async () => {
+            const session = await makeSession('line');
+            session.setSnapEnabled(false);
+            await session.click({ x: 2, y: 0 });
+            await session.click({ x: 4, y: 0 });
+            await session.click({ x: 0, y: -5 });
+            await session.click({ x: 0, y: 5 });
+            const lines = session.getPrimitives().filter((p) => p.type === 'line') as SketchLine[];
+            const target = lines.find((l) => {
+                const a = point(session, l.p1Id);
+                return Math.abs(a.x - 2) < 1e-9;
+            })!;
+            const axis = lines.find((l) => l.id !== target.id)!;
+            session.setSelection([target.id]);
+            session.setTool('mirrorTool');
+            await session.click({ x: 0, y: 0 });
+            const mirrored = session.getPrimitives().filter((p) => p.type === 'line') as SketchLine[];
+            expect(mirrored).toHaveLength(3);
+            const symmetry = session.getConstraints().filter((c) => c.kind === 'symmetry');
+            expect(symmetry.length).toBeGreaterThanOrEqual(2);
+            expect(symmetry.every((c) => c.targetIds[2] === axis.id)).toBe(true);
+        });
+
+        it('drops bridging constraints on move', async () => {
+            const session = await makeSession('point');
+            session.setSnapEnabled(false);
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 10, y: 0 });
+            const ids = session.getPrimitiveIds();
+            const result = await session.addConstraint('distance', [ids[0], ids[1]], 10);
+            expect(result.success).toBe(true);
+            session.setSelection([ids[0]]);
+            const moved = await session.moveSelection({ x: 0, y: 0 }, { x: 5, y: 0 });
+            expect(moved.success).toBe(true);
+            expect(session.getConstraints().some((c) => c.id === result.constraintId)).toBe(false);
+        });
+    });
+
+    describe('selection-transform direct methods', () => {
+        it('scales primitives about a center (scale alias matches)', async () => {
+            const session = await makeSession('circle');
+            session.setSnapEnabled(false);
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 2, y: 0 });
+            const circleId = session.getPrimitives().filter((p) => p.type === 'circle')[0].id;
+            const result = await session.scalePrimitives([circleId], { x: 0, y: 0 }, 3);
+            expect(result.success).toBe(true);
+            const circle = session.getPrimitive(circleId) as SketchCircle;
+            expect(circle.radius).toBeCloseTo(6, 9);
+            const alias = await session.scale([circleId], { x: 0, y: 0 }, 1);
+            expect(alias.success).toBe(true);
+        });
+
+        it('rejects non-positive scale factors', async () => {
+            const session = await makeSession('point');
+            session.setSnapEnabled(false);
+            await session.click({ x: 1, y: 1 });
+            const id = session.getPrimitiveIds()[0];
+            for (const factor of [0, -2, Number.NaN, Number.POSITIVE_INFINITY]) {
+                const result = await session.scalePrimitives([id], { x: 0, y: 0 }, factor);
+                expect(result.success).toBe(false);
+                expect(result.error).toContain('finite positive');
+            }
+        });
+
+        it('rejects empty selections with clear errors', async () => {
+            const session = await makeSession('select');
+            expect((await session.scalePrimitives([], { x: 0, y: 0 }, 2)).error).toContain('at least one');
+            expect((await session.rectangularArray([], 1, 0, 2, 2)).error).toContain('at least one');
+            expect((await session.offsetWire([], 1)).error).toContain('at least one');
+            expect((await session.moveSelection({ x: 0, y: 0 }, { x: 1, y: 0 })).error).toContain('selected');
+            expect((await session.joinOpenEnds()).error).toContain('exactly 2');
+        });
+
+        it('builds a rectangular array of plain copies (arrayRect alias matches)', async () => {
+            const session = await makeSession('point');
+            session.setSnapEnabled(false);
+            await session.click({ x: 0, y: 0 });
+            const id = session.getPrimitiveIds()[0];
+            const result = await session.rectangularArray([id], 5, 0, 2, 2);
+            expect(result.success).toBe(true);
+            expect(session.getPrimitives().filter((p) => p.type === 'point')).toHaveLength(4);
+            expect(session.getConstraints()).toHaveLength(0);
+            const alias = await session.arrayRect([id], 5, 0, 1, 1);
+            expect(alias.success).toBe(true);
+        });
+
+        it('rejects bad array counts and spacing', async () => {
+            const session = await makeSession('point');
+            session.setSnapEnabled(false);
+            await session.click({ x: 0, y: 0 });
+            const id = session.getPrimitiveIds()[0];
+            expect((await session.rectangularArray([id], 1, 0, 0, 2)).error).toContain('positive integer');
+            expect((await session.rectangularArray([id], 1, 0, 1.5, 2)).error).toContain('positive integer');
+            expect((await session.rectangularArray([id], 0, 0, 2, 2)).error).toContain('nonzero');
+        });
+
+        it('offsets lines and circles without auto-trim', async () => {
+            const session = await makeSession('line');
+            session.setSnapEnabled(false);
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 4, y: 0 });
+            const lineId = session.getPrimitives().filter((p) => p.type === 'line')[0].id;
+            const lineResult = await session.offsetWire([lineId], 2);
+            expect(lineResult.success).toBe(true);
+            const line = session.getPrimitive(lineId) as SketchLine;
+            expectPoint(session, line.p1Id, 0, 2);
+            expectPoint(session, line.p2Id, 4, 2);
+
+            session.setTool('circle');
+            await session.click({ x: 10, y: 0 });
+            await session.click({ x: 12, y: 0 });
+            const circleId = session.getPrimitives().filter((p) => p.type === 'circle')[0].id;
+            const circleResult = await session.offsetWire([circleId], 1);
+            expect(circleResult.success).toBe(true);
+            expect((session.getPrimitive(circleId) as SketchCircle).radius).toBeCloseTo(3, 9);
+        });
+
+        it('rejects offset of ellipses with the point-level rule', async () => {
+            const session = await makeSession('ellipse');
+            session.setSnapEnabled(false);
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 5, y: 0 });
+            await session.click({ x: 2, y: 3 });
+            const ellipseId = session.getPrimitives().filter((p) => p.type === 'ellipse')[0].id;
+            const result = await session.offsetWire([ellipseId], 1);
+            expect(result.success).toBe(false);
+            expect(result.error).toContain('point-level');
+        });
+
+        it('rejects zero offset distances', async () => {
+            const session = await makeSession('line');
+            session.setSnapEnabled(false);
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 4, y: 0 });
+            const lineId = session.getPrimitives().filter((p) => p.type === 'line')[0].id;
+            expect((await session.offsetWire([lineId], 0)).error).toContain('nonzero');
+        });
+
+        it('joins two open ends with a line plus coincidents (joinEnds alias matches)', async () => {
+            const session = await makeSession('line');
+            session.setSnapEnabled(false);
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 4, y: 0 });
+            await session.click({ x: 10, y: 0 });
+            await session.click({ x: 14, y: 0 });
+            const lines = session.getPrimitives().filter((p) => p.type === 'line') as SketchLine[];
+            const endA = lines[0].p2Id;
+            const endB = lines[1].p1Id;
+            const result = await session.joinOpenEnds([endA, endB]);
+            expect(result.success).toBe(true);
+            expect(result.lineId).toBeDefined();
+            expect(session.getConstraints().filter((c) => c.kind === 'coincident')).toHaveLength(2);
+            // The joined ends are now closed; the alias joins the remaining outer pair.
+            const alias = await session.joinEnds([lines[0].p1Id, lines[1].p2Id]);
+            expect(alias.success).toBe(true);
+        });
+
+        it('rejects joins without exactly two open ends', async () => {
+            const session = await makeSession('line');
+            session.setSnapEnabled(false);
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 4, y: 0 });
+            const lines = session.getPrimitives().filter((p) => p.type === 'line') as SketchLine[];
+            const single = await session.joinOpenEnds([lines[0].p1Id]);
+            expect(single.success).toBe(false);
+            expect(single.error).toContain('exactly 2');
+            session.setSelection([lines[0].p1Id]);
+            const viaSelection = await session.joinEnds();
+            expect(viaSelection.success).toBe(false);
+        });
+
+        it('preserves construction flags on copies', async () => {
+            const session = await makeSession('line');
+            session.setSnapEnabled(false);
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 4, y: 0 });
+            const lineId = session.getPrimitives().filter((p) => p.type === 'line')[0].id;
+            await session.setConstruction(lineId, true);
+            session.setSelection([lineId]);
+            const result = await session.copySelection({ x: 0, y: 0 }, { x: 5, y: 0 });
+            expect(result.success).toBe(true);
+            const copies = session.getPrimitives().filter((p) => p.type === 'line' && p.id !== lineId);
+            expect(copies).toHaveLength(1);
+            expect(copies[0].construction).toBe(true);
         });
     });
 });

@@ -46,7 +46,13 @@ import {
     NukeToolbarGroup
 } from 'nuke-essentials/lib/theme/browser/components';
 import { SketchModeController } from '../../sketch/sketch-mode-controller';
-import { SKETCH_TOOL_SHORTCUTS, type SketchTool, type ConstraintKind, type SketchStatus } from '../../sketch/sketch-session';
+import {
+    SKETCH_TOOL_SHORTCUTS,
+    type SketchSession,
+    type SketchTool,
+    type ConstraintKind,
+    type SketchStatus
+} from '../../sketch/sketch-session';
 import { type DatumKind } from '../../sketch/sketch-math';
 import {
     type SketchDimension,
@@ -181,7 +187,15 @@ const TOOLS: Array<{ tool: SketchTool; label: string; icon: string; key: string 
     { tool: 'polygon', label: 'Polygon', icon: 'codicon-nuke-cad-polygon', key: keyFor('polygon') },
     { tool: 'arcSlot', label: 'Arc Slot', icon: 'codicon-nuke-cad-arc-slot', key: keyFor('arcSlot') },
     { tool: 'ellipse', label: 'Ellipse', icon: 'codicon-nuke-cad-ellipse', key: keyFor('ellipse') },
-    { tool: 'bspline', label: 'B-Spline', icon: 'codicon-nuke-cad-bspline', key: keyFor('bspline') }
+    { tool: 'bspline', label: 'B-Spline', icon: 'codicon-nuke-cad-bspline', key: keyFor('bspline') },
+    // Sketch transform gesture tools (session contract): they route through
+    // controller.setTool like every other gesture tool. The ids and their
+    // shortcuts are owned by the session module — keyFor reuses exactly what
+    // SKETCH_TOOL_SHORTCUTS registers ('' until the session side lands them).
+    { tool: 'move', label: 'Move', icon: 'codicon-nuke-cad-move', key: keyFor('move') },
+    { tool: 'copy', label: 'Copy', icon: 'codicon-nuke-cad-copy', key: keyFor('copy') },
+    { tool: 'rotate', label: 'Rotate', icon: 'codicon-nuke-cad-rotate', key: keyFor('rotate') },
+    { tool: 'mirrorTool', label: 'Mirror', icon: 'codicon-nuke-cad-mirror', key: keyFor('mirrorTool') }
 ];
 
 /** Snap-radius presets in screen pixels; M matches the session default. */
@@ -1688,6 +1702,7 @@ function SketchToolbar(props: SketchToolbarProps): React.ReactElement {
                             </button>
                         </Tooltip>
                     </div>
+                    <TransformActions controller={controller} tool={tool} messageService={messageService} />
                 </div>
                 {menuOpen && (
                     <div className="cad-sketch-toolbar-context-menu" onPointerDown={(e) => e.stopPropagation()}>
@@ -1701,6 +1716,448 @@ function SketchToolbar(props: SketchToolbarProps): React.ReactElement {
         </>
     );
 }
+
+/** Warn (carbon-copy precedent) unless the selection is non-empty. */
+function ensureSelection(controller: SketchModeController, messageService: MessageService): string[] | undefined {
+    const ids = [...controller.getSelection()];
+    if (ids.length === 0) {
+        messageService?.warn('Select at least one sketch entity first.');
+        return undefined;
+    }
+    return ids;
+}
+
+/**
+ * Mirror axis guard: the selection must contain exactly one line. Warns and
+ * returns undefined otherwise (never guesses an axis).
+ */
+function ensureMirrorAxis(session: SketchSession, ids: readonly string[], messageService: MessageService): string | undefined {
+    const axes = ids.filter((id) => session.getPrimitive(id)?.type === 'line');
+    if (axes.length !== 1) {
+        messageService?.warn('Mirror needs exactly one selected line as the axis.');
+        return undefined;
+    }
+    return axes[0];
+}
+
+function errorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
+}
+
+interface SelectionBounds {
+    minX: number;
+    minY: number;
+    maxX: number;
+    maxY: number;
+}
+
+/**
+ * Bounding box of the selected primitives in sketch coordinates, resolved
+ * through the session's solved geometry (lines via endpoints, circles/arcs
+ * via center ± radius, ellipses via center/focus expanded by radmin,
+ * B-splines via poles).
+ */
+function selectionBounds(session: SketchSession, ids: readonly string[]): SelectionBounds | undefined {
+    let bounds: SelectionBounds | undefined;
+    const extend = (x: number, y: number): void => {
+        if (!Number.isFinite(x) || !Number.isFinite(y)) {
+            return;
+        }
+        if (bounds === undefined) {
+            bounds = { minX: x, minY: y, maxX: x, maxY: y };
+        } else {
+            bounds.minX = Math.min(bounds.minX, x);
+            bounds.minY = Math.min(bounds.minY, y);
+            bounds.maxX = Math.max(bounds.maxX, x);
+            bounds.maxY = Math.max(bounds.maxY, y);
+        }
+    };
+    const extendPoint = (id: string): void => {
+        const point = session.getPrimitive(id);
+        if (point !== undefined && point.type === 'point') {
+            extend(point.x, point.y);
+        }
+    };
+    for (const id of ids) {
+        const primitive = session.getPrimitive(id);
+        if (primitive === undefined) {
+            continue;
+        }
+        switch (primitive.type) {
+            case 'point':
+                extend(primitive.x, primitive.y);
+                break;
+            case 'line':
+                extendPoint(primitive.p1Id);
+                extendPoint(primitive.p2Id);
+                break;
+            case 'circle':
+            case 'arc': {
+                const center = session.getPrimitive(primitive.centerId);
+                if (center !== undefined && center.type === 'point') {
+                    extend(center.x - primitive.radius, center.y - primitive.radius);
+                    extend(center.x + primitive.radius, center.y + primitive.radius);
+                }
+                break;
+            }
+            case 'ellipse': {
+                const center = session.getPrimitive(primitive.centerId);
+                const focus = session.getPrimitive(primitive.focus1Id);
+                if (center !== undefined && center.type === 'point') {
+                    extend(center.x - primitive.radmin, center.y - primitive.radmin);
+                    extend(center.x + primitive.radmin, center.y + primitive.radmin);
+                }
+                if (focus !== undefined && focus.type === 'point') {
+                    extend(focus.x - primitive.radmin, focus.y - primitive.radmin);
+                    extend(focus.x + primitive.radmin, focus.y + primitive.radmin);
+                }
+                break;
+            }
+            case 'bspline':
+                for (const poleId of primitive.poleIds) {
+                    extendPoint(poleId);
+                }
+                break;
+        }
+    }
+    return bounds;
+}
+
+/** Selection bbox center (the scale popover's center default). */
+function selectionBBoxCenter(session: SketchSession, ids: readonly string[]): { x: number; y: number } | undefined {
+    const bounds = selectionBounds(session, ids);
+    if (bounds === undefined) {
+        return undefined;
+    }
+    return { x: (bounds.minX + bounds.maxX) / 2, y: (bounds.minY + bounds.maxY) / 2 };
+}
+
+interface TransformPopoverProps {
+    readonly controller: SketchModeController;
+    readonly messageService: MessageService;
+    readonly onClose: () => void;
+}
+
+/** Shared Apply/Cancel shell reusing the dimension-popover styling pattern. */
+function TransformPopoverShell(props: {
+    readonly title: string;
+    readonly error: string | undefined;
+    readonly onApply: () => void;
+    readonly onClose: () => void;
+    readonly children: React.ReactNode;
+}): React.ReactElement {
+    const { title, error, onApply, onClose, children } = props;
+    const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
+        if (e.key === 'Enter') {
+            onApply();
+        } else if (e.key === 'Escape') {
+            onClose();
+        }
+    };
+    return (
+        <div className="cad-sketch-dimension-popover">
+            <div className="cad-sketch-dimension-popover-title">{title}</div>
+            {React.Children.map(children, (child) => {
+                if (React.isValidElement<{ onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void }>(child)) {
+                    return React.cloneElement(child, { onKeyDown });
+                }
+                return child;
+            })}
+            {error !== undefined && <div className="cad-feature-dialog-error">{error}</div>}
+            <div className="cad-sketch-dimension-popover-actions">
+                <button className="theia-button secondary" onClick={onApply}>
+                    <span className="codicon codicon-check" /> Apply
+                </button>
+                <button className="theia-button secondary" onClick={onClose}>
+                    <span className="codicon codicon-close" /> Cancel
+                </button>
+            </div>
+        </div>
+    );
+}
+
+function TransformTextRow(props: {
+    readonly label: string;
+    readonly value: string;
+    readonly placeholder: string;
+    readonly onValueChange: (value: string) => void;
+    readonly onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void;
+}): React.ReactElement {
+    return (
+        <label className="cad-sketch-dimension-popover-row">
+            {props.label}
+            <input
+                type="text"
+                value={props.value}
+                placeholder={props.placeholder}
+                onChange={(e) => props.onValueChange(e.target.value)}
+                onKeyDown={props.onKeyDown}
+                autoFocus
+            />
+        </label>
+    );
+}
+
+function ScalePopover(props: TransformPopoverProps): React.ReactElement {
+    const { controller, messageService, onClose } = props;
+    const session = controller.getSession();
+    const defaultCenter = session !== undefined ? selectionBBoxCenter(session, [...controller.getSelection()]) : undefined;
+    const [factorText, setFactorText] = React.useState('');
+    const [cxText, setCxText] = React.useState(defaultCenter !== undefined ? String(defaultCenter.x) : '');
+    const [cyText, setCyText] = React.useState(defaultCenter !== undefined ? String(defaultCenter.y) : '');
+    const [error, setError] = React.useState<string | undefined>();
+
+    const apply = async (): Promise<void> => {
+        const live = controller.getSession();
+        if (live === undefined) {
+            messageService?.warn('No active sketch session.');
+            return;
+        }
+        const ids = ensureSelection(controller, messageService);
+        if (ids === undefined) {
+            return;
+        }
+        const factor = Number(factorText);
+        if (!Number.isFinite(factor) || factor === 0) {
+            setError('Factor must be a finite, non-zero number.');
+            return;
+        }
+        const cx = Number(cxText);
+        const cy = Number(cyText);
+        if (!Number.isFinite(cx) || !Number.isFinite(cy)) {
+            setError('Center X and Y must be finite numbers.');
+            return;
+        }
+        setError(undefined);
+        try {
+            const result = await live.scalePrimitives(ids, { x: cx, y: cy }, factor);
+            if (!result.success) {
+                setError(result.error ?? 'Scale failed.');
+                return;
+            }
+            onClose();
+        } catch (failure) {
+            messageService?.warn(`Scale failed: ${errorMessage(failure)}`);
+        }
+    };
+
+    return (
+        <TransformPopoverShell title="Scale" error={error} onApply={apply} onClose={onClose}>
+            <TransformTextRow label="Factor" value={factorText} placeholder="e.g. 2" onValueChange={setFactorText} />
+            <TransformTextRow label="Center X" value={cxText} placeholder="selection center" onValueChange={setCxText} />
+            <TransformTextRow label="Center Y" value={cyText} placeholder="selection center" onValueChange={setCyText} />
+        </TransformPopoverShell>
+    );
+}
+
+function ArrayPopover(props: TransformPopoverProps): React.ReactElement {
+    const { controller, messageService, onClose } = props;
+    const [rowsText, setRowsText] = React.useState('');
+    const [colsText, setColsText] = React.useState('');
+    const [dxText, setDxText] = React.useState('');
+    const [dyText, setDyText] = React.useState('');
+    const [error, setError] = React.useState<string | undefined>();
+
+    const apply = async (): Promise<void> => {
+        const live = controller.getSession();
+        if (live === undefined) {
+            messageService?.warn('No active sketch session.');
+            return;
+        }
+        const ids = ensureSelection(controller, messageService);
+        if (ids === undefined) {
+            return;
+        }
+        const rows = Number(rowsText);
+        const cols = Number(colsText);
+        if (!Number.isInteger(rows) || rows < 1 || !Number.isInteger(cols) || cols < 1) {
+            setError('Rows and columns must be integers of at least 1.');
+            return;
+        }
+        const dx = Number(dxText);
+        const dy = Number(dyText);
+        if (!Number.isFinite(dx) || !Number.isFinite(dy)) {
+            setError('dX and dY must be finite numbers.');
+            return;
+        }
+        setError(undefined);
+        try {
+            const result = await live.rectangularArray(ids, dx, dy, rows, cols);
+            if (!result.success) {
+                setError(result.error ?? 'Rectangular array failed.');
+                return;
+            }
+            onClose();
+        } catch (failure) {
+            messageService?.warn(`Rectangular array failed: ${errorMessage(failure)}`);
+        }
+    };
+
+    return (
+        <TransformPopoverShell title="Rectangular Array" error={error} onApply={apply} onClose={onClose}>
+            <TransformTextRow label="Rows" value={rowsText} placeholder="e.g. 2" onValueChange={setRowsText} />
+            <TransformTextRow label="Columns" value={colsText} placeholder="e.g. 3" onValueChange={setColsText} />
+            <TransformTextRow label="dX" value={dxText} placeholder="e.g. 10" onValueChange={setDxText} />
+            <TransformTextRow label="dY" value={dyText} placeholder="e.g. 0" onValueChange={setDyText} />
+        </TransformPopoverShell>
+    );
+}
+
+function OffsetPopover(props: TransformPopoverProps): React.ReactElement {
+    const { controller, messageService, onClose } = props;
+    const [distanceText, setDistanceText] = React.useState('');
+    const [error, setError] = React.useState<string | undefined>();
+
+    const apply = async (): Promise<void> => {
+        const live = controller.getSession();
+        if (live === undefined) {
+            messageService?.warn('No active sketch session.');
+            return;
+        }
+        const ids = ensureSelection(controller, messageService);
+        if (ids === undefined) {
+            return;
+        }
+        const distance = Number(distanceText);
+        if (!Number.isFinite(distance) || distance === 0) {
+            setError('Distance must be a finite, non-zero number.');
+            return;
+        }
+        setError(undefined);
+        try {
+            const result = await live.offsetWire(ids, distance);
+            if (!result.success) {
+                setError(result.error ?? 'Offset failed.');
+                return;
+            }
+            onClose();
+        } catch (failure) {
+            messageService?.warn(`Offset failed: ${errorMessage(failure)}`);
+        }
+    };
+
+    return (
+        <TransformPopoverShell title="Offset" error={error} onApply={apply} onClose={onClose}>
+            <TransformTextRow label="Distance" value={distanceText} placeholder="e.g. 1" onValueChange={setDistanceText} />
+        </TransformPopoverShell>
+    );
+}
+
+interface TransformActionsProps {
+    readonly controller: SketchModeController;
+    readonly tool: SketchTool;
+    readonly messageService: MessageService;
+}
+
+/** Transform op buttons (scale/array/offset popovers, immediate join). */
+function TransformActions(props: TransformActionsProps): React.ReactElement {
+    const { controller, tool, messageService } = props;
+    const [open, setOpen] = React.useState<'scale' | 'array' | 'offset' | undefined>(undefined);
+
+    // Mirror activation guard: the TOOLS button routes straight through
+    // controller.setTool, so the axis check runs here on entry and only warns.
+    const prevToolRef = React.useRef<string | undefined>(undefined);
+    React.useEffect(() => {
+        const current = tool as string;
+        const prev = prevToolRef.current;
+        prevToolRef.current = current;
+        if (current !== 'mirrorTool' || prev === 'mirrorTool') {
+            return;
+        }
+        const session = controller.getSession();
+        if (session === undefined) {
+            return;
+        }
+        ensureMirrorAxis(session, [...controller.getSelection()], messageService);
+    }, [tool, controller, messageService]);
+
+    const togglePopover = (which: 'scale' | 'array' | 'offset'): void => {
+        if (open !== which && ensureSelection(controller, messageService) === undefined) {
+            return;
+        }
+        setOpen(open === which ? undefined : which);
+    };
+
+    const runJoin = async (): Promise<void> => {
+        const session = controller.getSession();
+        if (session === undefined) {
+            messageService?.warn('No active sketch session.');
+            return;
+        }
+        try {
+            const result = await session.joinOpenEnds();
+            if (!result.success) {
+                messageService?.warn(result.error ?? 'Join open ends failed.');
+            }
+        } catch (failure) {
+            messageService?.warn(`Join open ends failed: ${errorMessage(failure)}`);
+        }
+    };
+
+    return (
+        <>
+            <div className="cad-sketch-toolbar-separator" />
+            <div className="cad-sketch-toolbar-group">
+                <Tooltip content="Scale selection…" position="bottom">
+                    <button
+                        className={`theia-button secondary cad-sketch-tool-button ${open === 'scale' ? 'active' : ''}`}
+                        onClick={() => togglePopover('scale')}
+                    >
+                        <span className="codicon codicon-nuke-cad-scale" />
+                    </button>
+                </Tooltip>
+                <Tooltip content="Rectangular array…" position="bottom">
+                    <button
+                        className={`theia-button secondary cad-sketch-tool-button ${open === 'array' ? 'active' : ''}`}
+                        onClick={() => togglePopover('array')}
+                    >
+                        <span className="codicon codicon-nuke-cad-array" />
+                    </button>
+                </Tooltip>
+                <Tooltip content="Offset wire…" position="bottom">
+                    <button
+                        className={`theia-button secondary cad-sketch-tool-button ${open === 'offset' ? 'active' : ''}`}
+                        onClick={() => togglePopover('offset')}
+                    >
+                        <span className="codicon codicon-nuke-cad-offset" />
+                    </button>
+                </Tooltip>
+                <Tooltip content="Join open ends" position="bottom">
+                    <button className="theia-button secondary cad-sketch-tool-button" onClick={runJoin}>
+                        <span className="codicon codicon-nuke-cad-join" />
+                    </button>
+                </Tooltip>
+            </div>
+            {open === 'scale' && (
+                <ScalePopover controller={controller} messageService={messageService} onClose={() => setOpen(undefined)} />
+            )}
+            {open === 'array' && (
+                <ArrayPopover controller={controller} messageService={messageService} onClose={() => setOpen(undefined)} />
+            )}
+            {open === 'offset' && (
+                <OffsetPopover controller={controller} messageService={messageService} onClose={() => setOpen(undefined)} />
+            )}
+        </>
+    );
+}
+
+/** Cheat-sheet key for a transform gesture tool ('' until the session registers it). */
+function transformKey(toolId: string): string {
+    const entry = TOOLS.find((candidate) => (candidate.tool as string) === toolId);
+    return entry !== undefined && entry.key !== '' ? entry.key : '—';
+}
+
+/** Cheat-sheet rows for all eight sketch transform operations. */
+const TRANSFORM_CHEAT_SHEET_ROWS: ReadonlyArray<{ label: string; key: string; detail: string }> = [
+    { label: 'Move', key: transformKey('move'), detail: 'Gesture tool: reposition the selection' },
+    { label: 'Copy', key: transformKey('copy'), detail: 'Gesture tool: duplicate the selection' },
+    { label: 'Rotate', key: transformKey('rotate'), detail: 'Gesture tool: rotate the selection' },
+    { label: 'Mirror', key: transformKey('mirrorTool'), detail: 'Gesture tool: mirror across the one selected line axis' },
+    { label: 'Scale', key: 'Toolbar', detail: 'Popover: factor about the selection bbox center' },
+    { label: 'Array', key: 'Toolbar', detail: 'Popover: rows / cols with dX / dY offsets' },
+    { label: 'Offset', key: 'Toolbar', detail: 'Popover: offset wires by distance' },
+    { label: 'Join', key: 'Toolbar', detail: 'Button: join open ends immediately' }
+];
 
 interface SketchShortcutsPopoverProps {
     readonly drag: DraggablePanelApi;
@@ -1731,6 +2188,17 @@ function SketchShortcutsPopover(props: SketchShortcutsPopoverProps): React.React
                     <span className="cad-sketch-shortcuts-key">M</span>
                     <span>Cycle mode inside the active tool: rectangle corner/center/rounded, polyline line/arc, polygon sides 3–12</span>
                 </div>
+            </div>
+            <div className="cad-sketch-shortcuts-section">
+                <div className="cad-sketch-shortcuts-title">Transform</div>
+                {TRANSFORM_CHEAT_SHEET_ROWS.map(({ label, key, detail }) => (
+                    <div key={label} className="cad-sketch-shortcuts-row">
+                        <span className="cad-sketch-shortcuts-key">{key}</span>
+                        <span>
+                            {label} — {detail}
+                        </span>
+                    </div>
+                ))}
             </div>
             <div className="cad-sketch-shortcuts-section">
                 <div className="cad-sketch-shortcuts-title">Select tool</div>

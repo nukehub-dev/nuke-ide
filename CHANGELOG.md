@@ -105,6 +105,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   modes, regular Polygon (3–12 sides), and 4-click Arc Slot, all on
   single-key shortcuts with M-key mode cycling; the diagnostics popover
   gains one-click redundant removal.
+- nuke-cad: **sketch transform tools** — Move, Copy, Rotate, and Mirror
+  gestures plus Scale, Rectangular Array, and Offset inline popovers and
+  immediate Join, all operating on the selection with constraint hygiene.
 - nuke-cad: **carbon copy + ellipse internals** — a sketch toolbar button
   imports the Feature-Tree-selected sketch (fresh ids, constraints and
   dimensions remapped); ellipses expose their second focus plus major/minor
