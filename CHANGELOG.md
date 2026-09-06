@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- nuke-visualizer: **native 3D output viewers** — tracks, collision-track,
+  weight-windows, and random-ray/voxel viewers now render directly in the
+  IDE (three.js) with instant color-by/colormap switching and no per-viewer
+  server; the trame server remains as an automatic fallback for files the
+  native parser cannot read.
 - nuke-cad: **lattice feature** — replicate a solid feature over a
   rectangular grid or hexagonal ring (2500-cell cap) with per-cell labels
   (`<prefix>_r<row>c<col>`) that flow into `selector_map` and DAGMC groups,

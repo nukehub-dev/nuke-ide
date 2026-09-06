@@ -26,29 +26,43 @@
 // *****************************************************************************
 
 import * as React from 'react';
-import { injectable, postConstruct } from '@theia/core/shared/inversify';
+import { injectable, postConstruct, inject } from '@theia/core/shared/inversify';
 import { codicon } from '@theia/core/lib/browser/widgets/widget';
 import URI from '@theia/core/lib/common/uri';
-import { OpenMCWeightWindowsData, OpenMCVtkConversionResult } from '../../../../../common/openmc-protocol';
-import { OpenMCOutputViewerWidget } from '../output-viewer-widget';
+import { OpenMCBackendService, OpenMCWeightWindowsData } from '../../../../../common/openmc-protocol';
+import { NativeVtkViewerWidget } from '../native-vtk-viewer-widget';
+import { detectMissingDependencies } from '../dependency-hints';
+import { startSplitDrag } from '../drag-split';
 
 /**
- * Viewer for OpenMC weight window files (`weight_windows.h5`). Renders the
- * mesh with the lower/upper weight bounds as cell data through the trame/VTK
- * pipeline (converted via `openmc.weight-windows-vtk`): one array per
- * (bound, energy group) named `lower_g<i>` / `upper_g<i>`, so the viewer's
- * Color By control acts as the energy-group selector and lower/upper toggle.
- * A summary panel lists meshes and windows below the 3D view.
+ * Viewer for OpenMC weight window files (`weight_windows.h5`). Converts the
+ * file to a `.vtr` rectilinear grid via `openmc.weight-windows-vtk` (one
+ * cell-data array per (bound, energy group) named `lower_g<i>` /
+ * `upper_g<i>`, `ww<id>_` prefixed for multi-window files) and renders it
+ * with the native three.js viewer — color-by switches apply instantly with
+ * no server restart. A summary panel lists meshes and windows below the 3D
+ * view.
+ *
+ * The mesh selector re-runs the conversion anchored to the chosen mesh
+ * (`--mesh-id`; windows on other meshes are skipped by the backend) when a
+ * file carries windows on multiple meshes.
  */
 @injectable()
-export class OpenMCWeightWindowsViewerWidget extends OpenMCOutputViewerWidget {
-    static readonly ID = 'openmc-weight-windows-viewer-widget';
-    static readonly LABEL = 'Weight Windows Viewer';
+export class OpenMCWeightWindowsViewerWidget extends NativeVtkViewerWidget {
+    static override readonly ID: string = 'openmc-weight-windows-viewer-widget';
+    static override readonly LABEL: string = 'Weight Windows Viewer';
 
+    @inject(OpenMCBackendService)
+    protected readonly openmcBackend!: OpenMCBackendService;
+
+    /** The source `weight_windows.h5` file (the native base points at VTK; this stays on the source). */
+    protected sourceUri: URI | undefined;
     protected data: OpenMCWeightWindowsData | undefined;
-    protected conversionArrays: string[] = [];
     /** Mesh ID the conversion is anchored to (undefined = first window's mesh). */
     protected selectedMeshId?: number;
+    /** Panel height in px once the user drags the split (undefined = CSS default 40%). */
+    protected panelHeight?: number;
+    private reloadToken = 0;
 
     @postConstruct()
     protected init(): void {
@@ -60,28 +74,173 @@ export class OpenMCWeightWindowsViewerWidget extends OpenMCOutputViewerWidget {
     }
 
     setFile(uri: URI): void {
+        this.sourceUri = uri;
         this.selectedMeshId = undefined;
-        super.setFile(uri, OpenMCWeightWindowsViewerWidget.ID, OpenMCWeightWindowsViewerWidget.LABEL);
+        this.data = undefined;
+        this.id = `${OpenMCWeightWindowsViewerWidget.ID}:${uri.path.toString()}`;
+        this.title.label = `${OpenMCWeightWindowsViewerWidget.LABEL}: ${uri.path.base}`;
+        this.title.caption = `${OpenMCWeightWindowsViewerWidget.LABEL}: ${uri.path.toString()}`;
+        this.error = undefined;
+        this.update();
+        void this.reload();
     }
 
-    protected async convert(filePath: string): Promise<OpenMCVtkConversionResult> {
-        const result = await this.openmcBackend.convertWeightWindowsToVtk(filePath, this.selectedMeshId);
-        const arrays = result.stats?.arrays;
-        this.conversionArrays = Array.isArray(arrays) ? (arrays as string[]) : [];
-        return result;
+    /**
+     * Header reload/retry buttons call `setVtkFile(this.fileUri)`; the file
+     * URI stays on the source `.h5`, so route that back through a full
+     * reconversion instead of parsing the HDF5 as VTK.
+     */
+    override async setVtkFile(uri: URI): Promise<void> {
+        if (this.sourceUri && uri.path.toString() === this.sourceUri.path.toString()) {
+            await this.reload();
+            return;
+        }
+        await super.setVtkFile(uri);
     }
 
-    protected async loadPanelData(filePath: string): Promise<void> {
-        this.data = await this.openmcBackend.getWeightWindows(filePath);
+    /** (Re)run the conversion and load the result into the native viewer. */
+    async reload(): Promise<void> {
+        const filePath = this.sourceUri?.path.toString();
+        if (!filePath) {
+            return;
+        }
+        const token = ++this.reloadToken;
+        this.isLoading = true;
+        this.error = undefined;
+        this.statusMessage = 'Converting to VTK…';
+        this.update();
+
+        try {
+            const result = await this.openmcBackend.convertWeightWindowsToVtk(filePath, this.selectedMeshId);
+            if (token !== this.reloadToken) {
+                return;
+            }
+            if (!result.success || !result.vtkPath) {
+                throw new Error(result.error || 'Conversion failed');
+            }
+
+            this.statusMessage = 'Loading data…';
+            this.update();
+            this.data = await this.openmcBackend.getWeightWindows(filePath);
+            if (token !== this.reloadToken) {
+                return;
+            }
+
+            this.statusMessage = 'Reading VTK file…';
+            this.update();
+            const content = await this.fileService.read(new URI(result.vtkPath));
+            if (token !== this.reloadToken) {
+                return;
+            }
+            // setVtkText parses without touching fileUri/title, so the header
+            // keeps showing the source file while the scene shows the VTK.
+            this.fileUri = this.sourceUri;
+            await this.setVtkText(content.value.toString());
+            if (token !== this.reloadToken) {
+                return;
+            }
+            this.fileUri = this.sourceUri;
+            this.isLoading = false;
+            this.statusMessage = '';
+            this.update();
+        } catch (error) {
+            if (token !== this.reloadToken) {
+                return;
+            }
+            this.isLoading = false;
+            this.error = error instanceof Error ? error.message : String(error);
+            this.update();
+        }
     }
 
-    protected renderViewerHint(): React.ReactNode {
+    protected override renderContent(): React.ReactNode {
+        const base = super.renderContent();
+        const panel = this.renderPanel();
+        if (!panel) {
+            return base;
+        }
         return (
-            <div className="openmc-output-viewer-hint">
-                Energy group and bound selection: use the viewer's Color By control — <code>lower_g0…</code>/<code>upper_g0…</code> arrays,
-                one per energy group. Switch Representation to Surface and enable the scalar bar for values.
-            </div>
+            <>
+                {base}
+                <div
+                    className="openmc-output-viewer-split-handle"
+                    onMouseDown={this.startSplitDrag}
+                    role="separator"
+                    aria-orientation="horizontal"
+                />
+                <div
+                    className="openmc-output-viewer-panel-host"
+                    style={this.panelHeight !== undefined ? { height: `${this.panelHeight}px`, flex: 'none' } : undefined}
+                >
+                    {panel}
+                </div>
+            </>
         );
+    }
+
+    /**
+     * Drag-to-resize the split between the 3D view and the data panel
+     * (shared helper: direct DOM writes during the drag, `update()` only on
+     * mouseup).
+     */
+    protected startSplitDrag = (e: React.MouseEvent): void => {
+        const host = this.node.querySelector<HTMLElement>('.openmc-output-viewer-panel-host');
+        const container = this.node.querySelector<HTMLElement>('.openmc-output-viewer-container');
+        if (!host || !container) {
+            return;
+        }
+        const startHeight = host.getBoundingClientRect().height;
+        const containerHeight = container.getBoundingClientRect().height;
+        // Keep at least 120px for the 3D view and 80px for the panel
+        const maxHeight = Math.max(120, containerHeight - 120);
+        startSplitDrag({
+            event: e,
+            node: this.node,
+            sizeFromEvent: (start, ev) => Math.round(Math.min(maxHeight, Math.max(80, startHeight + (start.clientY - ev.clientY)))),
+            apply: (size) => {
+                host.style.height = `${size}px`;
+                host.style.flex = 'none';
+                this.panelHeight = size;
+            },
+            commit: () => this.update()
+        });
+    };
+
+    protected override renderError(): React.ReactNode {
+        const missingDeps = this.error ? detectMissingDependencies(this.error) : undefined;
+        if (missingDeps) {
+            return (
+                <div className="openmc-output-viewer-status">
+                    <div className="openmc-output-viewer-dep-panel">
+                        <div className="dep-title">
+                            <i className={codicon('warning')}></i>
+                            Missing Python dependencies
+                        </div>
+                        <p className="dep-summary">
+                            This viewer needs <strong>{missingDeps.join(', ')}</strong>, which the configured Python environment does not
+                            provide.
+                        </p>
+                        <ul className="dep-actions">
+                            <li>
+                                Install the missing packages into the configured environment (for the 3D viewers that is <code>vtk</code>).
+                            </li>
+                            <li>
+                                Or point NukeIDE at an environment that has them in <strong>Settings → Nuke Utils</strong> (Python
+                                environment), then reload this viewer.
+                            </li>
+                        </ul>
+                        <p className="dep-backend-error">
+                            <span className="dep-backend-label">Backend error:</span> {this.error}
+                        </p>
+                        <button className="theia-button secondary" onClick={() => this.reload()}>
+                            <i className={codicon('refresh')}></i>
+                            Retry
+                        </button>
+                    </div>
+                </div>
+            );
+        }
+        return super.renderError();
     }
 
     protected renderPanel(): React.ReactNode {

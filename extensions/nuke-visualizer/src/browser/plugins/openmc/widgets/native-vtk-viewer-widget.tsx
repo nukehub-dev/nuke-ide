@@ -99,8 +99,8 @@ interface NativeVtkOrbit {
  */
 @injectable()
 export class NativeVtkViewerWidget extends ReactWidget {
-    static readonly ID = 'native-vtk-viewer-widget';
-    static readonly LABEL = 'Native VTK Viewer';
+    static readonly ID: string = 'native-vtk-viewer-widget';
+    static readonly LABEL: string = 'Native VTK Viewer';
 
     @inject(FileService)
     protected readonly fileService!: FileService;
