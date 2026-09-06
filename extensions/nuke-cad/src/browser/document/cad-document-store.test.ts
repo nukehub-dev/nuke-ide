@@ -2110,3 +2110,82 @@ describe('partial rebuild routing (P2 C3)', () => {
         expect(shouldUsePartialPlan([], 0)).toBe(false);
     });
 });
+
+describe('setUnits (wave A2)', () => {
+    it('tags a unitless document without rescaling existing numbers', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        store.setParameter('width', 10);
+        const before = JSON.stringify(store.document);
+        const result = store.setUnits('mm');
+        expect(result.success).toBe(true);
+        expect(store.document?.units).toBe('mm');
+        const after = JSON.parse(before) as NukeCadDocument;
+        expect(store.document?.parameters).toEqual(after.parameters);
+        expect(store.document?.sketches).toEqual(after.sketches);
+        expect(store.document?.curves).toEqual(after.curves);
+        expect(store.document?.features).toEqual(after.features);
+        expect(store.dirty).toBe(true);
+    });
+
+    it('cycles through mm/cm/m and clears back to legacy unitless', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        for (const units of ['mm', 'cm', 'm'] as DocumentUnits[]) {
+            expect(store.setUnits(units).success).toBe(true);
+            expect(store.document?.units).toBe(units);
+        }
+        expect(store.setUnits(undefined).success).toBe(true);
+        expect(store.document?.units).toBeUndefined();
+    });
+
+    it('is a no-op when the units are unchanged', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        expect(store.setUnits('mm').success).toBe(true);
+        expect(store.markSaved().success).toBe(true);
+        expect(store.setUnits('mm').success).toBe(true);
+        expect(store.dirty).toBe(false);
+    });
+
+    it('rejects unknown units and a missing document', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        const bad = store.setUnits('inch' as DocumentUnits);
+        expect(bad.success).toBe(false);
+        expect(bad.error).toContain('inch');
+        expect(store.document?.units).toBeUndefined();
+
+        const empty = new CadDocumentStore();
+        expect(empty.setUnits('mm').success).toBe(false);
+    });
+});
+
+describe('computeDependsOn wave A2 contract', () => {
+    it('chains subtractive primitives and helical sweeps like pocket', () => {
+        const features = [feature('pad1', 'pad')];
+        const subtractivePrim: FeatureDef = {
+            ...feature('prim1', 'primitive', ['pad1']),
+            params: { shape: 'box', dimensions: [1, 2, 3], subtractive: true }
+        };
+        expect(computeDependsOn('pocket', 'body-1', [...features, subtractivePrim])).toBe('prim1');
+        expect(computeDependsOn('primitive', 'body-1', [...features, subtractivePrim])).toBe('prim1');
+        expect(computeDependsOn('helicalSweep', 'body-1', [...features, subtractivePrim])).toBe('prim1');
+
+        const subtractiveHelix: FeatureDef = {
+            ...feature('hx1', 'helicalSweep', ['pad1']),
+            params: { axis: 'Z', startRadius: 2, pitch: 1, turns: 3, orientation: 'frenet', subtractive: true }
+        };
+        expect(computeDependsOn('pocket', 'body-1', [...features, subtractiveHelix])).toBe('hx1');
+        expect(computeDependsOn('primitive', 'body-1', [...features, subtractiveHelix])).toBe('hx1');
+    });
+
+    it('chains revolve/groove ends and linear datum-axis patterns at the body tip like pad/pocket', () => {
+        const features = [feature('pad1', 'pad')];
+        expect(computeDependsOn('revolve', 'body-1', features)).toBe('pad1');
+        expect(computeDependsOn('groove', 'body-1', features)).toBe('pad1');
+        expect(computeDependsOn('linearPattern', 'body-1', features)).toBe('pad1');
+        expect(computeDependsOn('revolve', 'body-1', [])).toBeUndefined();
+        expect(computeDependsOn('linearPattern', 'body-1', [])).toBeUndefined();
+    });
+});

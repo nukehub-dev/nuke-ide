@@ -32,6 +32,16 @@ import sketch_builder
 from reference_scoring import DEFAULT_TOLERANCE_SCALE
 from sketch_builder import build_sketch_faces
 
+# Thread tables are pure data (no OCP/build123d imports) so they stay usable
+# in the minimal pytest profile; modeled-hole-thread geometry still needs bd.
+try:
+    import fastener_data
+
+    HAS_FASTENER_DATA = True
+except Exception:
+    fastener_data = None  # type: ignore
+    HAS_FASTENER_DATA = False
+
 # Heavy imports are guarded so the module stays importable in the minimal pytest
 # profile (pytest + numpy only).
 try:
@@ -239,6 +249,21 @@ def _collect_topology_refs(
         if isinstance(face_ref, dict):
             refs.append((f"feature.{fid}.params.face", face_ref))
     elif feature_type == "circularPattern":
+        axis_datum_id = params.get("axisDatumId")
+        if isinstance(axis_datum_id, str):
+            datum = datums.get(axis_datum_id)
+            if isinstance(datum, dict) and datum.get("kind") in ("face", "midplane"):
+                if datum.get("kind") == "face":
+                    ref = datum.get("reference")
+                    if isinstance(ref, dict):
+                        refs.append((f"datum.{axis_datum_id}.reference", ref))
+                else:
+                    faces = datum.get("faces")
+                    if isinstance(faces, list):
+                        for i, ref in enumerate(faces):
+                            if isinstance(ref, dict):
+                                refs.append((f"datum.{axis_datum_id}.faces[{i}]", ref))
+    elif feature_type == "linearPattern":
         axis_datum_id = params.get("axisDatumId")
         if isinstance(axis_datum_id, str):
             datum = datums.get(axis_datum_id)
@@ -673,6 +698,57 @@ def _is_up_to_extrude(feature: dict[str, Any]) -> bool:
     return raw_end is None and isinstance(params.get("upToFace"), dict)
 
 
+_REVOLVE_END_CONDITIONS = ("blind", "throughAll")
+
+
+def _revolve_end_mode(params: dict[str, Any], feature_id: str) -> str:
+    """Return the validated end condition for a revolve/groove feature.
+
+    The default is ``blind``. The full UpTo set stays pad/pocket-only: any
+    other ``end`` value is a validation error, never silently accepted. Pure
+    (no build123d) so minimal-profile tests can cover the contract.
+    """
+    raw_end = params.get("end", "blind")
+    if raw_end is None:
+        raw_end = "blind"
+    if raw_end not in _REVOLVE_END_CONDITIONS:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': revolve end must be 'blind' or 'throughAll', got '{raw_end}'"
+        )
+    return str(raw_end)
+
+
+def _validate_revolve_params(params: dict[str, Any], feature_id: str) -> str:
+    """Validate revolve/groove params and return the end condition.
+
+    ``upToFace``/``upToBody`` are schema-accepted on pads/pockets only; on a
+    revolve/groove they fail explicitly instead of being silently ignored.
+    Pure (no build123d) so minimal-profile tests can cover the contract.
+    """
+    end = _revolve_end_mode(params, feature_id)
+    unsupported = [name for name in ("upToFace", "upToBody") if params.get(name) is not None]
+    if unsupported:
+        names = ", ".join(f"'{name}'" for name in unsupported)
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': revolve parameter(s) {names} "
+            "are not yet supported; use a pad or pocket instead"
+        )
+    return end
+
+
+def _is_revolve_through_all(feature: dict[str, Any]) -> bool:
+    """Return True when a revolve feature uses the throughAll end condition.
+
+    This mirrors :func:`_is_up_to_extrude` without validation (the tool build
+    validates first): throughAll revolve tools fuse into the body on combine
+    instead of going through the blind disjoint-regions guard.
+    """
+    if feature.get("type") != "revolve":
+        return False
+    params = feature.get("params", {}) if isinstance(feature.get("params"), dict) else {}
+    return params.get("end") == "throughAll"
+
+
 def _bbox_span_along(
     shape: Any, origin: tuple[float, float, float], direction: tuple[float, float, float]
 ) -> tuple[float, float]:
@@ -869,6 +945,54 @@ def _extrude_span_for_end(
             "(upToFace target lies behind the sketch plane)"
         )
     return (t_face, 0.0)
+
+
+def _resolve_up_to_body_target(
+    params: dict[str, Any],
+    end: str,
+    feature_id: str,
+    feature_type: str,
+    body_id: str,
+    body_shapes: dict[str, Any] | None,
+    known_body_ids: list[str] | None,
+) -> Any | None:
+    """Return the B-rep a pad/pocket up-to extrusion measures against.
+
+    ``upToBody`` names the target body; omitted means the feature's own body
+    (today's upToFirst/Last behavior). ``end`` selects the extent
+    (nearest for upToFirst, farthest for upToLast) via the same ray-extent
+    machinery — only the target differs. An ``upToBody`` outside an
+    upToFirst/upToLast end, a non-string body reference, an unknown body id,
+    and a body with no geometry yet are all clear validation errors. Shapes
+    stay opaque so this is pure (no build123d) and minimal-profile testable.
+    """
+    up_to_body = params.get("upToBody")
+    if end not in ("upToFirst", "upToLast"):
+        if up_to_body is not None:
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': {feature_type} upToBody "
+                "requires end 'upToFirst' or 'upToLast'"
+            )
+        return None
+    shapes = body_shapes or {}
+    if up_to_body is None:
+        return shapes.get(body_id)
+    if not isinstance(up_to_body, str) or not up_to_body:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': {feature_type} upToBody must be a body id string"
+        )
+    if known_body_ids is not None and up_to_body not in known_body_ids:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': {feature_type} upToBody references "
+            f"unknown body '{up_to_body}'"
+        )
+    target = shapes.get(up_to_body)
+    if target is None:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': {feature_type} upToBody references "
+            f"body '{up_to_body}' which has no geometry yet"
+        )
+    return target
 
 
 def _require_build123d() -> None:
@@ -1504,8 +1628,10 @@ def _pattern_copy_operations(
     if pattern_type == "linearPattern":
         count = int(pattern_params.get("count", 1))
         spacing = float(pattern_params.get("spacing", 0.0))
-        axis = str(pattern_params.get("axis", "z"))
-        offsets = _linear_pattern_offsets(count, spacing, axis)[1:]
+        direction = _resolve_linear_pattern_direction(
+            pattern_params, datums, entities, ref_path_to_index, feature_id, prefix
+        )
+        offsets = _linear_pattern_offsets_along(count, spacing, direction)[1:]
         return [
             (
                 lambda shape, offset=offset: _scaled_about_center(
@@ -1757,19 +1883,81 @@ def _axis_from_datum(
     return bd.Axis(plane.origin, plane.z_dir)
 
 
+def _direction_from_datum(
+    datum: dict[str, Any],
+    feature_id: str,
+    entity: Any | None = None,
+    midplane_entities: tuple[Any, Any] | None = None,
+) -> tuple[float, float, float]:
+    """Return a unit direction vector from a datum definition.
+
+    ``line2Point`` datums yield the normalized two-point direction (pure, no
+    build123d); plane datums yield their normal through the same plane
+    derivation :func:`_axis_from_datum` uses.
+    """
+    if datum.get("kind") == "line2Point":
+        p1, p2 = _datum_points(datum, 2, feature_id)
+        return _normalized_vector((p2[0] - p1[0], p2[1] - p1[1], p2[2] - p1[2]))
+    _require_build123d()
+    assert bd is not None
+    plane = _plane_from_datum(datum, feature_id, entity, midplane_entities)
+    return _normalized_vector((float(plane.z_dir.X), float(plane.z_dir.Y), float(plane.z_dir.Z)))
+
+
+def _resolve_linear_pattern_direction(
+    pattern_params: dict[str, Any],
+    datums: dict[str, dict[str, Any]],
+    entities: list[Any],
+    ref_path_to_index: dict[str, int],
+    feature_id: str,
+    prefix: str = "datum.",
+) -> tuple[float, float, float]:
+    """Return the unit direction of a linear pattern (datum or coordinate axis).
+
+    ``axisDatumId`` is mutually exclusive with ``axis`` (same error wording as
+    the document schema validator); the datum resolves via the line-datum
+    two-point path with plane-datum normals also accepted, mirroring the
+    circular pattern axis. An absent axis keeps the historical ``z`` default.
+    The exclusivity check is pure and runs before any build123d use.
+    """
+    axis = pattern_params.get("axis")
+    axis_datum_id = pattern_params.get("axisDatumId")
+    # Only an explicitly authored axis counts: an absent axis keeps the
+    # historical ``z`` default and never conflicts with a datum.
+    has_axis = isinstance(axis, str) and axis in _AXIS_VECTOR
+    has_datum = isinstance(axis_datum_id, str) and bool(axis_datum_id)
+    if has_axis and has_datum:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': axis and axisDatumId are mutually exclusive"
+        )
+    if has_datum:
+        assert isinstance(axis_datum_id, str)
+        datum, entity, midplane_entities = _datum_entities_for_axis_or_plane(
+            axis_datum_id, datums, entities, ref_path_to_index, feature_id, prefix
+        )
+        return _direction_from_datum(datum, feature_id, entity, midplane_entities)
+    key = axis if isinstance(axis, str) else "z"
+    return _AXIS_VECTOR.get(key, (0.0, 0.0, 1.0))
+
+
 def _linear_pattern_instances(
     tool: Any,
     count: int,
     spacing: float,
     axis: str,
+    direction: tuple[float, float, float] | None = None,
 ) -> list[Any]:
     """Return transformed copies of ``tool`` for a linear pattern.
 
-    Instance k (1 <= k < count) is at k*spacing along the axis.
+    Instance k (1 <= k < count) is at k*spacing along the axis. A resolved
+    datum ``direction`` overrides the coordinate ``axis`` name.
     """
     _require_build123d()
     assert bd is not None
-    offsets = _linear_pattern_offsets(count, spacing, axis)
+    if direction is not None:
+        offsets = _linear_pattern_offsets_along(count, spacing, direction)
+    else:
+        offsets = _linear_pattern_offsets(count, spacing, axis)
     return [tool.moved(bd.Location(offset)) for offset in offsets[1:]]
 
 
@@ -1850,8 +2038,19 @@ def _linear_pattern_offsets(
     This is pure (no build123d) so minimal-profile tests can cover the layout.
     """
     vector = _AXIS_VECTOR.get(axis, (0.0, 0.0, 1.0))
+    return _linear_pattern_offsets_along(count, spacing, vector)
+
+
+def _linear_pattern_offsets_along(
+    count: int, spacing: float, direction: tuple[float, float, float]
+) -> list[tuple[float, float, float]]:
+    """Return per-instance offsets along an explicit direction, identity first.
+
+    Pure (no build123d); backs both the coordinate-axis layout and datum-axis
+    linear patterns (whose resolved unit direction is passed in).
+    """
     return [
-        (vector[0] * spacing * k, vector[1] * spacing * k, vector[2] * spacing * k)
+        (direction[0] * spacing * k, direction[1] * spacing * k, direction[2] * spacing * k)
         for k in range(count)
     ]
 
@@ -1950,6 +2149,7 @@ def _apply_pattern_or_mirror(
     source_type: str,
     instances: list[Any],
     feature_id: str,
+    source_subtractive: bool = False,
 ) -> Any:
     """Apply pattern/mirror instances to a body.
 
@@ -1960,33 +2160,56 @@ def _apply_pattern_or_mirror(
     their solids exactly, so the (expensive) sequential fuse is skipped in favor
     of a flat ``Compound`` of ``body.solids() + all instance solids``.
     Otherwise a single parallel GFOP fuse is tried first, falling back to the
-    sequential pairwise loop on any failure. Subtractive sources cut each
+    sequential pairwise loop on any failure. Subtractive sources (pocket/groove
+    always; primitive/helicalSweep with ``subtractive: true``) cut each
     instance from the body, always sequentially:
     each cut mutates the body, so skipping is unsound there.
     """
     _require_build123d()
     assert bd is not None
     if source_type in ("pad", "revolve", "sweep", "pipe", "loft", "helicalSweep", "primitive"):
-        if _pattern_instances_are_disjoint(body, instances):
-            # ``Compound(children=[...])`` is the supported spelling on
-            # build123d 0.9.1 (also used by ``_combine_additive``).
-            solids: list[Any] = list(body.solids())
+        if not source_subtractive:
+            if _pattern_instances_are_disjoint(body, instances):
+                # ``Compound(children=[...])`` is the supported spelling on
+                # build123d 0.9.1 (also used by ``_combine_additive``).
+                solids: list[Any] = list(body.solids())
+                for instance in instances:
+                    solids.extend(instance.solids())
+                return bd.Compound(children=solids)
+            try:
+                return _pattern_parallel_fuse(body, instances)
+            except Exception:
+                pass
+            result = body
             for instance in instances:
-                solids.extend(instance.solids())
-            return bd.Compound(children=solids)
-        try:
-            return _pattern_parallel_fuse(body, instances)
-        except Exception:
-            pass
-        result = body
-        for instance in instances:
-            result = result + instance
-        return result
-    # pocket / groove
+                result = result + instance
+            return result
+    # pocket / groove / subtractive primitive / subtractive helicalSweep
     result = body
     for instance in instances:
         result = result - instance
     return result
+
+
+def _solid_feature_is_subtractive(feature: dict[str, Any]) -> bool:
+    """Return True when a solid feature cuts from its body instead of adding.
+
+    Pockets and grooves are always subtractive; primitives and helicalSweeps
+    cut only with ``subtractive: true`` (default false). Pure (no build123d).
+    """
+    feature_type = feature.get("type")
+    if feature_type in ("pocket", "groove"):
+        return True
+    if feature_type in ("primitive", "helicalSweep"):
+        params = feature.get("params", {}) if isinstance(feature.get("params"), dict) else {}
+        return bool(params.get("subtractive", False))
+    return False
+
+
+def _pattern_source_is_subtractive(source: dict[str, Any]) -> bool:
+    """Return True when a pattern/mirror source feature cuts (pocket/groove or
+    a primitive/helicalSweep with ``subtractive: true``). Pure (no build123d)."""
+    return _solid_feature_is_subtractive(source)
 
 
 def _body_bounding_box_diagonal(shape: Any) -> float:
@@ -2070,8 +2293,9 @@ def _validate_hole_expansion(
 
     Counterbore, countersink, and counterdrill are mutually exclusive. The
     taper half-angle must lie in (0, 45] degrees and the drill-point full angle
-    in (0, 180) degrees. ``thread`` is stored and validated schema-side only;
-    the backend ignores it.
+    in (0, 180) degrees. ``thread`` ``'none'``/``'cosmetic'`` need no geometry
+    (cosmetic stays stored-only); ``'modeled'`` is validated separately by
+    :func:`_validate_modeled_thread` and cut by :func:`_build_modeled_thread_tool`.
     """
     complete = 0
     if counterbore_diameter is not None and counterbore_depth is not None:
@@ -2167,6 +2391,272 @@ def _find_top_rim_edge(
     return best_edge
 
 
+def _hole_mouth_frame(
+    plane: Any,
+    center: tuple[float, float],
+    body: Any,
+    face_entity: Any,
+    feature_id: str,
+) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+    """Return ``(center_3d, inward)`` for a hole placed at ``[u, v]`` on ``plane``.
+
+    ``center_3d`` is the mouth center in world coordinates; ``inward`` is the
+    unit face normal pointing into ``body`` (via the solid classifier, so the
+    hole cuts into the material regardless of the face orientation). Shared by
+    the hole tool builder and the modeled-thread cutter so both agree on the
+    hole axis. This factors the orientation block used by the hole tool
+    builder; existing call sites keep their inline copies so long-standing
+    geometry is untouched.
+    """
+    origin = plane.origin
+    x_dir = plane.x_dir
+    y_dir = plane.y_dir
+    center_3d = (
+        origin.X + center[0] * x_dir.X + center[1] * y_dir.X,
+        origin.Y + center[0] * x_dir.Y + center[1] * y_dir.Y,
+        origin.Z + center[0] * x_dir.Z + center[1] * y_dir.Z,
+    )
+    z_dir = plane.z_dir
+    axis = (float(z_dir.X), float(z_dir.Y), float(z_dir.Z))
+    return center_3d, _inward_normal(body, face_entity, axis)
+
+
+def _validate_modeled_thread(feature_id: str, params: dict[str, Any]) -> Any | None:
+    """Validate a hole ``thread`` value and return the thread spec when modeled.
+
+    Returns ``None`` for ``'none'``/``'cosmetic'`` (cosmetic stays stored-only,
+    byte-identical geometry). ``'modeled'`` requires a blind simple hole —
+    counterbore/countersink/counterdrill (any half of the pair set, mirroring
+    the schema validator) and ``taperAngle`` fail with a clear error, as do
+    through-holes (no usable depth), holes too shallow for one full turn, and
+    diameters matching no ISO metric coarse designation. The designation is
+    derived from the hole diameter (nominal = major); pitch and tap-drill come
+    from :mod:`fastener_data`, so no designation crosses the document schema.
+    Pure (no build123d) apart from the table lookup, so minimal-profile tests
+    can cover every rejection.
+    """
+    thread = params.get("thread", "none")
+    if thread is None:
+        thread = "none"
+    if thread not in ("none", "cosmetic", "modeled"):
+        raise FeatureBuilderError(f"feature '{feature_id}': unknown hole thread '{thread}'")
+    if thread != "modeled":
+        return None
+    depth = params.get("depth")
+    if (
+        not isinstance(depth, (int, float))
+        or isinstance(depth, bool)
+        or not math.isfinite(depth)
+        or depth <= 0
+    ):
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': modeled thread requires a blind hole (depth must be set)"
+        )
+    if any(
+        params.get(key) is not None
+        for key in (
+            "counterboreDiameter",
+            "counterboreDepth",
+            "countersinkDiameter",
+            "countersinkAngle",
+            "counterdrillDiameter",
+            "counterdrillDepth",
+        )
+    ):
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': modeled thread is only supported on simple holes "
+            "(no counterbore/countersink/counterdrill)"
+        )
+    if params.get("taperAngle") is not None:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': modeled thread is only supported on simple holes "
+            "(taperAngle must be omitted)"
+        )
+    diameter = params.get("diameter")
+    if (
+        not isinstance(diameter, (int, float))
+        or isinstance(diameter, bool)
+        or not math.isfinite(diameter)
+        or diameter <= 0
+    ):
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': modeled thread requires a positive hole diameter"
+        )
+    spec = _coarse_thread_for_diameter(float(diameter), feature_id)
+    turns = math.floor(float(depth) / spec.pitch_mm)
+    if turns < 1:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': modeled thread depth {float(depth):g} fits no full "
+            f"turn of pitch {spec.pitch_mm:g} ({spec.designation})"
+        )
+    return spec
+
+
+def _coarse_thread_for_diameter(diameter: float, feature_id: str) -> Any:
+    """Return the ISO metric coarse spec whose nominal matches ``diameter``.
+
+    Pure apart from the data-table lookup. Raises a clear error (naming the
+    supported range) when the diameter matches no coarse nominal — modeled
+    threads derive pitch from the hole diameter, so fine/UNC designations
+    have no selector on the document schema and stay unsupported.
+    """
+    if not HAS_FASTENER_DATA or fastener_data is None:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': modeled thread requires the fastener tables"
+        )
+    for spec in fastener_data.THREAD_TABLE.values():
+        if spec.family != fastener_data.METRIC_COARSE:
+            continue
+        if abs(diameter - spec.diameter_mm) <= 1e-6 * max(1.0, spec.diameter_mm):
+            return spec
+    raise FeatureBuilderError(
+        f"feature '{feature_id}': modeled thread diameter {diameter:g} matches no ISO "
+        "metric coarse designation (M1-M64); modeled threads derive pitch from "
+        "the hole diameter"
+    )
+
+
+def _modeled_thread_section(
+    tap_radius: float,
+    nominal_radius: float,
+    pitch: float,
+) -> list[tuple[float, float]]:
+    """Return the thread-groove section corners in ``(radial, axial)`` coordinates.
+
+    The section is the ISO internal-thread groove approximation: 60-degree
+    flanks (half-angle 30 degrees from radial) between a P/4 root flat at the
+    tap radius and the crest at the nominal radius, with a small radial
+    overshoot (5% of the pitch each side) so the cut breaks through the hole
+    wall cleanly. Pure (no build123d) so minimal-profile tests can pin the
+    profile numbers.
+    """
+    overshoot = 0.05 * pitch
+    inner = tap_radius - overshoot
+    outer = nominal_radius + overshoot
+    inner_half = 3.0 * pitch / 8.0
+    outer_half = pitch / 8.0 + (outer - inner) * math.tan(math.radians(30.0))
+    return [(inner, -inner_half), (inner, inner_half), (outer, outer_half), (outer, -outer_half)]
+
+
+def _build_modeled_thread_tool(
+    center_3d: tuple[float, float, float],
+    inward: tuple[float, float, float],
+    depth: float,
+    spec: Any,
+    feature_id: str,
+) -> Any:
+    """Build the helical cut tool of a modeled hole thread.
+
+    The ISO groove section (:func:`_modeled_thread_section`, radial extent
+    tap-to-nominal from the spec's tap-drill and nominal diameter) sweeps a
+    right-hand helix of the spec pitch at mid-flank radius, starting at the
+    hole mouth and spanning ``floor(depth / pitch)`` full turns (at least one;
+    validated by :func:`_validate_modeled_thread`). The sweep runs
+    ``fixedBinormal`` locked to the hole axis so the section never rolls, and
+    open-helix construction reuses the sweep machinery (curvature pre-check
+    included) exactly like ``helicalSweep``.
+    """
+    _require_build123d()
+    assert bd is not None
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeFace, BRepBuilderAPI_MakePolygon
+    from OCP.gp import gp_Pnt
+
+    pitch = float(spec.pitch_mm)
+    tap_radius = float(spec.tap_drill_mm) / 2.0
+    nominal_radius = float(spec.diameter_mm) / 2.0
+    turns = max(1, math.floor(depth / pitch))
+    axis = _normalized_vector(inward)
+    # Right-hand helix frame: e1 is a deterministic radial direction, e2
+    # completes the right-handed basis with the hole axis.
+    e1 = _deterministic_x_dir(axis)
+    e2 = _normalized_vector(
+        (
+            axis[1] * e1[2] - axis[2] * e1[1],
+            axis[2] * e1[0] - axis[0] * e1[2],
+            axis[0] * e1[1] - axis[1] * e1[0],
+        )
+    )
+    flank_radius = (tap_radius + nominal_radius) / 2.0
+
+    sample_count = max(64, math.ceil(turns * 128))
+    points: list[tuple[float, float, float]] = []
+    for i in range(sample_count):
+        theta = 2.0 * math.pi * turns * i / (sample_count - 1)
+        radial = flank_radius
+        axial = pitch * theta / (2.0 * math.pi)
+        points.append(
+            (
+                center_3d[0]
+                + radial * math.cos(theta) * e1[0]
+                + radial * math.sin(theta) * e2[0]
+                + axial * axis[0],
+                center_3d[1]
+                + radial * math.cos(theta) * e1[1]
+                + radial * math.sin(theta) * e2[1]
+                + axial * axis[1],
+                center_3d[2]
+                + radial * math.cos(theta) * e1[2]
+                + radial * math.sin(theta) * e2[2]
+                + axial * axis[2],
+            )
+        )
+    try:
+        fit = curve_builder._fit_curve(feature_id, "thread", {"kind": "parametric"}, points)
+    except Exception as exc:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': modeled thread helix fit failed: {exc}"
+        ) from exc
+    spine_wire = fit.get("wire")
+    if spine_wire is None:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': modeled thread helix fit produced no wire"
+        )
+
+    # Section quad at the helix start: u is radial (e1 is perpendicular to the
+    # start tangent by construction), v is the axial remainder perpendicular
+    # to the tangent.
+    start = points[0]
+    tangent = _normalized_vector(
+        (
+            points[1][0] - points[0][0],
+            points[1][1] - points[0][1],
+            points[1][2] - points[0][2],
+        )
+    )
+    axial_along = _dot(axis, tangent)
+    v_raw = (
+        axis[0] - axial_along * tangent[0],
+        axis[1] - axial_along * tangent[1],
+        axis[2] - axial_along * tangent[2],
+    )
+    v_len = math.sqrt(v_raw[0] ** 2 + v_raw[1] ** 2 + v_raw[2] ** 2)
+    if v_len < 1e-9:
+        raise FeatureBuilderError(f"feature '{feature_id}': modeled thread start frame degenerated")
+    v_dir = (v_raw[0] / v_len, v_raw[1] / v_len, v_raw[2] / v_len)
+    corners = _modeled_thread_section(tap_radius, nominal_radius, pitch)
+    polygon = BRepBuilderAPI_MakePolygon()
+    for radial, axial in corners:
+        polygon.Add(
+            gp_Pnt(
+                start[0] + (radial - flank_radius) * e1[0] + axial * v_dir[0],
+                start[1] + (radial - flank_radius) * e1[1] + axial * v_dir[1],
+                start[2] + (radial - flank_radius) * e1[2] + axial * v_dir[2],
+            )
+        )
+    polygon.Close()
+    if not polygon.IsDone():
+        raise FeatureBuilderError(f"feature '{feature_id}': modeled thread section failed to build")
+    section_face = BRepBuilderAPI_MakeFace(polygon.Wire()).Face()
+    reach = _section_reach([section_face])
+    return _pipe_shell_solid(
+        spine_wire,
+        [section_face],
+        {"orientation": "fixedBinormal", "binormal": list(axis)},
+        feature_id,
+        reach,
+    )
+
+
 def _build_hole_tool(
     plane: Any,
     center: tuple[float, float],
@@ -2212,17 +2702,7 @@ def _build_hole_tool(
         drill_point_angle,
     )
 
-    origin = plane.origin
-    x_dir = plane.x_dir
-    y_dir = plane.y_dir
-    center_3d = (
-        origin.X + center[0] * x_dir.X + center[1] * y_dir.X,
-        origin.Y + center[0] * x_dir.Y + center[1] * y_dir.Y,
-        origin.Z + center[0] * x_dir.Z + center[1] * y_dir.Z,
-    )
-    z_dir = plane.z_dir
-    axis = (float(z_dir.X), float(z_dir.Y), float(z_dir.Z))
-    inward = _inward_normal(body, face_entity, axis)
+    center_3d, inward = _hole_mouth_frame(plane, center, body, face_entity, feature_id)
 
     blind = depth is not None and depth > 0
     if not blind:
@@ -3110,6 +3590,8 @@ def _build_feature_shape(
     reference_results: list[dict[str, Any]],
     curve_results: dict[str, dict[str, Any]] | None = None,
     body_shape: Any | None = None,
+    body_shapes: dict[str, Any] | None = None,
+    known_body_ids: list[str] | None = None,
 ) -> Any:
     """Build the tool shape produced by a single sketch-based feature.
 
@@ -3118,7 +3600,8 @@ def _build_feature_shape(
     can transform copies of it without rebuilding the source sketch.
     ``body_shape`` is the target body's current B-rep (before this feature);
     pad/pocket end conditions (First/Last/ThroughAll) and ``upToFace`` measure
-    against it.
+    against it, while ``upToBody`` resolves its named target body through
+    ``body_shapes``/``known_body_ids`` (the live per-body accumulators).
     """
     if bd is None:
         raise FeatureBuilderError("build123d is not available; cannot build feature shapes")
@@ -3132,6 +3615,15 @@ def _build_feature_shape(
         raise FeatureBuilderError(
             f"feature '{feature_id}': type '{feature_type}' is not supported yet"
         )
+
+    # Revolve/groove end conditions validate before any topology resolution so
+    # a stray pad-only end fails with the revolve-specific message rather than
+    # an unrelated reference error.
+    revolve_end = (
+        _validate_revolve_params(params, feature_id)
+        if feature_type in ("revolve", "groove")
+        else "blind"
+    )
 
     if feature_type == "loft":
         # Loft leaves FeatureDef.sketchId unset; the ordered section sketches
@@ -3312,30 +3804,43 @@ def _build_feature_shape(
         return tool_shape
 
     if feature_type in ("pad", "pocket"):
-        # upToBody and angle are schema-accepted and validated, but the
-        # builder does not implement them; reject explicitly instead of
-        # silently ignoring them. upToFace is implemented below.
-        unsupported = [name for name in ("upToBody", "angle") if params.get(name) is not None]
-        if unsupported:
-            names = ", ".join(f"'{name}'" for name in unsupported)
+        # angle is schema-accepted but unimplemented; reject explicitly instead
+        # of silently ignoring it. upToBody resolves its named target body
+        # (own body when omitted); upToFace is implemented below.
+        if params.get("angle") is not None:
             raise FeatureBuilderError(
-                f"feature '{feature_id}': {feature_type} parameter(s) {names} "
+                f"feature '{feature_id}': {feature_type} parameter(s) 'angle' "
                 "are not yet supported; use a fixed length instead"
             )
         axis = params.get("axis")
         direction = _extrude_direction(plane, axis, f"feature '{feature_id}'")
         end = _extrude_end_mode(params, feature_id, feature_type)
+        # upToBody resolves (and validates) on every end so a stray upToBody
+        # outside First/Last fails instead of being silently ignored; the
+        # target is only measured for First/Last.
+        up_to_target = _resolve_up_to_body_target(
+            params,
+            end,
+            feature_id,
+            feature_type,
+            feature.get("body", ""),
+            body_shapes
+            if body_shapes is not None
+            else ({feature.get("body", ""): body_shape} if body_shape is not None else {}),
+            known_body_ids,
+        )
         if end != "blind":
             # FreeCAD-style end condition measured against the target body's
-            # current B-rep (or the named face). Unlike blind pads, which keep
-            # the disjoint-regions guard so multi-region bodies stay separate,
-            # up-to tools fuse into the body on combine (see build loop).
+            # current B-rep (or the named face / named body). Unlike blind pads,
+            # which keep the disjoint-regions guard so multi-region bodies stay
+            # separate, up-to tools fuse into the body on combine (see build loop).
+            target_shape = up_to_target if end in ("upToFirst", "upToLast") else body_shape
             amount_fwd, amount_bwd = _extrude_span_for_end(
                 end,
                 plane,
                 faces,
                 direction,
-                body_shape,
+                target_shape,
                 up_to_face_entity,
                 feature_id,
                 feature_type,
@@ -3450,6 +3955,32 @@ def _build_feature_shape(
         raise FeatureBuilderError(
             f"feature '{feature_id}': revolve/groove operation failed"
         ) from exc
+    if revolve_end == "throughAll":
+        # The blind revolve unions a slab of the profile extruded along the
+        # sketch-plane normal over plus/minus the target body's bbox diagonal,
+        # so the tool spans the body in the normal direction (the pad
+        # throughAll span is body-relative; the diagonal is the
+        # orientation-independent bound). A missing or degenerate target body
+        # fails with the pad "does not intersect" error style.
+        if body_shape is None:
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': {feature_type} tool does not intersect the body"
+            )
+        diagonal = _body_bounding_box_diagonal(body_shape)
+        if diagonal <= 1e-9:
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': {feature_type} tool does not intersect the body"
+            )
+        normal = _normalized_vector(_extract_plane_normal(plane))
+        slab = _extrude_profiles_span(
+            faces, bd.Vector(normal), diagonal, diagonal, feature_id, feature_type
+        )
+        try:
+            tool_shape = tool_shape + slab
+        except Exception as exc:
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': revolve/groove boolean union failed"
+            ) from exc
     tool_shapes[feature_id] = tool_shape
     return tool_shape
 
@@ -3703,6 +4234,8 @@ def _compute_implied_dependencies(
         staleness discipline a sketch-based pad enjoys through its ``sketchId``.
       * A pad/pocket with ``upToFace`` depends on the referenced feature so the
         target face is built before the extrusion resolves it.
+      * A pad/pocket with ``upToBody`` depends on the target body's tip feature
+        so the other body's B-rep exists before the extrusion measures it.
       * A pattern/mirror/primitive that names a face/midplane datum depends on
         the features that datum's references point to.
       * A multiTransform depends on both its ``first`` and ``second`` pattern
@@ -3755,6 +4288,11 @@ def _compute_implied_dependencies(
             if isinstance(up_to_face, dict) and isinstance(up_to_face.get("featureId"), str):
                 if up_to_face["featureId"] != feature["id"]:
                     edges.append((feature["id"], up_to_face["featureId"]))
+            up_to_body = params.get("upToBody")
+            if isinstance(up_to_body, str) and up_to_body and up_to_body != feature.get("body"):
+                tip = _body_tip_feature_id(features, up_to_body, i)
+                if tip is not None and tip != feature["id"]:
+                    edges.append((feature["id"], tip))
         if feature_type == "primitive":
             _depend_on_datum_refs(feature["id"], params.get("datumId"))
         if feature_type == "multiTransform":
@@ -3938,6 +4476,7 @@ class _BuildState:
         self.feature_shapes: dict[str, Any] = {}
         self.tool_shapes: dict[str, Any] = {}
         self.consumed_bodies: set[str] = set()
+        self.warnings: list[str] = []
 
 
 def build_document_shape(
@@ -4368,7 +4907,12 @@ def _execute_feature(state: _BuildState, feature_id: str) -> None:
                 first_shapes = [first_source_tool] + [op(first_source_tool) for op in first_ops]
                 product = [op(shape) for shape in first_shapes for op in second_ops]
                 result_shape = _apply_pattern_or_mirror(
-                    previous_body, None, second_source.get("type", ""), product, feature_id
+                    previous_body,
+                    None,
+                    second_source.get("type", ""),
+                    product,
+                    feature_id,
+                    source_subtractive=_pattern_source_is_subtractive(second_source),
                 )
                 accumulators[body_id] = result_shape
                 feature_shapes[feature_id] = getattr(result_shape, "wrapped", result_shape)
@@ -4460,12 +5004,22 @@ def _execute_feature(state: _BuildState, feature_id: str) -> None:
                     spacing = float(params.get("spacing", 0.0))
                     axis = str(params.get("axis", "z"))
                     scale = _pattern_scale(params, feature_id)
+                    pattern_direction = _resolve_linear_pattern_direction(
+                        params, datums, entities, ref_path_to_index, feature_id
+                    )
                     instances = [
                         _scaled_about_center(instance, scale)
-                        for instance in _linear_pattern_instances(source_tool, count, spacing, axis)
+                        for instance in _linear_pattern_instances(
+                            source_tool, count, spacing, axis, pattern_direction
+                        )
                     ]
                     result_shape = _apply_pattern_or_mirror(
-                        previous_body, source_tool, source["type"], instances, feature_id
+                        previous_body,
+                        source_tool,
+                        source["type"],
+                        instances,
+                        feature_id,
+                        source_subtractive=_pattern_source_is_subtractive(source),
                     )
                 elif feature_type == "circularPattern":
                     count = int(params.get("count", 1))
@@ -4485,7 +5039,12 @@ def _execute_feature(state: _BuildState, feature_id: str) -> None:
                         )
                     ]
                     result_shape = _apply_pattern_or_mirror(
-                        previous_body, source_tool, source["type"], instances, feature_id
+                        previous_body,
+                        source_tool,
+                        source["type"],
+                        instances,
+                        feature_id,
+                        source_subtractive=_pattern_source_is_subtractive(source),
                     )
                 else:  # mirror
                     scale = _pattern_scale(params, feature_id)
@@ -4498,7 +5057,12 @@ def _execute_feature(state: _BuildState, feature_id: str) -> None:
                     )
                     mirrored = _scaled_about_center(_mirror_shape(source_tool, mirror_plane), scale)
                     result_shape = _apply_pattern_or_mirror(
-                        previous_body, source_tool, source["type"], [mirrored], feature_id
+                        previous_body,
+                        source_tool,
+                        source["type"],
+                        [mirrored],
+                        feature_id,
+                        source_subtractive=_pattern_source_is_subtractive(source),
                     )
             else:  # hole
                 face_path = f"feature.{feature_id}.params.face"
@@ -4507,6 +5071,11 @@ def _execute_feature(state: _BuildState, feature_id: str) -> None:
                 center = params.get("center")
                 if not isinstance(center, (list, tuple)) or len(center) != 2:
                     raise FeatureBuilderError(f"feature '{feature_id}': hole center must be [u, v]")
+                # Thread validation runs before any OCP work so modeled-thread
+                # misuse (combos, through-holes, unknown values) fails with the
+                # thread-specific message even where the hole tool builder
+                # would raise its own error first.
+                thread_spec = _validate_modeled_thread(feature_id, params)
                 tool = _build_hole_tool(
                     plane=hole_plane,
                     center=(float(center[0]), float(center[1])),
@@ -4526,6 +5095,31 @@ def _execute_feature(state: _BuildState, feature_id: str) -> None:
                 )
                 _require_cut_intersection(previous_body, tool, feature_id, feature_type)
                 result_shape = previous_body - tool
+                if thread_spec is not None:
+                    mouth_center, inward = _hole_mouth_frame(
+                        hole_plane,
+                        (float(center[0]), float(center[1])),
+                        previous_body,
+                        face_entity,
+                        feature_id,
+                    )
+                    thread_tool = _build_modeled_thread_tool(
+                        mouth_center,
+                        inward,
+                        float(params.get("depth")),
+                        thread_spec,
+                        feature_id,
+                    )
+                    _require_cut_intersection(result_shape, thread_tool, feature_id, feature_type)
+                    result_shape = result_shape - thread_tool
+                    # Modeled threads explode facet counts (one helical groove
+                    # per turn); warn through the standard warnings channel so
+                    # callers can compare against the display-triangle budget.
+                    state.warnings.append(
+                        f"feature '{feature_id}': modeled thread '{thread_spec.designation}' "
+                        "adds a helical cut; expect a large display-triangle count "
+                        "(see the nukeCad.maxDisplayTriangles budget)"
+                    )
 
             accumulators[body_id] = result_shape
             feature_shapes[feature_id] = getattr(result_shape, "wrapped", result_shape)
@@ -4576,6 +5170,8 @@ def _execute_feature(state: _BuildState, feature_id: str) -> None:
                 reference_results,
                 curve_results,
                 accumulators.get(body_id),
+                accumulators,
+                body_ids,
             )
     except Exception as exc:
         feature_results.append(
@@ -4585,7 +5181,9 @@ def _execute_feature(state: _BuildState, feature_id: str) -> None:
         return
 
     previous_body = accumulators.get(body_id)
-    up_to_fuse = feature_type == "pad" and _is_up_to_extrude(feature)
+    up_to_fuse = (feature_type == "pad" and _is_up_to_extrude(feature)) or (
+        feature_type == "revolve" and _is_revolve_through_all(feature)
+    )
 
     try:
         if feature_type in (
@@ -4597,7 +5195,16 @@ def _execute_feature(state: _BuildState, feature_id: str) -> None:
             "helicalSweep",
             "primitive",
         ):
-            if previous_body is None:
+            if _solid_feature_is_subtractive(feature):
+                # Subtractive primitive / helicalSweep: cut needs an existing
+                # body and a disjoint tool fails exactly like a pocket.
+                if previous_body is None:
+                    raise FeatureBuilderError(
+                        f"feature '{feature_id}': {feature_type} requires an existing solid body"
+                    )
+                _require_cut_intersection(previous_body, tool_shape, feature_id, feature_type)
+                accumulators[body_id] = previous_body - tool_shape
+            elif previous_body is None:
                 accumulators[body_id] = tool_shape
             elif up_to_fuse:
                 # Up-to tools terminate on the body by construction, so
@@ -4607,7 +5214,7 @@ def _execute_feature(state: _BuildState, feature_id: str) -> None:
                     accumulators[body_id] = previous_body + tool_shape
                 except Exception as exc:
                     raise FeatureBuilderError(
-                        f"feature '{feature_id}': pad boolean union failed: {exc}"
+                        f"feature '{feature_id}': {feature_type} boolean union failed: {exc}"
                     ) from exc
             else:
                 accumulators[body_id] = _combine_additive(previous_body, tool_shape, feature_id)
@@ -4678,7 +5285,7 @@ def _assemble_final_shape(state: _BuildState) -> dict[str, Any]:
             "referenceResults": reference_results,
             "consumedBodies": sorted(consumed_bodies),
             "solidBodyIds": [],
-            "warnings": overlap_warnings,
+            "warnings": list(state.warnings),
         }
 
     overlap_warnings = _check_cross_body_overlap(active_body_shapes, active_body_ids)
@@ -4709,7 +5316,7 @@ def _assemble_final_shape(state: _BuildState) -> dict[str, Any]:
         "referenceResults": reference_results,
         "consumedBodies": sorted(consumed_bodies),
         "solidBodyIds": solid_body_ids,
-        "warnings": overlap_warnings,
+        "warnings": list(state.warnings) + overlap_warnings,
     }
 
 

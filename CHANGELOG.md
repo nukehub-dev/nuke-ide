@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- nuke-cad: **extrude/revolve ends, subtractive tools, datum pattern axis,
+  modeled threads, units, and offset auto-trim** — pad/pocket gain
+  **up-to-body** termination; revolve/groove gain **through-all** ends;
+  primitives and helical sweeps gain a **subtractive** option; linear
+  patterns accept a **datum axis** like circular ones; holes gain a
+  **thread** preset (`none`/`cosmetic`/`modeled`, modeled cuts a real ISO
+  thread into simple blind holes); the document toolbar gains a **Units**
+  dropdown (tags future inputs, never rescales); STEP/IGES imports read the
+  file's length unit (adopted when unset, exact scaling on mismatch); and
+  the sketch Offset popover gains **auto-trim** (miter-join, on by
+  default).
+
 - nuke-cad: **ellipse and B-spline sketch entities** — two new sketch tools
   join the toolbar: **Ellipse** (`E`, center → major-axis endpoint → minor
   radius) and **B-spline** (`B`, click control-polygon poles, finish with

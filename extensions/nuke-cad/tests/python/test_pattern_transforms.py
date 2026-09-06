@@ -255,3 +255,97 @@ def test_pattern_scale_validation_pure() -> None:
     for bad in (0, 0.0, -1.0, float("nan"), float("inf"), "2", True):
         with pytest.raises(fb.FeatureBuilderError, match="scale"):
             fb._pattern_scale({"scale": bad}, "f")
+
+
+def test_linear_pattern_direction_helpers_pure() -> None:
+    """Axis/datum resolution and the vector layout need no geometry kernel."""
+    assert fb._resolve_linear_pattern_direction({}, {}, [], {}, "f") == (0.0, 0.0, 1.0)
+    assert fb._resolve_linear_pattern_direction({"axis": "x"}, {}, [], {}, "f") == (
+        1.0,
+        0.0,
+        0.0,
+    )
+    with pytest.raises(fb.FeatureBuilderError, match="mutually exclusive"):
+        fb._resolve_linear_pattern_direction({"axis": "x", "axisDatumId": "d"}, {}, [], {}, "f")
+    assert fb._linear_pattern_offsets_along(3, 2.0, (0.0, 1.0, 0.0)) == [
+        (0.0, 0.0, 0.0),
+        (0.0, 2.0, 0.0),
+        (0.0, 4.0, 0.0),
+    ]
+    # A two-point line datum resolves to its normalized direction, purely.
+    datum = {"id": "d", "kind": "line2Point", "points": [[1.0, 2.0, 3.0], [1.0, 2.0, 8.0]]}
+    assert fb._direction_from_datum(datum, "f") == (0.0, 0.0, 1.0)
+
+
+def test_linear_pattern_line_datum_axis() -> None:
+    """A line2Point axisDatumId patterns along its two-point direction."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    datums = [
+        {"id": "dxy", "kind": "XY", "name": "XY"},
+        {"id": "lx", "kind": "line2Point", "name": "LX", "points": [[0, 0, 0], [1, 0, 0]]},
+    ]
+    doc = _document(
+        [
+            _feature("pad", "pad", {"length": 5.0}, "rect"),
+            _feature(
+                "lin",
+                "linearPattern",
+                {"source": "pad", "count": 2, "spacing": 20.0, "axisDatumId": "lx"},
+            ),
+        ],
+        [_rect_sketch()],
+        datums=datums,
+    )
+    result = fb.build_document_shape(doc)
+    assert _by_id(result)["lin"]["status"] == "built"
+    assert result["shape"] is not None
+    assert math.isclose(result["shape"].volume, 2.0 * 500.0, rel_tol=1e-6)
+    assert len(result["shape"].solids()) == 2
+
+
+def test_linear_pattern_plane_datum_normal_accepted() -> None:
+    """A plane datum axisDatumId patterns along the plane normal."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    doc = _document(
+        [
+            _feature("pad", "pad", {"length": 5.0}, "rect"),
+            _feature(
+                "lin",
+                "linearPattern",
+                {"source": "pad", "count": 2, "spacing": 20.0, "axisDatumId": "dxz"},
+            ),
+        ],
+        [_rect_sketch()],
+        datums=[
+            {"id": "dxy", "kind": "XY", "name": "XY"},
+            {"id": "dxz", "kind": "XZ", "name": "XZ"},
+        ],
+    )
+    result = fb.build_document_shape(doc)
+    assert _by_id(result)["lin"]["status"] == "built"
+    assert result["shape"] is not None
+    # Either normal sign lands the copy 20 away: disjoint doubling either way.
+    assert math.isclose(result["shape"].volume, 2.0 * 500.0, rel_tol=1e-6)
+
+
+def test_linear_pattern_axis_exclusivity_fails() -> None:
+    """Setting both axis and axisDatumId fails the build like the schema."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    doc = _document(
+        [
+            _feature("pad", "pad", {"length": 5.0}, "rect"),
+            _feature(
+                "lin",
+                "linearPattern",
+                {"source": "pad", "count": 2, "spacing": 20.0, "axis": "x", "axisDatumId": "lx"},
+            ),
+        ],
+        [_rect_sketch()],
+        datums=[
+            {"id": "dxy", "kind": "XY", "name": "XY"},
+            {"id": "lx", "kind": "line2Point", "name": "LX", "points": [[0, 0, 0], [1, 0, 0]]},
+        ],
+    )
+    result = fb.build_document_shape(doc)
+    assert _by_id(result)["lin"]["status"] == "failed"
+    assert "mutually exclusive" in _by_id(result)["lin"]["error"].lower()

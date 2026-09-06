@@ -915,6 +915,13 @@ function sketchSolidExpr(feature: FeatureDef, sketchFuncById: Map<string, string
         return `bd.extrude(${func}(), ${args.join(', ')})`;
     }
     if (feature.type === 'revolve' || feature.type === 'groove') {
+        // Only blind revolves are statically exportable; throughAll spans the
+        // target body's bbox and hatches to # TODO(manual): like the non-blind
+        // pad/pocket ends (reference-dependent, never faked).
+        const end = typeof params.end === 'string' ? params.end : 'blind';
+        if (end !== 'blind') {
+            return undefined;
+        }
         const angle = Number(params.angle);
         if (!Number.isFinite(angle) || typeof params.axis !== 'string') {
             return undefined;
@@ -979,7 +986,9 @@ function emitFeature(
         if (tool === undefined) {
             return undefined;
         }
-        return [...tool.lines, `${bodyVar} = ${bodyVar} + ${tool.expr} if ${bodyVar} is not None else ${tool.expr}  # ${feature.name}`];
+        // Subtractive helical sweeps cut the tool instead of merging it.
+        const op = params.subtractive === true ? '-' : '+';
+        return [...tool.lines, `${bodyVar} = ${bodyVar} ${op} ${tool.expr} if ${bodyVar} is not None else ${tool.expr}  # ${feature.name}`];
     }
 
     if (feature.type === 'primitive') {
@@ -987,8 +996,9 @@ function emitFeature(
         if (expr === undefined) {
             return undefined;
         }
-        // Primitives are additive-only, like pad/revolve.
-        return [`${bodyVar} = ${bodyVar} + ${expr} if ${bodyVar} is not None else ${expr}  # ${feature.name}`];
+        // Subtractive primitives cut the tool instead of merging it.
+        const op = params.subtractive === true ? '-' : '+';
+        return [`${bodyVar} = ${bodyVar} ${op} ${expr} if ${bodyVar} is not None else ${expr}  # ${feature.name}`];
     }
 
     if (feature.type === 'booleanFuse' || feature.type === 'booleanCut' || feature.type === 'booleanCommon') {
@@ -1322,14 +1332,18 @@ function emitPatternOrMirror(
         toolExpr = expr;
         toolLines = [];
     }
+    const sourceSubtractive =
+        (sourceFeature.type === 'primitive' || sourceFeature.type === 'helicalSweep') &&
+        (sourceFeature.params as Record<string, unknown>).subtractive === true;
     const op =
-        sourceFeature.type === 'pad' ||
-        sourceFeature.type === 'revolve' ||
-        sourceFeature.type === 'sweep' ||
-        sourceFeature.type === 'pipe' ||
-        sourceFeature.type === 'loft' ||
-        sourceFeature.type === 'helicalSweep' ||
-        sourceFeature.type === 'primitive'
+        !sourceSubtractive &&
+        (sourceFeature.type === 'pad' ||
+            sourceFeature.type === 'revolve' ||
+            sourceFeature.type === 'sweep' ||
+            sourceFeature.type === 'pipe' ||
+            sourceFeature.type === 'loft' ||
+            sourceFeature.type === 'helicalSweep' ||
+            sourceFeature.type === 'primitive')
             ? '+'
             : '-';
 
@@ -1359,8 +1373,44 @@ function emitPatternOrMirror(
 
     if (feature.type === 'linearPattern') {
         const spacing = Number(params.spacing);
-        const axis = String(params.axis ?? 'z');
         if (!Number.isFinite(spacing)) {
+            return undefined;
+        }
+        // A datum axis mirrors the circular datum-axis path: line2Point
+        // datums inline their static unit direction, exportable plane datums
+        // ride the datum variable's z_dir (build123d owns the frame), and
+        // reference-dependent datums hatch.
+        if (typeof params.axisDatumId === 'string' && params.axisDatumId.length > 0) {
+            const datum = datumById.get(params.axisDatumId);
+            const datumVar = datumVarById.get(params.axisDatumId);
+            if (datum === undefined || datumVar === undefined) {
+                return undefined;
+            }
+            if (datum.kind === 'line2Point') {
+                const direction = lineDatumUnitDirection(datum);
+                if (direction === undefined) {
+                    return undefined;
+                }
+                const [sx, sy, sz] = direction.map((c) => formatNumber(c * spacing));
+                lines.push(`for _k in range(1, ${count}):`);
+                lines.push(
+                    `${INDENT}${bodyVar} = ${bodyVar} ${op} ${scaleInstance(`${toolVar}.moved(bd.Location((${sx} * _k, ${sy} * _k, ${sz} * _k)))`)}`
+                );
+                lines.push(`# ${feature.name}`);
+                return lines;
+            }
+            if (!datumKindExportable(datum.kind)) {
+                return undefined;
+            }
+            lines.push(`for _k in range(1, ${count}):`);
+            lines.push(
+                `${INDENT}${bodyVar} = ${bodyVar} ${op} ${scaleInstance(`${toolVar}.moved(bd.Location(${datumVar}.z_dir * ${formatNumber(spacing)} * _k))`)}`
+            );
+            lines.push(`# ${feature.name}`);
+            return lines;
+        }
+        const axis = String(params.axis ?? 'z');
+        if (axis !== 'x' && axis !== 'y' && axis !== 'z') {
             return undefined;
         }
         const [sx, sy, sz] = axisComponents(axis).map((c) => formatNumber(c * spacing));
@@ -1415,10 +1465,11 @@ function circularAxisExpr(
 }
 
 /**
- * Static `bd.Axis` for a line2Point datum, or undefined when its points are
- * malformed (validation rejects those documents; codegen stays defensive).
+ * Static unit direction of a line2Point datum (first point to second), or
+ * undefined when its points are malformed (validation rejects those
+ * documents; codegen stays defensive).
  */
-function lineDatumAxisExpr(datum: DatumPlane): string | undefined {
+function lineDatumUnitDirection(datum: DatumPlane): [number, number, number] | undefined {
     if (!Array.isArray(datum.points) || datum.points.length !== 2) {
         return undefined;
     }
@@ -1431,7 +1482,25 @@ function lineDatumAxisExpr(datum: DatumPlane): string | undefined {
     if (!(length > 0) || !Number.isFinite(length)) {
         return undefined;
     }
-    const unit: [number, number, number] = [dir[0] / length, dir[1] / length, dir[2] / length];
+    return [dir[0] / length, dir[1] / length, dir[2] / length];
+}
+
+/**
+ * Static `bd.Axis` for a line2Point datum, or undefined when its points are
+ * malformed (validation rejects those documents; codegen stays defensive).
+ */
+function lineDatumAxisExpr(datum: DatumPlane): string | undefined {
+    if (!Array.isArray(datum.points) || datum.points.length !== 2) {
+        return undefined;
+    }
+    const [a] = datum.points;
+    if (!isFiniteTriple(a)) {
+        return undefined;
+    }
+    const unit = lineDatumUnitDirection(datum);
+    if (unit === undefined) {
+        return undefined;
+    }
     return `bd.Axis(${tuple(a as [number, number, number])}, ${tuple(unit)})`;
 }
 

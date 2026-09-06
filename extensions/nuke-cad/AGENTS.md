@@ -83,7 +83,9 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   the source's tool shape and applies transformed copies: additive sources are
   merged with a boolean union so overlapping pattern instances fuse into one
   solid (required for toroidal/poloidal coil assemblies), subtractive sources
-  are cut. `linearPattern` uses `count`, `spacing`, and `axis`; `circularPattern`
+  are cut. `linearPattern` uses `count`, `spacing`, and either `axis` or
+  `axisDatumId` (mirrors circular, `line2Point` datums included; plane-datum
+  normals accepted); `circularPattern`
   uses `count`, optional `angle`, and either `axis` or `axisDatumId`
   (`axisDatumId` also accepts `line2Point` datums); `mirror`
   uses either `plane` (`XY`/`YZ`/`XZ`) or `planeDatumId`. All three pattern
@@ -99,8 +101,10 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   internally into an extrude-cut plus optional counterbore/countersink
   geometry. Omitted `depth` means through-hole; counterbore, countersink, and
   counterdrill are mutually exclusive, with optional `taperAngle`, a blind-only
-  `drillPointAngle` (omitted = flat, as before), and a stored-only `thread`
-  flag. `defeature` deletes named faces. `sweep` sweeps a sketch section along a document curve
+  `drillPointAngle` (omitted = flat, as before), and a `thread` preset
+  (`none`/`cosmetic`/`modeled`): `cosmetic` stays stored-only, `modeled`
+  cuts a real ISO thread (pitch/tap from `fastener_data` by hole diameter)
+  as a helical cut on blind simple holes only. `defeature` deletes named faces. `sweep` sweeps a sketch section along a document curve
   (`pathCurveId`); `pipe` sweeps a circular section of a given `radius` along a
   document curve. Both support `frenet`/`fixedBinormal` orientation (with a
   non-zero `binormal` required for the latter), auto-position the section at
@@ -124,8 +128,9 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   fitted through `curve_builder`'s interpolation path and fed to the sweep
   machinery, so the section auto-positions at the helix start, the
   `_spine_min_radius` self-intersection pre-check applies, and the default
-  orientation is `fixedBinormal` locked to the axis unit vector. Loft and
-  helicalSweep are additive-only, pattern/mirror-source eligible, and store
+  orientation is `fixedBinormal` locked to the axis unit vector. Loft is
+  additive-only; helicalSweep takes an optional `subtractive` flag (default
+  additive). Both are pattern/mirror-source eligible, and store
   their tool shape in `tool_shapes`, like sweep. A section-sketch edit dirties
   the loft exactly like a sketch edit dirties a pad: the backend rebuilds
   sketches on every build, and `_compute_implied_dependencies` additionally
@@ -187,12 +192,16 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   (appends a `booleanFuse` merging the pair, then rebuilds); assemblies that
   overlap intentionally can simply keep the warnings.
 - Pad/pocket take an `end` condition (`blind` default, `upToFirst`/`upToLast`/
-  `upToFace`/`throughAll`) with optional `twoSided` (splits `length` like
+  `upToFace`/`upToBody`/`throughAll`) with optional `twoSided` (splits `length` like
   `symmetric`; combining either with a non-blind end is a validation error).
   A missed end fails with the existing "does not intersect" error. `upToBody`
-  and `angle` on pad/pocket stay schema-accepted but unimplemented: the
-  builder fails them with an explicit "not yet supported" error rather than
-  silently ignoring them.
+  names another body whose nearest/farthest extent along the direction
+  terminates the extrusion (same ray-extent machinery as upToFirst/Last).
+  `angle` on pad/pocket stays schema-accepted but unimplemented: the
+  builder fails it with an explicit "not yet supported" error rather than
+  silently ignoring it. Revolve/groove take `end` `blind` (default) or
+  `throughAll` (profile slab fused over ±body-bbox-diagonal along the sketch-plane
+  normal); the full UpTo set stays pad/pocket-only.
 - Python backend lives in `python/` and is not pip-installed; the IDE spawns
   it as a subprocess via `nuke-core` environment detection.
 - The CAD viewport is a purpose-built three.js widget (documented exception to
@@ -421,7 +430,8 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   overrides, connectors as named frames, one mate per part pair, explicit
   grounded instance) with closed-form placement (`R = Ra·Rbᵀ`) and DOF
   counting per mate type. `python/fastener_data.py` holds versioned ISO/UNC
-  thread tables for later hole recognition (data only, no consumers yet).
+  thread tables consumed by modeled-hole threading (pitch/tap by diameter)
+  and later hole recognition.
 - STEP-source imports and `.nuke-cad` document opens/rebuilds skip DAGMC and
   FEM mesh export by default; the backend enforces `--no-dagmc`/`--no-mesh` on
   every path (including rebuilds) and `geometry_service.py` exposes opt-in
@@ -486,7 +496,7 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
 - `.nuke-cad` v2 introduced **bodies** and **boolean features**; v3 adds a
   top-level **`curves`** array. Every solid feature (`pad`/`pocket`/`revolve`/
   `groove`, plus `sweep`/`pipe` which also reference a curve, `loft`/
-  `helicalSweep`, additive `primitive` on a datum, and `multiTransform` over
+  `helicalSweep`, `primitive` on a datum (optional `subtractive` flag), and `multiTransform` over
   two pattern/mirror sources) targets a body id;
   boolean features (`booleanFuse`/`booleanCut`/`booleanCommon`) consume one
   target body and one or more tool bodies. Bodies carry an optional `label`
@@ -504,8 +514,12 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   sampler path rejects unit syntax rather than folding it); the document
   store resamples parametric and Fourier curves when they are added or
   edited, coercing each coordinate to the declared unit, and dimension
-  labels carry the unit suffix. There is no `setUnits` UI yet — units
-  arrive via file/load. STEP-unit import scaling is deferred. Closed curves repeat the
+  labels carry the unit suffix. The document toolbar's units dropdown writes
+  `document.units` through a `setUnits` store mutation (tag-only — existing
+  numbers are never rescaled). STEP/IGES imports read the file length unit:
+  unset targets adopt it, mismatches scale geometry by the exact factor
+  (reported in the import message); BREP carries no unit metadata and is
+  never scaled. Closed curves repeat the
   first sample exactly at the end of `samples` — the Fourier sampler always
   does this (the series is periodic) and the parametric sampler does it when
   the expressions meet at both ends — so the backend's proximity check marks
@@ -535,7 +549,8 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
     parameters panel, external-geometry
     reference list, carbon-copy button (imports the Feature-Tree-selected
     sketch with fresh ids), transform group (move/copy/rotate/mirror gesture
-    tools plus scale/array/offset inline popovers and immediate join),
+    tools plus scale/array/offset inline popovers and immediate join; the
+    offset popover carries an auto-trim checkbox, miter-join, default on),
     remove-redundants button (session fixpoint),
     diagnostics popover (with reference-resolution status,
     conflicting/redundant/partially-redundant tags, missing-coincident and

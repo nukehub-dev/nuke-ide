@@ -937,6 +937,35 @@ export class CadDocumentStore {
     }
 
     /**
+     * Set the document's declared length unit (`mm`/`cm`/`m`; blank clears back
+     * to legacy unitless).
+     *
+     * Tagging only: existing numbers (parameters, curve samples, sketch
+     * coordinates) are never rescaled or rewritten. Declaring units on a
+     * unitless document only affects future inputs (curve-expression coercion
+     * and dimension display read `document.units` at entry time).
+     */
+    setUnits(units: DocumentUnits | undefined): DocumentMutationResult {
+        const check = this.requireDocument();
+        if (!check.success) {
+            return { success: false, error: check.error, issues: check.issues };
+        }
+        if (units !== undefined && units !== 'mm' && units !== 'cm' && units !== 'm') {
+            return { success: false, error: `Unknown document units '${units}' (expected 'mm', 'cm', 'm' or blank)` };
+        }
+        if ((check.value!.units ?? undefined) === units) {
+            return { success: true };
+        }
+        const doc = cloneDocument(check.value!);
+        if (units === undefined) {
+            delete doc.units;
+        } else {
+            doc.units = units;
+        }
+        return this.commit(doc);
+    }
+
+    /**
      * Add a body to the document.
      *
      * Generates a collision-free id. Returns the new body id on success.

@@ -1272,3 +1272,200 @@ describe('generatePythonScript extended feature emission', () => {
         expect(script).toContain('#   drillPointAngle: 118');
     });
 });
+
+describe('generatePythonScript wave A2 emission', () => {
+    it('emits blind revolves as today and hatches throughAll revolves', () => {
+        for (const params of [
+            { axis: 'x', angle: 180 },
+            { axis: 'x', angle: 180, end: 'blind' }
+        ]) {
+            const doc = extendedDocument();
+            pushExtendedFeature(doc, {
+                id: 'rev1',
+                name: 'Spin',
+                type: 'revolve',
+                body: 'b1',
+                sketchId: 'sk1',
+                params: params as FeatureDef['params'],
+                suppressed: false,
+                dependsOn: ['pad1']
+            });
+            const script = generatePythonScript(doc);
+            expect(script).toContain('bd.revolve(sketch_Square_sk1(), axis=bd.Axis.X, revolution_arc=180)');
+            expect(script).not.toContain('# TODO(manual): revolve feature "Spin"');
+        }
+
+        const through = extendedDocument();
+        pushExtendedFeature(through, {
+            id: 'rev1',
+            name: 'Spin',
+            type: 'revolve',
+            body: 'b1',
+            sketchId: 'sk1',
+            params: { axis: 'x', angle: 180, end: 'throughAll' } as FeatureDef['params'],
+            suppressed: false,
+            dependsOn: ['pad1']
+        });
+        const throughScript = generatePythonScript(through);
+        expect(throughScript).toContain('# TODO(manual): revolve feature "Spin"');
+        expect(throughScript).not.toContain('bd.revolve');
+    });
+
+    it('hatches pads with upToBody (reference-dependent, never faked)', () => {
+        const doc = extendedDocument();
+        (doc.features[0].params as Record<string, unknown>).end = 'upToLast';
+        (doc.features[0].params as Record<string, unknown>).upToBody = 'b1';
+        const script = generatePythonScript(doc);
+        expect(script).toContain('# TODO(manual): pad feature "Base"');
+        expect(script).not.toContain('bd.extrude');
+    });
+
+    it('cuts subtractive primitives and helical sweeps instead of merging them', () => {
+        const doc = extendedDocument();
+        doc.features.length = 0;
+        pushExtendedFeature(doc, {
+            id: 'prim1',
+            name: 'Cutout',
+            type: 'primitive',
+            body: 'b1',
+            params: { shape: 'box', dimensions: [2, 3, 4], subtractive: true } as FeatureDef['params'],
+            suppressed: false,
+            dependsOn: []
+        });
+        pushExtendedFeature(doc, {
+            id: 'hx1',
+            name: 'Thread cut',
+            type: 'helicalSweep',
+            body: 'b1',
+            sketchId: 'sk1',
+            params: {
+                axis: 'Z',
+                startRadius: 2,
+                pitch: 1,
+                turns: 3,
+                orientation: 'frenet',
+                subtractive: true
+            } as FeatureDef['params'],
+            suppressed: false,
+            dependsOn: []
+        });
+        const script = generatePythonScript(doc);
+        expect(script).toContain('body_B1 = body_B1 - bd.Box(2, 3, 4).moved(datum_XY_datum_xy.location)');
+        expect(script).toContain('body_B1 = body_B1 - bd.sweep(');
+        expect(script).not.toContain('# TODO(manual): primitive feature "Cutout"');
+        expect(script).not.toContain('# TODO(manual): helicalSweep feature "Thread cut"');
+    });
+
+    it('cuts pattern instances of subtractive primitive sources', () => {
+        const doc = extendedDocument();
+        doc.features.length = 0;
+        pushExtendedFeature(doc, {
+            id: 'prim1',
+            name: 'Cutout',
+            type: 'primitive',
+            body: 'b1',
+            params: { shape: 'box', dimensions: [2, 3, 4], subtractive: true } as FeatureDef['params'],
+            suppressed: false,
+            dependsOn: []
+        });
+        pushExtendedFeature(doc, {
+            id: 'lin1',
+            name: 'Cut rows',
+            type: 'linearPattern',
+            body: 'b1',
+            params: { source: 'prim1', count: 2, spacing: 4, axis: 'x' } as FeatureDef['params'],
+            suppressed: false,
+            dependsOn: ['prim1']
+        });
+        const script = generatePythonScript(doc);
+        expect(script).toContain('body_B1 = body_B1 - _tool_lin1.moved(bd.Location((4 * _k, 0 * _k, 0 * _k)))');
+    });
+
+    it('emits a static direction for linear patterns on a line2Point datum', () => {
+        const doc = extendedDocument();
+        doc.datums.push({
+            id: 'dl',
+            kind: 'line2Point',
+            name: 'Axis',
+            points: [
+                [1, 0, 0],
+                [1, 0, 5]
+            ]
+        });
+        pushExtendedFeature(doc, {
+            id: 'lin1',
+            name: 'Rows',
+            type: 'linearPattern',
+            body: 'b1',
+            params: { source: 'pad1', count: 3, spacing: 4, axisDatumId: 'dl' } as FeatureDef['params'],
+            suppressed: false,
+            dependsOn: ['pad1']
+        });
+        const script = generatePythonScript(doc);
+        expect(script).toContain('body_B1 = body_B1 + _tool_lin1.moved(bd.Location((0 * _k, 0 * _k, 4 * _k)))');
+        expect(script).not.toContain('# TODO(manual): linearPattern feature "Rows"');
+    });
+
+    it('rides the datum z_dir for linear patterns on plane datums, hatching face datums', () => {
+        const doc = extendedDocument();
+        pushExtendedFeature(doc, {
+            id: 'lin1',
+            name: 'Rows',
+            type: 'linearPattern',
+            body: 'b1',
+            params: { source: 'pad1', count: 3, spacing: 4, axisDatumId: 'datum-xy' } as FeatureDef['params'],
+            suppressed: false,
+            dependsOn: ['pad1']
+        });
+        const script = generatePythonScript(doc);
+        expect(script).toContain('bd.Location(datum_XY_datum_xy.z_dir * 4 * _k)');
+
+        const faceDoc = extendedDocument();
+        faceDoc.datums.push({
+            id: 'df',
+            kind: 'face',
+            name: 'Face',
+            reference: {
+                featureId: 'pad1',
+                kind: 'face',
+                fingerprint: { surfaceType: 'plane', area: 2, center: [0, 0, 0], normal: [0, 0, 1] }
+            }
+        });
+        pushExtendedFeature(faceDoc, {
+            id: 'lin1',
+            name: 'Rows',
+            type: 'linearPattern',
+            body: 'b1',
+            params: { source: 'pad1', count: 3, spacing: 4, axisDatumId: 'df' } as FeatureDef['params'],
+            suppressed: false,
+            dependsOn: ['pad1']
+        });
+        expect(generatePythonScript(faceDoc)).toContain('# TODO(manual): linearPattern feature "Rows"');
+    });
+
+    it('hatches modeled-thread holes with their params (thread tables stay Python-side)', () => {
+        const doc = extendedDocument();
+        pushExtendedFeature(doc, {
+            id: 'hole1',
+            name: 'Threaded',
+            type: 'hole',
+            body: 'b1',
+            params: {
+                face: {
+                    featureId: 'pad1',
+                    kind: 'face',
+                    fingerprint: { surfaceType: 'plane', area: 2, center: [0, 0, 2], normal: [0, 0, 1] }
+                },
+                center: [0.5, 0.5],
+                diameter: 0.2,
+                depth: 2,
+                thread: 'modeled'
+            } as FeatureDef['params'],
+            suppressed: false,
+            dependsOn: ['pad1']
+        });
+        const script = generatePythonScript(doc);
+        expect(script).toContain('# TODO(manual): hole feature "Threaded"');
+        expect(script).toContain('#   thread: modeled');
+    });
+});

@@ -153,3 +153,82 @@ def test_primitive_as_pattern_source() -> None:
     assert _by_id(result)["lin"]["status"] == "built"
     assert result["shape"] is not None
     assert math.isclose(result["shape"].volume, 2.0 * 64.0, rel_tol=1e-6)
+
+
+def test_subtractive_flag_defaults_additive_pure() -> None:
+    """The subtractive flag is opt-in; pockets/grooves always cut."""
+    assert not fb._solid_feature_is_subtractive({"type": "primitive", "params": {}})
+    assert not fb._solid_feature_is_subtractive(
+        {"type": "primitive", "params": {"subtractive": False}}
+    )
+    assert fb._solid_feature_is_subtractive({"type": "primitive", "params": {"subtractive": True}})
+    assert fb._solid_feature_is_subtractive({"type": "helicalSweep", "params": {"subtractive": 1}})
+    assert not fb._solid_feature_is_subtractive({"type": "helicalSweep", "params": {}})
+    assert fb._solid_feature_is_subtractive({"type": "pocket", "params": {}})
+    assert fb._solid_feature_is_subtractive({"type": "groove", "params": {}})
+    assert not fb._solid_feature_is_subtractive({"type": "pad", "params": {}})
+    assert fb._pattern_source_is_subtractive({"type": "primitive", "params": {"subtractive": True}})
+    assert not fb._pattern_source_is_subtractive({"type": "primitive", "params": {}})
+
+
+def test_subtractive_primitive_cuts() -> None:
+    """A subtractive box removes its overlap with the body like a pocket."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    doc = _document(
+        [
+            _feature("base", "pad", {"length": 5.0}, "rect"),
+            _feature(
+                "cut",
+                "primitive",
+                {"shape": "box", "dimensions": [4.0, 4.0, 4.0], "subtractive": True},
+            ),
+        ],
+        [_rect_sketch()],
+    )
+    result = fb.build_document_shape(doc)
+    assert _by_id(result)["cut"]["status"] == "built"
+    assert result["shape"] is not None
+    # The centered 4x4x4 box overlaps the 10x10x5 pad over x/y 0..2, z 0..2.
+    assert math.isclose(result["shape"].volume, 500.0 - 8.0, rel_tol=1e-6)
+
+
+def test_subtractive_primitive_needs_body_and_intersection() -> None:
+    """A subtractive cut needs an existing body; a disjoint tool fails."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    lonely = _document(
+        [
+            _feature(
+                "cut",
+                "primitive",
+                {"shape": "box", "dimensions": [4.0, 4.0, 4.0], "subtractive": True},
+            )
+        ],
+        [],
+    )
+    result = fb.build_document_shape(lonely)
+    assert _by_id(result)["cut"]["status"] == "failed"
+    assert "existing solid body" in _by_id(result)["cut"]["error"].lower()
+
+    far = _document(
+        [
+            _feature("base", "pad", {"length": 5.0}, "rect"),
+            _feature(
+                "cut",
+                "primitive",
+                {
+                    "shape": "box",
+                    "dimensions": [4.0, 4.0, 4.0],
+                    "datumId": "far",
+                    "subtractive": True,
+                },
+            ),
+        ],
+        [_rect_sketch()],
+        datums=[
+            {"id": "dxy", "kind": "XY", "name": "XY"},
+            {"id": "far", "kind": "offset", "name": "far", "offset": 100.0},
+        ],
+    )
+    result = fb.build_document_shape(far)
+    assert _by_id(result)["cut"]["status"] == "failed"
+    assert "does not intersect" in _by_id(result)["cut"]["error"].lower()

@@ -2045,3 +2045,205 @@ describe('extended feature validation', () => {
         expect(NUKE_CAD_SCHEMA_VERSION).toBe(3);
     });
 });
+
+describe('wave A2 additive params (revolve ends, upToBody, subtractive, linear datum axis, modeled threads)', () => {
+    function makeBaseDocument(): NukeCadDocument {
+        return {
+            version: NUKE_CAD_SCHEMA_VERSION,
+            name: 'wave-a2',
+            parameters: {},
+            datums: [{ id: 'xy', kind: 'XY', name: 'XY' }],
+            bodies: [
+                { id: 'body-1', name: 'Body 1' },
+                { id: 'body-2', name: 'Body 2' }
+            ],
+            sketches: [
+                {
+                    id: 'sketch1',
+                    name: 'Profile',
+                    datumId: 'xy',
+                    primitives: [{ id: 'p1', type: 'point', x: 0, y: 0 }],
+                    constraints: []
+                }
+            ],
+            features: [
+                {
+                    id: 'pad1',
+                    name: 'Base',
+                    type: 'pad',
+                    body: 'body-1',
+                    sketchId: 'sketch1',
+                    params: { length: 10 },
+                    suppressed: false,
+                    dependsOn: []
+                }
+            ],
+            curves: []
+        };
+    }
+
+    const goodFaceRef: TopologyRef = {
+        featureId: 'pad1',
+        kind: 'face',
+        fingerprint: { surfaceType: 'plane', area: 100, center: [0, 0, 0], normal: [0, 0, 1] }
+    };
+
+    function pushFeature(doc: NukeCadDocument, type: NukeCadDocument['features'][number]['type'], params: Record<string, unknown>): void {
+        doc.features.push({
+            id: 'feat2',
+            name: 'Second',
+            type,
+            body: 'body-1',
+            sketchId: 'sketch1',
+            params: params as unknown as Record<string, number>,
+            suppressed: false,
+            dependsOn: ['pad1']
+        });
+    }
+
+    it('accepts blind (default) and throughAll revolve ends, rejecting anything else', () => {
+        for (const params of [
+            { axis: 'z', angle: 180 },
+            { axis: 'z', angle: 180, end: 'blind' },
+            { axis: 'z', angle: 180, end: 'throughAll' }
+        ]) {
+            const doc = makeBaseDocument();
+            pushFeature(doc, 'revolve', params);
+            expect(validateNukeCadDocument(doc).issues).toEqual([]);
+        }
+        const bad = makeBaseDocument();
+        pushFeature(bad, 'groove', { axis: 'z', angle: 180, end: 'upToLast' });
+        const result = validateNukeCadDocument(bad);
+        expect(result.valid).toBe(false);
+        expect(result.issues.some((i) => i.path === 'features[1].params.end')).toBe(true);
+    });
+
+    it('accepts a non-empty upToBody on pad/pocket, rejecting empties and upToFace clashes', () => {
+        const ok = makeBaseDocument();
+        pushFeature(ok, 'pad', { end: 'upToLast', upToBody: 'body-2' });
+        expect(validateNukeCadDocument(ok).valid).toBe(true);
+
+        for (const upToBody of ['', 42]) {
+            const doc = makeBaseDocument();
+            pushFeature(doc, 'pocket', { end: 'upToFirst', upToBody });
+            const result = validateNukeCadDocument(doc);
+            expect(result.valid).toBe(false);
+            expect(result.issues.some((i) => i.path === 'features[1].params.upToBody')).toBe(true);
+        }
+
+        const clash = makeBaseDocument();
+        pushFeature(clash, 'pad', { end: 'upToFace', upToFace: goodFaceRef, upToBody: 'body-2' });
+        const clashResult = validateNukeCadDocument(clash);
+        expect(clashResult.valid).toBe(false);
+        expect(clashResult.issues.some((i) => i.path === 'features[1].params.upToBody')).toBe(true);
+    });
+
+    it('rejects an upToBody naming an unknown body', () => {
+        const doc = makeBaseDocument();
+        pushFeature(doc, 'pad', { end: 'upToLast', upToBody: 'ghost-body' });
+        const result = validateNukeCadDocument(doc);
+        expect(result.valid).toBe(false);
+        expect(result.issues.some((i) => i.path === 'features[1].params.upToBody')).toBe(true);
+    });
+
+    it('accepts subtractive flags on primitive and helicalSweep, rejecting non-booleans', () => {
+        const prim = makeBaseDocument();
+        pushFeature(prim, 'primitive', { shape: 'box', dimensions: [1, 2, 3], subtractive: true });
+        expect(validateNukeCadDocument(prim).valid).toBe(true);
+
+        const helix = makeBaseDocument();
+        pushFeature(helix, 'helicalSweep', {
+            axis: 'Z',
+            startRadius: 2,
+            pitch: 1,
+            turns: 3,
+            orientation: 'frenet',
+            subtractive: true
+        });
+        expect(validateNukeCadDocument(helix).valid).toBe(true);
+
+        const bad = makeBaseDocument();
+        pushFeature(bad, 'primitive', { shape: 'box', dimensions: [1, 2, 3], subtractive: 'yes' });
+        const result = validateNukeCadDocument(bad);
+        expect(result.valid).toBe(false);
+        expect(result.issues.some((i) => i.path === 'features[1].params.subtractive')).toBe(true);
+    });
+
+    it('accepts a linear pattern on axisDatumId alone, mirroring the circular messages', () => {
+        const doc = makeBaseDocument();
+        doc.datums.push({
+            id: 'dl',
+            kind: 'line2Point',
+            name: 'Axis',
+            points: [
+                [0, 0, 0],
+                [0, 0, 5]
+            ]
+        });
+        pushFeature(doc, 'linearPattern', { source: 'pad1', count: 3, spacing: 2, axisDatumId: 'dl' });
+        expect(validateNukeCadDocument(doc).valid).toBe(true);
+
+        const missing = makeBaseDocument();
+        pushFeature(missing, 'linearPattern', { source: 'pad1', count: 3, spacing: 2 });
+        const missingResult = validateNukeCadDocument(missing);
+        expect(missingResult.valid).toBe(false);
+        expect(missingResult.issues.some((i) => i.path === 'features[1].params.axis')).toBe(true);
+
+        const clash = makeBaseDocument();
+        pushFeature(clash, 'linearPattern', { source: 'pad1', count: 3, spacing: 2, axis: 'x', axisDatumId: 'dl' });
+        const clashResult = validateNukeCadDocument(clash);
+        expect(clashResult.valid).toBe(false);
+        expect(clashResult.issues.some((i) => i.path === 'features[1].params.axis')).toBe(true);
+    });
+
+    it('rejects a linear pattern naming an unknown axis datum', () => {
+        const doc = makeBaseDocument();
+        pushFeature(doc, 'linearPattern', { source: 'pad1', count: 3, spacing: 2, axisDatumId: 'ghost' });
+        const result = validateNukeCadDocument(doc);
+        expect(result.valid).toBe(false);
+        expect(result.issues.some((i) => i.path === 'features[1].params.axisDatumId')).toBe(true);
+    });
+
+    it('accepts modeled threads on blind simple holes, rejecting through and expanded holes', () => {
+        const ok = makeBaseDocument();
+        ok.features.push({
+            id: 'hole1',
+            name: 'Threaded',
+            type: 'hole',
+            body: 'body-1',
+            params: { face: goodFaceRef, center: [0, 0], diameter: 0.5, depth: 3, thread: 'modeled' },
+            suppressed: false,
+            dependsOn: ['pad1']
+        });
+        expect(validateNukeCadDocument(ok).valid).toBe(true);
+
+        const cases: Record<string, unknown>[] = [
+            { face: goodFaceRef, center: [0, 0], diameter: 0.5, thread: 'modeled' },
+            {
+                face: goodFaceRef,
+                center: [0, 0],
+                diameter: 0.5,
+                depth: 3,
+                counterboreDiameter: 1,
+                counterboreDepth: 0.5,
+                thread: 'modeled'
+            },
+            { face: goodFaceRef, center: [0, 0], diameter: 0.5, depth: 3, taperAngle: 5, thread: 'modeled' }
+        ];
+        for (const params of cases) {
+            const doc = makeBaseDocument();
+            doc.features.push({
+                id: 'hole1',
+                name: 'Threaded',
+                type: 'hole',
+                body: 'body-1',
+                params: params as unknown as Record<string, number>,
+                suppressed: false,
+                dependsOn: ['pad1']
+            });
+            const result = validateNukeCadDocument(doc);
+            expect(result.valid).toBe(false);
+            expect(result.issues.some((i) => i.path === 'features[1].params.thread')).toBe(true);
+        }
+    });
+});

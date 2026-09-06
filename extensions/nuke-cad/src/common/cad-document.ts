@@ -217,8 +217,11 @@ export type SolidFeatureType =
     | 'primitive'
     | 'multiTransform';
 
-/** Extrusion end condition for pad/pocket (revolve/groove stay blind). */
+/** Extrusion end condition for pad/pocket. */
 export type ExtrudeEnd = 'blind' | 'upToFirst' | 'upToLast' | 'upToFace' | 'throughAll';
+
+/** Revolve end condition for revolve/groove (the full UpTo set stays pad/pocket-only). */
+export type RevolveEnd = 'blind' | 'throughAll';
 
 /** Parameters common to extrude-like features. */
 export interface ExtrudeParams {
@@ -231,6 +234,7 @@ export interface ExtrudeParams {
     /** Split `length` equally both ways (same convention as `symmetric`). */
     twoSided?: boolean;
     upToFace?: TopologyRef;
+    /** Target body id for an up-to-body termination; mutually exclusive with upToFace. */
     upToBody?: string;
 }
 
@@ -238,6 +242,8 @@ export interface ExtrudeParams {
 export interface RevolveParams {
     axis: 'x' | 'y' | 'z';
     angle: number;
+    /** Revolve end condition; default `blind` (throughAll spans the body). */
+    end?: RevolveEnd;
 }
 
 /** Sweep path orientation modes. */
@@ -289,6 +295,8 @@ export interface HelicalSweepParams {
     readonly orientation: SweepOrientation;
     /** Locked binormal direction; defaults to the axis unit vector for 'fixedBinormal'. */
     readonly binormal?: readonly [number, number, number];
+    /** When true the swept tool cuts from the body instead of merging (default false). */
+    readonly subtractive?: boolean;
 }
 
 /** Parameters for fillet/chamfer. */
@@ -326,7 +334,10 @@ export interface LinearPatternParams {
     count: number;
     /** Spacing between instances along the axis. */
     spacing: number;
-    axis: 'x' | 'y' | 'z';
+    /** Axis through the origin; mutually exclusive with axisDatumId. */
+    axis?: 'x' | 'y' | 'z';
+    /** Datum axis id; mutually exclusive with axis. */
+    axisDatumId?: string;
     /** Per-instance uniform scale about each instance's bbox center (default 1). */
     scale?: number;
 }
@@ -384,8 +395,8 @@ export interface HoleParams {
     taperAngle?: number;
     /** Drill-point cone angle in (0, 180) degrees; omitted = flat bottom. */
     drillPointAngle?: number;
-    /** Stored and validated only (default 'none'). */
-    thread?: 'none' | 'cosmetic';
+    /** Stored thread callout (default 'none'); 'modeled' is blind/simple holes only. */
+    thread?: 'none' | 'cosmetic' | 'modeled';
 }
 
 /** Additive primitive shapes and their dimension arities. */
@@ -401,6 +412,8 @@ export interface PrimitiveParams {
     dimensions: number[];
     /** Datum the primitive is placed on; defaults to `datum-xy`. */
     datumId?: string;
+    /** When true the primitive tool cuts from the body instead of merging (default false). */
+    subtractive?: boolean;
 }
 
 /** Parameters for a multiTransform (cartesian product of two patterns/mirrors). */
@@ -874,6 +887,12 @@ function validateFeatureParams(ctx: MutableValidationContext, path: string, type
             if (end === 'upToFace' && p.upToFace === undefined) {
                 issue(ctx, `${path}.upToFace`, 'upToFace end requires an upToFace reference');
             }
+            if (p.upToBody !== undefined && (!isString(p.upToBody) || p.upToBody.length === 0)) {
+                issue(ctx, `${path}.upToBody`, 'upToBody must be a non-empty body id when present');
+            }
+            if (p.upToBody !== undefined && p.upToFace !== undefined) {
+                issue(ctx, `${path}.upToBody`, 'upToBody and upToFace are mutually exclusive');
+            }
             break;
         }
         case 'revolve':
@@ -884,6 +903,10 @@ function validateFeatureParams(ctx: MutableValidationContext, path: string, type
             }
             if (!isFiniteNumber(p.angle) || p.angle <= 0 || p.angle > 360) {
                 issue(ctx, `${path}.angle`, 'revolve angle is required and must be in (0, 360] degrees');
+            }
+            const revolveEnds = ['blind', 'throughAll'];
+            if (p.end !== undefined && !revolveEnds.includes(p.end as string)) {
+                issue(ctx, `${path}.end`, `unknown revolve end '${p.end}'`);
             }
             break;
         }
@@ -934,6 +957,9 @@ function validateFeatureParams(ctx: MutableValidationContext, path: string, type
             }
             if (p.leftHanded !== undefined && typeof p.leftHanded !== 'boolean') {
                 issue(ctx, `${path}.leftHanded`, 'leftHanded must be a boolean when present');
+            }
+            if (p.subtractive !== undefined && typeof p.subtractive !== 'boolean') {
+                issue(ctx, `${path}.subtractive`, 'subtractive must be a boolean when present');
             }
             if (p.orientation !== 'frenet' && p.orientation !== 'fixedBinormal') {
                 issue(ctx, `${path}.orientation`, "orientation must be 'frenet' or 'fixedBinormal'");
@@ -1051,8 +1077,13 @@ function validateFeatureParams(ctx: MutableValidationContext, path: string, type
             if (!isFiniteNumber(p.spacing) || p.spacing === 0) {
                 issue(ctx, `${path}.spacing`, 'spacing is required and must be a non-zero finite number');
             }
-            if (p.axis !== 'x' && p.axis !== 'y' && p.axis !== 'z') {
-                issue(ctx, `${path}.axis`, "axis must be 'x', 'y' or 'z'");
+            const hasLinearAxis = p.axis === 'x' || p.axis === 'y' || p.axis === 'z';
+            const hasLinearAxisDatum = isString(p.axisDatumId) && p.axisDatumId.length > 0;
+            if (!hasLinearAxis && !hasLinearAxisDatum) {
+                issue(ctx, `${path}.axis`, "linear pattern requires axis 'x'/'y'/'z' or axisDatumId");
+            }
+            if (hasLinearAxis && hasLinearAxisDatum) {
+                issue(ctx, `${path}.axis`, 'axis and axisDatumId are mutually exclusive');
             }
             validatePatternScale(ctx, path, p);
             break;
@@ -1182,8 +1213,27 @@ function validateFeatureParams(ctx: MutableValidationContext, path: string, type
             ) {
                 issue(ctx, `${path}.drillPointAngle`, 'drillPointAngle must be in (0, 180) degrees');
             }
-            if (p.thread !== undefined && p.thread !== 'none' && p.thread !== 'cosmetic') {
+            if (p.thread !== undefined && p.thread !== 'none' && p.thread !== 'cosmetic' && p.thread !== 'modeled') {
                 issue(ctx, `${path}.thread`, `unknown hole thread '${p.thread}'`);
+            }
+            if (p.thread === 'modeled') {
+                // Modeled threads sweep the ISO profile as a helical cut: blind
+                // simple holes only. Counterbore/countersink/counterdrill and
+                // taper combinations hatch backend-side with a clear error, so
+                // they are rejected here; through-holes (no depth) cannot thread.
+                if (p.depth === undefined) {
+                    issue(ctx, `${path}.thread`, 'modeled thread requires a blind hole (depth must be set)');
+                }
+                if (hasCounterbore || hasCountersink || hasCounterdrill) {
+                    issue(
+                        ctx,
+                        `${path}.thread`,
+                        'modeled thread is only supported on simple holes (no counterbore/countersink/counterdrill)'
+                    );
+                }
+                if (p.taperAngle !== undefined) {
+                    issue(ctx, `${path}.thread`, 'modeled thread is only supported on simple holes (taperAngle must be omitted)');
+                }
             }
             break;
         }
@@ -1207,6 +1257,9 @@ function validateFeatureParams(ctx: MutableValidationContext, path: string, type
             }
             if (p.datumId !== undefined && (!isString(p.datumId) || p.datumId.length === 0)) {
                 issue(ctx, `${path}.datumId`, 'datumId must be a non-empty string when present');
+            }
+            if (p.subtractive !== undefined && typeof p.subtractive !== 'boolean') {
+                issue(ctx, `${path}.subtractive`, 'subtractive must be a boolean when present');
             }
             break;
         }
@@ -1461,7 +1514,7 @@ export function validateNukeCadDocument(doc: NukeCadDocument): ValidationResult 
                 issue(ctx, `features[${i}].params.source`, `unknown feature '${p.source}'`);
             }
         }
-        if (f.type === 'circularPattern') {
+        if (f.type === 'circularPattern' || f.type === 'linearPattern') {
             const p = f.params as Record<string, unknown>;
             if (isString(p.axisDatumId) && !datumIds.has(p.axisDatumId)) {
                 issue(ctx, `features[${i}].params.axisDatumId`, `unknown datum '${p.axisDatumId}'`);
@@ -1493,6 +1546,12 @@ export function validateNukeCadDocument(doc: NukeCadDocument): ValidationResult 
             const p = f.params as Record<string, unknown>;
             if (isPlainObject(p.face)) {
                 validateEmbeddedTopologyRef(ctx, `features[${i}].params.face`, p.face);
+            }
+        }
+        if (f.type === 'pad' || f.type === 'pocket') {
+            const p = f.params as Record<string, unknown>;
+            if (isString(p.upToBody) && p.upToBody.length > 0 && !bodyIds.has(p.upToBody)) {
+                issue(ctx, `features[${i}].params.upToBody`, `unknown body '${p.upToBody}'`);
             }
         }
         if (f.type === 'primitive') {

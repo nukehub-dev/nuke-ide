@@ -684,6 +684,349 @@ def _read_step_names(step_path: Path, solid_count: int) -> dict[int, str]:
 
 
 # ---------------------------------------------------------------------------
+# Import length units (STEP-unit import scaling)
+#
+# Detection mechanism (verified against the OCP 7.8 bindings in the dev env):
+# STEP ``STEPControl_Reader.FileUnits`` reports the file's length-unit names
+# after ``ReadFile`` (before transfer). SI units come back in lowercase
+# British spelling (``millimetre``/``centimetre``/``metre``); conversion-based
+# units (inch/foot/...) come back verbatim (``INCH``) — but only when the
+# declaring complex entity carries dimensional exponents
+# (``NAMED_UNIT(#dims)``); the ``NAMED_UNIT(*)`` shorthand yields an empty
+# name and no OCCT-side scaling, so such files read as unitless here.
+# OCCT's ``TransferRoots`` auto-scales recognized file units to millimetres,
+# which the scaling path suppresses via ``SetSystemLengthUnit`` so the exact
+# file-to-target factor is applied once, by us, in ``_scale_shape_uniform``.
+# IGES has no OCP unit API, so the global-section units flag/name (IGES spec
+# params 14/15, 0-based 13/14) is parsed from the file text. The flag-first
+# lookup mirrors OCCT's own read scaling exactly (verified for every units
+# flag and flag-3 "see name" files: recognized units arrive in millimetres),
+# so the import recovers raw file numbers before the shared scaling step.
+# BREP carries no unit metadata.
+# ---------------------------------------------------------------------------
+
+
+#: Millimetres per length unit, keyed by canonical unit name.
+_MM_PER_LENGTH_UNIT: dict[str, float] = {
+    "mm": 1.0,
+    "cm": 10.0,
+    "dm": 100.0,
+    "m": 1000.0,
+    "km": 1000000.0,
+    "um": 0.001,
+    "inch": 25.4,
+    "foot": 304.8,
+    "yard": 914.4,
+    "mile": 1609344.0,
+    "mil": 0.0254,
+    "microinch": 0.0000254,
+}
+
+#: Alternate spellings (STEP FileUnits SI names, IGES short names) to canonical.
+_LENGTH_UNIT_ALIASES: dict[str, str] = {
+    "millimetre": "mm",
+    "millimeter": "mm",
+    "centimetre": "cm",
+    "centimeter": "cm",
+    "decimetre": "dm",
+    "decimeter": "dm",
+    "metre": "m",
+    "meter": "m",
+    "kilometre": "km",
+    "kilometer": "km",
+    "micrometre": "um",
+    "micrometer": "um",
+    "micron": "um",
+    "in": "inch",
+    "inches": "inch",
+    "ft": "foot",
+    "feet": "foot",
+    "yd": "yard",
+    "yards": "yard",
+    "mi": "mile",
+    "miles": "mile",
+    "uin": "microinch",
+    "mils": "mil",
+    "microinches": "microinch",
+}
+
+#: IGES global-section units flag (param 14) to (canonical name, mm per unit).
+_IGES_UNITS_FLAG_MM: dict[int, tuple[str, float]] = {
+    1: ("inch", 25.4),
+    2: ("mm", 1.0),
+    4: ("foot", 304.8),
+    5: ("mile", 1609344.0),
+    6: ("m", 1000.0),
+    7: ("km", 1000000.0),
+    8: ("mil", 0.0254),
+    9: ("um", 0.001),
+    10: ("cm", 10.0),
+    11: ("microinch", 0.0000254),
+}
+
+
+def _canonical_length_unit(name: object) -> str | None:
+    """Canonicalize a length-unit name (``INCH`` -> ``inch``).
+
+    Returns None for blank/non-string input. Unknown names pass through
+    lowercased (so callers can still report them); use
+    :func:`_mm_per_length_unit` to check convertibility.
+    """
+    if not isinstance(name, str):
+        return None
+    key = name.strip().lower()
+    if not key:
+        return None
+    return _LENGTH_UNIT_ALIASES.get(key, key)
+
+
+def _mm_per_length_unit(name: object) -> float | None:
+    """Return millimetres per unit for a length-unit name, else None."""
+    canonical = _canonical_length_unit(name)
+    if canonical is None:
+        return None
+    return _MM_PER_LENGTH_UNIT.get(canonical)
+
+
+def _ocp_step_length_names(step_path: Path) -> list[str] | None:
+    """Return the STEP file's length-unit names via OCP ``FileUnits``.
+
+    Returns None when OCP is unavailable or the file does not parse. Isolated
+    from :func:`_detect_step_file_unit` so tests can inject canned names.
+    """
+    try:
+        from OCP.STEPControl import STEPControl_Reader
+        from OCP.TColStd import TColStd_SequenceOfAsciiString
+    except ImportError:
+        return None
+    try:
+        from OCP.IFSelect import IFSelect_RetDone
+
+        reader = STEPControl_Reader()
+        if reader.ReadFile(str(step_path)) != IFSelect_RetDone:
+            return None
+        length = TColStd_SequenceOfAsciiString()
+        angles = TColStd_SequenceOfAsciiString()
+        solid_angles = TColStd_SequenceOfAsciiString()
+        reader.FileUnits(length, angles, solid_angles)
+        names: list[str] = []
+        for i in range(length.Length()):
+            raw = length.Value(i + 1).ToCString()
+            names.append(raw.decode("ascii") if isinstance(raw, bytes) else str(raw))
+        return names
+    except Exception:
+        return None
+
+
+def _detect_step_file_unit(step_path: Path) -> tuple[str | None, float | None]:
+    """Detect a STEP file's length unit.
+
+    Returns ``(canonical_name, mm_per_unit)``; ``(None, None)`` when the file
+    is unitless, declares an unrecognized unit, or OCP is unavailable.
+    Mixed-unit files are pathological: the first non-blank length name wins.
+    """
+    names = _ocp_step_length_names(step_path)
+    if not names:
+        return None, None
+    for name in names:
+        canonical = _canonical_length_unit(name)
+        if canonical:
+            return canonical, _MM_PER_LENGTH_UNIT.get(canonical)
+    return None, None
+
+
+def _split_iges_global_params(section: str) -> list[str]:
+    """Split an IGES global section into top-level params.
+
+    Hollerith strings (``nH<chars>``) may embed commas and semicolons, so the
+    section is tokenized char-by-char and the ``nH`` prefix itself is dropped
+    (only the string content is kept). Pure stdlib; no OCP needed.
+    """
+    params: list[str] = []
+    current = ""
+    i = 0
+    n = len(section)
+    while i < n:
+        char = section[i]
+        if char == "," or char == ";":
+            params.append(current)
+            current = ""
+            if char == ";":
+                break
+            i += 1
+            continue
+        if char.isdigit():
+            j = i
+            while j < n and section[j].isdigit():
+                j += 1
+            if j < n and section[j] == "H":
+                count = int(section[i:j])
+                start = j + 1
+                current += section[start : start + count]
+                i = start + count
+                continue
+        current += char
+        i += 1
+    return params
+
+
+def _detect_iges_file_unit(iges_path: Path) -> tuple[str | None, float | None]:
+    """Detect an IGES file's length unit from its global section.
+
+    Uses the units flag (0-based param 13, right after the model-space scale)
+    with the units name (param 14) as fallback for flag 3 ("see name") and
+    unknown flags. Returns ``(None, None)`` when the section is missing or
+    unrecognized. Pure text parse; no OCP needed.
+    """
+    try:
+        text = iges_path.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return None, None
+    # Fixed-format lines: 72 content columns, section id in column 73.
+    # Trailing blanks are insignificant outside Hollerith strings.
+    section = "".join(line[:72].rstrip() for line in text.splitlines() if line[72:73] == "G")
+    if not section:
+        return None, None
+    params = _split_iges_global_params(section)
+    if len(params) < 15:
+        return None, None
+    flag, name = params[13].strip(), params[14].strip()
+    try:
+        flag_value: int | None = int(flag)
+    except ValueError:
+        flag_value = None
+    if flag_value in _IGES_UNITS_FLAG_MM:
+        canonical, mm = _IGES_UNITS_FLAG_MM[flag_value]
+        return canonical, mm
+    canonical = _canonical_length_unit(name)
+    if canonical is not None:
+        return canonical, _MM_PER_LENGTH_UNIT.get(canonical)
+    return None, None
+
+
+def _detect_brep_file_unit(_brep_path: Path) -> tuple[str | None, float | None]:
+    """BREP carries no length-unit metadata; always ``(None, None)``."""
+    return None, None
+
+
+def _normalize_target_units(target_units: str | None) -> str | None:
+    """Canonicalize a target document unit; None stays None.
+
+    Raises ValueError for unknown names.
+    """
+    if target_units is None:
+        return None
+    canonical = _canonical_length_unit(target_units)
+    if canonical is None or canonical not in _MM_PER_LENGTH_UNIT:
+        raise ValueError(
+            f"Unknown target units {target_units!r}; "
+            "expected mm, cm, m (or another known length unit)"
+        )
+    return canonical
+
+
+def _resolve_import_unit_scale(
+    file_unit: str | None, file_mm: float | None, target_units: str | None
+) -> tuple[str | None, float, bool]:
+    """Resolve the effective target unit, exact scale factor, and adopt flag.
+
+    Cases: (unitless file, unset target) -> no-op legacy ``(None, 1.0,
+    False)``; (known file unit, unset target) -> the new document adopts the
+    file unit ``(file_unit, 1.0, True)``; (known file unit, set target) ->
+    exact file-to-target factor ``(target, file_mm / target_mm, False)``;
+    (unknown file unit, set target) -> keep native numbers ``(target, 1.0,
+    False)`` since no exact factor exists.
+    """
+    if target_units is None and file_mm is None:
+        return None, 1.0, False
+    if target_units is None:
+        return file_unit, 1.0, True
+    if file_mm is None:
+        return target_units, 1.0, False
+    return target_units, file_mm / _MM_PER_LENGTH_UNIT[target_units], False
+
+
+def _scale_shape_uniform(shape: object, factor: float) -> object:
+    """Return ``shape`` scaled uniformly about the origin.
+
+    A factor of exactly 1.0 returns the shape unchanged (no B-rep rewrite).
+    """
+    if factor == 1.0:
+        return shape
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_Transform
+    from OCP.gp import gp_Pnt, gp_Trsf
+
+    transform = gp_Trsf()
+    transform.SetScale(gp_Pnt(0.0, 0.0, 0.0), float(factor))
+    operation = BRepBuilderAPI_Transform(shape, transform, True)
+    if not operation.IsDone():
+        raise RuntimeError(f"Uniform scaling by {factor:g} failed")
+    return operation.Shape()
+
+
+def _read_step_raw(step_path: Path, system_unit_mm: float) -> object:
+    """Read a STEP file preserving raw file numbers.
+
+    ``SetSystemLengthUnit`` suppresses OCCT's automatic file-unit to
+    millimetre scaling so the caller can apply the exact file-to-target
+    factor exactly once via :func:`_scale_shape_uniform`.
+    """
+    from OCP.IFSelect import IFSelect_RetDone
+    from OCP.STEPControl import STEPControl_Reader
+
+    reader = STEPControl_Reader()
+    status = reader.ReadFile(str(step_path))
+    if status != IFSelect_RetDone:
+        raise RuntimeError(f"STEP reader returned status {status} for {step_path}")
+    reader.SetSystemLengthUnit(float(system_unit_mm))
+    reader.TransferRoots()
+    shape = reader.OneShape()
+    if shape is None:
+        raise RuntimeError(f"No shape transferred from {step_path}")
+    return shape
+
+
+def _apply_import_units(
+    shape: object,
+    file_unit: str | None,
+    file_mm: float | None,
+    target_units: str | None,
+    kind: str,
+) -> tuple[object, dict[str, object]]:
+    """Scale an imported shape into the target units.
+
+    Returns ``(shape, unit_fields)`` where ``unit_fields`` carries
+    ``fileUnit``/``targetUnits``/``unitScaleFactor``/``unitsMessage`` for the
+    import result.
+    """
+    target = _normalize_target_units(target_units)
+    effective, scale, adopted = _resolve_import_unit_scale(file_unit, file_mm, target)
+    if scale != 1.0:
+        shape = _scale_shape_uniform(shape, scale)
+    if adopted:
+        message: str | None = (
+            f"{kind} file unit '{file_unit}' adopted for the new document (no scaling)"
+        )
+    elif scale != 1.0:
+        message = (
+            f"{kind} file unit '{file_unit}' converted "
+            f"to document units '{effective}' (scale ×{scale:g})"
+        )
+    elif target is not None and file_unit is None:
+        message = f"{kind} file unit unknown; kept native numbers (no scaling to '{target}')"
+    elif target is not None:
+        message = f"{kind} file already in document units '{effective}' (no scaling)"
+    else:
+        message = None
+    return shape, {
+        "fileUnit": file_unit,
+        "targetUnits": effective,
+        "unitScaleFactor": scale,
+        "unitsMessage": message,
+    }
+
+
+# ---------------------------------------------------------------------------
 # CAD exchange: IGES / BREP / glTF / STL
 #
 # Read-write coverage with the OCP available in the dev env (OCP 7.8.1.2):
@@ -950,6 +1293,7 @@ def import_iges_file(
     merge: bool = False,
     expand_compound: bool = True,
     one_object_per_solid: bool = True,
+    target_units: str | None = None,
 ) -> dict:
     """Import an existing IGES file and write canonical artifacts.
 
@@ -958,6 +1302,11 @@ def import_iges_file(
     pipeline always yields one object per solid for DAGMC. IGES product names
     written by :func:`_write_iges` are restored into the returned
     ``selectorMap`` (best-effort; missing names simply stay absent).
+
+    Length units come from the IGES global-section units flag/name. OCCT
+    normalizes recognized IGES units to millimetres on read; the import
+    recovers raw file numbers first, so ``target_units`` (``None`` = unset)
+    scales exactly like :func:`import_step_file` (adopt/scale/legacy).
 
     IGES imports skip DAGMC/mesh export by default (opt in explicitly).
     Returns the stdout-JSON result dict.
@@ -968,6 +1317,7 @@ def import_iges_file(
             "(required by the DAGMC pipeline); expand_compound=False / "
             "one_object_per_solid=False are not supported"
         )
+    target_units = _normalize_target_units(target_units)
     iges_file = Path(iges_path).resolve()
     if not iges_file.exists():
         return {"success": False, "error": f"IGES file not found: {iges_path}"}
@@ -984,6 +1334,22 @@ def import_iges_file(
         return {
             "success": False,
             "error": f"Failed to read IGES file: {exc}",
+            "traceback": traceback.format_exc(),
+            "scriptPath": str(iges_file),
+        }
+
+    try:
+        file_unit, file_mm = _detect_iges_file_unit(iges_file)
+        if file_mm is not None and file_mm != 1.0:
+            # OCCT normalizes recognized IGES units to millimetres on read
+            # (verified for every units flag and flag-3 names); recover raw
+            # file numbers so the shared file-to-target scaling applies once.
+            shape = _scale_shape_uniform(shape, 1.0 / file_mm)
+        shape, unit_fields = _apply_import_units(shape, file_unit, file_mm, target_units, "IGES")
+    except Exception as exc:
+        return {
+            "success": False,
+            "error": f"Failed to apply IGES length units: {exc}",
             "traceback": traceback.format_exc(),
             "scriptPath": str(iges_file),
         }
@@ -1024,6 +1390,7 @@ def import_iges_file(
         manifest=None,
         length_scale=length_scale,
     )
+    result.update(unit_fields)
     if warnings:
         result["warnings"] = (result.get("warnings") or []) + warnings
     return result
@@ -1070,6 +1437,7 @@ def import_brep_file(
     merge: bool = False,
     expand_compound: bool = True,
     one_object_per_solid: bool = True,
+    target_units: str | None = None,
 ) -> dict:
     """Import an existing BREP file and write canonical artifacts.
 
@@ -1078,6 +1446,10 @@ def import_brep_file(
     empty. ``merge`` is False by default; compounds are always expanded to one
     object per solid for DAGMC. BREP imports skip DAGMC/mesh export by default
     (opt in explicitly). Returns the stdout-JSON result dict.
+
+    BREP carries no length-unit metadata, so geometry is never scaled:
+    ``target_units`` is accepted (and validated) for call-site uniformity and
+    reported in the result, but native numbers are always kept as-is.
     """
     if not expand_compound or not one_object_per_solid:
         raise ValueError(
@@ -1085,6 +1457,7 @@ def import_brep_file(
             "(required by the DAGMC pipeline); expand_compound=False / "
             "one_object_per_solid=False are not supported"
         )
+    target_units = _normalize_target_units(target_units)
     brep_file = Path(brep_path).resolve()
     if not brep_file.exists():
         return {"success": False, "error": f"BREP file not found: {brep_path}"}
@@ -1101,6 +1474,17 @@ def import_brep_file(
         return {
             "success": False,
             "error": f"Failed to read BREP file: {exc}",
+            "traceback": traceback.format_exc(),
+            "scriptPath": str(brep_file),
+        }
+
+    try:
+        file_unit, file_mm = _detect_brep_file_unit(brep_file)
+        shape, unit_fields = _apply_import_units(shape, file_unit, file_mm, target_units, "BREP")
+    except Exception as exc:
+        return {
+            "success": False,
+            "error": f"Failed to apply BREP length units: {exc}",
             "traceback": traceback.format_exc(),
             "scriptPath": str(brep_file),
         }
@@ -1130,6 +1514,7 @@ def import_brep_file(
         manifest=None,
         length_scale=length_scale,
     )
+    result.update(unit_fields)
     if warnings:
         result["warnings"] = (result.get("warnings") or []) + warnings
     return result
@@ -2064,6 +2449,7 @@ def import_step_file(
     merge: bool = False,
     expand_compound: bool = True,
     one_object_per_solid: bool = True,
+    target_units: str | None = None,
 ) -> dict:
     """Import an existing STEP file and write canonical artifacts.
 
@@ -2072,6 +2458,15 @@ def import_step_file(
     expanded, and the pipeline always yields one object per solid for DAGMC.
     STEP product names written by :func:`_write_step` are restored into the
     returned ``selectorMap`` (best-effort; missing names simply stay absent).
+
+    Length units: the file's length unit is read via OCP ``FileUnits``
+    (``fileUnit`` in the result, ``None`` when unitless/unknown). When
+    ``target_units`` is unset the new document adopts the file unit (raw file
+    numbers, no scaling); on mismatch the geometry is scaled by the exact
+    file-to-target factor (``unitScaleFactor``) and the conversion is reported
+    in ``unitsMessage``. A unitless file with an unset target takes the legacy
+    path verbatim (no scaling, no unit message). BREP-style native numbers are
+    unaffected: millimetre files read exactly as before.
 
     STEP imports skip DAGMC/mesh export by default (opt in explicitly);
     script builds keep them on by default. Returns the stdout-JSON result dict.
@@ -2082,6 +2477,7 @@ def import_step_file(
             "(required by the DAGMC pipeline); expand_compound=False / "
             "one_object_per_solid=False are not supported"
         )
+    target_units = _normalize_target_units(target_units)
     step_file = Path(step_path).resolve()
     if not step_file.exists():
         return {"success": False, "error": f"STEP file not found: {step_path}"}
@@ -2092,12 +2488,26 @@ def import_step_file(
     out_dir.mkdir(parents=True, exist_ok=True)
 
     _print_progress(f"Reading STEP: {step_file}")
+    file_unit, file_mm = _detect_step_file_unit(step_file)
     try:
-        shape = _read_step(step_file)
+        if file_mm is not None and file_mm != 1.0:
+            shape = _read_step_raw(step_file, file_mm)
+        else:
+            shape = _read_step(step_file)
     except Exception as exc:
         return {
             "success": False,
             "error": f"Failed to read STEP file: {exc}",
+            "traceback": traceback.format_exc(),
+            "scriptPath": str(step_file),
+        }
+
+    try:
+        shape, unit_fields = _apply_import_units(shape, file_unit, file_mm, target_units, "STEP")
+    except Exception as exc:
+        return {
+            "success": False,
+            "error": f"Failed to apply STEP length units: {exc}",
             "traceback": traceback.format_exc(),
             "scriptPath": str(step_file),
         }
@@ -2138,6 +2548,7 @@ def import_step_file(
         manifest=None,
         length_scale=length_scale,
     )
+    result.update(unit_fields)
     if warnings:
         result["warnings"] = (result.get("warnings") or []) + warnings
     return result
@@ -3163,6 +3574,11 @@ def main() -> None:
         help="Scale factor applied to exported mesh vertices (default: 1.0; model units are cm)",
     )
     parser.add_argument(
+        "--target-units",
+        default=None,
+        help="Document length units for --from-step imports (mm/cm/m; unset adopts the file unit)",
+    )
+    parser.add_argument(
         "--script-timeout",
         type=float,
         default=DEFAULT_SCRIPT_TIMEOUT,
@@ -3194,6 +3610,7 @@ def main() -> None:
             mesh_max_size=args.mesh_max_size,
             mesh_order=args.mesh_order,
             length_scale=args.length_scale,
+            target_units=args.target_units,
         )
     elif args.from_document:
         if args.partial_feature_ids is not None:

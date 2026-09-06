@@ -131,3 +131,72 @@ def test_hole_expansion_validation() -> None:
         result = fb.build_document_shape(_hole_doc(extra))
         assert _by_id(result)["h"]["status"] == "failed", extra
         assert message in _by_id(result)["h"]["error"].lower(), extra
+
+
+def test_hole_thread_values_validate_pure() -> None:
+    """Thread values validate without the geometry kernel."""
+    assert fb._validate_modeled_thread("h", {}) is None
+    assert fb._validate_modeled_thread("h", {"thread": None}) is None
+    assert fb._validate_modeled_thread("h", {"thread": "none"}) is None
+    assert fb._validate_modeled_thread("h", {"thread": "cosmetic"}) is None
+    with pytest.raises(fb.FeatureBuilderError, match="unknown hole thread"):
+        fb._validate_modeled_thread("h", {"thread": "left-handed"})
+    with pytest.raises(fb.FeatureBuilderError, match="blind hole"):
+        fb._validate_modeled_thread("h", {"thread": "modeled", "diameter": 10.0})
+    with pytest.raises(fb.FeatureBuilderError, match="simple holes"):
+        fb._validate_modeled_thread(
+            "h",
+            {"thread": "modeled", "diameter": 10.0, "depth": 6.0, "counterboreDiameter": 12.0},
+        )
+    with pytest.raises(fb.FeatureBuilderError, match="taperAngle"):
+        fb._validate_modeled_thread(
+            "h", {"thread": "modeled", "diameter": 10.0, "depth": 6.0, "taperAngle": 5.0}
+        )
+    with pytest.raises(fb.FeatureBuilderError, match="no ISO"):
+        fb._validate_modeled_thread("h", {"thread": "modeled", "diameter": 7.3, "depth": 6.0})
+    with pytest.raises(fb.FeatureBuilderError, match="no full turn"):
+        fb._validate_modeled_thread("h", {"thread": "modeled", "diameter": 10.0, "depth": 1.0})
+    spec = fb._validate_modeled_thread("h", {"thread": "modeled", "diameter": 10.0, "depth": 6.0})
+    assert spec is not None
+    assert spec.designation == "M10x1.5"
+    assert spec.pitch_mm == 1.5
+    assert spec.tap_drill_mm == 8.5
+    assert spec.diameter_mm == 10.0
+
+
+def test_modeled_thread_section_pure() -> None:
+    """The groove section spans tap-to-nominal with a P/4 root flat."""
+    corners = fb._modeled_thread_section(4.25, 5.0, 1.5)
+    assert len(corners) == 4
+    inner = [c for c in corners if c[0] < 4.25]
+    outer = [c for c in corners if c[0] > 5.0]
+    assert len(inner) == 2 and len(outer) == 2
+    # P/4 root flat at the tap radius (5% pitch overshoot each side).
+    assert inner[0][0] == inner[1][0] == 4.25 - 0.075
+    assert abs(abs(inner[0][1] - inner[1][1]) - 2 * (3.0 * 1.5 / 8.0)) < 1e-12
+
+
+def test_modeled_thread_cuts_helix_and_warns() -> None:
+    """A modeled thread removes the helical groove and warns about facets."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    plain = fb.build_document_shape(_hole_doc({}))
+    assert _by_id(plain)["h"]["status"] == "built"
+    threaded = fb.build_document_shape(_hole_doc({"thread": "modeled"}))
+    assert _by_id(threaded)["h"]["status"] == "built", _by_id(threaded)["h"].get("error")
+    assert threaded["shape"] is not None and plain["shape"] is not None
+    # M2x0.4 over a 4-deep hole: ten groove turns remove extra material.
+    assert threaded["shape"].volume < plain["shape"].volume
+    assert any("modeled thread" in w for w in threaded["warnings"])
+
+
+def test_modeled_thread_rejects_combos() -> None:
+    """Modeled threads on counterbore/taper/through holes fail clearly."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    bored = fb.build_document_shape(
+        _hole_doc({"thread": "modeled", "counterboreDiameter": 4.0, "counterboreDepth": 1.0})
+    )
+    assert _by_id(bored)["h"]["status"] == "failed"
+    assert "simple holes" in _by_id(bored)["h"]["error"].lower()
+    through = fb.build_document_shape(_hole_doc({"thread": "modeled"}, depth=None))
+    assert _by_id(through)["h"]["status"] == "failed"
+    assert "blind hole" in _by_id(through)["h"]["error"].lower()

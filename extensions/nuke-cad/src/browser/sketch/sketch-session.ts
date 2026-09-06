@@ -2612,16 +2612,28 @@ export class SketchSession {
      * accepted (point-level-only rule: ellipses and B-splines are rejected
      * with a clear error). Radius constraints on offset circles/arcs are
      * dropped (they pin the old radius); detached point-on-object records are
-     * pruned. Documented: no auto-trim of the resulting overlaps.
+     * pruned.
+     *
+     * `options.autoTrim` (default true) rejoins offset lines at shared
+     * corners: after the per-entity parallel offset, every sketch point used
+     * exclusively by exactly two offset lines moves to the intersection of
+     * the two offset lines (miter join — trims overlaps and closes gaps at
+     * corners, the 2D analog of section/split auto-trim). Corners that cannot
+     * join (parallel lines, intersections beyond the robustness cap, points
+     * shared with non-offset geometry, or junctions of three or more lines)
+     * keep the raw parallel offset; circles/arcs are never auto-trimmed. No
+     * entity is ever deleted by auto-trim: unjoinable corners stay connected
+     * (the first offset line's position wins) and non-participating geometry
+     * is never dragged.
      */
-    async offsetWire(ids: string[], distance: number): Promise<TransformResult> {
+    async offsetWire(ids: string[], distance: number, options?: { autoTrim?: boolean }): Promise<TransformResult> {
         if (ids.length === 0) {
             return { success: false, error: 'Offset needs at least one selected wire entity' };
         }
         if (!Number.isFinite(distance) || Math.abs(distance) < 1e-12) {
             return { success: false, error: `Offset distance must be finite nonzero, got ${distance}` };
         }
-        return this.applyOffsetWire(ids, distance);
+        return this.applyOffsetWire(ids, distance, options?.autoTrim ?? true);
     }
 
     /**
@@ -3411,14 +3423,41 @@ export class SketchSession {
         return { success: true, addedPrimitiveIds };
     }
 
-    private async applyOffsetWire(ids: string[], distance: number): Promise<TransformResult> {
+    private async applyOffsetWire(ids: string[], distance: number, autoTrim: boolean): Promise<TransformResult> {
         const movedPrimitiveIds: string[] = [];
+        // Snapshot pre-offset line endpoints when trimming: sequential
+        // endpoint moves would otherwise drag already-offset neighbors off
+        // their offset lines, so corners join at analytic intersections.
+        const lineSnapshot = new Map<string, { a: Point2; b: Point2; p1Id: string; p2Id: string }>();
+        if (autoTrim) {
+            for (const id of ids) {
+                const primitive = this.primitives.get(id);
+                if (primitive === undefined) {
+                    return { success: false, error: `Unknown primitive '${id}'` };
+                }
+                if (primitive.type !== 'line') {
+                    continue;
+                }
+                const a = this.getPointPosition(primitive.p1Id);
+                const b = this.getPointPosition(primitive.p2Id);
+                if (a === undefined || b === undefined) {
+                    return { success: false, error: `Offset references unsolved geometry on '${id}'` };
+                }
+                lineSnapshot.set(id, { a, b, p1Id: primitive.p1Id, p2Id: primitive.p2Id });
+            }
+        }
         for (const id of ids) {
             const primitive = this.primitives.get(id);
             if (primitive === undefined) {
                 return { success: false, error: `Unknown primitive '${id}'` };
             }
             if (primitive.type === 'line') {
+                // With auto-trim the line endpoints land in joinOffsetLineCorners
+                // below; without it each line moves independently as before.
+                if (autoTrim) {
+                    movedPrimitiveIds.push(id);
+                    continue;
+                }
                 const a = this.getPointPosition(primitive.p1Id);
                 const b = this.getPointPosition(primitive.p2Id);
                 if (a === undefined || b === undefined) {
@@ -3496,9 +3535,132 @@ export class SketchSession {
                 return { success: false, error: `Offset supports lines, circles, and arcs — B-splines carry point-level constraints only` };
             }
         }
+        if (autoTrim) {
+            await this.joinOffsetLineCorners(ids, lineSnapshot, distance);
+        }
         await this.commit([]);
         this.emitChange();
         return { success: true, movedPrimitiveIds };
+    }
+
+    /**
+     * Miter-join offset lines at their shared corners (offset auto-trim).
+     *
+     * Keep-rule: every sketch point used exclusively by offset lines lands
+     * exactly once. A point shared by exactly two offset lines moves to the
+     * intersection of the two analytic offset lines (trims the overlap past
+     * the corner or closes the gap); a parallel pair (or an intersection
+     * beyond the 1e6 robustness cap, which would explode the solver) falls
+     * back to the first offset line's endpoint. Points used by a single
+     * offset line take that line's endpoint; junctions of three or more
+     * lines take the first line's endpoint. Points also referenced by any
+     * non-offset primitive (arcs, circles, un-offset lines, …) are never
+     * written, so auto-trim stays connected to foreign geometry instead of
+     * dragging it. Nothing is ever deleted: every offset line keeps both
+     * endpoints.
+     */
+    private async joinOffsetLineCorners(
+        ids: string[],
+        lineSnapshot: Map<string, { a: Point2; b: Point2; p1Id: string; p2Id: string }>,
+        distance: number
+    ): Promise<void> {
+        const offsetLineIds = new Set<string>();
+        const ends = new Map<string, { p1: Point2; p2: Point2 }>();
+        for (const id of ids) {
+            const snap = lineSnapshot.get(id);
+            if (snap === undefined || offsetLineIds.has(id)) {
+                continue;
+            }
+            offsetLineIds.add(id);
+            const shifted = offsetLinePoints(snap.a, snap.b, distance);
+            ends.set(id, { p1: shifted.a, p2: shifted.b });
+        }
+        const cornerOf = (id: string, pointId: string): Point2 => {
+            const snap = lineSnapshot.get(id);
+            const end = ends.get(id);
+            if (snap === undefined || end === undefined) {
+                throw new Error(`Offset trim references missing line '${id}'`);
+            }
+            return pointId === snap.p1Id ? end.p1 : end.p2;
+        };
+        const preCorner = (id: string, pointId: string): Point2 => {
+            const snap = lineSnapshot.get(id);
+            if (snap === undefined) {
+                throw new Error(`Offset trim references missing line '${id}'`);
+            }
+            return pointId === snap.p1Id ? snap.a : snap.b;
+        };
+        const written = new Set<string>();
+        for (const id of offsetLineIds) {
+            const snap = lineSnapshot.get(id);
+            if (snap === undefined) {
+                continue;
+            }
+            for (const pointId of [snap.p1Id, snap.p2Id]) {
+                if (written.has(pointId)) {
+                    continue;
+                }
+                const users = this.offsetLineUsers(pointId, offsetLineIds);
+                if (!users.exclusive) {
+                    continue;
+                }
+                let target: Point2;
+                if (users.lines.length === 2) {
+                    const [first, second] = users.lines;
+                    const f = ends.get(first);
+                    const s = ends.get(second);
+                    const hit = f === undefined || s === undefined ? undefined : lineLineIntersection(f.p1, f.p2, s.p1, s.p2);
+                    const before = preCorner(first, pointId);
+                    if (
+                        hit !== undefined &&
+                        Number.isFinite(hit.x) &&
+                        Number.isFinite(hit.y) &&
+                        Math.hypot(hit.x - before.x, hit.y - before.y) <= 1e6
+                    ) {
+                        target = hit;
+                    } else {
+                        target = cornerOf(first, pointId);
+                    }
+                } else {
+                    target = cornerOf(users.lines[0], pointId);
+                }
+                await this.movePointTo(pointId, target);
+                written.add(pointId);
+            }
+            this.pruneDetachedPointOnObjects(id);
+        }
+    }
+
+    /** Offset lines (subset of `offsetLineIds`) referencing a point, plus exclusivity. */
+    private offsetLineUsers(pointId: string, offsetLineIds: Set<string>): { exclusive: boolean; lines: string[] } {
+        const lines: string[] = [];
+        for (const [id, primitive] of this.primitives) {
+            if (primitive.type === 'point') {
+                continue;
+            }
+            let uses = false;
+            if (primitive.type === 'line') {
+                uses = primitive.p1Id === pointId || primitive.p2Id === pointId;
+            } else if (primitive.type === 'circle') {
+                uses = primitive.centerId === pointId;
+            } else if (primitive.type === 'arc') {
+                uses = primitive.centerId === pointId || primitive.startId === pointId || primitive.endId === pointId;
+            } else if (primitive.type === 'ellipse') {
+                uses = primitive.centerId === pointId || primitive.focus1Id === pointId;
+            } else {
+                uses = primitive.poleIds.includes(pointId);
+            }
+            if (!uses) {
+                continue;
+            }
+            if (primitive.type !== 'line' || !offsetLineIds.has(id)) {
+                return { exclusive: false, lines: [] };
+            }
+            if (!lines.includes(id)) {
+                lines.push(id);
+            }
+        }
+        return { exclusive: true, lines };
     }
 
     private async doTrim(

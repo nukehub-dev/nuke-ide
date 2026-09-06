@@ -2756,7 +2756,7 @@ describe('SketchSession', () => {
             expect((await session.rectangularArray([id], 0, 0, 2, 2)).error).toContain('nonzero');
         });
 
-        it('offsets lines and circles without auto-trim', async () => {
+        it('offsets single lines and circles (no shared corners, trim is a no-op)', async () => {
             const session = await makeSession('line');
             session.setSnapEnabled(false);
             await session.click({ x: 0, y: 0 });
@@ -2796,6 +2796,100 @@ describe('SketchSession', () => {
             await session.click({ x: 4, y: 0 });
             const lineId = session.getPrimitives().filter((p) => p.type === 'line')[0].id;
             expect((await session.offsetWire([lineId], 0)).error).toContain('nonzero');
+        });
+
+        it('auto-trims shared polyline corners to miter joins by default', async () => {
+            const session = await makeSession('polyline');
+            session.setSnapEnabled(false);
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 10, y: 0 });
+            await session.click({ x: 10, y: 10 });
+            await session.finish();
+            const lines = session.getPrimitives().filter((p) => p.type === 'line') as SketchLine[];
+            expect(lines).toHaveLength(2);
+            const corner = [lines[0].p1Id, lines[0].p2Id].find((e) => e === lines[1].p1Id || e === lines[1].p2Id);
+            expect(corner).toBeDefined();
+
+            const result = await session.offsetWire([lines[0].id, lines[1].id], 1);
+            expect(result.success).toBe(true);
+            // L1 shifts +y, L2 shifts -x; the shared corner lands on the
+            // intersection (9, 1): the overlap past x = 10 is trimmed and the
+            // gap at the corner is closed. Nothing is deleted.
+            expect(session.getPrimitives().filter((p) => p.type === 'line')).toHaveLength(2);
+            expectPoint(session, corner!, 9, 1);
+            const outer1 = lines[0].p1Id === corner ? lines[0].p2Id : lines[0].p1Id;
+            const outer2 = lines[1].p1Id === corner ? lines[1].p2Id : lines[1].p1Id;
+            expectPoint(session, outer1, 0, 1);
+            expectPoint(session, outer2, 9, 10);
+        });
+
+        it('leaves raw parallel offsets with autoTrim disabled', async () => {
+            // Disjoint lines take no part in corner joins, so the opt-out
+            // path is exactly the legacy per-entity parallel offset.
+            const session = await makeSession('line');
+            session.setSnapEnabled(false);
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 10, y: 0 });
+            await session.click({ x: 0, y: 5 });
+            await session.click({ x: 10, y: 5 });
+            const lines = session.getPrimitives().filter((p) => p.type === 'line') as SketchLine[];
+            expect(lines).toHaveLength(2);
+
+            const result = await session.offsetWire([lines[0].id, lines[1].id], 2, { autoTrim: false });
+            expect(result.success).toBe(true);
+            expectPoint(session, lines[0].p1Id, 0, 2);
+            expectPoint(session, lines[0].p2Id, 10, 2);
+            expectPoint(session, lines[1].p1Id, 0, 7);
+            expectPoint(session, lines[1].p2Id, 10, 7);
+        });
+
+        it('keeps collinear split lines straight (parallel corners fall back)', async () => {
+            const session = await makeSession('polyline');
+            session.setSnapEnabled(false);
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 10, y: 0 });
+            await session.click({ x: 20, y: 0 });
+            await session.finish();
+            const lines = session.getPrimitives().filter((p) => p.type === 'line') as SketchLine[];
+            expect(lines).toHaveLength(2);
+            const middle = [lines[0].p1Id, lines[0].p2Id].find((e) => e === lines[1].p1Id || e === lines[1].p2Id);
+            expect(middle).toBeDefined();
+
+            const result = await session.offsetWire([lines[0].id, lines[1].id], 2);
+            expect(result.success).toBe(true);
+            // Parallel offset lines never intersect: both segments shift +y
+            // together and the shared midpoint keeps the wire straight.
+            expectPoint(session, middle!, 10, 2);
+            const outer1 = lines[0].p1Id === middle ? lines[0].p2Id : lines[0].p1Id;
+            const outer2 = lines[1].p1Id === middle ? lines[1].p2Id : lines[1].p1Id;
+            expectPoint(session, outer1, 0, 2);
+            expectPoint(session, outer2, 20, 2);
+        });
+
+        it('never drags corners shared with non-offset geometry', async () => {
+            const session = await makeSession('polyline');
+            session.setSnapEnabled(false);
+            await session.click({ x: 0, y: 0 });
+            await session.click({ x: 10, y: 0 });
+            session.cycleMode();
+            await session.click({ x: 12, y: 2 });
+            await session.click({ x: 14, y: 0 });
+            await session.finish();
+            const line = session.getPrimitives().filter((p) => p.type === 'line')[0] as SketchLine;
+            const arc = session.getPrimitives().filter((p) => p.type === 'arc')[0] as SketchArc;
+            const corner = [line.p1Id, line.p2Id].find((e) => e === arc.startId || e === arc.endId);
+            expect(corner).toBeDefined();
+
+            const result = await session.offsetWire([line.id, arc.id], 1);
+            expect(result.success).toBe(true);
+            // The line stays connected through the shared point id (nothing
+            // dropped or detached) while the arc owns the corner position.
+            const kept = session.getPrimitive(line.id) as SketchLine;
+            expect(kept.p1Id).toBe(line.p1Id);
+            expect(kept.p2Id).toBe(line.p2Id);
+            expect((session.getPrimitive(arc.id) as SketchArc).radius).toBeCloseTo(arc.radius + 1, 6);
+            const outer = line.p1Id === corner ? line.p2Id : line.p1Id;
+            expectPoint(session, outer, 0, 1);
         });
 
         it('joins two open ends with a line plus coincidents (joinEnds alias matches)', async () => {

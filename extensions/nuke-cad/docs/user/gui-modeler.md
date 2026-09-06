@@ -30,6 +30,13 @@ Studio the same way you would a script build.
    location.
 4. The empty document contains three canonical datum planes: XY, YZ, and XZ.
 
+The document toolbar carries a **Units** dropdown (`Unitless`, `mm`, `cm`,
+`m`). Declared units tag future numeric inputs (curve expressions may then
+carry unit syntax); changing units never rescales existing numbers. STEP and
+IGES imports read the file's length unit: a new document adopts it, and a
+mismatch against declared document units scales the geometry by the exact
+factor (reported in the import message).
+
 You can also create a `.nuke-cad` file directly in the Explorer; double-clicking
 it opens it in the CAD viewport by default.
 
@@ -172,7 +179,8 @@ With entities selected, the transform group offers **Move** (`V`) and
 **Copy** (`G`, click base then target points), **Rotate** (`I`, click center
 then an angle point), and **Mirror** (`N`, exactly one selected line as the
 axis, mirrored copies plus symmetry constraints). **Scale**, **Rectangular
-Array** (rows/columns/spacing), and **Offset** (distance) open inline
+Array** (rows/columns/spacing), and **Offset** (distance, with an auto-trim
+checkbox that miter-joins overlaps, on by default) open inline
 popovers; **Join** connects two selected open endpoints immediately.
 
 The snap engine prioritizes endpoint → midpoint → center → quadrant →
@@ -328,19 +336,21 @@ commands in the Feature Tree:
 
 - **Pad** — extrude a sketch additively into a body. Besides a blind
   length, the end can terminate at the first/last face hit, at a picked
-  face, or through the whole body, optionally two-sided.
+  face, at another body, or through the whole body, optionally two-sided.
 - **Pocket** — extrude a sketch as a cut (requires an existing solid body),
   with the same end conditions as pad.
-- **Revolve** — revolve a sketch around `X`, `Y`, or `Z` by an angle in `(0, 360]`.
-- **Groove** — revolve-cut (requires an existing solid body).
+- **Revolve** — revolve a sketch around `X`, `Y`, or `Z` by an angle in `(0, 360]`,
+  blind or through-all.
+- **Groove** — revolve-cut (requires an existing solid body), blind or
+  through-all.
 - **Primitive** — place a box, cylinder, sphere, cone, or torus on a datum,
-  no sketch required.
+  no sketch required; optionally subtractive (cuts into an existing body).
 - **Sweep** — sweep a sketch section along a 3D curve.
 - **Pipe** — sweep a circular section of a given radius along a 3D curve (no
   sketch required).
 - **Loft** — join two or more ordered sketch sections into a single solid.
 - **Helical Sweep** — sweep a sketch section along an analytic helix (spring,
-  coil, or twisted path).
+  coil, or twisted path); optionally subtractive.
 - **Boolean Fuse** — union one or more tool bodies into a target body.
 - **Boolean Cut** — subtract one or more tool bodies from a target body.
 - **Boolean Common** — intersect a target body with one or more tool bodies.
@@ -443,7 +453,8 @@ scales each copy about its own center (`1` = unchanged).
 2. Choose the **Source feature** (the sketch-based solid feature to replicate).
 3. Enter **Count** (total number of occurrences, including the original) and
    **Spacing**.
-4. Pick the **Axis** (`X`, `Y`, or `Z`).
+4. Pick the **Axis** (`X`, `Y`, or `Z`) or a **Datum axis** (two-point line
+   datum, or a plane datum normal).
 5. Click **Create**.
 
 The first instance is the original source feature; additional instances are
@@ -503,8 +514,9 @@ counterdrill hole on a planar face of an existing body.
 5. For counterbore, enter **Counterbore diameter** and **Counterbore depth**.
 6. For countersink, enter **Countersink diameter** and **Countersink angle**.
 7. For counterdrill, enter **Counterdrill diameter** and **Counterdrill depth**.
-8. A cosmetic **Thread** flag is stored for downstream use without modeling
-   threads.
+8. A **Thread** preset: **None**, **Cosmetic** (stored for downstream use
+   without modeling threads), or **Modeled** (cuts a real ISO thread into a
+   simple blind hole; counterbore/taper combinations are rejected).
 9. Click **Create**.
 
 The placement face is stored as a `TopologyRef`, so the hole survives parametric
@@ -754,7 +766,6 @@ planar/cylindrical/conical faces are held to 1e-6 plus an exact face-count check
 
 This release supports the core workflow. These features are not implemented yet:
 
-- Up-to-face / up-to-body extrude termination.
 - Direct viewport picking of tool bodies for booleans (use the dialog dropdowns
   instead).
 

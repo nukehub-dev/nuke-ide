@@ -3184,9 +3184,12 @@ def test_pad_up_to_face_builds_to_named_face() -> None:
 
 
 def test_pad_rejects_unsupported_angle_and_up_to_body() -> None:
-    """Pad angle and upToBody are schema-accepted but unimplemented; reject them."""
+    """Pad angle stays unimplemented; upToBody needs an up-to end."""
     pytest.importorskip("build123d", reason="build123d not installed")
-    for extra in ({"angle": 5.0}, {"upToBody": "body-1"}):
+    for extra, message in (
+        ({"angle": 5.0}, "not yet supported"),
+        ({"upToBody": "body-1"}, "requires end"),
+    ):
         doc = _document(
             [
                 {
@@ -3204,7 +3207,7 @@ def test_pad_rejects_unsupported_angle_and_up_to_body() -> None:
         result = fb.build_document_shape(doc)
         by_id = {r["featureId"]: r for r in result["featureResults"]}
         assert by_id["pad"]["status"] == "failed", extra
-        assert "not yet supported" in by_id["pad"]["error"].lower()
+        assert message in by_id["pad"]["error"].lower()
 
 
 def test_pad_on_consumed_body_is_stale() -> None:
@@ -4424,3 +4427,97 @@ def test_overlapping_pattern_parallel_fuse_timing() -> None:
     )
     _assert_same_solid_set(parallel, sequential)
     assert parallel.volume == pytest.approx(sequential.volume, rel=1e-6)
+
+
+def _pad_feature(
+    params: dict[str, Any], sketch_id: str = "rect", feature_id: str = "base"
+) -> dict[str, Any]:
+    return {
+        "id": feature_id,
+        "name": "base",
+        "type": "pad",
+        "body": "body-1",
+        "sketchId": sketch_id,
+        "params": params,
+        "dependsOn": [],
+        "suppressed": False,
+    }
+
+
+def test_subtractive_helical_sweep_cuts() -> None:
+    """A subtractive helicalSweep coils its section out of the body."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    doc = _document(
+        [
+            _pad_feature({"length": 10.0}),
+            _helical_feature(
+                {
+                    "axis": "Z",
+                    "startRadius": 5.0,
+                    "pitch": 2.0,
+                    "turns": 2.0,
+                    "subtractive": True,
+                },
+                feature_id="cut",
+            ),
+        ],
+        sketches=[_rect_sketch(), _offset_rect_sketch("sec", 0, 0, 2, 2)],
+    )
+    result = fb.build_document_shape(doc)
+    by_id = {r["featureId"]: r for r in result["featureResults"]}
+    assert by_id["cut"]["status"] == "built", by_id["cut"].get("error")
+    assert result["shape"] is not None
+    assert result["shape"].volume < 40.0 * 20.0 * 10.0
+
+
+def test_subtractive_helical_sweep_needs_body_and_intersection() -> None:
+    """A subtractive helix needs an existing body; a disjoint coil fails."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    lonely = _document(
+        [_helical_feature({"axis": "Z", "startRadius": 5.0, "pitch": 2.0, "turns": 2.0})],
+        sketches=[_offset_rect_sketch("sec", 0, 0, 2, 2)],
+    )
+    result = fb.build_document_shape(lonely)
+    by_id = {r["featureId"]: r for r in result["featureResults"]}
+    # Additive on an empty body still builds (today's behavior is untouched).
+    assert by_id["h1"]["status"] == "built", by_id["h1"].get("error")
+
+    lonely_cut = _document(
+        [
+            _helical_feature(
+                {
+                    "axis": "Z",
+                    "startRadius": 5.0,
+                    "pitch": 2.0,
+                    "turns": 2.0,
+                    "subtractive": True,
+                }
+            )
+        ],
+        sketches=[_offset_rect_sketch("sec", 0, 0, 2, 2)],
+    )
+    result = fb.build_document_shape(lonely_cut)
+    by_id = {r["featureId"]: r for r in result["featureResults"]}
+    assert by_id["h1"]["status"] == "failed"
+    assert "existing solid body" in by_id["h1"]["error"].lower()
+
+    far = _document(
+        [
+            _pad_feature({"length": 10.0}),
+            _helical_feature(
+                {
+                    "axis": "Z",
+                    "startRadius": 200.0,
+                    "pitch": 2.0,
+                    "turns": 2.0,
+                    "subtractive": True,
+                },
+                feature_id="cut",
+            ),
+        ],
+        sketches=[_rect_sketch(), _offset_rect_sketch("sec", 0, 0, 2, 2)],
+    )
+    result = fb.build_document_shape(far)
+    by_id = {r["featureId"]: r for r in result["featureResults"]}
+    assert by_id["cut"]["status"] == "failed"
+    assert "does not intersect" in by_id["cut"]["error"].lower()

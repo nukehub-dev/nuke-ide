@@ -1159,6 +1159,10 @@ interface ToolbarAction {
     readonly onClick: () => void;
 }
 
+/** Tooltip for the document-units dropdown (tags future inputs, never rescales). */
+const SET_UNITS_TOOLTIP =
+    'Document units for future numeric inputs. Changing units on a unitless document only tags future inputs and never rescales existing numbers.';
+
 function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElement {
     const doc = props.documentStore.document;
     const selectedSketchId = props.documentStore.selection.selectedSketchId;
@@ -1408,6 +1412,22 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
                     <span className="cad-document-toolbar-name">{doc?.name ?? 'Untitled'}</span>
                     {props.documentStore.dirty && <span className="cad-document-toolbar-dirty" title="Unsaved changes" />}
                 </div>
+                <Tooltip content={SET_UNITS_TOOLTIP} position="bottom">
+                    <select
+                        className="theia-select cad-document-toolbar-units"
+                        aria-label="Document units"
+                        value={doc?.units ?? ''}
+                        onChange={(e) => {
+                            const next = e.target.value === '' ? undefined : (e.target.value as DocumentUnits);
+                            props.documentStore.setUnits(next);
+                        }}
+                    >
+                        <option value="">Unitless</option>
+                        <option value="mm">mm</option>
+                        <option value="cm">cm</option>
+                        <option value="m">m</option>
+                    </select>
+                </Tooltip>
             </div>
             <div className="cad-document-toolbar-actions">
                 <NukeToolbar>
@@ -2006,6 +2026,8 @@ function ArrayPopover(props: TransformPopoverProps): React.ReactElement {
 function OffsetPopover(props: TransformPopoverProps): React.ReactElement {
     const { controller, messageService, onClose } = props;
     const [distanceText, setDistanceText] = React.useState('');
+    // Auto-trim defaults on, mirroring the backend contract (`autoTrim` field).
+    const [autoTrim, setAutoTrim] = React.useState(true);
     const [error, setError] = React.useState<string | undefined>();
 
     const apply = async (): Promise<void> => {
@@ -2025,7 +2047,7 @@ function OffsetPopover(props: TransformPopoverProps): React.ReactElement {
         }
         setError(undefined);
         try {
-            const result = await live.offsetWire(ids, distance);
+            const result = await live.offsetWire(ids, distance, { autoTrim });
             if (!result.success) {
                 setError(result.error ?? 'Offset failed.');
                 return;
@@ -2039,6 +2061,10 @@ function OffsetPopover(props: TransformPopoverProps): React.ReactElement {
     return (
         <TransformPopoverShell title="Offset" error={error} onApply={apply} onClose={onClose}>
             <TransformTextRow label="Distance" value={distanceText} placeholder="e.g. 1" onValueChange={setDistanceText} />
+            <label className="cad-sketch-dimension-popover-row">
+                <input type="checkbox" checked={autoTrim} onChange={(e) => setAutoTrim(e.target.checked)} />
+                Auto-trim overlaps
+            </label>
         </TransformPopoverShell>
     );
 }
@@ -2354,12 +2380,12 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
     const [holeCountersinkAngle, setHoleCountersinkAngle] = React.useState('82');
     // Hole expansion: stepped counterdrill seat, conical taper,
     // drill-point cone tip (blank = flat bottom, today's behavior), and a
-    // stored-only thread flag (default 'none').
+    // thread preset (default 'none'; 'modeled' is gated to simple blind holes).
     const [holeCounterdrillDiameter, setHoleCounterdrillDiameter] = React.useState('1.5');
     const [holeCounterdrillDepth, setHoleCounterdrillDepth] = React.useState('0.5');
     const [holeTaperAngle, setHoleTaperAngle] = React.useState('');
     const [holeDrillPointAngle, setHoleDrillPointAngle] = React.useState('');
-    const [holeThread, setHoleThread] = React.useState<'none' | 'cosmetic'>('none');
+    const [holeThread, setHoleThread] = React.useState<'none' | 'cosmetic' | 'modeled'>('none');
 
     // Sweep/pipe state.
     const curves = doc?.curves ?? [];
@@ -2384,18 +2410,28 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
     const [helixBinormal, setHelixBinormal] = React.useState<[string, string, string]>(['0', '0', '1']);
     const [previewEnabled, setPreviewEnabled] = React.useState(false);
 
-    // Extrude end-conditions (pad/pocket only; revolve/groove stay blind).
+    // Extrude end-conditions (pad/pocket take the full set; revolve/groove
+    // take blind/throughAll). `upToBody` names another body as the extrusion
+    // limit (blank = none).
     const [extrudeEnd, setExtrudeEnd] = React.useState<'blind' | 'upToFirst' | 'upToLast' | 'upToFace' | 'throughAll'>('blind');
     const [twoSided, setTwoSided] = React.useState(false);
     const [upToFaceRef, setUpToFaceRef] = React.useState<TopologyRef | undefined>();
+    const [upToBody, setUpToBody] = React.useState('');
+    const [revolveEnd, setRevolveEnd] = React.useState<'blind' | 'throughAll'>('blind');
 
     // Pattern scale (blank/1 = unscaled, exactly today's behavior).
     const [patternScale, setPatternScale] = React.useState('1');
 
     // Additive primitive (datum-xy default; datumId names a datum).
+    // `subtractive` cuts the primitive from the target body instead.
     const [primitiveShape, setPrimitiveShape] = React.useState<'box' | 'cylinder' | 'sphere' | 'cone' | 'torus'>('box');
     const [primitiveDims, setPrimitiveDims] = React.useState<[string, string, string]>(['1', '1', '1']);
     const [primitiveDatumId, setPrimitiveDatumId] = React.useState('');
+    const [primitiveSubtractive, setPrimitiveSubtractive] = React.useState(false);
+    // Helical sweep `subtractive` cuts the swept tool from the target body.
+    const [helixSubtractive, setHelixSubtractive] = React.useState(false);
+    // Linear-pattern datum axis (blank = coordinate axis, like circular).
+    const [linearAxisDatumId, setLinearAxisDatumId] = React.useState('');
 
     // Multi-transform: two pattern/mirror source features.
     const patternLikeSources =
@@ -2427,10 +2463,12 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
             setExtrudeEnd(end === 'upToFirst' || end === 'upToLast' || end === 'upToFace' || end === 'throughAll' ? end : 'blind');
             setTwoSided(Boolean(p.twoSided));
             setUpToFaceRef(p.upToFace as TopologyRef | undefined);
+            setUpToBody(typeof p.upToBody === 'string' ? p.upToBody : '');
         }
         if (isRevolve) {
             setAngle(p.angle !== undefined ? String(p.angle) : '90');
             setAxis((p.axis as 'x' | 'y' | 'z') ?? 'z');
+            setRevolveEnd(p.end === 'throughAll' ? 'throughAll' : 'blind');
         }
         if (isBoolean) {
             setTargetBody(typeof p.targetBody === 'string' ? p.targetBody : feature.body);
@@ -2478,7 +2516,12 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
             if (type === 'linearPattern') {
                 setPatternCount(p.count !== undefined ? String(p.count) : '2');
                 setPatternSpacing(p.spacing !== undefined ? String(p.spacing) : '1');
-                setPatternAxis((p.axis as 'x' | 'y' | 'z') ?? 'z');
+                if (typeof p.axisDatumId === 'string') {
+                    setLinearAxisDatumId(p.axisDatumId);
+                } else {
+                    setPatternAxis((p.axis as 'x' | 'y' | 'z') ?? 'z');
+                    setLinearAxisDatumId('');
+                }
             }
             if (type === 'circularPattern') {
                 setPatternCount(p.count !== undefined ? String(p.count) : '2');
@@ -2521,7 +2564,7 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
             }
             setHoleTaperAngle(p.taperAngle !== undefined ? String(p.taperAngle) : '');
             setHoleDrillPointAngle(p.drillPointAngle !== undefined ? String(p.drillPointAngle) : '');
-            setHoleThread(p.thread === 'cosmetic' ? 'cosmetic' : 'none');
+            setHoleThread(p.thread === 'modeled' ? 'modeled' : p.thread === 'cosmetic' ? 'cosmetic' : 'none');
         }
         if (isCurveSweep) {
             setPathCurveId(typeof p.pathCurveId === 'string' ? p.pathCurveId : '');
@@ -2544,6 +2587,7 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
             setHelixLeftHanded(draft.leftHanded);
             setHelixOrientation(draft.orientation);
             setHelixBinormal([draft.binormal[0], draft.binormal[1], draft.binormal[2]]);
+            setHelixSubtractive(p.subtractive === true);
         }
         if (isPrimitive) {
             const shape = p.shape as string | undefined;
@@ -2555,6 +2599,7 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                 dims[2] !== undefined ? String(dims[2]) : '1'
             ]);
             setPrimitiveDatumId(typeof p.datumId === 'string' ? p.datumId : '');
+            setPrimitiveSubtractive(p.subtractive === true);
         }
         if (isMultiTransform) {
             setMultiFirst(typeof p.first === 'string' ? p.first : '');
@@ -2617,58 +2662,73 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                 request = { type: 'loft', params: validation.params };
             }
         } else if (isHelicalSweep) {
-            const validation = validateHelicalSweepDraft({
-                axis: helixAxis,
-                startRadius: helixStartRadius,
-                pitch: helixPitch,
-                turns: helixTurns,
-                leftHanded: helixLeftHanded,
-                orientation: helixOrientation,
-                binormal: helixBinormal
-            });
-            if (validation.ok) {
-                request = { type: 'helicalSweep', sketchId: props.sketchId, params: validation.params };
+            // Subtractive helix drafts need the live target body: no preview,
+            // hint text in the dialog (same convention as non-blind ends).
+            if (!helixSubtractive) {
+                const validation = validateHelicalSweepDraft({
+                    axis: helixAxis,
+                    startRadius: helixStartRadius,
+                    pitch: helixPitch,
+                    turns: helixTurns,
+                    leftHanded: helixLeftHanded,
+                    orientation: helixOrientation,
+                    binormal: helixBinormal
+                });
+                if (validation.ok) {
+                    request = { type: 'helicalSweep', sketchId: props.sketchId, params: validation.params };
+                }
             }
         } else if (isExtrude) {
-            // Non-blind ends are intentionally un-previewable: the validator
-            // rejects them with a reason the dialog surfaces as hint text.
-            const validation = validateExtrudeDraft({
-                type: type === 'pocket' ? 'pocket' : 'pad',
-                length,
-                axis,
-                symmetric,
-                twoSided,
-                end: extrudeEnd
-            });
-            if (validation.ok) {
-                // Subtractive drafts preview against their target body (the
-                // builder retargets onto it); additive pads preview standalone.
-                const previewBodyId = type === 'pocket' && bodyId !== NEW_BODY_SENTINEL ? bodyId : undefined;
-                request = {
+            // Non-blind ends and up-to-body drafts are intentionally
+            // un-previewable: they need the live body state no mini-document
+            // can resolve, so the dialog surfaces hint text instead.
+            if (extrudeEnd === 'blind' && upToBody === '') {
+                const validation = validateExtrudeDraft({
                     type: type === 'pocket' ? 'pocket' : 'pad',
-                    sketchId: props.sketchId,
-                    params: validation.params,
-                    ...(previewBodyId !== undefined ? { bodyId: previewBodyId } : {})
-                };
+                    length,
+                    axis,
+                    symmetric,
+                    twoSided,
+                    end: extrudeEnd
+                });
+                if (validation.ok) {
+                    // Subtractive drafts preview against their target body (the
+                    // builder retargets onto it); additive pads preview standalone.
+                    const previewBodyId = type === 'pocket' && bodyId !== NEW_BODY_SENTINEL ? bodyId : undefined;
+                    request = {
+                        type: type === 'pocket' ? 'pocket' : 'pad',
+                        sketchId: props.sketchId,
+                        params: validation.params,
+                        ...(previewBodyId !== undefined ? { bodyId: previewBodyId } : {})
+                    };
+                }
             }
         } else if (isRevolve) {
-            const validation = validateRevolveDraft({ angle, axis });
-            if (validation.ok) {
-                const previewBodyId = type === 'groove' && bodyId !== NEW_BODY_SENTINEL ? bodyId : undefined;
-                request = {
-                    type: type === 'groove' ? 'groove' : 'revolve',
-                    sketchId: props.sketchId,
-                    params: validation.params,
-                    ...(previewBodyId !== undefined ? { bodyId: previewBodyId } : {})
-                };
+            // Through-all ends need the live body state: no preview, hint
+            // text in the dialog (same convention as non-blind extrude ends).
+            if (revolveEnd === 'blind') {
+                const validation = validateRevolveDraft({ angle, axis });
+                if (validation.ok) {
+                    const previewBodyId = type === 'groove' && bodyId !== NEW_BODY_SENTINEL ? bodyId : undefined;
+                    request = {
+                        type: type === 'groove' ? 'groove' : 'revolve',
+                        sketchId: props.sketchId,
+                        params: validation.params,
+                        ...(previewBodyId !== undefined ? { bodyId: previewBodyId } : {})
+                    };
+                }
             }
         } else if (isPrimitive) {
-            const validation = validatePrimitiveDraft(
-                { shape: primitiveShape, dimensions: primitiveDims, datumId: primitiveDatumId },
-                doc?.datums
-            );
-            if (validation.ok) {
-                request = { type: 'primitive', params: validation.params };
+            // Subtractive primitives cut the live target body: no preview,
+            // hint text in the dialog (same convention as non-blind ends).
+            if (!primitiveSubtractive) {
+                const validation = validatePrimitiveDraft(
+                    { shape: primitiveShape, dimensions: primitiveDims, datumId: primitiveDatumId },
+                    doc?.datums
+                );
+                if (validation.ok) {
+                    request = { type: 'primitive', params: validation.params };
+                }
             }
         } else if (isDressUp) {
             // Dress-up refs resolve against the target body's history inside
@@ -2734,16 +2794,20 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
         helixLeftHanded,
         helixOrientation,
         helixBinormal,
+        helixSubtractive,
         length,
         axis,
         symmetric,
         twoSided,
         extrudeEnd,
+        upToBody,
         bodyId,
         angle,
+        revolveEnd,
         primitiveShape,
         primitiveDims,
         primitiveDatumId,
+        primitiveSubtractive,
         dressUpBodyId,
         refs,
         filletRadius,
@@ -2946,7 +3010,13 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                 }
                 params.count = count;
                 params.spacing = spacing;
-                params.axis = patternAxis;
+                // Datum axis mirrors the circular-pattern contract: the two
+                // are mutually exclusive, blank means the coordinate axis.
+                if (linearAxisDatumId) {
+                    params.axisDatumId = linearAxisDatumId;
+                } else {
+                    params.axis = patternAxis;
+                }
             } else if (type === 'circularPattern') {
                 const angle = Number(patternAngle);
                 if (!Number.isFinite(angle) || angle <= 0 || angle > 360) {
@@ -2982,7 +3052,8 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                 return;
             }
             // Omitted drill point = flat bottom = today's behavior exactly.
-            // Thread is stored + validated only (default 'none').
+            // Thread presets are none/cosmetic/modeled (modeled gated to
+            // simple blind holes in the shared validator above).
             finish({ ...holeResult.params, bodyId: holeBodyId, label });
             return;
         }
@@ -3030,7 +3101,16 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                 return;
             }
             const effectiveBodyId = bodyId === NEW_BODY_SENTINEL ? undefined : bodyId;
-            finish({ ...result.params, bodyId: effectiveBodyId, label });
+            // A subtractive helix cuts the target body, so it needs one.
+            if (helixSubtractive && effectiveBodyId === undefined) {
+                setError('A subtractive helical sweep needs an existing target body.');
+                return;
+            }
+            const helixParams: Record<string, unknown> = { ...result.params };
+            if (helixSubtractive) {
+                helixParams.subtractive = true;
+            }
+            finish({ ...helixParams, bodyId: effectiveBodyId, label });
             return;
         }
         if (isPrimitive) {
@@ -3055,6 +3135,14 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
             // Omitted datumId = datum-xy default.
             if (datumId !== '') {
                 params.datumId = datumId;
+            }
+            // A subtractive primitive cuts the target body, so it needs one.
+            if (primitiveSubtractive) {
+                if (effectiveBodyId === undefined) {
+                    setError('A subtractive primitive needs an existing target body.');
+                    return;
+                }
+                params.subtractive = true;
             }
             finish(params);
             return;
@@ -3129,6 +3217,16 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
             if (twoSided) {
                 params.twoSided = true;
             }
+            // Optional up-to-body limit (blank = none); the backend resolves
+            // the named body against the live document. Mutually exclusive
+            // with the Up to Face end per the schema contract.
+            if (upToBody !== '') {
+                if (extrudeEnd === 'upToFace') {
+                    setError('Up-to body and Up to Face are mutually exclusive.');
+                    return;
+                }
+                params.upToBody = upToBody;
+            }
             if (extrudeEnd === 'upToFace') {
                 if (upToFaceRef === undefined) {
                     setError('Pick a face in the viewport for Up to Face.');
@@ -3144,7 +3242,15 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                 return;
             }
             const effectiveBodyId = bodyId === NEW_BODY_SENTINEL ? undefined : bodyId;
-            finish({ axis, angle: value, bodyId: effectiveBodyId, label });
+            // Blind stays omitted (today's behavior exactly); throughAll
+            // spans the body like the pad end of the same name.
+            finish({
+                axis,
+                angle: value,
+                ...(revolveEnd !== 'blind' ? { end: revolveEnd } : {}),
+                bodyId: effectiveBodyId,
+                label
+            });
         }
     };
 
@@ -3551,13 +3657,23 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                         >
                             <input type="checkbox" checked={twoSided} onChange={(e) => setTwoSided(e.target.checked)} />
                         </NukeFormRow>
+                        <NukeFormRow label="Up-to body" hint="Blank = none" className="cad-feature-dialog-row">
+                            <select value={upToBody} onChange={(e) => setUpToBody(e.target.value)}>
+                                <option value="">None</option>
+                                {bodies.map((b) => (
+                                    <option key={b.id} value={b.id}>
+                                        {b.name}
+                                    </option>
+                                ))}
+                            </select>
+                        </NukeFormRow>
                     </NukeSection>
                     {props.onPreviewChange !== undefined && (
                         <label className="cad-feature-dialog-row check">
                             <input
                                 type="checkbox"
                                 checked={previewEnabled}
-                                disabled={extrudeEnd !== 'blind'}
+                                disabled={extrudeEnd !== 'blind' || upToBody !== ''}
                                 onChange={(e) => setPreviewEnabled(e.target.checked)}
                             />
                             Preview (ghosted build)
@@ -3567,6 +3683,11 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                         <span className="cad-feature-dialog-label">{extrudePreviewValidation.error}</span>
                     )}
                     {extrudeEnd !== 'blind' && <span className="cad-feature-dialog-label">Preview is only available for blind ends.</span>}
+                    {upToBody !== '' && (
+                        <span className="cad-feature-dialog-label">
+                            Up-to-body drafts need the live body state and cannot be previewed.
+                        </span>
+                    )}
                 </>
             )}
             {isRevolve && (
@@ -3583,11 +3704,26 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                         Angle (°)
                         <input type="number" value={angle} onChange={(e) => setAngle(e.target.value)} autoFocus />
                     </label>
+                    <label className="cad-feature-dialog-row">
+                        End
+                        <select value={revolveEnd} onChange={(e) => setRevolveEnd(e.target.value as 'blind' | 'throughAll')}>
+                            <option value="blind">Blind</option>
+                            <option value="throughAll">Through all</option>
+                        </select>
+                    </label>
                     {props.onPreviewChange !== undefined && (
                         <label className="cad-feature-dialog-row check">
-                            <input type="checkbox" checked={previewEnabled} onChange={(e) => setPreviewEnabled(e.target.checked)} />
+                            <input
+                                type="checkbox"
+                                checked={previewEnabled}
+                                disabled={revolveEnd !== 'blind'}
+                                onChange={(e) => setPreviewEnabled(e.target.checked)}
+                            />
                             Preview (ghosted build)
                         </label>
+                    )}
+                    {revolveEnd !== 'blind' && (
+                        <span className="cad-feature-dialog-label">Through-all ends need the live body state and cannot be previewed.</span>
                     )}
                 </>
             )}
@@ -3821,11 +3957,25 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                             </label>
                         </>
                     )}
+                    <label className="cad-feature-dialog-row check">
+                        <input type="checkbox" checked={helixSubtractive} onChange={(e) => setHelixSubtractive(e.target.checked)} />
+                        Subtractive (cut from the target body)
+                    </label>
                     {props.onPreviewChange !== undefined && (
                         <label className="cad-feature-dialog-row check">
-                            <input type="checkbox" checked={previewEnabled} onChange={(e) => setPreviewEnabled(e.target.checked)} />
+                            <input
+                                type="checkbox"
+                                checked={previewEnabled}
+                                disabled={helixSubtractive}
+                                onChange={(e) => setPreviewEnabled(e.target.checked)}
+                            />
                             Preview (ghosted build)
                         </label>
+                    )}
+                    {helixSubtractive && (
+                        <span className="cad-feature-dialog-label">
+                            Subtractive helix drafts need the live target body and cannot be previewed.
+                        </span>
                     )}
                 </>
             )}
@@ -3863,6 +4013,17 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                                     <option value="x">X</option>
                                     <option value="y">Y</option>
                                     <option value="z">Z</option>
+                                </select>
+                            </label>
+                            <label className="cad-feature-dialog-row">
+                                Axis datum (optional)
+                                <select value={linearAxisDatumId} onChange={(e) => setLinearAxisDatumId(e.target.value)}>
+                                    <option value="">Coordinate axis</option>
+                                    {datumOptions.map((d) => (
+                                        <option key={d.id} value={d.id}>
+                                            {d.name}
+                                        </option>
+                                    ))}
                                 </select>
                             </label>
                         </>
@@ -4045,11 +4206,17 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                     </label>
                     <label className="cad-feature-dialog-row">
                         Thread
-                        <select value={holeThread} onChange={(e) => setHoleThread(e.target.value as 'none' | 'cosmetic')}>
+                        <select value={holeThread} onChange={(e) => setHoleThread(e.target.value as 'none' | 'cosmetic' | 'modeled')}>
                             <option value="none">None</option>
                             <option value="cosmetic">Cosmetic</option>
+                            <option value="modeled">Modeled</option>
                         </select>
                     </label>
+                    {holeThread === 'modeled' && (holeType !== 'simple' || holeDepth.trim() === '' || holeTaperAngle.trim() !== '') && (
+                        <span className="cad-feature-dialog-label">
+                            Modeled threads require a simple blind hole (set a depth, no taper).
+                        </span>
+                    )}
                     {props.onPreviewChange !== undefined && (
                         <label className="cad-feature-dialog-row check">
                             <input type="checkbox" checked={previewEnabled} onChange={(e) => setPreviewEnabled(e.target.checked)} />
@@ -4090,11 +4257,25 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                             ))}
                         </select>
                     </NukeFormRow>
+                    <label className="cad-feature-dialog-row check">
+                        <input type="checkbox" checked={primitiveSubtractive} onChange={(e) => setPrimitiveSubtractive(e.target.checked)} />
+                        Subtractive (cut from the target body)
+                    </label>
                     {props.onPreviewChange !== undefined && (
                         <label className="cad-feature-dialog-row check">
-                            <input type="checkbox" checked={previewEnabled} onChange={(e) => setPreviewEnabled(e.target.checked)} />
+                            <input
+                                type="checkbox"
+                                checked={previewEnabled}
+                                disabled={primitiveSubtractive}
+                                onChange={(e) => setPreviewEnabled(e.target.checked)}
+                            />
                             Preview (ghosted build)
                         </label>
+                    )}
+                    {primitiveSubtractive && (
+                        <span className="cad-feature-dialog-label">
+                            Subtractive primitives need the live target body and cannot be previewed.
+                        </span>
                     )}
                 </>
             )}
@@ -4240,7 +4421,7 @@ interface HoleDialogInputs {
     readonly counterdrillDepthText: string;
     readonly taperAngleText: string;
     readonly drillPointAngleText: string;
-    readonly thread: 'none' | 'cosmetic';
+    readonly thread: 'none' | 'cosmetic' | 'modeled';
 }
 
 /**
@@ -4311,8 +4492,18 @@ function validateHoleDialogInputs(inputs: HoleDialogInputs): DialogValidation<Ho
         }
         params.drillPointAngle = drillPoint;
     }
+    if (inputs.thread === 'modeled') {
+        // Modeled threads sweep the ISO profile as a helical cut: simple
+        // blind holes only (a set depth, no taper/counterbore family).
+        const modeledEligible = inputs.holeType === 'simple' && inputs.depthText.trim() !== '' && inputs.taperAngleText.trim() === '';
+        if (!modeledEligible) {
+            return { ok: false, error: 'Modeled threads require a simple blind hole (set a depth, no taper).' };
+        }
+    }
     if (inputs.thread !== 'none') {
-        params.thread = inputs.thread;
+        // 'modeled' lands with the schema wave (agent A2); the field name is
+        // already contractual, so emit it through the untyped channel.
+        (params as unknown as Record<string, unknown>).thread = inputs.thread;
     }
     return { ok: true, params };
 }
