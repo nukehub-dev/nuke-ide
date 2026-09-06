@@ -29,6 +29,7 @@ import { describe, it, expect } from 'vitest';
 import { createHash } from 'node:crypto';
 import {
     CadDocumentStore,
+    DOCUMENT_HISTORY_DEPTH,
     MemoryResultCache,
     PartialRebuildTracker,
     RESULT_CACHE_BUILDER_VERSION,
@@ -54,6 +55,7 @@ import {
 } from './cad-document-store';
 import {
     NUKE_CAD_SCHEMA_VERSION,
+    validateNukeCadDocument,
     type NukeCadDocument,
     type CurveDef,
     type DocumentUnits,
@@ -2291,5 +2293,154 @@ describe('assembly mutations (Wave B2)', () => {
         expect(store.addMate('fixed', a, ca, b, cb).success).toBe(true);
         expect(assemblyDof(store.document!)).toBe(0);
         void b;
+    });
+});
+
+describe('undo/redo history', () => {
+    function historyStore(): CadDocumentStore {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        return store;
+    }
+
+    it('reports empty edges with no document and no history', () => {
+        const store = new CadDocumentStore();
+        expect(store.canUndo).toBe(false);
+        expect(store.canRedo).toBe(false);
+        expect(store.undo().success).toBe(false);
+        expect(store.redo().success).toBe(false);
+        store.createDocument('test');
+        expect(store.canUndo).toBe(false);
+        expect(store.canRedo).toBe(false);
+        expect(store.undo().success).toBe(false);
+        expect(store.redo().success).toBe(false);
+    });
+
+    it('round-trips a parameter mutation through undo/redo', () => {
+        const store = historyStore();
+        store.setParameter('width', 10);
+        store.setParameter('width', 20);
+        expect(store.canUndo).toBe(true);
+        expect(store.canRedo).toBe(false);
+        expect(store.undo().success).toBe(true);
+        expect(store.document?.parameters.width).toBe(10);
+        expect(store.canUndo).toBe(true);
+        expect(store.canRedo).toBe(true);
+        // The restored document still validates.
+        expect(validateNukeCadDocument(store.document!).valid).toBe(true);
+        expect(store.redo().success).toBe(true);
+        expect(store.document?.parameters.width).toBe(20);
+        expect(store.canRedo).toBe(false);
+        expect(validateNukeCadDocument(store.document!).valid).toBe(true);
+    });
+
+    it('marks dirty on undo/redo even after save and emits change events', () => {
+        const store = historyStore();
+        store.setParameter('width', 10);
+        store.markSaved();
+        expect(store.dirty).toBe(false);
+        let changes = 0;
+        store.onChange(() => changes++);
+        expect(store.undo().success).toBe(true);
+        expect(store.dirty).toBe(true);
+        expect(changes).toBe(1);
+        expect(store.redo().success).toBe(true);
+        expect(store.dirty).toBe(true);
+        expect(changes).toBe(2);
+    });
+
+    it('restores derived drawing counters alongside the document', () => {
+        const store = historyStore();
+        expect(store.drawingVersion).toBe(0);
+        expect(store.addSheet('A4').success).toBe(true);
+        expect(store.drawingVersion).toBe(1);
+        expect(store.document?.drawings).toHaveLength(1);
+        expect(store.undo().success).toBe(true);
+        expect(store.document?.drawings ?? []).toHaveLength(0);
+        expect(store.drawingVersion).toBe(0);
+        expect(validateNukeCadDocument(store.document!).valid).toBe(true);
+        expect(store.redo().success).toBe(true);
+        expect(store.document?.drawings).toHaveLength(1);
+        expect(store.drawingVersion).toBe(1);
+    });
+
+    it('clears the redo stack on a new committed mutation', () => {
+        const store = historyStore();
+        store.setParameter('width', 10);
+        store.setParameter('width', 20);
+        expect(store.undo().success).toBe(true);
+        expect(store.canRedo).toBe(true);
+        store.setParameter('height', 5);
+        expect(store.canRedo).toBe(false);
+        expect(store.redo().success).toBe(false);
+        expect(store.document?.parameters).toEqual({ width: 10, height: 5 });
+    });
+
+    it('caps depth at DOCUMENT_HISTORY_DEPTH, dropping the oldest entries', () => {
+        const store = historyStore();
+        const total = DOCUMENT_HISTORY_DEPTH + 5;
+        for (let i = 1; i <= total; i++) {
+            expect(store.setParameter('n', i).success).toBe(true);
+        }
+        let undos = 0;
+        while (store.canUndo) {
+            expect(store.undo().success).toBe(true);
+            undos++;
+        }
+        expect(undos).toBe(DOCUMENT_HISTORY_DEPTH);
+        // The five oldest mutations were evicted: the earliest restorable
+        // snapshot predates the 6th mutation, holding the 5th value.
+        expect(store.document?.parameters.n).toBe(5);
+        expect(store.canRedo).toBe(true);
+    });
+
+    it('resets both stacks on loadDocument and createDocument', () => {
+        const store = historyStore();
+        store.setParameter('width', 10);
+        expect(store.canUndo).toBe(true);
+        expect(store.loadDocument(minimalDoc()).success).toBe(true);
+        expect(store.canUndo).toBe(false);
+        expect(store.canRedo).toBe(false);
+        store.setParameter('width', 10);
+        expect(store.undo().success).toBe(true);
+        expect(store.canRedo).toBe(true);
+        expect(store.createDocument('fresh').success).toBe(true);
+        expect(store.canUndo).toBe(false);
+        expect(store.canRedo).toBe(false);
+    });
+
+    it('leaves history untouched on failed mutations', () => {
+        const store = historyStore();
+        store.addBody('Body 1');
+        store.upsertSketch(sketch('s1'));
+        store.addFeature(feature('pad1', 'pad', [], 's1'));
+        store.markSaved();
+        const failed = store.deleteSketch('s1');
+        expect(failed.success).toBe(false);
+        expect(store.dirty).toBe(false);
+        // The failed delete recorded nothing: undo removes the pad feature.
+        expect(store.undo().success).toBe(true);
+        expect(store.document?.features).toHaveLength(0);
+        expect(store.document?.sketches.map((s) => s.id)).toEqual(['s1']);
+        expect(validateNukeCadDocument(store.document!).valid).toBe(true);
+        expect(store.redo().success).toBe(true);
+        expect(store.document?.features.map((f) => f.id)).toEqual(['pad1']);
+    });
+
+    it('undoes multi-step body/sketch/feature sequences in order', () => {
+        const store = historyStore();
+        store.addBody('Body 1');
+        store.upsertSketch(sketch('s1'));
+        store.addFeature(feature('pad1', 'pad', [], 's1'));
+        expect(store.undo().success).toBe(true);
+        expect(store.undo().success).toBe(true);
+        expect(store.document?.features).toHaveLength(0);
+        expect(store.document?.sketches).toHaveLength(0);
+        expect(store.document?.bodies).toHaveLength(1);
+        expect(store.undo().success).toBe(true);
+        expect(store.document?.bodies).toHaveLength(0);
+        expect(store.canUndo).toBe(false);
+        expect(store.redo().success).toBe(true);
+        expect(store.document?.bodies).toHaveLength(1);
     });
 });

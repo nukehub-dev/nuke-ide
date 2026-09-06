@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- nuke-cad: **undo/redo** — the document store keeps snapshot history (depth 100) over committed mutations, with toolbar buttons and `Ctrl+Z` /
+  `Ctrl+Shift+Z` / `Ctrl+Y` following the viewport key scoping rules.
+  Granularity is one committed mutation per step; sketch strokes undo as a
+  unit on save.
+
 - nuke-cad: **assemblies** — multi-part documents with instances (same-doc
   bodies, `.nuke-cad` paths, STEP/IGES/BREP files), connector-frame mates
   solved closed-form from an explicitly grounded instance, per-instance

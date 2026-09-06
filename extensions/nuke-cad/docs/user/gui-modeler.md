@@ -758,6 +758,13 @@ drawing of the document (A4/A3 landscape):
 Export SVG (native) or DXF (visible/hidden/section/dimension layers) from
 the sheet. PDF export is not in this release.
 
+## Undo and redo
+
+The document toolbar offers **Undo** (`Ctrl+Z`) and **Redo** (`Ctrl+Shift+Z`
+/ `Ctrl+Y`) over committed document changes (depth 100). Sketch strokes are
+not individual steps — one undo step covers everything saved with the
+sketch. Undo and redo rebuild exactly like a normal edit.
+
 ## Save and rebuild
 
 - **Save CAD Document** writes the JSON file. Saving does not rebuild.

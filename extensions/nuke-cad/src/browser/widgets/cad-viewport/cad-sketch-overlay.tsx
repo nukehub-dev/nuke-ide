@@ -284,6 +284,78 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
         controller.setAutoDimensionEnabled(sketchAutoDimension);
     }, [controller, sketchAutoDimension]);
 
+    // Document undo/redo shortcuts (Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y), scoped
+    // exactly like the other viewport keys: window CAPTURE phase (Theia's
+    // KeybindingRegistry matches from a document-capture listener and would
+    // otherwise eat the event), a viewport focus guard (events originating
+    // outside `.cad-viewport` propagate to Theia untouched), and the
+    // pick-mode/dialog/measure/text-field guards. Claimed only when the action
+    // is enabled — a disabled Undo/Redo still propagates to Theia. Skipped
+    // while a sketch session is active: sessions edit in memory and commit
+    // through the store on save, so a store undo under an open session would
+    // desync it (the Document toolbar itself is hidden while sketching).
+    React.useEffect(() => {
+        const onUndoRedoKey = (e: KeyboardEvent): void => {
+            if (!(e.ctrlKey || e.metaKey) || e.altKey) {
+                return;
+            }
+            const key = e.key.toLowerCase();
+            const isUndo = key === 'z' && !e.shiftKey;
+            const isRedo = (key === 'z' && e.shiftKey) || key === 'y';
+            if (!isUndo && !isRedo) {
+                return;
+            }
+            const target = e.target;
+            if (!(target instanceof Element) || target.closest('.cad-viewport') === null) {
+                return;
+            }
+            if (
+                target instanceof HTMLInputElement ||
+                target instanceof HTMLTextAreaElement ||
+                target instanceof HTMLSelectElement ||
+                (target instanceof HTMLElement && target.isContentEditable)
+            ) {
+                return;
+            }
+            if (
+                controller.isActive ||
+                setupVisible ||
+                featureCreationType !== undefined ||
+                editFeature !== undefined ||
+                facePickMode !== undefined ||
+                dressUpPickMode !== undefined ||
+                holePickMode === true ||
+                curvePickMode === true ||
+                measureActive === true
+            ) {
+                return;
+            }
+            if ((isUndo && !documentStore.canUndo) || (isRedo && !documentStore.canRedo)) {
+                return;
+            }
+            e.preventDefault();
+            e.stopPropagation();
+            if (isUndo) {
+                documentStore.undo();
+            } else {
+                documentStore.redo();
+            }
+        };
+        window.addEventListener('keydown', onUndoRedoKey, true);
+        return () => window.removeEventListener('keydown', onUndoRedoKey, true);
+    }, [
+        controller,
+        setupVisible,
+        featureCreationType,
+        editFeature,
+        facePickMode,
+        dressUpPickMode,
+        holePickMode,
+        curvePickMode,
+        measureActive,
+        documentStore
+    ]);
+
     const active = controller.isActive;
     const tool = controller.getTool();
     const construction = controller.getConstruction();
@@ -1188,6 +1260,20 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
                     icon: 'codicon-save',
                     disabled: props.onSaveDocument === undefined || !props.documentStore.dirty,
                     onClick: () => props.onSaveDocument?.()
+                },
+                {
+                    id: 'undo',
+                    label: 'Undo (Ctrl+Z)',
+                    icon: 'codicon-undo',
+                    disabled: !props.documentStore.canUndo,
+                    onClick: () => props.documentStore.undo()
+                },
+                {
+                    id: 'redo',
+                    label: 'Redo (Ctrl+Shift+Z / Ctrl+Y)',
+                    icon: 'codicon-redo',
+                    disabled: !props.documentStore.canRedo,
+                    onClick: () => props.documentStore.redo()
                 },
                 {
                     id: 'rebuild',

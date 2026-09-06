@@ -114,6 +114,20 @@ export interface DocumentSelection {
     readonly selectedCurveId?: string;
 }
 
+/** Maximum number of pre-mutation snapshots kept for undo (oldest dropped). */
+export const DOCUMENT_HISTORY_DEPTH = 100;
+
+/**
+ * One undo/redo history entry: the pre-mutation document plus the derived
+ * `drawingVersion` counter. Snapshots cover derived counters automatically —
+ * undoing an `addSheet`-style mutation restores both the `drawings` block and
+ * the counter, so the drawing widget never observes a document/counter skew.
+ */
+interface DocumentHistoryEntry {
+    readonly document: NukeCadDocument;
+    readonly drawingVersion: number;
+}
+
 interface StoreState {
     document?: NukeCadDocument;
     uri?: string;
@@ -614,6 +628,24 @@ export class CadDocumentStore {
 
     private readonly listeners = new Set<DocumentStoreListener>();
 
+    /**
+     * Snapshot-based undo/redo history.
+     *
+     * Every successful committed mutation pushes the pre-mutation document;
+     * `undo()` swaps the live document for the newest entry (pushing the live
+     * document onto the redo stack) and `redo()` reverses it. Depth is capped
+     * at `DOCUMENT_HISTORY_DEPTH` (oldest dropped); any new committed mutation
+     * clears the redo stack; `loadDocument`/`createDocument` reset both stacks.
+     *
+     * Granularity boundary: sketch sessions edit primitives in memory and only
+     * reach the store through `upsertSketch` on save, so undo granularity is
+     * committed store mutations — one undo step per saved sketch, never per
+     * in-progress stroke. (No sketch-session.ts changes: the boundary falls
+     * out of the commit path.)
+     */
+    private undoStack: DocumentHistoryEntry[] = [];
+    private redoStack: DocumentHistoryEntry[] = [];
+
     /** Subscribe to store change events. Returns an unsubscribe function. */
     onChange(listener: DocumentStoreListener): () => void {
         this.listeners.add(listener);
@@ -641,6 +673,16 @@ export class CadDocumentStore {
     /** Whether the document has unsaved changes. */
     get dirty(): boolean {
         return this.state.dirty;
+    }
+
+    /** True when at least one committed mutation can be undone. */
+    get canUndo(): boolean {
+        return this.state.document !== undefined && this.undoStack.length > 0;
+    }
+
+    /** True when at least one undone mutation can be redone. */
+    get canRedo(): boolean {
+        return this.state.document !== undefined && this.redoStack.length > 0;
     }
 
     /**
@@ -693,6 +735,8 @@ export class CadDocumentStore {
         if (!validation.valid) {
             return { success: false, error: formatIssues(validation.issues), issues: validation.issues };
         }
+        this.undoStack = [];
+        this.redoStack = [];
         this.state = {
             document,
             uri: undefined,
@@ -731,6 +775,8 @@ export class CadDocumentStore {
         if (!validation.valid) {
             return { success: false, error: formatIssues(validation.issues), issues: validation.issues };
         }
+        this.undoStack = [];
+        this.redoStack = [];
         this.state = {
             document,
             uri: undefined,
@@ -762,6 +808,62 @@ export class CadDocumentStore {
             return { success: false, error: check.error, issues: check.issues };
         }
         this.state = { ...this.state, dirty: false };
+        this.emitChange();
+        return { success: true };
+    }
+
+    /**
+     * Restore the pre-mutation snapshot of the most recent committed mutation.
+     *
+     * The live document is pushed onto the redo stack first. Like a normal
+     * mutation the restore marks the document dirty, re-validates the restored
+     * document, and emits a change event — downstream rebuild scheduling
+     * (`rebuildOnEdit`) observes the same store-change signal either way.
+     * Selection and build outputs (`featureResults`, `projectedPrimitives`,
+     * `referenceResults`) are viewport/build state and are left untouched.
+     */
+    undo(): DocumentMutationResult {
+        if (this.state.document === undefined) {
+            return { success: false, error: 'No active document' };
+        }
+        const previous = this.undoStack.pop();
+        if (previous === undefined) {
+            return { success: false, error: 'Nothing to undo' };
+        }
+        this.redoStack.push({ document: cloneDocument(this.state.document), drawingVersion: this.state.drawingVersion });
+        if (this.redoStack.length > DOCUMENT_HISTORY_DEPTH) {
+            this.redoStack.splice(0, this.redoStack.length - DOCUMENT_HISTORY_DEPTH);
+        }
+        return this.restoreHistory(previous);
+    }
+
+    /**
+     * Re-apply the most recently undone mutation.
+     *
+     * The live document is pushed back onto the undo stack. Otherwise mirrors
+     * `undo()`: dirty flag set, restored document validated, change emitted.
+     */
+    redo(): DocumentMutationResult {
+        if (this.state.document === undefined) {
+            return { success: false, error: 'No active document' };
+        }
+        const next = this.redoStack.pop();
+        if (next === undefined) {
+            return { success: false, error: 'Nothing to redo' };
+        }
+        this.undoStack.push({ document: cloneDocument(this.state.document), drawingVersion: this.state.drawingVersion });
+        if (this.undoStack.length > DOCUMENT_HISTORY_DEPTH) {
+            this.undoStack.splice(0, this.undoStack.length - DOCUMENT_HISTORY_DEPTH);
+        }
+        return this.restoreHistory(next);
+    }
+
+    private restoreHistory(entry: DocumentHistoryEntry): DocumentMutationResult {
+        const validation = validateNukeCadDocument(entry.document);
+        if (!validation.valid) {
+            return { success: false, error: formatIssues(validation.issues), issues: validation.issues };
+        }
+        this.state = { ...this.state, document: cloneDocument(entry.document), dirty: true, drawingVersion: entry.drawingVersion };
         this.emitChange();
         return { success: true };
     }
@@ -1916,6 +2018,16 @@ export class CadDocumentStore {
         if (!validation.valid) {
             return { success: false, error: formatIssues(validation.issues), issues: validation.issues };
         }
+        // Record the pre-mutation snapshot for undo (failed validations above
+        // never touch history) and drop any redo future: a new committed
+        // mutation invalidates it. Depth capped at DOCUMENT_HISTORY_DEPTH.
+        if (this.state.document !== undefined) {
+            this.undoStack.push({ document: cloneDocument(this.state.document), drawingVersion: this.state.drawingVersion });
+            if (this.undoStack.length > DOCUMENT_HISTORY_DEPTH) {
+                this.undoStack.splice(0, this.undoStack.length - DOCUMENT_HISTORY_DEPTH);
+            }
+        }
+        this.redoStack = [];
         let selection = this.state.selection;
         if (
             options?.clearSelection?.selectedSketchId !== undefined &&

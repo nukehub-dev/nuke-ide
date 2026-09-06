@@ -519,7 +519,14 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   performs immutable updates validated against the schema, tracks dirty state,
   sketch/feature selection, body selection, and per-feature build results.
   Sketch-local parameters are merged into document-level parameters when a sketch
-  is saved.
+  is saved. The store keeps snapshot undo history (pre-mutation documents,
+  depth 100, redo cleared on new mutation, reset on load/create): `undo()` /
+  `redo()` / `canUndo` / `canRedo` with the same dirty/validation/change
+  effects as a normal mutation, so the existing rebuild scheduling observes
+  them unchanged. Granularity is committed store mutations — sketch strokes
+  only reach the store on save. Toolbar Undo/Redo buttons plus `Ctrl+Z` /
+  `Ctrl+Shift+Z` / `Ctrl+Y` follow the viewport key scoping rules and stay
+  out of active sketch sessions (they would desync the in-memory session).
 - `.nuke-cad` v2 introduced **bodies** and **boolean features**; v3 adds a
   top-level **`curves`** array. Every solid feature (`pad`/`pocket`/`revolve`/
   `groove`, plus `sweep`/`pipe` which also reference a curve, `loft`/
