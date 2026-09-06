@@ -1,17 +1,29 @@
-"""
-DAGMC to VTK converter with MOAB-based graveyard filtering.
+"""DAGMC to VTK converters with MOAB-based graveyard filtering.
 
-This module converts DAGMC .h5m files to VTK format using pymoab,
-with special handling to filter out graveyard surfaces that can
-obscure the actual geometry.
+Each converter turns a DAGMC ``.h5m`` file into a VTK dataset that a
+client-side viewer can render directly (no trame/ParaView server):
 
-When pydagmc is available, it also supports:
-- Multi-block VTK export with volume/material/group metadata
-- Per-volume extraction for selective visualization
-- Model info extraction (volumes, materials, groups)
+- single-file VTK mesh (``convert_h5m_to_vtk`` / ``convert_h5m_to_vtk_cached``)
+- multi-block ``.vtm`` dataset, one block per volume
+  (``convert_h5m_to_multiblock_vtk``)
+- per-volume ``.vtu`` extract (``convert_h5m_volume_to_vtk``)
+- model metadata for a client block toggle (``get_dagmc_model_info``)
+- graveyard-cell filtering for legacy VTK meshes (``filter_graveyard``)
+
+Heavy dependencies (``pymoab``, ``pydagmc``, ``vtk``) are imported lazily
+inside :func:`_load_pymoab` / :func:`_load_pydagmc` / :func:`_load_vtk` so a
+missing optional dependency surfaces as a clean :class:`DagmcError` instead
+of a traceback; command handlers convert these to the single-JSON-object
+contract. Geometry construction is numpy-only (unit-testable without
+``vtk``); ``vtk`` is used only for the final file write. Server-side
+filtering limits (``max_cell_area`` / ``max_edge_length``) are preserved.
+
+All public functions raise :class:`DagmcError` with a human-readable
+message on failure. Returned shapes and VTK array names are unchanged.
 """
 
 import hashlib
+import os
 import shutil
 import sys
 import tempfile
@@ -19,29 +31,159 @@ from pathlib import Path
 from typing import Any
 
 
+class DagmcError(Exception):
+    """Raised for all DAGMC converter failures (bad input, missing file,
+    missing optional dependency, empty result)."""
+
+
+try:
+    import importlib.util as _importlib_util
+
+    HAS_VTK = _importlib_util.find_spec("vtk") is not None
+    HAS_PYMOAB = _importlib_util.find_spec("pymoab") is not None
+    HAS_PYDAGMC = _importlib_util.find_spec("pydagmc") is not None
+except Exception:  # pragma: no cover - importlib is always available
+    HAS_VTK = False
+    HAS_PYMOAB = False
+    HAS_PYDAGMC = False
+
+
+def _load_vtk():
+    """Lazily import ``vtk`` and return ``(vtk, numpy_support)``.
+
+    Raises :class:`DagmcError` when vtk is not installed so command
+    handlers can report a clean JSON error instead of a traceback.
+    """
+    if not HAS_VTK:
+        raise DagmcError("vtk not installed (required for VTK export)")
+    try:
+        import vtk
+        from vtk.util import numpy_support
+    except ImportError as exc:
+        raise DagmcError(f"vtk not installed (required for VTK export): {exc}") from None
+    return vtk, numpy_support
+
+
+def _load_pymoab():
+    """Lazily import ``pymoab`` and return ``(core, types)``.
+
+    Raises :class:`DagmcError` when pymoab is not installed so command
+    handlers can report a clean JSON error instead of a traceback.
+    """
+    if not HAS_PYMOAB:
+        raise DagmcError("pymoab not available (required for DAGMC conversion)")
+    try:
+        from pymoab import core, types
+    except ImportError as exc:
+        raise DagmcError(f"pymoab not available (required for DAGMC conversion): {exc}") from None
+    return core, types
+
+
+def _load_pydagmc():
+    """Lazily import ``pydagmc`` and return ``(dagmc, pymoab_types)``.
+
+    Raises :class:`DagmcError` when pydagmc (or its pymoab companion) is
+    not installed so command handlers can report a clean JSON error
+    instead of a traceback.
+    """
+    if not HAS_PYDAGMC:
+        raise DagmcError("pydagmc not available (required for DAGMC volume/model inspection)")
+    try:
+        import pydagmc as dagmc
+        from pymoab import types
+    except ImportError as exc:
+        raise DagmcError(
+            f"pydagmc not available (required for DAGMC volume/model inspection): {exc}"
+        ) from None
+    return dagmc, types
+
+
+def _require_h5m_path(h5m_path) -> Path:
+    """Validate a DAGMC input path.
+
+    Input: ``h5m_path`` (path to the ``.h5m`` file). Output: the path as a
+    :class:`pathlib.Path`. Raises :class:`DagmcError` for an empty/invalid
+    path or a missing file.
+    """
+    if not h5m_path or not isinstance(h5m_path, (str, os.PathLike)):
+        raise DagmcError(f"invalid DAGMC file path: {h5m_path!r}")
+    path = Path(h5m_path)
+    if not path.is_file():
+        raise DagmcError(f"DAGMC file not found: {path}")
+    return path
+
+
+def _require_vtk_path(vtk_path) -> Path:
+    """Validate a VTK input path.
+
+    Input: ``vtk_path`` (path to the ``.vtk`` file). Output: the path as a
+    :class:`pathlib.Path`. Raises :class:`DagmcError` for an empty/invalid
+    path or a missing file.
+    """
+    if not vtk_path or not isinstance(vtk_path, (str, os.PathLike)):
+        raise DagmcError(f"invalid VTK file path: {vtk_path!r}")
+    path = Path(vtk_path)
+    if not path.is_file():
+        raise DagmcError(f"VTK file not found: {path}")
+    return path
+
+
+def _require_volume_id(volume_id) -> int:
+    """Validate a DAGMC volume id.
+
+    Input: ``volume_id`` (int, or an integral string such as ``"3"``).
+    Output: the id as an ``int``. Raises :class:`DagmcError` for
+    non-integer or non-positive values.
+    """
+    if isinstance(volume_id, bool):
+        raise DagmcError(f"volume_id must be a positive integer, got {volume_id!r}")
+    try:
+        number = int(volume_id)
+    except (TypeError, ValueError):
+        raise DagmcError(f"volume_id must be a positive integer, got {volume_id!r}") from None
+    if isinstance(volume_id, float) and volume_id != number:
+        raise DagmcError(f"volume_id must be a positive integer, got {volume_id!r}")
+    if number <= 0:
+        raise DagmcError(f"volume_id must be a positive integer, got {volume_id!r}")
+    return number
+
+
+def _require_positive_number(name, value) -> float:
+    """Validate a positive-numeric converter limit.
+
+    Input: ``name`` (limit name for messages), ``value`` (int/float budget).
+    Output: the value as a ``float``. Raises :class:`DagmcError` for
+    non-numeric or non-positive values. ``None`` is rejected: unlike the
+    OpenMC track limits, the graveyard thresholds always need a value
+    (callers pass the documented defaults).
+    """
+    if isinstance(value, bool):
+        raise DagmcError(f"{name} must be a positive number, got {value!r}")
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        raise DagmcError(f"{name} must be a positive number, got {value!r}") from None
+    if not number > 0:
+        raise DagmcError(f"{name} must be a positive number, got {value!r}")
+    return number
+
+
 def convert_h5m_to_vtk(
     h5m_path: str, output_dir: str = None, return_count: bool = False
 ) -> str | tuple[str, int]:
+    """Convert a DAGMC .h5m file to a single-file VTK mesh via pymoab.
+
+    Inputs: ``h5m_path`` (path to the ``.h5m`` file), optional
+    ``output_dir`` (destination directory, default: beside the input),
+    ``return_count`` (also return the MOAB triangle count).
+    Output: the ``.vtk`` path string, or ``(path, triangle_count)`` when
+    ``return_count`` is true. Graveyard filtering is NOT applied here —
+    see :func:`filter_graveyard` / :func:`convert_h5m_to_vtk_cached`.
+    Raises :class:`DagmcError` for a bad path, a missing file, or a
+    missing pymoab.
     """
-    Convert DAGMC .h5m file to VTK using pymoab.
-
-    This function converts the DAGMC file to VTK and applies filtering
-    to remove graveyard surfaces (large bounding boxes) while preserving
-    the actual geometry surfaces.
-
-    Args:
-        h5m_path: Path to the input .h5m file
-        output_dir: Optional directory for output file. If None, uses the same directory as input.
-        return_count: If True, also return the number of triangles.
-
-    Returns:
-        Path to the generated .vtk file, or (path, triangle_count) if return_count=True.
-    """
-    from pymoab import core, types
-
-    h5m_path = Path(h5m_path)
-    if not h5m_path.exists():
-        raise FileNotFoundError(f"DAGMC file not found: {h5m_path}")
+    h5m_path = _require_h5m_path(h5m_path)
+    core, types = _load_pymoab()
 
     # Determine output path
     if output_dir is None:
@@ -70,18 +212,22 @@ def convert_h5m_to_vtk(
 
 
 def _volume_to_grid_numpy(volume, model, types, group_map):
-    """
-    Convert a single pydagmc volume to a VTK unstructured grid using numpy.
+    """Convert a single pydagmc volume to a VTK unstructured grid.
 
-    Uses bulk MOAB queries and numpy vectorized deduplication instead of
-    per-triangle Python loops for much better performance.
+    Bulk MOAB queries plus numpy vectorized deduplication are used instead
+    of per-triangle Python loops.
 
-    Returns:
-        (vtkUnstructuredGrid, num_unique_vertices, num_triangles) or None if empty.
+    Inputs: ``volume`` (pydagmc volume), ``model`` (pydagmc model, for
+    ``model.mb`` MOAB access), ``types`` (pymoab types module, for
+    ``MBTRI``), ``group_map`` (group name -> list of volume ids).
+    Output: ``(vtkUnstructuredGrid, num_unique_vertices, num_triangles)``
+    or ``None`` when the volume holds no triangles. Cell-data arrays are
+    ``volume_id`` (int per cell), ``material`` and ``groups`` (strings).
+    Raises :class:`DagmcError` when vtk is not installed.
     """
     import numpy as np
-    import vtk
-    from vtk.util import numpy_support
+
+    vtk, numpy_support = _load_vtk()
 
     # Collect all triangle handles for this volume
     all_tris = []
@@ -157,37 +303,30 @@ def _volume_to_grid_numpy(volume, model, types, group_map):
 
 
 def convert_h5m_volume_to_vtk(h5m_path: str, volume_id: int, output_path: str = None) -> str:
+    """Extract a single DAGMC volume to a ``.vtu`` file via pydagmc.
+
+    Only the triangles belonging to the requested volume are written,
+    producing a clean file for isolated visualization.
+
+    Inputs: ``h5m_path`` (path to the ``.h5m`` file), ``volume_id``
+    (positive integer volume id), optional ``output_path`` (destination;
+    a ``.vtk`` suffix is normalized to ``.vtu`` for the XML writer;
+    default: the system temp directory).
+    Output: the ``.vtu`` path string. Cell-data arrays are ``volume_id``,
+    ``material`` and ``groups`` (same names as the multiblock blocks).
+    Raises :class:`DagmcError` for a bad path/volume id, a missing file,
+    missing pydagmc/vtk, an unknown volume, or a volume with no triangles.
     """
-    Convert a single DAGMC volume to VTK format.
-
-    This extracts just the triangles belonging to a specific volume,
-    creating a clean VTK file for isolated visualization.
-
-    Args:
-        h5m_path: Path to the input .h5m file
-        volume_id: ID of the volume to extract
-        output_path: Optional output path. If None, uses temp directory.
-
-    Returns:
-        Path to the generated .vtk file
-    """
-    h5m_path = Path(h5m_path)
-    if not h5m_path.exists():
-        raise FileNotFoundError(f"DAGMC file not found: {h5m_path}")
-
-    # Load with pydagmc
-    try:
-        import pydagmc as dagmc
-        from pymoab import types
-    except ImportError as e:
-        raise ImportError(f"pydagmc not available: {e}")
+    h5m_path = _require_h5m_path(h5m_path)
+    volume_id = _require_volume_id(volume_id)
+    dagmc, types = _load_pydagmc()
 
     model = dagmc.Model(str(h5m_path))
 
     # Get the volume to extract
     volume = model.volumes_by_id.get(volume_id)
     if volume is None:
-        raise ValueError(f"Volume {volume_id} not found in {h5m_path}")
+        raise DagmcError(f"Volume {volume_id} not found in {h5m_path}")
 
     print(f"[DAGMC] Extracting volume {volume_id} ({volume.num_triangles} triangles)...")
 
@@ -200,7 +339,7 @@ def convert_h5m_volume_to_vtk(h5m_path: str, volume_id: int, output_path: str = 
 
     result = _volume_to_grid_numpy(volume, model, types, group_map)
     if result is None:
-        raise ValueError(f"Volume {volume_id} has no triangles")
+        raise DagmcError(f"Volume {volume_id} has no triangles")
 
     grid, n_verts, n_tris = result
     print(f"[DAGMC]   Unique vertices: {n_verts}, Triangles: {n_tris}")
@@ -215,7 +354,7 @@ def convert_h5m_volume_to_vtk(h5m_path: str, volume_id: int, output_path: str = 
             output_path = output_path.with_suffix(".vtu")
 
     # Write to file
-    import vtk
+    vtk, _ = _load_vtk()
 
     writer = vtk.vtkXMLUnstructuredGridWriter()
     writer.SetFileName(str(output_path))
@@ -229,32 +368,26 @@ def convert_h5m_volume_to_vtk(h5m_path: str, volume_id: int, output_path: str = 
 def convert_h5m_to_multiblock_vtk(
     h5m_path: str, output_dir: str = None, include_graveyard: bool = False
 ) -> dict[str, Any]:
+    """Convert a DAGMC .h5m file to a VTK multi-block ``.vtm`` via pydagmc.
+
+    Each volume becomes a separate block with cell-data arrays for
+    ``volume_id``, ``material``, and ``groups`` membership, enabling
+    per-volume and per-material selection in the client viewer.
+
+    Inputs: ``h5m_path`` (path to the ``.h5m`` file), optional
+    ``output_dir`` (destination directory, default: the temp-dir
+    ``nuke-visualizer/dagmc`` cache), ``include_graveyard`` (keep the
+    ``material='Graveyard'`` volume, default False).
+    Output: dict with ``vtm_path``, ``volume_info`` (one entry per block:
+    ``id``, ``material``, ``numTriangles``, ``numVertices``, ``groups``,
+    ``blockIndex``, ``selector``), ``materials`` (material name -> volume
+    id list) and ``groups`` (group name -> volume id list).
+    Raises :class:`DagmcError` for a bad path, a missing file, or missing
+    pydagmc/vtk.
     """
-    Convert DAGMC .h5m to a VTK multi-block dataset using pydagmc.
-
-    Each volume becomes a separate block in the multi-block dataset,
-    with metadata arrays for volume_id, material, and group membership.
-    This enables per-volume and per-material selection in ParaView/Trame.
-
-    Args:
-        h5m_path: Path to the input .h5m file
-        output_dir: Optional directory for output file. If None, uses temp directory.
-        include_graveyard: Whether to include the graveyard volume (material='Graveyard')
-
-    Returns:
-        Dict with 'vtm_path', 'volume_info', 'materials', 'groups'
-    """
-    import vtk
-
-    h5m_path = Path(h5m_path)
-    if not h5m_path.exists():
-        raise FileNotFoundError(f"DAGMC file not found: {h5m_path}")
-
-    try:
-        import pydagmc as dagmc
-        from pymoab import types
-    except ImportError as e:
-        raise ImportError(f"pydagmc not available: {e}")
+    h5m_path = _require_h5m_path(h5m_path)
+    dagmc, types = _load_pydagmc()
+    vtk, _ = _load_vtk()
 
     if output_dir is None:
         output_dir = Path(tempfile.gettempdir()) / "nuke-visualizer" / "dagmc"
@@ -342,29 +475,42 @@ def convert_h5m_to_multiblock_vtk(
 
 
 def get_dagmc_model_info(h5m_path: str) -> dict[str, Any]:
+    """Extract model metadata from a DAGMC .h5m file via pydagmc.
+
+    The result carries the complete block meta a client needs for a
+    volume/material/group toggle without opening the converted dataset:
+    every volume entry holds its ``id``, ``name``, ``selector``, material
+    name and group names; ``materials``/``groups`` map each name to its
+    volume ids. Volume ``name``/``selector`` follow the multiblock naming
+    convention (``Volume_<id>`` / ``/Root/Volume_<id>``), so entries
+    correlate with :func:`convert_h5m_to_multiblock_vtk` blocks by id.
+
+    Input: ``h5m_path`` (path to the ``.h5m`` file).
+    Output: dict with ``volumes`` (``id``, ``name``, ``selector``,
+    ``material``, ``numTriangles``, ``numSurfaces``, ``boundingBox``,
+    ``groups``), ``materials`` (name -> ``volumeCount``/``volumeIds``),
+    ``groups`` (name -> ``volumeCount``/``volumeIds``; empty groups are
+    dropped), ``surfaces`` (``id``, ``numTriangles``,
+    ``forwardVolumes``/``reverseVolumes``) and ``fileInfo``.
+    Raises :class:`DagmcError` for a bad path, a missing file, or missing
+    pydagmc.
     """
-    Extract metadata from a DAGMC .h5m file using pydagmc.
-
-    Args:
-        h5m_path: Path to the input .h5m file
-
-    Returns:
-        Dict with 'volumes', 'materials', 'groups', 'surfaces', 'fileInfo'
-    """
-    h5m_path = Path(h5m_path)
-    if not h5m_path.exists():
-        raise FileNotFoundError(f"DAGMC file not found: {h5m_path}")
-
-    try:
-        import pydagmc as dagmc
-    except ImportError as e:
-        raise ImportError(f"pydagmc not available: {e}")
+    h5m_path = _require_h5m_path(h5m_path)
+    dagmc, _ = _load_pydagmc()
 
     model = dagmc.Model(str(h5m_path))
+
+    # Group membership upfront so each volume can list its group names.
+    group_map: dict[str, list[int]] = {}  # group_name -> list of volume ids
+    for group in model.groups:
+        group_volumes = [int(v.id) for v in group.volumes]
+        if group_volumes:
+            group_map[group.name] = group_volumes
 
     # Volumes
     volumes = []
     for vol in sorted(model.volumes, key=lambda v: int(v.id)):
+        vol_id = int(vol.id)
         try:
             bbox = vol.bounding_box
             bbox_list = [bbox[0][0], bbox[0][1], bbox[1][0], bbox[1][1], bbox[2][0], bbox[2][1]]
@@ -373,11 +519,14 @@ def get_dagmc_model_info(h5m_path: str) -> dict[str, Any]:
 
         volumes.append(
             {
-                "id": int(vol.id),
+                "id": vol_id,
+                "name": f"Volume_{vol_id}",
+                "selector": f"/Root/Volume_{vol_id}",
                 "material": vol.material or "void",
                 "numTriangles": int(vol.num_triangles),
                 "numSurfaces": len(list(vol.surfaces)) if hasattr(vol, "surfaces") else 0,
                 "boundingBox": bbox_list,
+                "groups": [g for g, vids in group_map.items() if vol_id in vids],
             }
         )
 
@@ -490,34 +639,32 @@ def filter_graveyard(
     max_edge_length: float = 25.0,
     max_cell_area: float = 1000.0,
 ) -> str:
-    """
-    Filter graveyard cells from a VTK file.
+    """Filter graveyard cells from a VTK file.
 
     Graveyard surfaces are typically very large bounding boxes used in DAGMC
     for particle termination. They can obscure the actual geometry in visualization.
 
-    This function filters based on:
-    1. Cell edge length - graveyard cells have very long edges (>40cm)
-    2. Cell surface area - graveyard surfaces are very large
+    Filtering uses numpy vectorized operations over the mesh connectivity:
+    1. Triangle cells (type 5) larger than ``max_cell_area`` are dropped.
+    2. Line cells (type 3) longer than ``max_edge_length`` are dropped.
+    All other cell types are always kept.
 
-    Uses numpy vectorized operations for high performance on large meshes.
-
-    Args:
-        vtk_path: Path to the input VTK file
-        output_path: Path for the filtered output. If None, appends '_filtered' to input name.
-        max_edge_length: Maximum edge length to keep (default 25.0 cm)
-        max_cell_area: Maximum cell surface area to keep (default 1000.0)
-
-    Returns:
-        Path to the filtered VTK file
+    Inputs: ``vtk_path`` (legacy ``.vtk`` unstructured-grid file),
+    optional ``output_path`` (default: ``<stem>_filtered.vtk`` beside the
+    input), ``max_edge_length`` (longest kept line, default 25.0 cm),
+    ``max_cell_area`` (largest kept triangle area, default 1000.0).
+    Limits are preserved from the original implementation.
+    Output: the filtered ``.vtk`` path string. When nothing is filtered
+    (or the mesh is empty) the input is copied to the output path.
+    Raises :class:`DagmcError` for a bad path, a missing file, invalid
+    limits, or missing vtk.
     """
     import numpy as np
-    import vtk
-    from vtk.util import numpy_support
 
-    vtk_path = Path(vtk_path)
-    if not vtk_path.exists():
-        raise FileNotFoundError(f"VTK file not found: {vtk_path}")
+    vtk_path = _require_vtk_path(vtk_path)
+    max_edge_length = _require_positive_number("max_edge_length", max_edge_length)
+    max_cell_area = _require_positive_number("max_cell_area", max_cell_area)
+    vtk, numpy_support = _load_vtk()
 
     if output_path is None:
         output_path = vtk_path.parent / f"{vtk_path.stem}_filtered.vtk"
@@ -667,21 +814,20 @@ def convert_h5m_to_vtk_cached(
     max_cell_area: float = 1000.0,
     max_edge_length: float = 35.0,
 ) -> dict:
-    """
-    Convert H5M to VTK with caching and optional graveyard filtering.
+    """Convert H5M to VTK with caching and optional graveyard filtering.
 
-    Args:
-        h5m_path: Path to the H5M file
-        use_cache: Whether to use caching (default True)
-        cache_dir: Optional cache directory. Uses system temp dir if None.
-        do_filter_graveyard: Whether to filter out graveyard surfaces (default True)
-        max_cell_area: Maximum cell surface area to keep (default 1000.0)
-        max_edge_length: Maximum edge length to keep (default 35.0)
-
-    Returns:
-        Dict with 'vtk_path', 'from_cache', and 'original_cells', 'filtered_cells' info
+    Inputs: ``h5m_path`` (path to the ``.h5m`` file), ``use_cache``
+    (default True), optional ``cache_dir`` (default: the temp-dir
+    ``nuke-visualizer/dagmc`` cache), ``do_filter_graveyard`` (default
+    True), ``max_cell_area`` (default 1000.0) and ``max_edge_length``
+    (default 35.0) — the filter limits are forwarded to
+    :func:`filter_graveyard` unchanged.
+    Output: dict with ``vtk_path``, ``from_cache``, ``original_cells``
+    and ``filtered_cells``.
+    Raises :class:`DagmcError` for a bad path, a missing file, invalid
+    limits, or missing pymoab/vtk.
     """
-    h5m_path = Path(h5m_path)
+    h5m_path = _require_h5m_path(h5m_path)
 
     result = {"vtk_path": None, "from_cache": False, "original_cells": 0, "filtered_cells": 0}
 
@@ -716,7 +862,7 @@ def convert_h5m_to_vtk_cached(
         result["vtk_path"] = filtered_path
 
         # Count filtered cells using VTK (much smaller dataset after filtering)
-        import vtk
+        vtk, _ = _load_vtk()
 
         reader = vtk.vtkUnstructuredGridReader()
         reader.SetFileName(filtered_path)
