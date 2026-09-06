@@ -26,7 +26,10 @@
 // *****************************************************************************
 
 import { injectable, inject } from '@theia/core/shared/inversify';
+import * as os from 'os';
+import * as path from 'path';
 import { PythonCommandHelper } from '../../../services/python-command-helper';
+import { OpenMCGeometryMeshResult } from '../../../../common/openmc-protocol';
 
 @injectable()
 export class OpenMCGeometryService {
@@ -152,5 +155,56 @@ export class OpenMCGeometryService {
             ['openmc.overlap-viz', geometryPath, '--overlaps', JSON.stringify(overlaps), '--marker-size', '1.0'],
             { timeout: 30000, maxBuffer: 10 * 1024 * 1024 }
         );
+    }
+
+    /**
+     * Extract CSG geometry as three.js-ready mesh JSON without starting a
+     * server (`openmc.geometry-mesh --out <tmp>`). Failures surface as
+     * `{ success: false, error }` — never a throw — so the native viewer
+     * contribution can keep the tree + trame-3D path working.
+     */
+    async extractGeometryMesh(filePath: string, segments?: number): Promise<OpenMCGeometryMeshResult> {
+        try {
+            const args: string[] = ['openmc.geometry-mesh', '--file', filePath];
+            if (segments !== undefined) {
+                args.push('--segments', String(segments));
+            }
+            const outPath = path.join(os.tmpdir(), `nuke-geometry-mesh-${Date.now()}.json`);
+            args.push('--out', outPath);
+            // Raw execute (not executeScriptJson): openmc-plugin commands
+            // report errors as `{"error": ...}` on stdout with exit 1, and
+            // the stdout-first parse below surfaces that genuine message.
+            const result = await this.pythonHelper.executeScript(this.scriptPath, args, {
+                timeout: 120000,
+                maxBuffer: 10 * 1024 * 1024
+            });
+            if (!result.stdout || result.stdout.trim() === '') {
+                return { success: false, error: result.stderr.trim() || 'Geometry mesh extraction returned empty output' };
+            }
+            let parsed: Record<string, unknown>;
+            try {
+                parsed = JSON.parse(result.stdout) as Record<string, unknown>;
+            } catch {
+                return { success: false, error: `Geometry mesh extraction produced non-JSON output: ${result.stdout.substring(0, 500)}` };
+            }
+            if (result.status !== 0 || typeof parsed.error === 'string') {
+                const message =
+                    (typeof parsed.error === 'string' && parsed.error) ||
+                    result.stderr.trim() ||
+                    `Command 'openmc.geometry-mesh' exited with code ${result.status}`;
+                return { success: false, error: message };
+            }
+            if (typeof parsed.meshPath !== 'string') {
+                return { success: false, error: 'Geometry mesh extraction returned no meshPath' };
+            }
+            return {
+                success: true,
+                meshPath: parsed.meshPath,
+                sourceFile: typeof parsed.sourceFile === 'string' ? parsed.sourceFile : undefined,
+                stats: typeof parsed.stats === 'object' && parsed.stats !== null ? (parsed.stats as Record<string, unknown>) : undefined
+            };
+        } catch (error) {
+            return { success: false, error: error instanceof Error ? error.message : String(error) };
+        }
     }
 }

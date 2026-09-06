@@ -194,6 +194,20 @@ export interface OpenMCVisualizationResult {
     spatialWarning?: string;
 }
 
+/** Result of extracting CSG geometry as mesh JSON (`openmc.geometry-mesh --out`, no server) */
+export interface OpenMCGeometryMeshResult {
+    /** Whether extraction was successful */
+    success: boolean;
+    /** Absolute path of the written mesh JSON file (for `GeometryNativeViewerWidget.setModelFile`) */
+    meshPath?: string;
+    /** Geometry file the mesh was extracted from */
+    sourceFile?: string;
+    /** Cell/surface counts reported by the extractor */
+    stats?: Record<string, unknown>;
+    /** Error message if failed */
+    error?: string;
+}
+
 // === OpenMC Backend Service ===
 
 export const OpenMCBackendService = Symbol('OpenMCBackendService');
@@ -337,6 +351,13 @@ export interface OpenMCBackendService {
         error?: string;
     }>;
 
+    /**
+     * Extract CSG geometry as three.js-ready mesh JSON without starting a
+     * server (runs `openmc.geometry-mesh --out`). The returned `meshPath`
+     * feeds `GeometryNativeViewerWidget.setModelFile`.
+     */
+    extractGeometryMesh(filePath: string, segments?: number): Promise<OpenMCGeometryMeshResult>;
+
     // === Statepoint Viewer ===
 
     /** Get complete statepoint information */
@@ -434,6 +455,15 @@ export interface OpenMCBackendService {
 
     /** Detail for one ENDF evaluation file (decay / yields / reactions) */
     getEndfDetail(request: EndfDetailRequest): Promise<EndfDetailResult>;
+
+    /** Convert a statepoint mesh tally to VTK image data (`.vti`, no server) for the native tally viewer */
+    convertTallyMeshToVtk(statepointPath: string, options?: OpenMCTallyMeshVtkOptions): Promise<OpenMCVtkConversionResult>;
+
+    /** Convert a source file (or statepoint source bank) to a VTK point cloud (`.vtp`, no server) */
+    convertSourceToVtk(filePath: string, options?: OpenMCSourceVtkOptions): Promise<OpenMCVtkConversionResult>;
+
+    /** Convert a mesh tally to an overlay/slice VTK cloud (`.vtp`, no server) for the native tally viewer */
+    convertOverlayToVtk(statepointPath: string, options?: OpenMCOverlayVtkOptions): Promise<OpenMCVtkConversionResult>;
 }
 
 // === Cross-Section (XS) Plotting Types ===
@@ -2049,4 +2079,36 @@ export interface EndfDetailResult {
     energyCount?: number;
     energies?: EndfYieldEnergy[];
     error?: string;
+}
+
+// ============================================================================
+// Native Tally Viewer Types (`openmc.tally-mesh-vtk` / `openmc.source-vtk` /
+// `openmc.overlay-vtk`: headless extracts for `TallyNativeViewerWidget`)
+// ============================================================================
+
+/** Options for `openmc.tally-mesh-vtk` */
+export interface OpenMCTallyMeshVtkOptions {
+    tallyId: number;
+    score?: string;
+    nuclide?: string;
+}
+
+/** Options for `openmc.source-vtk` */
+export interface OpenMCSourceVtkOptions {
+    /** Maximum number of particles to convert (default: all) */
+    limit?: number;
+}
+
+/** Options for `openmc.overlay-vtk` */
+export interface OpenMCOverlayVtkOptions {
+    tallyId: number;
+    score?: string;
+    nuclide?: string;
+    /** `slice` resamples the tally on a plane; `full` writes mesh cell centers */
+    mode?: 'slice' | 'full';
+    plane?: 'x' | 'y' | 'z';
+    /** Slice position in cm (default: grid center) */
+    position?: number;
+    /** Slice points per in-plane axis (1-1024, default 200) */
+    resolution?: number;
 }

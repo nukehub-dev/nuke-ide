@@ -35,6 +35,7 @@ import { WidgetManager, ApplicationShell } from '@theia/core/lib/browser';
 import { FileDialogService } from '@theia/filesystem/lib/browser/file-dialog';
 import { OpenMCService } from '../../openmc-service';
 import { OpenMCOverlapWidget } from './openmc-overlap-widget';
+import { GeometryNativeViewerWidget } from '../geometry-native/geometry-native-viewer-widget';
 import { OpenMCGeometryHierarchy, OpenMCUniverse, OpenMCCell, OpenMCSurface, OpenMCLattice } from '../../../../../common/openmc-protocol';
 import { URI } from '@theia/core/lib/common/uri';
 import './openmc-geometry-tree.css';
@@ -577,7 +578,21 @@ export class OpenMCGeometryTreeWidget extends ReactWidget {
     private selectCell(cellId: number, universeId: number): void {
         this.selectedItem = { type: 'cell', id: cellId, parentId: universeId };
         this._onGeometrySelected.fire(this.selectedItem);
+        this.forwardCellToNativeViewer(cellId);
         this.update();
+    }
+
+    /**
+     * Forward a tree cell pick to every open native geometry viewer. Guarded:
+     * a no-op when none is open. The trame-3D highlight path (the
+     * `onGeometrySelected` event above) is untouched.
+     */
+    protected forwardCellToNativeViewer(cellId: number): void {
+        for (const widget of this.shell.getWidgets('main')) {
+            if (widget instanceof GeometryNativeViewerWidget && !widget.isDisposed) {
+                widget.selectCell(cellId);
+            }
+        }
     }
 
     private selectSurface(surfaceId: number): void {

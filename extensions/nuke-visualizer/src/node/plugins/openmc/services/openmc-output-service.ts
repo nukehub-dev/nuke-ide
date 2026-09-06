@@ -53,7 +53,10 @@ import {
     EndfEvaluationsRequest,
     EndfEvaluationsResult,
     EndfDetailRequest,
-    EndfDetailResult
+    EndfDetailResult,
+    OpenMCTallyMeshVtkOptions,
+    OpenMCSourceVtkOptions,
+    OpenMCOverlayVtkOptions
 } from '../../../../common/openmc-protocol';
 import { PythonCommandHelper } from '../../../services/python-command-helper';
 
@@ -224,6 +227,54 @@ export class OpenMCOutputService {
             args.push('--top', String(request.top));
         }
         return this.executeCommandJson<EndfDetailResult>(args, 120000);
+    }
+
+    async convertTallyMeshToVtk(statepointPath: string, options?: OpenMCTallyMeshVtkOptions): Promise<OpenMCVtkConversionResult> {
+        const args = ['openmc.tally-mesh-vtk', statepointPath];
+        if (options?.tallyId !== undefined) {
+            args.push('--tally-id', String(options.tallyId));
+        }
+        if (options?.score) {
+            args.push('--score', options.score);
+        }
+        if (options?.nuclide) {
+            args.push('--nuclide', options.nuclide);
+        }
+        return this.runConversion(args, 120000);
+    }
+
+    async convertSourceToVtk(filePath: string, options?: OpenMCSourceVtkOptions): Promise<OpenMCVtkConversionResult> {
+        const args = ['openmc.source-vtk', filePath];
+        if (options?.limit !== undefined) {
+            args.push('--limit', String(options.limit));
+        }
+        return this.runConversion(args, 120000);
+    }
+
+    async convertOverlayToVtk(statepointPath: string, options?: OpenMCOverlayVtkOptions): Promise<OpenMCVtkConversionResult> {
+        const args = ['openmc.overlay-vtk', statepointPath];
+        if (options?.tallyId !== undefined) {
+            args.push('--tally-id', String(options.tallyId));
+        }
+        if (options?.score) {
+            args.push('--score', options.score);
+        }
+        if (options?.nuclide) {
+            args.push('--nuclide', options.nuclide);
+        }
+        if (options?.mode) {
+            args.push('--mode', options.mode);
+        }
+        if (options?.plane) {
+            args.push('--plane', options.plane);
+        }
+        if (options?.position !== undefined) {
+            args.push('--position', String(options.position));
+        }
+        if (options?.resolution !== undefined) {
+            args.push('--resolution', String(options.resolution));
+        }
+        return this.runConversion(args, 120000);
     }
 
     /**

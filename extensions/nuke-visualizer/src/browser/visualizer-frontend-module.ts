@@ -69,6 +69,7 @@ import { OpenMCGeometry3DWidget } from './plugins/openmc/widgets/geometry/openmc
 import { OpenMCMaterialExplorerWidget } from './plugins/openmc/widgets/materials/openmc-material-explorer';
 import { OpenMCOverlapWidget } from './plugins/openmc/widgets/geometry/openmc-overlap-widget';
 import { OpenMCStatepointViewerWidget } from './plugins/openmc/widgets/statepoint/statepoint-viewer';
+import { TallyNativeViewerWidget } from './plugins/openmc/widgets/tally-native/tally-native-viewer-widget';
 import { PlotlyService, PlotlyServiceImpl } from './plotly/plotly-service';
 import { HealthCheckFramework } from './services/health-check-framework';
 import { VisualizerHealthService } from './services/visualizer-health-service';
@@ -82,6 +83,10 @@ import { OpenMCCollisionTrackViewerContribution } from './plugins/openmc/contrib
 import { OpenMCWeightWindowsViewerContribution } from './plugins/openmc/contributions/openmc-weight-windows-viewer-contribution';
 import { OpenMCRandomRayResultsWidget } from './plugins/openmc/widgets/random-ray/random-ray-results-widget';
 import { OpenMCRandomRayCommands } from './plugins/openmc/commands/random-ray-commands';
+import { DagmcViewerWidget } from './plugins/openmc/widgets/dagmc/dagmc-viewer-widget';
+import { OpenMCDagmcViewerContribution } from './plugins/openmc/contributions/openmc-dagmc-viewer-contribution';
+import { GeometryNativeViewerWidget } from './plugins/openmc/widgets/geometry-native/geometry-native-viewer-widget';
+import { OpenMCGeometryNativeViewerContribution } from './plugins/openmc/contributions/openmc-geometry-native-contribution';
 import { OpenMCParticleRestartWidget } from './plugins/openmc/widgets/particle-restart/openmc-particle-restart-widget';
 import { OpenMCParticleRestartViewerContribution } from './plugins/openmc/contributions/openmc-particle-restart-viewer-contribution';
 import { NuclearDataWidget } from './plugins/openmc/widgets/nuclear-data/nuclear-data-widget';
@@ -154,6 +159,40 @@ export default new ContainerModule((bind: interfaces.Bind) => {
         .inSingletonScope();
     bind(OpenMCWeightWindowsViewerContribution).toSelf().inSingletonScope();
     bind(OutputViewerContribution).toService(OpenMCWeightWindowsViewerContribution);
+
+    // Bind native DAGMC viewer widget (trame dagmc.visualize stays as fallback)
+    bind(DagmcViewerWidget).toSelf().inTransientScope();
+    bind(WidgetFactory)
+        .toDynamicValue((context) => ({
+            id: DagmcViewerWidget.ID,
+            createWidget: (options?: { id?: string }) => {
+                const widget = context.container.get<DagmcViewerWidget>(DagmcViewerWidget);
+                if (options?.id) {
+                    widget.id = options.id;
+                }
+                return widget;
+            }
+        }))
+        .inSingletonScope();
+    bind(OpenMCDagmcViewerContribution).toSelf().inSingletonScope();
+    bind(OutputViewerContribution).toService(OpenMCDagmcViewerContribution);
+
+    // Bind native geometry viewer widget (tree + trame View 3D stay working)
+    bind(GeometryNativeViewerWidget).toSelf().inTransientScope();
+    bind(WidgetFactory)
+        .toDynamicValue((context) => ({
+            id: GeometryNativeViewerWidget.ID,
+            createWidget: (options?: { id?: string }) => {
+                const widget = context.container.get<GeometryNativeViewerWidget>(GeometryNativeViewerWidget);
+                if (options?.id) {
+                    widget.id = options.id;
+                }
+                return widget;
+            }
+        }))
+        .inSingletonScope();
+    bind(OpenMCGeometryNativeViewerContribution).toSelf().inSingletonScope();
+    bind(OutputViewerContribution).toService(OpenMCGeometryNativeViewerContribution);
 
     // Bind random-ray results widget + open command (no OutputViewerContribution:
     // random-ray outputs are plain <name>.vtk files with no distinctive pattern,
@@ -495,6 +534,23 @@ export default new ContainerModule((bind: interfaces.Bind) => {
             id: OpenMCStatepointViewerWidget.ID,
             createWidget: (options?: { id?: string }) => {
                 const widget = context.container.get<OpenMCStatepointViewerWidget>(OpenMCStatepointViewerWidget);
+                if (options?.id) {
+                    widget.id = options.id;
+                }
+                return widget;
+            }
+        }))
+        .inSingletonScope();
+
+    // Bind native tally viewer widget (no contribution: the tally flows open
+    // it programmatically after convert → FileService.read → setTallyText,
+    // with the trame visualize-mesh/overlay/source servers as fallback)
+    bind(TallyNativeViewerWidget).toSelf().inTransientScope();
+    bind(WidgetFactory)
+        .toDynamicValue((context) => ({
+            id: TallyNativeViewerWidget.ID,
+            createWidget: (options?: { id?: string }) => {
+                const widget = context.container.get<TallyNativeViewerWidget>(TallyNativeViewerWidget);
                 if (options?.id) {
                     widget.id = options.id;
                 }

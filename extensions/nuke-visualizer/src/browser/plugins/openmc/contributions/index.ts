@@ -32,3 +32,5 @@ export * from './openmc-depletion-contribution';
 export * from './openmc-overlay-contribution';
 export * from './openmc-plotting-contribution';
 export * from './openmc-menu-contribution';
+export * from './openmc-dagmc-viewer-contribution';
+export * from './openmc-geometry-native-contribution';

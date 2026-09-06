@@ -51,6 +51,7 @@ import {
     OpenMCCollisionVtkOptions,
     OpenMCWeightWindowsData,
     OpenMCVtkConversionResult,
+    OpenMCGeometryMeshResult,
     OpenMCKineticsResult,
     OpenMCVtkFileInfo,
     OpenMCParticleRestart,
@@ -67,7 +68,10 @@ import {
     EndfEvaluationsRequest,
     EndfEvaluationsResult,
     EndfDetailRequest,
-    EndfDetailResult
+    EndfDetailResult,
+    OpenMCTallyMeshVtkOptions,
+    OpenMCSourceVtkOptions,
+    OpenMCOverlayVtkOptions
 } from '../../../common/openmc-protocol';
 import { NukeCoreBackendService, NukeCoreBackendServiceInterface } from 'nuke-core/lib/common';
 import { PythonCommandHelper } from '../../services/python-command-helper';
@@ -760,6 +764,10 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
 
     // === Material Explorer ===
 
+    async extractGeometryMesh(filePath: string, segments?: number): Promise<OpenMCGeometryMeshResult> {
+        return this.geometryService.extractGeometryMesh(filePath, segments);
+    }
+
     async getMaterials(filePath: string): Promise<any> {
         return this.geometryService.getMaterials(filePath);
     }
@@ -1010,6 +1018,18 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
 
     async getEndfDetail(request: EndfDetailRequest): Promise<EndfDetailResult> {
         return this.outputService.getEndfDetail(request);
+    }
+
+    async convertTallyMeshToVtk(statepointPath: string, options?: OpenMCTallyMeshVtkOptions): Promise<OpenMCVtkConversionResult> {
+        return this.outputService.convertTallyMeshToVtk(statepointPath, options);
+    }
+
+    async convertSourceToVtk(filePath: string, options?: OpenMCSourceVtkOptions): Promise<OpenMCVtkConversionResult> {
+        return this.outputService.convertSourceToVtk(filePath, options);
+    }
+
+    async convertOverlayToVtk(statepointPath: string, options?: OpenMCOverlayVtkOptions): Promise<OpenMCVtkConversionResult> {
+        return this.outputService.convertOverlayToVtk(statepointPath, options);
     }
 
     private async findFreePort(startPort: number): Promise<number> {

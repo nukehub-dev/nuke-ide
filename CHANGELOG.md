@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   IDE (three.js) with instant color-by/colormap switching and no per-viewer
   server; the trame server remains as an automatic fallback for files the
   native parser cannot read.
+- nuke-visualizer: **native tally/geometry/DAGMC viewers** — tally mesh,
+  source, overlay/slice, `geometry.xml`, and multiblock `.vtm` files now
+  open in native three.js viewers (volume/group toggles, cell pick sync,
+  arbitrary clip plane) with the trame servers as automatic fallback.
 - nuke-cad: **lattice feature** — replicate a solid feature over a
   rectangular grid or hexagonal ring (2500-cell cap) with per-cell labels
   (`<prefix>_r<row>c<col>`) that flow into `selector_map` and DAGMC groups,

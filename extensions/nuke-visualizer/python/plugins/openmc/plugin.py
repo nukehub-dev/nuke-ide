@@ -23,6 +23,7 @@ _COMMAND_MODULES = [
     "ncrystal_data",
     "endf_data",
     "output_vtk",
+    "tally_vtk",
 ]
 
 load_command_modules("plugins.openmc.commands", _COMMAND_MODULES)

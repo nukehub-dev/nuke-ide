@@ -52,6 +52,9 @@ import { EnvironmentActionsHelper } from 'nuke-core/lib/browser/services';
 import { HealthCheckFramework } from '../../services/health-check-framework';
 import { OpenMCWidgetFactory } from './services/openmc-widget-factory';
 import { OpenMCFileDiscoveryService } from './services/openmc-file-discovery';
+import { TallyNativeViewerWidget } from './widgets/tally-native/tally-native-viewer-widget';
+import { TallyOverlayKind } from './widgets/tally-native/tally-overlay-model';
+import { parseNativeVtkXml } from './widgets/native-vtk/native-vtk-data';
 
 export interface OpenMCFileSet {
     /** Geometry file (DAGMC .h5m or VTK) */
@@ -303,6 +306,30 @@ export class OpenMCService {
     }
 
     /**
+     * Open a converted tally/source/overlay VTK file in the native tally
+     * viewer: `FileService.read` → native XML probe → `setTallyText(kind)`.
+     * Throws on any failure so callers can fall back to the trame server
+     * path (which stays working).
+     */
+    protected async openTallyNativeWidget(vtkPath: string, kind: TallyOverlayKind, label: string): Promise<TallyNativeViewerWidget> {
+        const widget = await this.widgetManager.getOrCreateWidget<TallyNativeViewerWidget>(TallyNativeViewerWidget.ID, {
+            id: `${TallyNativeViewerWidget.ID}:${kind}:${Date.now()}`
+        } as any);
+        const content = await this.fileService.read(new URI(vtkPath));
+        const text = content.value.toString();
+        // Probe the native XML reader first: non-XML datasets throw here and
+        // take the trame fallback in the caller — the parser stays XML-only.
+        await parseNativeVtkXml(text);
+        await widget.setTallyText(text, kind);
+        widget.title.label = label;
+        if (!widget.isAttached) {
+            this.shell.addWidget(widget, { area: 'main' });
+        }
+        await this.shell.activateWidget(widget.id);
+        return widget;
+    }
+
+    /**
      * Stop all running OpenMC Python servers.
      */
     async stopAllServers(): Promise<void> {
@@ -320,7 +347,10 @@ export class OpenMCService {
     /**
      * Visualize a mesh tally from a statepoint file.
      */
-    async visualizeMeshTally(statepointUri: URI, options: TallyVisualizationOptions): Promise<VisualizerWidget | null> {
+    async visualizeMeshTally(
+        statepointUri: URI,
+        options: TallyVisualizationOptions
+    ): Promise<VisualizerWidget | TallyNativeViewerWidget | null> {
         const available = await this.checkAvailability();
         if (!available) {
             return null;
@@ -341,6 +371,33 @@ export class OpenMCService {
             let label = `OpenMC Tally ${options.tallyId}`;
             if (options.score) {
                 label += ` (${options.score})`;
+            }
+
+            // Native-first: convert to .vti and render without a server; any
+            // failure warns and falls through to the trame path below, which
+            // stays as the fallback.
+            try {
+                const statepointPath = statepointUri.path.toString();
+                const conversion = await this.openmcBackend.convertTallyMeshToVtk(statepointPath, {
+                    tallyId: options.tallyId,
+                    score: options.score,
+                    nuclide: options.nuclide
+                });
+                if (!conversion.success || !conversion.vtkPath) {
+                    throw new Error(conversion.error || 'Tally conversion failed');
+                }
+                const nativeWidget = await this.openTallyNativeWidget(conversion.vtkPath, 'mesh', label);
+                const tallyInfo = this.currentTallies.find((t) => t.id === options.tallyId);
+                if (tallyInfo) {
+                    this._onTallyVisualized.fire(tallyInfo);
+                }
+                this.messageService.info(`Loaded mesh tally ${options.tallyId} natively`);
+                return nativeWidget;
+            } catch (error) {
+                console.warn(
+                    '[OpenMC] Native mesh tally view failed, falling back to the trame server:',
+                    error instanceof Error ? error.message : error
+                );
             }
 
             // Create widget immediately with loading state
@@ -408,7 +465,7 @@ export class OpenMCService {
     /**
      * Visualize source distribution from source.h5 file.
      */
-    async visualizeSource(sourceUri: URI): Promise<VisualizerWidget | null> {
+    async visualizeSource(sourceUri: URI): Promise<VisualizerWidget | TallyNativeViewerWidget | null> {
         const available = await this.checkAvailability();
         if (!available) {
             return null;
@@ -417,6 +474,24 @@ export class OpenMCService {
         try {
             // Create unique suffix for source visualization
             const uniqueSuffix = `source:${Date.now()}`;
+
+            // Native-first: convert to .vtp points and render without a
+            // server; any failure warns and falls through to the trame path
+            // below, which stays as the fallback.
+            try {
+                const conversion = await this.openmcBackend.convertSourceToVtk(sourceUri.path.toString(), {});
+                if (!conversion.success || !conversion.vtkPath) {
+                    throw new Error(conversion.error || 'Source conversion failed');
+                }
+                const nativeWidget = await this.openTallyNativeWidget(conversion.vtkPath, 'source', 'OpenMC Source Distribution');
+                this.messageService.info('Loaded source distribution natively');
+                return nativeWidget;
+            } catch (error) {
+                console.warn(
+                    '[OpenMC] Native source view failed, falling back to the trame server:',
+                    error instanceof Error ? error.message : error
+                );
+            }
 
             // Create widget immediately with loading state
             const { widget, completeLoading } = await this.widgetFactory.createVisualizerWidgetLoading(
@@ -452,7 +527,7 @@ export class OpenMCService {
         geometryUri: URI,
         statepointUri: URI,
         options: TallyVisualizationOptions
-    ): Promise<VisualizerWidget | null> {
+    ): Promise<VisualizerWidget | TallyNativeViewerWidget | null> {
         const available = await this.checkAvailability();
         if (!available) {
             return null;
@@ -467,6 +542,29 @@ export class OpenMCService {
                 label += ` (${options.score})`;
             }
             label += ' on Geometry';
+
+            // Native-first: static overlay cloud without a server; any
+            // failure warns and falls through to the trame path below, which
+            // stays as the fallback.
+            try {
+                const conversion = await this.openmcBackend.convertOverlayToVtk(statepointUri.path.toString(), {
+                    tallyId: options.tallyId,
+                    score: options.score,
+                    nuclide: options.nuclide,
+                    mode: 'full'
+                });
+                if (!conversion.success || !conversion.vtkPath) {
+                    throw new Error(conversion.error || 'Overlay conversion failed');
+                }
+                const nativeWidget = await this.openTallyNativeWidget(conversion.vtkPath, 'overlay', label);
+                this.messageService.info('Loaded tally overlay on geometry natively');
+                return nativeWidget;
+            } catch (error) {
+                console.warn(
+                    '[OpenMC] Native tally overlay failed, falling back to the trame server:',
+                    error instanceof Error ? error.message : error
+                );
+            }
 
             // Create widget immediately with loading state - use geometry as the main file
             const { widget, completeLoading } = await this.widgetFactory.createVisualizerWidgetLoading(
@@ -529,7 +627,7 @@ export class OpenMCService {
         statepointUri: URI,
         options: TallyVisualizationOptions,
         sliceOptions: OpenMCSliceOptions
-    ): Promise<VisualizerWidget | null> {
+    ): Promise<VisualizerWidget | TallyNativeViewerWidget | null> {
         const available = await this.checkAvailability();
         if (!available) {
             return null;
@@ -543,6 +641,32 @@ export class OpenMCService {
                 label += ` (${options.score})`;
             }
             label += ` Slice (${sliceOptions.plane.toUpperCase()})`;
+
+            // Native-first: static slice cloud without a server; any failure
+            // warns and falls through to the trame path below, which stays as
+            // the fallback.
+            try {
+                const conversion = await this.openmcBackend.convertOverlayToVtk(statepointUri.path.toString(), {
+                    tallyId: options.tallyId,
+                    score: options.score,
+                    nuclide: options.nuclide,
+                    mode: 'slice',
+                    plane: sliceOptions.plane,
+                    position: sliceOptions.position,
+                    resolution: sliceOptions.resolution
+                });
+                if (!conversion.success || !conversion.vtkPath) {
+                    throw new Error(conversion.error || 'Slice conversion failed');
+                }
+                const nativeWidget = await this.openTallyNativeWidget(conversion.vtkPath, 'slice', label);
+                this.messageService.info(`Loaded tally slice on ${sliceOptions.plane.toUpperCase()} plane natively`);
+                return nativeWidget;
+            } catch (error) {
+                console.warn(
+                    '[OpenMC] Native tally slice failed, falling back to the trame server:',
+                    error instanceof Error ? error.message : error
+                );
+            }
 
             const { widget, completeLoading } = await this.widgetFactory.createVisualizerWidgetLoading(
                 statepointUri,
@@ -762,7 +886,7 @@ export class OpenMCService {
         geometryUri: URI,
         statepointUri: URI,
         options: TallyVisualizationOptions
-    ): Promise<VisualizerWidget | null> {
+    ): Promise<VisualizerWidget | TallyNativeViewerWidget | null> {
         const available = await this.checkAvailability();
         if (!available) {
             return null;
@@ -776,6 +900,29 @@ export class OpenMCService {
                 label += ` (${options.score})`;
             }
             label += ' + Source';
+
+            // Native-first: static overlay cloud without a server; any
+            // failure warns and falls through to the trame path below, which
+            // stays as the fallback.
+            try {
+                const conversion = await this.openmcBackend.convertOverlayToVtk(statepointUri.path.toString(), {
+                    tallyId: options.tallyId,
+                    score: options.score,
+                    nuclide: options.nuclide,
+                    mode: 'full'
+                });
+                if (!conversion.success || !conversion.vtkPath) {
+                    throw new Error(conversion.error || 'Overlay conversion failed');
+                }
+                const nativeWidget = await this.openTallyNativeWidget(conversion.vtkPath, 'overlay', label);
+                this.messageService.info('Loaded tally overlay with source particles natively');
+                return nativeWidget;
+            } catch (error) {
+                console.warn(
+                    '[OpenMC] Native tally+source overlay failed, falling back to the trame server:',
+                    error instanceof Error ? error.message : error
+                );
+            }
 
             const { widget, completeLoading } = await this.widgetFactory.createVisualizerWidgetLoading(
                 geometryUri,
@@ -1374,7 +1521,7 @@ export class OpenMCService {
     /**
      * Visualize source distribution from statepoint file.
      */
-    async visualizeStatepointSource(statepointUri: URI): Promise<VisualizerWidget | null> {
+    async visualizeStatepointSource(statepointUri: URI): Promise<VisualizerWidget | TallyNativeViewerWidget | null> {
         const available = await this.checkAvailability();
         if (!available) {
             return null;
@@ -1383,6 +1530,24 @@ export class OpenMCService {
         try {
             // Create unique suffix for source visualization
             const uniqueSuffix = `statepoint-source:${Date.now()}`;
+
+            // Native-first: convert the statepoint source bank to .vtp points
+            // and render without a server; any failure warns and falls
+            // through to the trame path below, which stays as the fallback.
+            try {
+                const conversion = await this.openmcBackend.convertSourceToVtk(statepointUri.path.toString(), {});
+                if (!conversion.success || !conversion.vtkPath) {
+                    throw new Error(conversion.error || 'Source conversion failed');
+                }
+                const nativeWidget = await this.openTallyNativeWidget(conversion.vtkPath, 'source', 'OpenMC Source (from Statepoint)');
+                this.messageService.info('Loaded source distribution from statepoint natively');
+                return nativeWidget;
+            } catch (error) {
+                console.warn(
+                    '[OpenMC] Native statepoint source view failed, falling back to the trame server:',
+                    error instanceof Error ? error.message : error
+                );
+            }
 
             // Create widget immediately with loading state
             const { widget, completeLoading } = await this.widgetFactory.createVisualizerWidgetLoading(
