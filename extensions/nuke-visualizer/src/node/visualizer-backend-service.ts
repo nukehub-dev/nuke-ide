@@ -44,7 +44,9 @@ import {
     ScreenshotResult,
     DEFAULT_VISUALIZATION_STATE,
     DagmcModelInfo,
+    ExodusSeries,
     DAGMC_SERVER_REQUIREMENTS,
+    EXODUS_REQUIREMENTS,
     STEP_REQUIREMENTS
 } from '../common/base-visualizer-protocol';
 import { NukeCoreBackendService, NukeCoreBackendServiceInterface } from 'nuke-core/lib/common';
@@ -440,6 +442,61 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
         }
 
         return result as DagmcModelInfo;
+    }
+
+    async getExodusSeries(filePath: string, maxSteps?: number, maxPoints?: number): Promise<ExodusSeries> {
+        this.log(`Extracting Exodus series: ${filePath}`);
+
+        const serverScript = this.pythonHelper.findScript('server.py');
+        const pythonInfo = await this.pythonHelper.detectPython(EXODUS_REQUIREMENTS);
+        this.log(`[Exodus Series] Using Python: ${pythonInfo.command}`);
+
+        const args = ['base.exodus-series', '--file', filePath];
+        if (maxSteps !== undefined) {
+            args.push('--max-steps', String(maxSteps));
+        }
+        if (maxPoints !== undefined) {
+            args.push('--max-points', String(maxPoints));
+        }
+        this.log(`[Exodus Series] Command: "${pythonInfo.command}" "${serverScript}" "${args.join('" "')}"`);
+
+        const execResult = await this.pythonHelper.executeScript(serverScript, args, { requirements: EXODUS_REQUIREMENTS });
+        if (execResult.status !== 0) {
+            // Base-plugin commands report errors as a single JSON object on
+            // stderr (never a traceback); surface that message when present.
+            const message = this.exodusErrorMessage(execResult.stdout, execResult.stderr, execResult.status);
+            this.errorLog(`[Exodus Series] FAILED with status ${execResult.status}. Output: ${message}`);
+            throw new Error(message);
+        }
+
+        const result = this.parseJsonFromMixedOutput(execResult.stdout) as ExodusSeries & { error?: string };
+
+        if (result.error) {
+            this.errorLog(`[Exodus Series] FAILED: ${result.error}`);
+            throw new Error(result.error);
+        }
+
+        return result;
+    }
+
+    /**
+     * Best-effort error text for a failed `base.exodus-series` run: the
+     * stderr JSON payload's `error` when the command honored the base-plugin
+     * contract, else the combined output, else a bare status line.
+     */
+    private exodusErrorMessage(stdout: string, stderr: string, status: number | null): string {
+        for (const output of [stderr, stdout]) {
+            try {
+                const payload = this.parseJsonFromMixedOutput(output) as { error?: unknown };
+                if (payload && typeof payload.error === 'string' && payload.error) {
+                    return payload.error;
+                }
+            } catch {
+                // No JSON here — try the next stream.
+            }
+        }
+        const combined = `${stdout || ''}${stderr || ''}`.trim();
+        return combined || `Exodus series extraction failed with status ${status}`;
     }
 
     async startDagmcServer(filePath: string, theme?: string): Promise<{ port: number; url: string; warning?: string }> {

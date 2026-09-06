@@ -56,6 +56,10 @@
       "condaSpec": "python-gmsh"
     }
   ],
+  "exodus": [
+    { "name": "meshio", "required": false, "condaSpec": "meshio" },
+    { "name": "netCDF4", "required": false, "condaSpec": "netcdf4" }
+  ],
   "openmc": [
     {
       "name": "h5py",

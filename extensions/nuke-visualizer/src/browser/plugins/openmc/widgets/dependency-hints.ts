@@ -38,6 +38,8 @@ const DEPENDENCY_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
     [/h5py/i, 'h5py'],
     [/trame/i, 'trame'],
     [/paraview/i, 'paraview'],
+    [/netcdf4/i, 'netCDF4'],
+    [/meshio/i, 'meshio'],
     [/openmc/i, 'openmc']
 ];
 

@@ -38,6 +38,8 @@ describe('detectMissingDependencies', () => {
         expect(detectMissingDependencies('h5py not installed')).toEqual(['h5py']);
         expect(detectMissingDependencies("No module named 'trame'")).toEqual(['trame']);
         expect(detectMissingDependencies('Required dependencies not installed: No module named paraview')).toEqual(['paraview']);
+        expect(detectMissingDependencies('netCDF4 is not installed (required for Exodus time-series reads)')).toEqual(['netCDF4']);
+        expect(detectMissingDependencies('meshio is not installed (fallback reader unavailable)')).toEqual(['meshio']);
     });
 
     it('collects several dependencies without duplicates', () => {

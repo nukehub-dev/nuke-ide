@@ -26,8 +26,10 @@
 // *****************************************************************************
 
 import * as React from 'react';
+import * as THREE from 'three';
 import { injectable, inject, postConstruct } from '@theia/core/shared/inversify';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
+import { Message, Widget } from '@theia/core/lib/browser';
 import { codicon } from '@theia/core/lib/browser/widgets/widget';
 import URI from '@theia/core/lib/common/uri';
 import { MessageService } from '@theia/core/lib/common';
@@ -36,6 +38,7 @@ import {
     colormapToCssGradient,
     getColormap,
     isShortColormapName,
+    sampleColormap,
     SHORT_COLORMAP_NAMES,
     ShortColormapName
 } from '../../../../viewer-core/colormaps';
@@ -47,6 +50,7 @@ import {
     ViewerToolbarState
 } from '../../../../viewer-core/viewer-toolbar-model';
 import {
+    arrayRange,
     clampStepIndex,
     colorByOptions,
     ExodusSeriesModelError,
@@ -57,12 +61,23 @@ import {
     parseExodusSeries,
     previousStepIndex,
     stepAt,
-    stepValueRange
+    stepPositions,
+    stepValueRange,
+    stepValueSamples
 } from './exodus-series-model';
+import { detectMissingDependencies } from '../dependency-hints';
 import '../output-viewer.css';
 
+/** Orbit state for the viewer's minimal built-in navigation. */
+interface ExodusOrbit {
+    theta: number;
+    phi: number;
+    distance: number;
+    target: THREE.Vector3;
+}
+
 /**
- * Native Exodus time-slider widget (P5, unwired).
+ * Native Exodus time-slider widget (P5, wired).
  *
  * Renders a `base.exodus-series` payload — the headless replacement for the
  * trame `reader.TimestepValues` -> `view.ViewTime` slider in
@@ -70,10 +85,10 @@ import '../output-viewer.css';
  * first/prev/slider/next/last stepping plus an instant per-step array
  * switch (no server restart; the P1 color-by win applied to time). Coloring
  * state lives in the viewer-core toolbar model and the legend gradient
- * samples the viewer-core LUT pack, so the wiring wave only has to push the
- * current step's decimated mesh (`stepPositions`) into three.js scene
- * building (native-vtk rendering path) and bind this widget in a
- * contribution — nothing here is registered yet.
+ * samples the viewer-core LUT pack. The current step's decimated mesh
+ * (`stepPositions`) renders as a three.js point cloud colored per-vertex
+ * from the same LUT; `OpenMCExodusViewerContribution` claims `*.e`/`*.exo*`
+ * files into this widget via `VisualizerBackendService.getExodusSeries`.
  */
 @injectable()
 export class ExodusTimeSliderWidget extends ReactWidget {
@@ -93,6 +108,15 @@ export class ExodusTimeSliderWidget extends ReactWidget {
     protected isLoading = false;
     protected error: string | undefined;
     private loadToken = 0;
+
+    private host: HTMLElement | undefined;
+    private renderer: THREE.WebGLRenderer | undefined;
+    private scene: THREE.Scene | undefined;
+    private camera: THREE.PerspectiveCamera | undefined;
+    private points: THREE.Points | undefined;
+    private orbit: ExodusOrbit | undefined;
+    private resizeObserver: ResizeObserver | undefined;
+    private renderedStep = -1;
 
     @postConstruct()
     protected init(): void {
@@ -131,7 +155,13 @@ export class ExodusTimeSliderWidget extends ReactWidget {
     }
 
     /** Load an already-read series JSON payload (used after FileService reads). */
-    setSeriesText(text: string): void {
+    setSeriesText(text: string, sourceUri?: URI): void {
+        if (sourceUri) {
+            this.fileUri = sourceUri;
+            this.id = `${ExodusTimeSliderWidget.ID}:${sourceUri.path.toString()}`;
+            this.title.label = `${ExodusTimeSliderWidget.LABEL}: ${sourceUri.path.base}`;
+            this.title.caption = `${ExodusTimeSliderWidget.LABEL}: ${sourceUri.path.toString()}`;
+        }
         this.isLoading = true;
         this.error = undefined;
         this.update();
@@ -143,6 +173,8 @@ export class ExodusTimeSliderWidget extends ReactWidget {
             const colorBy = hasColorByArray(series, this.toolbar.colorBy) ? this.toolbar.colorBy : (options[1] ?? SOLID_COLOR);
             this.toolbar = updateToolbarState(this.toolbar, { colorBy });
             this.isLoading = false;
+            this.renderedStep = -1;
+            this.refreshScene();
         } catch (error) {
             this.isLoading = false;
             const message =
@@ -159,6 +191,7 @@ export class ExodusTimeSliderWidget extends ReactWidget {
             return;
         }
         this.stepIndex = clampStepIndex(index, this.series.nSteps);
+        this.refreshScene();
         this.update();
     }
 
@@ -168,6 +201,7 @@ export class ExodusTimeSliderWidget extends ReactWidget {
             return;
         }
         this.toolbar = updateToolbarState(this.toolbar, { colorBy });
+        this.refreshScene();
         this.update();
     }
 
@@ -178,6 +212,7 @@ export class ExodusTimeSliderWidget extends ReactWidget {
         }
         const name: ShortColormapName = colormap;
         this.toolbar = updateToolbarState(this.toolbar, { colormap: name });
+        this.refreshScene();
         this.update();
     }
 
@@ -267,9 +302,31 @@ export class ExodusTimeSliderWidget extends ReactWidget {
         return (
             <>
                 {this.renderSlider()}
+                {this.renderSceneView()}
                 {this.renderStepSummary()}
             </>
         );
+    }
+
+    protected renderSceneView(): React.ReactNode {
+        if (!this.series || this.series.nSteps === 0) {
+            return undefined;
+        }
+        return (
+            <div className="openmc-output-viewer-viewarea">
+                <div className="openmc-output-viewer-hint">{this.describeScene()} Drag to orbit, wheel to zoom, right-drag to pan.</div>
+                <div ref={this.attachHost} style={{ flex: '1', minHeight: '240px', position: 'relative' }} />
+            </div>
+        );
+    }
+
+    private describeScene(): string {
+        const series = this.series;
+        const step = series ? stepAt(series, this.stepIndex) : undefined;
+        if (!series || !step) {
+            return this.isLoading ? 'Loading…' : 'No series loaded';
+        }
+        return `Points — ${step.mesh.nodes.length.toLocaleString()} nodes · ${formatStepLabel(series, this.stepIndex)}`;
     }
 
     protected renderSlider(): React.ReactNode {
@@ -362,6 +419,38 @@ export class ExodusTimeSliderWidget extends ReactWidget {
     }
 
     protected renderError(): React.ReactNode {
+        const missingDeps = this.error ? detectMissingDependencies(this.error) : undefined;
+        if (missingDeps) {
+            return (
+                <div className="openmc-output-viewer-status">
+                    <div className="openmc-output-viewer-dep-panel">
+                        <div className="dep-title">
+                            <i className={codicon('warning')}></i>
+                            Missing Python dependencies
+                        </div>
+                        <p className="dep-summary">
+                            This viewer needs <strong>{missingDeps.join(', ')}</strong>, which the configured Python environment does not
+                            provide (series extraction reads Exodus-II files via <code>netCDF4</code>, with a single-step{' '}
+                            <code>meshio</code> fallback).
+                        </p>
+                        <ul className="dep-actions">
+                            <li>Install the missing packages into the configured environment.</li>
+                            <li>
+                                Or point NukeIDE at an environment that has them in <strong>Settings → Nuke Utils</strong> (Python
+                                environment), then reload this viewer.
+                            </li>
+                        </ul>
+                        <p className="dep-backend-error">
+                            <span className="dep-backend-label">Backend error:</span> {this.error}
+                        </p>
+                        <button className="theia-button secondary" onClick={() => this.fileUri && this.setSeriesFile(this.fileUri)}>
+                            <i className={codicon('refresh')}></i>
+                            Retry
+                        </button>
+                    </div>
+                </div>
+            );
+        }
         return (
             <div className="openmc-output-viewer-status error">
                 <i className={codicon('error')}></i>
@@ -374,5 +463,258 @@ export class ExodusTimeSliderWidget extends ReactWidget {
                 )}
             </div>
         );
+    }
+
+    // ------------------------------------------------------------------
+    // three.js scene: current step's decimated mesh as a point cloud,
+    // colored per-vertex from the viewer-core LUT (P5 wiring piece).
+    // ------------------------------------------------------------------
+
+    protected onAfterAttach(msg: Message): void {
+        super.onAfterAttach(msg);
+        this.ensureRenderer();
+    }
+
+    protected onBeforeDetach(msg: Message): void {
+        this.teardownRenderer();
+        super.onBeforeDetach(msg);
+    }
+
+    override dispose(): void {
+        this.loadToken++;
+        this.teardownRenderer();
+        super.dispose();
+    }
+
+    protected onResize(msg: Widget.ResizeMessage): void {
+        super.onResize(msg);
+        this.resizeRenderer();
+    }
+
+    private attachHost = (element: HTMLElement | null): void => {
+        this.host = element ?? undefined;
+        this.ensureRenderer();
+    };
+
+    private ensureRenderer(): void {
+        if (this.renderer || !this.host || !this.isAttached) {
+            return;
+        }
+        this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+        this.renderer.domElement.style.width = '100%';
+        this.renderer.domElement.style.height = '100%';
+        this.renderer.domElement.style.display = 'block';
+        this.host.appendChild(this.renderer.domElement);
+        this.scene = new THREE.Scene();
+        this.camera = new THREE.PerspectiveCamera(45, 1, 0.01, 1e9);
+        this.orbit = { theta: Math.PI / 4, phi: Math.PI / 3, distance: 10, target: new THREE.Vector3() };
+        this.attachOrbitHandlers(this.renderer.domElement);
+        this.resizeObserver = new ResizeObserver(() => this.resizeRenderer());
+        if (this.host) {
+            this.resizeObserver.observe(this.host);
+        }
+        this.resizeRenderer();
+        this.renderedStep = -1;
+        this.refreshScene();
+    }
+
+    private teardownRenderer(): void {
+        this.resizeObserver?.disconnect();
+        this.resizeObserver = undefined;
+        this.clearPoints();
+        if (this.renderer) {
+            this.renderer.dispose();
+            this.renderer.domElement.remove();
+            this.renderer = undefined;
+        }
+        this.scene = undefined;
+        this.camera = undefined;
+        this.orbit = undefined;
+        this.renderedStep = -1;
+    }
+
+    private clearPoints(): void {
+        if (this.points && this.scene) {
+            this.scene.remove(this.points);
+            this.points.geometry.dispose();
+            (this.points.material as THREE.Material).dispose();
+            this.points = undefined;
+        }
+    }
+
+    private resizeRenderer(): void {
+        if (!this.renderer || !this.camera || !this.host) {
+            return;
+        }
+        const width = Math.max(1, this.host.clientWidth);
+        const height = Math.max(1, this.host.clientHeight);
+        this.renderer.setSize(width, height, false);
+        this.camera.aspect = width / height;
+        this.camera.updateProjectionMatrix();
+        this.renderScene();
+    }
+
+    private renderScene(): void {
+        if (this.renderer && this.scene && this.camera) {
+            this.renderer.render(this.scene, this.camera);
+        }
+    }
+
+    /**
+     * Rebuild the point cloud for the current step (positions from
+     * `stepPositions`, colors from the viewer-core LUT over the color-by
+     * array's decimated samples). No-ops until the canvas is attached;
+     * `ensureRenderer` replays it on attach.
+     */
+    private refreshScene(): void {
+        const series = this.series;
+        if (!series || !this.scene || !this.camera || !this.orbit) {
+            return;
+        }
+        this.clearPoints();
+        const positions = stepPositions(series, this.stepIndex);
+        if (positions.length === 0) {
+            this.renderedStep = this.stepIndex;
+            this.renderScene();
+            return;
+        }
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        geometry.setAttribute('color', new THREE.BufferAttribute(this.vertexColors(series, positions.length / 3), 3));
+        const material = new THREE.PointsMaterial({ size: 3, vertexColors: true, sizeAttenuation: false });
+        this.points = new THREE.Points(geometry, material);
+        this.scene.add(this.points);
+        if (this.renderedStep === -1) {
+            this.fitView();
+        }
+        this.renderedStep = this.stepIndex;
+        this.renderScene();
+    }
+
+    /**
+     * Per-vertex colors for the current step: the color-by array's decimated
+     * samples stride-mapped onto the stored nodes (exact when the extractor
+     * kept every node), normalized by the array's global range so colors stay
+     * stable across steps, then sampled from the viewer-core LUT.
+     */
+    private vertexColors(series: ExodusSeriesPayload, count: number): Float32Array {
+        const out = new Float32Array(count * 3);
+        const solid: [number, number, number] = [0.83, 0.83, 0.83];
+        const colorBy = parseColorBy(this.toolbar.colorBy);
+        const arrayName = colorBy.kind === 'solid' ? undefined : colorBy.arrayName;
+        const samples = arrayName ? stepValueSamples(series, this.stepIndex, arrayName) : [];
+        const range = arrayName ? (arrayRange(series, arrayName) ?? stepValueRange(series, this.stepIndex, arrayName)) : undefined;
+        const definition = getColormap(this.toolbar.colormap) ?? getColormap('Viridis');
+        if (!arrayName || samples.length === 0 || !range || !definition) {
+            for (let i = 0; i < count; i++) {
+                out[i * 3] = solid[0];
+                out[i * 3 + 1] = solid[1];
+                out[i * 3 + 2] = solid[2];
+            }
+            return out;
+        }
+        const [min, max] = range;
+        const span = max - min;
+        for (let i = 0; i < count; i++) {
+            const sample = samples[Math.min(samples.length - 1, Math.floor((i * samples.length) / count))];
+            const t = span > 0 && Number.isFinite(sample) ? (sample - min) / span : 0;
+            const [r, g, b] = sampleColormap(definition, Math.min(1, Math.max(0, t)));
+            out[i * 3] = r;
+            out[i * 3 + 1] = g;
+            out[i * 3 + 2] = b;
+        }
+        return out;
+    }
+
+    /** Frame the current step's points. */
+    fitView(): void {
+        if (!this.series || !this.camera || !this.orbit) {
+            return;
+        }
+        const positions = stepPositions(this.series, this.stepIndex);
+        if (positions.length === 0) {
+            return;
+        }
+        const box = new THREE.Box3();
+        for (let i = 0; i < positions.length; i += 3) {
+            box.expandByPoint(new THREE.Vector3(positions[i], positions[i + 1], positions[i + 2]));
+        }
+        const sphere = box.getBoundingSphere(new THREE.Sphere());
+        this.orbit.target.copy(sphere.center);
+        this.orbit.distance = Math.max(sphere.radius * 2.2, 1e-6);
+        this.applyOrbit();
+    }
+
+    private attachOrbitHandlers(canvas: HTMLCanvasElement): void {
+        let dragging = false;
+        let button = 0;
+        let lastX = 0;
+        let lastY = 0;
+        canvas.addEventListener('pointerdown', (e) => {
+            dragging = true;
+            button = e.button;
+            lastX = e.clientX;
+            lastY = e.clientY;
+            canvas.setPointerCapture(e.pointerId);
+        });
+        canvas.addEventListener('pointermove', (e) => {
+            if (!dragging || !this.orbit) {
+                return;
+            }
+            const dx = e.clientX - lastX;
+            const dy = e.clientY - lastY;
+            lastX = e.clientX;
+            lastY = e.clientY;
+            if (button === 2 || button === 1 || e.shiftKey) {
+                this.panBy(dx, dy);
+            } else {
+                this.orbit.theta -= dx * 0.005;
+                this.orbit.phi = Math.min(Math.PI - 0.01, Math.max(0.01, this.orbit.phi - dy * 0.005));
+                this.applyOrbit();
+            }
+        });
+        const stop = (): void => {
+            dragging = false;
+        };
+        canvas.addEventListener('pointerup', stop);
+        canvas.addEventListener('pointercancel', stop);
+        canvas.addEventListener(
+            'wheel',
+            (e) => {
+                e.preventDefault();
+                if (this.orbit) {
+                    this.orbit.distance = Math.max(1e-6, this.orbit.distance * Math.exp(e.deltaY * 0.001));
+                    this.applyOrbit();
+                }
+            },
+            { passive: false }
+        );
+        canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+    }
+
+    private applyOrbit(): void {
+        if (!this.camera || !this.orbit) {
+            return;
+        }
+        const { theta, phi, distance, target } = this.orbit;
+        this.camera.position.set(
+            target.x + distance * Math.sin(phi) * Math.cos(theta),
+            target.y + distance * Math.cos(phi),
+            target.z + distance * Math.sin(phi) * Math.sin(theta)
+        );
+        this.camera.lookAt(target);
+        this.renderScene();
+    }
+
+    private panBy(dx: number, dy: number): void {
+        if (!this.camera || !this.orbit) {
+            return;
+        }
+        const scale = this.orbit.distance / Math.max(1, this.camera.aspect * 500);
+        const right = new THREE.Vector3().setFromMatrixColumn(this.camera.matrix, 0);
+        const up = new THREE.Vector3().setFromMatrixColumn(this.camera.matrix, 1);
+        this.orbit.target.addScaledVector(right, -dx * scale);
+        this.orbit.target.addScaledVector(up, dy * scale);
+        this.applyOrbit();
     }
 }

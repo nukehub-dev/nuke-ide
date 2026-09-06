@@ -93,6 +93,8 @@ import { NuclearDataWidget } from './plugins/openmc/widgets/nuclear-data/nuclear
 import { OpenMCNuclearDataCommands } from './plugins/openmc/commands/nuclear-data-commands';
 import { OpenMCVoxelPlotViewerContribution } from './plugins/openmc/contributions/openmc-voxel-plot-viewer-contribution';
 import { OpenMCSummaryViewerContribution } from './plugins/openmc/contributions/openmc-summary-viewer-contribution';
+import { ExodusTimeSliderWidget } from './plugins/openmc/widgets/exodus-series/exodus-time-slider-widget';
+import { OpenMCExodusViewerContribution } from './plugins/openmc/contributions/openmc-exodus-viewer-contribution';
 
 export default new ContainerModule((bind: interfaces.Bind) => {
     // Bind Plotly service
@@ -558,4 +560,21 @@ export default new ContainerModule((bind: interfaces.Bind) => {
             }
         }))
         .inSingletonScope();
+
+    // Bind native Exodus time-slider widget (*.e/*.exo* via base.exodus-series, no trame server)
+    bind(ExodusTimeSliderWidget).toSelf().inTransientScope();
+    bind(WidgetFactory)
+        .toDynamicValue((context) => ({
+            id: ExodusTimeSliderWidget.ID,
+            createWidget: (options?: { id?: string }) => {
+                const widget = context.container.get<ExodusTimeSliderWidget>(ExodusTimeSliderWidget);
+                if (options?.id) {
+                    widget.id = options.id;
+                }
+                return widget;
+            }
+        }))
+        .inSingletonScope();
+    bind(OpenMCExodusViewerContribution).toSelf().inSingletonScope();
+    bind(OutputViewerContribution).toService(OpenMCExodusViewerContribution);
 });

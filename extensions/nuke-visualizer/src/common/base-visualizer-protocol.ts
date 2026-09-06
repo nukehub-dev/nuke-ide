@@ -39,6 +39,9 @@ export const DAGMC_SERVER_REQUIREMENTS: PackageDependency[] = packages.dagmcServ
 /** Package requirements for STEP/STP/BREP conversion */
 export const STEP_REQUIREMENTS: PackageDependency[] = packages.step;
 
+/** Package requirements for the headless Exodus-II series extractor (`base.exodus-series`) */
+export const EXODUS_REQUIREMENTS: PackageDependency[] = packages.exodus;
+
 export interface PythonConfig {
     pythonPath?: string;
     condaEnv?: string;
@@ -177,6 +180,46 @@ export interface DagmcModelInfo {
     fileInfo: DagmcFileInfo;
 }
 
+/** One Exodus variable summary with its global range across all steps. */
+export interface ExodusSeriesArraySummary {
+    name: string;
+    location: string;
+    range: [number, number];
+}
+
+/** Per-step decimated mesh snapshot of an Exodus series. */
+export interface ExodusSeriesStepMesh {
+    nNodes: number;
+    nElements: number;
+    nodes: [number, number, number][];
+    blocks: { name: string; count: number }[];
+}
+
+/** Per-step summary of one Exodus variable (stats + decimated samples). */
+export interface ExodusSeriesValueSummary {
+    min: number;
+    max: number;
+    mean: number;
+    count: number;
+    samples: number[];
+}
+
+/** One time step of an Exodus series. */
+export interface ExodusSeriesStep {
+    index: number;
+    time: number;
+    mesh: ExodusSeriesStepMesh;
+    values: Record<string, ExodusSeriesValueSummary>;
+}
+
+/** Full `base.exodus-series` extractor payload for one Exodus file. */
+export interface ExodusSeries {
+    sourceFile: string;
+    nSteps: number;
+    arrays: ExodusSeriesArraySummary[];
+    steps: ExodusSeriesStep[];
+}
+
 /**
  * Backend RPC service for the base 3D mesh/DAGMC visualizer.
  *
@@ -243,6 +286,17 @@ export interface VisualizerBackendService {
      * @returns Server info including allocated port and URL
      */
     startDagmcServer(filePath: string, theme?: string): Promise<ServerInfo>;
+
+    /**
+     * Extract an Exodus-II time series to headless JSON (no server).
+     * Runs `python server.py base.exodus-series` via netCDF4 (or meshio fallback).
+     *
+     * @param filePath Path to the Exodus-II file (`.e`, `.exo*`)
+     * @param maxSteps Optional cap on extracted time steps (default: all)
+     * @param maxPoints Optional cap on decimated mesh nodes stored per step
+     * @returns Series payload (per-step mesh snapshots + variable summaries)
+     */
+    getExodusSeries(filePath: string, maxSteps?: number, maxPoints?: number): Promise<ExodusSeries>;
 
     /**
      * Check the configured Python environment for base visualizer dependencies.
