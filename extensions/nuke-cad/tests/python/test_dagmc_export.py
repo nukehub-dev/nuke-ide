@@ -513,3 +513,55 @@ def test_verify_surface_senses_rejects_empty_faces() -> None:
     """An empty face triangle map is a hard error, not a silent success."""
     with pytest.raises(RuntimeError, match="no exported faces"):
         dagmc_export._verify_surface_senses({}, {})
+
+
+def test_per_cell_selectors_beat_body_selector(tmp_path: Path) -> None:
+    """A body-level selector covering every solid does not shadow per-cell groups.
+
+    Lattice exports carry one body-level entry (all solids) plus one entry per
+    cell (one solid each); most-specific resolution must form the per-cell
+    groups instead of collapsing everything into the body group.
+    """
+    _requires_full_profile()
+
+    script = tmp_path / "cells.py"
+    script.write_text(
+        "from build123d import *\n"
+        "box1 = Box(10, 10, 10)\n"
+        "box2 = Pos(20, 0, 0) * Box(10, 10, 10)\n"
+        "model = Compound([box1, box2])\n"
+    )
+    service_result = geometry_service.build_geometry(
+        str(script),
+        output_dir=str(tmp_path),
+        export_dagmc=False,
+        tolerance=1.0,
+    )
+    assert service_result["success"] is True, service_result.get("error", "")
+
+    from region_manifest import RegionManifest
+
+    manifest = RegionManifest.from_dict(
+        {
+            "version": 1,
+            "volumes": [
+                {"selector": "assembly", "name": "assembly", "material": "fuel"},
+                {"selector": "assembly_r0c0", "name": "assembly_r0c0", "material": "fuel"},
+                {"selector": "assembly_r0c1", "name": "assembly_r0c1", "material": "fuel"},
+            ],
+        }
+    )
+    h5m_path = tmp_path / "cells.h5m"
+    result = dagmc_export.convert_to_dagmc(
+        service_result["stepPath"],
+        output_path=str(h5m_path),
+        manifest=manifest,
+        selector_map={"assembly": [1, 2], "assembly_r0c0": [1], "assembly_r0c1": [2]},
+        add_graveyard=False,
+        faceting_tolerance=1.0,
+    )
+    assert result["success"] is True, result.get("error", "")
+    groups = _load_h5m_groups(h5m_path)
+    assert "mat:assembly_r0c0" in groups
+    assert "mat:assembly_r0c1" in groups
+    assert "mat:assembly" not in groups

@@ -325,6 +325,30 @@ def _fallback_material_name(vol_id: int) -> str:
     return f"mat:mat_{vol_id - 1}"
 
 
+def _most_specific_selector(
+    vol_id: int,
+    selector_map: dict[str, list[int]] | None,
+) -> str | None:
+    """Return the most specific selector covering a 1-based volume ID.
+
+    Specificity is the index-list length: a per-cell entry (one solid, e.g. a
+    lattice ``<prefix>_r<row>c<col>`` cell) beats the body-level entry (all
+    body solids) covering the same volume. Ties keep dict order (first wins),
+    so documents with disjoint selectors resolve exactly as before.
+    """
+    if not selector_map:
+        return None
+    best: str | None = None
+    best_size: int | None = None
+    for selector, indices in selector_map.items():
+        if vol_id in indices:
+            size = len(indices)
+            if best is None or (best_size is not None and size < best_size):
+                best = selector
+                best_size = size
+    return best
+
+
 def _volume_name_from_manifest(
     vol_id: int,
     manifest: Any | None,
@@ -337,10 +361,7 @@ def _volume_name_from_manifest(
 
     selector: str | None = None
     if manifest is not None and selector_map:
-        for sel, indices in selector_map.items():
-            if vol_id in indices:
-                selector = sel
-                break
+        selector = _most_specific_selector(vol_id, selector_map)
 
     if selector is not None and manifest is not None:
         for entry in manifest.volumes:
@@ -396,13 +417,235 @@ def _signatures_match(
     return True
 
 
-def _fragment_and_track(
+# ---------------------------------------------------------------------------
+# Pre-export diagnostics + staged imprint recovery.
+#
+# Message convention: '<WHAT> (<WHERE>): <EFFECT>. Fix: <ACTION>.'
+# Every fallback is REPORTED (warning + ``imprintStages`` log); recovery never
+# modifies the model — it only retries the gmsh imprint at a different
+# tolerance or without the graveyard fragment.
+# ---------------------------------------------------------------------------
+
+#: Ordered imprint stages for the ``imprintStages`` result key.
+IMPRINT_STAGE_ORDER = ("S0", "S1", "S2", "S3", "S4")
+
+#: Upper bound (model units) for the S2 tolerance relaxation.
+IMPRINT_RELAXED_TOLERANCE_CAP = 1e-4
+
+#: Fallback model tolerance when gmsh reports none.
+IMPRINT_BASE_TOLERANCE_FALLBACK = 1e-7
+
+
+class _ImprintStageError(RuntimeError):
+    """One imprint stage failed; the orchestrator may retry another stage."""
+
+
+def make_diagnostic(
+    code: str,
+    severity: str,
+    bodies: list[str] | None = None,
+    surfaces: list[int] | None = None,
+    detail: str = "",
+    hint: str = "",
+) -> dict[str, Any]:
+    """Build one structured ``diagnostics`` entry (pure; no heavy deps)."""
+    return {
+        "code": code,
+        "severity": severity,
+        "bodies": list(bodies or []),
+        "surfaces": list(surfaces or []),
+        "detail": detail,
+        "hint": hint,
+    }
+
+
+def _volume_label(
+    vol_id: int,
+    manifest: Any | None,
+    selector_map: dict[str, list[int]] | None,
+) -> str:
+    """Return a human-readable label for a 1-based pre-fragment volume ID."""
+    if selector_map:
+        selector = _most_specific_selector(vol_id, selector_map)
+        if selector is not None:
+            if manifest is not None:
+                for entry in manifest.volumes:
+                    if entry.get("selector") == selector:
+                        return str(entry.get("name") or selector)
+            return selector
+    return f"volume {vol_id}"
+
+
+def overlap_diagnostic(
+    vol_a: int,
+    vol_b: int,
+    label_a: str | None = None,
+    label_b: str | None = None,
+) -> tuple[dict[str, Any], str]:
+    """Build the overlap diagnostic entry + convention message (pure)."""
+    name_a = label_a or f"volume {vol_a}"
+    name_b = label_b or f"volume {vol_b}"
+    detail = f"Overlap {name_a}/{name_b}: export would double-count volume."
+    hint = "Fuse in Model Outline or separate bodies"
+    entry = make_diagnostic("overlap", "warning", bodies=[name_a, name_b], detail=detail, hint=hint)
+    return entry, f"{detail} Fix: {hint}."
+
+
+def sense_error_message(surface_tag: int, volumes: list[int], stage: str) -> str:
+    """Build the hard-error message for a surface with no valid sense (pure)."""
+    vols = ", ".join(str(v) for v in volumes) if volumes else "none"
+    return (
+        f"Surface {surface_tag} has no valid sense (volumes [{vols}]): "
+        f"imprint failed at {stage}. Not exported."
+    )
+
+
+def seal_error_message(open_edge_count: int, hint: str) -> str:
+    """Build the fail-fast message for a leaking facet mesh (pure)."""
+    return (
+        f"Seal check failed ({open_edge_count} open edges): "
+        f"the facet mesh has holes and would leak particles. Fix: {hint}."
+    )
+
+
+def imprint_relax_message(previous_tolerance: float, relaxed_tolerance: float) -> str:
+    """Build the REPORTED S2 fallback message (pure)."""
+    return (
+        f"Imprint S2 tolerance relaxed {previous_tolerance:.0e} -> {relaxed_tolerance:.0e} "
+        f"(reported): fragment recovered at relaxed tolerance. "
+        f"Fix: accept warning or tighten CAD gaps."
+    )
+
+
+def graveyard_skipped_message() -> str:
+    """Build the REPORTED S3 fallback message (pure)."""
+    return (
+        "Imprint S3 model-only fallback (reported, graveyardSkipped): "
+        "exported without graveyard fragmentation. "
+        "Fix: accept warning or repair the graveyard seam."
+    )
+
+
+def _stage_entry(
+    stage: str,
+    tolerance: float | None,
+    volumes_in: int,
+    volumes_out: int | None,
+    status: str,
+    note: str = "",
+) -> dict[str, Any]:
+    """Build one ``imprintStages`` entry (pure)."""
+    entry: dict[str, Any] = {
+        "stage": stage,
+        "tolerance": tolerance,
+        "volumesIn": volumes_in,
+        "volumesOut": volumes_out,
+        "status": status,
+    }
+    if note:
+        entry["note"] = note
+    return entry
+
+
+def _read_imprint_tolerance() -> float:
+    """Return the current gmsh model tolerance (fallback when gmsh is absent)."""
+    try:
+        if gmsh is not None:
+            return float(gmsh.option.getNumber("Geometry.Tolerance"))
+    except Exception:
+        pass
+    return IMPRINT_BASE_TOLERANCE_FALLBACK
+
+
+def _apply_imprint_tolerance(value: float) -> None:
+    """Set the gmsh model tolerance (no-op when gmsh is absent)."""
+    if gmsh is None:
+        return
+    gmsh.option.setNumber("Geometry.Tolerance", float(value))
+
+
+def _relaxed_imprint_tolerance(base_tolerance: float) -> float:
+    """Return the capped 10x S2 retry tolerance (pure)."""
+    try:
+        relaxed = float(base_tolerance) * 10.0
+    except (TypeError, ValueError):
+        relaxed = IMPRINT_BASE_TOLERANCE_FALLBACK * 10.0
+    return min(relaxed, IMPRINT_RELAXED_TOLERANCE_CAP)
+
+
+def _safe_volume_count() -> int | None:
+    """Return the current gmsh volume count, or None when unmeasurable."""
+    try:
+        if gmsh is None:
+            return None
+        return len(gmsh.model.getEntities(3))
+    except Exception:
+        return None
+
+
+def _last_ok_imprint_stage(stage_log: list[dict[str, Any]]) -> str:
+    """Return the most recent successful/recovered stage label (pure)."""
+    for entry in reversed(stage_log):
+        if entry.get("status") in ("ok", "recovered"):
+            stage = str(entry.get("stage", "S1"))
+            return stage if stage in IMPRINT_STAGE_ORDER else "S1"
+    return "S1"
+
+
+def _report_imprint_fallbacks(
+    stage_log: list[dict[str, Any]],
+    reported_upto: int,
+    warnings: list[str],
+    diagnostics: list[dict[str, Any]],
+) -> int:
+    """Append REPORTED warnings for S2/S3 fallbacks; return new count (pure scan).
+
+    Every fallback is surfaced exactly once (tracked by ``reported_upto``);
+    the model itself is never modified.
+    """
+    for entry in stage_log[reported_upto:]:
+        stage = entry.get("stage")
+        status = entry.get("status")
+        if stage == "S2" and status == "ok":
+            previous = entry.get("previousTolerance")
+            current = entry.get("tolerance")
+            try:
+                message = imprint_relax_message(float(previous), float(current))
+            except (TypeError, ValueError):
+                message = (
+                    "Imprint S2 tolerance relaxed (reported): fragment recovered "
+                    "at relaxed tolerance. Fix: accept warning or tighten CAD gaps."
+                )
+            warnings.append(f"[DAGMC] {message}")
+            diagnostics.append(
+                make_diagnostic(
+                    "imprint",
+                    "warning",
+                    detail=message,
+                    hint="Accept warning or tighten CAD gaps.",
+                )
+            )
+        elif stage == "S3" and status == "recovered":
+            message = graveyard_skipped_message()
+            warnings.append(f"[DAGMC] {message}")
+            diagnostics.append(
+                make_diagnostic(
+                    "imprint",
+                    "warning",
+                    bodies=["mat:graveyard"],
+                    detail=message,
+                    hint="Accept warning or repair the graveyard seam.",
+                )
+            )
+    return len(stage_log)
+
+
+def _fragment_track_and_map(
     input_tags: list[tuple[int, int]],
     input_to_pre: dict[int, int],
     diag: float,
 ) -> dict[int, int]:
-    """Fragment ``input_tags`` against themselves, remove duplicates, and map
-    resulting tags back to the pre-fragment indices in ``input_to_pre``.
+    """Run one fragment + removeAllDuplicates + signature-track pass.
 
     ``fragment`` splits volumes at intersections (e.g. overlapping boxes or
     model/graveyard boundaries). The returned ``fragment_map`` lists, for each
@@ -413,6 +656,9 @@ def _fragment_and_track(
     ``fragment_map`` candidates when the signature is ambiguous. Then
     ``removeAllDuplicates`` may renumber tags, so we match the surviving current
     tags to those old output pieces by signature.
+
+    Raises on any binding failure; the staged orchestrator
+    (:func:`_fragment_and_track`) decides whether to retry.
     """
     if not input_tags:
         return {}
@@ -542,6 +788,122 @@ def _fragment_and_track(
         current_to_pre[tag] = pre_index
 
     return current_to_pre
+
+
+def _fragment_and_track(
+    input_tags: list[tuple[int, int]],
+    input_to_pre: dict[int, int],
+    diag: float,
+    *,
+    tolerance: float | None = None,
+    stage_log: list[dict[str, Any]] | None = None,
+    graveyard_pre: set[int] | None = None,
+) -> dict[int, int]:
+    """Fragment ``input_tags`` with staged imprint recovery.
+
+    Stages (each validated; every fallback REPORTED via ``stage_log``):
+    S0 fragment at model tolerance, S1 ``removeAllDuplicates`` re-validation,
+    S2 capped tolerance-relaxed refragment (10x, single retry), S3 model-only
+    fallback that drops the ``graveyard_pre`` inputs (gmsh-fragment-only rule
+    unchanged — the graveyard is never OCP-cut), S4 hard fail with the stage
+    log. Retries reuse the original inputs; stale-tag failures surface as S4
+    rather than risking a wrong material binding. The model is never modified.
+
+    ``stage_log`` (appended in place) feeds the ``imprintStages`` result key;
+    callers surface S2/S3 entries through :func:`_report_imprint_fallbacks`.
+    """
+    if not input_tags:
+        return {}
+
+    log: list[dict[str, Any]] = stage_log if stage_log is not None else []
+    base_tol = float(tolerance) if tolerance is not None else _read_imprint_tolerance()
+    volumes_in = len(input_tags)
+    last_error = "unknown error"
+
+    # S0 fragment + S1 removeAllDuplicates at model tolerance.
+    try:
+        mapping = _fragment_track_and_map(input_tags, input_to_pre, diag)
+        volumes_out = _safe_volume_count()
+        log.append(_stage_entry("S0", base_tol, volumes_in, volumes_out, "ok"))
+        log.append(_stage_entry("S1", base_tol, volumes_in, volumes_out, "ok"))
+        return mapping
+    except Exception as exc:
+        last_error = str(exc)
+        volumes_out = _safe_volume_count()
+        log.append(_stage_entry("S0", base_tol, volumes_in, volumes_out, "failed", last_error))
+        log.append(
+            _stage_entry(
+                "S1", base_tol, volumes_in, volumes_out, "skipped", "S0 failed; see S0 note"
+            )
+        )
+
+    # S2 tolerance-relaxed refragment (single capped retry).
+    relaxed_tol = _relaxed_imprint_tolerance(base_tol)
+    saved_tol = _read_imprint_tolerance()
+    try:
+        _apply_imprint_tolerance(relaxed_tol)
+        try:
+            mapping = _fragment_track_and_map(input_tags, input_to_pre, diag)
+            volumes_out = _safe_volume_count()
+            s2_entry = _stage_entry(
+                "S2",
+                relaxed_tol,
+                volumes_in,
+                volumes_out,
+                "ok",
+                f"tolerance relaxed {base_tol:.0e} -> {relaxed_tol:.0e}",
+            )
+            s2_entry["previousTolerance"] = base_tol
+            log.append(s2_entry)
+            return mapping
+        except Exception as exc:
+            last_error = str(exc)
+            volumes_out = _safe_volume_count()
+            s2_entry = _stage_entry(
+                "S2", relaxed_tol, volumes_in, volumes_out, "failed", last_error
+            )
+            s2_entry["previousTolerance"] = base_tol
+            log.append(s2_entry)
+    finally:
+        _apply_imprint_tolerance(saved_tol)
+
+    # S3 model-only fallback: drop the graveyard inputs and re-imprint.
+    grave = set(graveyard_pre or set())
+    model_only_tags = [
+        (dim, tag) for dim, tag in input_tags if input_to_pre.get(int(tag)) not in grave
+    ]
+    if grave and model_only_tags and len(model_only_tags) < len(input_tags):
+        model_pre = {int(tag): input_to_pre[int(tag)] for _, tag in model_only_tags}
+        try:
+            mapping = _fragment_track_and_map(model_only_tags, model_pre, diag)
+            volumes_out = _safe_volume_count()
+            log.append(
+                _stage_entry(
+                    "S3",
+                    base_tol,
+                    len(model_only_tags),
+                    volumes_out,
+                    "recovered",
+                    "graveyardSkipped: fragmented model volumes only",
+                )
+            )
+            return mapping
+        except Exception as exc:
+            last_error = str(exc)
+            volumes_out = _safe_volume_count()
+            log.append(
+                _stage_entry(
+                    "S3", base_tol, len(model_only_tags), volumes_out, "failed", last_error
+                )
+            )
+
+    # S4 hard fail with the stage log; the model is left unmodified.
+    stage_summary = "; ".join(f"{e.get('stage')}:{e.get('status')}" for e in log)
+    log.append(_stage_entry("S4", base_tol, volumes_in, _safe_volume_count(), "failed", last_error))
+    raise RuntimeError(
+        f"Imprint failed at S4 with no further fallback (stages {stage_summary}); "
+        f"model left unmodified. Last error: {last_error}"
+    )
 
 
 def _mesh_volumes_by_tag(
@@ -750,28 +1112,47 @@ def _build_moab_model(
     return mb
 
 
-def _verify_surface_senses(
+def _offending_senses(
     face_triangles: dict[int, Any], face_to_volumes: dict[int, list[int]]
+) -> list[tuple[int, list[int]]]:
+    """Return ``(surface_tag, adjacent_volumes)`` for surfaces bordering != 1-2 volumes (pure)."""
+    offending: list[tuple[int, list[int]]] = []
+    for face_tag in sorted(face_triangles.keys()):
+        vols = list(face_to_volumes.get(face_tag, []))
+        if len(vols) not in (1, 2):
+            offending.append((face_tag, vols))
+    return offending
+
+
+def _verify_surface_senses(
+    face_triangles: dict[int, Any],
+    face_to_volumes: dict[int, list[int]],
+    stage: str | None = None,
 ) -> None:
     """Verify every exported surface borders exactly 1 or 2 volumes.
 
     Anything else is a hard error (DAGMC cannot interpret it); the message
-    lists the offending surfaces with their adjacency counts. An empty
-    ``face_triangles`` is also a hard error because it means the export
-    produced no usable surfaces.
+    names each offending surface with its adjacent volume IDs and the imprint
+    stage so the failure is diagnosable. An empty ``face_triangles`` is also
+    a hard error because it means the export produced no usable surfaces.
     """
     if not face_triangles:
         raise RuntimeError("Surface sense verification failed: no exported faces")
-    offending: list[str] = []
-    for face_tag in sorted(face_triangles.keys()):
-        vols = face_to_volumes.get(face_tag, [])
-        if len(vols) not in (1, 2):
-            offending.append(f"surface {face_tag} (adjacent volumes: {len(vols)})")
+    offending = _offending_senses(face_triangles, face_to_volumes)
     if offending:
-        raise RuntimeError(
+        parts = []
+        for face_tag, vols in offending:
+            vols_text = ", ".join(str(v) for v in vols)
+            parts.append(
+                f"surface {face_tag} (adjacent volumes: {len(vols)}) volumes [{vols_text}]"
+            )
+        message = (
             "DAGMC surface sense verification failed: every surface must border "
-            "exactly 1 or 2 volumes. Offending surfaces: " + "; ".join(offending)
+            "exactly 1 or 2 volumes. Offending surfaces: " + "; ".join(parts) + "."
         )
+        if stage is not None:
+            message += f" Imprint failed at {stage}. Not exported."
+        raise RuntimeError(message)
 
 
 def _watertight_check(mb: Any, surface_sets: dict[int, Any], warnings: list[str]) -> dict[str, Any]:
@@ -846,13 +1227,21 @@ def convert_to_dagmc(
     Returns:
         Dict with ``success``, ``output_path``, ``warnings``, ``error``,
         ``solid_count``, ``surface_count``, ``triangle_count``,
-        ``watertight`` metrics, and the ``overlapCheck`` report.
+        ``watertight`` metrics, the ``overlapCheck`` report, structured
+        ``diagnostics`` (``[{code, severity, bodies, surfaces, detail, hint}]``),
+        the ``imprintStages`` log (``[{stage, tolerance, volumesIn,
+        volumesOut, status}]``), and the ``sealCheck`` summary
+        (``{sealed, openEdgeCount, hint}``). Every imprint fallback is
+        REPORTED; the model itself is never modified.
     """
     result: dict[str, Any] = {
         "success": False,
         "output_path": output_path,
         "warnings": [],
         "error": None,
+        "diagnostics": [],
+        "imprintStages": [],
+        "sealCheck": None,
     }
 
     try:
@@ -876,6 +1265,9 @@ def convert_to_dagmc(
         selector_map = {}
 
     warnings: list[str] = []
+    diagnostics: list[dict[str, Any]] = []
+    imprint_stages: list[dict[str, Any]] = []
+    seal_check: dict[str, Any] | None = None
     gmsh_initialized = False
 
     try:
@@ -923,10 +1315,14 @@ def convert_to_dagmc(
         try:
             overlap_report = _check_volume_overlaps(shape, skip_vol_ids=graveyard_vol_ids)
             for pair in overlap_report["overlappingPairs"]:
-                warnings.append(
-                    f"Volumes {pair[0]} and {pair[1]} overlap "
-                    "(sampled point is inside both); DAGMC requires disjoint volumes."
+                entry, message = overlap_diagnostic(
+                    pair[0],
+                    pair[1],
+                    _volume_label(pair[0], manifest, selector_map),
+                    _volume_label(pair[1], manifest, selector_map),
                 )
+                diagnostics.append(entry)
+                warnings.append(f"[DAGMC] {message}")
         except Exception as exc:
             warnings.append(f"Overlap check skipped: {exc}")
 
@@ -966,7 +1362,8 @@ def convert_to_dagmc(
             tag = int(tag)
             input_to_pre[tag] = tag
 
-        post_to_pre = _fragment_and_track(volumes, input_to_pre, diag)
+        post_to_pre = _fragment_and_track(volumes, input_to_pre, diag, stage_log=imprint_stages)
+        reported_upto = _report_imprint_fallbacks(imprint_stages, 0, warnings, diagnostics)
 
         # Optional auto-created graveyard: add a bounding box in gmsh and
         # fragment again. This preserves model-model shared faces because the
@@ -1000,7 +1397,16 @@ def convert_to_dagmc(
             input_to_pre = {int(tag): pre for tag, pre in post_to_pre.items()}
             input_to_pre[gy_tag] = gy_pre_index
 
-            post_to_pre = _fragment_and_track(current_tags, input_to_pre, diag)
+            post_to_pre = _fragment_and_track(
+                current_tags,
+                input_to_pre,
+                diag,
+                stage_log=imprint_stages,
+                graveyard_pre={gy_pre_index} if gy_pre_index is not None else None,
+            )
+            reported_upto = _report_imprint_fallbacks(
+                imprint_stages, reported_upto, warnings, diagnostics
+            )
             warnings.append("Auto-created graveyard volume around model (mat:graveyard).")
 
         tol = faceting_tolerance
@@ -1074,9 +1480,25 @@ def convert_to_dagmc(
         gmsh_initialized = False
 
         # ------------------------------------------------------------------
-        # 4. Verify surface senses before building the MOAB model.
+        # 4. Verify surface senses before building the MOAB model. A sense
+        #    failure stays a hard error, but the message names the surface,
+        #    its volumes, and the imprint stage.
         # ------------------------------------------------------------------
-        _verify_surface_senses(face_triangles, face_to_volumes)
+        imprint_stage = _last_ok_imprint_stage(imprint_stages)
+        try:
+            _verify_surface_senses(face_triangles, face_to_volumes, stage=imprint_stage)
+        except RuntimeError as exc:
+            bad_surfaces = [tag for tag, _ in _offending_senses(face_triangles, face_to_volumes)]
+            diagnostics.append(
+                make_diagnostic(
+                    "sense",
+                    "error",
+                    surfaces=bad_surfaces,
+                    detail=str(exc),
+                    hint="Inspect open edges (sealCheck.openEdgeCount) and re-run imprint.",
+                )
+            )
+            raise
 
         # ------------------------------------------------------------------
         # 5. Build MOAB model. Material names are resolved through the
@@ -1124,6 +1546,19 @@ def convert_to_dagmc(
         }
         watertight = _watertight_check(mb, surface_sets, warnings)
 
+        # Seal-check fail-fast with repair hints: stop before writing a
+        # leaking h5m. Never silent — the failure is REPORTED in diagnostics.
+        seal_hint = "Inspect open edges (sealCheck.openEdgeCount) and close gaps before export"
+        seal_check = {
+            "sealed": bool(watertight.get("sealed", False)),
+            "openEdgeCount": int(watertight.get("holeEdges", 0)),
+            "hint": seal_hint,
+        }
+        if not seal_check["sealed"]:
+            detail = seal_error_message(seal_check["openEdgeCount"], seal_hint)
+            diagnostics.append(make_diagnostic("seal", "error", detail=detail, hint=seal_hint))
+            raise RuntimeError(detail)
+
         mb.write_file(str(out_path))
 
         result.update(
@@ -1135,6 +1570,9 @@ def convert_to_dagmc(
                 "warnings": warnings,
                 "watertight": watertight,
                 "overlapCheck": overlap_report,
+                "diagnostics": diagnostics,
+                "imprintStages": imprint_stages,
+                "sealCheck": seal_check,
                 "inspectionGates": {
                     "massProperties": mass_gate_warnings,
                     "meshDeviation": mesh_gate_warnings,
@@ -1146,6 +1584,9 @@ def convert_to_dagmc(
         result["error"] = f"DAGMC export failed: {e}"
         result["traceback"] = traceback.format_exc()
         result["warnings"] = warnings
+        result["diagnostics"] = diagnostics
+        result["imprintStages"] = imprint_stages
+        result["sealCheck"] = seal_check
         if gmsh_initialized:
             try:
                 gmsh.finalize()

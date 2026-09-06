@@ -26,7 +26,15 @@
 // *****************************************************************************
 
 import { describe, it, expect } from 'vitest';
-import { buildFuseFeature, bodyTipFeature, parseOverlapWarning, selectionSolidIds, toggleSolidSelection } from './outline-interactions';
+import {
+    buildFuseFeature,
+    bodyTipFeature,
+    classifyDiagnostic,
+    groupDiagnostics,
+    parseOverlapWarning,
+    selectionSolidIds,
+    toggleSolidSelection
+} from './outline-interactions';
 import { NUKE_CAD_SCHEMA_VERSION, type NukeCadDocument, type FeatureDef, validateNukeCadDocument } from '../../../common/cad-document';
 
 function feature(id: string, type: FeatureDef['type'], body: string, dependsOn: string[] = [], suppressed = false): FeatureDef {
@@ -127,5 +135,47 @@ describe('buildFuseFeature', () => {
         const doc = makeDocument([feature('pad-1', 'pad', 'body-1')]);
         expect(buildFuseFeature(doc, 'body-1', 'body-9', 'fuse-x')).toBeUndefined();
         expect(buildFuseFeature(doc, 'body-1', 'body-2', 'fuse-x')).toBeUndefined();
+    });
+});
+
+describe('classifyDiagnostic', () => {
+    it('classifies builder overlap, seal, sense, imprint, and inspection lines', () => {
+        expect(classifyDiagnostic("bodies 'a' and 'b' overlap (volume 1) but are not merged")).toBe('overlap');
+        expect(classifyDiagnostic('[DAGMC] Overlap volume 1/volume 2: export would double-count volume. Fix: Fuse.')).toBe('overlap');
+        expect(classifyDiagnostic('Found 4 edges shared by only one triangle; the facet mesh has holes and is not watertight.')).toBe(
+            'seal'
+        );
+        expect(classifyDiagnostic('[DAGMC] Seal check failed (4 open edges): the facet mesh has holes. Fix: close.')).toBe('seal');
+        expect(classifyDiagnostic('Surface 7 has no valid sense (volumes [1]): imprint failed at S2. Not exported.')).toBe('sense');
+        expect(classifyDiagnostic('[DAGMC] Imprint S2 tolerance relaxed 1e-07 -> 1e-06 (reported): recovered. Fix: accept.')).toBe(
+            'imprint'
+        );
+        expect(classifyDiagnostic('Imprint S3 model-only fallback (reported, graveyardSkipped): exported. Fix: accept.')).toBe('imprint');
+        expect(classifyDiagnostic('Volume 1 mesh-vs-CAD deviation 12% (mesh 1, CAD 1); possible overlap/gap')).toBe('inspection');
+        expect(classifyDiagnostic('display tessellation exceeds the triangle budget')).toBe('other');
+    });
+});
+
+describe('groupDiagnostics', () => {
+    it('groups by code in stable order and keeps the Fuse pair on overlap lines', () => {
+        const groups = groupDiagnostics([
+            'display tessellation exceeds the triangle budget',
+            '[DAGMC] Overlap volume 1/volume 2: export would double-count volume. Fix: Fuse in Model Outline.',
+            "bodies 'body-1' and 'body-2' overlap (volume 0.5) but are not merged by a boolean",
+            'Found 4 edges shared by only one triangle; the facet mesh has holes and is not watertight.'
+        ]);
+        expect(groups.map((group) => group.code)).toEqual(['overlap', 'seal', 'other']);
+        const overlap = groups[0];
+        expect(overlap.items).toHaveLength(2);
+        expect(overlap.items[0].overlap).toBeUndefined();
+        expect(overlap.items[1].overlap).toEqual({ bodyA: 'body-1', bodyB: 'body-2' });
+        expect(overlap.hint).toContain('Fuse');
+        expect(groups[1].hint).toContain('sealCheck');
+    });
+
+    it('omits empty groups and returns no groups for clean builds', () => {
+        expect(groupDiagnostics([])).toEqual([]);
+        const groups = groupDiagnostics(['Volume 1 mesh-vs-CAD deviation 50% (mesh 2, CAD 1); possible overlap/gap']);
+        expect(groups.map((group) => group.code)).toEqual(['inspection']);
     });
 });

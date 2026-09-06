@@ -1258,6 +1258,32 @@ export class CadDocumentStore {
     }
 
     /**
+     * Set or clear the in-CAD material tag of an existing body.
+     *
+     * Metadata only (like `setBodyLabel`): the tag rides the body's id, so a
+     * later `setBodyLabel` re-keys its export selector automatically, and tag
+     * edits never trigger a rebuild — export picks them up on the next DAGMC
+     * build. Snapshot undo/redo rides free through the normal commit path.
+     */
+    setBodyMaterial(id: string, material?: string): DocumentMutationResult {
+        const check = this.requireDocument();
+        if (!check.success) {
+            return { success: false, error: check.error, issues: check.issues };
+        }
+        const doc = cloneDocument(check.value!);
+        const body = doc.bodies.find((b) => b.id === id);
+        if (body === undefined) {
+            return { success: false, error: `Body '${id}' not found` };
+        }
+        if (material === undefined) {
+            delete body.material;
+        } else {
+            body.material = material;
+        }
+        return this.commit(doc);
+    }
+
+    /**
      * Remove a body from the document.
      *
      * Rejects when any feature references the body.
@@ -2191,6 +2217,7 @@ export function computeDependsOn(type: FeatureDef['type'], bodyId: string, featu
         'mirror',
         'linearPattern',
         'circularPattern',
+        'lattice',
         'hole',
         'primitive',
         'multiTransform',

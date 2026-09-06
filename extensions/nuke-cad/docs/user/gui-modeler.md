@@ -111,9 +111,13 @@ it opens it in the CAD viewport by default.
 
 Build warnings (for example, intentional cross-body overlaps in assemblies)
 appear as a compact collapsible strip at the top of the viewport: click the
-warning count to expand the full list. The Model Outline's warnings box adds a
+warning count to expand the full list. The Model Outline's warnings box groups
+DAGMC export diagnostics (overlap, seal, sense, imprint stages, inspection)
+with per-group repair hints and adds a
 one-click **Fuse** fix for overlap warnings in document mode — see
-_Getting started → Model Outline panel_.
+_Getting started → Model Outline panel_. Every imprint fallback is reported
+with its stage; nothing is ever retried silently, and the model is never
+modified to force an export.
 
 ## Sketch mode walkthrough
 
@@ -480,6 +484,16 @@ Chain two pattern/mirror features on the same body (the first earlier in
 document order): pick both sources and the body. The second transform applies
 over the first transform's full instance set.
 
+### Lattice
+
+Replicate a solid feature over a **Rectangular** grid (`rows` × `cols`,
+`pitch`, optional second pitch) or a **Hexagonal** ring (`rings`) for fuel
+assemblies and blanket modules. Each cell gets a label
+(`<prefix>_r<row>c<col>`, previewed live in the dialog) that becomes a DAGMC
+group on export, so cells resolve to individual volumes. Overlapping cells
+fuse like pattern instances; lattices can themselves be pattern/mirror
+sources, but not nested inside another lattice.
+
 ## Mirror
 
 1. Select the target body and the **Source feature** to mirror.
@@ -741,6 +755,17 @@ type, and DOF contribution; clicking a row selects the instance in the
 viewport. Assembly STEP export keeps one product per instance; DAGMC export
 imprints the placed solids (overlap stays a warning — assemblies overlap
 intentionally).
+
+## Materials
+
+A Feature Tree body row carries a **tag button**: enter a bare material name
+(`UO2`, never `mat:`-prefixed) to tag the body. Tags merge into the region
+manifest on every build and persist `<stem>.regions.json` beside the
+document, so **Import from nuke-cad...** in OpenMC Studio resolves them to
+placeholder materials automatically. An explicit sidecar entry for the same
+body always wins over the tag. Tagging never triggers a rebuild and is fully
+undo-covered. DAGMC group names stay label-based; the material travels
+through the sidecar link.
 
 ## Drawings
 

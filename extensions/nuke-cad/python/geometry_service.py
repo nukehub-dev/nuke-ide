@@ -51,7 +51,7 @@ from ocp_compat import (  # noqa: E402
     topods_face,
     topods_solid,
 )
-from region_manifest import ManifestValidationError, RegionManifest  # noqa: E402
+from region_manifest import ManifestValidationError, RegionManifest, document_material_volumes  # noqa: E402
 
 # Document builder modules are optional; they guard their own build123d imports.
 try:
@@ -3120,6 +3120,41 @@ def _validate_document_refs(document: dict[str, Any], source_file: Path) -> dict
     return None
 
 
+def _manifest_with_document_materials(
+    document: dict, manifest: RegionManifest | None
+) -> tuple[RegionManifest | None, list[dict]]:
+    """Merge in-CAD body material tags into the manifest volumes.
+
+    Explicit sidecar entries win (see ``document_material_volumes``); a
+    manifest is created when tags exist but no sidecar does. Untagged
+    documents return the manifest untouched. The second tuple element is
+    the derived entry list (empty when nothing merged) so callers can
+    decide whether the sidecar file needs (re)writing.
+    """
+    derived = document_material_volumes(document.get("bodies"), manifest)
+    if not derived:
+        return manifest, []
+    if manifest is None:
+        return RegionManifest({"volumes": derived}), derived
+    merged = manifest.to_dict()
+    merged["volumes"] = [*manifest.volumes, *derived]
+    return RegionManifest(merged), derived
+
+
+def _write_merged_sidecar(document_file: Path, manifest: RegionManifest | None) -> None:
+    """Persist a merged manifest beside the document for the openmc-studio hop.
+
+    Only called when in-CAD tags contributed entries (callers check the
+    derived list): the sibling ``<stem>.regions.json`` is what
+    openmc-studio's import reads for ``materialLinks``. Never touches the
+    filesystem for untagged documents.
+    """
+    if manifest is None:
+        return
+    sidecar = document_file.with_suffix(".regions.json")
+    sidecar.write_text(json.dumps(manifest.to_dict(), indent=2) + "\n", encoding="utf-8")
+
+
 def build_document(
     document_path: str,
     output_dir: str | None = None,
@@ -3275,6 +3310,9 @@ def build_document(
     wrapped = getattr(shape, "wrapped", None) if shape is not None else None
 
     manifest, manifest_warnings = _load_manifest(document_file)
+    manifest, _derived_material_volumes = _manifest_with_document_materials(document, manifest)
+    if _derived_material_volumes:
+        _write_merged_sidecar(document_file, manifest)
     tess_cache_path = _tess_cache_path_for(cache_dir, document_file.stem)
     tess_doc_hash = (
         _tess_doc_hash_for(document, tolerance, length_scale) if tess_cache_path else None
@@ -3447,6 +3485,9 @@ def build_assembly(
         }
 
     manifest, manifest_warnings = _load_manifest(document_file)
+    manifest, _derived_material_volumes = _manifest_with_document_materials(document, manifest)
+    if _derived_material_volumes:
+        _write_merged_sidecar(document_file, manifest)
     selector_map = assembly_result.get("selectorMap", {})
     try:
         solid_total = len(_solids_in_explorer_order(shape))
@@ -3672,6 +3713,9 @@ def build_document_partial(
     wrapped = getattr(shape, "wrapped", None) if shape is not None else None
 
     manifest, manifest_warnings = _load_manifest(document_file)
+    manifest, _derived_material_volumes = _manifest_with_document_materials(document, manifest)
+    if _derived_material_volumes:
+        _write_merged_sidecar(document_file, manifest)
     tess_doc_hash = _tess_doc_hash_for(document, tolerance, length_scale) if cache_path else None
     result = _process_shape(
         wrapped,

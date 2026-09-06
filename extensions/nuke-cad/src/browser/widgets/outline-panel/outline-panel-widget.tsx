@@ -64,7 +64,7 @@ import {
     SolidSortKey,
     SolidTableRow
 } from './solid-summaries';
-import { buildFuseFeature, parseOverlapWarning, selectionSolidIds, toggleSolidSelection } from './outline-interactions';
+import { buildFuseFeature, groupDiagnostics, selectionSolidIds, toggleSolidSelection } from './outline-interactions';
 import { Tooltip, useTooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
 import './outline-panel.css';
 
@@ -255,11 +255,17 @@ interface OutlineRowData {
     readonly label: string;
     readonly detail?: string;
     readonly tags?: readonly string[];
+    /**
+     * In-CAD body material tag for the row's selector (read-only display only;
+     * the panel never edits it). Shown only while it differs from the exported
+     * manifest `detail`, i.e. before the next DAGMC export picks it up.
+     */
+    readonly docMaterial?: string;
     /** 1-based solid indices the row maps to via the build-time selector map; empty when unmapped. */
     readonly solidIndices: readonly number[];
 }
 
-function buildVolumeRows(model: CadModel): OutlineRowData[] {
+function buildVolumeRows(model: CadModel, docMaterials?: ReadonlyMap<string, string>): OutlineRowData[] {
     const selectorMap = model.result.selectorMap ?? {};
     const manifest = model.manifest;
     if (manifest) {
@@ -268,6 +274,7 @@ function buildVolumeRows(model: CadModel): OutlineRowData[] {
             label: volume.name ?? volume.selector,
             detail: volume.material,
             tags: volume.tags,
+            docMaterial: docMaterials?.get(volume.selector),
             solidIndices: selectorMap[volume.selector] ?? []
         }));
     }
@@ -352,7 +359,17 @@ function CadOutlinePanelComponent(props: CadOutlinePanelComponentProps): React.R
     const model = props.model;
     const selectedSolid = props.selection.solidId;
     const selectorMap = model?.result.selectorMap ?? {};
-    const volumeRows = model ? buildVolumeRows(model) : [];
+    // In-CAD material tags by body label (read-only here; edited in the Feature Tree).
+    const docMaterials = React.useMemo(() => {
+        const map = new Map<string, string>();
+        for (const body of props.document?.bodies ?? []) {
+            if (body.label !== undefined && body.material !== undefined) {
+                map.set(body.label, body.material);
+            }
+        }
+        return map;
+    }, [props.document]);
+    const volumeRows = model ? buildVolumeRows(model, docMaterials) : [];
     const surfaceRows = model?.manifest ? buildSurfaceRows(model.manifest, selectorMap) : [];
     const summaries = props.summaries;
 
@@ -397,6 +414,11 @@ function CadOutlinePanelComponent(props: CadOutlinePanelComponentProps): React.R
 
     const scriptName = model?.scriptPath.split(/[\\/]/).pop();
     const warnings = model?.result.warnings ?? [];
+    // DAGMC failures (e.g. seal fail-fast, sense errors) are non-fatal to the
+    // build but must never be silent: surface dagmcError alongside warnings.
+    const dagmcError = model?.result.dagmcError;
+    const diagnosticWarnings = dagmcError !== undefined && dagmcError !== null ? [...warnings, dagmcError] : warnings;
+    const diagnosticGroups = groupDiagnostics(diagnosticWarnings);
     const hiddenIds = props.hiddenSolidIds;
 
     /** Every solid id the rows map to; the pool the isolate action hides from. */
@@ -510,37 +532,50 @@ function CadOutlinePanelComponent(props: CadOutlinePanelComponentProps): React.R
 
             {model && (
                 <div className="cad-outline-content">
-                    {warnings.length > 0 && (
+                    {diagnosticGroups.length > 0 && (
                         <div className="cad-outline-warning-box">
                             <i className="codicon codicon-warning" />
                             <div className="warning-content">
                                 <strong>Build warnings</strong>
-                                {warnings.map((warning, index) => {
-                                    const pair = parseOverlapWarning(warning);
-                                    const fixable =
-                                        pair !== undefined &&
-                                        props.document !== undefined &&
-                                        buildFuseFeature(props.document, pair.bodyA, pair.bodyB, 'outline-fuse-probe') !== undefined;
-                                    return (
-                                        <p key={index} className="warning-line">
-                                            <span>{warning}</span>
-                                            {fixable && pair !== undefined && (
-                                                <Tooltip
-                                                    content={`Add a booleanFuse feature merging '${pair.bodyB}' into '${pair.bodyA}' and rebuild`}
-                                                    position="left"
-                                                >
-                                                    <button
-                                                        className="theia-button secondary warning-fix-button"
-                                                        onClick={() => props.onFuseBodies(pair.bodyA, pair.bodyB)}
-                                                    >
-                                                        <i className="codicon codicon-nuke-cad-boolean-fuse" />
-                                                        Fuse
-                                                    </button>
-                                                </Tooltip>
-                                            )}
+                                {diagnosticGroups.map((group) => (
+                                    <React.Fragment key={group.code}>
+                                        <p className="warning-line">
+                                            <strong>{`${group.title} (${group.items.length})`}</strong>
                                         </p>
-                                    );
-                                })}
+                                        {group.items.map((item, index) => {
+                                            const pair = item.overlap;
+                                            const fixable =
+                                                pair !== undefined &&
+                                                props.document !== undefined &&
+                                                buildFuseFeature(props.document, pair.bodyA, pair.bodyB, 'outline-fuse-probe') !==
+                                                    undefined;
+                                            return (
+                                                <p key={index} className="warning-line">
+                                                    <span>{item.text}</span>
+                                                    {fixable && pair !== undefined && (
+                                                        <Tooltip
+                                                            content={`Add a booleanFuse feature merging '${pair.bodyB}' into '${pair.bodyA}' and rebuild`}
+                                                            position="left"
+                                                        >
+                                                            <button
+                                                                className="theia-button secondary warning-fix-button"
+                                                                onClick={() => props.onFuseBodies(pair.bodyA, pair.bodyB)}
+                                                            >
+                                                                <i className="codicon codicon-nuke-cad-boolean-fuse" />
+                                                                Fuse
+                                                            </button>
+                                                        </Tooltip>
+                                                    )}
+                                                </p>
+                                            );
+                                        })}
+                                        {group.hint !== '' && (
+                                            <p className="warning-line">
+                                                <span>{`Hint: ${group.hint}`}</span>
+                                            </p>
+                                        )}
+                                    </React.Fragment>
+                                ))}
                             </div>
                         </div>
                     )}
@@ -860,6 +895,11 @@ function OutlineRow(props: OutlineRowProps): React.ReactElement {
                     </span>
                 ))}
                 {props.row.detail && <span className="outline-row-detail">{props.row.detail}</span>}
+                {props.row.docMaterial !== undefined && props.row.docMaterial !== props.row.detail && (
+                    <span className="outline-tag" title="In-CAD material tag — exported on the next DAGMC build">
+                        {props.row.docMaterial}
+                    </span>
+                )}
                 {props.hidden && <span className="codicon codicon-eye-closed outline-row-hidden-indicator" />}
                 {mapped && (
                     <span className="outline-row-actions">

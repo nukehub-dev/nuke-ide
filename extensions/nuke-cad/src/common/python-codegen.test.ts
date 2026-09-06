@@ -1208,6 +1208,102 @@ describe('generatePythonScript extended feature emission', () => {
         expect(script).not.toContain('# TODO(manual): circularPattern feature "Prim ring"');
     });
 
+    it('emits rectangular lattices as row/col loops with label comments', () => {
+        const doc = extendedDocument();
+        pushExtendedFeature(doc, {
+            id: 'lat1',
+            name: 'Pins',
+            type: 'lattice',
+            body: 'b1',
+            params: { source: 'pad1', latticeType: 'rectangular', rows: 2, cols: 2, pitch: 10 } as FeatureDef['params'],
+            suppressed: false,
+            dependsOn: ['pad1']
+        });
+        const script = generatePythonScript(doc);
+        expect(script).toContain('_tool_lat1 = bd.extrude(sketch_Square_sk1(), amount=2)  # source: Base');
+        expect(script).toContain('# cells Base_r0c0 through Base_r1c1 (row-major, odd-r)');
+        expect(script).toContain('for _r in range(2):');
+        expect(script).toContain('for _c in range(2):');
+        expect(script).toContain(
+            'body_B1 = body_B1 + _tool_lat1.moved(datum_XY_datum_xy.location * bd.Location(((_c - 0.5) * 10 + 0, (_r - 0.5) * 10 + 0, 0)))  # Pins'
+        );
+        expect(script).not.toContain('# TODO(manual): lattice feature "Pins"');
+    });
+
+    it('emits hexagonal ring lattices as axial loops', () => {
+        const doc = extendedDocument();
+        pushExtendedFeature(doc, {
+            id: 'lat1',
+            name: 'Hex pins',
+            type: 'lattice',
+            body: 'b1',
+            params: { source: 'pad1', latticeType: 'hexagonal', rings: 1, pitch: 10 } as FeatureDef['params'],
+            suppressed: false,
+            dependsOn: ['pad1']
+        });
+        const script = generatePythonScript(doc);
+        expect(script).toContain('# cells Base_r<row>c<col> (axial enumeration, odd-r)');
+        expect(script).toContain('for _q in range(-1, 2):');
+        expect(script).toContain('for _r in range(max(-1, -_q - 1), min(1, -_q + 1) + 1):');
+        expect(script).toContain('17.32050807568877 * (_q + _r / 2) + 0');
+        expect(script).toContain('15 * _r + 0');
+        expect(script).not.toContain('# TODO(manual): lattice feature "Hex pins"');
+    });
+
+    it('emits scaled lattices through the bbox-center helper', () => {
+        const doc = extendedDocument();
+        pushExtendedFeature(doc, {
+            id: 'lat1',
+            name: 'Big pins',
+            type: 'lattice',
+            body: 'b1',
+            params: { source: 'pad1', latticeType: 'rectangular', rows: 1, cols: 2, pitch: 10, scale: 2 } as FeatureDef['params'],
+            suppressed: false,
+            dependsOn: ['pad1']
+        });
+        const script = generatePythonScript(doc);
+        expect(script).toContain('def _scaled_about_center(shape, factor):');
+        expect(script).toContain('_scaled_about_center(_tool_lat1.moved(');
+        expect(script).toContain(', 2)  # Big pins');
+    });
+
+    it('degrades nested lattices and mixed extents to TODO(manual), never faked', () => {
+        const nested = extendedDocument();
+        pushExtendedFeature(nested, {
+            id: 'lat1',
+            name: 'Pins',
+            type: 'lattice',
+            body: 'b1',
+            params: { source: 'pad1', latticeType: 'rectangular', rows: 1, cols: 2, pitch: 10 } as FeatureDef['params'],
+            suppressed: false,
+            dependsOn: ['pad1']
+        });
+        pushExtendedFeature(nested, {
+            id: 'lat2',
+            name: 'Nested',
+            type: 'lattice',
+            body: 'b1',
+            params: { source: 'lat1', latticeType: 'rectangular', rows: 1, cols: 2, pitch: 10 } as FeatureDef['params'],
+            suppressed: false,
+            dependsOn: ['lat1']
+        });
+        expect(generatePythonScript(nested)).toContain('# TODO(manual): lattice feature "Nested"');
+
+        const mixed = extendedDocument();
+        pushExtendedFeature(mixed, {
+            id: 'lat1',
+            name: 'Mixed',
+            type: 'lattice',
+            body: 'b1',
+            params: { source: 'pad1', latticeType: 'hexagonal', rows: 2, cols: 2, rings: 1, pitch: 10 } as FeatureDef['params'],
+            suppressed: false,
+            dependsOn: ['pad1']
+        });
+        const mixedScript = generatePythonScript(mixed);
+        expect(mixedScript).toContain('# TODO(manual): lattice feature "Mixed"');
+        expect(mixedScript).not.toContain('_tool_lat1');
+    });
+
     it('hatches multiTransform, defeature, and taper/drill-point holes with their params', () => {
         const doc = extendedDocument();
         pushExtendedFeature(doc, {

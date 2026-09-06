@@ -71,7 +71,14 @@
  * @module nuke-cad/common
  */
 
-import { type NukeCadDocument, type SketchDef, type FeatureDef, type DatumPlane, type CurveSource } from './cad-document';
+import {
+    type NukeCadDocument,
+    type SketchDef,
+    type FeatureDef,
+    type DatumPlane,
+    type CurveSource,
+    LATTICE_MAX_CELLS
+} from './cad-document';
 import { instancePlacementToMatrix, type Mat4 } from './assembly-document';
 import { FeatureGraph } from './feature-graph';
 import { type TopologyRef, type FaceFingerprint, type EdgeFingerprint } from './topology-refs';
@@ -231,10 +238,15 @@ function documentUsesBSpline(doc: NukeCadDocument): boolean {
     );
 }
 
-/** True when any pattern/mirror feature carries a non-unit scale factor. */
+/** True when any pattern/mirror/lattice feature carries a non-unit scale factor. */
 function documentUsesScaledPattern(doc: NukeCadDocument): boolean {
     return doc.features.some((feature) => {
-        if (feature.type !== 'linearPattern' && feature.type !== 'circularPattern' && feature.type !== 'mirror') {
+        if (
+            feature.type !== 'linearPattern' &&
+            feature.type !== 'circularPattern' &&
+            feature.type !== 'mirror' &&
+            feature.type !== 'lattice'
+        ) {
             return false;
         }
         const scale = (feature.params as Record<string, unknown>).scale;
@@ -1041,6 +1053,10 @@ function emitFeature(
         return emitPatternOrMirror(feature, doc, bodyVar, sketchFuncById, datumVarById, datumById, curveVarById, unbuildableSketches);
     }
 
+    if (feature.type === 'lattice') {
+        return emitLattice(feature, doc, bodyVar, sketchFuncById, datumVarById, datumById, curveVarById, unbuildableSketches);
+    }
+
     return undefined;
 }
 
@@ -1280,16 +1296,23 @@ function primitiveSolidExpr(
     return `${base}.moved(${datumVar}.location)`;
 }
 
-function emitPatternOrMirror(
+/**
+ * Re-derived source-solid expression shared by pattern/mirror and lattice
+ * emission, or undefined when the source cannot be exported.
+ *
+ * Eligibility is the patterns' set (pad/pocket/revolve/groove/sweep/pipe/
+ * loft/helicalSweep/primitive): pattern/mirror/lattice sources degrade to
+ * `# TODO(manual):`, never faked.
+ */
+function patternSourceToolExpr(
     feature: FeatureDef,
     doc: NukeCadDocument,
-    bodyVar: string,
     sketchFuncById: Map<string, string>,
     datumVarById: Map<string, string>,
     datumById: Map<string, DatumPlane>,
     curveVarById: Map<string, string>,
     unbuildableSketches: Set<string>
-): string[] | undefined {
+): { expr: string; lines: string[] } | undefined {
     const params = feature.params as Record<string, unknown>;
     const sourceFeature = doc.features.find((f) => f.id === params.source);
     if (
@@ -1307,58 +1330,84 @@ function emitPatternOrMirror(
     ) {
         return undefined;
     }
-    let toolExpr: string;
-    let toolLines: string[];
     if (sourceFeature.type === 'sweep' || sourceFeature.type === 'pipe') {
         const tool = curveSweepTool(sourceFeature, doc, sketchFuncById, datumVarById, curveVarById, unbuildableSketches);
         if (tool === undefined) {
             return undefined;
         }
-        toolExpr = tool.expr;
-        toolLines = tool.lines;
-    } else if (sourceFeature.type === 'helicalSweep') {
+        return { expr: tool.expr, lines: tool.lines };
+    }
+    if (sourceFeature.type === 'helicalSweep') {
         const tool = helicalSweepTool(sourceFeature, doc, sketchFuncById, datumVarById, unbuildableSketches);
         if (tool === undefined) {
             return undefined;
         }
-        toolExpr = tool.expr;
-        toolLines = tool.lines;
-    } else if (sourceFeature.type === 'loft') {
+        return { expr: tool.expr, lines: tool.lines };
+    }
+    if (sourceFeature.type === 'loft') {
         const expr = loftSolidExpr(sourceFeature, sketchFuncById, unbuildableSketches);
         if (expr === undefined) {
             return undefined;
         }
-        toolExpr = expr;
-        toolLines = [];
-    } else if (sourceFeature.type === 'primitive') {
+        return { expr, lines: [] };
+    }
+    if (sourceFeature.type === 'primitive') {
         const expr = primitiveSolidExpr(sourceFeature, datumVarById, datumById);
         if (expr === undefined) {
             return undefined;
         }
-        toolExpr = expr;
-        toolLines = [];
-    } else {
-        const expr = sketchSolidExpr(sourceFeature, sketchFuncById, unbuildableSketches);
-        if (expr === undefined) {
-            return undefined;
-        }
-        toolExpr = expr;
-        toolLines = [];
+        return { expr, lines: [] };
     }
+    const expr = sketchSolidExpr(sourceFeature, sketchFuncById, unbuildableSketches);
+    if (expr === undefined) {
+        return undefined;
+    }
+    return { expr, lines: [] };
+}
+
+/**
+ * Fuse (`+`) or cut (`-`) operator for instances of a pattern/mirror/lattice
+ * source: additive sources merge, subtractive sources (and subtractive
+ * primitive/helicalSweep tools) cut — the same rule the backend applies in
+ * `_apply_pattern_or_mirror`.
+ */
+function patternSourceOp(sourceFeature: FeatureDef): '+' | '-' {
     const sourceSubtractive =
         (sourceFeature.type === 'primitive' || sourceFeature.type === 'helicalSweep') &&
         (sourceFeature.params as Record<string, unknown>).subtractive === true;
-    const op =
-        !sourceSubtractive &&
-        (sourceFeature.type === 'pad' ||
-            sourceFeature.type === 'revolve' ||
-            sourceFeature.type === 'sweep' ||
-            sourceFeature.type === 'pipe' ||
-            sourceFeature.type === 'loft' ||
-            sourceFeature.type === 'helicalSweep' ||
-            sourceFeature.type === 'primitive')
-            ? '+'
-            : '-';
+    const additive =
+        sourceFeature.type === 'pad' ||
+        sourceFeature.type === 'revolve' ||
+        sourceFeature.type === 'sweep' ||
+        sourceFeature.type === 'pipe' ||
+        sourceFeature.type === 'loft' ||
+        sourceFeature.type === 'helicalSweep' ||
+        sourceFeature.type === 'primitive';
+    return !sourceSubtractive && additive ? '+' : '-';
+}
+
+function emitPatternOrMirror(
+    feature: FeatureDef,
+    doc: NukeCadDocument,
+    bodyVar: string,
+    sketchFuncById: Map<string, string>,
+    datumVarById: Map<string, string>,
+    datumById: Map<string, DatumPlane>,
+    curveVarById: Map<string, string>,
+    unbuildableSketches: Set<string>
+): string[] | undefined {
+    const params = feature.params as Record<string, unknown>;
+    const sourceFeature = doc.features.find((f) => f.id === params.source);
+    if (sourceFeature === undefined) {
+        return undefined;
+    }
+    const tool = patternSourceToolExpr(feature, doc, sketchFuncById, datumVarById, datumById, curveVarById, unbuildableSketches);
+    if (tool === undefined) {
+        return undefined;
+    }
+    const toolExpr = tool.expr;
+    const toolLines = tool.lines;
+    const op = patternSourceOp(sourceFeature);
 
     // Per-instance uniform scale about each instance's own bbox center,
     // applied after its transform. Scale 1 (or absent) emits exactly as
@@ -1448,6 +1497,178 @@ function emitPatternOrMirror(
     lines.push(`for _k in range(1, ${count}):`);
     lines.push(`${INDENT}${bodyVar} = ${bodyVar} ${op} ${scaleInstance(`${toolVar}.rotate(${axisExpr}, _k * ${formatNumber(step)})`)}`);
     lines.push(`# ${feature.name}`);
+    return lines;
+}
+
+/**
+ * Row/col (grid) or axial (ring) loop replicating a lattice source solid,
+ * or undefined when the lattice cannot be exported (degrades to
+ * `# TODO(manual):`, never faked).
+ *
+ * The source solid is re-derived exactly like pattern/mirror sources; each
+ * instance is translated by the §3 offset expressions inline (in the lattice
+ * plane datum's frame, composed through the datum location) and merged with
+ * the same fuse/cut rule as patterns. A `# <prefix>_r<row>c<col>` comment
+ * records the per-cell label scheme (odd-r offset coordinates) the backend
+ * feeds to `selector_map`.
+ */
+function emitLattice(
+    feature: FeatureDef,
+    doc: NukeCadDocument,
+    bodyVar: string,
+    sketchFuncById: Map<string, string>,
+    datumVarById: Map<string, string>,
+    datumById: Map<string, DatumPlane>,
+    curveVarById: Map<string, string>,
+    unbuildableSketches: Set<string>
+): string[] | undefined {
+    const params = feature.params as Record<string, unknown>;
+    const tool = patternSourceToolExpr(feature, doc, sketchFuncById, datumVarById, datumById, curveVarById, unbuildableSketches);
+    if (tool === undefined) {
+        return undefined;
+    }
+    const sourceFeature = doc.features.find((f) => f.id === params.source);
+    if (sourceFeature === undefined) {
+        return undefined;
+    }
+    const op = patternSourceOp(sourceFeature);
+
+    const scale = params.scale === undefined ? 1 : Number(params.scale);
+    if (!Number.isFinite(scale) || scale <= 0) {
+        return undefined;
+    }
+    const scaleInstance = (expr: string): string => (scale === 1 ? expr : `_scaled_about_center(${expr}, ${formatNumber(scale)})`);
+
+    const latticeType = params.latticeType;
+    if (latticeType !== 'rectangular' && latticeType !== 'hexagonal') {
+        return undefined;
+    }
+    const hasGrid = params.rows !== undefined || params.cols !== undefined;
+    const hasRings = params.rings !== undefined;
+    if ((hasGrid && hasRings) || (!hasGrid && !hasRings)) {
+        return undefined;
+    }
+    let rows = 0;
+    let cols = 0;
+    let rings = -1;
+    if (hasGrid) {
+        if (typeof params.rows !== 'number' || !Number.isInteger(params.rows) || params.rows < 1) {
+            return undefined;
+        }
+        if (typeof params.cols !== 'number' || !Number.isInteger(params.cols) || params.cols < 1) {
+            return undefined;
+        }
+        rows = params.rows;
+        cols = params.cols;
+    } else {
+        if (typeof params.rings !== 'number' || !Number.isInteger(params.rings) || params.rings < 0) {
+            return undefined;
+        }
+        rings = params.rings;
+    }
+    const cellCount = hasGrid ? rows * cols : 1 + 3 * rings * (rings + 1);
+    if (cellCount > LATTICE_MAX_CELLS) {
+        return undefined;
+    }
+    const pitch = Number(params.pitch);
+    if (!Number.isFinite(pitch) || pitch <= 0) {
+        return undefined;
+    }
+    let pitchY = pitch;
+    if (params.pitchY !== undefined) {
+        if (latticeType !== 'rectangular') {
+            return undefined;
+        }
+        pitchY = Number(params.pitchY);
+        if (!Number.isFinite(pitchY) || pitchY <= 0) {
+            return undefined;
+        }
+    }
+    const orientation = params.orientation === undefined ? 'pointyTop' : String(params.orientation);
+    if (latticeType === 'rectangular' && params.orientation !== undefined) {
+        return undefined;
+    }
+    if (latticeType === 'hexagonal' && orientation !== 'flatTop' && orientation !== 'pointyTop') {
+        return undefined;
+    }
+    const datumId = typeof params.datumId === 'string' && params.datumId.length > 0 ? params.datumId : 'datum-xy';
+    const datum = datumById.get(datumId);
+    const datumVar = datumVarById.get(datumId);
+    if (datum === undefined || datumVar === undefined || !datumKindExportable(datum.kind)) {
+        return undefined;
+    }
+    let originX = 0;
+    let originY = 0;
+    if (params.origin !== undefined) {
+        const origin = params.origin;
+        if (!Array.isArray(origin) || origin.length !== 2 || !origin.every((v) => typeof v === 'number' && Number.isFinite(v))) {
+            return undefined;
+        }
+        originX = origin[0] as number;
+        originY = origin[1] as number;
+    }
+    const bodyLabel = doc.bodies.find((b) => b.id === feature.body)?.label;
+    const prefix =
+        typeof params.labelPrefix === 'string' && params.labelPrefix.length > 0
+            ? params.labelPrefix
+            : typeof bodyLabel === 'string' && bodyLabel.length > 0
+              ? bodyLabel
+              : sourceFeature.name;
+
+    const toolVar = sanitizeIdentifier(`_tool_${feature.id}`);
+    const lines = [...tool.lines, `${toolVar} = ${tool.expr}  # source: ${sourceFeature.name}`];
+    const move = (dxExpr: string, dyExpr: string): string =>
+        `${toolVar}.moved(${datumVar}.location * bd.Location((${dxExpr}, ${dyExpr}, 0)))`;
+    const fuse = (dxExpr: string, dyExpr: string): string =>
+        `${INDENT}${INDENT}${bodyVar} = ${bodyVar} ${op} ${scaleInstance(move(dxExpr, dyExpr))}  # ${feature.name}`;
+
+    if (hasGrid) {
+        lines.push(`# cells ${prefix}_r0c0 through ${prefix}_r${rows - 1}c${cols - 1} (row-major, odd-r)`);
+        lines.push(`for _r in range(${rows}):`);
+        lines.push(`${INDENT}for _c in range(${cols}):`);
+        const centerC = formatNumber((cols - 1) / 2);
+        const centerR = formatNumber((rows - 1) / 2);
+        if (latticeType === 'rectangular') {
+            lines.push(
+                fuse(
+                    `(_c - ${centerC}) * ${formatNumber(pitch)} + ${formatNumber(originX)}`,
+                    `(_r - ${centerR}) * ${formatNumber(pitchY)} + ${formatNumber(originY)}`
+                )
+            );
+        } else if (orientation === 'flatTop') {
+            const colStep = formatNumber((pitch * Math.sqrt(3)) / 2);
+            const halfPitch = formatNumber(pitch / 2);
+            lines.push(
+                fuse(
+                    `(_c - ${centerC}) * ${colStep} + ${formatNumber(originX)}`,
+                    `(_r - ${centerR}) * ${formatNumber(pitch)} + (${halfPitch} if _c % 2 == 1 else 0) + ${formatNumber(originY)}`
+                )
+            );
+        } else {
+            const rowStep = formatNumber((pitch * Math.sqrt(3)) / 2);
+            const halfPitch = formatNumber(pitch / 2);
+            lines.push(
+                fuse(
+                    `(_c - ${centerC}) * ${formatNumber(pitch)} + (${halfPitch} if _r % 2 == 1 else 0) + ${formatNumber(originX)}`,
+                    `(_r - ${centerR}) * ${rowStep} + ${formatNumber(originY)}`
+                )
+            );
+        }
+        return lines;
+    }
+
+    // Hex rings enumerate axially (max(|q|, |r|, |q+r|) <= N); labels reuse
+    // the odd-r scheme, so rows can be negative around the center cell.
+    lines.push(`# cells ${prefix}_r<row>c<col> (axial enumeration, odd-r)`);
+    lines.push(`for _q in range(${-rings}, ${rings + 1}):`);
+    lines.push(`${INDENT}for _r in range(max(${-rings}, -_q - ${rings}), min(${rings}, -_q + ${rings}) + 1):`);
+    const axialStep = formatNumber(pitch * Math.sqrt(3));
+    const ringStep = formatNumber(pitch * 1.5);
+    if (orientation === 'flatTop') {
+        lines.push(fuse(`${ringStep} * _q + ${formatNumber(originX)}`, `${axialStep} * (_r + _q / 2) + ${formatNumber(originY)}`));
+    } else {
+        lines.push(fuse(`${axialStep} * (_q + _r / 2) + ${formatNumber(originX)}`, `${ringStep} * _r + ${formatNumber(originY)}`));
+    }
     return lines;
 }
 

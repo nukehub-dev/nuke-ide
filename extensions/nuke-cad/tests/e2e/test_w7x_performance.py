@@ -158,9 +158,14 @@ def test_w7x_scale_document_build_performance(tmp_path: Path) -> None:
     doc_path.write_text(json.dumps(_w7x_document(_COUNT)), encoding="utf-8")
     raw_doc = json.loads(doc_path.read_text(encoding="utf-8"))
 
-    # 1. Pure shape rebuild (pattern union dominates).
+    # 1a. Curve fitting (B-spline wire for the coil centerline).
     start = time.perf_counter()
     curve_results = curve_builder.build_curves(raw_doc)
+    curve_elapsed = time.perf_counter() - start
+    print(f"w7x_x{_COUNT} build_curves:         {curve_elapsed:.3f}s")
+
+    # 1b. Pure shape rebuild (pattern union dominates).
+    start = time.perf_counter()
     build_result = feature_builder.build_document_shape(raw_doc, curve_results=curve_results)
     build_elapsed = time.perf_counter() - start
     assert build_result["shape"] is not None, build_result.get("featureResults")

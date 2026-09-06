@@ -55,7 +55,8 @@ import {
     type FeatureDef,
     type SketchDef,
     type DatumPlane,
-    type CurveDef
+    type CurveDef,
+    normalizeBodyMaterialInput
 } from '../../../common/cad-document';
 import { type FeatureResult } from '../../../common/nuke-cad-protocol';
 import { type DocumentSelection } from '../../document/cad-document-store';
@@ -64,15 +65,24 @@ import { Tooltip, useTooltip } from 'nuke-essentials/lib/theme/browser/component
 import { CurveDialog } from './curve-dialog';
 import './feature-tree.css';
 
-function getSourceFeatureId(feature: FeatureDef): string {
+/**
+ * Input feature ids a pattern/mirror/lattice feature consumes (`source`).
+ *
+ * Mirrors `getPatternSourceIds` in the document store for the single-source
+ * types: linearPattern/circularPattern/mirror name their replicated solid in
+ * `source`, and lattice names its grid source the same way. The
+ * cascade-delete prompt follows this edge exactly like `dependsOn`, so
+ * deleting a source offers to delete its lattices too.
+ */
+function getSourceFeatureIds(feature: FeatureDef): string[] {
     const source = (feature.params as Record<string, unknown>).source;
-    return typeof source === 'string' ? source : '';
+    return typeof source === 'string' && source.length > 0 ? [source] : [];
 }
 
 function collectDependentFeatureIds(doc: NukeCadDocument, id: string): string[] {
     const dependents: string[] = [];
     for (const feature of doc.features) {
-        if (feature.dependsOn.includes(id) || getSourceFeatureId(feature) === id) {
+        if (feature.dependsOn.includes(id) || getSourceFeatureIds(feature).includes(id)) {
             dependents.push(feature.id);
         }
     }
@@ -149,6 +159,7 @@ export class CadFeatureTreeWidget extends ReactWidget {
                 onDeleteFeature={(id) => void this.handleDeleteFeature(id)}
                 onRenameFeature={(id, name) => this.handleRenameFeature(id, name)}
                 onRenameBody={(id, name) => this.handleRenameBody(id, name)}
+                onSetBodyMaterial={(id, material) => this.handleSetBodyMaterial(id, material)}
                 onReorderFeatures={(orderedIds) => this.handleReorderFeatures(orderedIds)}
                 onRepairRef={(path, fingerprint) => this.handleRepairRef(path, fingerprint)}
                 onEditSketch={(id) => this.commandService.executeCommand(NukeCadCommands.EDIT_SKETCH.id, id)}
@@ -254,6 +265,13 @@ export class CadFeatureTreeWidget extends ReactWidget {
         }
     }
 
+    private handleSetBodyMaterial(id: string, material?: string): void {
+        const result = this.documentStore.setBodyMaterial(id, material);
+        if (!result.success) {
+            this.messageService.error(result.error || 'Failed to set body material.');
+        }
+    }
+
     private handleAddCurve(def: CurveDef): void {
         const result = this.documentStore.addCurve(def);
         if (!result.success) {
@@ -318,6 +336,7 @@ interface CadFeatureTreeComponentProps {
     readonly onDeleteFeature: (id: string) => void;
     readonly onRenameFeature: (id: string, name: string) => void;
     readonly onRenameBody: (id: string, name: string) => void;
+    readonly onSetBodyMaterial: (id: string, material?: string) => void;
     readonly onReorderFeatures: (orderedIds: string[]) => void;
     readonly onRepairRef: (
         path: string,
@@ -501,6 +520,7 @@ function CadFeatureTreeComponent(props: CadFeatureTreeComponentProps): React.Rea
                                 onRenameCommit={commitRenameBody}
                                 onRenameCancel={cancelRenameBody}
                                 onStartRename={() => startRenameBody(body)}
+                                onSetBodyMaterial={props.onSetBodyMaterial}
                             />
                         ))}
                     </TreeSection>
@@ -684,10 +704,37 @@ interface BodyRowProps {
     readonly onRenameCommit: () => void;
     readonly onRenameCancel: () => void;
     readonly onStartRename: () => void;
+    readonly onSetBodyMaterial: (id: string, material?: string) => void;
 }
 
 function BodyRow(props: BodyRowProps): React.ReactElement {
     const tooltip = useTooltip('Click to select body; double-click label to rename', 'top');
+    const [editingMaterial, setEditingMaterial] = React.useState(false);
+    const [materialValue, setMaterialValue] = React.useState('');
+    const [materialError, setMaterialError] = React.useState<string | undefined>();
+
+    const startEditMaterial = (): void => {
+        setMaterialValue(props.body.material ?? '');
+        setMaterialError(undefined);
+        setEditingMaterial(true);
+    };
+
+    const cancelEditMaterial = (): void => {
+        setEditingMaterial(false);
+        setMaterialError(undefined);
+    };
+
+    const commitEditMaterial = (): void => {
+        const result = normalizeBodyMaterialInput(materialValue);
+        if ('error' in result) {
+            setMaterialError(result.error);
+            return;
+        }
+        props.onSetBodyMaterial(props.body.id, result.material);
+        setEditingMaterial(false);
+        setMaterialError(undefined);
+    };
+
     return (
         <>
             <div className={`feature-tree-row body${props.selected ? ' selected' : ''}`} onClick={props.onSelect}>
@@ -709,7 +756,46 @@ function BodyRow(props: BodyRowProps): React.ReactElement {
                         {bodyLabelText(props.body)}
                     </span>
                 )}
-                {!props.renaming && (
+                {!props.renaming && !editingMaterial && props.body.material !== undefined && (
+                    <span className="feature-tree-kind-chip" title="In-CAD material tag">
+                        {props.body.material}
+                    </span>
+                )}
+                {!props.renaming && editingMaterial && (
+                    <input
+                        className="feature-tree-rename-input"
+                        value={materialValue}
+                        placeholder="Material (e.g. UO2)"
+                        onChange={(e) => {
+                            setMaterialValue(e.target.value);
+                            setMaterialError(undefined);
+                        }}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                                commitEditMaterial();
+                            } else if (e.key === 'Escape') {
+                                cancelEditMaterial();
+                            }
+                        }}
+                        onBlur={commitEditMaterial}
+                        autoFocus
+                        onClick={(e) => e.stopPropagation()}
+                    />
+                )}
+                {!props.renaming && !editingMaterial && (
+                    <Tooltip content={props.body.material !== undefined ? 'Edit material tag' : 'Set material tag'} position="left">
+                        <button
+                            className="theia-button secondary feature-tree-action"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                startEditMaterial();
+                            }}
+                        >
+                            <span className="codicon codicon-tag" />
+                        </button>
+                    </Tooltip>
+                )}
+                {!props.renaming && !editingMaterial && (
                     <Tooltip content="Rename" position="left">
                         <button
                             className="theia-button secondary feature-tree-action"
@@ -723,6 +809,14 @@ function BodyRow(props: BodyRowProps): React.ReactElement {
                     </Tooltip>
                 )}
             </div>
+            {materialError !== undefined && (
+                <div
+                    className="feature-tree-row-body-material-error"
+                    style={{ color: 'var(--theia-errorForeground)', fontSize: '11px', padding: '0 8px 4px 24px' }}
+                >
+                    {materialError}
+                </div>
+            )}
             {tooltip.tooltipElement}
         </>
     );

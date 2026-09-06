@@ -90,7 +90,13 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   (`axisDatumId` also accepts `line2Point` datums); `mirror`
   uses either `plane` (`XY`/`YZ`/`XZ`) or `planeDatumId`. All three pattern
   types take an optional per-instance `scale` about each instance's bbox
-  center (default 1). `multiTransform` chains two same-body pattern/mirror
+  center (default 1). `lattice` replicates a source over a rectangular grid
+  (`rows`×`cols`, `pitch`/`pitchY`) or a hexagonal ring (`rings`, axial
+  bound), capped at 2500 cells, with per-cell labels
+  `<prefix>_r<row>c<col>` (odd-r for both layouts) feeding `selector_map` →
+  DAGMC groups; it fuses through the same disjoint-check → parallel-fuse →
+  sequential-fallback path, registers `tool_shapes` (pattern/mirror
+  eligible), and rejects lattice-of-lattice. `multiTransform` chains two same-body pattern/mirror
   sources (`first`, `second`, document-ordered) over the cartesian product
   of their instances. Face datums behind
   `axisDatumId`/`planeDatumId` resolve against the referenced feature's
@@ -180,6 +186,12 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   Tools=instances, RunParallel + NonDestructive) is tried first — measured
   ~1.5× the sequential loop on the tokamak TF pattern, slower on trivial
   boxes — with the sequential loop kept verbatim as the fallback.
+  `_pattern_instances_are_disjoint` compares boxes interleaved with early
+  exit (provably identical verdict, touching=intersecting conservatism
+  untouched). Measured W7X profile: the ×50 wall is the closed-spine
+  sweep-station loft (~98% — accuracy-tuned, not an optimization surface)
+  plus parallel-GFOP variance (±40% run to run); both sit outside the
+  behavior-preserving surface, so no optimization may touch them.
 - Cross-body overlap is reported as a warning (with overlap volume) rather than
   a fatal error. Pure CAD assemblies such as the tokamak demo intentionally
   contain overlapping parts, so the B-rep build completes and callers that
@@ -470,10 +482,19 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   names) is tested against real cadquery 2.7/2.8: TShape-based matching via
   `IsPartner`, UUID-name filtering, and multi-solid Workplane handling.
 - `dagmc_export.py` treats surface-sense verification as a hard error (every
-  exported surface must have sense 1 or 2) and reports geometry diagnostics in
-  the result: `sealed=False` + warning for hole edges, `nonManifoldEdges` for
-  incidence > 2 (imprint seams legitimately have incidence 3), and
-  `overlapCheck` from bbox + `BRepClass3d_SolidClassifier` sampling. The
+  exported surface must have sense 1 or 2, naming surface + volumes + imprint
+  stage) and reports geometry diagnostics in the result: `sealed=False` +
+  warning for hole edges, `nonManifoldEdges` for incidence > 2 (imprint seams
+  legitimately have incidence 3), `overlapCheck` from bbox +
+  `BRepClass3d_SolidClassifier` sampling, plus additive `diagnostics` /
+  `imprintStages` / `sealCheck` keys. The imprint runs staged (fragment →
+  dedup → one capped tolerance-relaxed refragment → model-only fallback with
+  `graveyardSkipped` → hard fail with stage log); every fallback is reported,
+  never silent, and the model is never modified. Selector resolution is
+  most-specific-wins (a per-cell lattice entry beats the body-level entry;
+  disjoint selectors resolve exactly as before). The outline warnings box
+  groups diagnostics (overlap/seal/sense/imprint/inspection) with per-group
+  hints and keeps the per-pair Fuse auto-fix. The
   imprint/merge pass runs in gmsh (`occ.fragment` + `removeAllDuplicates`) and
   the optional `mat:graveyard` bounding box is added and fragmented in gmsh as
   well; the old OCP boolean graveyard cut is avoided because it re-duplicates
@@ -931,7 +952,15 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   `material`/`name`) and a per-body `default` entry with copy propagation
   (`parentId` ← default's `materialId`); openmc-studio's nuke-cad import
   surfaces these as `materialLinks` and stamps them onto placeholder
-  materials as copy provenance.
+  materials as copy provenance. Bodies carry an optional in-CAD material tag
+  (`BodyDef.material`, bare name, v3-additive, set from the Feature Tree body
+  row, read-only display in the outline, undo-covered, never triggers a
+  rebuild): `build_document`/`build_assembly`/`build_document_partial` merge
+  tags into manifest volumes (`{selector: <label>, material: <tag>}`,
+  explicit sidecar entries win) and persist `<stem>.regions.json` beside the
+  document when tags contributed — that sidecar is what openmc-studio reads
+  for `materialLinks`. DAGMC group names stay label-based (`mat:<name or
+selector>`); the tag travels via the sidecar links, not the group name.
 - Region manifest surface entries drive FEM boundary conditions in the FEM
   analysis panel; `name` is the selector used to bind loads and constraints.
 

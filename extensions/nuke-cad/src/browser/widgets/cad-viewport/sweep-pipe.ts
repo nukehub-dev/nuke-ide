@@ -57,6 +57,7 @@ import {
     type FilletParams,
     type HelicalSweepParams,
     type HoleParams,
+    type LatticeParams,
     type LoftParams,
     type NukeCadDocument,
     type PipeParams,
@@ -82,7 +83,7 @@ export type ReferencePreviewFeatureType =
 
 /** Feature types whose dialogs offer the ghosted preview. */
 export type PreviewableFeatureType =
-    CurveSweepFeatureType | 'loft' | 'helicalSweep' | SketchSolidPreviewFeatureType | 'primitive' | ReferencePreviewFeatureType;
+    CurveSweepFeatureType | 'loft' | 'helicalSweep' | 'lattice' | SketchSolidPreviewFeatureType | 'primitive' | ReferencePreviewFeatureType;
 
 /** String-state draft of a sweep/pipe dialog. */
 export interface SweepPipeDraft {
@@ -167,6 +168,7 @@ export interface FeaturePreviewRequest {
         | PipeParams
         | LoftParams
         | HelicalSweepParams
+        | LatticeParams
         | ExtrudeParams
         | RevolveParams
         | PrimitiveParams
@@ -528,6 +530,19 @@ function draftPreviewRefFeatureIds(request: FeaturePreviewRequest): string[] {
 }
 
 /**
+ * Pattern/mirror/lattice input feature ids a draft names directly (`source`).
+ *
+ * Lattice drafts replicate one same-body source feature; seeding it pulls the
+ * source (and, through the closure fixpoint, its sketch/datum inputs) into
+ * the mini-document so the backend resolves the source tool shape. No other
+ * previewable type names `source`, so this only affects lattice.
+ */
+function draftPreviewSourceFeatureIds(request: FeaturePreviewRequest): string[] {
+    const params = request.params as unknown as Record<string, unknown>;
+    return isNonEmptyString(params.source) ? [params.source] : [];
+}
+
+/**
  * Body ids a draft names directly: the explicit `bodyId` (pocket/groove
  * cuts, dress-up, hole), boolean `targetBody`/`toolBodies`, and extrude
  * `upToBody`. Dress-up/hole dialogs also pass refs whose producing features
@@ -555,6 +570,11 @@ function draftPreviewBodyIds(request: FeaturePreviewRequest): string[] {
  * referenced body (which the history below rebuilds identically), so the
  * ghost shows the operation on real geometry. Everything else builds
  * standalone on `preview-body`.
+ *
+ * Lattice joins this list: whether its source is additive (instances fuse
+ * into the body) or subtractive (instances cut it), the draft must run
+ * against the rebuilt real body where the source tool shape exists — on the
+ * empty preview body the source would dangle and the preview would clear.
  */
 const HISTORY_TARGET_TYPES: readonly PreviewableFeatureType[] = [
     'pocket',
@@ -564,6 +584,7 @@ const HISTORY_TARGET_TYPES: readonly PreviewableFeatureType[] = [
     'draft',
     'shell',
     'hole',
+    'lattice',
     'booleanFuse',
     'booleanCut',
     'booleanCommon'
@@ -643,7 +664,7 @@ function buildClosurePreviewDocument(
         }
     }
     const closure = collectPreviewClosure(doc, {
-        featureIds: [...historyFeatures.map((f) => f.id), ...draftPreviewRefFeatureIds(request)],
+        featureIds: [...historyFeatures.map((f) => f.id), ...draftPreviewRefFeatureIds(request), ...draftPreviewSourceFeatureIds(request)],
         sketchIds: draftPreviewSketchIds(request),
         curveIds: draftPreviewCurveIds(request),
         bodyIds: [...referencedBodies]

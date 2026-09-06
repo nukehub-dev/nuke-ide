@@ -66,7 +66,9 @@ import {
     type DraftParams,
     type ShellParams,
     type HoleParams,
-    type BooleanParams
+    type BooleanParams,
+    type LatticeParams,
+    LATTICE_MAX_CELLS
 } from '../../../common/cad-document';
 import { type TopologyRef } from '../../../common/topology-refs';
 import { CadDocumentStore } from '../../document/cad-document-store';
@@ -1459,6 +1461,13 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
                     onClick: () => props.onStartFeatureCreation('mirror')
                 },
                 {
+                    id: 'lattice',
+                    label: 'Lattice',
+                    icon: 'codicon-nuke-cad-lattice',
+                    disabled: !hasBodies || !hasSolidProducers,
+                    onClick: () => props.onStartFeatureCreation('lattice')
+                },
+                {
                     id: 'hole',
                     label: 'Hole',
                     icon: 'codicon-nuke-cad-hole',
@@ -2415,6 +2424,7 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
     const isPrimitive = typeName === 'primitive';
     const isMultiTransform = typeName === 'multiTransform';
     const isDefeature = typeName === 'defeature';
+    const isLattice = typeName === 'lattice';
     const doc = props.documentStore.document;
     const bodies = doc?.bodies ?? [];
     const [length, setLength] = React.useState('1');
@@ -2525,6 +2535,22 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
     const [multiFirst, setMultiFirst] = React.useState('');
     const [multiSecond, setMultiSecond] = React.useState('');
 
+    // Lattice: rectangular/hexagonal pin arrays over one eligible source
+    // (the pattern source/scale state above is shared: same eligibility and
+    // same per-instance scale semantics).
+    const [latticeType, setLatticeType] = React.useState<'rectangular' | 'hexagonal'>('rectangular');
+    const [latticePitch, setLatticePitch] = React.useState('10');
+    const [latticePitchY, setLatticePitchY] = React.useState('');
+    const [latticeExtents, setLatticeExtents] = React.useState<'grid' | 'rings'>('grid');
+    const [latticeRows, setLatticeRows] = React.useState('2');
+    const [latticeCols, setLatticeCols] = React.useState('2');
+    const [latticeRings, setLatticeRings] = React.useState('1');
+    const [latticeOrientation, setLatticeOrientation] = React.useState<'flatTop' | 'pointyTop'>('pointyTop');
+    const [latticeDatumId, setLatticeDatumId] = React.useState('');
+    const [latticeOriginX, setLatticeOriginX] = React.useState('0');
+    const [latticeOriginY, setLatticeOriginY] = React.useState('0');
+    const [latticeLabelPrefix, setLatticeLabelPrefix] = React.useState('');
+
     // Draft neutral plane (optional face ref; pull direction unchanged).
     const [neutralPlaneRef, setNeutralPlaneRef] = React.useState<TopologyRef | undefined>();
     const [neutralPlanePicking, setNeutralPlanePicking] = React.useState(false);
@@ -2627,6 +2653,27 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                     setMirrorPlaneDatumId('');
                 }
             }
+        }
+        if (isLattice) {
+            setPatternSource(typeof p.source === 'string' ? p.source : '');
+            setPatternScale(p.scale !== undefined ? String(p.scale) : '1');
+            setLatticeType(p.latticeType === 'hexagonal' ? 'hexagonal' : 'rectangular');
+            setLatticePitch(p.pitch !== undefined ? String(p.pitch) : '10');
+            setLatticePitchY(p.pitchY !== undefined ? String(p.pitchY) : '');
+            if (typeof p.rings === 'number') {
+                setLatticeExtents('rings');
+                setLatticeRings(String(p.rings));
+            } else {
+                setLatticeExtents('grid');
+                setLatticeRows(p.rows !== undefined ? String(p.rows) : '2');
+                setLatticeCols(p.cols !== undefined ? String(p.cols) : '2');
+            }
+            setLatticeOrientation(p.orientation === 'flatTop' ? 'flatTop' : 'pointyTop');
+            setLatticeDatumId(typeof p.datumId === 'string' ? p.datumId : '');
+            const origin = p.origin as [number, number] | undefined;
+            setLatticeOriginX(origin !== undefined ? String(origin[0]) : '0');
+            setLatticeOriginY(origin !== undefined ? String(origin[1]) : '0');
+            setLatticeLabelPrefix(typeof p.labelPrefix === 'string' ? p.labelPrefix : '');
         }
         if (isHole) {
             setHoleFaceRef(p.face as TopologyRef | undefined);
@@ -2855,6 +2902,39 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                 const booleanType = type === 'booleanCut' ? 'booleanCut' : type === 'booleanCommon' ? 'booleanCommon' : 'booleanFuse';
                 request = { type: booleanType, params: { ...result.params, keepTools } };
             }
+        } else if (isLattice) {
+            // The ghost path reuses the pattern-source closure: the target
+            // body's full feature chain (including the lattice source) is
+            // pulled into the mini-document via the request body id, and the
+            // same-body retarget for lattice drafts lives in
+            // buildFeaturePreviewDocument (sweep-pipe.ts).
+            const validation = validateLatticeDialogInputs(
+                {
+                    source: patternSource,
+                    latticeType,
+                    extents: latticeExtents,
+                    rowsText: latticeRows,
+                    colsText: latticeCols,
+                    ringsText: latticeRings,
+                    pitchText: latticePitch,
+                    pitchYText: latticePitchY,
+                    orientation: latticeOrientation,
+                    datumId: latticeDatumId,
+                    originXText: latticeOriginX,
+                    originYText: latticeOriginY,
+                    labelPrefix: latticeLabelPrefix,
+                    scaleText: patternScale
+                },
+                doc
+            );
+            if (validation.ok) {
+                const previewBodyId = bodyId !== NEW_BODY_SENTINEL ? bodyId : undefined;
+                request = {
+                    type: 'lattice' as FeaturePreviewRequest['type'],
+                    params: validation.params as FeaturePreviewRequest['params'],
+                    ...(previewBodyId !== undefined ? { bodyId: previewBodyId } : {})
+                };
+            }
         }
         if (request === undefined) {
             props.onPreviewChange?.(undefined);
@@ -2924,6 +3004,20 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
         targetBody,
         toolBodies,
         keepTools,
+        patternSource,
+        patternScale,
+        latticeType,
+        latticePitch,
+        latticePitchY,
+        latticeExtents,
+        latticeRows,
+        latticeCols,
+        latticeRings,
+        latticeOrientation,
+        latticeDatumId,
+        latticeOriginX,
+        latticeOriginY,
+        latticeLabelPrefix,
         props.sketchId,
         type
     ]);
@@ -2985,8 +3079,9 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
     };
 
     const submit = (): void => {
-        // Primitives sit on a datum, multiTransforms on pattern sources, and
-        // defeatures on picked faces — none of them consume the selected sketch.
+        // Primitives sit on a datum, multiTransforms on pattern sources,
+        // defeatures on picked faces, and lattices on a source feature — none
+        // of them consume the selected sketch.
         if (
             !isBoolean &&
             !isDressUp &&
@@ -2995,6 +3090,7 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
             !isPrimitive &&
             !isMultiTransform &&
             !isDefeature &&
+            !isLattice &&
             props.sketchId === undefined
         ) {
             setError('No sketch is selected.');
@@ -3125,6 +3221,33 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                 }
             }
             finish(params);
+            return;
+        }
+        if (isLattice) {
+            const result = validateLatticeDialogInputs(
+                {
+                    source: patternSource,
+                    latticeType,
+                    extents: latticeExtents,
+                    rowsText: latticeRows,
+                    colsText: latticeCols,
+                    ringsText: latticeRings,
+                    pitchText: latticePitch,
+                    pitchYText: latticePitchY,
+                    orientation: latticeOrientation,
+                    datumId: latticeDatumId,
+                    originXText: latticeOriginX,
+                    originYText: latticeOriginY,
+                    labelPrefix: latticeLabelPrefix,
+                    scaleText: patternScale
+                },
+                doc
+            );
+            if (!result.ok) {
+                setError(result.error);
+                return;
+            }
+            finish({ ...result.params, bodyId, label });
             return;
         }
         if (isHole) {
@@ -3468,6 +3591,33 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
               end: extrudeEnd
           })
         : undefined;
+
+    // Lattice label preview: the first cells' <prefix>_r<row>c<col> names
+    // (odd-r), plus the validator's reason when the draft cannot preview.
+    const latticeDraft: LatticeDialogDraft = {
+        source: patternSource,
+        latticeType,
+        extents: latticeExtents,
+        rowsText: latticeRows,
+        colsText: latticeCols,
+        ringsText: latticeRings,
+        pitchText: latticePitch,
+        pitchYText: latticePitchY,
+        orientation: latticeOrientation,
+        datumId: latticeDatumId,
+        originXText: latticeOriginX,
+        originYText: latticeOriginY,
+        labelPrefix: latticeLabelPrefix,
+        scaleText: patternScale
+    };
+    const latticePreviewValidation = isLattice ? validateLatticeDialogInputs(latticeDraft, doc) : undefined;
+    const latticePreviewPrefix =
+        latticeLabelPrefix.trim() !== ''
+            ? latticeLabelPrefix.trim()
+            : (doc?.bodies.find((b) => b.id === bodyId)?.label ?? sourceFeatures.find((f) => f.id === patternSource)?.name ?? 'cell');
+    const latticeLabelPreview = isLattice
+        ? latticePreviewCellNames(latticePreviewPrefix, latticeExtents, Number(latticeRows), Number(latticeCols), Number(latticeRings))
+        : [];
 
     // The dialog floats like the sketch chrome: drag by the header, double-click
     // or right-click the header to reset; clamping to the viewport comes free
@@ -4166,6 +4316,112 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                     )}
                 </>
             )}
+            {isLattice && (
+                <>
+                    <label className="cad-feature-dialog-row">
+                        Source feature
+                        <select value={patternSource} onChange={(e) => setPatternSource(e.target.value)}>
+                            {sourceFeatures.map((f) => (
+                                <option key={f.id} value={f.id}>
+                                    {f.name}
+                                </option>
+                            ))}
+                        </select>
+                    </label>
+                    <label className="cad-feature-dialog-row">
+                        Lattice type
+                        <select value={latticeType} onChange={(e) => setLatticeType(e.target.value as 'rectangular' | 'hexagonal')}>
+                            <option value="rectangular">Rectangular</option>
+                            <option value="hexagonal">Hexagonal</option>
+                        </select>
+                    </label>
+                    <label className="cad-feature-dialog-row">
+                        Pitch
+                        <input type="number" value={latticePitch} onChange={(e) => setLatticePitch(e.target.value)} autoFocus />
+                    </label>
+                    {latticeType === 'rectangular' && (
+                        <label className="cad-feature-dialog-row">
+                            Pitch Y (blank = pitch)
+                            <input type="number" value={latticePitchY} onChange={(e) => setLatticePitchY(e.target.value)} />
+                        </label>
+                    )}
+                    <label className="cad-feature-dialog-row">
+                        Extents
+                        <select value={latticeExtents} onChange={(e) => setLatticeExtents(e.target.value as 'grid' | 'rings')}>
+                            <option value="grid">Rows × columns</option>
+                            <option value="rings">Hex rings</option>
+                        </select>
+                    </label>
+                    {latticeExtents === 'grid' ? (
+                        <>
+                            <label className="cad-feature-dialog-row">
+                                Rows
+                                <input type="number" value={latticeRows} onChange={(e) => setLatticeRows(e.target.value)} />
+                            </label>
+                            <label className="cad-feature-dialog-row">
+                                Columns
+                                <input type="number" value={latticeCols} onChange={(e) => setLatticeCols(e.target.value)} />
+                            </label>
+                        </>
+                    ) : (
+                        <label className="cad-feature-dialog-row">
+                            Rings
+                            <input type="number" value={latticeRings} onChange={(e) => setLatticeRings(e.target.value)} />
+                        </label>
+                    )}
+                    {latticeType === 'hexagonal' && (
+                        <label className="cad-feature-dialog-row">
+                            Orientation
+                            <select
+                                value={latticeOrientation}
+                                onChange={(e) => setLatticeOrientation(e.target.value as 'flatTop' | 'pointyTop')}
+                            >
+                                <option value="pointyTop">Pointy top</option>
+                                <option value="flatTop">Flat top</option>
+                            </select>
+                        </label>
+                    )}
+                    <label className="cad-feature-dialog-row">
+                        Lattice plane datum (optional)
+                        <select value={latticeDatumId} onChange={(e) => setLatticeDatumId(e.target.value)}>
+                            <option value="">Default (XY)</option>
+                            {datumOptions.map((d) => (
+                                <option key={d.id} value={d.id}>
+                                    {d.name}
+                                </option>
+                            ))}
+                        </select>
+                    </label>
+                    <label className="cad-feature-dialog-row">
+                        Origin X
+                        <input type="number" value={latticeOriginX} onChange={(e) => setLatticeOriginX(e.target.value)} />
+                    </label>
+                    <label className="cad-feature-dialog-row">
+                        Origin Y
+                        <input type="number" value={latticeOriginY} onChange={(e) => setLatticeOriginY(e.target.value)} />
+                    </label>
+                    <label className="cad-feature-dialog-row">
+                        Label prefix (blank = body/source)
+                        <input type="text" value={latticeLabelPrefix} onChange={(e) => setLatticeLabelPrefix(e.target.value)} />
+                    </label>
+                    {latticeLabelPreview.length > 0 && (
+                        <span className="cad-feature-dialog-label">Cells: {latticeLabelPreview.join(', ')}</span>
+                    )}
+                    <label className="cad-feature-dialog-row">
+                        Scale (blank/1 = unscaled)
+                        <input type="number" value={patternScale} onChange={(e) => setPatternScale(e.target.value)} />
+                    </label>
+                    {props.onPreviewChange !== undefined && (
+                        <label className="cad-feature-dialog-row check">
+                            <input type="checkbox" checked={previewEnabled} onChange={(e) => setPreviewEnabled(e.target.checked)} />
+                            Preview (ghosted build)
+                        </label>
+                    )}
+                    {latticePreviewValidation !== undefined && !latticePreviewValidation.ok && (
+                        <span className="cad-feature-dialog-label">{latticePreviewValidation.error}</span>
+                    )}
+                </>
+            )}
             {isHole && (
                 <>
                     <label className="cad-feature-dialog-row">
@@ -4490,6 +4746,176 @@ function validateShellDialogInputs(thicknessText: string, refs: TopologyRef[], a
         return { ok: false, error: 'Thickness must be a positive number.' };
     }
     return { ok: true, params: { faces: allFaces ? [] : refs, thickness } };
+}
+
+/** String-state draft of the lattice dialog (rows/cols XOR rings). */
+interface LatticeDialogDraft {
+    readonly source: string;
+    readonly latticeType: 'rectangular' | 'hexagonal';
+    readonly extents: 'grid' | 'rings';
+    readonly rowsText: string;
+    readonly colsText: string;
+    readonly ringsText: string;
+    readonly pitchText: string;
+    readonly pitchYText: string;
+    readonly orientation: 'flatTop' | 'pointyTop';
+    readonly datumId: string;
+    readonly originXText: string;
+    readonly originYText: string;
+    readonly labelPrefix: string;
+    readonly scaleText: string;
+}
+
+/**
+ * Lattice dialog validation shared by the submit path and the ghosted preview.
+ *
+ * Mirrors the schema rules: an eligible solid-producing source (never a
+ * pattern/mirror/lattice — no nesting), rows/cols XOR rings, gated
+ * pitchY/orientation, a planar lattice datum, and the cell cap.
+ */
+function validateLatticeDialogInputs(
+    draft: LatticeDialogDraft,
+    doc: import('../../../common/cad-document').NukeCadDocument | undefined
+): DialogValidation<LatticeParams> {
+    if (draft.source === '') {
+        return { ok: false, error: 'Select a source feature.' };
+    }
+    const sourceFeature = doc?.features.find((f) => f.id === draft.source);
+    // SOLID_PRODUCERS is the patterns' source set: pattern/mirror/lattice
+    // sources fail this check, so nesting is rejected here (the backend
+    // re-checks with its own clear error).
+    if (sourceFeature === undefined || sourceFeature.suppressed || !SOLID_PRODUCERS.includes(sourceFeature.type)) {
+        return {
+            ok: false,
+            error: 'Lattice source must be a solid-producing feature (pad/pocket/revolve/groove/sweep/pipe/loft/helicalSweep/primitive).'
+        };
+    }
+    let rows = 0;
+    let cols = 0;
+    let rings = -1;
+    if (draft.extents === 'grid') {
+        rows = Number(draft.rowsText);
+        cols = Number(draft.colsText);
+        if (!Number.isInteger(rows) || rows < 1 || !Number.isInteger(cols) || cols < 1) {
+            return { ok: false, error: 'Rows and columns must be positive integers.' };
+        }
+    } else {
+        rings = Number(draft.ringsText);
+        if (!Number.isInteger(rings) || rings < 0) {
+            return { ok: false, error: 'Rings must be an integer >= 0.' };
+        }
+    }
+    const cellCount = draft.extents === 'grid' ? rows * cols : 1 + 3 * rings * (rings + 1);
+    if (cellCount > LATTICE_MAX_CELLS) {
+        return {
+            ok: false,
+            error: `Lattice has ${cellCount} cells, above the ${LATTICE_MAX_CELLS}-cell limit; build it stepwise (multiple lattice features) instead.`
+        };
+    }
+    const pitch = Number(draft.pitchText);
+    if (!Number.isFinite(pitch) || pitch <= 0) {
+        return { ok: false, error: 'Pitch must be a positive number.' };
+    }
+    const params: LatticeParams = { source: draft.source, latticeType: draft.latticeType, pitch };
+    if (draft.extents === 'grid') {
+        params.rows = rows;
+        params.cols = cols;
+    } else {
+        params.rings = rings;
+    }
+    const pitchYText = draft.pitchYText.trim();
+    if (pitchYText !== '') {
+        if (draft.latticeType !== 'rectangular') {
+            return { ok: false, error: 'Pitch Y is only valid for rectangular lattices.' };
+        }
+        const pitchY = Number(pitchYText);
+        if (!Number.isFinite(pitchY) || pitchY <= 0) {
+            return { ok: false, error: 'Pitch Y must be a positive number.' };
+        }
+        params.pitchY = pitchY;
+    }
+    if (draft.latticeType === 'hexagonal') {
+        params.orientation = draft.orientation;
+    }
+    if (draft.datumId !== '') {
+        const datum = doc?.datums.find((d) => d.id === draft.datumId);
+        if (datum === undefined) {
+            return { ok: false, error: `Unknown datum '${draft.datumId}'.` };
+        }
+        if (datum.kind === 'line2Point') {
+            return { ok: false, error: `Datum '${draft.datumId}' is a line datum and cannot place a lattice.` };
+        }
+        params.datumId = draft.datumId;
+    }
+    const originXText = draft.originXText.trim();
+    const originYText = draft.originYText.trim();
+    const originX = originXText === '' ? 0 : Number(originXText);
+    const originY = originYText === '' ? 0 : Number(originYText);
+    if (!Number.isFinite(originX) || !Number.isFinite(originY)) {
+        return { ok: false, error: 'Origin must be a [x, y] pair of finite numbers.' };
+    }
+    if (originX !== 0 || originY !== 0) {
+        params.origin = [originX, originY] as [number, number];
+    }
+    const labelPrefix = draft.labelPrefix.trim();
+    if (labelPrefix !== '') {
+        params.labelPrefix = labelPrefix;
+    }
+    const scaleText = draft.scaleText.trim();
+    if (scaleText !== '') {
+        const scale = Number(scaleText);
+        if (!Number.isFinite(scale) || scale <= 0) {
+            return { ok: false, error: 'Scale must be a positive finite number.' };
+        }
+        // 1 (the default) is today's behavior exactly — omit it.
+        if (scale !== 1) {
+            params.scale = scale;
+        }
+    }
+    return { ok: true, params };
+}
+
+/**
+ * First cell names (`<prefix>_r<row>c<col>`, odd-r) for the lattice dialog's
+ * live label preview: row-major for grids, axial enumeration (converted
+ * axial→odd-r, sorted by row/col) for rings. Returns [] when the extents do
+ * not parse so the preview simply hides.
+ */
+function latticePreviewCellNames(
+    prefix: string,
+    extents: 'grid' | 'rings',
+    rows: number,
+    cols: number,
+    rings: number,
+    limit = 8
+): string[] {
+    const cells: [number, number][] = [];
+    if (extents === 'grid') {
+        if (!Number.isInteger(rows) || rows < 1 || !Number.isInteger(cols) || cols < 1) {
+            return [];
+        }
+        for (let row = 0; row < rows && cells.length < limit; row++) {
+            for (let col = 0; col < cols && cells.length < limit; col++) {
+                cells.push([row, col]);
+            }
+        }
+    } else {
+        if (!Number.isInteger(rings) || rings < 0) {
+            return [];
+        }
+        const axial: [number, number][] = [];
+        for (let q = -rings; q <= rings; q++) {
+            for (let r = Math.max(-rings, -q - rings); r <= Math.min(rings, -q + rings); r++) {
+                const col = q + Math.floor((r - (r & 1)) / 2);
+                axial.push([r, col]);
+            }
+        }
+        axial.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+        for (const cell of axial.slice(0, limit)) {
+            cells.push(cell);
+        }
+    }
+    return cells.map(([row, col]) => `${prefix}_r${row}c${col}`);
 }
 
 /** String-state inputs of the hole wizard dialog. */
@@ -5349,7 +5775,7 @@ function ContextShortcutBar(props: ContextShortcutBarProps): React.ReactElement 
                 </Tooltip>
             ))}
             <span className="cad-shortcut-bar-divider" />
-            {(['linearPattern', 'circularPattern', 'mirror', 'hole'] as FeatureType[]).map((type) => (
+            {(['linearPattern', 'circularPattern', 'mirror', 'lattice', 'hole'] as FeatureType[]).map((type) => (
                 <Tooltip key={type} content={capitalize(type)} position="bottom">
                     <button
                         className="theia-button secondary cad-shortcut-bar-button"

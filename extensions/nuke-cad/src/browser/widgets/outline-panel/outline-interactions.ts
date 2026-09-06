@@ -92,6 +92,87 @@ export function parseOverlapWarning(warning: string): OverlapPair | undefined {
     return { bodyA: match[1], bodyB: match[2] };
 }
 
+/** Diagnostic group code for the Model Outline warnings box. */
+export type DiagnosticCode = 'overlap' | 'seal' | 'sense' | 'imprint' | 'inspection' | 'other';
+
+/** One grouped warning line; overlap lines may carry a Fuse auto-fix pair. */
+export interface DiagnosticItem {
+    readonly text: string;
+    readonly overlap?: OverlapPair;
+}
+
+/** Warnings grouped by diagnostic code for the outline warnings box. */
+export interface DiagnosticGroup {
+    readonly code: DiagnosticCode;
+    readonly title: string;
+    readonly hint: string;
+    readonly items: DiagnosticItem[];
+}
+
+const DIAGNOSTIC_META: Record<DiagnosticCode, { title: string; hint: string }> = {
+    overlap: { title: 'Overlaps', hint: 'Fuse a pair in place, or separate the bodies when the overlap is intentional.' },
+    seal: { title: 'Seal', hint: 'Check sealCheck.openEdgeCount; close gaps before DAGMC export.' },
+    sense: { title: 'Surface senses', hint: 'Inspect open edges and re-run imprint.' },
+    imprint: { title: 'Imprint recovery', hint: 'Fallbacks are reported; accept the warning or tighten CAD gaps.' },
+    inspection: { title: 'Inspection gates', hint: 'Warnings only; review mass properties and mesh deviation.' },
+    other: { title: 'Other warnings', hint: '' }
+};
+
+const DIAGNOSTIC_ORDER: readonly DiagnosticCode[] = ['overlap', 'seal', 'sense', 'imprint', 'inspection', 'other'];
+
+/**
+ * Classify one build/dagmc warning line into a diagnostic group.
+ *
+ * Pure string matching over the existing warnings channel (backend
+ * ``diagnostics`` entries surface here as ``[DAGMC] …`` lines); geometry is
+ * never re-derived. Only ``overlap`` lines with a document body pair are
+ * fusible; every other issue renders hint text with no action button.
+ */
+export function classifyDiagnostic(warning: string): DiagnosticCode {
+    if (/sense/i.test(warning)) {
+        return 'sense';
+    }
+    if (/seal|watertight|hole edge|has holes/i.test(warning)) {
+        return 'seal';
+    }
+    if (/imprint|fragment|removeAllDuplicates|tolerance relaxed|graveyard/i.test(warning)) {
+        return 'imprint';
+    }
+    if (/mass-propert|mesh-vs-cad|deviation|gate skipped/i.test(warning)) {
+        return 'inspection';
+    }
+    if (parseOverlapWarning(warning) !== undefined || /overlap/i.test(warning)) {
+        return 'overlap';
+    }
+    return 'other';
+}
+
+/**
+ * Group warning lines by diagnostic code in stable display order.
+ *
+ * Empty groups are omitted. Overlap lines keep their parsed body pair so the
+ * warnings box can reuse the Fuse auto-fix; non-fusible lines carry no pair
+ * and render with the group hint text instead of a button.
+ */
+export function groupDiagnostics(warnings: readonly string[]): DiagnosticGroup[] {
+    const items = new Map<DiagnosticCode, DiagnosticItem[]>();
+    for (const text of warnings) {
+        const code = classifyDiagnostic(text);
+        const list = items.get(code) ?? [];
+        const overlap = code === 'overlap' ? parseOverlapWarning(text) : undefined;
+        list.push(overlap !== undefined ? { text, overlap } : { text });
+        items.set(code, list);
+    }
+    const groups: DiagnosticGroup[] = [];
+    for (const code of DIAGNOSTIC_ORDER) {
+        const groupItems = items.get(code);
+        if (groupItems !== undefined && groupItems.length > 0) {
+            groups.push({ code, title: DIAGNOSTIC_META[code].title, hint: DIAGNOSTIC_META[code].hint, items: groupItems });
+        }
+    }
+    return groups;
+}
+
 const SOLID_FEATURE_TYPES: readonly FeatureDef['type'][] = [
     'pad',
     'pocket',

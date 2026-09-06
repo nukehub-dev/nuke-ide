@@ -307,6 +307,22 @@ def _collect_topology_refs(
                     for i, ref in enumerate(faces):
                         if isinstance(ref, dict):
                             refs.append((f"datum.{datum_id}.faces[{i}]", ref))
+    elif feature_type == "lattice":
+        # The lattice plane datum resolves like a primitive placement datum
+        # (face/midplane refs against the referenced feature's history).
+        datum_id = params.get("datumId")
+        if isinstance(datum_id, str) and datum_id:
+            datum = datums.get(datum_id)
+            if isinstance(datum, dict) and datum.get("kind") == "face":
+                ref = datum.get("reference")
+                if isinstance(ref, dict):
+                    refs.append((f"datum.{datum_id}.reference", ref))
+            elif isinstance(datum, dict) and datum.get("kind") == "midplane":
+                faces = datum.get("faces")
+                if isinstance(faces, list):
+                    for i, ref in enumerate(faces):
+                        if isinstance(ref, dict):
+                            refs.append((f"datum.{datum_id}.faces[{i}]", ref))
 
     return refs
 
@@ -1249,9 +1265,11 @@ def _is_solid_producer(feature_type: str) -> bool:
     Unlike :func:`_is_sketch_based_solid` this includes ``pipe``, which has no
     sketch (its section is the schema-level circle) but still produces a solid,
     and ``primitive``, which is an additive datum-placed solid with pad-like
-    body semantics.
+    body semantics. ``lattice`` is included so downstream patterns/mirrors can
+    replicate a built lattice (its tool shape is the translated instance set);
+    a lattice never takes a lattice/pattern/mirror source itself.
     """
-    return _is_sketch_based_solid(feature_type) or feature_type in ("pipe", "primitive")
+    return _is_sketch_based_solid(feature_type) or feature_type in ("pipe", "primitive", "lattice")
 
 
 def _valid_source_feature(
@@ -2088,14 +2106,22 @@ def _pattern_instances_are_disjoint(body: Any, instances: list[Any]) -> bool:
     for large instance counts. Both body-vs-instance and instance-vs-instance
     pairs are checked: the union of pairwise-disjoint solids equals their plain
     compound exactly, so the caller may skip the boolean fuse.
+
+    Boxes are computed lazily and each new box is compared against every
+    earlier box immediately, so an overlapping pair bails out after only a few
+    box computations instead of boxing every instance first (pattern instances
+    arrive in document order, so neighbours — the pairs most likely to
+    overlap — meet early). The verdict matches the boxes-first formulation
+    exactly: False on the first overlapping pair, True only after every pair
+    is compared. Touching still counts as intersecting (conservative fuse).
     """
     boxes = [body.bounding_box()]
     for instance in instances:
-        boxes.append(instance.bounding_box())
-    for i in range(len(boxes)):
-        for j in range(i + 1, len(boxes)):
-            if not _bboxes_strictly_disjoint(boxes[i], boxes[j]):
+        box = instance.bounding_box()
+        for earlier in boxes:
+            if not _bboxes_strictly_disjoint(earlier, box):
                 return False
+        boxes.append(box)
     return True
 
 
@@ -2167,7 +2193,19 @@ def _apply_pattern_or_mirror(
     """
     _require_build123d()
     assert bd is not None
-    if source_type in ("pad", "revolve", "sweep", "pipe", "loft", "helicalSweep", "primitive"):
+    # ``lattice`` joins the additive set: a lattice tool replicates its source
+    # array, so pattern/mirror application over it merges exactly like any
+    # other additive source (subtractive lattices cut via ``source_subtractive``).
+    if source_type in (
+        "pad",
+        "revolve",
+        "sweep",
+        "pipe",
+        "loft",
+        "helicalSweep",
+        "primitive",
+        "lattice",
+    ):
         if not source_subtractive:
             if _pattern_instances_are_disjoint(body, instances):
                 # ``Compound(children=[...])`` is the supported spelling on
@@ -4238,6 +4276,8 @@ def _compute_implied_dependencies(
         so the other body's B-rep exists before the extrusion measures it.
       * A pattern/mirror/primitive that names a face/midplane datum depends on
         the features that datum's references point to.
+      * A lattice depends on its replicated ``source`` and on the features
+        behind a face/midplane lattice-plane ``datumId``, like a pattern.
       * A multiTransform depends on both its ``first`` and ``second`` pattern
         features (plus their datum references), so both instance sets exist
         before the cartesian product is built.
@@ -4283,6 +4323,13 @@ def _compute_implied_dependencies(
                 edges.append((feature["id"], source))
             _depend_on_datum_refs(feature["id"], params.get("axisDatumId"))
             _depend_on_datum_refs(feature["id"], params.get("planeDatumId"))
+        if feature_type == "lattice":
+            # A lattice depends on its replicated source and on the features
+            # behind a face/midplane lattice-plane datum, like a pattern.
+            source = params.get("source")
+            if isinstance(source, str) and source != feature["id"]:
+                edges.append((feature["id"], source))
+            _depend_on_datum_refs(feature["id"], params.get("datumId"))
         if feature_type in ("pad", "pocket"):
             up_to_face = params.get("upToFace")
             if isinstance(up_to_face, dict) and isinstance(up_to_face.get("featureId"), str):
@@ -4809,7 +4856,14 @@ def _execute_feature(state: _BuildState, feature_id: str) -> None:
         feature_results.append({"featureId": feature_id, "bodyId": body_id, "status": "built"})
         return
 
-    if feature_type in ("linearPattern", "circularPattern", "mirror", "hole", "multiTransform"):
+    if feature_type in (
+        "linearPattern",
+        "circularPattern",
+        "mirror",
+        "hole",
+        "multiTransform",
+        "lattice",
+    ):
         if body_id in consumed_bodies:
             feature_results.append({"featureId": feature_id, "bodyId": body_id, "status": "stale"})
             stale_or_failed.add(feature_id)
@@ -4983,7 +5037,11 @@ def _execute_feature(state: _BuildState, feature_id: str) -> None:
         params = feature.get("params", {}) if isinstance(feature.get("params"), dict) else {}
 
         try:
-            if feature_type in ("linearPattern", "circularPattern", "mirror"):
+            if feature_type == "lattice":
+                result_shape = _build_lattice_result(
+                    state, feature, params, entities, ref_path_to_index
+                )
+            elif feature_type in ("linearPattern", "circularPattern", "mirror"):
                 source_id = params.get("source")
                 if not isinstance(source_id, str) or not source_id:
                     raise FeatureBuilderError(
@@ -5309,6 +5367,11 @@ def _assemble_final_shape(state: _BuildState) -> dict[str, Any]:
                     existing.append(idx)
             existing.sort()
 
+    # Lattice per-cell entries resolve body-local cell indices to the final
+    # compound numbering (append-only lattice seam; body entries above are
+    # untouched).
+    _flush_lattice_selector_entries(state, selector_map, body_index_offset)
+
     return {
         "shape": assembled,
         "selectorMap": selector_map,
@@ -5556,6 +5619,11 @@ def _restore_cached_feature(
     """
     feature_id = feature["id"]
     feature_type = feature.get("type", "")
+    if feature_type == "lattice":
+        # Lattice per-cell selector entries live only in build state (they are
+        # resolved against live solid counts at assembly); a cache blob cannot
+        # carry them, so lattices always re-execute instead of restoring.
+        return False
     body_bytes, tool_bytes, meta = _cache_read_feature(cache, feature_id, input_key)
     if body_bytes is None:
         return False
@@ -5736,3 +5804,451 @@ def _content_keys_for_document(document: dict[str, Any]) -> dict[str, str]:
     if not HAS_DOC_CACHE or _doc_cache is None:
         raise FeatureBuilderError("result-cache backend is unavailable")
     return _doc_cache.compute_document_keys(document, ocp_version=_doc_cache.current_ocp_version())
+
+
+# ---------------------------------------------------------------------------
+# Lattice (rectangular/hexagonal pin arrays).
+#
+# A ``lattice`` feature replicates one source solid feature on a planar grid.
+# New code only: the fuse path (``_apply_pattern_or_mirror`` with its
+# disjoint-check, parallel fuse, and sequential fallback) is reused verbatim.
+# Cells are labeled ``<prefix>_r<row>c<col>`` in odd-r offset coordinates and
+# feed per-cell ``selector_map`` entries (body-level entries are unchanged).
+# Nesting (lattice-of-lattice) and pattern/mirror sources are rejected; there
+# is no per-cell material variation (labels only).
+# ---------------------------------------------------------------------------
+
+#: Maximum cells per lattice feature; above this the build fails with a
+#: stepwise-build hint instead of attempting a giant fuse.
+LATTICE_MAX_CELLS = 2500
+
+
+def _lattice_int(value: Any, context: str) -> int:
+    """Return ``value`` as an int or raise ``FeatureBuilderError`` (bools rejected)."""
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise FeatureBuilderError(f"{context} must be an integer, got {value!r}")
+    return value
+
+
+def _lattice_positive_number(value: Any, context: str) -> float:
+    """Return ``value`` as a positive finite float or raise ``FeatureBuilderError``."""
+    if (
+        not isinstance(value, (int, float))
+        or isinstance(value, bool)
+        or not math.isfinite(value)
+        or value <= 0
+    ):
+        raise FeatureBuilderError(f"{context} must be a positive finite number, got {value!r}")
+    return float(value)
+
+
+def _lattice_cell_count(params: dict[str, Any]) -> int | None:
+    """Return the lattice cell count, or None when the extents are malformed.
+
+    Pure (no build123d) so minimal-profile tests can cover the layout.
+    """
+    rows = params.get("rows")
+    cols = params.get("cols")
+    rings = params.get("rings")
+    if (
+        isinstance(rows, int)
+        and not isinstance(rows, bool)
+        and isinstance(cols, int)
+        and not isinstance(cols, bool)
+    ):
+        if rows >= 1 and cols >= 1:
+            return rows * cols
+        return None
+    if isinstance(rings, int) and not isinstance(rings, bool) and rings >= 0:
+        return 1 + 3 * rings * (rings + 1)
+    return None
+
+
+def _validate_lattice_params(params: dict[str, Any], feature_id: str) -> dict[str, Any]:
+    """Validate lattice params and return the normalized layout.
+
+    ``rows``/``cols`` (rect grid or hex offset layout) are mutually exclusive
+    with ``rings`` (hex ring layout); ``pitchY`` is rectangular-only and
+    ``orientation`` is hexagonal-only. Pure (no build123d) so minimal-profile
+    tests can cover the contract.
+    """
+    if not isinstance(params, dict):
+        raise FeatureBuilderError(f"feature '{feature_id}': lattice params must be an object")
+    source = params.get("source")
+    if not isinstance(source, str) or not source:
+        raise FeatureBuilderError(f"feature '{feature_id}': source feature id is required")
+    lattice_type = params.get("latticeType")
+    if lattice_type not in ("rectangular", "hexagonal"):
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': latticeType must be 'rectangular' or 'hexagonal'"
+        )
+
+    has_grid = params.get("rows") is not None or params.get("cols") is not None
+    has_rings = params.get("rings") is not None
+    if has_grid and has_rings:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': rows/cols and rings are mutually exclusive"
+        )
+    rows = cols = rings = None
+    if has_grid:
+        if params.get("rows") is None or params.get("cols") is None:
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': rows and cols are required together"
+            )
+        rows = _lattice_int(params.get("rows"), f"feature '{feature_id}': lattice rows")
+        cols = _lattice_int(params.get("cols"), f"feature '{feature_id}': lattice cols")
+        if rows < 1 or cols < 1:
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': lattice rows and cols must be integers >= 1"
+            )
+    elif has_rings:
+        rings = _lattice_int(params.get("rings"), f"feature '{feature_id}': lattice rings")
+        if rings < 0:
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': lattice rings must be an integer >= 0"
+            )
+    else:
+        raise FeatureBuilderError(f"feature '{feature_id}': lattice requires rows/cols or rings")
+
+    pitch = _lattice_positive_number(params.get("pitch"), f"feature '{feature_id}': lattice pitch")
+    pitch_y: float | None = None
+    if params.get("pitchY") is not None:
+        if lattice_type != "rectangular":
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': pitchY is only valid for rectangular lattices"
+            )
+        pitch_y = _lattice_positive_number(
+            params.get("pitchY"), f"feature '{feature_id}': lattice pitchY"
+        )
+    orientation: str | None = None
+    if params.get("orientation") is not None:
+        if lattice_type != "hexagonal":
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': orientation is only valid for hexagonal lattices"
+            )
+        if params.get("orientation") not in ("flatTop", "pointyTop"):
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': lattice orientation must be 'flatTop' or 'pointyTop'"
+            )
+        orientation = str(params.get("orientation"))
+
+    datum_id = params.get("datumId")
+    if datum_id is not None and (not isinstance(datum_id, str) or not datum_id):
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': lattice datumId must be a non-empty string when present"
+        )
+    origin: tuple[float, float] = (0.0, 0.0)
+    if params.get("origin") is not None:
+        raw_origin = params.get("origin")
+        if (
+            not isinstance(raw_origin, (list, tuple))
+            or len(raw_origin) != 2
+            or any(
+                not isinstance(v, (int, float)) or isinstance(v, bool) or not math.isfinite(v)
+                for v in raw_origin
+            )
+        ):
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': lattice origin must be a [x, y] pair of finite numbers"
+            )
+        origin = (float(raw_origin[0]), float(raw_origin[1]))
+    label_prefix = params.get("labelPrefix")
+    if label_prefix is not None and (not isinstance(label_prefix, str) or not label_prefix):
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': lattice labelPrefix must be a non-empty string when present"
+        )
+    scale = _pattern_scale(params, feature_id)
+
+    count = _lattice_cell_count({"rows": rows, "cols": cols, "rings": rings})
+    if count is None:
+        raise FeatureBuilderError(f"feature '{feature_id}': lattice extents are invalid")
+    if count > LATTICE_MAX_CELLS:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': lattice has {count} cells, above the "
+            f"{LATTICE_MAX_CELLS}-cell limit; build it stepwise "
+            "(multiple lattice features) instead"
+        )
+    return {
+        "source": source,
+        "latticeType": lattice_type,
+        "rows": rows,
+        "cols": cols,
+        "rings": rings,
+        "pitch": pitch,
+        "pitchY": pitch_y if pitch_y is not None else pitch,
+        "orientation": orientation if orientation is not None else "pointyTop",
+        "datumId": datum_id,
+        "origin": origin,
+        "labelPrefix": label_prefix,
+        "scale": scale,
+    }
+
+
+def _lattice_cell_offsets(
+    params: dict[str, Any],
+) -> list[tuple[tuple[float, float], tuple[int, int]]]:
+    """Return per-cell ``((dx, dy), (row, col))`` lattice offsets.
+
+    Centered on the source position (plus ``origin``); ``(row, col)`` are
+    odd-r offset coordinates for both layouts (hex rings convert axial to
+    odd-r). Rectangular grids enumerate row-major; rings enumerate axially and
+    are reported in ``(row, col)`` order. Pure (no build123d, OCP-free).
+    """
+    pitch = float(params.get("pitch", 0.0))
+    pitch_y = float(params.get("pitchY", pitch))
+    orientation = str(params.get("orientation", "pointyTop"))
+    raw_origin = params.get("origin", (0.0, 0.0))
+    origin = (float(raw_origin[0]), float(raw_origin[1]))
+    rows = params.get("rows")
+    cols = params.get("cols")
+    rings = params.get("rings")
+    lattice_type = params.get("latticeType", "rectangular")
+
+    cells: list[tuple[tuple[float, float], tuple[int, int]]] = []
+    if rings is not None:
+        count = int(rings)
+        axial: list[tuple[int, int]] = []
+        for q in range(-count, count + 1):
+            for r_axial in range(max(-count, -q - count), min(count, -q + count) + 1):
+                axial.append((q, r_axial))
+        for q, r_axial in axial:
+            col = q + (r_axial - (r_axial & 1)) // 2
+            row = r_axial
+            if orientation == "flatTop":
+                dx = pitch * 1.5 * q
+                dy = pitch * math.sqrt(3.0) * (r_axial + q / 2.0)
+            else:
+                dx = pitch * math.sqrt(3.0) * (q + r_axial / 2.0)
+                dy = pitch * 1.5 * r_axial
+            cells.append(((dx + origin[0], dy + origin[1]), (row, col)))
+        cells.sort(key=lambda cell: (cell[1][0], cell[1][1]))
+        return cells
+
+    row_count = int(rows)
+    col_count = int(cols)
+    for row in range(row_count):
+        for col in range(col_count):
+            if lattice_type == "hexagonal" and orientation == "flatTop":
+                dx = (col - (col_count - 1) / 2.0) * pitch * math.sqrt(3.0) / 2.0
+                dy = (row - (row_count - 1) / 2.0) * pitch + (pitch / 2.0 if col & 1 else 0.0)
+            elif lattice_type == "hexagonal":
+                dx = (col - (col_count - 1) / 2.0) * pitch + (pitch / 2.0 if row & 1 else 0.0)
+                dy = (row - (row_count - 1) / 2.0) * pitch * math.sqrt(3.0) / 2.0
+            else:
+                dx = (col - (col_count - 1) / 2.0) * pitch
+                dy = (row - (row_count - 1) / 2.0) * pitch_y
+            cells.append(((dx + origin[0], dy + origin[1]), (row, col)))
+    return cells
+
+
+def _lattice_label_prefix(
+    params: dict[str, Any], source: dict[str, Any], body_label: str | None
+) -> str:
+    """Return the cell label prefix: ``labelPrefix`` ?? body label ?? source name.
+
+    Pure (no build123d) so minimal-profile tests can cover the contract.
+    """
+    label_prefix = params.get("labelPrefix")
+    if isinstance(label_prefix, str) and label_prefix:
+        return label_prefix
+    if isinstance(body_label, str) and body_label:
+        return body_label
+    name = source.get("name")
+    if isinstance(name, str) and name:
+        return name
+    return str(source.get("id", "cell"))
+
+
+def _lattice_cell_labels(params: dict[str, Any], prefix: str) -> list[str]:
+    """Return per-cell ``<prefix>_r<row>c<col>`` labels in cell order.
+
+    Pure (no build123d) so minimal-profile tests can cover the contract.
+    """
+    return [f"{prefix}_r{row}c{col}" for _, (row, col) in _lattice_cell_offsets(params)]
+
+
+def _build_lattice_result(
+    state: _BuildState,
+    feature: dict[str, Any],
+    params: dict[str, Any],
+    entities: list[Any],
+    ref_path_to_index: dict[str, int],
+) -> Any:
+    """Build the lattice instances and merge them into the body.
+
+    Resolves ``source`` from ``tool_shapes`` (lattice-of-lattice and
+    pattern/mirror sources rejected), translates scaled copies onto the
+    lattice plane offsets, then delegates to the untouched disjoint-check,
+    parallel-fuse, and sequential-fallback path. Registers the instance set
+    as the lattice ``tool_shapes`` entry (downstream pattern/mirror sources)
+    and records the per-cell label/seam rows flushed at assembly.
+    """
+    _require_build123d()
+    assert bd is not None
+    feature_id = feature["id"]
+    body_id = feature.get("body", "")
+    layout = _validate_lattice_params(params, feature_id)
+    source_id = layout["source"]
+
+    source = state.feature_map.get(source_id)
+    if source is not None and source.get("type") == "lattice":
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': lattice source '{source_id}' must not be a lattice "
+            "(nested lattices are not supported)"
+        )
+    order_index = {fid: idx for idx, fid in enumerate(state.order)}
+    resolved = _valid_source_feature(
+        feature_id, source_id, "lattice", body_id, state.feature_map, order_index
+    )
+    source_tool = state.tool_shapes.get(source_id)
+    if source_tool is None:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': source '{source_id}' tool shape is unavailable"
+        )
+
+    datum_id = layout["datumId"] or "datum-xy"
+    datum = state.datums.get(datum_id)
+    if not isinstance(datum, dict):
+        known_xy = next(
+            (d for d in state.datums.values() if d.get("kind") == "XY"),
+            None,
+        )
+        if layout["datumId"] is None and known_xy is not None:
+            datum_id = known_xy.get("id", datum_id)
+            datum = known_xy
+    if not isinstance(datum, dict):
+        raise FeatureBuilderError(f"feature '{feature_id}' references unknown datum '{datum_id}'")
+    if datum.get("kind") in ("face", "midplane"):
+        _datum, entity, midplane_entities = _datum_entities_for_axis_or_plane(
+            datum_id, state.datums, entities, ref_path_to_index, feature_id
+        )
+        plane = _plane_from_datum(_datum, feature_id, entity, midplane_entities)
+    else:
+        plane = _plane_from_datum(datum, feature_id)
+
+    x_dir = plane.x_dir
+    y_dir = plane.y_dir
+    # Cell offsets already include the in-plane ``origin`` (see
+    # ``_lattice_cell_offsets``); mapping them through the datum frame here
+    # must not add it a second time.
+    scale = layout["scale"]
+    source_solids = _solid_count(source_tool)
+    subtractive = _pattern_source_is_subtractive(resolved)
+    prefix = _lattice_label_prefix(layout, resolved, state.body_labels.get(body_id))
+    labels = _lattice_cell_labels(layout, prefix)
+    kept: list[tuple[str, Any]] = []
+    skipped_center: str | None = None
+    all_instances: list[Any] = []
+    cells = _lattice_cell_offsets(layout)
+    for label, (dx, dy) in zip(labels, [cell[0] for cell in cells], strict=True):
+        world = (
+            dx * float(x_dir.X) + dy * float(y_dir.X),
+            dx * float(x_dir.Y) + dy * float(y_dir.Y),
+            dx * float(x_dir.Z) + dy * float(y_dir.Z),
+        )
+        instance = _scaled_about_center(source_tool.moved(bd.Location(world)), scale)
+        all_instances.append(instance)
+        if scale == 1.0 and all(abs(w) <= 1e-9 for w in world):
+            # Exact reproduction of the source already in the body (odd grids
+            # and rings center a cell on the source position): fusing it would
+            # be an idempotent no-op, so it is attributed, not rebuilt.
+            skipped_center = label
+        else:
+            kept.append((label, instance))
+
+    previous_body = state.accumulators.get(body_id)
+    if previous_body is None:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': lattice requires an existing solid body"
+        )
+    prev_count = _solid_count(previous_body)
+    result_shape = _apply_pattern_or_mirror(
+        previous_body,
+        source_tool,
+        resolved.get("type", ""),
+        [instance for _, instance in kept],
+        feature_id,
+        source_subtractive=subtractive,
+    )
+
+    # The registered tool is the full translated array (including an attributed
+    # center cell) so downstream patterns replicate the whole lattice.
+    state.tool_shapes[feature_id] = (
+        all_instances[0] if len(all_instances) == 1 else bd.Compound(children=list(all_instances))
+    )
+    final_count = _solid_count(result_shape)
+    local: dict[str, list[int]] = {}
+    if (
+        not subtractive
+        and source_solids > 0
+        and final_count == prev_count + len(kept) * source_solids
+    ):
+        # Every kept cell contributed its own solids in order (the disjoint
+        # skip path appends body solids then instance solids verbatim; any
+        # fused union would hold fewer solids than the sum).
+        for i, (label, _instance) in enumerate(kept):
+            local[label] = [prev_count + i * source_solids + k + 1 for k in range(source_solids)]
+    if skipped_center is not None and not subtractive and prev_count == source_solids > 0:
+        # The body holds exactly the source: the attributed center cell is it.
+        local[skipped_center] = list(range(1, source_solids + 1))
+    records = getattr(state, "lattice_cells", None)
+    if records is None:
+        records = state.lattice_cells = []
+    records.append(
+        {
+            "body_id": body_id,
+            "labels": labels,
+            "local": local,
+            "prev_count": prev_count,
+            "final_count": final_count,
+            "subtractive": subtractive,
+        }
+    )
+    return result_shape
+
+
+def _flush_lattice_selector_entries(
+    state: _BuildState,
+    selector_map: dict[str, list[int]],
+    body_index_offset: dict[str, int],
+) -> None:
+    """Resolve pending lattice per-cell labels to final 1-based solid indices.
+
+    Runs at assembly when body offsets are known. Cells with exact body-local
+    indices (disjoint layouts, plus an attributed center cell on a
+    source-only body) globalize when later features left them in place;
+    every other cell falls back to the feature's new-solid range, and
+    subtractive lattices to the body's full range.
+    """
+    records = getattr(state, "lattice_cells", None) or []
+    for record in records:
+        body_id = record.get("body_id", "")
+        labels = record.get("labels", [])
+        if body_id not in body_index_offset or not labels:
+            continue
+        offset = body_index_offset[body_id]
+        current = state.accumulators.get(body_id)
+        current_count = _solid_count(current)
+        prev_count = int(record.get("prev_count", 0))
+        local = record.get("local", {})
+        if not isinstance(local, dict):
+            local = {}
+        if current_count > prev_count:
+            fallback = list(range(offset + prev_count + 1, offset + current_count + 1))
+        else:
+            fallback = list(range(offset + 1, offset + current_count + 1))
+        for label in labels:
+            exact = local.get(label)
+            if (
+                isinstance(exact, list)
+                and exact
+                and all(isinstance(i, int) and 1 <= i <= current_count for i in exact)
+            ):
+                indices = [offset + i for i in exact]
+            else:
+                indices = fallback
+            existing = selector_map.setdefault(label, [])
+            for idx in indices:
+                if idx not in existing:
+                    existing.append(idx)
+            existing.sort()

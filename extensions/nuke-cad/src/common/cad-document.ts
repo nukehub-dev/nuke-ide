@@ -140,6 +140,61 @@ export interface BodyDef {
     name: string;
     /** Optional region-manifest label applied to all solids of this body. */
     label?: string;
+    /**
+     * Optional in-CAD material tag (bare name, e.g. `UO2` — never `mat:`-prefixed).
+     * Exported through the `.regions.json` sidecar as `{ selector: <label>, material: <tag> }`.
+     */
+    material?: string;
+}
+
+/** Maximum in-CAD material tag length (free-text input bound). */
+export const BODY_MATERIAL_MAX_LENGTH = 64;
+
+/**
+ * Validate an in-CAD material tag against the free-text input rules.
+ *
+ * Returns a human-readable hint when the tag is invalid, or undefined when it
+ * is valid. Empty (or all-whitespace) input clears the tag — valid here, since
+ * the UI maps it to `material: undefined` (mirroring `setBodyLabel` delete
+ * semantics); stored tags must still be non-empty after trimming, which the
+ * schema check enforces separately.
+ */
+export function validateBodyMaterialTag(value: string): string | undefined {
+    const tag = value.trim();
+    if (tag.length === 0) {
+        return undefined;
+    }
+    if (tag.length > BODY_MATERIAL_MAX_LENGTH) {
+        return `Material name must be ${BODY_MATERIAL_MAX_LENGTH} characters or fewer`;
+    }
+    if (tag.startsWith('mat:')) {
+        return `Drop the 'mat:' prefix — material names are stored bare (e.g. UO2)`;
+    }
+    if (tag.includes(':') || tag.includes('/')) {
+        return `Material name must not contain ':' or '/' (DAGMC tag separators)`;
+    }
+    return undefined;
+}
+
+/**
+ * Normalize raw material-tag input from the body-row text field.
+ *
+ * Empty (or all-whitespace) input clears the tag — the caller stores
+ * `material: undefined`, mirroring `setBodyLabel` delete semantics. Otherwise
+ * the trimmed tag is validated and returned, or the hint to display is
+ * returned. The feature-tree body row drives this; the store enforces the
+ * same rules at commit time.
+ */
+export function normalizeBodyMaterialInput(value: string): { material?: string } | { error: string } {
+    const trimmed = value.trim();
+    if (trimmed.length === 0) {
+        return {};
+    }
+    const reason = validateBodyMaterialTag(value);
+    if (reason !== undefined) {
+        return { error: reason };
+    }
+    return { material: trimmed };
 }
 
 /** A single point in 3D space used for curve samples. */
@@ -209,6 +264,7 @@ export type FeatureType =
     | 'hole'
     | 'primitive'
     | 'multiTransform'
+    | 'lattice'
     | 'defeature';
 
 /** Feature types that create or modify solid geometry. */
@@ -232,6 +288,7 @@ export type SolidFeatureType =
     | 'booleanCut'
     | 'booleanCommon'
     | 'primitive'
+    | 'lattice'
     | 'multiTransform';
 
 /** Extrusion end condition for pad/pocket. */
@@ -441,6 +498,37 @@ export interface MultiTransformParams {
     second: string;
 }
 
+/** Maximum cells per lattice feature; above this the build fails with a stepwise-build hint. */
+export const LATTICE_MAX_CELLS = 2500;
+
+/** Parameters for a lattice: one source solid replicated on a planar rectangular or hexagonal grid. */
+export interface LatticeParams {
+    /** Source solid-producing feature id (same body, earlier in document order; never a pattern/mirror/lattice). */
+    source: string;
+    /** Grid geometry: rectangular rows/cols or hexagonal rows/cols-or-rings. */
+    latticeType: 'rectangular' | 'hexagonal';
+    /** Rectangular/hex-offset grid rows (>= 1); mutually exclusive with rings. */
+    rows?: number;
+    /** Rectangular/hex-offset grid columns (>= 1); mutually exclusive with rings. */
+    cols?: number;
+    /** Hex ring count around the center cell (>= 0); mutually exclusive with rows/cols. */
+    rings?: number;
+    /** Center-to-center pitch (positive); the X pitch for rectangular grids. */
+    pitch: number;
+    /** Rectangular-only Y pitch (default = pitch). */
+    pitchY?: number;
+    /** Hexagonal-only cell orientation (default 'pointyTop'). */
+    orientation?: 'flatTop' | 'pointyTop';
+    /** Lattice plane datum (planar only; default 'datum-xy'). */
+    datumId?: string;
+    /** In-plane offset (default [0, 0]). */
+    origin?: [number, number];
+    /** Cell label prefix (default: body label, else the source feature name). */
+    labelPrefix?: string;
+    /** Per-instance uniform scale about each instance's bbox center (default 1). */
+    scale?: number;
+}
+
 /** Parameters for defeature (face removal). */
 export interface DefeatureParams {
     faces: TopologyRef[];
@@ -460,6 +548,7 @@ export type FeatureParams =
     | LinearPatternParams
     | CircularPatternParams
     | MirrorParams
+    | LatticeParams
     | BooleanParams
     | HoleParams
     | PrimitiveParams
@@ -677,6 +766,18 @@ function validateBody(ctx: MutableValidationContext, body: BodyDef, index: numbe
     if (body.label !== undefined && !isString(body.label)) {
         issue(ctx, `${path}.label`, 'label must be a string when present');
     }
+    if (body.material !== undefined) {
+        if (!isString(body.material)) {
+            issue(ctx, `${path}.material`, 'material must be a string when present');
+        } else if (body.material.trim().length === 0) {
+            issue(ctx, `${path}.material`, 'material must be a non-empty string when present');
+        } else {
+            const reason = validateBodyMaterialTag(body.material);
+            if (reason !== undefined) {
+                issue(ctx, `${path}.material`, reason);
+            }
+        }
+    }
 }
 
 function validateSketch(ctx: MutableValidationContext, sketch: SketchDef, index: number): void {
@@ -822,6 +923,7 @@ function validateFeature(ctx: MutableValidationContext, feature: FeatureDef, ind
         'mirror',
         'linearPattern',
         'circularPattern',
+        'lattice',
         'booleanFuse',
         'booleanCut',
         'booleanCommon',
@@ -1165,6 +1267,83 @@ function validateFeatureParams(ctx: MutableValidationContext, path: string, type
             }
             if (hasPlane && hasPlaneDatum) {
                 issue(ctx, `${path}.plane`, 'plane and planeDatumId are mutually exclusive');
+            }
+            validatePatternScale(ctx, path, p);
+            break;
+        }
+        case 'lattice': {
+            if (!isString(p.source) || p.source.length === 0) {
+                issue(ctx, `${path}.source`, 'source is required and must be a feature id');
+            }
+            if (p.latticeType !== 'rectangular' && p.latticeType !== 'hexagonal') {
+                issue(ctx, `${path}.latticeType`, "latticeType must be 'rectangular' or 'hexagonal'");
+            }
+            const hasGrid = p.rows !== undefined || p.cols !== undefined;
+            const hasRings = p.rings !== undefined;
+            if (hasGrid && hasRings) {
+                issue(ctx, `${path}.rings`, 'rows/cols and rings are mutually exclusive');
+            } else if (hasGrid) {
+                if (p.rows === undefined || p.cols === undefined) {
+                    issue(ctx, `${path}.rows`, 'rows and cols are required together');
+                } else {
+                    if (!Number.isInteger(p.rows) || (p.rows as number) < 1) {
+                        issue(ctx, `${path}.rows`, 'rows must be an integer >= 1');
+                    }
+                    if (!Number.isInteger(p.cols) || (p.cols as number) < 1) {
+                        issue(ctx, `${path}.cols`, 'cols must be an integer >= 1');
+                    }
+                }
+            } else if (hasRings) {
+                if (!Number.isInteger(p.rings) || (p.rings as number) < 0) {
+                    issue(ctx, `${path}.rings`, 'rings must be an integer >= 0');
+                }
+            } else {
+                issue(ctx, `${path}.rows`, 'lattice requires rows/cols or rings');
+            }
+            if (!isFiniteNumber(p.pitch) || (p.pitch as number) <= 0) {
+                issue(ctx, `${path}.pitch`, 'pitch must be a positive finite number');
+            }
+            if (p.pitchY !== undefined) {
+                if (p.latticeType !== 'rectangular') {
+                    issue(ctx, `${path}.pitchY`, 'pitchY is only valid for rectangular lattices');
+                } else if (!isFiniteNumber(p.pitchY) || (p.pitchY as number) <= 0) {
+                    issue(ctx, `${path}.pitchY`, 'pitchY must be a positive finite number');
+                }
+            }
+            if (p.orientation !== undefined) {
+                if (p.latticeType !== 'hexagonal') {
+                    issue(ctx, `${path}.orientation`, 'orientation is only valid for hexagonal lattices');
+                } else if (p.orientation !== 'flatTop' && p.orientation !== 'pointyTop') {
+                    issue(ctx, `${path}.orientation`, "orientation must be 'flatTop' or 'pointyTop'");
+                }
+            }
+            if (p.datumId !== undefined && (!isString(p.datumId) || p.datumId.length === 0)) {
+                issue(ctx, `${path}.datumId`, 'datumId must be a non-empty string when present');
+            }
+            if (p.origin !== undefined) {
+                const origin = p.origin;
+                if (!Array.isArray(origin) || origin.length !== 2 || !origin.every((v: unknown) => isFiniteNumber(v))) {
+                    issue(ctx, `${path}.origin`, 'origin must be a [x, y] pair of finite numbers');
+                }
+            }
+            if (p.labelPrefix !== undefined && (!isString(p.labelPrefix) || p.labelPrefix.length === 0)) {
+                issue(ctx, `${path}.labelPrefix`, 'labelPrefix must be a non-empty string when present');
+            }
+            const rows = p.rows as number;
+            const cols = p.cols as number;
+            const rings = p.rings as number;
+            let cellCount: number | undefined;
+            if (Number.isInteger(rows) && rows >= 1 && Number.isInteger(cols) && cols >= 1) {
+                cellCount = rows * cols;
+            } else if (Number.isInteger(rings) && rings >= 0) {
+                cellCount = 1 + 3 * rings * (rings + 1);
+            }
+            if (cellCount !== undefined && cellCount > LATTICE_MAX_CELLS) {
+                issue(
+                    ctx,
+                    `${path}.rows`,
+                    `lattice has ${cellCount} cells, above the ${LATTICE_MAX_CELLS}-cell limit; build it stepwise (multiple lattice features) instead`
+                );
             }
             validatePatternScale(ctx, path, p);
             break;
@@ -1596,10 +1775,18 @@ export function validateNukeCadDocument(doc: NukeCadDocument): ValidationResult 
                 }
             }
         }
-        if (f.type === 'linearPattern' || f.type === 'circularPattern' || f.type === 'mirror') {
+        if (f.type === 'linearPattern' || f.type === 'circularPattern' || f.type === 'mirror' || f.type === 'lattice') {
             const p = f.params as Record<string, unknown>;
             if (isString(p.source) && !featureIds.has(p.source)) {
                 issue(ctx, `features[${i}].params.source`, `unknown feature '${p.source}'`);
+            }
+        }
+        if (f.type === 'lattice') {
+            const p = f.params as Record<string, unknown>;
+            if (isString(p.datumId) && p.datumId.length > 0 && !datumIds.has(p.datumId)) {
+                issue(ctx, `features[${i}].params.datumId`, `unknown datum '${p.datumId}'`);
+            } else if (isString(p.datumId) && p.datumId.length > 0 && datumById.get(p.datumId)?.kind === 'line2Point') {
+                issue(ctx, `features[${i}].params.datumId`, `datum '${p.datumId}' is a line datum and cannot place a lattice`);
             }
         }
         if (f.type === 'circularPattern' || f.type === 'linearPattern') {

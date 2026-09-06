@@ -2204,6 +2204,69 @@ describe('wave A2 additive params (revolve ends, upToBody, subtractive, linear d
         expect(result.issues.some((i) => i.path === 'features[1].params.axisDatumId')).toBe(true);
     });
 
+    it('accepts rectangular and hexagonal lattices, rejecting bad extents/gating/caps', () => {
+        const rect = makeBaseDocument();
+        pushFeature(rect, 'lattice', { source: 'pad1', latticeType: 'rectangular', rows: 2, cols: 3, pitch: 10 });
+        expect(validateNukeCadDocument(rect).valid).toBe(true);
+
+        const hex = makeBaseDocument();
+        pushFeature(hex, 'lattice', { source: 'pad1', latticeType: 'hexagonal', rings: 1, pitch: 10, orientation: 'flatTop' });
+        expect(validateNukeCadDocument(hex).valid).toBe(true);
+
+        const badCases: [Record<string, unknown>, string][] = [
+            // rows/cols XOR rings
+            [{ source: 'pad1', latticeType: 'rectangular', rows: 2, cols: 2, rings: 1 }, 'features[1].params.rings'],
+            [{ source: 'pad1', latticeType: 'rectangular', rows: 2, pitch: 1 }, 'features[1].params.rows'],
+            [{ source: 'pad1', latticeType: 'rectangular', pitch: 1 }, 'features[1].params.rows'],
+            [{ source: 'pad1', latticeType: 'rectangular', rows: 0, cols: 2, pitch: 1 }, 'features[1].params.rows'],
+            // gating
+            [{ source: 'pad1', latticeType: 'hexagonal', rows: 2, cols: 2, pitch: 1, pitchY: 2 }, 'features[1].params.pitchY'],
+            [
+                { source: 'pad1', latticeType: 'rectangular', rows: 2, cols: 2, pitch: 1, orientation: 'flatTop' },
+                'features[1].params.orientation'
+            ],
+            // numerics + cap
+            [{ source: 'pad1', latticeType: 'rectangular', rows: 2, cols: 2, pitch: 0 }, 'features[1].params.pitch'],
+            [{ source: 'pad1', latticeType: 'rectangular', rows: 51, cols: 51, pitch: 1 }, 'features[1].params.rows'],
+            // dangling refs
+            [{ source: 'ghost', latticeType: 'rectangular', rows: 1, cols: 1, pitch: 1 }, 'features[1].params.source'],
+            [{ source: 'pad1', latticeType: 'rectangular', rows: 1, cols: 1, pitch: 1, datumId: 'ghost' }, 'features[1].params.datumId']
+        ];
+        for (const [params, path] of badCases) {
+            const doc = makeBaseDocument();
+            pushFeature(doc, 'lattice', params);
+            const result = validateNukeCadDocument(doc);
+            expect(result.valid).toBe(false);
+            expect(result.issues.some((i) => i.path === path)).toBe(true);
+        }
+    });
+
+    it('rejects a lattice on a line datum, like sketches', () => {
+        const doc = makeBaseDocument();
+        doc.datums.push({
+            id: 'dl',
+            kind: 'line2Point',
+            name: 'Axis',
+            points: [
+                [0, 0, 0],
+                [0, 0, 5]
+            ]
+        });
+        pushFeature(doc, 'lattice', { source: 'pad1', latticeType: 'rectangular', rows: 1, cols: 1, pitch: 1, datumId: 'dl' });
+        const result = validateNukeCadDocument(doc);
+        expect(result.valid).toBe(false);
+        expect(result.issues.some((i) => i.path === 'features[1].params.datumId')).toBe(true);
+    });
+
+    it('keeps lattice additive at schema v3 (no migration)', () => {
+        expect(NUKE_CAD_SCHEMA_VERSION).toBe(3);
+        const doc = makeBaseDocument();
+        pushFeature(doc, 'lattice', { source: 'pad1', latticeType: 'rectangular', rows: 1, cols: 1, pitch: 1 });
+        const round = JSON.parse(JSON.stringify(doc)) as NukeCadDocument;
+        expect(validateNukeCadDocument(round).valid).toBe(true);
+        expect(migrateNukeCadDocument(round).migratedFrom).toBeUndefined();
+    });
+
     it('accepts modeled threads on blind simple holes, rejecting through and expanded holes', () => {
         const ok = makeBaseDocument();
         ok.features.push({

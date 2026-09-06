@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- nuke-cad: **lattice feature** — replicate a solid feature over a
+  rectangular grid or hexagonal ring (2500-cell cap) with per-cell labels
+  (`<prefix>_r<row>c<col>`) that flow into `selector_map` and DAGMC groups,
+  fused through the standard pattern path and pattern/mirror eligible.
+- nuke-cad: **DAGMC export robustness** — staged imprint with a reported
+  stage log (fragment → dedup → capped tolerance-relaxed retry → model-only
+  fallback → loud failure), sense errors naming surface + volumes + stage,
+  additive `diagnostics`/`imprintStages`/`sealCheck` result keys, most-
+  specific selector resolution (per-cell entries beat body-level), and a
+  grouped diagnostics box in the Model Outline.
+- nuke-cad: **in-CAD material tagging** — tag bodies with bare material
+  names from the Feature Tree (undo-covered, no rebuild); tags merge into
+  manifest volumes on every document build path, persist
+  `<stem>.regions.json` beside the document, and reach openmc-studio as
+  `materialLinks`. Explicit sidecar entries always win.
+- nuke-cad: **fuse-path overlap check** now exits early (identical verdict,
+  ~150 ms saved on ×50-scale checks); profiled W7X walls (sweep-station
+  loft, GFOP variance) documented as outside the behavior-preserving
+  surface.
+
 - nuke-cad: **undo/redo** — the document store keeps snapshot history (depth 100) over committed mutations, with toolbar buttons and `Ctrl+Z` /
   `Ctrl+Shift+Z` / `Ctrl+Y` following the viewport key scoping rules.
   Granularity is one committed mutation per step; sketch strokes undo as a

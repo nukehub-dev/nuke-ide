@@ -240,3 +240,55 @@ def _validate_entry(kind: str, index: int, entry: Any) -> None:
         role = entry.get("role")
         if role is not None and not isinstance(role, str):
             raise ManifestValidationError(f"surfaces[{index}].role must be a string")
+
+
+def document_material_volumes(
+    bodies: list[dict[str, Any]] | None,
+    manifest: RegionManifest | dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """Build manifest volume entries from in-CAD body material tags.
+
+    For every body dict carrying both a non-empty ``label`` and a non-empty
+    ``material`` tag, emit ``{"selector": <label>, "material": <tag>}`` — the
+    export hop ``BodyDef.material`` → sidecar volume. A tag materializes only
+    when no explicit sidecar entry already claims the selector (explicit
+    sidecar entries win); ``entry_for`` resolution and ``default``
+    copy-propagation are untouched — only explicit ``volumes`` selectors are
+    consulted, never the default entry.
+
+    ``manifest`` may be a :class:`RegionManifest`, a raw manifest dict, or
+    None (no sidecar). The result is intentionally minimal (``selector`` +
+    ``material`` only): downstream DAGMC naming falls back to the selector
+    and openmc-studio links the placeholder material through
+    ``materialLinks``.
+
+    NOTE: pure helper only — callers (``geometry_service.build_document`` on
+    the document/assembly export paths) merge the result into the manifest
+    volumes before ``_process_shape``.
+    """
+    explicit: set[str] = set()
+    volumes: list[Any] = []
+    if isinstance(manifest, RegionManifest):
+        volumes = manifest.volumes
+    elif isinstance(manifest, dict):
+        raw = manifest.get("volumes", [])
+        volumes = raw if isinstance(raw, list) else []
+    for entry in volumes:
+        if isinstance(entry, dict):
+            selector = entry.get("selector")
+            if isinstance(selector, str) and selector:
+                explicit.add(selector)
+    derived: list[dict[str, Any]] = []
+    for body in bodies or []:
+        if not isinstance(body, dict):
+            continue
+        label = body.get("label")
+        tag = body.get("material")
+        if not isinstance(label, str) or not label:
+            continue
+        if not isinstance(tag, str) or not tag:
+            continue
+        if label in explicit:
+            continue
+        derived.append({"selector": label, "material": tag})
+    return derived
