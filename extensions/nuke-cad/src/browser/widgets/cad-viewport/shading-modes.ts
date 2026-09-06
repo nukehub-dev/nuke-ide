@@ -26,77 +26,11 @@
 // *****************************************************************************
 
 /**
- * Shading-mode state for the CAD viewport.
+ * Re-export shim: the shading-mode helpers live in `../../viewer-core`
+ * so native viewers can share them. This path is kept working for every
+ * existing nuke-cad import.
  *
- * Pure decision logic shared by the viewport's applyShading helper and its
- * shading popover: maps the active mode plus ghost opacity onto per-mesh
- * material flags so x-ray/edges-only semantics stay testable without three.js
- * or Theia imports.
- *
- * @module nuke-cad/browser/widgets
+ * @module nuke-cad/browser/widgets/cad-viewport
  */
 
-export type ShadingMode = 'shaded' | 'shadedWireframe' | 'edgesOnly' | 'xray';
-
-/** Popover entry: display metadata for one mutually exclusive shading mode. */
-export interface ShadingModeInfo {
-    readonly id: ShadingMode;
-    readonly label: string;
-    readonly icon: string;
-}
-
-export const SHADING_MODES: readonly ShadingModeInfo[] = [
-    { id: 'shaded', label: 'Shaded', icon: 'codicon-eye' },
-    { id: 'shadedWireframe', label: 'Shaded + Edges', icon: 'codicon-circuit-board' },
-    { id: 'edgesOnly', label: 'Edges Only', icon: 'codicon-nuke-cad-edges' },
-    { id: 'xray', label: 'X-Ray', icon: 'codicon-symbol-color' }
-];
-
-export const GHOST_OPACITY_MIN = 0.15;
-export const GHOST_OPACITY_MAX = 0.6;
-export const GHOST_OPACITY_STEP = 0.05;
-export const DEFAULT_GHOST_OPACITY = 0.35;
-
-/** Per-mesh material flags decided by the active shading mode. */
-export interface MeshShadingFlags {
-    readonly faceVisible: boolean;
-    readonly wireframe: boolean;
-    readonly transparent: boolean;
-    readonly opacity: number;
-    readonly depthWrite: boolean;
-}
-
-const OPAQUE_FLAGS: MeshShadingFlags = {
-    faceVisible: true,
-    wireframe: false,
-    transparent: false,
-    opacity: 1,
-    depthWrite: true
-};
-
-export function clampGhostOpacity(value: number): number {
-    return Math.min(GHOST_OPACITY_MAX, Math.max(GHOST_OPACITY_MIN, value));
-}
-
-/**
- * Decide the material flags for one face mesh under a shading mode. Edge-line
- * materials are never touched: B-rep edges stay opaque in every mode.
- */
-export function meshShadingFlags(mode: ShadingMode, ghostOpacity: number): MeshShadingFlags {
-    switch (mode) {
-        case 'shaded':
-            return OPAQUE_FLAGS;
-        case 'shadedWireframe':
-            return { ...OPAQUE_FLAGS, wireframe: true };
-        case 'edgesOnly':
-            return { ...OPAQUE_FLAGS, faceVisible: false };
-        case 'xray':
-            return {
-                faceVisible: true,
-                wireframe: false,
-                transparent: true,
-                opacity: clampGhostOpacity(ghostOpacity),
-                depthWrite: false
-            };
-    }
-}
+export * from '../../viewer-core/shading-modes';

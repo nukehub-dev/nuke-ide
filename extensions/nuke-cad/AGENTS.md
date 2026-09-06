@@ -273,7 +273,7 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   label (`cad-viewport-view-label`, imperative DOM) shows the active standard
   view (`User` after orbiting, `Top`/`Left`/... after snapping) or
   `Sketch — <name>` while sketching (`SketchModeController.getSketchName()`).
-  Model colors are theme-adaptive (`viewport-colors.ts`): the face albedo
+  Model colors are theme-adaptive (`viewer-core/viewport-colors.ts`): the face albedo
   follows `--theia-foreground` on dark themes but switches to a fixed steel
   tone on light editor backgrounds (a light theme's foreground is near-black
   and silhouettes the model), and edge lines flip from white to dark slate;
@@ -284,7 +284,8 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   preference (`theme` | `dark` | `light` | `gradient`, default `theme`):
   solid styles paint `scene.background`, while `gradient` clears it and shows
   a CSS backdrop behind a transparent renderer.
-  The tessellation load path (`tess-reuse.ts` + `tess-parse.worker.ts` +
+  The tessellation load path (`viewer-core/tess-reuse.ts`, re-exported by the
+  `widgets/cad-viewport/` shim, + `tess-parse.worker.ts` +
   `tess-parse-client.ts`): the `.tess.json` text parses in a Web Worker
   (webpack-5 native `new Worker(new URL(...))`, worker imports nothing Theia)
   and transfers back as typed arrays — transferring the parsed JSON object
@@ -303,7 +304,8 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   Shading is a single material-state authority: `setShading(mode)` accepts
   `shaded`, `shadedWireframe`, `edgesOnly`, or `xray`, and
   `setGhostOpacity(v)` tunes x-ray transparency; pure helpers live in
-  `shading-modes.ts` and one `applyShading()` applies everything —
+  `viewer-core/shading-modes.ts` (re-exported by the `widgets/cad-viewport/`
+  shim) and one `applyShading()` applies everything —
   the nav-cluster popover picks the mode; rebuilds re-apply mode and opacity.
   Materials are shared per shading role (body / selection highlight / edge
   lines / curve lines / preview ghost), not cloned per face: selection
@@ -311,11 +313,11 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   writes mode flags onto the shared materials directly. Edges-only hides face meshes and disables face/solid picking (hint pill);
   x-ray ghosts faces at the ghost opacity with edges opaque. A section plane
   (`setSection({axis, flip, fraction} | undefined)`, pure math in
-  `section-plane.ts`) clips faces and edge lines via
+  `viewer-core/section-plane.ts`) clips faces and edge lines via
   `renderer.localClippingEnabled`; it is visual only, slider-driven over the
   tessellation bounding box, exits on button/Escape, and survives rebuilds
   through the same `applyShading()` path. The measure tool (pure logic in
-  `measure-tool.ts`) records viewport annotations from the
+  `viewer-core/measure-tool.ts`) records viewport annotations from the
   document toolbar Inspect group or the sketch toolbar, in three modes
   (selector in the Measurements popover): point-to-point **distance**
   (raycast surface points in 3D, snap-aware sketch-plane points in sketch
@@ -333,7 +335,7 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   measure markers at their initial unit scale. Measurements are viewport
   state (never document state) and
   clear on rebuild or sketch exit. The **explode view** slider (navigation
-  cluster) is per-solid viewport-only state: `explode-view.ts` plans
+  cluster) is per-solid viewport-only state: `viewer-core/explode-view.ts` plans
   solidId → offset as `normalize(centroid − bboxCenter) · diagonal · factor ·
  EXPLODE_MAX_SPAN (0.35)` from vertex-averaged per-solid centroids (the cap
   keeps a 100% explode framed instead of flying a full diagonal per solid),
@@ -419,7 +421,7 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   default `theme`) chooses the 3D canvas backdrop; `gradient` is a CSS
   backdrop behind a transparent renderer.
   `nukeCad.navigationStyle` (`orbit`/`solidworks`/`tinkercad`/`touchpad`,
-  default `orbit`) remaps OrbitControls button tables (`navigation-styles.ts`,
+  default `orbit`) remaps OrbitControls button tables (`viewer-core/navigation-styles.ts`,
   re-applied after every controls re-creation); right-click menus work in
   every style, and modifier-key styles stay out (OrbitControls has no
   modifier layer).
