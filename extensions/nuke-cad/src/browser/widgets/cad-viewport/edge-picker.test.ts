@@ -27,7 +27,23 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as THREE from 'three';
-import { buildEdgeLine, buildEdgeTopologyRef, pointerToNdc, raycastEdge, EdgeHighlighter } from './edge-picker';
+import {
+    appendDrawingDimensionTarget,
+    buildEdgeLine,
+    buildEdgeTopologyRef,
+    cancelDrawingDimensionPick,
+    drawingDimensionTargetsNeeded,
+    getDrawingDimensionPickRequest,
+    onDrawingDimensionEdgeHit,
+    onDrawingDimensionPickRequest,
+    pointerToNdc,
+    publishDrawingDimensionEdgeHit,
+    raycastEdge,
+    requestDrawingDimensionPick,
+    EdgeHighlighter,
+    type DrawingDimensionPickRequest
+} from './edge-picker';
+import type { TopologyRef } from '../../../common/topology-refs';
 
 function makeRect(x: number, y: number, width: number, height: number): DOMRect {
     return {
@@ -233,6 +249,126 @@ describe('edge-picker', () => {
             expect(highlighter.isActive).toBe(false);
             const highlightLine = group.getObjectByName('cad-edge-highlight');
             expect(highlightLine?.visible).toBe(false);
+        });
+    });
+
+    describe('drawing-dimension pick helpers', () => {
+        const edgeRef = (featureId: string, length: number): TopologyRef => ({
+            featureId,
+            kind: 'edge',
+            fingerprint: {
+                curveType: 'line',
+                length,
+                start: [0, 0, 0],
+                end: [length, 0, 0]
+            }
+        });
+
+        describe('drawingDimensionTargetsNeeded', () => {
+            it('needs two edges for distance and one for radius/diameter', () => {
+                expect(drawingDimensionTargetsNeeded('distance')).toBe(2);
+                expect(drawingDimensionTargetsNeeded('radius')).toBe(1);
+                expect(drawingDimensionTargetsNeeded('diameter')).toBe(1);
+            });
+        });
+
+        describe('appendDrawingDimensionTarget', () => {
+            it('completes a radius dimension on the first edge', () => {
+                const state = appendDrawingDimensionTarget([], edgeRef('f1', 5), 'radius');
+                expect(state.targets).toHaveLength(1);
+                expect(state.complete).toBe(true);
+            });
+
+            it('needs two distinct edges for a distance dimension', () => {
+                const first = appendDrawingDimensionTarget([], edgeRef('f1', 5), 'distance');
+                expect(first.complete).toBe(false);
+                const second = appendDrawingDimensionTarget(first.targets, edgeRef('f2', 7), 'distance');
+                expect(second.targets).toHaveLength(2);
+                expect(second.complete).toBe(true);
+            });
+
+            it('ignores an exact-duplicate fingerprint (degenerate self-distance)', () => {
+                const first = appendDrawingDimensionTarget([], edgeRef('f1', 5), 'distance');
+                const again = appendDrawingDimensionTarget(first.targets, edgeRef('f1', 5), 'distance');
+                expect(again.targets).toHaveLength(1);
+                expect(again.complete).toBe(false);
+            });
+
+            it('drops invalid refs and filters previously accumulated ones', () => {
+                const invalid = { featureId: '', kind: 'edge', fingerprint: {} } as unknown as TopologyRef;
+                const face = { featureId: 'f9', kind: 'face', fingerprint: {} } as unknown as TopologyRef;
+                expect(appendDrawingDimensionTarget([], invalid, 'radius').complete).toBe(false);
+                expect(appendDrawingDimensionTarget([], face, 'radius').targets).toHaveLength(0);
+                const cleaned = appendDrawingDimensionTarget([invalid, edgeRef('f1', 5)], edgeRef('f2', 7), 'distance');
+                expect(cleaned.targets.map((t) => t.featureId)).toEqual(['f1', 'f2']);
+                expect(cleaned.complete).toBe(true);
+            });
+
+            it('caps targets at the kind arity', () => {
+                const full = appendDrawingDimensionTarget([edgeRef('f1', 5)], edgeRef('f2', 7), 'radius');
+                expect(full.targets.map((t) => t.featureId)).toEqual(['f1']);
+                expect(full.complete).toBe(true);
+            });
+        });
+
+        describe('drawing-dimension pick broker', () => {
+            afterEach(() => {
+                cancelDrawingDimensionPick();
+            });
+
+            it('publishes requests to subscribers and clears on cancel', () => {
+                const seen: (DrawingDimensionPickRequest | undefined)[] = [];
+                const unsubscribe = onDrawingDimensionPickRequest((request) => seen.push(request));
+                try {
+                    expect(getDrawingDimensionPickRequest()).toBeUndefined();
+                    requestDrawingDimensionPick({ kind: 'distance' });
+                    expect(getDrawingDimensionPickRequest()).toEqual({ kind: 'distance' });
+                    cancelDrawingDimensionPick();
+                    expect(getDrawingDimensionPickRequest()).toBeUndefined();
+                    expect(seen).toEqual([{ kind: 'distance' }, undefined]);
+                } finally {
+                    unsubscribe();
+                }
+            });
+
+            it('replacing a request notifies with the latest kind', () => {
+                const seen: (DrawingDimensionPickRequest | undefined)[] = [];
+                const unsubscribe = onDrawingDimensionPickRequest((request) => seen.push(request));
+                try {
+                    requestDrawingDimensionPick({ kind: 'distance' });
+                    requestDrawingDimensionPick({ kind: 'radius' });
+                    expect(getDrawingDimensionPickRequest()).toEqual({ kind: 'radius' });
+                    expect(seen).toEqual([{ kind: 'distance' }, { kind: 'radius' }]);
+                } finally {
+                    unsubscribe();
+                }
+            });
+
+            it('forwards published edge hits to hit subscribers only', () => {
+                const requests: (DrawingDimensionPickRequest | undefined)[] = [];
+                const hits: TopologyRef[] = [];
+                const unsubscribeRequest = onDrawingDimensionPickRequest((request) => requests.push(request));
+                const unsubscribeHit = onDrawingDimensionEdgeHit((ref) => hits.push(ref));
+                try {
+                    requestDrawingDimensionPick({ kind: 'radius' });
+                    publishDrawingDimensionEdgeHit(edgeRef('f1', 5));
+                    expect(hits).toHaveLength(1);
+                    expect(hits[0].featureId).toBe('f1');
+                    // Hits never leak into request notifications.
+                    expect(requests).toEqual([{ kind: 'radius' }]);
+                } finally {
+                    unsubscribeRequest();
+                    unsubscribeHit();
+                }
+            });
+
+            it('unsubscribed listeners stop receiving notifications', () => {
+                const seen: (DrawingDimensionPickRequest | undefined)[] = [];
+                const unsubscribe = onDrawingDimensionPickRequest((request) => seen.push(request));
+                unsubscribe();
+                requestDrawingDimensionPick({ kind: 'diameter' });
+                expect(seen).toHaveLength(0);
+            });
         });
     });
 });

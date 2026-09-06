@@ -48,6 +48,7 @@ import {
     FoamStlExportResult,
     CadBoundingBox
 } from '../common/nuke-cad-protocol';
+import { DrawingBuildRequest, DrawingBuildResult } from '../common/cad-drawing';
 import { NukeCadPreferences } from './nuke-cad-preferences';
 import { computeDisplayTolerance, isDisplayBuild, withTriangleBudgetWarning } from './nuke-cad-display-utils';
 
@@ -70,6 +71,10 @@ export class NukeCadFrontendService implements NukeCadBackendService {
     buildDocument(request: BuildDocumentRequest): Promise<GeometryBuildResult> {
         const tolerance = this.resolveTolerance(request, 'document');
         return this.proxy.buildDocument({ ...request, tolerance }).then((result) => this.postProcessResult(request, result, 'document'));
+    }
+
+    buildDrawing(request: DrawingBuildRequest): Promise<DrawingBuildResult> {
+        return this.proxy.buildDrawing(request);
     }
 
     runFem(request: FemRunRequest): Promise<FemRunResult> {

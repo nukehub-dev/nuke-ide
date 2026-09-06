@@ -25,6 +25,8 @@
 // SPDX-License-Identifier: BSD-2-Clause
 // *****************************************************************************
 
+import { DrawingBuildRequest, DrawingBuildResult } from './cad-drawing';
+
 /**
  * JSON-RPC protocol shared between the nuke-cad frontend and backend.
  *
@@ -493,6 +495,17 @@ export interface NukeCadBackendService {
      * ``recomputePlan``; the backend owns topo order within the closure.
      */
     buildFeaturesPartial?(request: BuildFeaturesPartialRequest): Promise<GeometryBuildResult>;
+
+    /**
+     * Build a drawing sheet of a ``.nuke-cad`` document (exact HLR linework,
+     * section/detail views, associative dimensions, SVG + DXF).
+     *
+     * Dirty drawing state triggers this RPC, never a full geometry rebuild.
+     * The request's ``scriptPath`` carries the absolute document path and
+     * ``sheetId`` selects the sheet; the backend runs ``geometry_service.py
+     * --from-drawing``.
+     */
+    buildDrawing(request: DrawingBuildRequest): Promise<DrawingBuildResult>;
 
     /**
      * Set up and optionally run a CalculiX FEM analysis from a gmsh mesh.

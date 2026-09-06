@@ -1,0 +1,123 @@
+/* BOM panel: instance id / part source / mate type / DOF contribution rows. */
+
+.cad-bom-panel {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+    background: var(--theia-sideBar-background);
+    color: var(--theia-sideBar-foreground);
+}
+
+.cad-bom-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--theia-sideBarSectionHeader-border);
+}
+
+.cad-bom-header .header-info h2 {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.cad-bom-header .header-description {
+    margin: 2px 0 0;
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+}
+
+.cad-bom-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 24px 12px;
+    text-align: center;
+    color: var(--theia-descriptionForeground);
+}
+
+.cad-bom-empty .codicon {
+    font-size: 24px;
+}
+
+.cad-bom-empty p {
+    margin: 0;
+    font-weight: 600;
+    color: var(--theia-sideBar-foreground);
+}
+
+.cad-bom-empty .empty-hint {
+    font-size: 11px;
+}
+
+.cad-bom-table {
+    overflow-y: auto;
+    padding: 4px 0;
+}
+
+.cad-bom-head,
+.cad-bom-tr {
+    display: grid;
+    grid-template-columns: 1.4fr 1.6fr 0.8fr 0.7fr;
+    gap: 8px;
+    align-items: center;
+    padding: 4px 12px;
+}
+
+.cad-bom-head {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--theia-descriptionForeground);
+    border-bottom: 1px solid var(--theia-sideBarSectionHeader-border);
+}
+
+.cad-bom-th.num,
+.cad-bom-cell.num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.cad-bom-tr {
+    cursor: pointer;
+    border-bottom: 1px solid transparent;
+}
+
+.cad-bom-tr:hover {
+    background: var(--theia-list-hoverBackground);
+}
+
+.cad-bom-cell {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
+}
+
+.cad-bom-cell.instance {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 600;
+}
+
+.cad-bom-grounded {
+    font-size: 10px;
+    font-weight: 400;
+    padding: 1px 6px;
+    border-radius: 8px;
+    background: var(--theia-button-background);
+    color: var(--theia-button-foreground);
+}
+
+.cad-bom-hint {
+    padding: 8px 12px;
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+}

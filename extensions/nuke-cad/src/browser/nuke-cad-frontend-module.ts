@@ -48,6 +48,8 @@ import { NukeCadOpenHandler } from './contributions/nuke-cad-openhandler-contrib
 import { CadViewportWidget } from './widgets/cad-viewport/cad-viewport-widget';
 import { CadOutlinePanelWidget } from './widgets/outline-panel/outline-panel-widget';
 import { CadFeatureTreeWidget } from './widgets/feature-tree/feature-tree-widget';
+import { CadBomPanelWidget } from './widgets/bom-panel/bom-panel';
+import { DrawingSheetWidget } from './widgets/drawing-sheet/drawing-sheet-widget';
 import { FemPanelWidget } from './widgets/fem-panel/fem-panel-widget';
 import { FoamPanelWidget } from './widgets/foam-panel/foam-panel-widget';
 
@@ -98,6 +100,22 @@ export default new ContainerModule((bind) => {
         }))
         .inSingletonScope();
     bind(CadFeatureTreeWidget).toSelf();
+
+    bind(WidgetFactory)
+        .toDynamicValue((ctx) => ({
+            id: CadBomPanelWidget.ID,
+            createWidget: () => ctx.container.get(CadBomPanelWidget)
+        }))
+        .inSingletonScope();
+    bind(CadBomPanelWidget).toSelf();
+
+    bind(WidgetFactory)
+        .toDynamicValue((ctx) => ({
+            id: DrawingSheetWidget.ID,
+            createWidget: () => ctx.container.get(DrawingSheetWidget)
+        }))
+        .inSingletonScope();
+    bind(DrawingSheetWidget).toSelf();
 
     bind(WidgetFactory)
         .toDynamicValue((ctx) => ({

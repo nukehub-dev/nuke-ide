@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- nuke-cad: **assemblies** — multi-part documents with instances (same-doc
+  bodies, `.nuke-cad` paths, STEP/IGES/BREP files), connector-frame mates
+  solved closed-form from an explicitly grounded instance, per-instance
+  viewport rendering with shared geometry, a mate dialog with DOF hints, a
+  **BOM** panel with viewport selection sync, STEP-assembly export (one
+  product per instance), and DAGMC export of the placed solids.
+- nuke-cad: **drawings core** — single-sheet 2D drawings (A4/A3) with base,
+  projected, section, and detail views from exact HLR linework, associative
+  dimensions created by picking model edges in the viewport (stale-flagged
+  on broken references), and SVG + DXF export. PDF export is deferred.
+
 - nuke-cad: **extrude/revolve ends, subtractive tools, datum pattern axis,
   modeled threads, units, and offset auto-trim** — pad/pocket gain
   **up-to-body** termination; revolve/groove gain **through-all** ends;

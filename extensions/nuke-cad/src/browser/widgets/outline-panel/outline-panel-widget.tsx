@@ -51,7 +51,8 @@ import { URI } from '@theia/core/lib/common/uri';
 import { RegionManifestData } from '../../../common/nuke-cad-protocol';
 import { type NukeCadDocument } from '../../../common/cad-document';
 import { NukeCadStateManager, CadModel, CadSelection, SolidSummary } from '../../state/nuke-cad-state-manager';
-import { CadDocumentStore, createFeatureId } from '../../document/cad-document-store';
+import { CadDocumentStore, createFeatureId, getAssemblySection, type AssemblySection } from '../../document/cad-document-store';
+import { instanceSolidIds } from '../cad-viewport/assembly-view';
 import { NukeCadCommands } from '../../commands';
 import {
     bboxSize,
@@ -222,14 +223,30 @@ export class CadOutlinePanelWidget extends ReactWidget {
                 summaries={this.summaries}
                 hiddenSolidIds={this.hiddenSolidIds}
                 document={this.documentStore.document}
+                assembly={this.documentStore.document !== undefined ? getAssemblySection(this.documentStore.document) : undefined}
                 manifestExists={this.manifestExists}
                 manifestFileName={this.manifestFileName}
                 onSelect={(solidId, additive) => this.handleSelect(solidId, additive)}
+                onSelectInstance={(instanceId) => this.handleSelectInstance(instanceId)}
                 onSetHiddenSolids={(ids) => this.stateManager.setHiddenSolidIds(ids)}
                 onFuseBodies={(bodyA, bodyB) => void this.handleFuseBodies(bodyA, bodyB)}
                 onOpenManifest={() => this.openManifest()}
             />
         );
+    }
+
+    /**
+     * ASSEMBLIES row click: select the instance's solids in the viewport via
+     * the shared state manager (B1 `<instanceId>/…` selector keys; a no-op
+     * until those land).
+     */
+    private handleSelectInstance(instanceId: string): void {
+        const solids = instanceSolidIds(this.stateManager.model?.result.selectorMap, instanceId);
+        if (solids.length === 0) {
+            return;
+        }
+        this.selection = { solidId: solids[0], solidIds: solids };
+        this.stateManager.setSelection(this.selection);
     }
 }
 
@@ -308,9 +325,12 @@ interface CadOutlinePanelComponentProps {
     readonly hiddenSolidIds: readonly number[];
     /** Open `.nuke-cad` document, when the model was built from one (enables the fuse auto-fix). */
     readonly document?: NukeCadDocument;
+    /** Assembly section through the B1-optional channel (absent = single-part). */
+    readonly assembly?: AssemblySection;
     readonly manifestExists: boolean;
     readonly manifestFileName: string;
     readonly onSelect: (solidId: number, additive: boolean) => void;
+    readonly onSelectInstance: (instanceId: string) => void;
     readonly onSetHiddenSolids: (ids: readonly number[]) => void;
     readonly onFuseBodies: (bodyA: string, bodyB: string) => void;
     readonly onOpenManifest: () => void;
@@ -404,6 +424,24 @@ function CadOutlinePanelComponent(props: CadOutlinePanelComponentProps): React.R
 
     const isolateRow = (row: OutlineRowData): void => {
         const keep = new Set(row.solidIndices);
+        props.onSetHiddenSolids(allMappedSolidIds.filter((id) => !keep.has(id)));
+    };
+
+    const hideInstanceSolids = (instanceId: string, hidden: boolean): void => {
+        const solids = instanceSolidIds(selectorMap, instanceId);
+        const hiddenSet = new Set(hiddenIds);
+        for (const solid of solids) {
+            if (hidden) {
+                hiddenSet.add(solid);
+            } else {
+                hiddenSet.delete(solid);
+            }
+        }
+        props.onSetHiddenSolids([...hiddenSet]);
+    };
+
+    const isolateInstance = (instanceId: string): void => {
+        const keep = new Set(instanceSolidIds(selectorMap, instanceId));
         props.onSetHiddenSolids(allMappedSolidIds.filter((id) => !keep.has(id)));
     };
 
@@ -560,6 +598,18 @@ function CadOutlinePanelComponent(props: CadOutlinePanelComponentProps): React.R
                                     ))}
                                 </OutlineSection>
                             )}
+
+                            {props.assembly !== undefined && props.assembly.instances.length > 0 && (
+                                <AssembliesSection
+                                    assembly={props.assembly}
+                                    selectorMap={selectorMap}
+                                    selection={props.selection}
+                                    hiddenSolidIds={hiddenIds}
+                                    onSelectInstance={props.onSelectInstance}
+                                    onToggleHidden={hideInstanceSolids}
+                                    onIsolate={isolateInstance}
+                                />
+                            )}
                         </>
                     ) : (
                         <SolidTable
@@ -702,6 +752,64 @@ function OutlineSection(props: OutlineSectionProps): React.ReactElement {
                 <span className="count-badge">{props.count}</span>
             </div>
             {!props.collapsed && <div className="outline-rows">{props.children}</div>}
+        </div>
+    );
+}
+
+interface AssembliesSectionProps {
+    readonly assembly: AssemblySection;
+    readonly selectorMap: Record<string, number[]>;
+    readonly selection: CadSelection;
+    readonly hiddenSolidIds: readonly number[];
+    readonly onSelectInstance: (instanceId: string) => void;
+    readonly onToggleHidden: (instanceId: string, hidden: boolean) => void;
+    readonly onIsolate: (instanceId: string) => void;
+}
+
+/**
+ * ASSEMBLIES section: per-instance rows with the same hide/isolate/selection
+ * sync as volume rows, keyed by instanceId (solids resolve through B1's
+ * `<instanceId>/…` selector keys).
+ */
+function AssembliesSection(props: AssembliesSectionProps): React.ReactElement {
+    const [collapsed, setCollapsed] = React.useState(false);
+    const selected = selectionSolidIds(props.selection);
+    return (
+        <div className="outline-section">
+            <div className="category-header" onClick={() => setCollapsed(!collapsed)}>
+                <i className={`codicon codicon-chevron-${collapsed ? 'right' : 'down'}`} />
+                <span>Assemblies</span>
+                <span className="count-badge">{props.assembly.instances.length}</span>
+            </div>
+            {!collapsed && (
+                <div className="outline-rows">
+                    {props.assembly.instances.map((instance) => {
+                        const solids = instanceSolidIds(props.selectorMap, instance.id);
+                        const mapped = solids.length > 0;
+                        const grounded = props.assembly.groundedInstanceId === instance.id;
+                        const isHidden = mapped && solids.every((id) => props.hiddenSolidIds.includes(id));
+                        const isSelected = solids.some((id) => selected.includes(id));
+                        const row: OutlineRowData = {
+                            key: `instance:${instance.id}`,
+                            label: grounded ? `${instance.id} (grounded)` : instance.id,
+                            detail: instance.part,
+                            solidIndices: solids
+                        };
+                        return (
+                            <OutlineRow
+                                key={row.key}
+                                row={row}
+                                selected={isSelected}
+                                hidden={isHidden}
+                                icon="codicon-nuke-cad-assembly"
+                                onSelect={() => props.onSelectInstance(instance.id)}
+                                onToggleHidden={() => props.onToggleHidden(instance.id, !isHidden)}
+                                onIsolate={() => props.onIsolate(instance.id)}
+                            />
+                        );
+                    })}
+                </div>
+            )}
         </div>
     );
 }

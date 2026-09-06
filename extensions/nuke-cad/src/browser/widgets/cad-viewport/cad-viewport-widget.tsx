@@ -76,7 +76,7 @@ import {
 import { createSnapConfig, snap } from '../../sketch/snap';
 import { ensureNukeCadExtension } from './cad-save-path';
 import { CadSketchOverlay, DocumentTemplatePicker, type DatumDraft } from './cad-sketch-overlay';
-import { CadDocumentStore, createSketchId, createFeatureId, computeDependsOn } from '../../document/cad-document-store';
+import { CadDocumentStore, createSketchId, createFeatureId, computeDependsOn, getAssemblySection } from '../../document/cad-document-store';
 import {
     MemoryResultCache,
     PartialRebuildTracker,
@@ -105,7 +105,19 @@ import { type TopologyRef } from '../../../common/topology-refs';
 import { FaceHighlighter, type FacePickHit, buildTopologyRef, pointerToNdc, projectHitToFaceUv, raycastFace } from './face-picker';
 import { cadViewportColors, resolveViewportBackground, type ViewportBackgroundStyle } from './viewport-colors';
 import { applyNavigationStyle, type NavigationStyle } from './navigation-styles';
-import { EdgeHighlighter, type EdgePickHit, buildEdgeLine, buildEdgeTopologyRef, raycastEdge } from './edge-picker';
+import {
+    EdgeHighlighter,
+    type EdgePickHit,
+    buildEdgeLine,
+    buildEdgeTopologyRef,
+    raycastEdge,
+    cancelDrawingDimensionPick,
+    drawingDimensionTargetsNeeded,
+    getDrawingDimensionPickRequest,
+    onDrawingDimensionPickRequest,
+    publishDrawingDimensionEdgeHit,
+    type DrawingDimensionPickRequest
+} from './edge-picker';
 import {
     DEFAULT_GHOST_OPACITY,
     GHOST_OPACITY_MAX,
@@ -158,6 +170,16 @@ import { clampExplodeFactor, planExplodeOffsets, type ExplodeSolidCentroid } fro
 import { visibleCurveIds, type CurvePathUser } from './curve-visibility';
 import { headerRegionTarget, useDraggablePanel } from './draggable-panel';
 import { buildFeaturePreviewDocument, resolveCurvePick, type FeaturePreviewRequest } from './sweep-pipe';
+import {
+    assemblyConnectorTriads,
+    connectorFrameInAssembly,
+    instanceSolidIds,
+    resolveConnectorPick,
+    solveAssemblyTransforms,
+    type ConnectorTriad
+} from './assembly-view';
+import { MateDialog, type MateDraft } from './mate-dialog';
+import { AssemblyInstanceList } from './assembly-instance-list';
 import { faceReuseKey, planFaceReuse, type ParsedTessCurve, type ParsedTessData } from './tess-reuse';
 import { parseTessellationAsync } from './tess-parse-client';
 import { attributeBodyToFeature, buildViewportContextMenu, openViewportContextMenu } from './viewport-context-menu';
@@ -270,6 +292,28 @@ export class CadViewportWidget extends ReactWidget {
     private holePickMode?: { callback: (ref: TopologyRef, uv: [number, number]) => void };
     /** Active curve-pick mode and the callback that receives the picked curve id. */
     private curvePickMode?: { callback: (curveId: string) => void };
+    /**
+     * Active drawing-dimension edge-pick mode, driven by the Drawing Sheet
+     * widget through the `edge-picker` broker (not by a local dialog):
+     * `kind` selects the banner text and target count, `picked` feeds the
+     * banner progress. The mode stays active across picks (distance needs
+     * two) until the sheet commits the dimension or either side cancels.
+     */
+    private drawingDimensionPickMode?: { kind: DrawingDimensionPickRequest['kind']; picked: number };
+    /**
+     * Active connector-pick mode for the mate dialog: which side (A/B) the
+     * next viewport click feeds. Mirrors the dress-up pick pattern (banner +
+     * Cancel, hover triad highlight, right-click/Escape cancel, guarded by
+     * `resolveConnectorPick` against deleted instances).
+     */
+    private connectorPickMode?: { side: 'A' | 'B' };
+    /** Connector ids picked in the viewport for the open mate dialog. */
+    private mateConnectorA?: string;
+    private mateConnectorB?: string;
+    /** True while the mate creation dialog is open. */
+    private mateDialogOpen = false;
+    /** Ghosted mate preview (both connectors at solved poses in `cad-preview`). */
+    private matePreviewEnabled = false;
     /** Tessellation of the pending sweep/pipe draft (ghosted preview), if any. */
     private previewTessData?: TessData;
     /** Monotonically increasing token; stale preview builds are dropped. */
@@ -741,6 +785,162 @@ export class CadViewportWidget extends ReactWidget {
     };
 
     /**
+     * Broker callback: the Drawing Sheet dimension tool entered or left
+     * viewport edge-pick mode. Entering resets the banner progress; leaving
+     * (commit or Cancel) drops the mode.
+     */
+    protected readonly handleDrawingDimensionPickRequest = (request: DrawingDimensionPickRequest | undefined): void => {
+        this.drawingDimensionPickMode = request !== undefined ? { kind: request.kind, picked: 0 } : undefined;
+        this.update();
+    };
+
+    /**
+     * Viewport click in drawing-dimension pick mode: the edge fingerprint
+     * becomes a `TopologyRef` published to the sheet, which accumulates and
+     * commits via `addDimension`. Guarded against fingerprint-less geometry
+     * like the dress-up path; the mode stays active for the next pick.
+     */
+    protected readonly handleDrawingDimensionEdgePick = (hit: EdgePickHit): void => {
+        if (this.drawingDimensionPickMode === undefined || getDrawingDimensionPickRequest() === undefined) {
+            return;
+        }
+        const ref = buildEdgeTopologyRef(String(hit.solidId), hit, (bodyId) => this.resolveBodyTipFeature(bodyId));
+        if (ref === undefined) {
+            this.messageService.error('Selected edge has no geometric fingerprint; rebuild the model first.');
+            return;
+        }
+        this.drawingDimensionPickMode = { ...this.drawingDimensionPickMode, picked: this.drawingDimensionPickMode.picked + 1 };
+        publishDrawingDimensionEdgeHit(ref);
+        this.update();
+    };
+
+    /** Viewport Cancel (banner button, right-click, Escape) for drawing-dimension picking. */
+    protected readonly handleDrawingDimensionEdgePickCancel = (): void => {
+        this.drawingDimensionPickMode = undefined;
+        cancelDrawingDimensionPick();
+        this.update();
+    };
+
+    /** Enter viewport connector-pick mode for one side of the mate dialog. */
+    protected readonly handleStartConnectorPick = (side: 'A' | 'B'): void => {
+        this.connectorPickMode = { side };
+        this.update();
+    };
+
+    protected readonly handleConnectorPickCancel = (): void => {
+        this.connectorPickMode = undefined;
+        this.update();
+    };
+
+    /** Viewport click in connector-pick mode: guarded, then fed to the dialog. */
+    protected readonly handleConnectorPick = (connectorId: string): void => {
+        const assembly = this.documentStore.document !== undefined ? getAssemblySection(this.documentStore.document) : undefined;
+        const resolved = assembly !== undefined ? resolveConnectorPick(assembly.connectors, assembly.instances, connectorId) : undefined;
+        if (resolved === undefined) {
+            this.messageService.warn('The picked connector no longer exists in this document.');
+            this.connectorPickMode = undefined;
+            this.update();
+            return;
+        }
+        if (this.connectorPickMode?.side === 'B') {
+            this.mateConnectorB = resolved.id;
+        } else {
+            this.mateConnectorA = resolved.id;
+        }
+        this.connectorPickMode = undefined;
+        this.refreshMatePreview();
+        this.update();
+    };
+
+    /** Recompute the ghosted mate preview (both connectors at solved poses). */
+    private refreshMatePreview(): void {
+        // The preview renders through `updateModel`'s connector-triad path in
+        // the scene closure; here we only drop it when the dialog closes or
+        // the toggle clears (failures clear silently per the preview contract).
+        if (!this.matePreviewEnabled) {
+            return;
+        }
+        this.update();
+    }
+
+    protected readonly handleMatePreviewChange = (enabled: boolean): void => {
+        this.matePreviewEnabled = enabled;
+        this.update();
+    };
+
+    protected readonly handleOpenMateDialog = (): void => {
+        this.mateDialogOpen = true;
+        this.mateConnectorA = undefined;
+        this.mateConnectorB = undefined;
+        this.update();
+    };
+
+    protected readonly handleCloseMateDialog = (): void => {
+        this.mateDialogOpen = false;
+        this.connectorPickMode = undefined;
+        this.matePreviewEnabled = false;
+        this.update();
+    };
+
+    protected readonly handleMateSubmit = (draft: MateDraft): void => {
+        const result = this.documentStore.addMate(draft.type, draft.instanceA, draft.connectorA, draft.instanceB, draft.connectorB);
+        if (!result.success) {
+            this.messageService.error(result.error || 'Failed to add mate.');
+            return;
+        }
+        this.mateDialogOpen = false;
+        this.connectorPickMode = undefined;
+        this.matePreviewEnabled = false;
+        this.update();
+    };
+
+    /** Instance list: add a part instance (grounding stays explicit). */
+    protected readonly handleAddInstance = (part: string): void => {
+        const result = this.documentStore.addInstance(part);
+        if (!result.success) {
+            this.messageService.error(result.error || 'Failed to add instance.');
+        }
+    };
+
+    /** Instance list: Ground-here action writing `groundedInstanceId`. */
+    protected readonly handleGroundInstance = (instanceId: string): void => {
+        const result = this.documentStore.setGrounded(instanceId);
+        if (!result.success) {
+            this.messageService.error(result.error || 'Failed to ground instance.');
+        }
+    };
+
+    protected readonly handleDeleteInstance = (instanceId: string): void => {
+        const result = this.documentStore.deleteInstance(instanceId);
+        if (!result.success) {
+            this.messageService.error(result.error || 'Failed to delete instance.');
+        }
+    };
+
+    protected readonly handleRenameInstance = (instanceId: string, newId: string): void => {
+        if (newId === '' || newId === instanceId) {
+            return;
+        }
+        const result = this.documentStore.renameInstance(instanceId, newId);
+        if (!result.success) {
+            this.messageService.error(result.error || 'Failed to rename instance.');
+        }
+    };
+
+    /**
+     * Instance list / outline row click: select the instance's solids in the
+     * viewport via the state manager (B1 `<instanceId>/…` selector keys; a
+     * no-op until those land).
+     */
+    protected readonly handleSelectInstance = (instanceId: string): void => {
+        const solids = instanceSolidIds(this.stateManager.model?.result.selectorMap, instanceId);
+        if (solids.length === 0) {
+            return;
+        }
+        this.stateManager.setSelection({ solidId: solids[0], solidIds: solids });
+    };
+
+    /**
      * Dialog-driven ghosted preview: the request replaces any previous one;
      * undefined clears the preview. Stale build results are dropped by token.
      */
@@ -808,6 +1008,7 @@ export class CadViewportWidget extends ReactWidget {
         this.dressUpPickCallback = undefined;
         this.holePickMode = undefined;
         this.curvePickMode = undefined;
+        this.connectorPickMode = undefined;
         this.featurePreviewToken++;
         this.previewTessData = undefined;
         this.update();
@@ -826,6 +1027,9 @@ export class CadViewportWidget extends ReactWidget {
         this.toDispose.push(this.monacoWorkspace.onDidSaveTextDocument((document) => this.onModelScriptSaved(document)));
         this.toDispose.push(Disposable.create(() => this.clearSaveRebuildTimer()));
         this.toDispose.push(Disposable.create(this.documentStore.onChange(() => this.onDocumentChange())));
+        // Drawing-dimension edge picks arrive from the Drawing Sheet widget
+        // through the `edge-picker` broker (no shared service to dispose).
+        this.toDispose.push(Disposable.create(onDrawingDimensionPickRequest((request) => this.handleDrawingDimensionPickRequest(request))));
         this.update();
     }
 
@@ -1634,6 +1838,26 @@ export class CadViewportWidget extends ReactWidget {
                 onCurvePick={this.handleCurvePick}
                 onCurvePickCancel={this.handleCurvePickCancel}
                 curvePickMode={this.curvePickMode !== undefined}
+                onDrawingDimensionEdgePick={this.handleDrawingDimensionEdgePick}
+                onDrawingDimensionEdgePickCancel={this.handleDrawingDimensionEdgePickCancel}
+                drawingDimensionPickMode={this.drawingDimensionPickMode}
+                connectorPickMode={this.connectorPickMode?.side}
+                onStartConnectorPick={this.handleStartConnectorPick}
+                onConnectorPickCancel={this.handleConnectorPickCancel}
+                onConnectorPick={this.handleConnectorPick}
+                mateDialogOpen={this.mateDialogOpen}
+                mateConnectorA={this.mateConnectorA}
+                mateConnectorB={this.mateConnectorB}
+                matePreviewEnabled={this.matePreviewEnabled}
+                onOpenMateDialog={this.handleOpenMateDialog}
+                onCloseMateDialog={this.handleCloseMateDialog}
+                onMateSubmit={this.handleMateSubmit}
+                onMatePreviewChange={this.handleMatePreviewChange}
+                onAddInstance={this.handleAddInstance}
+                onGroundInstance={this.handleGroundInstance}
+                onDeleteInstance={this.handleDeleteInstance}
+                onRenameInstance={this.handleRenameInstance}
+                onSelectInstance={this.handleSelectInstance}
                 previewTessData={this.previewTessData}
                 onPreviewChange={this.handleFeaturePreviewChange}
                 sectionActive={this.sectionActive}
@@ -1717,6 +1941,28 @@ interface CadViewportComponentProps {
     readonly onCurvePick: (curveId: string) => void;
     readonly onCurvePickCancel: () => void;
     readonly curvePickMode?: boolean;
+    /** Drawing-dimension edge pick: viewport clicks feed the Drawing Sheet dimension tool. */
+    readonly onDrawingDimensionEdgePick: (hit: EdgePickHit) => void;
+    readonly onDrawingDimensionEdgePickCancel: () => void;
+    readonly drawingDimensionPickMode?: { readonly kind: DrawingDimensionPickRequest['kind']; readonly picked: number };
+    /** Mate-dialog connector pick: which side the next viewport click feeds. */
+    readonly connectorPickMode?: 'A' | 'B';
+    readonly onStartConnectorPick: (side: 'A' | 'B') => void;
+    readonly onConnectorPickCancel: () => void;
+    readonly onConnectorPick: (connectorId: string) => void;
+    readonly mateDialogOpen: boolean;
+    readonly mateConnectorA?: string;
+    readonly mateConnectorB?: string;
+    readonly matePreviewEnabled: boolean;
+    readonly onOpenMateDialog: () => void;
+    readonly onCloseMateDialog: () => void;
+    readonly onMateSubmit: (draft: MateDraft) => void;
+    readonly onMatePreviewChange: (enabled: boolean) => void;
+    readonly onAddInstance: (part: string) => void;
+    readonly onGroundInstance: (instanceId: string) => void;
+    readonly onDeleteInstance: (instanceId: string) => void;
+    readonly onRenameInstance: (instanceId: string, newId: string) => void;
+    readonly onSelectInstance: (instanceId: string) => void;
     readonly previewTessData?: TessData;
     readonly onPreviewChange: (request: FeaturePreviewRequest | undefined) => void;
     readonly onSetSectionActive: (active: boolean) => void;
@@ -1785,6 +2031,9 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
         setDressUpPickMode?: (mode?: { type: FeatureType; selecting: 'edge' | 'face' }) => void;
         setHolePickMode?: (active: boolean) => void;
         setCurvePickMode?: (active: boolean) => void;
+        setDrawingDimensionPickMode?: (active: boolean) => void;
+        setConnectorPickMode?: (active: boolean) => void;
+        setConnectorTriads?: (triads: readonly ConnectorTriad[]) => void;
         setPreviewTessellation?: (tessData?: TessData) => void;
         fitView?: () => void;
         zoomView?: (factor: number) => void;
@@ -1986,6 +2235,12 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                 props.onCurvePick,
                 props.onCurvePickCancel,
                 props.curvePickMode ?? false,
+                props.onDrawingDimensionEdgePick,
+                props.onDrawingDimensionEdgePickCancel,
+                props.drawingDimensionPickMode !== undefined,
+                props.onConnectorPick,
+                props.onConnectorPickCancel,
+                props.connectorPickMode !== undefined,
                 props.messageService,
                 props.onToggleSketchMode,
                 props.onExitSection,
@@ -2017,6 +2272,9 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             viewportApi.current.setDressUpPickMode = api.setDressUpPickMode;
             viewportApi.current.setHolePickMode = api.setHolePickMode;
             viewportApi.current.setCurvePickMode = api.setCurvePickMode;
+            viewportApi.current.setDrawingDimensionPickMode = api.setDrawingDimensionPickMode;
+            viewportApi.current.setConnectorPickMode = api.setConnectorPickMode;
+            viewportApi.current.setConnectorTriads = api.setConnectorTriads;
             viewportApi.current.setPreviewTessellation = api.setPreviewTessellation;
             viewportApi.current.fitView = api.fitView;
             viewportApi.current.zoomView = api.zoomView;
@@ -2034,6 +2292,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             api.setDressUpPickMode(props.dressUpPickMode);
             api.setHolePickMode(props.holePickMode ?? false);
             api.setCurvePickMode(props.curvePickMode ?? false);
+            api.setConnectorPickMode(props.connectorPickMode !== undefined);
             api.setPreviewTessellation(props.previewTessData);
             setController(api.controller);
         })().catch((err) => {
@@ -2048,6 +2307,9 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             viewportApi.current.setDressUpPickMode = undefined;
             viewportApi.current.setHolePickMode = undefined;
             viewportApi.current.setCurvePickMode = undefined;
+            viewportApi.current.setDrawingDimensionPickMode = undefined;
+            viewportApi.current.setConnectorPickMode = undefined;
+            viewportApi.current.setConnectorTriads = undefined;
             viewportApi.current.setPreviewTessellation = undefined;
             viewportApi.current.fitView = undefined;
             viewportApi.current.zoomView = undefined;
@@ -2087,6 +2349,39 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
     React.useEffect(() => {
         viewportApi.current.setCurvePickMode?.(props.curvePickMode ?? false);
     }, [props.curvePickMode]);
+
+    React.useEffect(() => {
+        viewportApi.current.setDrawingDimensionPickMode?.(props.drawingDimensionPickMode !== undefined);
+    }, [props.drawingDimensionPickMode]);
+
+    React.useEffect(() => {
+        viewportApi.current.setConnectorPickMode?.(props.connectorPickMode !== undefined);
+    }, [props.connectorPickMode]);
+
+    // Connector triads: every connector frame at its solved assembly pose.
+    // Shown during connector-pick mode (hover triad highlight) and the
+    // ghosted mate preview (both connectors at solved poses in `cad-preview`);
+    // failures clear silently per the preview contract.
+    React.useEffect(() => {
+        if (props.connectorPickMode === undefined && !props.matePreviewEnabled) {
+            viewportApi.current.setConnectorTriads?.([]);
+            return;
+        }
+        try {
+            const doc = props.documentStore.document;
+            const assembly = doc !== undefined ? getAssemblySection(doc) : undefined;
+            viewportApi.current.setConnectorTriads?.(assembly !== undefined ? assemblyConnectorTriads(assembly) : []);
+        } catch {
+            viewportApi.current.setConnectorTriads?.([]);
+        }
+    }, [
+        props.connectorPickMode,
+        props.matePreviewEnabled,
+        props.mateDialogOpen,
+        props.mateConnectorA,
+        props.mateConnectorB,
+        props.documentStore.document
+    ]);
 
     React.useEffect(() => {
         viewportApi.current.setPreviewTessellation?.(props.previewTessData);
@@ -2568,7 +2863,65 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             {measureListPopover}
             {sketchOverlay}
             {templatePicker}
+            {props.connectorPickMode !== undefined && (
+                <div className="cad-sketch-face-pick-banner">
+                    <span>
+                        Connector pick (mate side {props.connectorPickMode}): click a part face to pick its nearest connector — right-click
+                        or Escape cancels
+                    </span>
+                    <button className="theia-button secondary" onClick={props.onConnectorPickCancel}>
+                        Cancel
+                    </button>
+                </div>
+            )}
+            {props.drawingDimensionPickMode !== undefined && (
+                <div className="cad-sketch-face-pick-banner">
+                    <span className="codicon codicon-target" />
+                    <span>
+                        Dimension {props.drawingDimensionPickMode.kind}: click{' '}
+                        {drawingDimensionTargetsNeeded(props.drawingDimensionPickMode.kind) === 2 ? 'two edges' : 'an edge'} (
+                        {props.drawingDimensionPickMode.picked}/{drawingDimensionTargetsNeeded(props.drawingDimensionPickMode.kind)}) —
+                        right-click or Escape cancels
+                    </span>
+                    <button className="theia-button secondary" onClick={props.onDrawingDimensionEdgePickCancel}>
+                        Cancel
+                    </button>
+                </div>
+            )}
+            {props.documentStore.hasDocument && !sketchActive && (
+                <AssemblyInstanceList
+                    assembly={props.documentStore.document !== undefined ? getAssemblySection(props.documentStore.document) : undefined}
+                    onGround={props.onGroundInstance}
+                    onSelect={props.onSelectInstance}
+                    onDelete={props.onDeleteInstance}
+                    onRename={props.onRenameInstance}
+                    onAddInstance={props.onAddInstance}
+                    onAddMate={props.onOpenMateDialog}
+                />
+            )}
+            {props.mateDialogOpen && <AssemblyMateDialog {...props} />}
         </div>
+    );
+}
+
+/** Adapter: feed the mate dialog from the document store's assembly section. */
+function AssemblyMateDialog(props: CadViewportComponentProps): React.ReactElement | null {
+    const assembly = props.documentStore.document !== undefined ? getAssemblySection(props.documentStore.document) : undefined;
+    if (assembly === undefined) {
+        return null;
+    }
+    return (
+        <MateDialog
+            instances={assembly.instances}
+            connectors={assembly.connectors}
+            pickedConnectorA={props.mateConnectorA}
+            pickedConnectorB={props.mateConnectorB}
+            onPickConnector={props.onStartConnectorPick}
+            previewEnabled={props.matePreviewEnabled}
+            onPreviewChange={props.onMatePreviewChange}
+            onSubmit={props.onMateSubmit}
+            onClose={props.onCloseMateDialog}
+        />
     );
 }
 
@@ -2667,6 +3020,9 @@ interface ViewportApi {
     readonly setDressUpPickMode: (mode?: { type: FeatureType; selecting: 'edge' | 'face' }) => void;
     readonly setHolePickMode: (active: boolean) => void;
     readonly setCurvePickMode: (active: boolean) => void;
+    readonly setDrawingDimensionPickMode: (active: boolean) => void;
+    readonly setConnectorPickMode: (active: boolean) => void;
+    readonly setConnectorTriads: (triads: readonly ConnectorTriad[]) => void;
     readonly setPreviewTessellation: (tessData?: TessData) => void;
     readonly fitView: () => void;
     readonly zoomView: (factor: number) => void;
@@ -2703,6 +3059,12 @@ function initViewport(
     onCurvePick: (curveId: string) => void,
     onCurvePickCancel: () => void,
     initialCurvePickMode: boolean,
+    onDrawingDimensionEdgePick: (hit: EdgePickHit) => void,
+    onDrawingDimensionEdgePickCancel: () => void,
+    initialDrawingDimensionPickMode: boolean,
+    onConnectorPick: (connectorId: string) => void,
+    onConnectorPickCancel: () => void,
+    initialConnectorPickMode: boolean,
     messageService: MessageService,
     onToggleSketchMode: () => void,
     onExitSection: () => void,
@@ -2784,6 +3146,62 @@ function initViewport(
     scene.add(previewGroup);
     let previewMeshes: THREE.Mesh[] = [];
 
+    // Connector-frame triads for mate authoring: one RGB triad per connector
+    // at its solved assembly pose. Shown during connector-pick mode (hover
+    // triad highlight of connector frames) and the ghosted mate preview
+    // (both connectors at solved poses in `cad-preview`); failures clear
+    // silently per the preview contract.
+    const connectorGroup = new THREE.Group();
+    connectorGroup.name = 'cad-connectors';
+    scene.add(connectorGroup);
+    let connectorTriadLines: THREE.LineSegments[] = [];
+    const CONNECTOR_TRIAD_SIZE = 2.5;
+    const setConnectorTriads = (triads: readonly ConnectorTriad[]): void => {
+        for (const lines of connectorTriadLines) {
+            connectorGroup.remove(lines);
+            lines.geometry.dispose();
+        }
+        connectorTriadLines = [];
+        if (triads.length === 0) {
+            renderScene();
+            return;
+        }
+        const scale = Math.max(lastDiag * 0.02, 1e-3);
+        for (const triad of triads) {
+            const origin = new THREE.Vector3(triad.origin[0], triad.origin[1], triad.origin[2]);
+            const axes: Array<{ dir: [number, number, number]; color: [number, number, number] }> = [
+                { dir: [triad.xAxis[0], triad.xAxis[1], triad.xAxis[2]], color: [1, 0.25, 0.25] },
+                { dir: [triad.yAxis[0], triad.yAxis[1], triad.yAxis[2]], color: [0.25, 1, 0.25] },
+                { dir: [triad.zAxis[0], triad.zAxis[1], triad.zAxis[2]], color: [0.3, 0.5, 1] }
+            ];
+            const positions = new Float32Array(18);
+            const colors = new Float32Array(18);
+            axes.forEach((axis, i) => {
+                const length = Math.hypot(...axis.dir) || 1;
+                const end = origin
+                    .clone()
+                    .add(
+                        new THREE.Vector3(axis.dir[0] / length, axis.dir[1] / length, axis.dir[2] / length).multiplyScalar(
+                            scale * CONNECTOR_TRIAD_SIZE
+                        )
+                    );
+                positions.set([origin.x, origin.y, origin.z, end.x, end.y, end.z], i * 6);
+                colors.set([...axis.color, ...axis.color], i * 6);
+            });
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+            const lines = new THREE.LineSegments(
+                geometry,
+                new THREE.LineBasicMaterial({ vertexColors: true, linewidth: 2, depthTest: false, transparent: true, opacity: 0.95 })
+            );
+            lines.renderOrder = 10;
+            connectorGroup.add(lines);
+            connectorTriadLines.push(lines);
+        }
+        renderScene();
+    };
+
     const baseColor = new THREE.Color(viewportColors.body);
     const edgeColor = new THREE.Color(viewportColors.edges);
     const selectedColor = new THREE.Color(readThemeColor(container, '--theia-focusBorder', '#007fd4'));
@@ -2800,6 +3218,8 @@ function initViewport(
     let activeDressUpPickMode: { type: FeatureType; selecting: 'edge' | 'face' } | undefined;
     let activeHolePickMode = initialHolePickMode;
     let activeCurvePickMode = initialCurvePickMode;
+    let activeDrawingDimensionPickMode = initialDrawingDimensionPickMode;
+    let activeConnectorPickMode = initialConnectorPickMode;
     /** Curve hovered during curve-pick mode; highlighted like a selection. */
     let curvePickHoverId: string | undefined;
     let lastCenter = new THREE.Vector3();
@@ -3469,11 +3889,117 @@ function initViewport(
         for (const bucket of meshPool.values()) {
             for (const mesh of bucket) {
                 modelGroup.remove(mesh);
+                for (const group of instanceGroups) {
+                    group.remove(mesh);
+                }
                 mesh.geometry.dispose();
             }
         }
         meshPool = new Map();
         meshes = [];
+        for (const group of instanceGroups) {
+            modelGroup.remove(group);
+        }
+        instanceGroups = [];
+    };
+
+    /**
+     * Per-instance scene groups (Wave B2). Each assembly instance gets a
+     * `THREE.Group` carrying its solved Mat4; meshes keep shared
+     * BufferGeometry (see `shareAssemblyGeometries`) and per-instance
+     * `userData = { instanceId, solidId, faceId }`. Single-part payloads
+     * (no `instanceId` on any face) render exactly as before, with meshes
+     * parented directly to the model group.
+     */
+    let instanceGroups: THREE.Group[] = [];
+
+    const applyInstanceGroups = (): void => {
+        for (const group of instanceGroups) {
+            modelGroup.remove(group);
+        }
+        instanceGroups = [];
+        for (const mesh of meshes) {
+            modelGroup.remove(mesh);
+        }
+        const assembly = documentStore.document !== undefined ? getAssemblySection(documentStore.document) : undefined;
+        let transforms: Map<string, import('../../../common/assembly-document').Mat4> | undefined;
+        if (assembly !== undefined) {
+            try {
+                transforms = solveAssemblyTransforms(assembly);
+            } catch {
+                transforms = undefined;
+            }
+        }
+        const groups = new Map<string, THREE.Group>();
+        for (const mesh of meshes) {
+            const instanceId = mesh.userData.instanceId as string | undefined;
+            if (typeof instanceId !== 'string' || instanceId === '' || transforms === undefined) {
+                modelGroup.add(mesh);
+                continue;
+            }
+            let group = groups.get(instanceId);
+            if (group === undefined) {
+                group = new THREE.Group();
+                group.name = `cad-instance-${instanceId}`;
+                const matrix = transforms.get(instanceId);
+                if (matrix !== undefined) {
+                    // Row-major Mat4 → three.js column-major Matrix4.
+                    group.matrixAutoUpdate = false;
+                    group.matrix.set(
+                        matrix[0],
+                        matrix[1],
+                        matrix[2],
+                        matrix[3],
+                        matrix[4],
+                        matrix[5],
+                        matrix[6],
+                        matrix[7],
+                        matrix[8],
+                        matrix[9],
+                        matrix[10],
+                        matrix[11],
+                        matrix[12],
+                        matrix[13],
+                        matrix[14],
+                        matrix[15]
+                    );
+                }
+                modelGroup.add(group);
+                groups.set(instanceId, group);
+                instanceGroups.push(group);
+            }
+            group.add(mesh);
+        }
+    };
+
+    /**
+     * Share one BufferGeometry per source face across instances: meshes whose
+     * `<sourcePart>#<bodyId>::<faceFingerprint>` key matches reuse the first
+     * mesh's geometry (the reuse pool already shares across rebuilds; this
+     * shares within a build across instance groups).
+     */
+    const shareAssemblyGeometries = (liveMeshes: THREE.Mesh[]): void => {
+        const assembly = documentStore.document !== undefined ? getAssemblySection(documentStore.document) : undefined;
+        if (assembly === undefined) {
+            return;
+        }
+        const partByInstance = new Map(assembly.instances.map((i) => [i.id, i.part]));
+        const shared = new Map<string, THREE.BufferGeometry>();
+        for (const mesh of liveMeshes) {
+            const instanceId = mesh.userData.instanceId as string | undefined;
+            if (typeof instanceId !== 'string' || instanceId === '') {
+                continue;
+            }
+            const part = partByInstance.get(instanceId) ?? instanceId;
+            const key = `${part}#${(mesh.userData.bodyId as string | undefined) ?? ''}::${mesh.userData.reuseKey as string}`;
+            const existing = shared.get(key);
+            if (existing !== undefined && existing !== mesh.geometry) {
+                mesh.geometry.dispose();
+                mesh.geometry = existing;
+            } else {
+                shared.set(key, mesh.geometry);
+            }
+        }
     };
 
     /**
@@ -3608,6 +4134,7 @@ function initViewport(
                 solidId: face.solidId,
                 faceId: face.faceId,
                 bodyId: face.bodyId,
+                instanceId: face.instanceId,
                 fingerprint: face.fingerprint
             };
             adopt(mesh, key);
@@ -3624,19 +4151,33 @@ function initViewport(
                 solidId: face.solidId,
                 faceId: face.faceId,
                 bodyId: face.bodyId,
+                instanceId: face.instanceId,
                 fingerprint: face.fingerprint
             };
             adopt(mesh, key);
         }
+        // Shared BufferGeometry across instances: faces of one source face
+        // (same `<sourcePart>#<bodyId>::<faceFingerprint>` key) reference a
+        // single geometry even when rendered in different instance groups.
+        shareAssemblyGeometries(nextMeshes);
         // Leftover pooled meshes served faces that vanished from the payload.
+        // Their geometries may now be shared with live meshes — only dispose
+        // unreferenced ones.
+        const liveGeometries = new Set<THREE.BufferGeometry>(nextMeshes.map((mesh) => mesh.geometry));
         for (const bucket of meshPool.values()) {
             for (const mesh of bucket) {
                 modelGroup.remove(mesh);
-                mesh.geometry.dispose();
+                for (const group of instanceGroups) {
+                    group.remove(mesh);
+                }
+                if (!liveGeometries.has(mesh.geometry)) {
+                    mesh.geometry.dispose();
+                }
             }
         }
         meshPool = nextPool;
         meshes = nextMeshes;
+        applyInstanceGroups();
 
         for (const edge of data.edges) {
             const line = buildEdgeLine(edge.solidId, edge, edgeLineMaterial);
@@ -3692,6 +4233,9 @@ function initViewport(
     const fitToSolid = (solidId: number): void => {
         const box = new THREE.Box3();
         let found = false;
+        // Instance groups carry the solved Mat4 on the parent; refresh world
+        // matrices so per-instance framing uses posed geometry.
+        modelGroup.updateMatrixWorld(true);
         for (const mesh of meshes) {
             if (mesh.userData.solidId !== solidId) {
                 continue;
@@ -3898,6 +4442,56 @@ function initViewport(
         return [world.x, world.y, world.z];
     };
 
+    /**
+     * Nearest assembly connector of the picked face's instance to the hit
+     * point (frames at solved poses). Returns undefined when the face carries
+     * no instance attribution or the instance has no connectors — the caller
+     * keeps the pick mode open so the user can click a part face.
+     */
+    const nearestConnectorToHit = (hit: FacePickHit): string | undefined => {
+        const instanceId = (hit.mesh.userData as { instanceId?: unknown }).instanceId;
+        if (typeof instanceId !== 'string' || hit.point === undefined) {
+            return undefined;
+        }
+        const assembly = documentStore.document !== undefined ? getAssemblySection(documentStore.document) : undefined;
+        if (assembly === undefined) {
+            return undefined;
+        }
+        const candidates = assembly.connectors.filter((c) => c.instanceId === instanceId);
+        if (candidates.length === 0) {
+            return undefined;
+        }
+        let transforms: Map<string, import('../../../common/assembly-document').Mat4>;
+        try {
+            transforms = solveAssemblyTransforms(assembly);
+        } catch {
+            return undefined;
+        }
+        let best: string | undefined;
+        let bestDistance = Infinity;
+        for (const candidate of candidates) {
+            const matrix = transforms.get(instanceId);
+            if (matrix === undefined) {
+                continue;
+            }
+            let frame: import('../../../common/assembly-placement').ConnectorFrame | undefined;
+            try {
+                frame = connectorFrameInAssembly(candidate, matrix);
+            } catch {
+                continue;
+            }
+            if (frame === undefined) {
+                continue;
+            }
+            const distance = Math.hypot(frame.origin[0] - hit.point.x, frame.origin[1] - hit.point.y, frame.origin[2] - hit.point.z);
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                best = candidate.id;
+            }
+        }
+        return best;
+    };
+
     const onClick = (event: MouseEvent) => {
         // Canvas clicks never need a bottom-bar popover open; the popover
         // buttons live outside the canvas so this cannot eat their presses.
@@ -3983,6 +4577,31 @@ function initViewport(
             }
             return;
         }
+        if (activeDrawingDimensionPickMode) {
+            // Drawing-dimension pick mirrors dress-up edge picking, but stays
+            // active across picks (distance needs two edges): the sheet
+            // commits the dimension and cancels the broker request.
+            const hit = raycastEdge(pickableEdgeLines(), raycaster, ndc, camera);
+            if (hit !== undefined) {
+                edgeHighlighter.clear();
+                onDrawingDimensionEdgePick(hit);
+            }
+            return;
+        }
+        if (activeConnectorPickMode) {
+            // Connector pick mirrors dress-up: click a part face to pick its
+            // nearest connector (guarded by `resolveConnectorPick` against
+            // deleted instances); right-click/Escape cancels.
+            const hit = raycastFace(pickableMeshes(), raycaster, ndc, camera);
+            if (hit !== undefined && hit.point !== undefined) {
+                const connectorId = nearestConnectorToHit(hit);
+                faceHighlighter.clear();
+                if (connectorId !== undefined) {
+                    onConnectorPick(connectorId);
+                }
+            }
+            return;
+        }
         if (activeFacePickMode !== undefined) {
             const hit = raycastFace(pickableMeshes(), raycaster, ndc, camera);
             if (hit !== undefined) {
@@ -4018,7 +4637,14 @@ function initViewport(
             });
             return;
         }
-        if (activeFacePickMode !== undefined || activeDressUpPickMode !== undefined || activeHolePickMode || activeCurvePickMode) {
+        if (
+            activeFacePickMode !== undefined ||
+            activeDressUpPickMode !== undefined ||
+            activeHolePickMode ||
+            activeCurvePickMode ||
+            activeDrawingDimensionPickMode ||
+            activeConnectorPickMode
+        ) {
             return;
         }
         const rect = renderer.domElement.getBoundingClientRect();
@@ -4107,6 +4733,26 @@ function initViewport(
             renderScene();
             return;
         }
+        if (activeDrawingDimensionPickMode) {
+            const hit = raycastEdge(pickableEdgeLines(), raycaster, ndc, camera);
+            if (hit !== undefined) {
+                edgeHighlighter.highlight(hit.line);
+            } else {
+                edgeHighlighter.clear();
+            }
+            renderScene();
+            return;
+        }
+        if (activeConnectorPickMode) {
+            const hit = raycastFace(pickableMeshes(), raycaster, ndc, camera);
+            if (hit !== undefined) {
+                faceHighlighter.highlight(hit.mesh);
+            } else {
+                faceHighlighter.clear();
+            }
+            renderScene();
+            return;
+        }
         if (activeFacePickMode !== undefined) {
             const hit = raycastFace(pickableMeshes(), raycaster, ndc, camera);
             if (hit !== undefined) {
@@ -4121,7 +4767,14 @@ function initViewport(
 
     let closeContextMenu: (() => void) | undefined;
     const onContextMenu = (event: MouseEvent): void => {
-        if (activeFacePickMode === undefined && activeDressUpPickMode === undefined && !activeHolePickMode && !activeCurvePickMode) {
+        if (
+            activeFacePickMode === undefined &&
+            activeDressUpPickMode === undefined &&
+            !activeHolePickMode &&
+            !activeCurvePickMode &&
+            !activeDrawingDimensionPickMode &&
+            !activeConnectorPickMode
+        ) {
             // No pick mode: the viewport's own menu replaces the browser
             // default. Sketch mode keeps the default — the menu is a 3D-model
             // surface — and an empty canvas has nothing to act on.
@@ -4133,7 +4786,18 @@ function initViewport(
             const rect = renderer.domElement.getBoundingClientRect();
             const ndc = pointerToNdc(event.clientX, event.clientY, rect);
             const hit = raycastFace(pickableMeshes(), raycaster, ndc, camera);
-            const featureId = attributeBodyToFeature(hit?.bodyId, documentStore.document?.features);
+            // Attribution: instance → feature via the source body id
+            // (`body:<bodyId>` same-document parts); plain faces use bodyId.
+            const instanceId = (hit?.mesh.userData as { instanceId?: unknown } | undefined)?.instanceId;
+            let bodyId = hit?.bodyId;
+            if (bodyId === undefined && typeof instanceId === 'string') {
+                const assembly = documentStore.document !== undefined ? getAssemblySection(documentStore.document) : undefined;
+                const part = assembly?.instances.find((i) => i.id === instanceId)?.part;
+                if (part !== undefined && part.startsWith('body:')) {
+                    bodyId = part.slice('body:'.length);
+                }
+            }
+            const featureId = attributeBodyToFeature(bodyId, documentStore.document?.features);
             const containerRect = container.getBoundingClientRect();
             closeContextMenu = openViewportContextMenu(
                 container,
@@ -4193,6 +4857,12 @@ function initViewport(
             curvePickHoverId = undefined;
             applyCurveHighlight();
             onCurvePickCancel();
+        } else if (activeDrawingDimensionPickMode) {
+            edgeHighlighter.clear();
+            onDrawingDimensionEdgePickCancel();
+        } else if (activeConnectorPickMode) {
+            faceHighlighter.clear();
+            onConnectorPickCancel();
         } else {
             onFacePickCancel();
         }
@@ -4308,6 +4978,22 @@ function initViewport(
             }
             return;
         }
+        if (activeDrawingDimensionPickMode) {
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                edgeHighlighter.clear();
+                onDrawingDimensionEdgePickCancel();
+            }
+            return;
+        }
+        if (activeConnectorPickMode) {
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                faceHighlighter.clear();
+                onConnectorPickCancel();
+            }
+            return;
+        }
         if (activeFacePickMode !== undefined) {
             if (event.key === 'Escape') {
                 event.preventDefault();
@@ -4405,7 +5091,8 @@ function initViewport(
             activeFacePickMode !== undefined ||
             activeDressUpPickMode !== undefined ||
             activeHolePickMode ||
-            activeCurvePickMode
+            activeCurvePickMode ||
+            activeDrawingDimensionPickMode
         ) {
             return;
         }
@@ -4428,7 +5115,13 @@ function initViewport(
         if (event.key !== 'Tab') {
             return;
         }
-        if (activeFacePickMode !== undefined || activeDressUpPickMode !== undefined || activeHolePickMode || activeCurvePickMode) {
+        if (
+            activeFacePickMode !== undefined ||
+            activeDressUpPickMode !== undefined ||
+            activeHolePickMode ||
+            activeCurvePickMode ||
+            activeDrawingDimensionPickMode
+        ) {
             return;
         }
         const target = event.target;
@@ -4459,7 +5152,8 @@ function initViewport(
             activeFacePickMode !== undefined ||
             activeDressUpPickMode !== undefined ||
             activeHolePickMode ||
-            activeCurvePickMode
+            activeCurvePickMode ||
+            activeDrawingDimensionPickMode
         ) {
             return;
         }
@@ -4580,6 +5274,21 @@ function initViewport(
             }
             renderScene();
         },
+        setDrawingDimensionPickMode: (active) => {
+            activeDrawingDimensionPickMode = active;
+            if (!active) {
+                edgeHighlighter.clear();
+            }
+            renderScene();
+        },
+        setConnectorPickMode: (active) => {
+            activeConnectorPickMode = active;
+            if (!active) {
+                faceHighlighter.clear();
+            }
+            renderScene();
+        },
+        setConnectorTriads,
         setPreviewTessellation,
         fitView,
         zoomView,
@@ -4656,8 +5365,14 @@ function initViewport(
             if (renderer.domElement.parentElement === container) {
                 container.removeChild(renderer.domElement);
             }
-            for (const mesh of meshes) {
-                mesh.geometry.dispose();
+            // Instance groups share one BufferGeometry per source face —
+            // dispose each geometry once.
+            for (const geometry of new Set(meshes.map((mesh) => mesh.geometry))) {
+                geometry.dispose();
+            }
+            for (const lines of connectorTriadLines) {
+                lines.geometry.dispose();
+                (lines.material as THREE.Material).dispose();
             }
             for (const line of edgeLines) {
                 line.geometry.dispose();

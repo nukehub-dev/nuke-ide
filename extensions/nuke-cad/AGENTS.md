@@ -353,7 +353,8 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   indices are positional and can shuffle between builds.
 - The Model Outline panel (`src/browser/widgets/outline-panel/`, widget ID
   `nuke-cad-outline-panel-widget`, label "Model Outline") lists the active
-  model's manifest volumes and surfaces and is read-only — no manifest editing
+  model's manifest volumes and surfaces (plus an ASSEMBLIES section with
+  per-instance rows for assembly documents) and is read-only — no manifest editing
   UI. Picking syncs both ways through the shared `NukeCadStateManager`: row
   click highlights the whole solid in the viewport (Ctrl/Cmd-click toggles it
   in a multi-selection, pure helpers in `outline-interactions.ts`); a viewport
@@ -417,6 +418,20 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   `nukeCad.resultCacheSizeMB` (number, default 1024, minimum 1) caps the
   `<stem>.nuke-cache.zip` sidecar before LRU eviction; the widget threads it
   as `sizeCapMB` on every partial call.
+- Drawings are an additive `drawings: DrawingSheet[]` block on the `.nuke-cad`
+  document (v3, no migration, never cached in the zip). `python/drawing_service.py`
+  projects exact B-rep linework with OCP `HLRBRep_Algo`/`HLRToShape` (never
+  faceted approximations), cuts section views with a half-space box, and emits
+  SVG natively plus DXF via optional `ezdxf` (PDF is deferred — no PDF writer
+  in the env). Dimensions reference model `TopologyRef` fingerprints and
+  recompute from 3D on every build (`stale: true` + last-good text on broken
+  refs). Frontend: the **Drawing Sheet** widget (`nuke-cad-drawing-widget`,
+  `nuke.cad.openDrawingSheet`, 2D SVG rendering, drag-to-place with 5 mm
+  snap) drives the `buildDrawing` RPC on the shared backend interface; dirty
+  drawing state never triggers a full rebuild. Dimensions are created by
+  picking model edges in the 3D viewport (edge-picker broker → `addDimension`);
+  face-on HLR views legitimately show 4 visible + 4 hidden box edges (depth
+  edges degenerate) — only off-axis views show all 12.
 - STEP/STP/BREP files open in nuke-cad by default (higher open-handler priority
   than nuke-visualizer); the geometry service reads them through OCP and runs
   the same tessellation pipeline as script builds. IGES/BREP/glTF read-write,
@@ -425,13 +440,25 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   and open-handler priorities are untouched. The `.py` open-handler
   priority is 50 — below the text editor's 100 — so Python files open in the
   editor by default and reach the CAD viewport via **Open With…**.
-- Assembly foundation (`src/common/assembly-document.ts` + `assembly-placement.ts`,
-  no UI/backend yet): mate-connector documents (instances with placement
-  overrides, connectors as named frames, one mate per part pair, explicit
-  grounded instance) with closed-form placement (`R = Ra·Rbᵀ`) and DOF
-  counting per mate type. `python/fastener_data.py` holds versioned ISO/UNC
-  thread tables consumed by modeled-hole threading (pitch/tap by diameter)
-  and later hole recognition.
+- Assemblies build on the mate-connector foundation (`src/common/assembly-document.ts`
+  - `assembly-placement.ts`, frozen spec): instances with placement overrides,
+    connectors as named frames, one mate per part pair, explicit grounded
+    instance, closed-form placement (`R = Ra·Rbᵀ`) and DOF counting per mate
+    type. `python/assembly_builder.py` resolves parts (same-doc body →
+    `.nuke-cad` path → STEP/IGES/BREP file), solves placements BFS from ground
+    (computed at build, never written back), and `build_assembly()` reuses
+    `_process_shape` with `<instanceId>/<bodyLabel>` selectors; STEP export
+    uses an OCAF product structure, DAGMC reuses the imprint path with overlap
+    as a warning. Schema carries one additive optional `assembly` field (v3,
+    absent = single-part, byte-identical). The viewport renders per-instance
+    `THREE.Group`s sharing source-face BufferGeometry (reuse key
+    `<sourcePath>#<bodyId>::<faceFingerprint>`); the mate dialog + connector
+    pick mode mirror the dress-up pattern; grounding is explicit-only; the
+    **BOM** panel (`nuke-cad-bom-panel-widget`, `nuke.cad.openBomPanel`) lists
+    instance/source/mate/DOF rows with viewport selection sync; outline and
+    tree carry assembly sections (read-only rule stands). `python/fastener_data.py`
+    holds versioned ISO/UNC thread tables consumed by modeled-hole threading
+    (pitch/tap by diameter) and later hole recognition.
 - STEP-source imports and `.nuke-cad` document opens/rebuilds skip DAGMC and
   FEM mesh export by default; the backend enforces `--no-dagmc`/`--no-mesh` on
   every path (including rebuilds) and `geometry_service.py` exposes opt-in
@@ -751,7 +778,8 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
     through `ensureNukeCadExtension` (`cad-save-path.ts`) before writing.
   - The **Feature Tree** panel (`src/browser/widgets/feature-tree/`, widget ID
     `nuke-cad-feature-tree-widget`, label "Feature Tree") lists bodies, datums,
-    sketches, features, and curves in document order with selection, suppression
+    sketches, features, and curves in document order (plus Instances and Mates
+    sections for assembly documents) with selection, suppression
     toggle, edit, delete, build-status markers, and lightweight reference-resolution
     badges (`ambiguous`/`unmatched`) from the last rebuild. Clicking a body or
     feature row also highlights the body's tessellated solids in the viewport

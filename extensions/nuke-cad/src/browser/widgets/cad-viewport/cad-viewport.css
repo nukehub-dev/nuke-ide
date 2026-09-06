@@ -1748,3 +1748,133 @@
 .cad-measure-mode.active {
     color: var(--theia-focusBorder);
 }
+
+/* Assembly instance list (Wave B2): top-left panel under the document toolbar. */
+.cad-assembly-panel {
+    position: absolute;
+    top: 104px;
+    left: 8px;
+    z-index: 15;
+    min-width: 280px;
+    max-width: 360px;
+    max-height: 40%;
+    overflow-y: auto;
+    background: var(--theia-editorWidget-background);
+    border: 1px solid var(--theia-editorWidget-border);
+    border-radius: 4px;
+    padding: 6px 8px;
+    font-size: var(--theia-ui-font-size1);
+}
+
+.cad-assembly-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+
+.cad-assembly-dof {
+    margin-left: auto;
+    font-size: 11px;
+    font-weight: 400;
+    color: var(--theia-descriptionForeground);
+    font-variant-numeric: tabular-nums;
+}
+
+.cad-assembly-empty {
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+    margin: 2px 0 6px;
+}
+
+.cad-assembly-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-bottom: 6px;
+}
+
+.cad-assembly-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 4px;
+    border-radius: 3px;
+    cursor: default;
+}
+
+.cad-assembly-row:hover {
+    background: var(--theia-list-hoverBackground);
+}
+
+.cad-assembly-row.grounded {
+    background: var(--theia-list-activeSelectionBackground);
+}
+
+.cad-assembly-label {
+    font-weight: 600;
+    cursor: pointer;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cad-assembly-part {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+}
+
+.cad-assembly-grounded-badge {
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 8px;
+    background: var(--theia-button-background);
+    color: var(--theia-button-foreground);
+}
+
+.cad-assembly-action {
+    min-width: 0;
+    margin-left: 0;
+    padding: 1px 8px;
+    font-size: 11px;
+    white-space: nowrap;
+}
+
+.cad-assembly-add {
+    display: flex;
+    gap: 4px;
+}
+
+.cad-assembly-part-input {
+    flex: 1;
+    min-width: 0;
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    border: 1px solid var(--theia-input-border);
+    border-radius: 2px;
+    padding: 2px 6px;
+    font-size: 11px;
+}
+
+.cad-assembly-rename-input {
+    width: 110px;
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    border: 1px solid var(--theia-input-border);
+    border-radius: 2px;
+    padding: 1px 4px;
+    font-size: 12px;
+}
+
+.cad-mate-connector-label {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--theia-descriptionForeground);
+}

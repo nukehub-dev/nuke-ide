@@ -116,6 +116,24 @@ except Exception:
     reference_resolver = None  # type: ignore
     HAS_REFERENCE_RESOLVER = False
 
+# Assembly builder is optional; it guards its own heavy imports.
+try:
+    import assembly_builder
+
+    HAS_ASSEMBLY_BUILDER = True
+except Exception:
+    assembly_builder = None  # type: ignore
+    HAS_ASSEMBLY_BUILDER = False
+
+# Drawing service is optional; it guards its own OCP/ezdxf imports.
+try:
+    import drawing_service
+
+    HAS_DRAWING_SERVICE = True
+except Exception:
+    drawing_service = None  # type: ignore
+    HAS_DRAWING_SERVICE = False
+
 
 RESULT_MARKER = "__NUKE_RESULT__"
 
@@ -2131,6 +2149,7 @@ def _process_shape(
     tess_cache_path: str | None = None,
     tess_doc_hash: str | None = None,
     tess_size_cap_bytes: int | None = None,
+    step_names: list[str | None] | None = None,
 ) -> dict:
     """Tessellate ``shape`` and write canonical artifacts.
 
@@ -2148,6 +2167,11 @@ def _process_shape(
     normally, the fresh text is stored, and ``tessCacheHit`` is ``False``
     (also ``False`` whenever caching is inactive, with byte-identical output
     to a cache-disabled build).
+
+    ``step_names`` overrides the per-solid STEP product names derived from
+    ``selector_map`` (assembly builds pass ``<instanceId>:<bodyLabel>`` names
+    while keeping ``<instanceId>/<bodyLabel>`` selector keys). ``None`` keeps
+    the historical behavior verbatim.
     """
     selector_map = selector_map or {}
     curve_results = curve_results or {}
@@ -2191,7 +2215,10 @@ def _process_shape(
                 solid_names: list[str | None] | None = None
                 try:
                     solid_total = len(_solids_in_explorer_order(shape))
-                    solid_names = _solid_names_from_selector_map(selector_map, solid_total)
+                    if step_names is not None:
+                        solid_names = list(step_names)
+                    else:
+                        solid_names = _solid_names_from_selector_map(selector_map, solid_total)
                 except Exception:
                     solid_names = None
                 step_warning = _write_step(shape, paths["step"], solid_names=solid_names)
@@ -3284,6 +3311,197 @@ def build_document(
     return result
 
 
+def build_assembly(
+    document_path: str,
+    output_dir: str | None = None,
+    tolerance: float = 0.001,
+    export_dagmc: bool = True,
+    add_graveyard: bool = True,
+    export_mesh: bool = True,
+    mesh_engine: str = "gmsh",
+    mesh_size: float | None = None,
+    mesh_min_size: float | None = None,
+    mesh_max_size: float | None = None,
+    mesh_order: int = 1,
+    length_scale: float = 1.0,
+    cache_dir: str | None = None,
+    size_cap_mb: float | None = None,
+) -> dict:
+    """Build geometry from a ``.nuke-cad`` document's assembly section.
+
+    Documents without an assembly section (or with an empty
+    ``groundedInstanceId``) are single-part documents and delegate to
+    :func:`build_document` verbatim, so they build byte-identically to today.
+    Assembly documents resolve every instance, solve placements closed-form,
+    and feed the combined placed compound through ``_process_shape`` verbatim:
+    per-instance tessellation, ``selector_map`` keys prefixed
+    ``<instanceId>/<bodyLabel>``, STEP product names
+    ``<instanceId>:<bodyLabel>`` (OCAF product structure with the legacy
+    single-compound fallback), and the same DAGMC imprint path — where
+    overlap stays a warning, since assemblies overlap intentionally.
+    """
+    if not HAS_ASSEMBLY_BUILDER or assembly_builder is None:
+        return {
+            "success": False,
+            "error": "Assembly build requires the assembly builder, which is unavailable",
+            "scriptPath": str(Path(document_path).resolve()),
+        }
+
+    document_file = Path(document_path).resolve()
+    if not document_file.exists():
+        return {"success": False, "error": f"Document not found: {document_path}"}
+
+    try:
+        with document_file.open("r", encoding="utf-8") as handle:
+            document = json.load(handle)
+    except json.JSONDecodeError as exc:
+        return {
+            "success": False,
+            "error": f"Failed to parse .nuke-cad document: {exc}",
+            "scriptPath": str(document_file),
+        }
+    except Exception as exc:
+        return {
+            "success": False,
+            "error": f"Failed to read document: {exc}",
+            "traceback": traceback.format_exc(),
+            "scriptPath": str(document_file),
+        }
+
+    if not isinstance(document, dict):
+        return {
+            "success": False,
+            "error": ".nuke-cad document must be a JSON object",
+            "scriptPath": str(document_file),
+        }
+
+    version = document.get("version")
+    if version not in (1, 2, 3):
+        return {
+            "success": False,
+            "error": f"Unsupported .nuke-cad schema version {version!r}; expected 1, 2, or 3",
+            "scriptPath": str(document_file),
+        }
+
+    if version == 1:
+        document = _migrate_v1_to_v2(document)
+    if document.get("version") == 2:
+        document = _migrate_v2_to_v3(document)
+
+    ref_error = _validate_document_refs(document, document_file)
+    if ref_error is not None:
+        return ref_error
+
+    assembly = document.get("assembly")
+    if not isinstance(assembly, dict) or not assembly.get("groundedInstanceId"):
+        # Single-part document: same pipeline as --from-document, verbatim.
+        return build_document(
+            document_path,
+            output_dir=output_dir,
+            tolerance=tolerance,
+            export_dagmc=export_dagmc,
+            add_graveyard=add_graveyard,
+            export_mesh=export_mesh,
+            mesh_engine=mesh_engine,
+            mesh_size=mesh_size,
+            mesh_min_size=mesh_min_size,
+            mesh_max_size=mesh_max_size,
+            mesh_order=mesh_order,
+            length_scale=length_scale,
+            cache_dir=cache_dir,
+            size_cap_mb=size_cap_mb,
+        )
+
+    if output_dir is None:
+        output_dir = document_file.parent
+    out_dir = Path(output_dir).resolve()
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    _print_progress("Building assembly instances")
+    try:
+        assembly_result = assembly_builder.build_assembly_shape(
+            document, document_dir=document_file.parent
+        )
+    except assembly_builder.AssemblyBuildError as exc:
+        return {
+            "success": False,
+            "error": str(exc),
+            "scriptPath": str(document_file),
+        }
+    except Exception as exc:
+        return {
+            "success": False,
+            "error": f"Assembly build failed: {exc}",
+            "traceback": traceback.format_exc(),
+            "scriptPath": str(document_file),
+        }
+
+    shape = assembly_result.get("shape")
+    if shape is None:
+        return {
+            "success": False,
+            "error": "Assembly produced no solids; check instance sources for failures",
+            "scriptPath": str(document_file),
+            "placements": assembly_result.get("placements", {}),
+            "warnings": assembly_result.get("warnings", []),
+        }
+
+    manifest, manifest_warnings = _load_manifest(document_file)
+    selector_map = assembly_result.get("selectorMap", {})
+    try:
+        solid_total = len(_solids_in_explorer_order(shape))
+        derived = _solid_names_from_selector_map(selector_map, solid_total)
+        step_names: list[str | None] | None = [
+            name.replace("/", ":", 1) if name else None for name in derived
+        ]
+    except Exception:
+        step_names = None
+    result = _process_shape(
+        shape,
+        document_file,
+        out_dir,
+        document_file.stem,
+        tolerance=tolerance,
+        export_dagmc=export_dagmc,
+        add_graveyard=add_graveyard,
+        export_mesh=export_mesh,
+        mesh_engine=mesh_engine,
+        mesh_size=mesh_size,
+        mesh_min_size=mesh_min_size,
+        mesh_max_size=mesh_max_size,
+        mesh_order=mesh_order,
+        selector_map=selector_map,
+        manifest=manifest,
+        length_scale=length_scale,
+        step_names=step_names,
+    )
+    result["placements"] = assembly_result.get("placements", {})
+    result["solidInstanceIds"] = assembly_result.get("solidInstanceIds", [])
+    result["warnings"] = (
+        (result.get("warnings") or []) + assembly_result.get("warnings", []) + manifest_warnings
+    )
+    return result
+
+
+def build_drawing(
+    script_path: str,
+    sheet_id: str | None = None,
+    output_dir: str | None = None,
+) -> dict:
+    """Build a drawing sheet for a ``.nuke-cad`` document (drawing dispatch).
+
+    Thin wrapper over ``drawing_service.build_drawing``; the HLR projection,
+    section/detail handling, dimensions, and SVG/DXF export all live there.
+    """
+    if not HAS_DRAWING_SERVICE or drawing_service is None:
+        return {
+            "success": False,
+            "error": "Drawing build requires drawing_service, which could not be imported",
+            "scriptPath": str(script_path),
+        }
+    return drawing_service.build_drawing(script_path, sheet_id, output_dir)
+
+
 def build_document_partial(
     document_path: str,
     feature_ids: list[str] | None,
@@ -3499,6 +3717,21 @@ def main() -> None:
     parser.add_argument(
         "--from-document", action="store_true", help="Treat the input as a .nuke-cad document"
     )
+    parser.add_argument(
+        "--from-assembly",
+        action="store_true",
+        help="Build the input .nuke-cad document's assembly section",
+    )
+    parser.add_argument(
+        "--from-drawing",
+        action="store_true",
+        help="Build a drawing sheet from the input .nuke-cad document's drawings block",
+    )
+    parser.add_argument(
+        "--sheet-id",
+        default=None,
+        help="Drawing sheet id for --from-drawing (defaults to the first sheet)",
+    )
     parser.add_argument("--output-dir", default=None, help="Directory for output artifacts")
     parser.add_argument(
         "--partial-feature-ids",
@@ -3611,6 +3844,29 @@ def main() -> None:
             mesh_order=args.mesh_order,
             length_scale=args.length_scale,
             target_units=args.target_units,
+        )
+    elif args.from_assembly:
+        result = build_assembly(
+            args.script,
+            output_dir=args.output_dir,
+            tolerance=args.tolerance,
+            export_dagmc=not args.no_dagmc,
+            add_graveyard=not args.no_graveyard,
+            export_mesh=not args.no_mesh,
+            mesh_engine=args.mesh_engine,
+            mesh_size=args.mesh_size,
+            mesh_min_size=args.mesh_min_size,
+            mesh_max_size=args.mesh_max_size,
+            mesh_order=args.mesh_order,
+            length_scale=args.length_scale,
+            cache_dir=args.cache_dir,
+            size_cap_mb=args.size_cap_mb,
+        )
+    elif args.from_drawing:
+        result = build_drawing(
+            args.script,
+            sheet_id=args.sheet_id,
+            output_dir=args.output_dir,
         )
     elif args.from_document:
         if args.partial_feature_ids is not None:

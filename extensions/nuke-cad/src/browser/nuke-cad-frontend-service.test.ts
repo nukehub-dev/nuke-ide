@@ -52,6 +52,7 @@ function makeProxy(capture: { requests: CapturedRequest[] }): NukeCadBackendServ
             capture.requests.push(request);
             return { ...result, scriptPath: request.scriptPath };
         },
+        buildDrawing: async () => ({ success: false, error: 'not stubbed' }),
         runFem: async () => ({ success: true }),
         listFemMaterials: async () => [],
         runJob: async () => ({ success: true, artifacts: [] }),

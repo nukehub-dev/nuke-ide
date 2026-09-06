@@ -51,10 +51,16 @@ import {
     type CurveSource,
     type DocumentUnits,
     type ParametricCurveSource,
+    type NukeCadAssembly,
+    type DrawingDimension,
+    type DrawingSheet,
+    type DrawingSheetSize,
+    type DrawingView,
     NUKE_CAD_SCHEMA_VERSION,
     validateNukeCadDocument,
     migrateNukeCadDocument
 } from '../../common/cad-document';
+import { clampSheetPosition, lockProjectedViewPosition, sheetDimensions, snapDrawingPosition } from '../../common/cad-drawing';
 import { applyDocumentTemplate, createEmptyNukeCadDocument } from '../../common/document-templates';
 import {
     convertQuantity,
@@ -70,6 +76,16 @@ import {
 import { type FeatureResult, type ReferenceResolutionResult } from '../../common/nuke-cad-protocol';
 import { type TopologyRef, type FaceFingerprint, type EdgeFingerprint, validateTopologyRef } from '../../common/topology-refs';
 import { FeatureGraph } from '../../common/feature-graph';
+import {
+    MATE_TYPES,
+    orthonormalizeConnectorAxes,
+    validateAssemblyDocument,
+    type InstancePlacement,
+    type Mat4,
+    type MateType,
+    type Vec3
+} from '../../common/assembly-document';
+import { countAssemblyDof } from '../../common/assembly-placement';
 
 /** Listener invoked after any mutation that changes the store state. */
 export type DocumentStoreListener = () => void;
@@ -108,12 +124,78 @@ interface StoreState {
     projectedPrimitives: Map<string, Record<string, unknown>[]>;
     /** Per-reference resolution status from the last document build. */
     referenceResults: ReferenceResolutionResult[];
+    /**
+     * Monotonic counter bumped by every drawing-sheet mutation. The drawing
+     * widget watches it to trigger `buildDrawing` — dirty drawing state must
+     * never trigger a full geometry rebuild.
+     */
+    drawingVersion: number;
 }
 
 let idCounter = 0;
 
 function nextId(prefix: string): string {
     return `${prefix}-${++idCounter}`;
+}
+
+/** Document-level assembly section (B1 `NukeCadAssembly`, schema v3 additive). */
+export type AssemblySection = NukeCadAssembly;
+
+/**
+ * B1 contract (brief §2): `.nuke-cad` stays v3 with one ADDITIVE optional
+ * top-level `assembly` field (`assembly?: NukeCadAssembly`, absent — or
+ * present with an empty `groundedInstanceId` — meaning a single-part
+ * document that builds exactly as today). B2 references B1's typed field
+ * directly; no optional-channel shim remains.
+ */
+export type DocumentWithAssembly = NukeCadDocument;
+
+/** Read the assembly section (absent = single-part document). */
+export function getAssemblySection(doc: NukeCadDocument): AssemblySection | undefined {
+    return doc.assembly;
+}
+
+/** Remaining rigid-body DOFs of the document's assembly (0 when single-part). */
+export function assemblyDof(doc: NukeCadDocument): number {
+    const assembly = getAssemblySection(doc);
+    if (assembly === undefined || assembly.groundedInstanceId === '') {
+        return 0;
+    }
+    return countAssemblyDof(
+        assembly.instances.length,
+        assembly.mates.map((m) => m.type)
+    );
+}
+
+function cloneAssemblySection(assembly: AssemblySection | undefined): AssemblySection | undefined {
+    if (assembly === undefined) {
+        return undefined;
+    }
+    return {
+        instances: assembly.instances.map((i) => ({
+            ...i,
+            placement: cloneInstancePlacement(i.placement),
+            scale: Array.isArray(i.scale) ? ([i.scale[0], i.scale[1], i.scale[2]] as Vec3) : i.scale
+        })),
+        connectors: assembly.connectors.map((c) => ({
+            ...c,
+            origin: [c.origin[0], c.origin[1], c.origin[2]],
+            xAxis: [c.xAxis[0], c.xAxis[1], c.xAxis[2]],
+            yAxis: [c.yAxis[0], c.yAxis[1], c.yAxis[2]]
+        })),
+        mates: assembly.mates.map((m) => ({ ...m })),
+        groundedInstanceId: assembly.groundedInstanceId
+    };
+}
+
+function cloneInstancePlacement(placement: InstancePlacement): InstancePlacement {
+    if ('matrix' in placement) {
+        return { matrix: [...placement.matrix] as Mat4 };
+    }
+    return {
+        position: [placement.position[0], placement.position[1], placement.position[2]],
+        orientation: [placement.orientation[0], placement.orientation[1], placement.orientation[2], placement.orientation[3]]
+    };
 }
 
 function cloneCurve(curve: CurveDef): CurveDef {
@@ -146,7 +228,32 @@ function cloneCurveSource(source: CurveSource): CurveSource {
     };
 }
 
+function cloneDrawingView(view: DrawingView): DrawingView {
+    return {
+        ...view,
+        position: [view.position[0], view.position[1]],
+        detailCenter: view.detailCenter !== undefined ? [view.detailCenter[0], view.detailCenter[1]] : undefined
+    };
+}
+
+function cloneDrawingDimension(dimension: DrawingDimension): DrawingDimension {
+    return {
+        ...dimension,
+        targets: dimension.targets.map((t) => cloneTopologyRef(t)),
+        labelOffset: dimension.labelOffset !== undefined ? [dimension.labelOffset[0], dimension.labelOffset[1]] : undefined
+    };
+}
+
+function cloneDrawingSheet(sheet: DrawingSheet): DrawingSheet {
+    return {
+        ...sheet,
+        views: sheet.views.map((v) => cloneDrawingView(v)),
+        dimensions: sheet.dimensions.map((d) => cloneDrawingDimension(d))
+    };
+}
+
 function cloneDocument(doc: NukeCadDocument): NukeCadDocument {
+    const assembly = cloneAssemblySection(getAssemblySection(doc));
     return {
         version: doc.version,
         name: doc.name,
@@ -168,7 +275,9 @@ function cloneDocument(doc: NukeCadDocument): NukeCadDocument {
             externalRefs: s.externalRefs !== undefined ? s.externalRefs.map((r) => cloneTopologyRef(r)) : undefined
         })),
         features: doc.features.map((f) => ({ ...f, params: { ...f.params }, dependsOn: [...f.dependsOn], body: f.body })),
-        curves: doc.curves.map((c) => cloneCurve(c))
+        curves: doc.curves.map((c) => cloneCurve(c)),
+        ...(doc.drawings !== undefined ? { drawings: doc.drawings.map((s) => cloneDrawingSheet(s)) } : {}),
+        ...(assembly !== undefined ? { assembly } : {})
     };
 }
 
@@ -499,7 +608,8 @@ export class CadDocumentStore {
         selection: {},
         featureResults: new Map<string, FeatureResult>(),
         projectedPrimitives: new Map<string, Record<string, unknown>[]>(),
-        referenceResults: []
+        referenceResults: [],
+        drawingVersion: 0
     };
 
     private readonly listeners = new Set<DocumentStoreListener>();
@@ -531,6 +641,19 @@ export class CadDocumentStore {
     /** Whether the document has unsaved changes. */
     get dirty(): boolean {
         return this.state.dirty;
+    }
+
+    /**
+     * Monotonic counter bumped by every drawing-sheet mutation (`addSheet`,
+     * `addView`, `addDimension`, `updateViewPosition`).
+     *
+     * The drawing-sheet widget watches this (via `onChange`) and triggers
+     * `buildDrawing` on change. Dirty drawing state must never trigger a full
+     * geometry rebuild — drawing output is derived linework, not model
+     * geometry.
+     */
+    get drawingVersion(): number {
+        return this.state.drawingVersion;
     }
 
     /** Current sketch/feature selection. */
@@ -577,7 +700,8 @@ export class CadDocumentStore {
             selection: {},
             featureResults: new Map<string, FeatureResult>(),
             projectedPrimitives: new Map<string, Record<string, unknown>[]>(),
-            referenceResults: []
+            referenceResults: [],
+            drawingVersion: 0
         };
         this.emitChange();
         return { success: true };
@@ -614,7 +738,8 @@ export class CadDocumentStore {
             selection: {},
             featureResults: new Map<string, FeatureResult>(),
             projectedPrimitives: new Map<string, Record<string, unknown>[]>(),
-            referenceResults: []
+            referenceResults: [],
+            drawingVersion: 0
         };
         this.emitChange();
         return { success: true };
@@ -1166,6 +1291,411 @@ export class CadDocumentStore {
         return this.commit(doc, { clearSelection: { selectedCurveId: id } });
     }
 
+    // *************************************************************************
+    // Drawing-sheet mutations (Wave D2, brief §2/§4). Immutable + validated
+    // through the normal commit path (v3 schema, additive `drawings` block).
+    // Every success bumps `drawingVersion` so the drawing-sheet widget can
+    // trigger `buildDrawing` — never a full geometry rebuild.
+    // *************************************************************************
+
+    /**
+     * Add a drawing sheet with the given landscape size.
+     *
+     * Returns the new sheet id on success.
+     */
+    addSheet(size: DrawingSheetSize, name?: string): DocumentMutationResult<string> {
+        const check = this.requireDocument();
+        if (!check.success) {
+            return { success: false, error: check.error, issues: check.issues };
+        }
+        if (size !== 'A4' && size !== 'A3') {
+            return { success: false, error: `Unknown sheet size '${size}' (expected 'A4' or 'A3')` };
+        }
+        const doc = cloneDocument(check.value!);
+        const drawings = doc.drawings ?? [];
+        const id = createSheetId();
+        const sheet: DrawingSheet = {
+            id,
+            name: typeof name === 'string' && name.length > 0 ? name : `Sheet ${drawings.length + 1}`,
+            size,
+            orientation: 'landscape',
+            views: [],
+            dimensions: []
+        };
+        doc.drawings = [...drawings, sheet];
+        const result = this.commit(doc, { markDrawing: true });
+        if (!result.success) {
+            return { success: false, error: result.error, issues: result.issues };
+        }
+        return { success: true, value: id };
+    }
+
+    /**
+     * Add a view to a drawing sheet.
+     *
+     * Non-base views require `parentId` naming a view on the same sheet;
+     * base views must not carry one. Returns the new view id on success.
+     */
+    addView(sheetId: string, view: Omit<DrawingView, 'id'> & { id?: string }): DocumentMutationResult<string> {
+        const check = this.requireDocument();
+        if (!check.success) {
+            return { success: false, error: check.error, issues: check.issues };
+        }
+        const doc = cloneDocument(check.value!);
+        const sheet = (doc.drawings ?? []).find((s) => s.id === sheetId);
+        if (sheet === undefined) {
+            return { success: false, error: `Drawing sheet '${sheetId}' not found` };
+        }
+        if (view.kind !== 'base') {
+            if (typeof view.parentId !== 'string' || view.parentId.length === 0) {
+                return { success: false, error: `View kind '${view.kind}' requires a parentId on the same sheet` };
+            }
+            if (!sheet.views.some((v) => v.id === view.parentId)) {
+                return { success: false, error: `Parent view '${view.parentId}' not found on sheet '${sheetId}'` };
+            }
+        } else if (view.parentId !== undefined) {
+            return { success: false, error: 'Base views must not have a parentId' };
+        }
+        const id = typeof view.id === 'string' && view.id.length > 0 ? view.id : createViewId();
+        if (sheet.views.some((v) => v.id === id)) {
+            return { success: false, error: `View id '${id}' is already in use on sheet '${sheetId}'` };
+        }
+        sheet.views = [...sheet.views, { ...view, id }];
+        const result = this.commit(doc, { markDrawing: true });
+        if (!result.success) {
+            return { success: false, error: result.error, issues: result.issues };
+        }
+        return { success: true, value: id };
+    }
+
+    /**
+     * Add an associative dimension to a drawing sheet.
+     *
+     * The owning `viewId` must name a view on the same sheet; target
+     * arity (1 for radius/diameter, 2 for distance) is validated here with
+     * deep `TopologyRef` checks at commit time. Returns the new id.
+     */
+    addDimension(sheetId: string, dimension: Omit<DrawingDimension, 'id'> & { id?: string }): DocumentMutationResult<string> {
+        const check = this.requireDocument();
+        if (!check.success) {
+            return { success: false, error: check.error, issues: check.issues };
+        }
+        const doc = cloneDocument(check.value!);
+        const sheet = (doc.drawings ?? []).find((s) => s.id === sheetId);
+        if (sheet === undefined) {
+            return { success: false, error: `Drawing sheet '${sheetId}' not found` };
+        }
+        if (!sheet.views.some((v) => v.id === dimension.viewId)) {
+            return { success: false, error: `View '${dimension.viewId}' not found on sheet '${sheetId}'` };
+        }
+        const expectedTargets = dimension.kind === 'distance' ? 2 : 1;
+        if (!Array.isArray(dimension.targets) || dimension.targets.length !== expectedTargets) {
+            return {
+                success: false,
+                error: `Dimension kind '${dimension.kind}' requires exactly ${expectedTargets} target(s)`
+            };
+        }
+        const id = typeof dimension.id === 'string' && dimension.id.length > 0 ? dimension.id : createDimensionId();
+        if (sheet.dimensions.some((d) => d.id === id)) {
+            return { success: false, error: `Dimension id '${id}' is already in use on sheet '${sheetId}'` };
+        }
+        sheet.dimensions = [...sheet.dimensions, { ...dimension, id }];
+        const result = this.commit(doc, { markDrawing: true });
+        if (!result.success) {
+            return { success: false, error: result.error, issues: result.issues };
+        }
+        return { success: true, value: id };
+    }
+
+    /**
+     * Move a view on its sheet (drag-to-place).
+     *
+     * The position snaps to the 5 mm grid, clamps inside the sheet bounds,
+     * and — for projected/section/detail views — keeps the alignment axis
+     * locked to the parent view (brief §4).
+     */
+    updateViewPosition(sheetId: string, viewId: string, position: readonly [number, number]): DocumentMutationResult {
+        const check = this.requireDocument();
+        if (!check.success) {
+            return { success: false, error: check.error, issues: check.issues };
+        }
+        if (!Array.isArray(position) || position.length !== 2 || !position.every((v) => typeof v === 'number' && Number.isFinite(v))) {
+            return { success: false, error: 'View position must be a [x, y] tuple of finite numbers (sheet mm)' };
+        }
+        const doc = cloneDocument(check.value!);
+        const sheet = (doc.drawings ?? []).find((s) => s.id === sheetId);
+        if (sheet === undefined) {
+            return { success: false, error: `Drawing sheet '${sheetId}' not found` };
+        }
+        const view = sheet.views.find((v) => v.id === viewId);
+        if (view === undefined) {
+            return { success: false, error: `View '${viewId}' not found on sheet '${sheetId}'` };
+        }
+        let next: [number, number] = [snapDrawingPosition(position[0]), snapDrawingPosition(position[1])];
+        if (view.kind !== 'base' && view.parentId !== undefined) {
+            const parent = sheet.views.find((v) => v.id === view.parentId);
+            if (parent !== undefined) {
+                next = lockProjectedViewPosition(view.orientation, parent.position, next);
+            }
+        }
+        const { width, height } = sheetDimensions(sheet.size);
+        view.position = clampSheetPosition(next, width, height);
+        return this.commit(doc, { markDrawing: true });
+    }
+
+    // *************************************************************************
+    // Assembly mutations (Wave B2). Immutable + validated through the
+    // B1-optional `assembly` channel; `computeDependsOn` is untouched —
+    // assembly adds no feature edges.
+    // *************************************************************************
+
+    /**
+     * Validate a candidate assembly section against the frozen spec, mirroring
+     * B1's schema rule: an absent section — or one with an empty
+     * `groundedInstanceId` — is a single-part document and always valid;
+     * anything else must satisfy `validateAssemblyDocument` on a synthesized
+     * root (grounding explicit, never defaulted).
+     */
+    private validateAssemblyCandidate(docName: string, assembly: AssemblySection | undefined): DocumentMutationResult {
+        if (assembly === undefined || assembly.groundedInstanceId === '') {
+            return { success: true };
+        }
+        const result = validateAssemblyDocument({
+            version: 1,
+            name: docName,
+            instances: assembly.instances,
+            connectors: assembly.connectors,
+            mates: assembly.mates,
+            groundedInstanceId: assembly.groundedInstanceId
+        });
+        if (!result.valid) {
+            return {
+                success: false,
+                error: result.issues.map((i) => `${i.path || 'assembly'}: ${i.message}`).join('; '),
+                issues: result.issues.map((i) => ({ path: `assembly.${i.path}`, message: i.message }))
+            };
+        }
+        return { success: true };
+    }
+
+    private commitAssembly(doc: NukeCadDocument, assembly: AssemblySection | undefined): DocumentMutationResult {
+        const check = this.validateAssemblyCandidate(doc.name, assembly);
+        if (!check.success) {
+            return check;
+        }
+        doc.assembly = assembly;
+        return this.commit(doc);
+    }
+
+    private withAssemblyClone(): DocumentMutationResult<{ doc: NukeCadDocument; assembly: AssemblySection }> {
+        const check = this.requireDocument();
+        if (!check.success) {
+            return { success: false, error: check.error, issues: check.issues };
+        }
+        const doc = cloneDocument(check.value!);
+        const existing = cloneAssemblySection(getAssemblySection(doc));
+        const assembly: AssemblySection = existing ?? { instances: [], connectors: [], mates: [], groundedInstanceId: '' };
+        return { success: true, value: { doc, assembly } };
+    }
+
+    /**
+     * Add a part instance. Grounding stays explicit: the new instance is never
+     * grounded automatically — call `setGrounded` for the grounding part.
+     */
+    addInstance(part: string, placement?: InstancePlacement): DocumentMutationResult<string> {
+        if (typeof part !== 'string' || part.length === 0) {
+            return { success: false, error: 'Instance part must be a non-empty path or embedded part id' };
+        }
+        const withClone = this.withAssemblyClone();
+        if (!withClone.success) {
+            return { success: false, error: withClone.error, issues: withClone.issues };
+        }
+        const { doc, assembly } = withClone.value!;
+        const id = uniqueAssemblyId(
+            assembly.instances.map((i) => i.id),
+            'instance'
+        );
+        assembly.instances.push({
+            id,
+            part,
+            placement: placement !== undefined ? cloneInstancePlacement(placement) : { position: [0, 0, 0], orientation: [0, 0, 0, 1] }
+        });
+        const result = this.commitAssembly(doc, assembly);
+        if (!result.success) {
+            return { success: false, error: result.error, issues: result.issues };
+        }
+        return { success: true, value: id };
+    }
+
+    /**
+     * Delete an instance, cascading to its connectors and every mate touching
+     * the instance or its connectors. Clears grounding when it named the
+     * deleted instance (back to single-part when nothing remains).
+     */
+    deleteInstance(id: string): DocumentMutationResult {
+        const withClone = this.withAssemblyClone();
+        if (!withClone.success) {
+            return { success: false, error: withClone.error, issues: withClone.issues };
+        }
+        const { doc, assembly } = withClone.value!;
+        if (!assembly.instances.some((i) => i.id === id)) {
+            return { success: false, error: `Instance '${id}' not found` };
+        }
+        const connectorIds = new Set(assembly.connectors.filter((c) => c.instanceId === id).map((c) => c.id));
+        assembly.instances = assembly.instances.filter((i) => i.id !== id);
+        assembly.connectors = assembly.connectors.filter((c) => c.instanceId !== id);
+        assembly.mates = assembly.mates.filter(
+            (m) => m.instanceA !== id && m.instanceB !== id && !connectorIds.has(m.connectorA) && !connectorIds.has(m.connectorB)
+        );
+        if (assembly.groundedInstanceId === id) {
+            assembly.groundedInstanceId = '';
+        }
+        const pruned = assembly.instances.length === 0 ? undefined : assembly;
+        return this.commitAssembly(doc, pruned);
+    }
+
+    /** Rename an instance, rewriting connector/mate references to preserve them. */
+    renameInstance(id: string, newId: string): DocumentMutationResult {
+        if (typeof newId !== 'string' || newId.length === 0) {
+            return { success: false, error: 'Instance id must be a non-empty string' };
+        }
+        const withClone = this.withAssemblyClone();
+        if (!withClone.success) {
+            return { success: false, error: withClone.error, issues: withClone.issues };
+        }
+        const { doc, assembly } = withClone.value!;
+        if (!assembly.instances.some((i) => i.id === id)) {
+            return { success: false, error: `Instance '${id}' not found` };
+        }
+        if (assembly.instances.some((i) => i.id === newId)) {
+            return { success: false, error: `Instance id '${newId}' is already in use` };
+        }
+        for (const instance of assembly.instances) {
+            if (instance.id === id) {
+                instance.id = newId;
+            }
+        }
+        for (const connector of assembly.connectors) {
+            if (connector.instanceId === id) {
+                connector.instanceId = newId;
+            }
+        }
+        for (const mate of assembly.mates) {
+            if (mate.instanceA === id) {
+                mate.instanceA = newId;
+            }
+            if (mate.instanceB === id) {
+                mate.instanceB = newId;
+            }
+        }
+        if (assembly.groundedInstanceId === id) {
+            assembly.groundedInstanceId = newId;
+        }
+        return this.commitAssembly(doc, assembly);
+    }
+
+    /** Add a mate connector frame on an instance (axes orthonormalized-or-error). */
+    addConnector(instanceId: string, origin: Vec3, xAxis: Vec3, yAxis: Vec3): DocumentMutationResult<string> {
+        const withClone = this.withAssemblyClone();
+        if (!withClone.success) {
+            return { success: false, error: withClone.error, issues: withClone.issues };
+        }
+        const { doc, assembly } = withClone.value!;
+        if (!assembly.instances.some((i) => i.id === instanceId)) {
+            return { success: false, error: `Instance '${instanceId}' not found` };
+        }
+        try {
+            orthonormalizeConnectorAxes({ xAxis, yAxis });
+        } catch (error) {
+            return { success: false, error: error instanceof Error ? error.message : 'Degenerate connector axes' };
+        }
+        const id = uniqueAssemblyId(
+            assembly.connectors.map((c) => c.id),
+            'connector'
+        );
+        assembly.connectors.push({
+            id,
+            instanceId,
+            origin: [origin[0], origin[1], origin[2]],
+            xAxis: [xAxis[0], xAxis[1], xAxis[2]],
+            yAxis: [yAxis[0], yAxis[1], yAxis[2]]
+        });
+        const result = this.commitAssembly(doc, assembly);
+        if (!result.success) {
+            return { success: false, error: result.error, issues: result.issues };
+        }
+        return { success: true, value: id };
+    }
+
+    /** Delete a connector, cascading to mates that use it. */
+    deleteConnector(id: string): DocumentMutationResult {
+        const withClone = this.withAssemblyClone();
+        if (!withClone.success) {
+            return { success: false, error: withClone.error, issues: withClone.issues };
+        }
+        const { doc, assembly } = withClone.value!;
+        if (!assembly.connectors.some((c) => c.id === id)) {
+            return { success: false, error: `Connector '${id}' not found` };
+        }
+        assembly.connectors = assembly.connectors.filter((c) => c.id !== id);
+        assembly.mates = assembly.mates.filter((m) => m.connectorA !== id && m.connectorB !== id);
+        return this.commitAssembly(doc, assembly);
+    }
+
+    /** Add a mate between exactly one pair of instances via their connectors. */
+    addMate(type: MateType, instanceA: string, connectorA: string, instanceB: string, connectorB: string): DocumentMutationResult<string> {
+        if (!MATE_TYPES.includes(type)) {
+            return { success: false, error: `Mate type must be one of ${MATE_TYPES.join(', ')}` };
+        }
+        const withClone = this.withAssemblyClone();
+        if (!withClone.success) {
+            return { success: false, error: withClone.error, issues: withClone.issues };
+        }
+        const { doc, assembly } = withClone.value!;
+        const id = uniqueAssemblyId(
+            assembly.mates.map((m) => m.id),
+            'mate'
+        );
+        assembly.mates.push({ id, type, instanceA, connectorA, instanceB, connectorB });
+        const result = this.commitAssembly(doc, assembly);
+        if (!result.success) {
+            return { success: false, error: result.error, issues: result.issues };
+        }
+        return { success: true, value: id };
+    }
+
+    /** Delete a mate by id. */
+    deleteMate(id: string): DocumentMutationResult {
+        const withClone = this.withAssemblyClone();
+        if (!withClone.success) {
+            return { success: false, error: withClone.error, issues: withClone.issues };
+        }
+        const { doc, assembly } = withClone.value!;
+        if (!assembly.mates.some((m) => m.id === id)) {
+            return { success: false, error: `Mate '${id}' not found` };
+        }
+        assembly.mates = assembly.mates.filter((m) => m.id !== id);
+        return this.commitAssembly(doc, assembly);
+    }
+
+    /**
+     * Name the single grounded instance (explicit only — never defaulted).
+     * Pass `''` to clear grounding back to a single-part document.
+     */
+    setGrounded(instanceId: string): DocumentMutationResult {
+        const withClone = this.withAssemblyClone();
+        if (!withClone.success) {
+            return { success: false, error: withClone.error, issues: withClone.issues };
+        }
+        const { doc, assembly } = withClone.value!;
+        if (instanceId !== '' && !assembly.instances.some((i) => i.id === instanceId)) {
+            return { success: false, error: `Instance '${instanceId}' not found` };
+        }
+        assembly.groundedInstanceId = instanceId;
+        const pruned = assembly.instances.length === 0 && instanceId === '' ? undefined : assembly;
+        return this.commitAssembly(doc, pruned);
+    }
+
     /** Set the selected curve id. */
     selectCurve(id: string | undefined): void {
         this.state = {
@@ -1378,6 +1908,8 @@ export class CadDocumentStore {
             selectFeature?: string;
             selectBody?: string;
             selectCurve?: string;
+            /** Drawing-sheet mutation: bump `drawingVersion` so the widget triggers `buildDrawing`. */
+            markDrawing?: boolean;
         }
     ): DocumentMutationResult {
         const validation = validateNukeCadDocument(doc);
@@ -1415,10 +1947,22 @@ export class CadDocumentStore {
         if (options?.selectCurve !== undefined) {
             selection = { ...selection, selectedCurveId: options.selectCurve };
         }
-        this.state = { ...this.state, document: doc, dirty: true, selection };
+        const drawingVersion = this.state.drawingVersion + (options?.markDrawing === true ? 1 : 0);
+        this.state = { ...this.state, document: doc, dirty: true, selection, drawingVersion };
         this.emitChange();
         return { success: true };
     }
+}
+
+function uniqueAssemblyId(existing: readonly string[], prefix: string): string {
+    const taken = new Set(existing);
+    let index = existing.length + 1;
+    let id = `${prefix}-${index}`;
+    while (taken.has(id)) {
+        index++;
+        id = `${prefix}-${index}`;
+    }
+    return id;
 }
 
 function uniqueBodyId(doc: NukeCadDocument): string {
@@ -1479,6 +2023,36 @@ export function createBodyId(): string {
  */
 export function createCurveId(): string {
     return nextId('curve');
+}
+
+/**
+ * Return a new unique id for a drawing sheet.
+ *
+ * Callers may override the generated id; this helper is provided for
+ * convenience in UI code.
+ */
+export function createSheetId(): string {
+    return nextId('sheet');
+}
+
+/**
+ * Return a new unique id for a drawing view.
+ *
+ * Callers may override the generated id; this helper is provided for
+ * convenience in UI code.
+ */
+export function createViewId(): string {
+    return nextId('view');
+}
+
+/**
+ * Return a new unique id for a drawing dimension.
+ *
+ * Callers may override the generated id; this helper is provided for
+ * convenience in UI code.
+ */
+export function createDimensionId(): string {
+    return nextId('dimension');
 }
 
 /**

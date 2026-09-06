@@ -44,6 +44,8 @@ import { CadDocumentStore } from '../document/cad-document-store';
 import { CadViewportWidget } from '../widgets/cad-viewport/cad-viewport-widget';
 import { CadOutlinePanelWidget } from '../widgets/outline-panel/outline-panel-widget';
 import { CadFeatureTreeWidget } from '../widgets/feature-tree/feature-tree-widget';
+import { CadBomPanelWidget } from '../widgets/bom-panel/bom-panel';
+import { DrawingSheetWidget } from '../widgets/drawing-sheet/drawing-sheet-widget';
 import { FemPanelWidget } from '../widgets/fem-panel/fem-panel-widget';
 import { FoamPanelWidget } from '../widgets/foam-panel/foam-panel-widget';
 
@@ -222,6 +224,22 @@ export class NukeCadCommandContribution implements CommandContribution {
             execute: async () => {
                 const widget = await this.widgetManager.getOrCreateWidget(CadFeatureTreeWidget.ID);
                 await this.shell.addWidget(widget, { area: 'right' });
+                await this.shell.activateWidget(widget.id);
+            }
+        });
+
+        commands.registerCommand(NukeCadCommands.OPEN_BOM_PANEL, {
+            execute: async () => {
+                const widget = await this.widgetManager.getOrCreateWidget(CadBomPanelWidget.ID);
+                await this.shell.addWidget(widget, { area: 'right' });
+                await this.shell.activateWidget(widget.id);
+            }
+        });
+
+        commands.registerCommand(NukeCadCommands.OPEN_DRAWING_SHEET, {
+            execute: async () => {
+                const widget = await this.widgetManager.getOrCreateWidget(DrawingSheetWidget.ID);
+                await this.shell.addWidget(widget, { area: 'main' });
                 await this.shell.activateWidget(widget.id);
             }
         });

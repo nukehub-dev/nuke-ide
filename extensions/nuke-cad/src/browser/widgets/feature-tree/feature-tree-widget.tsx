@@ -46,7 +46,8 @@ import { ConfirmDialog } from '@theia/core/lib/browser/dialogs';
 import { FileDialogService } from '@theia/filesystem/lib/browser/file-dialog';
 import { FileService } from '@theia/filesystem/lib/browser/file-service';
 import { NukeCadCommands } from '../../commands';
-import { CadDocumentStore } from '../../document/cad-document-store';
+import { CadDocumentStore, getAssemblySection, type AssemblySection } from '../../document/cad-document-store';
+import { validateAssemblyDocument } from '../../../common/assembly-document';
 import { NukeCadStateManager } from '../../state/nuke-cad-state-manager';
 import {
     type NukeCadDocument,
@@ -167,8 +168,40 @@ export class CadFeatureTreeWidget extends ReactWidget {
                         void this.commandService.executeCommand(command.id);
                     }
                 }}
+                onRenameInstance={(id, newId) => this.handleRenameInstance(id, newId)}
+                onDeleteInstance={(id) => this.handleDeleteInstance(id)}
+                onGroundInstance={(id) => this.handleGroundInstance(id)}
+                onDeleteMate={(id) => this.handleDeleteMate(id)}
             />
         );
+    }
+
+    private handleRenameInstance(id: string, newId: string): void {
+        const result = this.documentStore.renameInstance(id, newId);
+        if (!result.success) {
+            this.messageService.error(result.error || 'Failed to rename instance.');
+        }
+    }
+
+    private handleDeleteInstance(id: string): void {
+        const result = this.documentStore.deleteInstance(id);
+        if (!result.success) {
+            this.messageService.error(result.error || 'Failed to delete instance.');
+        }
+    }
+
+    private handleGroundInstance(id: string): void {
+        const result = this.documentStore.setGrounded(id);
+        if (!result.success) {
+            this.messageService.error(result.error || 'Failed to ground instance.');
+        }
+    }
+
+    private handleDeleteMate(id: string): void {
+        const result = this.documentStore.deleteMate(id);
+        if (!result.success) {
+            this.messageService.error(result.error || 'Failed to delete mate.');
+        }
     }
 
     private handleToggleSuppressed(id: string, value: boolean): void {
@@ -302,13 +335,23 @@ interface CadFeatureTreeComponentProps {
     readonly onDeleteCurve: (id: string) => void;
     readonly onSelectCurve: (id: string | undefined) => void;
     readonly onStartFeatureCreation: (type: FeatureDef['type']) => void;
+    readonly onRenameInstance: (id: string, newId: string) => void;
+    readonly onDeleteInstance: (id: string) => void;
+    readonly onGroundInstance: (id: string) => void;
+    readonly onDeleteMate: (id: string) => void;
 }
 
 function CadFeatureTreeComponent(props: CadFeatureTreeComponentProps): React.ReactElement {
     const doc = props.document;
+    const assembly: AssemblySection | undefined = doc !== undefined ? getAssemblySection(doc) : undefined;
     const hasContent =
         doc !== undefined &&
-        (doc.datums.length > 0 || doc.sketches.length > 0 || doc.curves.length > 0 || doc.bodies.length > 0 || doc.features.length > 0);
+        (doc.datums.length > 0 ||
+            doc.sketches.length > 0 ||
+            doc.curves.length > 0 ||
+            doc.bodies.length > 0 ||
+            doc.features.length > 0 ||
+            (assembly !== undefined && assembly.instances.length > 0));
     const [renamingId, setRenamingId] = React.useState<string | undefined>();
     const [curveDialog, setCurveDialog] = React.useState<
         { readonly mode: 'create' } | { readonly mode: 'edit'; readonly curve: CurveDef } | undefined
@@ -485,6 +528,17 @@ function CadFeatureTreeComponent(props: CadFeatureTreeComponentProps): React.Rea
                             />
                         ))}
                     </TreeSection>
+
+                    {assembly !== undefined && assembly.instances.length > 0 && (
+                        <AssemblySections
+                            assembly={assembly}
+                            documentName={doc.name}
+                            onRenameInstance={props.onRenameInstance}
+                            onDeleteInstance={props.onDeleteInstance}
+                            onGroundInstance={props.onGroundInstance}
+                            onDeleteMate={props.onDeleteMate}
+                        />
+                    )}
                 </div>
             )}
             {repairPopover !== undefined && doc !== undefined && (
@@ -1095,4 +1149,150 @@ function commandForFeatureType(type: FeatureDef['type']): import('@theia/core/li
 
 function bodyLabelText(body: BodyDef): string {
     return body.label !== undefined ? `${body.name} · ${body.label}` : body.name;
+}
+
+interface AssemblySectionsProps {
+    readonly assembly: AssemblySection;
+    readonly documentName: string;
+    readonly onRenameInstance: (id: string, newId: string) => void;
+    readonly onDeleteInstance: (id: string) => void;
+    readonly onGroundInstance: (id: string) => void;
+    readonly onDeleteMate: (id: string) => void;
+}
+
+/**
+ * Assembly sections of the feature tree: instance rows (rename/delete plus a
+ * Ground action) and mate rows (type chip, delete). Broken-reference badges
+ * come from the frozen-spec validation on the synthesized root — the same
+ * dangling-reference signal the backend reports once B1 lands.
+ */
+function AssemblySections(props: AssemblySectionsProps): React.ReactElement {
+    const [renamingId, setRenamingId] = React.useState<string | undefined>(undefined);
+    const [renameValue, setRenameValue] = React.useState('');
+    const brokenMateIndexes = React.useMemo(() => {
+        const result = validateAssemblyDocument({
+            version: 1,
+            name: props.documentName,
+            instances: props.assembly.instances,
+            connectors: props.assembly.connectors,
+            mates: props.assembly.mates,
+            groundedInstanceId: props.assembly.groundedInstanceId
+        });
+        const broken = new Set<number>();
+        if (result.valid) {
+            return broken;
+        }
+        props.assembly.mates.forEach((mate, index) => {
+            const prefix = `mates[${index}]`;
+            if (
+                result.issues.some(
+                    (issue) => issue.path === prefix || issue.path.startsWith(`${prefix}.`) || issue.path.startsWith(`${prefix}[`)
+                )
+            ) {
+                broken.add(index);
+            }
+            // A dangling grounded id or connector also breaks every mate.
+            if (result.issues.some((issue) => issue.path === 'groundedInstanceId' || issue.path.startsWith('connectors['))) {
+                broken.add(index);
+            }
+            void mate;
+        });
+        return broken;
+    }, [props.assembly, props.documentName]);
+
+    const commitRename = (id: string): void => {
+        const next = renameValue.trim();
+        if (next.length > 0 && next !== id) {
+            props.onRenameInstance(id, next);
+        }
+        setRenamingId(undefined);
+    };
+
+    return (
+        <>
+            <TreeSection title="Instances" count={props.assembly.instances.length}>
+                {props.assembly.instances.map((instance) => {
+                    const grounded = props.assembly.groundedInstanceId === instance.id;
+                    return (
+                        <div key={instance.id} className={`feature-tree-row body${grounded ? ' selected' : ''}`}>
+                            <span className="codicon codicon-nuke-cad-assembly feature-tree-icon" />
+                            {renamingId === instance.id ? (
+                                <InlineRename
+                                    value={renameValue}
+                                    onChange={setRenameValue}
+                                    onCommit={() => commitRename(instance.id)}
+                                    onCancel={() => setRenamingId(undefined)}
+                                />
+                            ) : (
+                                <span
+                                    className="feature-tree-label"
+                                    title={`${instance.part}${grounded ? ' (grounded)' : ''} — double-click to rename`}
+                                    onDoubleClick={() => {
+                                        setRenamingId(instance.id);
+                                        setRenameValue(instance.id);
+                                    }}
+                                >
+                                    {instance.id}
+                                </span>
+                            )}
+                            <span className="feature-tree-body-chip" title={instance.part}>
+                                {instance.part}
+                            </span>
+                            {grounded && <span className="feature-tree-kind-chip">grounded</span>}
+                            {!grounded && (
+                                <Tooltip content="Ground here" position="left">
+                                    <button
+                                        className="theia-button secondary feature-tree-action"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            props.onGroundInstance(instance.id);
+                                        }}
+                                    >
+                                        <span className="codicon codicon-nuke-cad-connector" />
+                                    </button>
+                                </Tooltip>
+                            )}
+                            <Tooltip content="Delete instance" position="left">
+                                <button
+                                    className="theia-button secondary feature-tree-action"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        props.onDeleteInstance(instance.id);
+                                    }}
+                                >
+                                    <span className="codicon codicon-trash" />
+                                </button>
+                            </Tooltip>
+                        </div>
+                    );
+                })}
+            </TreeSection>
+            <TreeSection title="Mates" count={props.assembly.mates.length}>
+                {props.assembly.mates.map((mate, index) => (
+                    <div key={mate.id} className="feature-tree-row feature">
+                        <span className="codicon codicon-nuke-cad-mate feature-tree-icon" />
+                        <span
+                            className="feature-tree-label"
+                            title={`${mate.instanceA}:${mate.connectorA} ↔ ${mate.instanceB}:${mate.connectorB}`}
+                        >
+                            {mate.id}
+                        </span>
+                        <span className="feature-tree-kind-chip">{mate.type}</span>
+                        {brokenMateIndexes.has(index) && <span className="feature-tree-ref-badge unmatched">broken ref</span>}
+                        <Tooltip content="Delete mate" position="left">
+                            <button
+                                className="theia-button secondary feature-tree-action"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    props.onDeleteMate(mate.id);
+                                }}
+                            >
+                                <span className="codicon codicon-trash" />
+                            </button>
+                        </Tooltip>
+                    </div>
+                ))}
+            </TreeSection>
+        </>
+    );
 }

@@ -2247,3 +2247,66 @@ describe('wave A2 additive params (revolve ends, upToBody, subtractive, linear d
         }
     });
 });
+
+describe('assembly section (additive v3)', () => {
+    function makeAssemblyDocument(): NukeCadDocument {
+        const doc = makeDocument();
+        doc.assembly = {
+            instances: [
+                { id: 'base', part: 'body:body-1', placement: { position: [0, 0, 0], orientation: [0, 0, 0, 1] } },
+                { id: 'arm', part: './arm.nuke-cad', placement: { position: [5, 0, 0], orientation: [0, 0, 0, 1] } }
+            ],
+            connectors: [
+                { id: 'c-base', instanceId: 'base', origin: [1, 0, 0], xAxis: [1, 0, 0], yAxis: [0, 1, 0] },
+                { id: 'c-arm', instanceId: 'arm', origin: [0, 0, 0], xAxis: [1, 0, 0], yAxis: [0, 1, 0] }
+            ],
+            mates: [{ id: 'm1', type: 'fixed', instanceA: 'base', connectorA: 'c-base', instanceB: 'arm', connectorB: 'c-arm' }],
+            groundedInstanceId: 'base'
+        };
+        return doc;
+    }
+
+    it('absent assembly stays a valid single-part document', () => {
+        const doc = makeDocument();
+        expect(doc.assembly).toBeUndefined();
+        expect(validateNukeCadDocument(doc).valid).toBe(true);
+    });
+
+    it('round-trips a grounded assembly through JSON at schema v3', () => {
+        const doc = makeAssemblyDocument();
+        const round = JSON.parse(JSON.stringify(doc)) as NukeCadDocument;
+        expect(round.version).toBe(NUKE_CAD_SCHEMA_VERSION);
+        const result = validateNukeCadDocument(round);
+        expect(result.valid).toBe(true);
+        expect(round.assembly?.groundedInstanceId).toBe('base');
+    });
+
+    it('treats an empty groundedInstanceId as single-part', () => {
+        const doc = makeAssemblyDocument();
+        doc.assembly!.groundedInstanceId = '';
+        expect(validateNukeCadDocument(doc).valid).toBe(true);
+    });
+
+    it('delegates structural issues with assembly-prefixed paths', () => {
+        const doc = makeAssemblyDocument();
+        doc.assembly!.groundedInstanceId = 'missing';
+        const result = validateNukeCadDocument(doc);
+        expect(result.valid).toBe(false);
+        expect(result.issues.some((i) => i.path === 'assembly.groundedInstanceId')).toBe(true);
+    });
+
+    it('rejects a second mate on the same part pair', () => {
+        const doc = makeAssemblyDocument();
+        doc.assembly!.mates.push({
+            id: 'm2',
+            type: 'revolute',
+            instanceA: 'arm',
+            connectorA: 'c-arm',
+            instanceB: 'base',
+            connectorB: 'c-base'
+        });
+        const result = validateNukeCadDocument(doc);
+        expect(result.valid).toBe(false);
+        expect(result.issues.some((i) => i.path === 'assembly.mates[1]')).toBe(true);
+    });
+});

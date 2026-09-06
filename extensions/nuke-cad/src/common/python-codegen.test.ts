@@ -1469,3 +1469,77 @@ describe('generatePythonScript wave A2 emission', () => {
         expect(script).toContain('#   thread: modeled');
     });
 });
+
+describe('assembly emission', () => {
+    function assemblyDocument(): NukeCadDocument {
+        const doc = sampleDocument();
+        doc.assembly = {
+            instances: [
+                {
+                    id: 'base',
+                    part: 'body:body_a',
+                    placement: { position: [0, 0, 0], orientation: [0, 0, 0, 1] }
+                },
+                {
+                    id: 'arm',
+                    part: 'body:body_b',
+                    placement: { position: [5, 0, 0], orientation: [0, 0, 0, 1] }
+                },
+                {
+                    id: 'bracket',
+                    part: 'bracket.step',
+                    placement: { position: [0, 0, 0], orientation: [0, 0, 0, 1] }
+                },
+                {
+                    id: 'panel',
+                    part: 'panel.nuke-cad',
+                    placement: { position: [0, 0, 0], orientation: [0, 0, 0, 1] }
+                }
+            ],
+            connectors: [
+                { id: 'c-base', instanceId: 'base', origin: [1, 0, 0], xAxis: [1, 0, 0], yAxis: [0, 1, 0] },
+                { id: 'c-arm', instanceId: 'arm', origin: [0, 0, 0], xAxis: [1, 0, 0], yAxis: [0, 1, 0] },
+                { id: 'c-bracket', instanceId: 'bracket', origin: [0, 0, 0], xAxis: [1, 0, 0], yAxis: [0, 1, 0] }
+            ],
+            mates: [
+                { id: 'm1', type: 'fixed', instanceA: 'base', connectorA: 'c-base', instanceB: 'arm', connectorB: 'c-arm' },
+                {
+                    id: 'm2',
+                    type: 'revolute',
+                    instanceA: 'base',
+                    connectorA: 'c-base',
+                    instanceB: 'bracket',
+                    connectorB: 'c-bracket'
+                }
+            ],
+            groundedInstanceId: 'base'
+        };
+        return doc;
+    }
+
+    it('emits per-source builds with resolveMatePlacement-equivalent placement code', () => {
+        const script = generatePythonScript(assemblyDocument());
+        expect(script).toContain('# Assembly');
+        expect(script).toContain('def _mate_solve(frame_a, frame_b):');
+        expect(script).toContain('R = Ra.RbT');
+        expect(script).toContain('bd.import_step("bracket.step")');
+        expect(script).toContain('_mate_place(');
+        expect(script).toContain('# mate "m1" (fixed): base -> arm (first mate wins)');
+    });
+
+    it('degrades .nuke-cad sources and their mates to TODO comments, never faked', () => {
+        const script = generatePythonScript(assemblyDocument());
+        expect(script).toContain('# TODO(manual): instance "panel"');
+        expect(script).toContain('.nuke-cad document');
+        expect(script).not.toContain('asm_panel = _mate_place(');
+    });
+
+    it('emits no assembly section for single-part documents', () => {
+        const plain = sampleDocument();
+        expect(plain.assembly).toBeUndefined();
+        expect(generatePythonScript(plain)).not.toContain('# Assembly');
+        const ungrounded = assemblyDocument();
+        ungrounded.assembly!.groundedInstanceId = '';
+        expect(generatePythonScript(ungrounded)).not.toContain('# Assembly');
+    });
+});

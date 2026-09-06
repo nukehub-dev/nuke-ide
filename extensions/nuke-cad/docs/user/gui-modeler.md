@@ -722,6 +722,42 @@ draft/shell faces, and hole placement faces) are emitted as clearly marked
 `# TODO(manual):` comments so nothing is silently dropped. The export is not
 round-trippable; it is intended as readable output for downstream editing.
 
+## Assemblies
+
+An assembly instantiates parts — bodies of the same document, other
+`.nuke-cad` documents, or STEP/IGES/BREP files — and positions them with
+mates between named connector frames:
+
+1. Add an **Instance** for each part (same-document body, document path, or
+   CAD file path).
+2. Add **Connectors** (named frames) on the instances to join.
+3. Add a **Mate** between two connectors (one mate per part pair); the mate
+   type sets which degrees of freedom stay free (shown as a hint).
+4. **Ground** exactly one instance; mates solve outward from ground in
+   closed form. Ungrounded, unmated instances keep their stored placement.
+
+The **BOM** panel (`CAD Studio → BOM`) lists instance, part source, mate
+type, and DOF contribution; clicking a row selects the instance in the
+viewport. Assembly STEP export keeps one product per instance; DAGMC export
+imprints the placed solids (overlap stays a warning — assemblies overlap
+intentionally).
+
+## Drawings
+
+**Open Drawing Sheet** (`CAD Studio → Drawings`) creates a single-sheet 2D
+drawing of the document (A4/A3 landscape):
+
+1. Create a sheet, then a base view (front/top/right preset).
+2. Add projected, section (axis/fraction/flip), or detail views from a
+   selected parent view; drag views on the sheet (5 mm snap).
+3. Dimension with the dimension tool: **Pick in viewport**, then click one
+   model edge (radius/diameter) or two (distance). Dimensions stay
+   associative — they recompute from the 3D model on every build and flag
+   `stale` when their reference breaks.
+
+Export SVG (native) or DXF (visible/hidden/section/dimension layers) from
+the sheet. PDF export is not in this release.
+
 ## Save and rebuild
 
 - **Save CAD Document** writes the JSON file. Saving does not rebuild.

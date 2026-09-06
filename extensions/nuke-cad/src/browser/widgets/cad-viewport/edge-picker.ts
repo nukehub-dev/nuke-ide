@@ -37,7 +37,8 @@
  */
 
 import * as THREE from 'three';
-import { type TopologyRef, type EdgeFingerprint } from '../../../common/topology-refs';
+import { validateTopologyRef, type TopologyRef, type EdgeFingerprint } from '../../../common/topology-refs';
+import { type DrawingDimensionKind } from '../../../common/cad-drawing';
 import { pointerToNdc } from './face-picker';
 
 export { pointerToNdc };
@@ -195,4 +196,134 @@ export class EdgeHighlighter {
     get isActive(): boolean {
         return this.highlighted !== undefined;
     }
+}
+
+// *****************************************************************************
+// Drawing-dimension viewport pick (drawings phase, brief §4 revision).
+//
+// The brief assumed a backend projected-edge → TopologyRef map that does not
+// exist (HLR output carries no source identity, by design). Instead, the
+// Drawing Sheet dimension tool reuses this viewport's edge picker: each
+// clicked edge yields its geometric fingerprint as a `TopologyRef` target
+// (one edge for radius/diameter, two for distance). The helpers below are
+// pure so the pick → targets assembly is unit-testable; the broker beneath
+// them is the only cross-widget channel between the Drawing Sheet widget
+// (requests picks, accumulates targets, commits via `addDimension`) and the
+// CAD viewport widget (edge-pick mode, hover highlight, Cancel).
+// *****************************************************************************
+
+/** Number of edge targets a dimension kind needs (brief §2). */
+export function drawingDimensionTargetsNeeded(kind: DrawingDimensionKind): 1 | 2 {
+    return kind === 'distance' ? 2 : 1;
+}
+
+/** Result of accumulating one more picked edge into a dimension's targets. */
+export interface DrawingDimensionTargetState {
+    readonly targets: TopologyRef[];
+    readonly complete: boolean;
+}
+
+function sameFingerprint(a: TopologyRef['fingerprint'], b: TopologyRef['fingerprint']): boolean {
+    return JSON.stringify(a) === JSON.stringify(b);
+}
+
+/**
+ * Accumulate one viewport edge pick into a dimension's targets.
+ *
+ * Invalid (non-edge or malformed) refs are dropped, previously accumulated
+ * invalid entries are filtered, exact-duplicate fingerprints are ignored (a
+ * distance from an edge to itself is degenerate), and the list is capped at
+ * the kind's arity. `complete` turns true exactly when the kind's target
+ * count is reached.
+ */
+export function appendDrawingDimensionTarget(
+    existing: readonly TopologyRef[],
+    next: TopologyRef,
+    kind: DrawingDimensionKind
+): DrawingDimensionTargetState {
+    const needed = drawingDimensionTargetsNeeded(kind);
+    const kept = existing.filter((ref) => ref.kind === 'edge' && validateTopologyRef(ref).valid).slice(0, needed);
+    if (next.kind !== 'edge' || validateTopologyRef(next).valid !== true) {
+        return { targets: [...kept], complete: kept.length >= needed };
+    }
+    const duplicate = kept.some((ref) => sameFingerprint(ref.fingerprint, next.fingerprint));
+    const extended = (duplicate ? kept : [...kept, next]).slice(0, needed);
+    return { targets: [...extended], complete: extended.length >= needed };
+}
+
+/** Cross-widget request: the Drawing Sheet dimension tool asks the 3D viewport for edge picks. */
+export interface DrawingDimensionPickRequest {
+    readonly kind: DrawingDimensionKind;
+}
+
+let activeDrawingDimensionPickRequest: DrawingDimensionPickRequest | undefined;
+const drawingDimensionPickRequestListeners = new Set<(request: DrawingDimensionPickRequest | undefined) => void>();
+const drawingDimensionEdgeHitListeners = new Set<(ref: TopologyRef) => void>();
+
+function notifyDrawingDimensionPickRequest(): void {
+    for (const listener of [...drawingDimensionPickRequestListeners]) {
+        listener(activeDrawingDimensionPickRequest);
+    }
+}
+
+/**
+ * Enter viewport edge-pick mode for a drawing dimension.
+ *
+ * Notifies the CAD viewport widget (banner + hover highlight + Cancel);
+ * each clicked edge is published back through
+ * {@link publishDrawingDimensionEdgeHit}. The mode stays active across
+ * picks (distance needs two) until {@link cancelDrawingDimensionPick}.
+ */
+export function requestDrawingDimensionPick(request: DrawingDimensionPickRequest): void {
+    activeDrawingDimensionPickRequest = { kind: request.kind };
+    notifyDrawingDimensionPickRequest();
+}
+
+/**
+ * Leave viewport edge-pick mode.
+ *
+ * Called by the Drawing Sheet widget after committing the dimension (or on
+ * user cancel) and by the viewport's own Cancel affordances; a no-op when
+ * no request is active. The viewport exits its pick mode on notification.
+ */
+export function cancelDrawingDimensionPick(): void {
+    if (activeDrawingDimensionPickRequest === undefined) {
+        return;
+    }
+    activeDrawingDimensionPickRequest = undefined;
+    notifyDrawingDimensionPickRequest();
+}
+
+/** The active drawing-dimension pick request, if any. */
+export function getDrawingDimensionPickRequest(): DrawingDimensionPickRequest | undefined {
+    return activeDrawingDimensionPickRequest;
+}
+
+/** Subscribe to pick-request changes; returns an unsubscribe function. */
+export function onDrawingDimensionPickRequest(listener: (request: DrawingDimensionPickRequest | undefined) => void): () => void {
+    drawingDimensionPickRequestListeners.add(listener);
+    return () => {
+        drawingDimensionPickRequestListeners.delete(listener);
+    };
+}
+
+/**
+ * Publish one picked edge's `TopologyRef` to the Drawing Sheet widget.
+ *
+ * The viewport builds the ref with {@link buildEdgeTopologyRef} (fingerprint
+ * identity, guarded against missing fingerprints at the call site) and stays
+ * in pick mode; the sheet accumulates and commits.
+ */
+export function publishDrawingDimensionEdgeHit(ref: TopologyRef): void {
+    for (const listener of [...drawingDimensionEdgeHitListeners]) {
+        listener(ref);
+    }
+}
+
+/** Subscribe to picked-edge hits; returns an unsubscribe function. */
+export function onDrawingDimensionEdgeHit(listener: (ref: TopologyRef) => void): () => void {
+    drawingDimensionEdgeHitListeners.add(listener);
+    return () => {
+        drawingDimensionEdgeHitListeners.delete(listener);
+    };
 }

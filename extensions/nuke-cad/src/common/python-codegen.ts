@@ -60,11 +60,19 @@
  *   the module-level `_bspline_edge` helper (raw OCP `Geom_BSplineCurve`).
  *   Construction B-splines degrade the sketch to `# TODO(manual):`, as do
  *   periodic or non-unit-weight B-splines (both rejected by the backend).
+ * - Assemblies emit an `# Assembly` section when the document is grounded:
+ *   per-source instance builds (same-document bodies, `bd.import_step` for
+ *   STEP files) plus `resolveMatePlacement`-equivalent placement code
+ *   (`_mate_solve`: `R = Ra·RbT`, `t = pa − R·pb`, threaded in
+ *   grounded-first BFS order). Reference-dependent mates and unbuildable
+ *   sources (`.nuke-cad` paths, per-axis scales) degrade to
+ *   `# TODO(manual):`, never faked.
  *
  * @module nuke-cad/common
  */
 
 import { type NukeCadDocument, type SketchDef, type FeatureDef, type DatumPlane, type CurveSource } from './cad-document';
+import { instancePlacementToMatrix, type Mat4 } from './assembly-document';
 import { FeatureGraph } from './feature-graph';
 import { type TopologyRef, type FaceFingerprint, type EdgeFingerprint } from './topology-refs';
 import { ellipseAxes, sampleBSplineCurve } from './sketch-curves';
@@ -193,6 +201,11 @@ export function generatePythonScript(doc: NukeCadDocument): string {
         }
     }
     lines.push('');
+
+    if (doc.assembly !== undefined && doc.assembly.groundedInstanceId !== '') {
+        lines.push(...emitAssemblySection(doc, bodyVarById, manualFeatures));
+        lines.push('');
+    }
 
     if (manualFeatures.length > 0) {
         lines.push('# -----------------------------------------------------------------------------');
@@ -1598,6 +1611,240 @@ function curveSourceComment(source: CurveSource): string | undefined {
         return `source: parametric x=${source.x} y=${source.y} z=${source.z} tStart=${source.tStart} tEnd=${source.tEnd} sampleCount=${source.sampleCount}`;
     }
     return `source: fourier nfp=${source.nfp} order=${source.order}`;
+}
+
+// ---------------------------------------------------------------------------
+// Assembly emission
+// ---------------------------------------------------------------------------
+
+/**
+ * Emit the `# Assembly` section for a document with a grounded assembly:
+ * per-source instance builds plus `resolveMatePlacement`-equivalent placement
+ * code (closed-form `R = Ra·RbT`, `t = pa − R·pb` in the `_mate_solve`
+ * helper, threaded in grounded-first BFS order). Instances whose source
+ * cannot be built automatically (`.nuke-cad` paths, non-STEP exchange files,
+ * per-axis scales) — and mates touching them — degrade to `# TODO(manual):`
+ * comments, never faked placements.
+ */
+function emitAssemblySection(doc: NukeCadDocument, bodyVarById: Map<string, string>, manualFeatures: string[]): string[] {
+    const assembly = doc.assembly!;
+    const lines: string[] = [];
+    lines.push('# Assembly');
+    lines.push(`# Grounded instance: "${assembly.groundedInstanceId}"`);
+
+    const bodyIds = new Set(doc.bodies.map((b) => b.id));
+    const varOf = (instanceId: string): string => sanitizeIdentifier(`asm_${instanceId}`);
+    const frameOf = (connectorId: string): string => sanitizeIdentifier(`_frame_${connectorId}`);
+
+    interface InstancePlan {
+        buildable: boolean;
+        sourceExpr?: string;
+        manualReason?: string;
+    }
+    const plans = new Map<string, InstancePlan>();
+    for (const instance of assembly.instances) {
+        const part = instance.part;
+        let plan: InstancePlan;
+        if (part.startsWith('body:') || bodyIds.has(part)) {
+            const bodyId = part.startsWith('body:') ? part.slice('body:'.length) : part;
+            const bodyVar = bodyVarById.get(bodyId);
+            plan =
+                bodyVar === undefined
+                    ? { buildable: false, manualReason: `unknown body "${bodyId}"` }
+                    : { buildable: true, sourceExpr: bodyVar };
+        } else if (/\.(step|stp)$/i.test(part)) {
+            plan = { buildable: true, sourceExpr: `bd.import_step(${JSON.stringify(part)})` };
+        } else if (/\.nuke-cad$/i.test(part)) {
+            plan = { buildable: false, manualReason: `part "${part}" is a .nuke-cad document — build it separately and assign its shape` };
+        } else {
+            plan = { buildable: false, manualReason: `part "${part}" cannot be imported automatically` };
+        }
+        if (plan.buildable && instance.scale !== undefined) {
+            if (typeof instance.scale === 'number' && instance.scale !== 1) {
+                plan.sourceExpr = `bd.scale(${plan.sourceExpr}, ${formatNumber(instance.scale)})`;
+            } else if (Array.isArray(instance.scale)) {
+                plan = { buildable: false, manualReason: `per-axis scale ${JSON.stringify(instance.scale)} has no build123d equivalent` };
+            }
+        }
+        plans.set(instance.id, plan);
+    }
+
+    // Connector frame literals (raw stored axes; `_mate_solve` orthonormalizes).
+    for (const connector of assembly.connectors) {
+        lines.push(
+            `${frameOf(connector.id)} = (${tuple(connector.origin)}, ${tuple(connector.xAxis)}, ${tuple(connector.yAxis)})  # ${connector.instanceId}`
+        );
+    }
+
+    // Grounded-first BFS over mates (first mate wins, like the backend).
+    const adjacency = new Map<string, typeof assembly.mates>();
+    for (const instance of assembly.instances) {
+        adjacency.set(instance.id, []);
+    }
+    for (const mate of assembly.mates) {
+        adjacency.get(mate.instanceA)?.push(mate);
+        adjacency.get(mate.instanceB)?.push(mate);
+    }
+    const solverOf = new Map<string, (typeof assembly.mates)[number]>();
+    const solvedOrder: string[] = [assembly.groundedInstanceId];
+    const solved = new Set<string>(solvedOrder);
+    const queue = [assembly.groundedInstanceId];
+    while (queue.length > 0) {
+        const current = queue.shift()!;
+        for (const mate of adjacency.get(current) ?? []) {
+            const other = mate.instanceA === current ? mate.instanceB : mate.instanceA;
+            if (solved.has(other)) {
+                continue;
+            }
+            solved.add(other);
+            solverOf.set(other, mate);
+            solvedOrder.push(other);
+            queue.push(other);
+        }
+    }
+    for (const instance of assembly.instances) {
+        if (!solved.has(instance.id)) {
+            solvedOrder.push(instance.id);
+        }
+    }
+
+    const needsHelpers = [...solverOf.entries()].some(
+        ([instanceId, mate]) =>
+            plans.get(instanceId)?.buildable === true &&
+            plans.get(mate.instanceA)?.buildable === true &&
+            plans.get(mate.instanceB)?.buildable === true
+    );
+    if (needsHelpers) {
+        lines.push(...mateHelperLines());
+    }
+
+    const storedPlacement = (instanceId: string): { pos: string; rot: string } => {
+        const instance = assembly.instances.find((candidate) => candidate.id === instanceId)!;
+        const matrix: Mat4 = instancePlacementToMatrix(instance.placement);
+        const pos = tuple([matrix[3], matrix[7], matrix[11]]);
+        const rot = `(${tuple([matrix[0], matrix[1], matrix[2]])}, ${tuple([matrix[4], matrix[5], matrix[6]])}, ${tuple([matrix[8], matrix[9], matrix[10]])})`;
+        return { pos, rot };
+    };
+
+    for (const instanceId of solvedOrder) {
+        const plan = plans.get(instanceId)!;
+        const varName = varOf(instanceId);
+        if (!plan.buildable) {
+            lines.push(`# TODO(manual): instance "${instanceId}" — ${plan.manualReason}. Assign its shape to ${varName}_src manually.`);
+            manualFeatures.push(`assembly instance "${instanceId}" (${plan.manualReason})`);
+            continue;
+        }
+        const mate = solverOf.get(instanceId);
+        const solvable =
+            mate !== undefined && plans.get(mate.instanceA)?.buildable === true && plans.get(mate.instanceB)?.buildable === true;
+        if (instanceId === assembly.groundedInstanceId || !solvable) {
+            if (mate !== undefined && !solvable) {
+                lines.push(
+                    `# TODO(manual): mate "${mate.id}" (${mate.type}) requires manual placement — instance "${instanceId}" keeps its stored placement.`
+                );
+                manualFeatures.push(`assembly mate "${mate.id}" (reference-dependent, kept stored placement)`);
+            }
+            const stored = storedPlacement(instanceId);
+            lines.push(`${varName}_pos = ${stored.pos}`);
+            lines.push(`${varName}_rot = ${stored.rot}`);
+        } else {
+            const fromA = mate.instanceA === instanceId ? mate.instanceB : mate.instanceA;
+            const frameSolved = mate.instanceA === instanceId ? frameOf(mate.connectorB) : frameOf(mate.connectorA);
+            const frameLocal = mate.instanceA === instanceId ? frameOf(mate.connectorA) : frameOf(mate.connectorB);
+            lines.push(`# mate "${mate.id}" (${mate.type}): ${fromA} -> ${instanceId} (first mate wins)`);
+            lines.push(
+                `${varName}_pos, ${varName}_rot = _mate_solve(_mate_frame(${varOf(fromA)}_pos, ${varOf(fromA)}_rot, ${frameSolved}), ${frameLocal})`
+            );
+        }
+        lines.push(`${varName} = _mate_place(${plan.sourceExpr}, ${varName}_pos, ${varName}_rot)  # instance "${instanceId}"`);
+    }
+
+    // Mates that solved nothing (both endpoints unreached is impossible from
+    // BFS, but mates touching manual instances need their comment).
+    for (const mate of assembly.mates) {
+        if (solverOf.has(mate.instanceA) || solverOf.has(mate.instanceB)) {
+            continue;
+        }
+        if (plans.get(mate.instanceA)?.buildable !== true || plans.get(mate.instanceB)?.buildable !== true) {
+            lines.push(`# TODO(manual): mate "${mate.id}" (${mate.type}) requires manual placement (unbuildable instance).`);
+            manualFeatures.push(`assembly mate "${mate.id}" (reference-dependent, kept stored placement)`);
+        }
+    }
+    return lines;
+}
+
+/**
+ * Pure-Python mate-placement helpers: `_mate_frame` moves a part-local frame
+ * to assembly space, `_mate_solve` is the closed form, `_mate_place` applies
+ * a solved placement (rotate about the origin, then move).
+ */
+function mateHelperLines(): string[] {
+    return [
+        'import math',
+        '',
+        '',
+        'def _mate_frame(pos, rot, frame):',
+        '    """Move a part-local connector frame to assembly space via a placement."""',
+        '    origin, x, y = frame',
+        '',
+        '    def _apply(point):',
+        '        return (',
+        '            rot[0][0] * point[0] + rot[0][1] * point[1] + rot[0][2] * point[2] + pos[0],',
+        '            rot[1][0] * point[0] + rot[1][1] * point[1] + rot[1][2] * point[2] + pos[1],',
+        '            rot[2][0] * point[0] + rot[2][1] * point[1] + rot[2][2] * point[2] + pos[2]',
+        '        )',
+        '',
+        '    return (_apply(origin), _apply(x), _apply(y))',
+        '',
+        '',
+        'def _mate_solve(frame_a, frame_b):',
+        '    """Closed-form mate solution (mirrors resolveMatePlacement: R = Ra.RbT, t = pa - R.pb)."""',
+        '    origin_a, xa, ya = frame_a',
+        '    origin_b, xb, yb = frame_b',
+        '',
+        '    def _orthonormalize(x, y):',
+        '        x_len = math.sqrt(sum(c * c for c in x))',
+        '        xn = [c / x_len for c in x]',
+        '        proj = sum(a * b for a, b in zip(xn, y))',
+        '        yo = [b - proj * a for a, b in zip(xn, y)]',
+        '        y_len = math.sqrt(sum(c * c for c in yo))',
+        '        yn = [c / y_len for c in yo]',
+        '        zn = (',
+        '            xn[1] * yn[2] - xn[2] * yn[1],',
+        '            xn[2] * yn[0] - xn[0] * yn[2],',
+        '            xn[0] * yn[1] - xn[1] * yn[0]',
+        '        )',
+        '        return xn, yn, zn',
+        '',
+        '    xa, ya, za = _orthonormalize(xa, ya)',
+        '    xb, yb, zb = _orthonormalize(xb, yb)',
+        '    cols_a = (xa, ya, za)',
+        '    cols_b = (xb, yb, zb)',
+        '    rot = tuple(',
+        '        tuple(sum(cols_a[k][i] * cols_b[k][j] for k in range(3)) for j in range(3)) for i in range(3)',
+        '    )',
+        '    pos = tuple(',
+        '        origin_a[i] - sum(rot[i][j] * origin_b[j] for j in range(3)) for i in range(3)',
+        '    )',
+        '    return pos, rot',
+        '',
+        '',
+        'def _mate_place(shape, pos, rot):',
+        '    """Apply a solved mate placement (rotate about the origin, then move)."""',
+        '    trace = rot[0][0] + rot[1][1] + rot[2][2]',
+        '    angle = math.degrees(math.acos(max(-1.0, min(1.0, (trace - 1.0) / 2.0))))',
+        '    if angle < 1e-9:',
+        '        return shape.moved(pos)',
+        '    if math.pi - math.radians(angle) < 1e-6:',
+        '        diag = (rot[0][0], rot[1][1], rot[2][2])',
+        '        k = max(range(3), key=lambda i: diag[i])',
+        '        uk = math.sqrt(max(0.0, (diag[k] + 1.0) / 2.0))',
+        '        axis = [(rot[k][j] / (2.0 * uk) if j != k and uk > 1e-9 else (uk if j == k else 0.0)) for j in range(3)]',
+        '    else:',
+        '        s = 2.0 * math.sin(math.radians(angle))',
+        '        axis = ((rot[2][1] - rot[1][2]) / s, (rot[0][2] - rot[2][0]) / s, (rot[1][0] - rot[0][1]) / s)',
+        '    return shape.rotate(bd.Axis((0, 0, 0), axis), angle).moved(pos)'
+    ];
 }
 
 // Re-export for consumers that want to reuse the ordering logic.

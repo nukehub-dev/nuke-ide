@@ -53,6 +53,12 @@ export interface ParsedTessFace {
     readonly solidId: number;
     /** Owning body id, when the build produced one. */
     readonly bodyId?: string;
+    /**
+     * Owning assembly instance id (B1 `build_assembly` channel:
+     * `selector_map` keys are `<instanceId>/<bodyLabel>`). Absent for
+     * single-part builds; the viewport renders those without instance groups.
+     */
+    readonly instanceId?: string;
     /** Content-based geometric fingerprint, when the backend extracted one. */
     readonly fingerprint?: FaceFingerprint;
     readonly nodeCount: number;
@@ -111,6 +117,7 @@ interface RawTessFace {
     readonly nodes?: unknown;
     readonly triangles?: unknown;
     readonly bodyId?: unknown;
+    readonly instanceId?: unknown;
     readonly fingerprint?: unknown;
 }
 
@@ -203,6 +210,7 @@ export function parseTessellationText(text: string): ParsedTessData {
                 faceId: typeof face.faceId === 'number' ? face.faceId : faceIndex + 1,
                 solidId,
                 bodyId: typeof face.bodyId === 'string' ? face.bodyId : bodyId,
+                instanceId: typeof face.instanceId === 'string' ? face.instanceId : undefined,
                 fingerprint: face.fingerprint as FaceFingerprint | undefined,
                 nodeCount: nodeData.count,
                 triangleCount: face.triangles.length,

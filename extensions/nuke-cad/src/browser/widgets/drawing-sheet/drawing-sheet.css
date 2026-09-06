@@ -1,0 +1,131 @@
+/* Drawing sheet widget (Wave D2): 2D SVG sheet rendering. */
+
+.nuke-cad-drawing-root {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+}
+
+.nuke-cad-drawing-empty {
+    display: flex;
+    height: 100%;
+    align-items: center;
+    justify-content: center;
+}
+
+.nuke-cad-drawing-new-row {
+    display: flex;
+    gap: 8px;
+    align-items: end;
+    margin-top: 12px;
+}
+
+.nuke-cad-drawing-new-row label {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.nuke-cad-drawing-notice {
+    padding: 4px 12px;
+    background: var(--theia-infoBackground, rgba(0, 120, 215, 0.1));
+    border-bottom: 1px solid var(--theia-contrastBorder, transparent);
+    font-size: 12px;
+}
+
+.nuke-cad-drawing-svg {
+    flex: 1;
+    min-height: 0;
+    background: var(--theia-editor-background);
+}
+
+.nuke-cad-drawing-paper {
+    fill: #ffffff;
+    stroke: var(--theia-contrastBorder, #888888);
+    stroke-width: 1;
+}
+
+.nuke-cad-drawing-view {
+    cursor: move;
+}
+
+.nuke-cad-drawing-view.dimension-mode {
+    cursor: crosshair;
+}
+
+.nuke-cad-drawing-view.selected .nuke-cad-drawing-placeholder {
+    stroke: var(--theia-focusBorder, #0078d4);
+}
+
+.nuke-cad-drawing-placeholder {
+    fill: none;
+    stroke: #888888;
+    stroke-width: 0.7;
+    stroke-dasharray: 3 2;
+}
+
+.nuke-cad-drawing-placeholder-text {
+    fill: #888888;
+    font-size: 5px;
+}
+
+.nuke-cad-drawing-visible {
+    fill: none;
+    stroke: #111111;
+    stroke-width: 0.5;
+}
+
+.nuke-cad-drawing-hidden {
+    fill: none;
+    stroke: #555555;
+    stroke-width: 0.4;
+    stroke-dasharray: 2 1.5;
+}
+
+.nuke-cad-drawing-hatch {
+    fill: rgba(0, 0, 0, 0.08);
+    stroke: #111111;
+    stroke-width: 0.4;
+}
+
+.nuke-cad-drawing-section-line {
+    stroke: #111111;
+    stroke-width: 0.7;
+}
+
+.nuke-cad-drawing-section-arrow {
+    fill: #111111;
+}
+
+.nuke-cad-drawing-detail {
+    fill: none;
+    stroke: #111111;
+    stroke-width: 0.5;
+}
+
+.nuke-cad-drawing-view-tag {
+    fill: #555555;
+    font-size: 4px;
+}
+
+.nuke-cad-drawing-leader {
+    stroke: #0066aa;
+    stroke-width: 0.35;
+}
+
+.nuke-cad-drawing-dimension-text {
+    fill: #0066aa;
+    font-size: 5px;
+    cursor: grab;
+}
+
+.nuke-cad-drawing-dimension.stale .nuke-cad-drawing-dimension-text {
+    fill: #aa5500;
+    font-style: italic;
+}
+
+.nuke-cad-drawing-title {
+    fill: #333333;
+    font-size: 6px;
+}

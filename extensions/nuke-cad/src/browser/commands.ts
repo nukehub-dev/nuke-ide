@@ -99,6 +99,16 @@ export namespace NukeCadCommands {
         label: nls.localize('nuke/cad/openFeatureTree', 'Open Feature Tree')
     };
 
+    export const OPEN_BOM_PANEL: Command = {
+        id: 'nuke.cad.openBomPanel',
+        label: nls.localize('nuke/cad/openBomPanel', 'Open BOM')
+    };
+
+    export const OPEN_DRAWING_SHEET: Command = {
+        id: 'nuke.cad.openDrawingSheet',
+        label: nls.localize('nuke/cad/openDrawingSheet', 'Open Drawing Sheet')
+    };
+
     export const ADD_FEATURE_PAD: Command = {
         id: 'nuke.cad.addFeature.pad',
         label: nls.localize('nuke/cad/addFeature/pad', 'Add Pad Feature')

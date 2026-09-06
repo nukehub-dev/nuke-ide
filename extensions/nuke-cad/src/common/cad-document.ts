@@ -41,6 +41,23 @@
  */
 
 import { validateTopologyRef, type TopologyRef } from './topology-refs';
+import {
+    validateDrawingSheet,
+    type DrawingDimension,
+    type DrawingSheet,
+    type DrawingSheetSize,
+    type DrawingValidationSink,
+    type DrawingView
+} from './cad-drawing';
+import {
+    ASSEMBLY_SCHEMA_VERSION,
+    validateAssemblyDocument,
+    type AssemblyConnector,
+    type AssemblyInstance,
+    type AssemblyMate
+} from './assembly-document';
+
+export type { DrawingDimension, DrawingSheet, DrawingSheetSize, DrawingValidationSink, DrawingView };
 
 /** Current `.nuke-cad` schema version. */
 export const NUKE_CAD_SCHEMA_VERSION = 3;
@@ -470,6 +487,20 @@ export interface FeatureDef {
 /** Declared length unit for a `.nuke-cad` document. Absent = legacy unitless. */
 export type DocumentUnits = 'mm' | 'cm' | 'm';
 
+/**
+ * Optional assembly section of a `.nuke-cad` document (additive, schema v3 —
+ * no migration: absent means a single-part document that builds exactly as
+ * before). Instance/connector/mate types are imported from the frozen
+ * `assembly-document.ts` spec; an empty `groundedInstanceId` likewise means
+ * single-part (explicit grounding only, never defaulted).
+ */
+export interface NukeCadAssembly {
+    instances: AssemblyInstance[];
+    connectors: AssemblyConnector[];
+    mates: AssemblyMate[];
+    groundedInstanceId: string;
+}
+
 /** Complete `.nuke-cad` document. */
 export interface NukeCadDocument {
     version: number;
@@ -485,6 +516,17 @@ export interface NukeCadDocument {
     sketches: SketchDef[];
     features: FeatureDef[];
     curves: CurveDef[];
+    /**
+     * Additive assembly section (schema v3). Absent — or present with an
+     * empty `groundedInstanceId` — means a single-part document.
+     */
+    assembly?: NukeCadAssembly;
+    /**
+     * Additive drawing sheets (schema v3, Wave D2). Absent means the document
+     * has no drawings. Drawing output is derived, never cached in the zip, so
+     * no migration step exists: older documents simply have no `drawings`.
+     */
+    drawings?: DrawingSheet[];
 }
 
 /** A single validation issue. */
@@ -1392,6 +1434,34 @@ function validateCurve(ctx: MutableValidationContext, curve: CurveDef, index: nu
 }
 
 /**
+ * Validate the additive assembly section by delegating to the frozen
+ * `validateAssemblyDocument` spec on a synthesized root. Absent assembly is
+ * handled by the caller; an empty `groundedInstanceId` means single-part and
+ * skips assembly checks entirely (grounding is explicit, never defaulted).
+ */
+function validateAssemblySection(ctx: MutableValidationContext, assembly: unknown): void {
+    if (!isPlainObject(assembly)) {
+        issue(ctx, 'assembly', 'assembly must be an object');
+        return;
+    }
+    const section = assembly as unknown as NukeCadAssembly;
+    if (section.groundedInstanceId === '') {
+        return;
+    }
+    const result = validateAssemblyDocument({
+        version: ASSEMBLY_SCHEMA_VERSION,
+        name: 'assembly',
+        instances: Array.isArray(section.instances) ? section.instances : [],
+        connectors: Array.isArray(section.connectors) ? section.connectors : [],
+        mates: Array.isArray(section.mates) ? section.mates : [],
+        groundedInstanceId: typeof section.groundedInstanceId === 'string' ? section.groundedInstanceId : ''
+    });
+    for (const sub of result.issues) {
+        issue(ctx, sub.path === '' ? 'assembly' : `assembly.${sub.path}`, sub.message);
+    }
+}
+
+/**
  * Validate a `.nuke-cad` document.
  *
  * Returns a structured list of issues covering duplicate ids, dangling
@@ -1463,6 +1533,24 @@ export function validateNukeCadDocument(doc: NukeCadDocument): ValidationResult 
     } else {
         for (const [i, curve] of doc.curves.entries()) {
             validateCurve(ctx, curve as CurveDef, i);
+        }
+    }
+    if (doc.assembly !== undefined) {
+        validateAssemblySection(ctx, doc.assembly);
+    }
+    if (doc.drawings !== undefined) {
+        if (!Array.isArray(doc.drawings)) {
+            issue(ctx, 'drawings', 'drawings must be an array of drawing sheets');
+        } else {
+            for (const [i, sheet] of doc.drawings.entries()) {
+                const sink: DrawingValidationSink = {
+                    issue: (path, message) => issue(ctx, path, message),
+                    claimId: (path, id) => {
+                        requireId(ctx, path, id);
+                    }
+                };
+                validateDrawingSheet(sheet, `drawings[${i}]`, sink);
+            }
         }
     }
 

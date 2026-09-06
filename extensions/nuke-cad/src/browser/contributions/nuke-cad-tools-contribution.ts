@@ -83,6 +83,30 @@ export class NukeCadToolsContribution implements NukeToolsContribution {
         });
 
         registry.registerItem({
+            id: 'nuke.cad.openBomPanel',
+            label: 'BOM',
+            commandId: NukeCadCommands.OPEN_BOM_PANEL.id,
+            category: ['CAD Studio', 'BOM'],
+            sectionOrder: 'b',
+            categoryOrder: 'a',
+            order: 'a3',
+            icon: 'nuke-cad-bom',
+            description: 'Open the assembly bill of materials.'
+        });
+
+        registry.registerItem({
+            id: 'nuke.cad.openDrawingSheet',
+            label: 'Drawing Sheet',
+            commandId: NukeCadCommands.OPEN_DRAWING_SHEET.id,
+            category: ['CAD Studio', 'Drawings'],
+            sectionOrder: 'b',
+            categoryOrder: 'a',
+            order: 'a4',
+            icon: 'nuke-cad-section',
+            description: 'Open the 2D drawing sheet for .nuke-cad documents.'
+        });
+
+        registry.registerItem({
             id: 'nuke.cad.newDocument',
             label: 'New CAD Document',
             commandId: NukeCadCommands.NEW_DOCUMENT.id,

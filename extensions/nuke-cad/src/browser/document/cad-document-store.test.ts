@@ -34,6 +34,7 @@ import {
     RESULT_CACHE_BUILDER_VERSION,
     RESULT_CACHE_OCP_UNKNOWN,
     allFeatureIds,
+    assemblyDof,
     cacheKeyForDocument,
     canonicalJson,
     checkOpenFastPath,
@@ -43,6 +44,7 @@ import {
     featuresConsumingSketch,
     featuresOnDatum,
     formatCanonicalNumber,
+    getAssemblySection,
     partialCacheDirForDocument,
     planDirtyRebuild,
     sampleParametricWithUnits,
@@ -2187,5 +2189,107 @@ describe('computeDependsOn wave A2 contract', () => {
         expect(computeDependsOn('linearPattern', 'body-1', features)).toBe('pad1');
         expect(computeDependsOn('revolve', 'body-1', [])).toBeUndefined();
         expect(computeDependsOn('linearPattern', 'body-1', [])).toBeUndefined();
+    });
+});
+
+describe('assembly mutations (Wave B2)', () => {
+    function assemblyStore(): CadDocumentStore {
+        const store = new CadDocumentStore();
+        store.createDocument('assembly-test');
+        return store;
+    }
+
+    function addGroundedPair(store: CadDocumentStore): { a: string; b: string; ca: string; cb: string } {
+        const a = store.addInstance('./part-a.nuke-cad').value!;
+        const b = store.addInstance('./part-b.nuke-cad').value!;
+        // Grounding is explicit: adding instances never grounds anything.
+        expect(getAssemblySection(store.document!)?.groundedInstanceId).toBe('');
+        expect(store.setGrounded(a).success).toBe(true);
+        const ca = store.addConnector(a, [0, 0, 0], [1, 0, 0], [0, 1, 0]).value!;
+        const cb = store.addConnector(b, [0, 0, 0], [1, 0, 0], [0, 1, 0]).value!;
+        return { a, b, ca, cb };
+    }
+
+    it('grounds explicitly and never defaults to the first instance', () => {
+        const store = assemblyStore();
+        const first = store.addInstance('./a.nuke-cad');
+        expect(first.success).toBe(true);
+        // Single-part until grounded: absent-equivalent ('' ground) stays valid.
+        expect(getAssemblySection(store.document!)?.groundedInstanceId).toBe('');
+        expect(store.setGrounded('missing').success).toBe(false);
+        expect(store.setGrounded(first.value!).success).toBe(true);
+        expect(getAssemblySection(store.document!)?.groundedInstanceId).toBe(first.value);
+    });
+
+    it('rejects degenerate connector axes and unknown instances', () => {
+        const store = assemblyStore();
+        const a = store.addInstance('./a.nuke-cad').value!;
+        expect(store.setGrounded(a).success).toBe(true);
+        expect(store.addConnector('missing', [0, 0, 0], [1, 0, 0], [0, 1, 0]).success).toBe(false);
+        expect(store.addConnector(a, [0, 0, 0], [0, 0, 0], [0, 1, 0]).success).toBe(false);
+        expect(store.addConnector(a, [0, 0, 0], [1, 0, 0], [2, 0, 0]).success).toBe(false);
+        expect(store.addConnector(a, [0, 0, 0], [1, 0, 0], [0, 1, 0]).success).toBe(true);
+    });
+
+    it('validates mates (type order, dangling refs, one-mate-per-pair)', () => {
+        const store = assemblyStore();
+        const { a, b, ca, cb } = addGroundedPair(store);
+        expect(store.addMate('weld' as never, a, ca, b, cb).success).toBe(false);
+        expect(store.addMate('fixed', a, ca, b, 'missing').success).toBe(false);
+        expect(store.addMate('fixed', a, ca, b, cb).success).toBe(true);
+        // One mate per part pair: a second mate between the same pair fails.
+        const cb2 = store.addConnector(b, [1, 0, 0], [1, 0, 0], [0, 1, 0]).value!;
+        expect(store.addMate('revolute', a, ca, b, cb2).success).toBe(false);
+        // Self-mates fail.
+        expect(store.addMate('fixed', a, ca, a, ca).success).toBe(false);
+    });
+
+    it('cascade-deletes instance → connectors/mates and clears grounding', () => {
+        const store = assemblyStore();
+        const { a, b, ca, cb } = addGroundedPair(store);
+        const mate = store.addMate('fixed', a, ca, b, cb);
+        expect(mate.success).toBe(true);
+        expect(store.deleteInstance(a).success).toBe(true);
+        const assembly = getAssemblySection(store.document!);
+        expect(assembly?.instances.map((i) => i.id)).toEqual([b]);
+        expect(assembly?.connectors.map((c) => c.id)).toEqual([cb]);
+        expect(assembly?.mates).toEqual([]);
+        expect(assembly?.groundedInstanceId).toBe('');
+    });
+
+    it('cascade-deletes connector → mates and renames instances with references', () => {
+        const store = assemblyStore();
+        const { a, b, ca, cb } = addGroundedPair(store);
+        expect(store.addMate('fixed', a, ca, b, cb).success).toBe(true);
+        expect(store.deleteConnector(ca).success).toBe(true);
+        expect(getAssemblySection(store.document!)?.mates).toEqual([]);
+        const ca2 = store.addConnector(a, [0, 0, 0], [1, 0, 0], [0, 1, 0]).value!;
+        expect(store.addMate('fixed', a, ca2, b, cb).success).toBe(true);
+        expect(store.renameInstance(a, 'base').success).toBe(true);
+        const assembly = getAssemblySection(store.document!)!;
+        expect(assembly.instances.map((i) => i.id).sort()).toEqual(['base', b].sort());
+        expect(assembly.groundedInstanceId).toBe('base');
+        expect(assembly.connectors.find((c) => c.id === ca2)?.instanceId).toBe('base');
+        expect(assembly.mates[0].instanceA).toBe('base');
+        expect(store.renameInstance('base', b).success).toBe(false);
+    });
+
+    it('keeps mutations immutable (failed commits never corrupt the live document)', () => {
+        const store = assemblyStore();
+        const { a, b, ca, cb } = addGroundedPair(store);
+        expect(store.addMate('fixed', a, ca, b, cb).success).toBe(true);
+        const before = JSON.stringify(store.document);
+        expect(store.addMate('fixed', a, ca, b, cb).success).toBe(false);
+        expect(JSON.stringify(store.document)).toBe(before);
+    });
+
+    it('reports assembly DOF via countAssemblyDof (explicit grounding only)', () => {
+        const store = assemblyStore();
+        expect(assemblyDof(store.document!)).toBe(0);
+        const { a, b, ca, cb } = addGroundedPair(store);
+        expect(assemblyDof(store.document!)).toBe(6);
+        expect(store.addMate('fixed', a, ca, b, cb).success).toBe(true);
+        expect(assemblyDof(store.document!)).toBe(0);
+        void b;
     });
 });

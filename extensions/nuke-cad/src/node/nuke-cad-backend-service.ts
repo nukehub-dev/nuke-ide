@@ -59,6 +59,7 @@ import {
     FoamStlExportResult
 } from '../common/nuke-cad-protocol';
 import { CAD_HEALTH_PACKAGES } from '../common/packages';
+import type { DrawingBuildRequest, DrawingBuildResult } from '../common/cad-drawing';
 
 /**
  * Build the argument list for ``python/geometry_service.py`` from a script/STEP request.
@@ -176,6 +177,21 @@ export function buildFeaturesPartialArgs(request: BuildFeaturesPartialRequest, s
     }
     if (request.sizeCapMB !== undefined) {
         args.push('--size-cap-mb', String(request.sizeCapMB));
+    }
+    return args;
+}
+
+/**
+ * Build the argument list for ``python/geometry_service.py --from-drawing``
+ * (Wave D2 drawing dispatch, reconciled to landed D1: append-only drawing
+ * dispatch lives in `geometry_service.py`, `--sheet-id` selects the sheet).
+ *
+ * Exported for unit testing; callers should use {@link NukeCadBackendServiceImpl.buildDrawing}.
+ */
+export function buildDrawingArgs(request: DrawingBuildRequest, scriptPath: string): string[] {
+    const args = [scriptPath, request.scriptPath, '--from-drawing', '--sheet-id', request.sheetId];
+    if (request.outputDirectory) {
+        args.push('--output-dir', request.outputDirectory);
     }
     return args;
 }
@@ -311,6 +327,34 @@ export class NukeCadBackendServiceImpl implements NukeCadBackendService {
         return this._spawnJsonService<GeometryBuildResult>(pythonCommand, args, path.dirname(request.scriptPath), request.scriptPath, {
             jobId: request.jobId
         });
+    }
+
+    /**
+     * Build one drawing sheet's HLR linework (Wave D2, brief §3).
+     *
+     * Drawing-only passthrough to ``python/geometry_service.py
+     * --from-drawing``: dirty drawing state triggers this RPC, never a
+     * full geometry rebuild.
+     */
+    async buildDrawing(request: DrawingBuildRequest): Promise<DrawingBuildResult> {
+        const scriptPath = resolvePythonScript({ packageName: 'nuke-cad', scriptName: 'geometry_service.py' });
+        if (!scriptPath) {
+            return {
+                success: false,
+                error: 'Geometry service script not found.'
+            };
+        }
+
+        const pythonCommand = await this.nukeCoreService.getPythonCommand();
+        if (!pythonCommand) {
+            return {
+                success: false,
+                error: 'No Python interpreter configured. Set a Python environment in Settings → Nuke Utils.'
+            };
+        }
+
+        const args = buildDrawingArgs(request, scriptPath);
+        return this._spawnJsonService<DrawingBuildResult>(pythonCommand, args, path.dirname(request.scriptPath));
     }
 
     /**
