@@ -16,7 +16,9 @@ missing optional dependency surfaces as a clean :class:`DagmcError` instead
 of a traceback; command handlers convert these to the single-JSON-object
 contract. Geometry construction is numpy-only (unit-testable without
 ``vtk``); ``vtk`` is used only for the final file write. Server-side
-filtering limits (``max_cell_area`` / ``max_edge_length``) are preserved.
+filtering limits (``max_cell_area`` / ``max_edge_length``) default to
+``None`` and are derived from the mesh bounding box; explicit values keep
+the historical absolute-limit behavior.
 
 All public functions raise :class:`DagmcError` with a human-readable
 message on failure. Returned shapes and VTK array names are unchanged.
@@ -633,11 +635,16 @@ def _compute_max_edge_length(cell, points) -> float:
     return max_length
 
 
+# Bump whenever the graveyard-filter derivation changes: the value feeds the
+# conversion cache key so stale filtered files are never reused.
+FILTER_VERSION = 2
+
+
 def filter_graveyard(
     vtk_path: str,
     output_path: str = None,
-    max_edge_length: float = 25.0,
-    max_cell_area: float = 1000.0,
+    max_edge_length: float = None,
+    max_cell_area: float = None,
 ) -> str:
     """Filter graveyard cells from a VTK file.
 
@@ -649,11 +656,20 @@ def filter_graveyard(
     2. Line cells (type 3) longer than ``max_edge_length`` are dropped.
     All other cell types are always kept.
 
+    A ``None`` limit is derived from the mesh itself: the graveyard box is on
+    the order of the whole-model bounding box, while real facets are orders
+    of magnitude smaller, so triangles larger than ``bbox_surface / 100``
+    (lines longer than ``bbox_diagonal / 100``) are dropped. Absolute limits
+    such as the historical 100.0/1000.0 silently eat real geometry on
+    millimeter-scale models (a tokamak lost 97% of its facets), which is why
+    derivation is the default. If derivation would drop more than 90% of the
+    mesh (e.g. a single-box model whose faces ARE the geometry), only cells
+    bigger than a full bounding-box face are dropped instead.
+
     Inputs: ``vtk_path`` (legacy ``.vtk`` unstructured-grid file),
     optional ``output_path`` (default: ``<stem>_filtered.vtk`` beside the
-    input), ``max_edge_length`` (longest kept line, default 25.0 cm),
-    ``max_cell_area`` (largest kept triangle area, default 1000.0).
-    Limits are preserved from the original implementation.
+    input), ``max_edge_length`` / ``max_cell_area`` (explicit limits win;
+    default None derives from the mesh bbox as above).
     Output: the filtered ``.vtk`` path string. When nothing is filtered
     (or the mesh is empty) the input is copied to the output path.
     Raises :class:`DagmcError` for a bad path, a missing file, invalid
@@ -662,8 +678,10 @@ def filter_graveyard(
     import numpy as np
 
     vtk_path = _require_vtk_path(vtk_path)
-    max_edge_length = _require_positive_number("max_edge_length", max_edge_length)
-    max_cell_area = _require_positive_number("max_cell_area", max_cell_area)
+    if max_edge_length is not None:
+        max_edge_length = _require_positive_number("max_edge_length", max_edge_length)
+    if max_cell_area is not None:
+        max_cell_area = _require_positive_number("max_cell_area", max_cell_area)
     vtk, numpy_support = _load_vtk()
 
     if output_path is None:
@@ -698,6 +716,21 @@ def filter_graveyard(
 
     keep = np.ones(n_cells, dtype=bool)
 
+    # Derive scale-relative limits when the caller passes None (the default):
+    # the graveyard box spans the whole model, so anything on the order of
+    # the bounding box is graveyard while real facets are far smaller.
+    derive = max_cell_area is None or max_edge_length is None
+    if derive:
+        if points.shape[0] == 0:
+            raise DagmcError(f"cannot derive filter limits: mesh '{vtk_path}' has no points")
+        extents = points.max(axis=0) - points.min(axis=0)
+        bbox_surface = float(
+            2.0 * (extents[0] * extents[1] + extents[1] * extents[2] + extents[2] * extents[0])
+        )
+        bbox_diagonal = float(np.linalg.norm(extents))
+    tri_area_limit = max_cell_area if max_cell_area is not None else bbox_surface / 100.0
+    edge_limit = max_edge_length if max_edge_length is not None else bbox_diagonal / 100.0
+
     # Process triangles (type 5) in bulk
     tri_mask = cell_types == 5
     n_tris = int(tri_mask.sum())
@@ -711,7 +744,7 @@ def filter_graveyard(
         p2 = points[tri_pts[:, 2]]
 
         areas = 0.5 * np.linalg.norm(np.cross(p1 - p0, p2 - p0), axis=1)
-        keep[tri_mask] = areas <= max_cell_area
+        keep[tri_mask] = areas <= tri_area_limit
 
     # Process lines (type 3) in bulk
     line_mask = cell_types == 3
@@ -725,7 +758,21 @@ def filter_graveyard(
         p1 = points[line_pts[:, 1]]
 
         lengths = np.linalg.norm(p1 - p0, axis=1)
-        keep[line_mask] = lengths <= max_edge_length
+        keep[line_mask] = lengths <= edge_limit
+
+    if derive and int(keep.sum()) < max(10, int(0.1 * n_cells)):
+        # Derivation would wipe the mesh (e.g. a single-box model whose faces
+        # ARE the geometry): keep everything except cells bigger than a full
+        # bounding-box face, which only a surrounding box can exceed.
+        print(
+            f"[DAGMC] Derived limits would keep only {int(keep.sum())}/{n_cells} cells; "
+            "falling back to bounding-box-face limits."
+        )
+        keep = np.ones(n_cells, dtype=bool)
+        if n_tris > 0:
+            keep[tri_mask] = areas <= bbox_surface / 6.0
+        if n_lines > 0:
+            keep[line_mask] = lengths <= bbox_diagonal
 
     skipped_area = int((tri_mask & ~keep).sum())
     skipped_line = int((line_mask & ~keep).sum())
@@ -794,10 +841,11 @@ def get_cache_path(
 
     cache_dir.mkdir(parents=True, exist_ok=True)
 
-    # Compute hash based on file content (first 1MB) + modification time + filter setting
+    # Compute hash based on file content (first 1MB) + modification time + filter setting.
+    # FILTER_VERSION invalidates entries written by older filter derivations.
     stat = h5m_path.stat()
     filter_flag = "filtered" if filtered else "unfiltered"
-    hash_input = f"{h5m_path.name}:{stat.st_size}:{stat.st_mtime}:{filter_flag}"
+    hash_input = f"{h5m_path.name}:{stat.st_size}:{stat.st_mtime}:{filter_flag}:v{FILTER_VERSION}"
     file_hash = hashlib.md5(hash_input.encode()).hexdigest()[:12]
 
     suffix = "_filtered" if filtered else "_raw"
@@ -811,17 +859,17 @@ def convert_h5m_to_vtk_cached(
     use_cache: bool = True,
     cache_dir: str = None,
     do_filter_graveyard: bool = True,
-    max_cell_area: float = 1000.0,
-    max_edge_length: float = 35.0,
+    max_cell_area: float = None,
+    max_edge_length: float = None,
 ) -> dict:
     """Convert H5M to VTK with caching and optional graveyard filtering.
 
     Inputs: ``h5m_path`` (path to the ``.h5m`` file), ``use_cache``
     (default True), optional ``cache_dir`` (default: the temp-dir
     ``nuke-visualizer/dagmc`` cache), ``do_filter_graveyard`` (default
-    True), ``max_cell_area`` (default 1000.0) and ``max_edge_length``
-    (default 35.0) — the filter limits are forwarded to
-    :func:`filter_graveyard` unchanged.
+    True), ``max_cell_area`` / ``max_edge_length`` (default None: derived
+    from the mesh bbox by :func:`filter_graveyard`) — explicit limits are
+    forwarded to :func:`filter_graveyard` unchanged.
     Output: dict with ``vtk_path``, ``from_cache``, ``original_cells``
     and ``filtered_cells``.
     Raises :class:`DagmcError` for a bad path, a missing file, invalid
@@ -916,7 +964,6 @@ if __name__ == "__main__":
             use_cache=True,
             cache_dir=output_dir,
             do_filter_graveyard=True,
-            max_cell_area=100.0,
         )
 
         print("\nConversion complete!")

@@ -14,13 +14,11 @@
       "name": "gmsh",
       "required": false,
       "condaSpec": "python-gmsh"
-    }
-  ],
-  "dagmcServer": [
+    },
     {
-      "name": "moab",
-      "required": false,
-      "extraIndexUrl": "https://shimwell.github.io/wheels"
+      "name": "vtk",
+      "required": true,
+      "condaSpec": "vtk"
     }
   ],
   "step": [
@@ -28,6 +26,11 @@
       "name": "gmsh",
       "required": true,
       "condaSpec": "python-gmsh"
+    },
+    {
+      "name": "vtk",
+      "required": true,
+      "condaSpec": "vtk"
     }
   ],
   "exodus": [
@@ -54,6 +57,11 @@
       "name": "ncrystal",
       "required": false,
       "condaSpec": "ncrystal"
+    },
+    {
+      "name": "vtk",
+      "required": true,
+      "condaSpec": "vtk"
     }
   ]
 }

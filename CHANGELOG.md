@@ -22,12 +22,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a time-slider viewer (per-step points, global-range colormapping,
   instant array switching) backed by the headless `base.exodus-series`
   extractor (optional `netCDF4`/`meshio` dependencies).
+- nuke-visualizer: **viewer navigation and tools** — OrbitControls camera
+  (orbit/pan/zoom with damping) in all native viewers, plus Shading
+  (shaded/wireframe/points/x-ray) and clip-plane (axis/position/flip)
+  controls in the viewer headers. Surfaces render lit with facet shading;
+  the 3D view has an ISO/top/front/right + fit + zoom nav cluster, a
+  right-click view menu, and Nuke tooltips instead of native titles.
+- nuke-visualizer: **`vtk` is now a required dependency** (it used to ride
+  in via paraview) — environments without it get a guided install instead
+  of a `vtk not installed` failure at conversion time.
+- openmc-studio: **DAGMC Editor routes CAD files to import** — picking a
+  STEP/IGES/BREP/STL file through Open now converts it instead of landing
+  on an empty model, and zero-volume loads warn instead of staying silent.
 - nuke-visualizer: **native-first generic viewer and View 3D** — XML and
   legacy-ASCII VTK files (including STEP, DAGMC, and FEM outputs) and the
   geometry tree's View 3D now render natively with instant color control;
   binary legacy VTK and unparseable files show an error instead.
   Large converter meshes (tens of MB) open through a raised 256 MB viewer
   read budget instead of hitting the editor file-size gate.
+- nuke-visualizer: **filled-surface rendering** — triangle datasets render
+  as shaded surfaces instead of wireframe outlines (per-cell coloring exact
+  via a non-indexed corner soup); line-only data is unchanged.
+- nuke-visualizer: **fixed DAGMC graveyard filtering eating real geometry**
+  — limits now derive from the mesh bounding box instead of a hardcoded
+  100-unit area cap (a tokamak kept 2,420 of 74,638 facets before; it now
+  keeps 74,614 and drops only the 24 graveyard faces), with a fallback that
+  never wipes small models. Old filtered caches are invalidated
+  automatically; reopen the file (or Retry) to reconvert.
 - nuke-visualizer: **trame/ParaView servers removed** — `base.serve`,
   `dagmc.visualize`, and the tally/geometry trame servers are deleted along
   with the proxy/iframe layer and the `trame`/`paraview` dependencies;

@@ -28,6 +28,7 @@
 import * as React from 'react';
 import { injectable, postConstruct } from '@theia/core/shared/inversify';
 import { codicon } from '@theia/core/lib/browser/widgets/widget';
+import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
 import { NativeVtkViewerWidget } from '../native-vtk-viewer-widget';
 import { OpenMCVtkArrayInfo } from '../../../../../common/openmc-protocol';
 import {
@@ -135,11 +136,13 @@ export class TallyNativeViewerWidget extends NativeVtkViewerWidget {
         return (
             <>
                 {super.renderHeader()}
-                <span className="openmc-output-viewer-file" title={this.describeTallyKind()} style={{ fontSize: '11px', opacity: 0.8 }}>
-                    <i className={codicon('tag')}></i>
-                    {this.tallyKind}
-                    {this.sliceAxis ? ` ⟂ ${this.sliceAxis}` : ''}
-                </span>
+                <Tooltip content={this.describeTallyKind()} position="bottom">
+                    <span className="openmc-output-viewer-file" style={{ fontSize: '11px', opacity: 0.8 }}>
+                        <i className={codicon('tag')}></i>
+                        {this.tallyKind}
+                        {this.sliceAxis ? ` ⟂ ${this.sliceAxis}` : ''}
+                    </span>
+                </Tooltip>
             </>
         );
     }

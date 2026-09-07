@@ -34,6 +34,7 @@ import { codicon } from '@theia/core/lib/browser/widgets/widget';
 import URI from '@theia/core/lib/common/uri';
 import { MessageService } from '@theia/core/lib/common';
 import { FileService } from '@theia/filesystem/lib/browser/file-service';
+import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
 import {
     ClassifiedNativeVtkArrays,
     classifyNativeVtkArrays,
@@ -60,6 +61,16 @@ import {
     fitClipOriginToBounds,
     toThreePlaneParams
 } from '../../../../viewer-core/clip-plane';
+import { createOrbitControls, standardViewDirection, type OrbitControlsHandle } from '../../../../viewer-core/orbit-controls';
+import { isViewerContextMenuClick, openViewerContextMenu } from '../../../../viewer-core/viewer-context-menu';
+import {
+    DEFAULT_VIEWER_SHADING_MODE,
+    VIEWER_SHADING_MODES,
+    ViewerShadingMode,
+    isViewerShadingMode,
+    nextViewerShadingMode,
+    resolveViewerShadingFlags
+} from '../../../../viewer-core/shading-mode';
 import { DagmcBlockModel, mergeDagmcBounds, parseBlockDataset, parseVtmManifest } from './dagmc-multiblock';
 import {
     DagmcModelInfo,
@@ -75,6 +86,7 @@ import {
     toggleDagmcVolume,
     visibleDagmcVolumeIds
 } from './dagmc-toggle-model';
+import { ViewerNavAction, ViewerNavCluster } from '../viewer-nav-cluster';
 import '../output-viewer.css';
 
 /**
@@ -94,20 +106,14 @@ export interface DagmcViewerProps {
     pointSize?: number;
     /** Material opacity in [0, 1]. */
     opacity?: number;
+    /** Shading mode (`shaded` | `wireframe` | `points` | `xray`). */
+    shading?: ViewerShadingMode;
     /** Clip state; applied only when `clipEnabled` is true. */
     clip?: ClipPlaneState;
     /** Whether the clip plane is active. */
     clipEnabled?: boolean;
     /** Volume/material/group visibility (toggle model). */
     visibility?: DagmcVisibility;
-}
-
-/** Orbit state for the viewer's minimal built-in navigation. */
-interface DagmcOrbit {
-    theta: number;
-    phi: number;
-    distance: number;
-    target: THREE.Vector3;
 }
 
 /** Render-vertex kind used to map vertices back to data tuples. */
@@ -149,6 +155,7 @@ export class DagmcViewerWidget extends ReactWidget {
     protected solidColor = '#d4d4d4';
     protected pointSize = DEFAULT_VIEWER_TOOLBAR_STATE.pointSize;
     protected opacity = DEFAULT_VIEWER_TOOLBAR_STATE.opacity;
+    protected shading: ViewerShadingMode = DEFAULT_VIEWER_SHADING_MODE;
     protected clip: ClipPlaneState = createClipPlaneState();
     protected clipEnabled = false;
     protected isLoading = false;
@@ -162,8 +169,9 @@ export class DagmcViewerWidget extends ReactWidget {
     private scene: THREE.Scene | undefined;
     private camera: THREE.PerspectiveCamera | undefined;
     private dataGroup: THREE.Group | undefined;
-    private orbit: DagmcOrbit | undefined;
+    private orbitControls: OrbitControlsHandle | undefined;
     private resizeObserver: ResizeObserver | undefined;
+    private contextMenuClose: (() => void) | undefined;
 
     @postConstruct()
     protected init(): void {
@@ -185,6 +193,7 @@ export class DagmcViewerWidget extends ReactWidget {
             solidColor: this.solidColor,
             pointSize: this.pointSize,
             opacity: this.opacity,
+            shading: this.shading,
             clip: { ...this.clip, normal: [...this.clip.normal], origin: [...this.clip.origin] },
             clipEnabled: this.clipEnabled,
             visibility: { ...this.visibility }
@@ -218,6 +227,10 @@ export class DagmcViewerWidget extends ReactWidget {
                 styleChanged = true;
             }
         }
+        if (props.shading !== undefined && isViewerShadingMode(props.shading) && props.shading !== this.shading) {
+            this.shading = props.shading;
+            styleChanged = true;
+        }
         if (props.clip !== undefined) {
             this.clip = props.clip;
             styleChanged = true;
@@ -235,6 +248,7 @@ export class DagmcViewerWidget extends ReactWidget {
         } else if (styleChanged) {
             this.recolor();
             this.applyClip();
+            this.applyShadingVisibility();
             this.syncMaterialProps();
             this.renderScene();
         }
@@ -340,17 +354,13 @@ export class DagmcViewerWidget extends ReactWidget {
         link.click();
     }
 
-    /** Frame all visible blocks. */
+    /** Frame all visible blocks through the orbit controls (target + distance). */
     fitView(): void {
         const bounds = mergeDagmcBounds(this.visibleBlocks());
-        if (!bounds || !this.camera || !this.orbit) {
+        if (!bounds || !this.camera || !this.orbitControls) {
             return;
         }
-        const box = new THREE.Box3(new THREE.Vector3(...bounds.min), new THREE.Vector3(...bounds.max));
-        const sphere = box.getBoundingSphere(new THREE.Sphere());
-        this.orbit.target.copy(sphere.center);
-        this.orbit.distance = Math.max(sphere.radius * 2.2, 1e-6);
-        this.applyOrbit();
+        this.orbitControls.fitBounds(bounds.min, bounds.max);
     }
 
     // ------------------------------------------------------------------
@@ -404,38 +414,44 @@ export class DagmcViewerWidget extends ReactWidget {
                 </span>
                 {this.renderColorBySelect()}
                 {this.renderColormapSelect()}
-                <button
-                    className={`theia-button${this.colorBy === SOLID_COLOR ? '' : ' secondary'}`}
-                    onClick={() => this.applyProps({ colorBy: SOLID_COLOR })}
-                    disabled={this.isLoading || this.blocks.length === 0}
-                    title="Solid color (no data mapping)"
-                >
-                    Solid
-                </button>
-                <button
-                    className="theia-button secondary"
-                    onClick={() => this.fitView()}
-                    disabled={this.isLoading || this.blocks.length === 0}
-                    title="Fit view to visible volumes"
-                >
-                    <i className={codicon('screen-full')}></i>
-                </button>
-                <button
-                    className="theia-button secondary"
-                    onClick={() => this.saveScreenshot()}
-                    disabled={this.isLoading || this.blocks.length === 0}
-                    title="Download PNG screenshot"
-                >
-                    <i className={codicon('device-camera')}></i>
-                </button>
-                <button
-                    className="theia-button secondary"
-                    onClick={() => this.vtmUri && this.setVtmFile(this.vtmUri)}
-                    disabled={this.isLoading || !this.vtmUri}
-                    title="Reload manifest"
-                >
-                    <i className={codicon('refresh')}></i>
-                </button>
+                {this.renderShadingSelect()}
+                {this.renderClipControls()}
+                <Tooltip content="Solid color (no data mapping)" position="bottom">
+                    <button
+                        className={`theia-button${this.colorBy === SOLID_COLOR ? '' : ' secondary'}`}
+                        onClick={() => this.applyProps({ colorBy: SOLID_COLOR })}
+                        disabled={this.isLoading || this.blocks.length === 0}
+                    >
+                        Solid
+                    </button>
+                </Tooltip>
+                <Tooltip content="Fit view to visible volumes" position="bottom">
+                    <button
+                        className="theia-button secondary"
+                        onClick={() => this.fitView()}
+                        disabled={this.isLoading || this.blocks.length === 0}
+                    >
+                        <i className={codicon('screen-full')}></i>
+                    </button>
+                </Tooltip>
+                <Tooltip content="Download PNG screenshot" position="bottom">
+                    <button
+                        className="theia-button secondary"
+                        onClick={() => this.saveScreenshot()}
+                        disabled={this.isLoading || this.blocks.length === 0}
+                    >
+                        <i className={codicon('device-camera')}></i>
+                    </button>
+                </Tooltip>
+                <Tooltip content="Reload manifest" position="bottom">
+                    <button
+                        className="theia-button secondary"
+                        onClick={() => this.vtmUri && this.setVtmFile(this.vtmUri)}
+                        disabled={this.isLoading || !this.vtmUri}
+                    >
+                        <i className={codicon('refresh')}></i>
+                    </button>
+                </Tooltip>
             </div>
         );
     }
@@ -460,16 +476,18 @@ export class DagmcViewerWidget extends ReactWidget {
         push(this.classified.ids);
         push(this.classified.other);
         return (
-            <label className="openmc-output-viewer-control" title="Color-by array (applies instantly, no viewer restart)">
-                Color by
-                <select value={this.colorBy} onChange={(e) => this.applyProps({ colorBy: e.target.value })} disabled={this.isLoading}>
-                    {options.map((option) => (
-                        <option key={option.value} value={option.value}>
-                            {option.label}
-                        </option>
-                    ))}
-                </select>
-            </label>
+            <Tooltip content="Color-by array (applies instantly, no viewer restart)" position="bottom">
+                <label className="openmc-output-viewer-control">
+                    Color by
+                    <select value={this.colorBy} onChange={(e) => this.applyProps({ colorBy: e.target.value })} disabled={this.isLoading}>
+                        {options.map((option) => (
+                            <option key={option.value} value={option.value}>
+                                {option.label}
+                            </option>
+                        ))}
+                    </select>
+                </label>
+            </Tooltip>
         );
     }
 
@@ -478,20 +496,46 @@ export class DagmcViewerWidget extends ReactWidget {
             return undefined;
         }
         return (
-            <label className="openmc-output-viewer-control" title="Colormap (applies instantly)">
-                Map
-                <select
-                    value={this.colormap}
-                    onChange={(e) => this.applyProps({ colormap: e.target.value as NativeVtkColormapName })}
-                    disabled={this.isLoading}
-                >
-                    {NATIVE_VTK_COLORMAPS.map((name) => (
-                        <option key={name} value={name}>
-                            {name}
-                        </option>
-                    ))}
-                </select>
-            </label>
+            <Tooltip content="Colormap (applies instantly)" position="bottom">
+                <label className="openmc-output-viewer-control">
+                    Map
+                    <select
+                        value={this.colormap}
+                        onChange={(e) => this.applyProps({ colormap: e.target.value as NativeVtkColormapName })}
+                        disabled={this.isLoading}
+                    >
+                        {NATIVE_VTK_COLORMAPS.map((name) => (
+                            <option key={name} value={name}>
+                                {name}
+                            </option>
+                        ))}
+                    </select>
+                </label>
+            </Tooltip>
+        );
+    }
+
+    protected renderShadingSelect(): React.ReactNode {
+        if (this.blocks.length === 0) {
+            return undefined;
+        }
+        return (
+            <Tooltip content="Shading mode (applies instantly)" position="bottom">
+                <label className="openmc-output-viewer-control">
+                    Shading
+                    <select
+                        value={this.shading}
+                        onChange={(e) => this.applyProps({ shading: e.target.value as ViewerShadingMode })}
+                        disabled={this.isLoading}
+                    >
+                        {VIEWER_SHADING_MODES.map((mode) => (
+                            <option key={mode.id} value={mode.id}>
+                                {mode.label}
+                            </option>
+                        ))}
+                    </select>
+                </label>
+            </Tooltip>
         );
     }
 
@@ -511,7 +555,10 @@ export class DagmcViewerWidget extends ReactWidget {
                         {this.describeBlocks()}
                         {this.note ? ` — ${this.note}` : ''} Drag to orbit, wheel to zoom, right-drag to pan.
                     </div>
-                    <div ref={this.attachHost} style={{ flex: '1', minHeight: '0', position: 'relative' }} />
+                    <div style={{ flex: '1', minHeight: '0', position: 'relative', display: 'flex' }}>
+                        <div ref={this.attachHost} style={{ flex: '1', minHeight: '0', position: 'relative' }} />
+                        {this.renderNavCluster()}
+                    </div>
                     {this.renderLegend()}
                 </div>
                 {this.renderSidePanel()}
@@ -519,19 +566,40 @@ export class DagmcViewerWidget extends ReactWidget {
         );
     }
 
+    /** CAD-style nav cluster over the 3D viewarea, driving the orbit handle. */
+    protected renderNavCluster(): React.ReactNode {
+        return (
+            <ViewerNavCluster disabled={this.isLoading || this.blocks.length === 0} onAction={(action) => this.handleNavAction(action)} />
+        );
+    }
+
+    private handleNavAction(action: ViewerNavAction): void {
+        if (action === 'fit') {
+            this.fitView();
+            return;
+        }
+        if (action === 'zoom-in') {
+            this.orbitControls?.zoomBy(0.8);
+            return;
+        }
+        if (action === 'zoom-out') {
+            this.orbitControls?.zoomBy(1.25);
+            return;
+        }
+        this.orbitControls?.setViewDirection(standardViewDirection(action));
+    }
+
     protected renderSidePanel(): React.ReactNode {
         if (this.blocks.length === 0) {
             return undefined;
         }
-        return (
-            <div style={{ display: 'flex', gap: '16px', padding: '4px 8px', flexWrap: 'wrap' }}>
-                {this.renderClipControls()}
-                {this.renderToggleControls()}
-            </div>
-        );
+        return <div style={{ display: 'flex', gap: '16px', padding: '4px 8px', flexWrap: 'wrap' }}>{this.renderToggleControls()}</div>;
     }
 
     protected renderClipControls(): React.ReactNode {
+        if (this.blocks.length === 0) {
+            return undefined;
+        }
         const bounds = mergeDagmcBounds(this.visibleBlocks());
         const extent = bounds ? clipProjectionExtent(bounds, this.clip.normal) : { min: 0, max: 0 };
         const span = extent.max - extent.min;
@@ -540,60 +608,60 @@ export class DagmcViewerWidget extends ReactWidget {
             this.clip.normal[1] * this.clip.origin[1] +
             this.clip.normal[2] * this.clip.origin[2];
         const fraction = span > 0 ? (dot - extent.min) / span : 0.5;
-        const axes: { label: string; normal: [number, number, number] }[] = [
-            { label: 'X', normal: [1, 0, 0] },
-            { label: 'Y', normal: [0, 1, 0] },
-            { label: 'Z', normal: [0, 0, 1] }
-        ];
+        const axis = dominantClipAxis(this.clip.normal);
         return (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }} title="Arbitrary-normal clip plane (viewer-core clip state)">
-                <label style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <input
-                        type="checkbox"
-                        checked={this.clipEnabled}
-                        onChange={(e) => this.applyProps({ clipEnabled: e.target.checked })}
-                    />
-                    Clip
-                </label>
-                {axes.map((axis) => (
-                    <button
-                        key={axis.label}
-                        className="theia-button secondary"
-                        title={`Clip normal ${axis.label}`}
-                        disabled={!this.clipEnabled}
-                        style={
-                            this.clip.normal.every((v, i) => Math.abs(v - axis.normal[i]) < 1e-9)
-                                ? { outline: '1px solid var(--theia-focusBorder)' }
-                                : undefined
-                        }
-                        onClick={() => this.applyProps({ clip: { ...this.clip, normal: axis.normal } })}
+            <span className="openmc-output-viewer-control">
+                <Tooltip content="Clip plane: axis, position, and kept half-space (applies instantly)" position="bottom">
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <input
+                            type="checkbox"
+                            checked={this.clipEnabled}
+                            onChange={(e) => this.applyProps({ clipEnabled: e.target.checked })}
+                            disabled={this.isLoading}
+                        />
+                        Clip
+                    </label>
+                </Tooltip>
+                <Tooltip content="Clip axis (plane normal)" position="bottom">
+                    <select
+                        value={axis}
+                        onChange={(e) => this.applyProps({ clip: { ...this.clip, normal: clipAxisNormal(e.target.value) } })}
+                        disabled={this.isLoading || !this.clipEnabled}
                     >
-                        {axis.label}
+                        <option value="X">X</option>
+                        <option value="Y">Y</option>
+                        <option value="Z">Z</option>
+                    </select>
+                </Tooltip>
+                <Tooltip content="Clip position (percent across the dataset)" position="bottom">
+                    <input
+                        type="range"
+                        min={0}
+                        max={100}
+                        step={1}
+                        value={Math.round(Math.min(1, Math.max(0, fraction)) * 100)}
+                        disabled={this.isLoading || !this.clipEnabled || !bounds}
+                        onChange={(e) =>
+                            bounds &&
+                            this.applyProps({
+                                clip: {
+                                    ...this.clip,
+                                    origin: clipOriginAtFraction(this.clip.normal, bounds, parseFloat(e.target.value) / 100)
+                                }
+                            })
+                        }
+                    />
+                </Tooltip>
+                <Tooltip content="Flip kept half-space" position="bottom">
+                    <button
+                        className="theia-button secondary"
+                        disabled={this.isLoading || !this.clipEnabled}
+                        onClick={() => this.applyProps({ clip: { ...this.clip, invert: !this.clip.invert } })}
+                    >
+                        {this.clip.invert ? 'Unflip' : 'Flip'}
                     </button>
-                ))}
-                <button
-                    className="theia-button secondary"
-                    title="Flip kept half-space"
-                    disabled={!this.clipEnabled}
-                    onClick={() => this.applyProps({ clip: { ...this.clip, invert: !this.clip.invert } })}
-                >
-                    {this.clip.invert ? 'Unflip' : 'Flip'}
-                </button>
-                <input
-                    type="range"
-                    min={0}
-                    max={1}
-                    step={0.01}
-                    value={Math.min(1, Math.max(0, fraction))}
-                    disabled={!this.clipEnabled || !bounds}
-                    title="Sweep the plane origin across the dataset"
-                    onChange={(e) =>
-                        this.applyProps({
-                            clip: { ...this.clip, origin: clipOriginAtFraction(this.clip.normal, bounds!, parseFloat(e.target.value)) }
-                        })
-                    }
-                />
-            </div>
+                </Tooltip>
+            </span>
         );
     }
 
@@ -771,8 +839,8 @@ export class DagmcViewerWidget extends ReactWidget {
         directional.position.set(1, 2, 3);
         this.scene.add(directional);
         this.camera = new THREE.PerspectiveCamera(45, 1, 0.01, 1e9);
-        this.orbit = { theta: Math.PI / 4, phi: Math.PI / 3, distance: 10, target: new THREE.Vector3() };
-        this.attachOrbitHandlers(this.renderer.domElement);
+        this.attachOrbitControls();
+        this.attachContextMenu(this.renderer.domElement);
         this.resizeObserver = new ResizeObserver(() => this.resizeRenderer());
         if (this.host) {
             this.resizeObserver.observe(this.host);
@@ -786,8 +854,12 @@ export class DagmcViewerWidget extends ReactWidget {
     }
 
     private teardownRenderer(): void {
+        this.contextMenuClose?.();
+        this.contextMenuClose = undefined;
         this.resizeObserver?.disconnect();
         this.resizeObserver = undefined;
+        this.orbitControls?.dispose();
+        this.orbitControls = undefined;
         if (this.renderer) {
             this.renderer.dispose();
             this.renderer.domElement.remove();
@@ -796,7 +868,6 @@ export class DagmcViewerWidget extends ReactWidget {
         this.scene = undefined;
         this.camera = undefined;
         this.dataGroup = undefined;
-        this.orbit = undefined;
     }
 
     private resizeRenderer(): void {
@@ -829,7 +900,7 @@ export class DagmcViewerWidget extends ReactWidget {
 
     /** Rebuild the data group from the visible blocks (new dataset or toggle change). */
     private buildScene(): void {
-        if (!this.scene || !this.camera || !this.orbit) {
+        if (!this.scene || !this.camera) {
             return;
         }
         if (this.dataGroup) {
@@ -850,13 +921,18 @@ export class DagmcViewerWidget extends ReactWidget {
         this.fitView();
         this.recolor();
         this.applyClip();
+        this.applyShadingVisibility();
         this.syncMaterialProps();
         this.renderScene();
     }
 
     private buildBlockObjects(block: DagmcBlockModel): THREE.Object3D[] {
         if (block.triangles && block.triangles.length > 0) {
-            return [this.buildBlockMesh(block), this.buildBlockEdges(block)];
+            // Mesh blocks also carry a point cloud over the same vertices
+            // (shared position buffer, zero-copy) so `points` shading mode has
+            // something to show; visibility picks the representation.
+            const positions = this.blockMeshPositions(block);
+            return [this.buildBlockMesh(block, positions), this.buildBlockEdges(block), this.buildBlockPointCloud(block, positions)];
         }
         if (block.segments && block.segments.length > 0) {
             return [this.buildBlockLines(block)];
@@ -868,7 +944,8 @@ export class DagmcViewerWidget extends ReactWidget {
         return new THREE.BufferAttribute(new Float32Array(count * 3), 3);
     }
 
-    private buildBlockMesh(block: DagmcBlockModel): THREE.Mesh {
+    /** Expanded per-vertex positions for triangle-mesh blocks. */
+    private blockMeshPositions(block: DagmcBlockModel): Float32Array {
         const triangles = block.triangles ?? new Uint32Array(0);
         const positions = new Float32Array(triangles.length * 3);
         for (let i = 0; i < triangles.length; i++) {
@@ -877,6 +954,11 @@ export class DagmcViewerWidget extends ReactWidget {
             positions[i * 3 + 1] = block.positions[point + 1];
             positions[i * 3 + 2] = block.positions[point + 2];
         }
+        return positions;
+    }
+
+    private buildBlockMesh(block: DagmcBlockModel, positions: Float32Array): THREE.Mesh {
+        const triangles = block.triangles ?? new Uint32Array(0);
         const geometry = new THREE.BufferGeometry();
         geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
         geometry.setAttribute('color', this.makeColorAttribute(triangles.length));
@@ -889,6 +971,23 @@ export class DagmcViewerWidget extends ReactWidget {
             side: THREE.DoubleSide
         });
         return new THREE.Mesh(geometry, material);
+    }
+
+    /** Point cloud over mesh vertices (shares the mesh position buffer); shown in `points` mode. */
+    private buildBlockPointCloud(block: DagmcBlockModel, positions: Float32Array): THREE.Points {
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        geometry.setAttribute('color', this.makeColorAttribute(positions.length / 3));
+        geometry.userData = { blockIndex: block.blockIndex, kind: 'mesh' as DagmcRenderKind, role: 'mesh-points' };
+        const material = new THREE.PointsMaterial({
+            size: this.pointSize,
+            vertexColors: true,
+            transparent: true,
+            opacity: this.opacity,
+            sizeAttenuation: false,
+            depthWrite: false
+        });
+        return new THREE.Points(geometry, material);
     }
 
     private buildBlockEdges(block: DagmcBlockModel): THREE.LineSegments {
@@ -1060,18 +1159,54 @@ export class DagmcViewerWidget extends ReactWidget {
     }
 
     private syncMaterialProps(): void {
+        const flags = resolveViewerShadingFlags(this.shading, this.opacity);
         this.dataGroup?.traverse((child) => {
             if (child instanceof THREE.Points) {
                 const material = child.material as THREE.PointsMaterial;
                 material.size = this.pointSize;
-                material.opacity = this.opacity;
+                material.opacity = flags.opacity;
+                material.transparent = flags.transparent;
             } else if (child instanceof THREE.LineSegments) {
                 const material = child.material as THREE.LineBasicMaterial;
-                material.opacity = this.opacity;
+                material.opacity = flags.opacity;
+                material.transparent = flags.transparent;
+                material.depthWrite = flags.depthWrite;
             } else if (child instanceof THREE.Mesh) {
                 const material = child.material as THREE.MeshLambertMaterial;
-                material.opacity = this.opacity;
+                material.wireframe = flags.wireframe;
+                material.opacity = flags.opacity;
+                material.transparent = flags.transparent;
+                material.depthWrite = flags.depthWrite;
             }
+        });
+    }
+
+    /** Toggle mesh/edge/point visibility for `wireframe`/`points` modes. */
+    private applyShadingVisibility(): void {
+        if (!this.dataGroup) {
+            return;
+        }
+        const flags = resolveViewerShadingFlags(this.shading, this.opacity);
+        this.dataGroup.children.forEach((group) => {
+            group.children.forEach((child) => {
+                if (!(child instanceof THREE.Mesh || child instanceof THREE.Points || child instanceof THREE.LineSegments)) {
+                    return;
+                }
+                const geometry = child.geometry as THREE.BufferGeometry;
+                const role = geometry.userData?.['role'];
+                const kind = geometry.userData?.['kind'] as DagmcRenderKind | undefined;
+                if (child instanceof THREE.Mesh) {
+                    child.visible = !flags.pointsOnly;
+                } else if (role === 'mesh-points') {
+                    child.visible = flags.pointsOnly;
+                } else if (kind === 'edges') {
+                    // Edges back shaded/xray faces; wireframe and points modes
+                    // have their own representation already.
+                    child.visible = !flags.pointsOnly && !flags.wireframe;
+                } else {
+                    child.visible = true;
+                }
+            });
         });
     }
 
@@ -1108,79 +1243,117 @@ export class DagmcViewerWidget extends ReactWidget {
     }
 
     // ------------------------------------------------------------------
-    // Minimal orbit navigation (rotate / zoom / pan + fit)
+    // Orbit navigation (three.js OrbitControls via the shared viewer-core
+    // helper; gestures render on demand through `renderScene`)
     // ------------------------------------------------------------------
 
-    private attachOrbitHandlers(canvas: HTMLCanvasElement): void {
-        let dragging = false;
-        let button = 0;
-        let lastX = 0;
-        let lastY = 0;
-        canvas.addEventListener('pointerdown', (e) => {
-            dragging = true;
-            button = e.button;
-            lastX = e.clientX;
-            lastY = e.clientY;
-            canvas.setPointerCapture(e.pointerId);
-        });
-        canvas.addEventListener('pointermove', (e) => {
-            if (!dragging || !this.orbit) {
-                return;
-            }
-            const dx = e.clientX - lastX;
-            const dy = e.clientY - lastY;
-            lastX = e.clientX;
-            lastY = e.clientY;
-            if (button === 2 || button === 1 || e.shiftKey) {
-                this.panBy(dx, dy);
-            } else {
-                this.orbit.theta -= dx * 0.005;
-                this.orbit.phi = Math.min(Math.PI - 0.01, Math.max(0.01, this.orbit.phi - dy * 0.005));
-                this.applyOrbit();
+    /**
+     * Right-click (no-drag) opens the view-action context menu. OrbitControls
+     * owns right-drag pan on the same canvas, so the menu only opens when
+     * the release lands within ~5px of the press.
+     */
+    private attachContextMenu(canvas: HTMLCanvasElement): void {
+        let downX = 0;
+        let downY = 0;
+        let downButton = -1;
+        canvas.addEventListener('pointerdown', (event) => {
+            if (event.button === 2) {
+                downX = event.clientX;
+                downY = event.clientY;
+                downButton = 2;
             }
         });
-        const stop = (): void => {
-            dragging = false;
-        };
-        canvas.addEventListener('pointerup', stop);
-        canvas.addEventListener('pointercancel', stop);
-        canvas.addEventListener(
-            'wheel',
-            (e) => {
-                e.preventDefault();
-                if (this.orbit) {
-                    this.orbit.distance = Math.max(1e-6, this.orbit.distance * Math.exp(e.deltaY * 0.001));
-                    this.applyOrbit();
+        canvas.addEventListener('pointerup', (event) => {
+            if (event.button === 2 && downButton === 2) {
+                downButton = -1;
+                if (isViewerContextMenuClick(downX, downY, event.clientX, event.clientY)) {
+                    this.openContextMenu(event.clientX, event.clientY);
                 }
-            },
-            { passive: false }
-        );
-        canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+            }
+        });
     }
 
-    private applyOrbit(): void {
-        if (!this.camera || !this.orbit) {
+    /** View-action menu: fit, screenshot, clip toggle, shading cycle. */
+    private openContextMenu(clientX: number, clientY: number): void {
+        if (this.blocks.length === 0) {
             return;
         }
-        const { theta, phi, distance, target } = this.orbit;
-        this.camera.position.set(
-            target.x + distance * Math.sin(phi) * Math.cos(theta),
-            target.y + distance * Math.cos(phi),
-            target.z + distance * Math.sin(phi) * Math.sin(theta)
+        this.contextMenuClose?.();
+        const shadingLabel = VIEWER_SHADING_MODES.find((mode) => mode.id === this.shading)?.label ?? this.shading;
+        this.contextMenuClose = openViewerContextMenu(
+            { x: clientX, y: clientY },
+            [
+                { id: 'fit', label: 'Fit to View' },
+                { id: 'screenshot', label: 'Save Screenshot (PNG)' },
+                { id: 'clip', label: 'Clip Plane', checked: this.clipEnabled },
+                { id: 'shading', label: `Shading: ${shadingLabel}` }
+            ],
+            (id) => this.handleContextMenuAction(id)
         );
-        this.camera.lookAt(target);
-        this.renderScene();
     }
 
-    private panBy(dx: number, dy: number): void {
-        if (!this.camera || !this.orbit) {
+    private handleContextMenuAction(id: string): void {
+        if (id === 'fit') {
+            this.fitView();
+        } else if (id === 'screenshot') {
+            this.saveScreenshot();
+        } else if (id === 'clip') {
+            this.applyProps({ clipEnabled: !this.clipEnabled });
+        } else if (id === 'shading') {
+            this.applyProps({ shading: nextViewerShadingMode(this.shading) });
+        }
+        this.update();
+    }
+
+    /**
+     * Attach OrbitControls to the renderer canvas. The controls class loads
+     * asynchronously (same dynamic import style as nuke-cad); a renderer
+     * teardown before the import resolves disposes the stale handle. Once
+     * attached, the visible blocks are framed through the controls.
+     */
+    private attachOrbitControls(): void {
+        const renderer = this.renderer;
+        const camera = this.camera;
+        if (!renderer || !camera) {
             return;
         }
-        const scale = this.orbit.distance / Math.max(1, this.camera.aspect * 500);
-        const right = new THREE.Vector3().setFromMatrixColumn(this.camera.matrix, 0);
-        const up = new THREE.Vector3().setFromMatrixColumn(this.camera.matrix, 1);
-        this.orbit.target.addScaledVector(right, -dx * scale);
-        this.orbit.target.addScaledVector(up, dy * scale);
-        this.applyOrbit();
+        createOrbitControls(camera, renderer.domElement, { onChange: () => this.renderScene() })
+            .then((handle) => {
+                if (this.renderer !== renderer) {
+                    handle.dispose();
+                    return;
+                }
+                this.orbitControls?.dispose();
+                this.orbitControls = handle;
+                this.fitView();
+            })
+            .catch((error) => {
+                console.warn('[DagmcViewer] Failed to load orbit controls:', error);
+            });
     }
+}
+
+/** Dominant axis of a clip normal, driving the header axis select. */
+function dominantClipAxis(normal: readonly [number, number, number]): 'X' | 'Y' | 'Z' {
+    const ax = Math.abs(normal[0]);
+    const ay = Math.abs(normal[1]);
+    const az = Math.abs(normal[2]);
+    if (ay > ax && ay >= az) {
+        return 'Y';
+    }
+    if (az > ax && az > ay) {
+        return 'Z';
+    }
+    return 'X';
+}
+
+/** Unit normal for a header axis-select value. */
+function clipAxisNormal(axis: string): [number, number, number] {
+    if (axis === 'Y') {
+        return [0, 1, 0];
+    }
+    if (axis === 'Z') {
+        return [0, 0, 1];
+    }
+    return [1, 0, 0];
 }

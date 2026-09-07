@@ -34,6 +34,7 @@ import { codicon } from '@theia/core/lib/browser/widgets/widget';
 import URI from '@theia/core/lib/common/uri';
 import { MessageService } from '@theia/core/lib/common';
 import { FileService } from '@theia/filesystem/lib/browser/file-service';
+import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
 import {
     ClassifiedNativeVtkArrays,
     classifyNativeVtkArrays,
@@ -53,7 +54,26 @@ import {
     strideForBudget,
     tupleValue
 } from './native-vtk/native-vtk-data';
+import { createOrbitControls, standardViewDirection, type OrbitControlsHandle } from '../../../viewer-core/orbit-controls';
+import { isViewerContextMenuClick, openViewerContextMenu } from '../../../viewer-core/viewer-context-menu';
+import {
+    ClipPlaneState,
+    boundingBoxFromPositions,
+    clipOriginAtFraction,
+    clipProjectionExtent,
+    createClipPlaneState,
+    toThreePlaneParams
+} from '../../../viewer-core/clip-plane';
+import {
+    DEFAULT_VIEWER_SHADING_MODE,
+    VIEWER_SHADING_MODES,
+    ViewerShadingMode,
+    isViewerShadingMode,
+    nextViewerShadingMode,
+    resolveViewerShadingFlags
+} from '../../../viewer-core/shading-mode';
 import { OpenMCVtkArrayInfo } from '../../../../common/openmc-protocol';
+import { ViewerNavAction, ViewerNavCluster } from './viewer-nav-cluster';
 import './output-viewer.css';
 
 /**
@@ -73,14 +93,12 @@ export interface NativeVtkViewerProps {
     pointSize?: number;
     /** Material opacity in [0, 1]. */
     opacity?: number;
-}
-
-/** Orbit state for the viewer's minimal built-in navigation. */
-interface NativeVtkOrbit {
-    theta: number;
-    phi: number;
-    distance: number;
-    target: THREE.Vector3;
+    /** Shading mode (`shaded` | `wireframe` | `points` | `xray`). */
+    shading?: ViewerShadingMode;
+    /** Clip state; applied only when `clipEnabled` is true. */
+    clip?: ClipPlaneState;
+    /** Whether the clip plane is active. */
+    clipEnabled?: boolean;
 }
 
 /**
@@ -117,6 +135,9 @@ export class NativeVtkViewerWidget extends ReactWidget {
     protected solidColor = '#d4d4d4';
     protected pointSize = 3;
     protected opacity = 1;
+    protected shading: ViewerShadingMode = DEFAULT_VIEWER_SHADING_MODE;
+    protected clip: ClipPlaneState = createClipPlaneState();
+    protected clipEnabled = false;
     protected isLoading = false;
     protected error: string | undefined;
     protected statusMessage = '';
@@ -128,8 +149,9 @@ export class NativeVtkViewerWidget extends ReactWidget {
     private scene: THREE.Scene | undefined;
     private camera: THREE.PerspectiveCamera | undefined;
     private dataGroup: THREE.Group | undefined;
-    private orbit: NativeVtkOrbit | undefined;
+    private orbitControls: OrbitControlsHandle | undefined;
     private resizeObserver: ResizeObserver | undefined;
+    private contextMenuClose: (() => void) | undefined;
 
     @postConstruct()
     protected init(): void {
@@ -150,7 +172,10 @@ export class NativeVtkViewerWidget extends ReactWidget {
             colormap: this.colormap,
             solidColor: this.solidColor,
             pointSize: this.pointSize,
-            opacity: this.opacity
+            opacity: this.opacity,
+            shading: this.shading,
+            clip: { ...this.clip, normal: [...this.clip.normal], origin: [...this.clip.origin] },
+            clipEnabled: this.clipEnabled
         };
     }
 
@@ -175,6 +200,18 @@ export class NativeVtkViewerWidget extends ReactWidget {
         }
         if (props.opacity !== undefined && props.opacity !== this.opacity) {
             this.opacity = Math.min(1, Math.max(0, props.opacity));
+            changed = true;
+        }
+        if (props.shading !== undefined && isViewerShadingMode(props.shading) && props.shading !== this.shading) {
+            this.shading = props.shading;
+            changed = true;
+        }
+        if (props.clip !== undefined) {
+            this.clip = props.clip;
+            changed = true;
+        }
+        if (props.clipEnabled !== undefined && props.clipEnabled !== this.clipEnabled) {
+            this.clipEnabled = props.clipEnabled;
             changed = true;
         }
         if (changed) {
@@ -259,21 +296,21 @@ export class NativeVtkViewerWidget extends ReactWidget {
         link.click();
     }
 
-    /** Frame the loaded dataset. */
+    /** Frame the loaded dataset through the orbit controls (target + distance). */
     fitView(): void {
         const model = this.model;
-        if (!model || !this.camera || !this.orbit) {
+        if (!model || !this.camera || !this.orbitControls) {
+            return;
+        }
+        const positions = model.positions;
+        if (positions.length === 0) {
             return;
         }
         const box = new THREE.Box3();
-        const positions = model.positions;
         for (let i = 0; i < positions.length; i += 3) {
             box.expandByPoint(new THREE.Vector3(positions[i], positions[i + 1], positions[i + 2]));
         }
-        const sphere = box.getBoundingSphere(new THREE.Sphere());
-        this.orbit.target.copy(sphere.center);
-        this.orbit.distance = Math.max(sphere.radius * 2.2, 1e-6);
-        this.applyOrbit();
+        this.orbitControls.fitBounds([box.min.x, box.min.y, box.min.z], [box.max.x, box.max.y, box.max.z]);
     }
 
     // ------------------------------------------------------------------
@@ -299,38 +336,40 @@ export class NativeVtkViewerWidget extends ReactWidget {
                 </span>
                 {this.renderColorBySelect()}
                 {this.renderColormapSelect()}
-                <button
-                    className={`theia-button${this.colorBy === SOLID_COLOR ? '' : ' secondary'}`}
-                    onClick={() => this.applyProps({ colorBy: SOLID_COLOR })}
-                    disabled={this.isLoading || !this.model}
-                    title="Solid color (no data mapping)"
-                >
-                    Solid
-                </button>
-                <button
-                    className="theia-button secondary"
-                    onClick={() => this.fitView()}
-                    disabled={this.isLoading || !this.model}
-                    title="Fit view to dataset"
-                >
-                    <i className={codicon('screen-full')}></i>
-                </button>
-                <button
-                    className="theia-button secondary"
-                    onClick={() => this.saveScreenshot()}
-                    disabled={this.isLoading || !this.model}
-                    title="Download PNG screenshot"
-                >
-                    <i className={codicon('device-camera')}></i>
-                </button>
-                <button
-                    className="theia-button secondary"
-                    onClick={() => this.fileUri && this.setVtkFile(this.fileUri)}
-                    disabled={this.isLoading || !this.fileUri}
-                    title="Reload file"
-                >
-                    <i className={codicon('refresh')}></i>
-                </button>
+                {this.renderShadingSelect()}
+                {this.renderClipControls()}
+                <Tooltip content="Solid color (no data mapping)" position="bottom">
+                    <button
+                        className={`theia-button${this.colorBy === SOLID_COLOR ? '' : ' secondary'}`}
+                        onClick={() => this.applyProps({ colorBy: SOLID_COLOR })}
+                        disabled={this.isLoading || !this.model}
+                    >
+                        Solid
+                    </button>
+                </Tooltip>
+                <Tooltip content="Fit view to dataset" position="bottom">
+                    <button className="theia-button secondary" onClick={() => this.fitView()} disabled={this.isLoading || !this.model}>
+                        <i className={codicon('screen-full')}></i>
+                    </button>
+                </Tooltip>
+                <Tooltip content="Download PNG screenshot" position="bottom">
+                    <button
+                        className="theia-button secondary"
+                        onClick={() => this.saveScreenshot()}
+                        disabled={this.isLoading || !this.model}
+                    >
+                        <i className={codicon('device-camera')}></i>
+                    </button>
+                </Tooltip>
+                <Tooltip content="Reload file" position="bottom">
+                    <button
+                        className="theia-button secondary"
+                        onClick={() => this.fileUri && this.setVtkFile(this.fileUri)}
+                        disabled={this.isLoading || !this.fileUri}
+                    >
+                        <i className={codicon('refresh')}></i>
+                    </button>
+                </Tooltip>
             </div>
         );
     }
@@ -361,16 +400,18 @@ export class NativeVtkViewerWidget extends ReactWidget {
         push(this.classified.ids);
         push(this.classified.other);
         return (
-            <label className="openmc-output-viewer-control" title="Color-by array (applies instantly, no viewer restart)">
-                Color by
-                <select value={this.colorBy} onChange={(e) => this.applyProps({ colorBy: e.target.value })} disabled={this.isLoading}>
-                    {options.map((option) => (
-                        <option key={option.value} value={option.value}>
-                            {option.label}
-                        </option>
-                    ))}
-                </select>
-            </label>
+            <Tooltip content="Color-by array (applies instantly, no viewer restart)" position="bottom">
+                <label className="openmc-output-viewer-control">
+                    Color by
+                    <select value={this.colorBy} onChange={(e) => this.applyProps({ colorBy: e.target.value })} disabled={this.isLoading}>
+                        {options.map((option) => (
+                            <option key={option.value} value={option.value}>
+                                {option.label}
+                            </option>
+                        ))}
+                    </select>
+                </label>
+            </Tooltip>
         );
     }
 
@@ -379,20 +420,115 @@ export class NativeVtkViewerWidget extends ReactWidget {
             return undefined;
         }
         return (
-            <label className="openmc-output-viewer-control" title="Colormap (applies instantly)">
-                Map
-                <select
-                    value={this.colormap}
-                    onChange={(e) => this.applyProps({ colormap: e.target.value as NativeVtkColormapName })}
-                    disabled={this.isLoading}
-                >
-                    {NATIVE_VTK_COLORMAPS.map((name) => (
-                        <option key={name} value={name}>
-                            {name}
-                        </option>
-                    ))}
-                </select>
-            </label>
+            <Tooltip content="Colormap (applies instantly)" position="bottom">
+                <label className="openmc-output-viewer-control">
+                    Map
+                    <select
+                        value={this.colormap}
+                        onChange={(e) => this.applyProps({ colormap: e.target.value as NativeVtkColormapName })}
+                        disabled={this.isLoading}
+                    >
+                        {NATIVE_VTK_COLORMAPS.map((name) => (
+                            <option key={name} value={name}>
+                                {name}
+                            </option>
+                        ))}
+                    </select>
+                </label>
+            </Tooltip>
+        );
+    }
+
+    protected renderShadingSelect(): React.ReactNode {
+        if (!this.model) {
+            return undefined;
+        }
+        return (
+            <Tooltip content="Shading mode (applies instantly)" position="bottom">
+                <label className="openmc-output-viewer-control">
+                    Shading
+                    <select
+                        value={this.shading}
+                        onChange={(e) => this.applyProps({ shading: e.target.value as ViewerShadingMode })}
+                        disabled={this.isLoading}
+                    >
+                        {VIEWER_SHADING_MODES.map((mode) => (
+                            <option key={mode.id} value={mode.id}>
+                                {mode.label}
+                            </option>
+                        ))}
+                    </select>
+                </label>
+            </Tooltip>
+        );
+    }
+
+    protected renderClipControls(): React.ReactNode {
+        if (!this.model) {
+            return undefined;
+        }
+        const bounds = boundingBoxFromPositions(this.model.positions);
+        const extent = bounds ? clipProjectionExtent(bounds, this.clip.normal) : { min: 0, max: 0 };
+        const span = extent.max - extent.min;
+        const dot =
+            this.clip.normal[0] * this.clip.origin[0] +
+            this.clip.normal[1] * this.clip.origin[1] +
+            this.clip.normal[2] * this.clip.origin[2];
+        const fraction = span > 0 ? (dot - extent.min) / span : 0.5;
+        const axis = dominantClipAxis(this.clip.normal);
+        return (
+            <span className="openmc-output-viewer-control">
+                <Tooltip content="Clip plane: axis, position, and kept half-space (applies instantly)" position="bottom">
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <input
+                            type="checkbox"
+                            checked={this.clipEnabled}
+                            onChange={(e) => this.applyProps({ clipEnabled: e.target.checked })}
+                            disabled={this.isLoading}
+                        />
+                        Clip
+                    </label>
+                </Tooltip>
+                <Tooltip content="Clip axis (plane normal)" position="bottom">
+                    <select
+                        value={axis}
+                        onChange={(e) => this.applyProps({ clip: { ...this.clip, normal: clipAxisNormal(e.target.value) } })}
+                        disabled={this.isLoading || !this.clipEnabled}
+                    >
+                        <option value="X">X</option>
+                        <option value="Y">Y</option>
+                        <option value="Z">Z</option>
+                    </select>
+                </Tooltip>
+                <Tooltip content="Clip position (percent across the dataset)" position="bottom">
+                    <input
+                        type="range"
+                        min={0}
+                        max={100}
+                        step={1}
+                        value={Math.round(Math.min(1, Math.max(0, fraction)) * 100)}
+                        disabled={this.isLoading || !this.clipEnabled || !bounds}
+                        onChange={(e) =>
+                            bounds &&
+                            this.applyProps({
+                                clip: {
+                                    ...this.clip,
+                                    origin: clipOriginAtFraction(this.clip.normal, bounds, parseFloat(e.target.value) / 100)
+                                }
+                            })
+                        }
+                    />
+                </Tooltip>
+                <Tooltip content="Flip kept half-space" position="bottom">
+                    <button
+                        className="theia-button secondary"
+                        disabled={this.isLoading || !this.clipEnabled}
+                        onClick={() => this.applyProps({ clip: { ...this.clip, invert: !this.clip.invert } })}
+                    >
+                        {this.clip.invert ? 'Unflip' : 'Flip'}
+                    </button>
+                </Tooltip>
+            </span>
         );
     }
 
@@ -412,11 +548,35 @@ export class NativeVtkViewerWidget extends ReactWidget {
                         {this.describeModel()}
                         {this.note ? ` — ${this.note}` : ''} Drag to orbit, wheel to zoom, right-drag to pan.
                     </div>
-                    <div ref={this.attachHost} style={{ flex: '1', minHeight: '0', position: 'relative' }} />
+                    <div style={{ flex: '1', minHeight: '0', position: 'relative', display: 'flex' }}>
+                        <div ref={this.attachHost} style={{ flex: '1', minHeight: '0', position: 'relative' }} />
+                        {this.renderNavCluster()}
+                    </div>
                     {this.renderLegend()}
                 </div>
             </>
         );
+    }
+
+    /** CAD-style nav cluster over the 3D viewarea, driving the orbit handle. */
+    protected renderNavCluster(): React.ReactNode {
+        return <ViewerNavCluster disabled={this.isLoading || !this.model} onAction={(action) => this.handleNavAction(action)} />;
+    }
+
+    private handleNavAction(action: ViewerNavAction): void {
+        if (action === 'fit') {
+            this.fitView();
+            return;
+        }
+        if (action === 'zoom-in') {
+            this.orbitControls?.zoomBy(0.8);
+            return;
+        }
+        if (action === 'zoom-out') {
+            this.orbitControls?.zoomBy(1.25);
+            return;
+        }
+        this.orbitControls?.setViewDirection(standardViewDirection(action));
     }
 
     protected renderLegend(): React.ReactNode {
@@ -504,11 +664,18 @@ export class NativeVtkViewerWidget extends ReactWidget {
         this.renderer.domElement.style.width = '100%';
         this.renderer.domElement.style.height = '100%';
         this.renderer.domElement.style.display = 'block';
+        this.renderer.localClippingEnabled = true;
         this.host.appendChild(this.renderer.domElement);
         this.scene = new THREE.Scene();
+        // Lit scene (same intensities as the DAGMC viewer): Lambert surfaces
+        // shade with depth instead of rendering flat gray.
+        this.scene.add(new THREE.AmbientLight(0xffffff, 0.9));
+        const directional = new THREE.DirectionalLight(0xffffff, 1.2);
+        directional.position.set(1, 2, 3);
+        this.scene.add(directional);
         this.camera = new THREE.PerspectiveCamera(45, 1, 0.01, 1e9);
-        this.orbit = { theta: Math.PI / 4, phi: Math.PI / 3, distance: 10, target: new THREE.Vector3() };
-        this.attachOrbitHandlers(this.renderer.domElement);
+        this.attachOrbitControls();
+        this.attachContextMenu(this.renderer.domElement);
         this.resizeObserver = new ResizeObserver(() => this.resizeRenderer());
         if (this.host) {
             this.resizeObserver.observe(this.host);
@@ -521,8 +688,12 @@ export class NativeVtkViewerWidget extends ReactWidget {
         }
     }
     private teardownRenderer(): void {
+        this.contextMenuClose?.();
+        this.contextMenuClose = undefined;
         this.resizeObserver?.disconnect();
         this.resizeObserver = undefined;
+        this.orbitControls?.dispose();
+        this.orbitControls = undefined;
         if (this.renderer) {
             this.renderer.dispose();
             this.renderer.domElement.remove();
@@ -531,7 +702,6 @@ export class NativeVtkViewerWidget extends ReactWidget {
         this.scene = undefined;
         this.camera = undefined;
         this.dataGroup = undefined;
-        this.orbit = undefined;
     }
 
     private resizeRenderer(): void {
@@ -555,13 +725,13 @@ export class NativeVtkViewerWidget extends ReactWidget {
     /** Rebuild the data group from the current model (new dataset only). */
     private buildScene(): void {
         const model = this.model;
-        if (!model || !this.scene || !this.camera || !this.orbit) {
+        if (!model || !this.scene || !this.camera) {
             return;
         }
         if (this.dataGroup) {
             this.scene.remove(this.dataGroup);
             this.dataGroup.traverse((child) => {
-                if (child instanceof THREE.Points || child instanceof THREE.LineSegments) {
+                if (child instanceof THREE.Points || child instanceof THREE.LineSegments || child instanceof THREE.Mesh) {
                     child.geometry.dispose();
                     const material = child.material as THREE.Material;
                     material.dispose();
@@ -570,8 +740,19 @@ export class NativeVtkViewerWidget extends ReactWidget {
             this.dataGroup = undefined;
         }
         this.dataGroup = new THREE.Group();
-        if (model.segments) {
-            this.dataGroup.add(this.buildLineSegments(model));
+        if (model.triangles && model.triangles.length > 0) {
+            // Surface datasets render filled triangles (lit, DoubleSide for
+            // open shells); outlines/points come from the shading mode.
+            const positions = this.triangleVertexPositions(model);
+            this.dataGroup.add(this.buildTriangleMesh(positions));
+            this.dataGroup.add(this.buildTrianglePoints(positions));
+        } else if (model.segments) {
+            // Line datasets also carry a point cloud over the same vertices
+            // (shared position buffer, zero-copy) so `points` shading mode has
+            // something to show; visibility picks one representation.
+            const positions = this.lineVertexPositions(model);
+            this.dataGroup.add(this.buildLineSegments(positions));
+            this.dataGroup.add(this.buildLinePoints(positions));
         } else {
             this.dataGroup.add(this.buildPoints(model));
         }
@@ -584,7 +765,55 @@ export class NativeVtkViewerWidget extends ReactWidget {
         this.recolor();
     }
 
-    private buildLineSegments(model: NativeVtkModel): THREE.LineSegments {
+    /** Expanded per-corner positions for triangle datasets (non-indexed soup). */
+    private triangleVertexPositions(model: NativeVtkModel): Float32Array {
+        const triangles = model.triangles ?? new Uint32Array(0);
+        const positions = new Float32Array(triangles.length * 3);
+        for (let i = 0; i < triangles.length; i++) {
+            const point = triangles[i] * 3;
+            positions[i * 3] = model.positions[point] ?? Number.NaN;
+            positions[i * 3 + 1] = model.positions[point + 1] ?? Number.NaN;
+            positions[i * 3 + 2] = model.positions[point + 2] ?? Number.NaN;
+        }
+        return positions;
+    }
+
+    /** Filled surface mesh (lit vertex colors; DoubleSide for open shells). */
+    private buildTriangleMesh(positions: Float32Array): THREE.Mesh {
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        geometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(positions.length), 3));
+        // Non-indexed corner soup: per-corner normals give flat facet shading.
+        geometry.computeVertexNormals();
+        geometry.userData = { role: 'mesh' };
+        const material = new THREE.MeshLambertMaterial({
+            vertexColors: true,
+            transparent: true,
+            opacity: this.opacity,
+            side: THREE.DoubleSide
+        });
+        return new THREE.Mesh(geometry, material);
+    }
+
+    /** Corner points over triangle data (shares the corner buffer); shown in `points` mode. */
+    private buildTrianglePoints(positions: Float32Array): THREE.Points {
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        geometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(positions.length), 3));
+        geometry.userData = { role: 'mesh-points' };
+        const material = new THREE.PointsMaterial({
+            size: this.pointSize,
+            vertexColors: true,
+            transparent: true,
+            opacity: this.opacity,
+            sizeAttenuation: false,
+            depthWrite: false
+        });
+        return new THREE.Points(geometry, material);
+    }
+
+    /** Expanded per-vertex positions for line-segment datasets. */
+    private lineVertexPositions(model: NativeVtkModel): Float32Array {
         const segments = model.segments ?? new Uint32Array(0);
         const positions = new Float32Array(segments.length * 3);
         for (let i = 0; i < segments.length; i++) {
@@ -593,11 +822,32 @@ export class NativeVtkViewerWidget extends ReactWidget {
             positions[i * 3 + 1] = model.positions[point + 1];
             positions[i * 3 + 2] = model.positions[point + 2];
         }
+        return positions;
+    }
+
+    private buildLineSegments(positions: Float32Array): THREE.LineSegments {
         const geometry = new THREE.BufferGeometry();
         geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
         geometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(positions.length), 3));
         const material = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: this.opacity });
         return new THREE.LineSegments(geometry, material);
+    }
+
+    /** Point cloud over line vertices (shares the segment position buffer); shown in `points` mode. */
+    private buildLinePoints(positions: Float32Array): THREE.Points {
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        geometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(positions.length), 3));
+        geometry.userData = { role: 'line-points' };
+        const material = new THREE.PointsMaterial({
+            size: this.pointSize,
+            vertexColors: true,
+            transparent: true,
+            opacity: this.opacity,
+            sizeAttenuation: false,
+            depthWrite: false
+        });
+        return new THREE.Points(geometry, material);
     }
 
     private buildPoints(model: NativeVtkModel): THREE.Points {
@@ -662,24 +912,22 @@ export class NativeVtkViewerWidget extends ReactWidget {
         const solidAt = (): [number, number, number] => [solid.r, solid.g, solid.b];
         if (!selection || selection.kind === 'solid') {
             this.dataGroup.children.forEach((child) => {
-                if (child instanceof THREE.Points || child instanceof THREE.LineSegments) {
+                if (child instanceof THREE.Points || child instanceof THREE.LineSegments || child instanceof THREE.Mesh) {
                     paint(child.geometry, solidAt);
                 }
             });
-            this.syncMaterialProps();
-            this.renderScene();
+            this.refreshView();
             return;
         }
         const array = this.findArray(selection.kind, selection.name);
         if (!array) {
             this.note = `'${this.colorBy}' is not in this file — showing Solid Color`;
             this.dataGroup.children.forEach((child) => {
-                if (child instanceof THREE.Points || child instanceof THREE.LineSegments) {
+                if (child instanceof THREE.Points || child instanceof THREE.LineSegments || child instanceof THREE.Mesh) {
                     paint(child.geometry, solidAt);
                 }
             });
-            this.syncMaterialProps();
-            this.renderScene();
+            this.refreshView();
             return;
         }
         const [min, max] = array.range;
@@ -690,13 +938,26 @@ export class NativeVtkViewerWidget extends ReactWidget {
                 const segments = model.segments ?? new Uint32Array(0);
                 const tupleOfVertex = this.lineTupleIndex(model, array, segments);
                 paint(child.geometry, (vertex) => mapAt(tupleValue(array.values, array.components, tupleOfVertex(vertex))));
-            } else if (child instanceof THREE.Points) {
-                const tupleOfVertex = this.pointTupleIndex(model, array);
+            } else if (child instanceof THREE.Mesh) {
+                const triangles = model.triangles ?? new Uint32Array(0);
+                const tupleOfVertex = this.meshTupleIndex(model, array, triangles);
                 paint(child.geometry, (vertex) => mapAt(tupleValue(array.values, array.components, tupleOfVertex(vertex))));
+            } else if (child instanceof THREE.Points) {
+                const role = child.geometry.userData?.['role'];
+                if (role === 'mesh-points' && model.triangles) {
+                    const tupleOfVertex = this.meshTupleIndex(model, array, model.triangles);
+                    paint(child.geometry, (vertex) => mapAt(tupleValue(array.values, array.components, tupleOfVertex(vertex))));
+                } else if (role === 'line-points' && model.segments) {
+                    const segments = model.segments;
+                    const tupleOfVertex = this.lineTupleIndex(model, array, segments);
+                    paint(child.geometry, (vertex) => mapAt(tupleValue(array.values, array.components, tupleOfVertex(vertex))));
+                } else {
+                    const tupleOfVertex = this.pointTupleIndex(model, array);
+                    paint(child.geometry, (vertex) => mapAt(tupleValue(array.values, array.components, tupleOfVertex(vertex))));
+                }
             }
         });
-        this.syncMaterialProps();
-        this.renderScene();
+        this.refreshView();
     }
 
     /** Cell/point tuple index for each line-segment vertex. */
@@ -707,6 +968,18 @@ export class NativeVtkViewerWidget extends ReactWidget {
         const cells = model.segmentCells;
         if (cells && cells.length * 2 === segments.length) {
             return (vertex) => cells[Math.floor(vertex / 2)];
+        }
+        return () => -1;
+    }
+
+    /** Cell/point tuple index for each triangle corner (non-indexed soup: corner v of triangle floor(v/3)). */
+    private meshTupleIndex(model: NativeVtkModel, array: NativeVtkDataArray, triangles: Uint32Array): (vertex: number) => number {
+        if (array.association === 'point') {
+            return (vertex) => triangles[vertex] ?? -1;
+        }
+        const cells = model.triangleCells;
+        if (cells && cells.length * 3 === triangles.length) {
+            return (vertex) => cells[Math.floor(vertex / 3)];
         }
         return () => -1;
     }
@@ -733,16 +1006,77 @@ export class NativeVtkViewerWidget extends ReactWidget {
     }
 
     private syncMaterialProps(): void {
+        const flags = resolveViewerShadingFlags(this.shading, this.opacity);
         this.dataGroup?.children.forEach((child) => {
+            // Box3Helper (grid bounds) carries no color attribute — leave it alone.
+            if (child instanceof THREE.Box3Helper) {
+                return;
+            }
             if (child instanceof THREE.Points) {
                 const material = child.material as THREE.PointsMaterial;
                 material.size = this.pointSize;
-                material.opacity = this.opacity;
+                material.opacity = flags.opacity;
+                material.transparent = flags.transparent;
             } else if (child instanceof THREE.LineSegments) {
                 const material = child.material as THREE.LineBasicMaterial;
-                material.opacity = this.opacity;
+                material.opacity = flags.opacity;
+                material.transparent = flags.transparent;
+                material.depthWrite = flags.depthWrite;
+            } else if (child instanceof THREE.Mesh) {
+                // Lambert supports wireframe/opacity/depthWrite; emissive stays untouched.
+                const material = child.material as THREE.MeshLambertMaterial;
+                material.opacity = flags.opacity;
+                material.transparent = flags.transparent;
+                material.depthWrite = flags.depthWrite;
+                material.wireframe = flags.wireframe;
             }
         });
+    }
+
+    /** Toggle line/point visibility for `points` mode; the bounds helper stays visible. */
+    private applyShadingVisibility(): void {
+        if (!this.dataGroup) {
+            return;
+        }
+        const flags = resolveViewerShadingFlags(this.shading, this.opacity);
+        this.dataGroup.children.forEach((child) => {
+            if (child instanceof THREE.Box3Helper) {
+                child.visible = true;
+            } else if (child instanceof THREE.Points) {
+                const role = child.geometry.userData?.['role'];
+                child.visible = role === 'line-points' || role === 'mesh-points' ? flags.pointsOnly : true;
+            } else if (child instanceof THREE.LineSegments) {
+                child.visible = !flags.pointsOnly;
+            } else if (child instanceof THREE.Mesh) {
+                child.visible = !flags.pointsOnly;
+            }
+        });
+    }
+
+    /** Apply the viewer-core clip state to every data material (three.js native clipping). */
+    private applyClip(): void {
+        if (!this.dataGroup) {
+            return;
+        }
+        const planes = this.clipEnabled ? [this.toThreePlane()] : [];
+        this.dataGroup.children.forEach((child) => {
+            if (child instanceof THREE.Points || child instanceof THREE.LineSegments || child instanceof THREE.Mesh) {
+                (child.material as THREE.Material).clippingPlanes = planes;
+            }
+        });
+    }
+
+    private toThreePlane(): THREE.Plane {
+        const params = toThreePlaneParams(this.clip);
+        return new THREE.Plane(new THREE.Vector3(...params.normal), params.constant);
+    }
+
+    /** Re-apply material props, shading visibility, and clip, then repaint. */
+    private refreshView(): void {
+        this.syncMaterialProps();
+        this.applyShadingVisibility();
+        this.applyClip();
+        this.renderScene();
     }
 
     private findArray(kind: 'point' | 'cell', name: string): NativeVtkDataArray | undefined {
@@ -762,6 +1096,9 @@ export class NativeVtkViewerWidget extends ReactWidget {
         }
         if (model.family === 'polydata') {
             const parts: string[] = [];
+            if (model.triangles) {
+                parts.push(`${(model.triangles.length / 3).toLocaleString()} triangles`);
+            }
             if (model.segments) {
                 parts.push(`${(model.segments.length / 2).toLocaleString()} segments`);
             }
@@ -779,79 +1116,117 @@ export class NativeVtkViewerWidget extends ReactWidget {
     }
 
     // ------------------------------------------------------------------
-    // Minimal orbit navigation (rotate / zoom / pan + fit)
+    // Orbit navigation (three.js OrbitControls via the shared viewer-core
+    // helper; gestures render on demand through `renderScene`)
     // ------------------------------------------------------------------
 
-    private attachOrbitHandlers(canvas: HTMLCanvasElement): void {
-        let dragging = false;
-        let button = 0;
-        let lastX = 0;
-        let lastY = 0;
-        canvas.addEventListener('pointerdown', (e) => {
-            dragging = true;
-            button = e.button;
-            lastX = e.clientX;
-            lastY = e.clientY;
-            canvas.setPointerCapture(e.pointerId);
-        });
-        canvas.addEventListener('pointermove', (e) => {
-            if (!dragging || !this.orbit) {
-                return;
-            }
-            const dx = e.clientX - lastX;
-            const dy = e.clientY - lastY;
-            lastX = e.clientX;
-            lastY = e.clientY;
-            if (button === 2 || button === 1 || e.shiftKey) {
-                this.panBy(dx, dy);
-            } else {
-                this.orbit.theta -= dx * 0.005;
-                this.orbit.phi = Math.min(Math.PI - 0.01, Math.max(0.01, this.orbit.phi - dy * 0.005));
-                this.applyOrbit();
+    /**
+     * Right-click (no-drag) opens the view-action context menu. OrbitControls
+     * owns right-drag pan on the same canvas, so the menu only opens when
+     * the release lands within ~5px of the press.
+     */
+    private attachContextMenu(canvas: HTMLCanvasElement): void {
+        let downX = 0;
+        let downY = 0;
+        let downButton = -1;
+        canvas.addEventListener('pointerdown', (event) => {
+            if (event.button === 2) {
+                downX = event.clientX;
+                downY = event.clientY;
+                downButton = 2;
             }
         });
-        const stop = (): void => {
-            dragging = false;
-        };
-        canvas.addEventListener('pointerup', stop);
-        canvas.addEventListener('pointercancel', stop);
-        canvas.addEventListener(
-            'wheel',
-            (e) => {
-                e.preventDefault();
-                if (this.orbit) {
-                    this.orbit.distance = Math.max(1e-6, this.orbit.distance * Math.exp(e.deltaY * 0.001));
-                    this.applyOrbit();
+        canvas.addEventListener('pointerup', (event) => {
+            if (event.button === 2 && downButton === 2) {
+                downButton = -1;
+                if (isViewerContextMenuClick(downX, downY, event.clientX, event.clientY)) {
+                    this.openContextMenu(event.clientX, event.clientY);
                 }
-            },
-            { passive: false }
-        );
-        canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+            }
+        });
     }
 
-    private applyOrbit(): void {
-        if (!this.camera || !this.orbit) {
+    /** View-action menu: fit, screenshot, clip toggle, shading cycle. */
+    private openContextMenu(clientX: number, clientY: number): void {
+        if (!this.model) {
             return;
         }
-        const { theta, phi, distance, target } = this.orbit;
-        this.camera.position.set(
-            target.x + distance * Math.sin(phi) * Math.cos(theta),
-            target.y + distance * Math.cos(phi),
-            target.z + distance * Math.sin(phi) * Math.sin(theta)
+        this.contextMenuClose?.();
+        const shadingLabel = VIEWER_SHADING_MODES.find((mode) => mode.id === this.shading)?.label ?? this.shading;
+        this.contextMenuClose = openViewerContextMenu(
+            { x: clientX, y: clientY },
+            [
+                { id: 'fit', label: 'Fit to View' },
+                { id: 'screenshot', label: 'Save Screenshot (PNG)' },
+                { id: 'clip', label: 'Clip Plane', checked: this.clipEnabled },
+                { id: 'shading', label: `Shading: ${shadingLabel}` }
+            ],
+            (id) => this.handleContextMenuAction(id)
         );
-        this.camera.lookAt(target);
-        this.renderScene();
     }
 
-    private panBy(dx: number, dy: number): void {
-        if (!this.camera || !this.orbit) {
+    private handleContextMenuAction(id: string): void {
+        if (id === 'fit') {
+            this.fitView();
+        } else if (id === 'screenshot') {
+            this.saveScreenshot();
+        } else if (id === 'clip') {
+            this.applyProps({ clipEnabled: !this.clipEnabled });
+        } else if (id === 'shading') {
+            this.applyProps({ shading: nextViewerShadingMode(this.shading) });
+        }
+        this.update();
+    }
+
+    /**
+     * Attach OrbitControls to the renderer canvas. The controls class loads
+     * asynchronously (same dynamic import style as nuke-cad); a renderer
+     * teardown before the import resolves disposes the stale handle. Once
+     * attached, the loaded dataset is framed through the controls.
+     */
+    private attachOrbitControls(): void {
+        const renderer = this.renderer;
+        const camera = this.camera;
+        if (!renderer || !camera) {
             return;
         }
-        const scale = this.orbit.distance / Math.max(1, this.camera.aspect * 500);
-        const right = new THREE.Vector3().setFromMatrixColumn(this.camera.matrix, 0);
-        const up = new THREE.Vector3().setFromMatrixColumn(this.camera.matrix, 1);
-        this.orbit.target.addScaledVector(right, -dx * scale);
-        this.orbit.target.addScaledVector(up, dy * scale);
-        this.applyOrbit();
+        createOrbitControls(camera, renderer.domElement, { onChange: () => this.renderScene() })
+            .then((handle) => {
+                if (this.renderer !== renderer) {
+                    handle.dispose();
+                    return;
+                }
+                this.orbitControls?.dispose();
+                this.orbitControls = handle;
+                this.fitView();
+            })
+            .catch((error) => {
+                console.warn('[NativeVtkViewer] Failed to load orbit controls:', error);
+            });
     }
+}
+
+/** Dominant axis of a clip normal, driving the header axis select. */
+function dominantClipAxis(normal: readonly [number, number, number]): 'X' | 'Y' | 'Z' {
+    const ax = Math.abs(normal[0]);
+    const ay = Math.abs(normal[1]);
+    const az = Math.abs(normal[2]);
+    if (ay > ax && ay >= az) {
+        return 'Y';
+    }
+    if (az > ax && az > ay) {
+        return 'Z';
+    }
+    return 'X';
+}
+
+/** Unit normal for a header axis-select value. */
+function clipAxisNormal(axis: string): [number, number, number] {
+    if (axis === 'Y') {
+        return [0, 1, 0];
+    }
+    if (axis === 'Z') {
+        return [0, 0, 1];
+    }
+    return [1, 0, 0];
 }

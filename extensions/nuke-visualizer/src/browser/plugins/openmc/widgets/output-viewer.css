@@ -117,6 +117,91 @@
     min-height: 0;
     display: flex;
     flex-direction: column;
+    position: relative;
+}
+
+/* CAD-style navigation cluster (bottom-right overlay on the 3D viewarea) */
+
+.viewer-nav-cluster {
+    position: absolute;
+    right: 12px;
+    bottom: 12px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+    z-index: 10;
+}
+
+.viewer-nav-cluster .viewer-nav-button {
+    /* Icon-only cluster button: undo Theia's global .theia-button min-width/offset */
+    min-width: 0;
+    margin-left: 0;
+    padding: 4px 6px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.viewer-nav-cluster .viewer-nav-button.viewer-nav-text {
+    font-size: 11px;
+    font-weight: 600;
+    min-width: 30px;
+}
+
+.viewer-nav-divider {
+    width: 100%;
+    height: 1px;
+    background: var(--theia-panel-border);
+    margin: 2px 0;
+}
+
+/* Imperative right-click context menu (viewer-core/viewer-context-menu.ts) */
+
+.viewer-context-menu {
+    position: fixed;
+    z-index: 99999;
+    min-width: 190px;
+    background: var(--theia-dropdown-background, var(--theia-input-background));
+    color: var(--theia-dropdown-foreground, var(--theia-input-foreground));
+    border: 1px solid var(--theia-dropdown-border, var(--theia-input-border, var(--theia-panel-border)));
+    border-radius: 4px;
+    padding: 4px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+    font-size: 12px;
+    font-family: var(--theia-ui-font-family);
+}
+
+.viewer-context-menu-item {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: 8px;
+    background: transparent;
+    border: none;
+    border-radius: 3px;
+    color: inherit;
+    padding: 5px 8px;
+    cursor: pointer;
+    text-align: left;
+    font-size: inherit;
+    font-family: inherit;
+}
+
+.viewer-context-menu-item:hover:not(:disabled) {
+    background: var(--theia-list-activeSelectionBackground);
+    color: var(--theia-list-activeSelectionForeground);
+}
+
+.viewer-context-menu-item:disabled {
+    opacity: 0.55;
+    cursor: default;
+}
+
+.viewer-context-menu-check {
+    width: 14px;
+    flex-shrink: 0;
+    text-align: center;
 }
 
 .openmc-output-viewer-split-handle {

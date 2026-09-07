@@ -34,6 +34,7 @@ import { codicon } from '@theia/core/lib/browser/widgets/widget';
 import URI from '@theia/core/lib/common/uri';
 import { MessageService } from '@theia/core/lib/common';
 import { FileService } from '@theia/filesystem/lib/browser/file-service';
+import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
 import {
     ClipPlaneState,
     clipOriginAtFraction,
@@ -42,6 +43,7 @@ import {
     fitClipOriginToBounds,
     toThreePlaneParams
 } from '../../../../viewer-core/clip-plane';
+import { createOrbitControls, type OrbitControlsHandle } from '../../../../viewer-core/orbit-controls';
 import { clampSliderValue, DEFAULT_VIEWER_TOOLBAR_STATE, OPACITY_SPEC } from '../../../../viewer-core/viewer-toolbar-model';
 import {
     cellDisplayName,
@@ -77,14 +79,6 @@ export interface GeometryNativeViewerProps {
     clipEnabled?: boolean;
     /** Materials hidden in the 3D view (tree still lists them). */
     hiddenMaterials?: string[];
-}
-
-/** Orbit state for the viewer's minimal built-in navigation. */
-interface GeometryNativeOrbit {
-    theta: number;
-    phi: number;
-    distance: number;
-    target: THREE.Vector3;
 }
 
 /**
@@ -132,7 +126,7 @@ export class GeometryNativeViewerWidget extends ReactWidget {
     private scene: THREE.Scene | undefined;
     private camera: THREE.PerspectiveCamera | undefined;
     private dataGroup: THREE.Group | undefined;
-    private orbit: GeometryNativeOrbit | undefined;
+    private orbitControls: OrbitControlsHandle | undefined;
     private resizeObserver: ResizeObserver | undefined;
 
     @postConstruct()
@@ -256,17 +250,13 @@ export class GeometryNativeViewerWidget extends ReactWidget {
         link.click();
     }
 
-    /** Frame all visible cells. */
+    /** Frame all visible cells through the orbit controls (target + distance). */
     fitView(): void {
         const bounds = geometryBounds(this.visibleCells());
-        if (!bounds || !this.camera || !this.orbit) {
+        if (!bounds || !this.camera || !this.orbitControls) {
             return;
         }
-        const box = new THREE.Box3(new THREE.Vector3(...bounds.min), new THREE.Vector3(...bounds.max));
-        const sphere = box.getBoundingSphere(new THREE.Sphere());
-        this.orbit.target.copy(sphere.center);
-        this.orbit.distance = Math.max(sphere.radius * 2.2, 1e-6);
-        this.applyOrbit();
+        this.orbitControls.fitBounds(bounds.min, bounds.max);
     }
 
     // ------------------------------------------------------------------
@@ -306,30 +296,33 @@ export class GeometryNativeViewerWidget extends ReactWidget {
                     <i className={codicon('globe')}></i>
                     {fileName}
                 </span>
-                <button
-                    className="theia-button secondary"
-                    onClick={() => this.fitView()}
-                    disabled={this.isLoading || this.cells.length === 0}
-                    title="Fit view to visible cells"
-                >
-                    <i className={codicon('screen-full')}></i>
-                </button>
-                <button
-                    className="theia-button secondary"
-                    onClick={() => this.saveScreenshot()}
-                    disabled={this.isLoading || this.cells.length === 0}
-                    title="Download PNG screenshot"
-                >
-                    <i className={codicon('device-camera')}></i>
-                </button>
-                <button
-                    className="theia-button secondary"
-                    onClick={() => this.modelUri && this.setModelFile(this.modelUri)}
-                    disabled={this.isLoading || !this.modelUri}
-                    title="Reload model file"
-                >
-                    <i className={codicon('refresh')}></i>
-                </button>
+                <Tooltip content="Fit view to visible cells" position="bottom">
+                    <button
+                        className="theia-button secondary"
+                        onClick={() => this.fitView()}
+                        disabled={this.isLoading || this.cells.length === 0}
+                    >
+                        <i className={codicon('screen-full')}></i>
+                    </button>
+                </Tooltip>
+                <Tooltip content="Download PNG screenshot" position="bottom">
+                    <button
+                        className="theia-button secondary"
+                        onClick={() => this.saveScreenshot()}
+                        disabled={this.isLoading || this.cells.length === 0}
+                    >
+                        <i className={codicon('device-camera')}></i>
+                    </button>
+                </Tooltip>
+                <Tooltip content="Reload model file" position="bottom">
+                    <button
+                        className="theia-button secondary"
+                        onClick={() => this.modelUri && this.setModelFile(this.modelUri)}
+                        disabled={this.isLoading || !this.modelUri}
+                    >
+                        <i className={codicon('refresh')}></i>
+                    </button>
+                </Tooltip>
             </div>
         );
     }
@@ -561,8 +554,8 @@ export class GeometryNativeViewerWidget extends ReactWidget {
         directional.position.set(1, 2, 3);
         this.scene.add(directional);
         this.camera = new THREE.PerspectiveCamera(45, 1, 0.01, 1e9);
-        this.orbit = { theta: Math.PI / 4, phi: Math.PI / 3, distance: 10, target: new THREE.Vector3() };
-        this.attachOrbitHandlers(this.renderer.domElement);
+        this.attachOrbitControls();
+        this.attachPickHandlers(this.renderer.domElement);
         this.resizeObserver = new ResizeObserver(() => this.resizeRenderer());
         if (this.host) {
             this.resizeObserver.observe(this.host);
@@ -578,6 +571,8 @@ export class GeometryNativeViewerWidget extends ReactWidget {
     private teardownRenderer(): void {
         this.resizeObserver?.disconnect();
         this.resizeObserver = undefined;
+        this.orbitControls?.dispose();
+        this.orbitControls = undefined;
         if (this.renderer) {
             this.renderer.dispose();
             this.renderer.domElement.remove();
@@ -586,7 +581,6 @@ export class GeometryNativeViewerWidget extends ReactWidget {
         this.scene = undefined;
         this.camera = undefined;
         this.dataGroup = undefined;
-        this.orbit = undefined;
     }
 
     private resizeRenderer(): void {
@@ -619,7 +613,7 @@ export class GeometryNativeViewerWidget extends ReactWidget {
 
     /** Rebuild the data group from the visible cells (new model or toggle change). */
     private buildScene(): void {
-        if (!this.scene || !this.camera || !this.orbit) {
+        if (!this.scene || !this.camera) {
             return;
         }
         if (this.dataGroup) {
@@ -720,7 +714,8 @@ export class GeometryNativeViewerWidget extends ReactWidget {
     }
 
     // ------------------------------------------------------------------
-    // Picking (3D→tree) + minimal orbit navigation (rotate / zoom / pan)
+    // Picking (3D→tree); orbit navigation lives in the shared viewer-core
+    // helper (OrbitControls; gestures render on demand through `renderScene`)
     // ------------------------------------------------------------------
 
     /** Click (not drag) raycasts meshes and selects the cell — the 3D→tree half of sync. */
@@ -749,85 +744,49 @@ export class GeometryNativeViewerWidget extends ReactWidget {
         }
     }
 
-    private attachOrbitHandlers(canvas: HTMLCanvasElement): void {
-        let dragging = false;
-        let button = 0;
-        let lastX = 0;
-        let lastY = 0;
+    /**
+     * Click (not drag) raycasts meshes and selects the cell — the 3D→tree
+     * half of sync. OrbitControls owns drag gestures on the same canvas, so
+     * a pointerup within 4px of its pointerdown counts as a click.
+     */
+    private attachPickHandlers(canvas: HTMLCanvasElement): void {
         let downX = 0;
         let downY = 0;
         canvas.addEventListener('pointerdown', (e) => {
-            dragging = true;
-            button = e.button;
-            lastX = e.clientX;
-            lastY = e.clientY;
             downX = e.clientX;
             downY = e.clientY;
-            canvas.setPointerCapture(e.pointerId);
         });
-        canvas.addEventListener('pointermove', (e) => {
-            if (!dragging || !this.orbit) {
-                return;
-            }
-            const dx = e.clientX - lastX;
-            const dy = e.clientY - lastY;
-            lastX = e.clientX;
-            lastY = e.clientY;
-            if (button === 2 || button === 1 || e.shiftKey) {
-                this.panBy(dx, dy);
-            } else if (Math.abs(e.clientX - downX) + Math.abs(e.clientY - downY) > 4) {
-                this.orbit.theta -= dx * 0.005;
-                this.orbit.phi = Math.min(Math.PI - 0.01, Math.max(0.01, this.orbit.phi - dy * 0.005));
-                this.applyOrbit();
-            }
-        });
-        const stop = (e: PointerEvent): void => {
-            if (dragging && Math.abs(e.clientX - downX) + Math.abs(e.clientY - downY) <= 4 && e.button === 0) {
+        canvas.addEventListener('pointerup', (e) => {
+            if (e.button === 0 && Math.abs(e.clientX - downX) + Math.abs(e.clientY - downY) <= 4) {
                 this.pickCell(e.clientX, e.clientY);
             }
-            dragging = false;
-        };
-        canvas.addEventListener('pointerup', stop);
-        canvas.addEventListener('pointercancel', () => {
-            dragging = false;
         });
-        canvas.addEventListener(
-            'wheel',
-            (e) => {
-                e.preventDefault();
-                if (this.orbit) {
-                    this.orbit.distance = Math.max(1e-6, this.orbit.distance * Math.exp(e.deltaY * 0.001));
-                    this.applyOrbit();
+    }
+
+    /**
+     * Attach OrbitControls to the renderer canvas. The controls class loads
+     * asynchronously (same dynamic import style as nuke-cad); a renderer
+     * teardown before the import resolves disposes the stale handle. Once
+     * attached, the visible cells are framed through the controls.
+     */
+    private attachOrbitControls(): void {
+        const renderer = this.renderer;
+        const camera = this.camera;
+        if (!renderer || !camera) {
+            return;
+        }
+        createOrbitControls(camera, renderer.domElement, { onChange: () => this.renderScene() })
+            .then((handle) => {
+                if (this.renderer !== renderer) {
+                    handle.dispose();
+                    return;
                 }
-            },
-            { passive: false }
-        );
-        canvas.addEventListener('contextmenu', (e) => e.preventDefault());
-    }
-
-    private applyOrbit(): void {
-        if (!this.camera || !this.orbit) {
-            return;
-        }
-        const { theta, phi, distance, target } = this.orbit;
-        this.camera.position.set(
-            target.x + distance * Math.sin(phi) * Math.cos(theta),
-            target.y + distance * Math.cos(phi),
-            target.z + distance * Math.sin(phi) * Math.sin(theta)
-        );
-        this.camera.lookAt(target);
-        this.renderScene();
-    }
-
-    private panBy(dx: number, dy: number): void {
-        if (!this.camera || !this.orbit) {
-            return;
-        }
-        const scale = this.orbit.distance / Math.max(1, this.camera.aspect * 500);
-        const right = new THREE.Vector3().setFromMatrixColumn(this.camera.matrix, 0);
-        const up = new THREE.Vector3().setFromMatrixColumn(this.camera.matrix, 1);
-        this.orbit.target.addScaledVector(right, -dx * scale);
-        this.orbit.target.addScaledVector(up, dy * scale);
-        this.applyOrbit();
+                this.orbitControls?.dispose();
+                this.orbitControls = handle;
+                this.fitView();
+            })
+            .catch((error) => {
+                console.warn('[GeometryNativeViewer] Failed to load orbit controls:', error);
+            });
     }
 }

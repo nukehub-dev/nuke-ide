@@ -32,9 +32,7 @@ def cmd_convert_dagmc(args):
             return 1
     else:
         try:
-            result = convert_h5m_to_vtk_cached(
-                args.file, use_cache=True, do_filter_graveyard=True, max_cell_area=100.0
-            )
+            result = convert_h5m_to_vtk_cached(args.file, use_cache=True, do_filter_graveyard=True)
         except Exception as e:
             print(f'{{"error": "{str(e)}"}}', file=sys.stderr)
             return 1

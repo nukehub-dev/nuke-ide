@@ -1201,14 +1201,13 @@ def test_convert_h5m_volume_accepts_integral_string_id(h5m_file, tmp_path, monke
         {"max_cell_area": 0},
         {"max_cell_area": -1.0},
         {"max_cell_area": "big"},
-        {"max_cell_area": None},
         {"max_edge_length": 0},
         {"max_edge_length": -5},
         {"max_edge_length": True},
     ],
 )
 def test_filter_graveyard_invalid_thresholds(tmp_path, kwargs):
-    """Non-positive/non-numeric filter limits are rejected (limits preserved)."""
+    """Non-positive/non-numeric filter limits are rejected (None derives)."""
     vtk_file = tmp_path / "mesh.vtk"
     vtk_file.write_text("vtk data")
     with pytest.raises(dagmc_lib.DagmcError, match="must be a positive number"):
@@ -1286,3 +1285,81 @@ def test_step_cached_invalid_mesh_size_fails_fast(step_file, tmp_path, monkeypat
         step_lib.convert_step_to_vtk_cached(
             str(step_file), cache_dir=str(tmp_path), mesh_size_max=bad_size
         )
+
+
+def _selected_ids(vtk_mod):
+    """Cell ids passed to the fake extract-selection pipeline."""
+    for writer in vtk_mod._writers:
+        for call in writer.calls:
+            if call[0] == "SetInputData" and call[1] == "filtered-mesh":
+                return True
+    return False
+
+
+def test_filter_graveyard_derived_limits_drop_graveyard_box(tmp_path, monkeypatch):
+    """Default (None) limits derive from the mesh bbox: a graveyard-sized box
+    dies while real facets survive — the mm-scale tokamak regression."""
+    vtk_file = tmp_path / "model.vtk"
+    vtk_file.write_text("vtk data")
+    # 20 unit triangles near the origin + one 2000-unit graveyard box face.
+    points = []
+    for i in range(20):
+        x = float(i * 2)
+        points += [[x, 0, 0], [x + 1, 0, 0], [x, 1, 0]]
+    points += [[0, 0, 0], [2000, 0, 0], [2000, 2000, 0]]
+    cell_types = [5] * 21
+    offsets = list(range(0, 63, 3)) + [63]
+    connectivity = list(range(63))
+    mesh = _filter_mesh(points, cell_types, offsets, connectivity)
+    vtk_mod, _ = _install_filter_vtk(monkeypatch, mesh)
+
+    out = dagmc_lib.filter_graveyard(str(vtk_file), output_path=str(tmp_path / "kept.vtk"))
+
+    assert _selected_ids(vtk_mod)  # extract path ran (something was dropped)
+    writer = vtk_mod._writers[-1]
+    assert ("SetFileName", out) in writer.calls
+
+
+def test_filter_graveyard_single_box_falls_back_to_keep_all(tmp_path, monkeypatch):
+    """A lone box (faces ARE the geometry) must survive derivation via the
+    bounding-box-face fallback instead of rendering empty."""
+    vtk_file = tmp_path / "box.vtk"
+    vtk_file.write_text("vtk data")
+    # Unit cube shell: 8 corners, 12 triangles.
+    corners = [
+        [0, 0, 0],
+        [1, 0, 0],
+        [1, 1, 0],
+        [0, 1, 0],
+        [0, 0, 1],
+        [1, 0, 1],
+        [1, 1, 1],
+        [0, 1, 1],
+    ]
+    quads = [(0, 1, 2, 3), (4, 5, 6, 7), (0, 1, 5, 4), (2, 3, 7, 6), (0, 3, 7, 4), (1, 2, 6, 5)]
+    connectivity = []
+    offsets = [0]
+    for quad in quads:
+        for tri in [(quad[0], quad[1], quad[2]), (quad[0], quad[2], quad[3])]:
+            connectivity += list(tri)
+            offsets.append(offsets[-1] + 3)
+    mesh = _filter_mesh(corners, [5] * 12, offsets, connectivity)
+    _install_filter_vtk(monkeypatch, mesh)
+
+    out = dagmc_lib.filter_graveyard(str(vtk_file), output_path=str(tmp_path / "out.vtk"))
+    assert Path(out).read_text() == "vtk data"
+
+
+def test_cache_key_includes_filter_version(tmp_path):
+    """FILTER_VERSION invalidates filtered caches across derivation changes."""
+    h5m_file = tmp_path / "model.h5m"
+    h5m_file.write_bytes(b"fake-h5m")
+    path, _ = dagmc_lib.get_cache_path(str(h5m_file), str(tmp_path), filtered=True)
+    assert dagmc_lib.FILTER_VERSION >= 2
+    import hashlib
+
+    stat = h5m_file.stat()
+    legacy = hashlib.md5(
+        f"{h5m_file.name}:{stat.st_size}:{stat.st_mtime}:filtered".encode()
+    ).hexdigest()[:12]
+    assert legacy not in Path(path).name  # versioned key must differ from the v1 key

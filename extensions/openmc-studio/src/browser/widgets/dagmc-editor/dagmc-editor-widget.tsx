@@ -2158,14 +2158,6 @@ export class DAGMCEditorWidget extends ReactWidget {
      * Import a CAD file (STEP/IGES/BREP/STL) and load the resulting DAGMC file.
      */
     private async importCADFile(): Promise<void> {
-        const support = await this.backendService.checkCADSupport();
-
-        if (!support.available) {
-            this.messageService.warn(
-                'CAD import requires gmsh or OpenCASCADE. ' + 'Install with: conda install -c conda-forge python-gmsh (or pip install gmsh)'
-            );
-        }
-
         const uri = await this.fileDialogService.showOpenDialog({
             title: 'Import CAD/DAGMC File (STEP/IGES/BREP/STL/H5M)',
             canSelectFiles: true,
@@ -2185,7 +2177,24 @@ export class DAGMCEditorWidget extends ReactWidget {
             return;
         }
 
-        const filePath = uri.path.toString();
+        await this.importCADFileFromPath(uri.path.toString());
+    }
+
+    /** CAD extensions the Open dialog may hand over for conversion. */
+    private static readonly CAD_EXTENSIONS = ['.step', '.stp', '.iges', '.igs', '.brep', '.stl'];
+
+    /**
+     * Convert a CAD file to DAGMC and load the result (shared by the Import
+     * action and CAD files picked through the Open dialog).
+     */
+    private async importCADFileFromPath(filePath: string): Promise<void> {
+        const support = await this.backendService.checkCADSupport();
+
+        if (!support.available) {
+            this.messageService.warn(
+                'CAD import requires gmsh or OpenCASCADE. ' + 'Install with: conda install -c conda-forge python-gmsh (or pip install gmsh)'
+            );
+        }
 
         // Read user preferences for faceting tolerance
         const tolerance = this.preferences.get('openmcStudio.defaultFacetingTolerance', 0.001);
@@ -2234,6 +2243,13 @@ export class DAGMCEditorWidget extends ReactWidget {
      * @param filePath - Absolute path to the DAGMC file.
      */
     private async loadDagmcFile(filePath: string): Promise<void> {
+        // CAD files picked through the Open dialog convert first — parsing
+        // them as DAGMC yields a silent empty model.
+        const ext = filePath.slice(filePath.lastIndexOf('.')).toLowerCase();
+        if (DAGMCEditorWidget.CAD_EXTENSIONS.includes(ext)) {
+            await this.importCADFileFromPath(filePath);
+            return;
+        }
         this.isLoading = true;
         this.error = undefined;
         this.update();
@@ -2270,6 +2286,12 @@ export class DAGMCEditorWidget extends ReactWidget {
                     }
                 };
                 this.messageService.info(`Loaded ${result.data.volumeCount} volumes from ${result.data.fileName}`);
+                if (result.data.volumeCount === 0) {
+                    this.messageService.warn(
+                        ` '${result.data.fileName}' contains no volumes — the file may not be a DAGMC model. ` +
+                            'Use Import CAD for STEP/IGES/BREP/STL sources.'
+                    );
+                }
 
                 // Sync the loaded DAGMC metadata back to shared project state so the
                 // CSG builder, simulation dashboard, and XML generator all see the

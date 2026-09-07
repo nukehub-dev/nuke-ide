@@ -34,6 +34,7 @@ import { codicon } from '@theia/core/lib/browser/widgets/widget';
 import URI from '@theia/core/lib/common/uri';
 import { MessageService } from '@theia/core/lib/common';
 import { FileService } from '@theia/filesystem/lib/browser/file-service';
+import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
 import {
     colormapToCssGradient,
     getColormap,
@@ -49,6 +50,7 @@ import {
     updateToolbarState,
     ViewerToolbarState
 } from '../../../../viewer-core/viewer-toolbar-model';
+import { createOrbitControls, type OrbitControlsHandle } from '../../../../viewer-core/orbit-controls';
 import {
     arrayRange,
     clampStepIndex,
@@ -68,14 +70,6 @@ import {
 import { readVtkText } from '../native-vtk/native-vtk-data';
 import { detectMissingDependencies } from '../dependency-hints';
 import '../output-viewer.css';
-
-/** Orbit state for the viewer's minimal built-in navigation. */
-interface ExodusOrbit {
-    theta: number;
-    phi: number;
-    distance: number;
-    target: THREE.Vector3;
-}
 
 /**
  * Native Exodus time-slider widget (P5, wired).
@@ -115,7 +109,7 @@ export class ExodusTimeSliderWidget extends ReactWidget {
     private scene: THREE.Scene | undefined;
     private camera: THREE.PerspectiveCamera | undefined;
     private points: THREE.Points | undefined;
-    private orbit: ExodusOrbit | undefined;
+    private orbitControls: OrbitControlsHandle | undefined;
     private resizeObserver: ResizeObserver | undefined;
     private renderedStep = -1;
 
@@ -236,14 +230,15 @@ export class ExodusTimeSliderWidget extends ReactWidget {
                 </span>
                 {this.renderColorBySelect()}
                 {this.renderColormapSelect()}
-                <button
-                    className="theia-button secondary"
-                    onClick={() => this.fileUri && this.setSeriesFile(this.fileUri)}
-                    disabled={this.isLoading || !this.fileUri}
-                    title="Reload series"
-                >
-                    <i className={codicon('refresh')}></i>
-                </button>
+                <Tooltip content="Reload series" position="bottom">
+                    <button
+                        className="theia-button secondary"
+                        onClick={() => this.fileUri && this.setSeriesFile(this.fileUri)}
+                        disabled={this.isLoading || !this.fileUri}
+                    >
+                        <i className={codicon('refresh')}></i>
+                    </button>
+                </Tooltip>
             </div>
         );
     }
@@ -253,16 +248,18 @@ export class ExodusTimeSliderWidget extends ReactWidget {
             return undefined;
         }
         return (
-            <label className="openmc-output-viewer-control" title="Color-by array for the current step (applies instantly)">
-                Color by
-                <select value={this.toolbar.colorBy} onChange={(e) => this.setColorBy(e.target.value)} disabled={this.isLoading}>
-                    {colorByOptions(this.series).map((option) => (
-                        <option key={option} value={option}>
-                            {option}
-                        </option>
-                    ))}
-                </select>
-            </label>
+            <Tooltip content="Color-by array for the current step (applies instantly)" position="bottom">
+                <label className="openmc-output-viewer-control">
+                    Color by
+                    <select value={this.toolbar.colorBy} onChange={(e) => this.setColorBy(e.target.value)} disabled={this.isLoading}>
+                        {colorByOptions(this.series).map((option) => (
+                            <option key={option} value={option}>
+                                {option}
+                            </option>
+                        ))}
+                    </select>
+                </label>
+            </Tooltip>
         );
     }
 
@@ -271,16 +268,18 @@ export class ExodusTimeSliderWidget extends ReactWidget {
             return undefined;
         }
         return (
-            <label className="openmc-output-viewer-control" title="Colormap for the legend (applies instantly)">
-                Map
-                <select value={this.toolbar.colormap} onChange={(e) => this.setColormap(e.target.value)} disabled={this.isLoading}>
-                    {SHORT_COLORMAP_NAMES.map((name) => (
-                        <option key={name} value={name}>
-                            {name}
-                        </option>
-                    ))}
-                </select>
-            </label>
+            <Tooltip content="Colormap for the legend (applies instantly)" position="bottom">
+                <label className="openmc-output-viewer-control">
+                    Map
+                    <select value={this.toolbar.colormap} onChange={(e) => this.setColormap(e.target.value)} disabled={this.isLoading}>
+                        {SHORT_COLORMAP_NAMES.map((name) => (
+                            <option key={name} value={name}>
+                                {name}
+                            </option>
+                        ))}
+                    </select>
+                </label>
+            </Tooltip>
         );
     }
 
@@ -336,23 +335,21 @@ export class ExodusTimeSliderWidget extends ReactWidget {
             return undefined;
         }
         return (
-            <div className="openmc-output-viewer-header" title="Time step (client-side index over the extracted series)">
-                <button
-                    className="theia-button secondary"
-                    onClick={() => this.setStepIndex(0)}
-                    disabled={this.isLoading}
-                    title="First step"
-                >
-                    <i className={codicon('chevron-left-all')}></i>
-                </button>
-                <button
-                    className="theia-button secondary"
-                    onClick={() => this.setStepIndex(previousStepIndex(this.stepIndex, series.nSteps))}
-                    disabled={this.isLoading}
-                    title="Previous step"
-                >
-                    <i className={codicon('chevron-left')}></i>
-                </button>
+            <div className="openmc-output-viewer-header">
+                <Tooltip content="First step" position="bottom">
+                    <button className="theia-button secondary" onClick={() => this.setStepIndex(0)} disabled={this.isLoading}>
+                        <i className={codicon('chevron-left-all')}></i>
+                    </button>
+                </Tooltip>
+                <Tooltip content="Previous step" position="bottom">
+                    <button
+                        className="theia-button secondary"
+                        onClick={() => this.setStepIndex(previousStepIndex(this.stepIndex, series.nSteps))}
+                        disabled={this.isLoading}
+                    >
+                        <i className={codicon('chevron-left')}></i>
+                    </button>
+                </Tooltip>
                 <input
                     type="range"
                     min={0}
@@ -364,23 +361,27 @@ export class ExodusTimeSliderWidget extends ReactWidget {
                     style={{ flex: '1' }}
                     aria-label="Time step"
                 />
-                <button
-                    className="theia-button secondary"
-                    onClick={() => this.setStepIndex(nextStepIndex(this.stepIndex, series.nSteps))}
-                    disabled={this.isLoading}
-                    title="Next step"
-                >
-                    <i className={codicon('chevron-right')}></i>
-                </button>
-                <button
-                    className="theia-button secondary"
-                    onClick={() => this.setStepIndex(series.nSteps - 1)}
-                    disabled={this.isLoading}
-                    title="Last step"
-                >
-                    <i className={codicon('chevron-right-all')}></i>
-                </button>
-                <span className="openmc-output-viewer-file">{formatStepLabel(series, this.stepIndex)}</span>
+                <Tooltip content="Next step" position="bottom">
+                    <button
+                        className="theia-button secondary"
+                        onClick={() => this.setStepIndex(nextStepIndex(this.stepIndex, series.nSteps))}
+                        disabled={this.isLoading}
+                    >
+                        <i className={codicon('chevron-right')}></i>
+                    </button>
+                </Tooltip>
+                <Tooltip content="Last step" position="bottom">
+                    <button
+                        className="theia-button secondary"
+                        onClick={() => this.setStepIndex(series.nSteps - 1)}
+                        disabled={this.isLoading}
+                    >
+                        <i className={codicon('chevron-right-all')}></i>
+                    </button>
+                </Tooltip>
+                <Tooltip content="Time step (client-side index over the extracted series)" position="bottom">
+                    <span className="openmc-output-viewer-file">{formatStepLabel(series, this.stepIndex)}</span>
+                </Tooltip>
             </div>
         );
     }
@@ -508,8 +509,7 @@ export class ExodusTimeSliderWidget extends ReactWidget {
         this.host.appendChild(this.renderer.domElement);
         this.scene = new THREE.Scene();
         this.camera = new THREE.PerspectiveCamera(45, 1, 0.01, 1e9);
-        this.orbit = { theta: Math.PI / 4, phi: Math.PI / 3, distance: 10, target: new THREE.Vector3() };
-        this.attachOrbitHandlers(this.renderer.domElement);
+        this.attachOrbitControls();
         this.resizeObserver = new ResizeObserver(() => this.resizeRenderer());
         if (this.host) {
             this.resizeObserver.observe(this.host);
@@ -522,6 +522,8 @@ export class ExodusTimeSliderWidget extends ReactWidget {
     private teardownRenderer(): void {
         this.resizeObserver?.disconnect();
         this.resizeObserver = undefined;
+        this.orbitControls?.dispose();
+        this.orbitControls = undefined;
         this.clearPoints();
         if (this.renderer) {
             this.renderer.dispose();
@@ -530,7 +532,6 @@ export class ExodusTimeSliderWidget extends ReactWidget {
         }
         this.scene = undefined;
         this.camera = undefined;
-        this.orbit = undefined;
         this.renderedStep = -1;
     }
 
@@ -569,7 +570,7 @@ export class ExodusTimeSliderWidget extends ReactWidget {
      */
     private refreshScene(): void {
         const series = this.series;
-        if (!series || !this.scene || !this.camera || !this.orbit) {
+        if (!series || !this.scene || !this.camera) {
             return;
         }
         this.clearPoints();
@@ -627,9 +628,9 @@ export class ExodusTimeSliderWidget extends ReactWidget {
         return out;
     }
 
-    /** Frame the current step's points. */
+    /** Frame the current step's points through the orbit controls (target + distance). */
     fitView(): void {
-        if (!this.series || !this.camera || !this.orbit) {
+        if (!this.series || !this.camera || !this.orbitControls) {
             return;
         }
         const positions = stepPositions(this.series, this.stepIndex);
@@ -640,82 +641,33 @@ export class ExodusTimeSliderWidget extends ReactWidget {
         for (let i = 0; i < positions.length; i += 3) {
             box.expandByPoint(new THREE.Vector3(positions[i], positions[i + 1], positions[i + 2]));
         }
-        const sphere = box.getBoundingSphere(new THREE.Sphere());
-        this.orbit.target.copy(sphere.center);
-        this.orbit.distance = Math.max(sphere.radius * 2.2, 1e-6);
-        this.applyOrbit();
+        this.orbitControls.fitBounds([box.min.x, box.min.y, box.min.z], [box.max.x, box.max.y, box.max.z]);
     }
 
-    private attachOrbitHandlers(canvas: HTMLCanvasElement): void {
-        let dragging = false;
-        let button = 0;
-        let lastX = 0;
-        let lastY = 0;
-        canvas.addEventListener('pointerdown', (e) => {
-            dragging = true;
-            button = e.button;
-            lastX = e.clientX;
-            lastY = e.clientY;
-            canvas.setPointerCapture(e.pointerId);
-        });
-        canvas.addEventListener('pointermove', (e) => {
-            if (!dragging || !this.orbit) {
-                return;
-            }
-            const dx = e.clientX - lastX;
-            const dy = e.clientY - lastY;
-            lastX = e.clientX;
-            lastY = e.clientY;
-            if (button === 2 || button === 1 || e.shiftKey) {
-                this.panBy(dx, dy);
-            } else {
-                this.orbit.theta -= dx * 0.005;
-                this.orbit.phi = Math.min(Math.PI - 0.01, Math.max(0.01, this.orbit.phi - dy * 0.005));
-                this.applyOrbit();
-            }
-        });
-        const stop = (): void => {
-            dragging = false;
-        };
-        canvas.addEventListener('pointerup', stop);
-        canvas.addEventListener('pointercancel', stop);
-        canvas.addEventListener(
-            'wheel',
-            (e) => {
-                e.preventDefault();
-                if (this.orbit) {
-                    this.orbit.distance = Math.max(1e-6, this.orbit.distance * Math.exp(e.deltaY * 0.001));
-                    this.applyOrbit();
+    /**
+     * Attach OrbitControls to the renderer canvas. The controls class loads
+     * asynchronously (same dynamic import style as nuke-cad); a renderer
+     * teardown before the import resolves disposes the stale handle. Once
+     * attached, the current step is framed through the controls.
+     */
+    private attachOrbitControls(): void {
+        const renderer = this.renderer;
+        const camera = this.camera;
+        if (!renderer || !camera) {
+            return;
+        }
+        createOrbitControls(camera, renderer.domElement, { onChange: () => this.renderScene() })
+            .then((handle) => {
+                if (this.renderer !== renderer) {
+                    handle.dispose();
+                    return;
                 }
-            },
-            { passive: false }
-        );
-        canvas.addEventListener('contextmenu', (e) => e.preventDefault());
-    }
-
-    private applyOrbit(): void {
-        if (!this.camera || !this.orbit) {
-            return;
-        }
-        const { theta, phi, distance, target } = this.orbit;
-        this.camera.position.set(
-            target.x + distance * Math.sin(phi) * Math.cos(theta),
-            target.y + distance * Math.cos(phi),
-            target.z + distance * Math.sin(phi) * Math.sin(theta)
-        );
-        this.camera.lookAt(target);
-        this.renderScene();
-    }
-
-    private panBy(dx: number, dy: number): void {
-        if (!this.camera || !this.orbit) {
-            return;
-        }
-        const scale = this.orbit.distance / Math.max(1, this.camera.aspect * 500);
-        const right = new THREE.Vector3().setFromMatrixColumn(this.camera.matrix, 0);
-        const up = new THREE.Vector3().setFromMatrixColumn(this.camera.matrix, 1);
-        this.orbit.target.addScaledVector(right, -dx * scale);
-        this.orbit.target.addScaledVector(up, dy * scale);
-        this.applyOrbit();
+                this.orbitControls?.dispose();
+                this.orbitControls = handle;
+                this.fitView();
+            })
+            .catch((error) => {
+                console.warn('[ExodusViewer] Failed to load orbit controls:', error);
+            });
     }
 }

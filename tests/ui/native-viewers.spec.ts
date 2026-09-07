@@ -66,6 +66,32 @@ test('native polydata (.vtp) renders with canvas and instant color-by', async ({
     await expect(container.locator('.openmc-output-viewer-status.error')).toHaveCount(0);
     await expect(canvas).toBeVisible();
 
+    // Shading + clip controls (CAD parity): wireframe mode and an enabled
+    // clip plane must apply instantly without errors. Header selects are
+    // color-by, colormap, shading — in that order.
+    const shading = container.locator('.openmc-output-viewer-header select').nth(2);
+    await shading.selectOption('Wireframe');
+    await expect(container.locator('.openmc-output-viewer-status.error')).toHaveCount(0);
+    const clipToggle = container.locator('.openmc-output-viewer-header input[type="checkbox"]').first();
+    await clipToggle.check();
+    await expect(container.locator('.openmc-output-viewer-status.error')).toHaveCount(0);
+    await expect(canvas).toBeVisible();
+
+    // OrbitControls smoke (reported camera bugs): drag to orbit, wheel to
+    // zoom — the canvas must survive with no errors.
+    const box = await canvas.boundingBox();
+    if (box) {
+        const cx = box.x + box.width / 2;
+        const cy = box.y + box.height / 2;
+        await page.mouse.move(cx, cy);
+        await page.mouse.down();
+        await page.mouse.move(cx + 120, cy + 60, { steps: 12 });
+        await page.mouse.up();
+        await page.mouse.wheel(0, -240);
+        await expect(canvas).toBeVisible();
+        await expect(container.locator('.openmc-output-viewer-status.error')).toHaveCount(0);
+    }
+
     const bad = severe(errors);
     expect(bad, `unexpected severe errors:\n${bad.join('\n')}`).toEqual([]);
 });
@@ -80,6 +106,9 @@ test('legacy ASCII (.vtk) renders (screenshot regression)', async ({ page }) => 
     const container = await openViewer(page, 'native-legacy.vtk');
     await expect(container.locator('.openmc-output-viewer-status.error')).toHaveCount(0);
     await expect(container.locator('.openmc-output-viewer-viewarea canvas')).toBeVisible({ timeout: 30_000 });
+    // Surface datasets must report (and render) filled triangles, not
+    // wireframe outlines only — the tokamak DAGMC regression.
+    await expect(container.getByText('2 triangles').first()).toBeVisible({ timeout: 30_000 });
 
     const bad = severe(errors);
     expect(bad, `unexpected severe errors:\n${bad.join('\n')}`).toEqual([]);
