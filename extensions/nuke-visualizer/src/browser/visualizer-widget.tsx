@@ -25,21 +25,30 @@
 // SPDX-License-Identifier: BSD-2-Clause
 // *****************************************************************************
 
-import { ReactWidget, Message, CommonCommands } from '@theia/core/lib/browser';
+import { Message, CommonCommands } from '@theia/core/lib/browser';
 import { injectable, postConstruct, inject } from '@theia/core/shared/inversify';
 import * as React from '@theia/core/shared/react';
 import URI from '@theia/core/lib/common/uri';
 import { FileDialogService } from '@theia/filesystem/lib/browser/file-dialog';
 import { CommandRegistry } from '@theia/core/lib/common/command';
-import { MessageService } from '@theia/core/lib/common/message-service';
 import { VisualizerBackendService } from '../common/base-visualizer-protocol';
 import { VisualizerPreferences } from './visualizer-preferences';
 import { toProxiedVisualizerUrl } from './visualizer-url';
+import { NativeVtkViewerWidget } from './plugins/openmc/widgets/native-vtk-viewer-widget';
+import { parseNativeVtkXml } from './plugins/openmc/widgets/native-vtk/native-vtk-data';
+
+/**
+ * Single-dataset XML VTK extensions probed for native rendering. The probe
+ * itself (`parseNativeVtkXml`) is the gate — it only accepts PolyData,
+ * RectilinearGrid, and ImageData, so grid kinds it rejects (.vtu/.vts) and
+ * unparseable files fall through to the trame fallback.
+ */
+const NATIVE_PROBE_EXTENSIONS = new Set(['.vtu', '.vtp', '.vts', '.vtr', '.vti']);
 
 @injectable()
-export class VisualizerWidget extends ReactWidget {
-    static readonly ID = 'nuke-visualizer.widget';
-    static readonly LABEL = 'Visualizer';
+export class VisualizerWidget extends NativeVtkViewerWidget {
+    static override readonly ID = 'nuke-visualizer.widget';
+    static override readonly LABEL = 'Visualizer';
 
     private static instances: Set<VisualizerWidget> = new Set();
 
@@ -51,13 +60,14 @@ export class VisualizerWidget extends ReactWidget {
 
     private serverUrl: string | null = null;
     private serverPort: number | null = null;
-    private statusMessage: string = 'No file loaded';
     private warningMessage: string | null = null;
     private checkInterval: number | null = null;
     private currentFile: string | null = null;
     private currentFileUri: URI | null = null;
     private currentLoadId: number = 0;
     private highlightVolumeId: number | undefined = undefined;
+    /** Rendering path: native three.js for XML VTK, or the trame fallback for everything else. */
+    private mode: 'native' | 'served' = 'served';
 
     @inject(VisualizerBackendService)
     protected readonly visualizerBackend: VisualizerBackendService;
@@ -67,9 +77,6 @@ export class VisualizerWidget extends ReactWidget {
 
     @inject(CommandRegistry)
     protected readonly commandRegistry: CommandRegistry;
-
-    @inject(MessageService)
-    protected readonly messageService: MessageService;
 
     @inject(FileDialogService)
     protected readonly fileDialogService: FileDialogService;
@@ -110,6 +117,8 @@ export class VisualizerWidget extends ReactWidget {
         this.currentFileUri = uri;
         this.currentFile = uri.path.toString();
         this.highlightVolumeId = volumeId;
+        // A new file starts on the served path until the native probe succeeds.
+        this.mode = 'served';
         // Use a unique ID based on the file path so Theia can manage multiple instances
         this.id = `${VisualizerWidget.ID}:${this.currentFile}`;
         this.title.label = `Visualizer: ${uri.path.base}`;
@@ -134,6 +143,22 @@ export class VisualizerWidget extends ReactWidget {
         return this.serverPort;
     }
 
+    /**
+     * Header reload/retry buttons call `setVtkFile(this.fileUri)`; the file
+     * URI stays on the opened file, so keep the generic visualizer identity
+     * (the base implementation rebrands to the native viewer ID).
+     */
+    override async setVtkFile(uri: URI): Promise<void> {
+        await super.setVtkFile(uri);
+        const path = uri.path.toString();
+        if (this.currentFile === path) {
+            this.id = `${VisualizerWidget.ID}:${path}`;
+            this.title.label = `Visualizer: ${uri.path.base}`;
+            this.title.caption = `Visualizer: ${path}`;
+            this.update();
+        }
+    }
+
     protected override onActivateRequest(msg: Message): void {
         super.onActivateRequest(msg);
         const iframe = this.node.querySelector('iframe');
@@ -147,6 +172,12 @@ export class VisualizerWidget extends ReactWidget {
     }
 
     protected render(): React.ReactNode {
+        // Native path: XML VTK datasets render in the three.js viewer with
+        // instant color-by (no server, no iframe). Everything else stays on
+        // the served compatibility UI below.
+        if (this.mode === 'native') {
+            return super.render();
+        }
         const statusLower = this.statusMessage.toLowerCase();
         const isError =
             statusLower.includes('failed') ||
@@ -668,6 +699,12 @@ export class VisualizerWidget extends ReactWidget {
         // Reset all widget state IMMEDIATELY to avoid race conditions in UI
         this.serverUrl = null;
         this.serverPort = null;
+        this.mode = 'served';
+        this.model = undefined;
+        this.classified = undefined;
+        this.fileUri = undefined;
+        this.error = undefined;
+        this.isLoading = false;
         this.statusMessage = 'No file loaded';
         this.warningMessage = null;
         this.currentFile = null;
@@ -738,6 +775,7 @@ export class VisualizerWidget extends ReactWidget {
     private async convertAndLoadDAGMC(h5mPath: string, loadId: number): Promise<void> {
         if (loadId !== this.currentLoadId) return;
 
+        this.mode = 'served';
         const volumeInfo = this.highlightVolumeId !== undefined ? ` (volume ${this.highlightVolumeId})` : '';
         this.statusMessage = `Converting DAGMC file: ${h5mPath}${volumeInfo}...`;
         this.update();
@@ -886,6 +924,7 @@ export class VisualizerWidget extends ReactWidget {
     private async convertAndLoadSTEP(stepPath: string, loadId: number): Promise<void> {
         if (loadId !== this.currentLoadId) return;
 
+        this.mode = 'served';
         this.statusMessage = `Converting CAD file: ${stepPath}...`;
         this.update();
 
@@ -912,6 +951,86 @@ export class VisualizerWidget extends ReactWidget {
         }
     }
 
+    /**
+     * Fast extension pre-filter for the native probe. The probe itself
+     * (`parseNativeVtkXml`) is the real gate — it only accepts PolyData,
+     * RectilinearGrid, and ImageData, so rejected grid kinds (.vtu/.vts) and
+     * unparseable files fall through to the trame fallback.
+     */
+    private isNativeProbeCandidate(filePath: string): boolean {
+        const dot = filePath.lastIndexOf('.');
+        const ext = dot >= 0 ? filePath.slice(dot).toLowerCase() : '';
+        return NATIVE_PROBE_EXTENSIONS.has(ext);
+    }
+
+    /**
+     * Try rendering `filePath` natively: read through Theia's FileService,
+     * probe with `parseNativeVtkXml`, and render with instant color-by on
+     * success. Returns false (after a logged `console.warn`) for everything
+     * the native parser rejects so the caller keeps the base.serve iframe
+     * fallback. Stale loads return false so the caller bails out instead of
+     * starting a server.
+     */
+    private async tryLoadNative(filePath: string, loadId: number): Promise<boolean> {
+        if (!this.isNativeProbeCandidate(filePath)) {
+            return false;
+        }
+        let text: string;
+        try {
+            const content = await this.fileService.read(new URI(filePath));
+            text = content.value.toString();
+        } catch (readError) {
+            console.warn(
+                `[Visualizer] Native VTK read failed for ${filePath}, falling back to the trame server:`,
+                readError instanceof Error ? readError.message : readError
+            );
+            return false;
+        }
+        if (loadId !== this.currentLoadId) {
+            return false;
+        }
+        // Probe the native XML reader first: non-XML datasets throw here and
+        // take the serve fallback below — the native parser stays XML-only
+        // by design.
+        try {
+            await parseNativeVtkXml(text);
+        } catch (probeError) {
+            console.warn(
+                `[Visualizer] Native VTK parse failed for ${filePath}, falling back to the trame server:`,
+                probeError instanceof Error ? probeError.message : probeError
+            );
+            return false;
+        }
+        if (loadId !== this.currentLoadId) {
+            return false;
+        }
+        if (this.serverPort) {
+            try {
+                await this.visualizerBackend.stopServer(this.serverPort);
+            } catch {
+                // best effort — the process may already be gone
+            }
+            this.serverPort = null;
+        }
+        if (this.checkInterval) {
+            clearInterval(this.checkInterval);
+            this.checkInterval = null;
+        }
+        this.serverUrl = null;
+        this.mode = 'native';
+        // setVtkText parses without touching fileUri/title, so point it at
+        // the opened file for the native header.
+        this.fileUri = this.currentFileUri ?? new URI(filePath);
+        await this.setVtkText(text);
+        if (loadId !== this.currentLoadId) {
+            return false;
+        }
+        this.fileUri = this.currentFileUri ?? new URI(filePath);
+        this.ensureClosable();
+        this.update();
+        return true;
+    }
+
     private async startVisualizerServer(filePath?: string, loadId?: number): Promise<void> {
         const currentId = loadId ?? ++this.currentLoadId;
         if (currentId !== this.currentLoadId) {
@@ -926,6 +1045,7 @@ export class VisualizerWidget extends ReactWidget {
                 this.statusMessage = 'No file loaded';
             }
             this.warningMessage = null;
+            this.mode = 'served';
             this.update();
             return;
         }
@@ -933,6 +1053,16 @@ export class VisualizerWidget extends ReactWidget {
         this.statusMessage = 'Starting visualizer server...';
         this.warningMessage = null;
         this.update();
+
+        // Native-first: XML VTK datasets render client-side with instant
+        // color-by; everything else keeps the base.serve iframe fallback.
+        if (await this.tryLoadNative(filePath, currentId)) {
+            return;
+        }
+        if (currentId !== this.currentLoadId) {
+            return;
+        }
+        this.mode = 'served';
 
         try {
             const theme = this.detectTheme();

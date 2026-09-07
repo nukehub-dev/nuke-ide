@@ -31,8 +31,10 @@ import { ApplicationShell, WidgetManager } from '@theia/core/lib/browser';
 import URI from '@theia/core/lib/common/uri';
 import { FileDialogService } from '@theia/filesystem/lib/browser/file-dialog';
 import { OpenMCService } from '../openmc-service';
+import { OpenMCBackendService } from '../../../../common/openmc-protocol';
 import { OpenMCGeometryTreeWidget, GeometryView3DRequest, GeometryLoadedEvent } from '../widgets/geometry/openmc-geometry-tree';
 import { OpenMCGeometry3DWidget } from '../widgets/geometry/openmc-geometry-3d-widget';
+import { GeometryNativeViewerWidget } from '../widgets/geometry-native/geometry-native-viewer-widget';
 import { OpenMCMaterialExplorerWidget } from '../widgets/materials/openmc-material-explorer';
 import { OpenMCOverlapWidget } from '../widgets/geometry/openmc-overlap-widget';
 
@@ -40,6 +42,9 @@ import { OpenMCOverlapWidget } from '../widgets/geometry/openmc-overlap-widget';
 export class OpenMCGeometryContribution {
     @inject(OpenMCService)
     protected readonly openmcService: OpenMCService;
+
+    @inject(OpenMCBackendService)
+    protected readonly openmcBackend: OpenMCBackendService;
 
     @inject(WidgetManager)
     protected readonly widgetManager: WidgetManager;
@@ -121,6 +126,40 @@ export class OpenMCGeometryContribution {
     }
 
     private async showGeometry3D(request: GeometryView3DRequest): Promise<void> {
+        // Native-first (P6 1b): try the headless mesh extractor + native
+        // viewer before the trame server. Any failure warns and falls through
+        // to the verbatim trame path below, which stays as the fallback.
+        try {
+            const treeWidget = await this.getOrCreateGeometryTreeWidget();
+            const currentGeometryUri = treeWidget.getCurrentGeometryUri();
+            const currentHierarchy = treeWidget.getCurrentHierarchy();
+            if (!currentHierarchy || currentHierarchy.totalCells === 0) {
+                throw new Error('No geometry cells to render natively');
+            }
+            const geometryUri = currentGeometryUri || request.fileUri;
+            const mesh = await this.openmcBackend.extractGeometryMesh(geometryUri.path.toString());
+            if (!mesh.success || !mesh.meshPath) {
+                throw new Error(mesh.error || 'Mesh extraction failed');
+            }
+            const nativeWidget = await this.widgetManager.getOrCreateWidget<GeometryNativeViewerWidget>(GeometryNativeViewerWidget.ID, {
+                id: `${GeometryNativeViewerWidget.ID}:${geometryUri.toString()}`
+            } as any);
+            if (!nativeWidget.isAttached) {
+                await this.shell.addWidget(nativeWidget, { area: 'main' });
+            }
+            await this.shell.activateWidget(nativeWidget.id);
+            await nativeWidget.setModelFile(new URI(mesh.meshPath));
+            if (request.highlightCellId !== undefined) {
+                nativeWidget.selectCell(request.highlightCellId);
+            }
+            return;
+        } catch (error) {
+            console.warn(
+                '[OpenMC] Native geometry view failed, falling back to the trame server:',
+                error instanceof Error ? error.message : error
+            );
+        }
+
         // Get or create the 3D widget
         let widget = this.geometry3DWidget;
         if (!widget || widget.isDisposed) {

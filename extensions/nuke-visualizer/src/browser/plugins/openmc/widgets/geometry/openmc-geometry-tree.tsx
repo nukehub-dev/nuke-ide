@@ -607,6 +607,11 @@ export class OpenMCGeometryTreeWidget extends ReactWidget {
         this.update();
     }
 
+    /**
+     * View 3D delegates to `OpenMCGeometryContribution.showGeometry3D`, which
+     * tries the native viewer (`extractGeometryMesh` → `setModelFile`) first
+     * and falls back to the trame 3D widget — no native logic is duplicated here.
+     */
     private viewIn3D(): void {
         if (this.geometryUri) {
             this._onView3D.fire({ fileUri: this.geometryUri });
