@@ -32,8 +32,6 @@ import { codicon } from '@theia/core/lib/browser/widgets/widget';
 import URI from '@theia/core/lib/common/uri';
 import { MessageService } from '@theia/core/lib/common';
 import { OpenMCBackendService, OpenMCVtkConversionResult } from '../../../../common/openmc-protocol';
-import { VisualizerBackendService } from '../../../../common/base-visualizer-protocol';
-import { toProxiedVisualizerUrl } from '../../../visualizer-url';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
 import { detectMissingDependencies } from './dependency-hints';
 import { startSplitDrag } from './drag-split';
@@ -42,29 +40,24 @@ import './output-viewer.css';
 /**
  * Base class for the OpenMC output file viewers (tracks, collision track,
  * weight windows). Handles the shared lifecycle: convert the HDF5 output to
- * a VTK file via the backend, serve it through the base visualizer's trame
- * server (`base.serve`), and render it in an iframe routed through the
- * visualizer reverse proxy. Subclasses provide the conversion call and any
- * extra controls/panels (filter inputs, data tables).
+ * a VTK file via the backend, then load panel data (tables, summaries).
+ * Subclasses provide the conversion call and any extra controls/panels
+ * (filter inputs, data tables); 3D rendering is native (no trame server,
+ * no iframe).
  */
 @injectable()
 export abstract class OpenMCOutputViewerWidget extends ReactWidget {
     @inject(OpenMCBackendService)
     protected readonly openmcBackend!: OpenMCBackendService;
 
-    @inject(VisualizerBackendService)
-    protected readonly visualizerBackend!: VisualizerBackendService;
-
     @inject(MessageService)
     protected readonly messageService!: MessageService;
 
     protected fileUri: URI | undefined;
-    protected serverUrl: string | undefined;
-    protected serverPort: number | undefined;
     protected isLoading = false;
     protected error: string | undefined;
     protected statusMessage = '';
-    /** VTK file currently served (set by reload after conversion). */
+    /** VTK file produced by the last conversion (set by reload). */
     protected lastVtkPath: string | undefined;
     private loadToken = 0;
 
@@ -74,14 +67,6 @@ export abstract class OpenMCOutputViewerWidget extends ReactWidget {
     /** Optional hook: fetch panel data (tables, summaries) after a successful load. */
     protected async loadPanelData(filePath: string): Promise<void> {
         // default: no panel data
-    }
-
-    /**
-     * Optional hook: initial color-by selection passed to the trame server
-     * ('Solid Color', 'Point: <name>', 'Cell: <name>'). Default: viewer default.
-     */
-    protected getColorBy(): string | undefined {
-        return undefined;
     }
 
     /** Viewer-specific controls rendered in the header row. */
@@ -113,7 +98,7 @@ export abstract class OpenMCOutputViewerWidget extends ReactWidget {
         this.reload();
     }
 
-    /** (Re)run the conversion and restart the trame server. */
+    /** (Re)run the conversion and refresh the panel data. */
     async reload(): Promise<void> {
         const filePath = this.filePath;
         if (!filePath) {
@@ -143,12 +128,6 @@ export abstract class OpenMCOutputViewerWidget extends ReactWidget {
                 return;
             }
 
-            this.statusMessage = 'Starting viewer…';
-            this.update();
-            await this.restartServer(result.vtkPath);
-            if (token !== this.loadToken) {
-                return;
-            }
             this.isLoading = false;
             this.statusMessage = '';
             this.update();
@@ -162,35 +141,7 @@ export abstract class OpenMCOutputViewerWidget extends ReactWidget {
         }
     }
 
-    protected async restartServer(vtkPath: string): Promise<void> {
-        if (this.serverPort !== undefined) {
-            try {
-                await this.visualizerBackend.stopServer(this.serverPort);
-            } catch {
-                // best effort — the process may already be gone
-            }
-            this.serverPort = undefined;
-            this.serverUrl = undefined;
-        }
-        const info = await this.visualizerBackend.startServer(vtkPath, undefined, undefined, this.getColorBy());
-        this.lastVtkPath = vtkPath;
-        this.serverPort = info.port;
-        this.serverUrl = toProxiedVisualizerUrl(info.url);
-    }
-
-    /** Restart the trame server for the current VTK file (e.g. after a color-by change). */
-    protected async refreshServer(): Promise<void> {
-        if (this.lastVtkPath) {
-            await this.restartServer(this.lastVtkPath);
-            this.update();
-        }
-    }
-
     override dispose(): void {
-        if (this.serverPort !== undefined) {
-            this.visualizerBackend.stopServer(this.serverPort).catch(() => undefined);
-            this.serverPort = undefined;
-        }
         super.dispose();
     }
 
@@ -226,7 +177,7 @@ export abstract class OpenMCOutputViewerWidget extends ReactWidget {
     }
 
     protected renderContent(): React.ReactNode {
-        if (this.isLoading && !this.serverUrl) {
+        if (this.isLoading) {
             return (
                 <div className="openmc-output-viewer-status">
                     <div className="openmc-output-viewer-spinner"></div>
@@ -239,13 +190,9 @@ export abstract class OpenMCOutputViewerWidget extends ReactWidget {
             <>
                 <div className="openmc-output-viewer-viewarea">
                     {this.renderViewerHint()}
-                    {this.serverUrl ? (
-                        <iframe className="openmc-output-viewer-iframe" src={this.serverUrl} title={this.title.label} />
-                    ) : (
-                        <div className="openmc-output-viewer-status">
-                            <span>{this.statusMessage || 'No file loaded'}</span>
-                        </div>
-                    )}
+                    <div className="openmc-output-viewer-status">
+                        <span>{this.statusMessage || 'No file loaded'}</span>
+                    </div>
                 </div>
                 {panel && (
                     <>
@@ -328,8 +275,7 @@ export abstract class OpenMCOutputViewerWidget extends ReactWidget {
                     </p>
                     <ul className="dep-actions">
                         <li>
-                            Install the missing packages into the configured environment (for the 3D viewers that is <code>vtk</code> and{' '}
-                            <code>trame</code> with <code>paraview</code>).
+                            Install the missing packages into the configured environment (for the 3D viewers that is <code>vtk</code>).
                         </li>
                         <li>
                             Or point NukeIDE at an environment that has them in <strong>Settings → Nuke Utils</strong> (Python environment),

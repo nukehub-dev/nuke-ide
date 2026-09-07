@@ -308,8 +308,8 @@ export class OpenMCService {
     /**
      * Open a converted tally/source/overlay VTK file in the native tally
      * viewer: `FileService.read` → native XML probe → `setTallyText(kind)`.
-     * Throws on any failure so callers can fall back to the trame server
-     * path (which stays working).
+     * Throws on any failure; callers surface the error instead of starting
+     * a server.
      */
     protected async openTallyNativeWidget(vtkPath: string, kind: TallyOverlayKind, label: string): Promise<TallyNativeViewerWidget> {
         const widget = await this.widgetManager.getOrCreateWidget<TallyNativeViewerWidget>(TallyNativeViewerWidget.ID, {
@@ -373,9 +373,9 @@ export class OpenMCService {
                 label += ` (${options.score})`;
             }
 
-            // Native-first: convert to .vti and render without a server; any
-            // failure warns and falls through to the trame path below, which
-            // stays as the fallback.
+            // Native-only: convert to .vti and render without a server; any
+            // conversion/parse failure surfaces an error naming the cause
+            // instead of starting a server.
             try {
                 const statepointPath = statepointUri.path.toString();
                 const conversion = await this.openmcBackend.convertTallyMeshToVtk(statepointPath, {
@@ -394,46 +394,10 @@ export class OpenMCService {
                 this.messageService.info(`Loaded mesh tally ${options.tallyId} natively`);
                 return nativeWidget;
             } catch (error) {
-                console.warn(
-                    '[OpenMC] Native mesh tally view failed, falling back to the trame server:',
-                    error instanceof Error ? error.message : error
-                );
+                const message = error instanceof Error ? error.message : String(error);
+                this.messageService.error(`Failed to visualize mesh tally: ${message}`);
+                return null;
             }
-
-            // Create widget immediately with loading state
-            const { widget, completeLoading } = await this.widgetFactory.createVisualizerWidgetLoading(
-                statepointUri,
-                label,
-                deterministicId,
-                'Starting mesh tally visualization...'
-            );
-
-            const statepointPath = statepointUri.path.toString();
-            const result = await this.openmcBackend.visualizeMeshTally(statepointPath, options.tallyId, options.score, options.nuclide);
-
-            if (!result.success || !result.port || !result.url) {
-                throw new Error(result.error || 'Unknown error loading visualization');
-            }
-
-            // Update label with tally name if available
-            const tallyName = result.tallyInfo?.name;
-            const defaultName = `Tally ${options.tallyId}`;
-            if (tallyName && tallyName !== defaultName && !tallyName.match(/^Tally\s+\d+$/i)) {
-                widget.title.label = `OpenMC Tally ${options.tallyId}: ${tallyName}`;
-                if (options.score) {
-                    widget.title.label += ` (${options.score})`;
-                }
-            }
-
-            // Complete loading by setting server URL
-            completeLoading(result.port, result.url);
-
-            if (result.tallyInfo) {
-                this._onTallyVisualized.fire(result.tallyInfo);
-            }
-
-            this.messageService.info(`Loaded mesh tally visualization on port ${result.port}`);
-            return widget;
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
             this.messageService.error(`Failed to visualize mesh tally: ${msg}`);
@@ -472,12 +436,9 @@ export class OpenMCService {
         }
 
         try {
-            // Create unique suffix for source visualization
-            const uniqueSuffix = `source:${Date.now()}`;
-
-            // Native-first: convert to .vtp points and render without a
-            // server; any failure warns and falls through to the trame path
-            // below, which stays as the fallback.
+            // Native-only: convert to .vtp points and render without a
+            // server; any conversion/parse failure surfaces an error naming
+            // the cause instead of starting a server.
             try {
                 const conversion = await this.openmcBackend.convertSourceToVtk(sourceUri.path.toString(), {});
                 if (!conversion.success || !conversion.vtkPath) {
@@ -487,32 +448,10 @@ export class OpenMCService {
                 this.messageService.info('Loaded source distribution natively');
                 return nativeWidget;
             } catch (error) {
-                console.warn(
-                    '[OpenMC] Native source view failed, falling back to the trame server:',
-                    error instanceof Error ? error.message : error
-                );
+                const message = error instanceof Error ? error.message : String(error);
+                this.messageService.error(`Failed to visualize source: ${message}`);
+                return null;
             }
-
-            // Create widget immediately with loading state
-            const { widget, completeLoading } = await this.widgetFactory.createVisualizerWidgetLoading(
-                sourceUri,
-                'OpenMC Source Distribution',
-                uniqueSuffix,
-                'Loading source distribution...'
-            );
-
-            const sourcePath = sourceUri.path.toString();
-            const result = await this.openmcBackend.visualizeSource(sourcePath);
-
-            if (!result.success || !result.port || !result.url) {
-                throw new Error(result.error || 'Unknown error loading source');
-            }
-
-            // Complete loading by setting server URL
-            completeLoading(result.port, result.url);
-
-            this.messageService.info('Loaded source distribution');
-            return widget;
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
             this.messageService.error(`Failed to visualize source: ${msg}`);
@@ -534,18 +473,15 @@ export class OpenMCService {
         }
 
         try {
-            // Create unique suffix for overlay visualization
-            const uniqueSuffix = `overlay:${options.tallyId}:${options.score || 'default'}:${Date.now()}`;
-
             let label = `Tally ${options.tallyId}`;
             if (options.score) {
                 label += ` (${options.score})`;
             }
             label += ' on Geometry';
 
-            // Native-first: static overlay cloud without a server; any
-            // failure warns and falls through to the trame path below, which
-            // stays as the fallback.
+            // Native-only: static overlay cloud without a server; any
+            // conversion/parse failure surfaces an error naming the cause
+            // instead of starting a server.
             try {
                 const conversion = await this.openmcBackend.convertOverlayToVtk(statepointUri.path.toString(), {
                     tallyId: options.tallyId,
@@ -560,58 +496,10 @@ export class OpenMCService {
                 this.messageService.info('Loaded tally overlay on geometry natively');
                 return nativeWidget;
             } catch (error) {
-                console.warn(
-                    '[OpenMC] Native tally overlay failed, falling back to the trame server:',
-                    error instanceof Error ? error.message : error
-                );
+                const message = error instanceof Error ? error.message : String(error);
+                this.messageService.error(`Failed to overlay tally: ${message}`);
+                return null;
             }
-
-            // Create widget immediately with loading state - use geometry as the main file
-            const { widget, completeLoading } = await this.widgetFactory.createVisualizerWidgetLoading(
-                geometryUri, // Use geometry as main file for the widget
-                label,
-                uniqueSuffix,
-                `Loading tally ${options.tallyId} on geometry...`
-            );
-
-            const geometryPath = geometryUri.path.toString();
-            const statepointPath = statepointUri.path.toString();
-
-            const result = await this.openmcBackend.visualizeTallyOnGeometry(
-                geometryPath,
-                statepointPath,
-                options.tallyId,
-                options.score,
-                options.filterGraveyard !== false, // default to true
-                options.pixelated !== false // default to true
-            );
-
-            if (!result.success || !result.port || !result.url) {
-                throw new Error(result.error || 'Unknown error loading overlay');
-            }
-
-            // Update label with tally name if available
-            const tallyName = result.tallyInfo?.name;
-            const defaultName = `Tally ${options.tallyId}`;
-            if (tallyName && tallyName !== defaultName && !tallyName.match(/^Tally\s+\d+$/i)) {
-                widget.title.label = `Tally ${options.tallyId}: ${tallyName}`;
-                if (options.score) {
-                    widget.title.label += ` (${options.score})`;
-                }
-                widget.title.label += ' on Geometry';
-            }
-
-            // Complete loading by setting server URL
-            completeLoading(result.port, result.url);
-
-            if (result.tallyInfo) {
-                this._onTallyVisualized.fire(result.tallyInfo);
-            }
-
-            // Note: Spatial warning (if any) was already shown immediately via RPC
-            // The warning appears as soon as Python outputs it, not at the end
-            this.messageService.info('Loaded tally overlay on geometry');
-            return widget;
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
             this.messageService.error(`Failed to overlay tally: ${msg}`);
@@ -634,17 +522,15 @@ export class OpenMCService {
         }
 
         try {
-            const uniqueSuffix = `slice:${options.tallyId}:${sliceOptions.plane}:${Date.now()}`;
-
             let label = `Tally ${options.tallyId}`;
             if (options.score) {
                 label += ` (${options.score})`;
             }
             label += ` Slice (${sliceOptions.plane.toUpperCase()})`;
 
-            // Native-first: static slice cloud without a server; any failure
-            // warns and falls through to the trame path below, which stays as
-            // the fallback.
+            // Native-only: static slice cloud without a server; any
+            // conversion/parse failure surfaces an error naming the cause
+            // instead of starting a server.
             try {
                 const conversion = await this.openmcBackend.convertOverlayToVtk(statepointUri.path.toString(), {
                     tallyId: options.tallyId,
@@ -662,53 +548,10 @@ export class OpenMCService {
                 this.messageService.info(`Loaded tally slice on ${sliceOptions.plane.toUpperCase()} plane natively`);
                 return nativeWidget;
             } catch (error) {
-                console.warn(
-                    '[OpenMC] Native tally slice failed, falling back to the trame server:',
-                    error instanceof Error ? error.message : error
-                );
+                const message = error instanceof Error ? error.message : String(error);
+                this.messageService.error(`Failed to overlay tally slice: ${message}`);
+                return null;
             }
-
-            const { widget, completeLoading } = await this.widgetFactory.createVisualizerWidgetLoading(
-                statepointUri,
-                label,
-                uniqueSuffix,
-                `Loading tally ${options.tallyId} slice...`
-            );
-
-            const geometryPath = geometryUri.path.toString();
-            const statepointPath = statepointUri.path.toString();
-
-            const result = await this.openmcBackend.visualizeTallySlice(
-                geometryPath,
-                statepointPath,
-                options.tallyId,
-                sliceOptions,
-                options.score,
-                options.nuclide
-            );
-
-            if (!result.success || !result.port || !result.url) {
-                throw new Error(result.error || 'Unknown error loading slice visualization');
-            }
-
-            const tallyName = result.tallyInfo?.name;
-            const defaultName = `Tally ${options.tallyId}`;
-            if (tallyName && tallyName !== defaultName && !tallyName.match(/^Tally\s+\d+$/i)) {
-                widget.title.label = `Tally ${options.tallyId}: ${tallyName}`;
-                if (options.score) {
-                    widget.title.label += ` (${options.score})`;
-                }
-                widget.title.label += ` Slice`;
-            }
-
-            completeLoading(result.port, result.url);
-
-            if (result.tallyInfo) {
-                this._onTallyVisualized.fire(result.tallyInfo);
-            }
-
-            this.messageService.info(`Loaded tally slice on ${sliceOptions.plane.toUpperCase()} plane`);
-            return widget;
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
             this.messageService.error(`Failed to overlay tally slice: ${msg}`);
@@ -893,17 +736,15 @@ export class OpenMCService {
         }
 
         try {
-            const uniqueSuffix = `overlay-source:${options.tallyId}:${options.score || 'default'}:${Date.now()}`;
-
             let label = `Tally ${options.tallyId}`;
             if (options.score) {
                 label += ` (${options.score})`;
             }
             label += ' + Source';
 
-            // Native-first: static overlay cloud without a server; any
-            // failure warns and falls through to the trame path below, which
-            // stays as the fallback.
+            // Native-only: static overlay cloud without a server; any
+            // conversion/parse failure surfaces an error naming the cause
+            // instead of starting a server.
             try {
                 const conversion = await this.openmcBackend.convertOverlayToVtk(statepointUri.path.toString(), {
                     tallyId: options.tallyId,
@@ -918,52 +759,10 @@ export class OpenMCService {
                 this.messageService.info('Loaded tally overlay with source particles natively');
                 return nativeWidget;
             } catch (error) {
-                console.warn(
-                    '[OpenMC] Native tally+source overlay failed, falling back to the trame server:',
-                    error instanceof Error ? error.message : error
-                );
+                const message = error instanceof Error ? error.message : String(error);
+                this.messageService.error(`Failed to overlay tally with source: ${message}`);
+                return null;
             }
-
-            const { widget, completeLoading } = await this.widgetFactory.createVisualizerWidgetLoading(
-                geometryUri,
-                label,
-                uniqueSuffix,
-                `Loading tally ${options.tallyId} with source particles...`
-            );
-
-            const geometryPath = geometryUri.path.toString();
-            const statepointPath = statepointUri.path.toString();
-
-            const result = await this.openmcBackend.visualizeTallyAndSourceOnGeometry(
-                geometryPath,
-                statepointPath,
-                options.tallyId,
-                options.score,
-                options.filterGraveyard !== false
-            );
-
-            if (!result.success || !result.port || !result.url) {
-                throw new Error(result.error || 'Unknown error loading overlay with source');
-            }
-
-            const tallyName = result.tallyInfo?.name;
-            const defaultName = `Tally ${options.tallyId}`;
-            if (tallyName && tallyName !== defaultName && !tallyName.match(/^Tally\s+\d+$/i)) {
-                widget.title.label = `Tally ${options.tallyId}: ${tallyName}`;
-                if (options.score) {
-                    widget.title.label += ` (${options.score})`;
-                }
-                widget.title.label += ' + Source';
-            }
-
-            completeLoading(result.port, result.url);
-
-            if (result.tallyInfo) {
-                this._onTallyVisualized.fire(result.tallyInfo);
-            }
-
-            this.messageService.info('Loaded tally overlay with source particles');
-            return widget;
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
             this.messageService.error(`Failed to overlay tally with source: ${msg}`);
@@ -1528,12 +1327,9 @@ export class OpenMCService {
         }
 
         try {
-            // Create unique suffix for source visualization
-            const uniqueSuffix = `statepoint-source:${Date.now()}`;
-
-            // Native-first: convert the statepoint source bank to .vtp points
-            // and render without a server; any failure warns and falls
-            // through to the trame path below, which stays as the fallback.
+            // Native-only: convert the statepoint source bank to .vtp points
+            // and render without a server; any conversion/parse failure
+            // surfaces an error naming the cause instead of starting a server.
             try {
                 const conversion = await this.openmcBackend.convertSourceToVtk(statepointUri.path.toString(), {});
                 if (!conversion.success || !conversion.vtkPath) {
@@ -1543,31 +1339,10 @@ export class OpenMCService {
                 this.messageService.info('Loaded source distribution from statepoint natively');
                 return nativeWidget;
             } catch (error) {
-                console.warn(
-                    '[OpenMC] Native statepoint source view failed, falling back to the trame server:',
-                    error instanceof Error ? error.message : error
-                );
+                const message = error instanceof Error ? error.message : String(error);
+                this.messageService.error(`Failed to visualize source: ${message}`);
+                return null;
             }
-
-            // Create widget immediately with loading state
-            const { widget, completeLoading } = await this.widgetFactory.createVisualizerWidgetLoading(
-                statepointUri,
-                'OpenMC Source (from Statepoint)',
-                uniqueSuffix,
-                'Loading source distribution from statepoint...'
-            );
-
-            const result = await this.openmcBackend.visualizeStatepointSource(statepointUri.path.toString());
-
-            if (!result.success || !result.port || !result.url) {
-                throw new Error(result.error || 'Unknown error loading source');
-            }
-
-            // Complete loading by setting server URL
-            completeLoading(result.port, result.url);
-
-            this.messageService.info('Loaded source distribution from statepoint');
-            return widget;
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
             this.messageService.error(`Failed to visualize source: ${msg}`);

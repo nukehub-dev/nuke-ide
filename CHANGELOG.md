@@ -26,6 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   XML VTK files and the geometry tree's View 3D now render natively with
   instant color control; legacy formats and unparseable files keep the
   trame server as automatic fallback.
+- nuke-visualizer: output viewers (tracks, collision-track, weight-windows,
+  random-ray, tally, DAGMC) are now native-only — the per-viewer trame
+  fallback is removed and unreadable files show an error panel pointing
+  at the generic VTK viewer instead.
 - nuke-cad: **lattice feature** — replicate a solid feature over a
   rectangular grid or hexagonal ring (2500-cell cap) with per-cell labels
   (`<prefix>_r<row>c<col>`) that flow into `selector_map` and DAGMC groups,

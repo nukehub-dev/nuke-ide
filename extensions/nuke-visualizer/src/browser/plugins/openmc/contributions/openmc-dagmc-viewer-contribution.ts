@@ -32,7 +32,6 @@ import URI from '@theia/core/lib/common/uri';
 import { FileService } from '@theia/filesystem/lib/browser/file-service';
 import { OutputViewerContribution } from '../../../output-viewer/output-viewer-registry';
 import { VisualizerBackendService } from '../../../../common/base-visualizer-protocol';
-import { VisualizerWidget } from '../../../visualizer-widget';
 import { DagmcViewerWidget } from '../widgets/dagmc/dagmc-viewer-widget';
 import { parseVtmManifest } from '../widgets/dagmc/dagmc-multiblock';
 
@@ -43,8 +42,8 @@ function isDagmcMultiblockFileName(baseName: string): boolean {
 
 /**
  * Guess the source `.h5m` for a converter-written manifest (`<stem>_volumes.vtm`
- * → sibling `<stem>.h5m`). Used for the `dagmc.info` model metadata and the
- * trame fallback; undefined when the name carries no such hint.
+ * → sibling `<stem>.h5m`). Used for the `dagmc.info` model metadata;
+ * undefined when the name carries no such hint.
  */
 function siblingH5mCandidate(uri: URI): URI | undefined {
     const match = /^(.*)_volumes\.vtm$/i.exec(uri.path.base);
@@ -58,9 +57,12 @@ function siblingH5mCandidate(uri: URI): URI | undefined {
  * no trame server) and volume/material/group toggles arrive via `setModelInfo`
  * with the `dagmc.info` payload for the sibling `.h5m`.
  *
- * Native-first with a logged trame fallback: when the manifest cannot even be
- * read/parsed natively, the file opens in the classic trame viewer instead
- * (`dagmc.visualize` for the sibling `.h5m`, `base.serve` otherwise). A
+ * Native-only: the manifest loads through `setVtmFile` (FileService,
+ * no trame server) and volume/material/group toggles arrive via `setModelInfo`
+ * with the `dagmc.info` payload for the sibling `.h5m`.
+ *
+ * When the manifest cannot even be read/parsed natively, opening fails with
+ * an error naming the generic VTK viewer as the alternative. A
  * missing `dagmc.info` payload is NOT a native failure — the viewer simply
  * renders every block without toggles.
  */
@@ -91,17 +93,16 @@ export class OpenMCDagmcViewerContribution implements OutputViewerContribution {
 
     async open(uri: URI): Promise<void> {
         // Probe the manifest before creating any widget: a .vtm that cannot
-        // be read/parsed natively takes the trame fallback (log + old path)
-        // instead of stranding an error panel.
+        // be read/parsed natively surfaces an error naming the generic VTK
+        // viewer as the alternative instead of starting a server.
         try {
             const content = await this.fileService.read(uri);
             parseVtmManifest(content.value.toString());
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
-            console.warn(
-                `[dagmc-viewer] Native multiblock load failed for ${uri.path.toString()}, falling back to the trame viewer: ${message}`
+            this.messageService.error(
+                `Failed to load DAGMC multiblock ${uri.path.toString()}: ${message}. Try opening it in the generic VTK viewer instead.`
             );
-            await this.openLegacyViewer(uri);
             return;
         }
 
@@ -117,10 +118,9 @@ export class OpenMCDagmcViewerContribution implements OutputViewerContribution {
             await this.loadModelInfo(widget, uri);
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
-            console.warn(
-                `[dagmc-viewer] Native multiblock load failed for ${uri.path.toString()}, falling back to the trame viewer: ${message}`
+            this.messageService.error(
+                `Failed to load DAGMC multiblock ${uri.path.toString()}: ${message}. Try opening it in the generic VTK viewer instead.`
             );
-            await this.openLegacyViewer(uri);
         }
     }
 
@@ -143,23 +143,5 @@ export class OpenMCDagmcViewerContribution implements OutputViewerContribution {
                 error instanceof Error ? error.message : error
             );
         }
-    }
-
-    /**
-     * Old path: the classic trame viewer — `dagmc.visualize` for the sibling
-     * `.h5m` when one can be guessed, `base.serve` on the `.vtm` itself
-     * otherwise (mirrors `VisualizerOpenHandler`).
-     */
-    protected async openLegacyViewer(uri: URI): Promise<void> {
-        const target = siblingH5mCandidate(uri) ?? uri;
-        const widget = await this.widgetManager.getOrCreateWidget<VisualizerWidget>(VisualizerWidget.ID, {
-            uri: target.toString()
-        });
-        widget.setUri(target);
-        if (!widget.isAttached) {
-            this.shell.addWidget(widget, { area: 'main' });
-        }
-        this.shell.activateWidget(widget.id);
-        await widget.loadFile(target);
     }
 }

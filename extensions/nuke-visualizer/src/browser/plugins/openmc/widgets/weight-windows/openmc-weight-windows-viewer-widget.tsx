@@ -46,6 +46,10 @@ import { startSplitDrag } from '../drag-split';
  * The mesh selector re-runs the conversion anchored to the chosen mesh
  * (`--mesh-id`; windows on other meshes are skipped by the backend) when a
  * file carries windows on multiple meshes.
+ *
+ * Files the native XML parser cannot read render an actionable error panel
+ * (open the converted VTK in the generic VTK viewer instead) — there is no
+ * serve fallback.
  */
 @injectable()
 export class OpenMCWeightWindowsViewerWidget extends NativeVtkViewerWidget {
@@ -57,6 +61,8 @@ export class OpenMCWeightWindowsViewerWidget extends NativeVtkViewerWidget {
 
     /** The source `weight_windows.h5` file (the native base points at VTK; this stays on the source). */
     protected sourceUri: URI | undefined;
+    /** VTK file produced by the last conversion (set by reload). */
+    protected lastVtkPath: string | undefined;
     protected data: OpenMCWeightWindowsData | undefined;
     /** Mesh ID the conversion is anchored to (undefined = first window's mesh). */
     protected selectedMeshId?: number;
@@ -118,6 +124,7 @@ export class OpenMCWeightWindowsViewerWidget extends NativeVtkViewerWidget {
             if (!result.success || !result.vtkPath) {
                 throw new Error(result.error || 'Conversion failed');
             }
+            this.lastVtkPath = result.vtkPath;
 
             this.statusMessage = 'Loading data…';
             this.update();
@@ -134,9 +141,20 @@ export class OpenMCWeightWindowsViewerWidget extends NativeVtkViewerWidget {
             }
             // setVtkText parses without touching fileUri/title, so the header
             // keeps showing the source file while the scene shows the VTK.
+            // A parse failure lands in this.error — name the file kind and
+            // point at the generic VTK viewer instead of failing bare.
             this.fileUri = this.sourceUri;
             await this.setVtkText(content.value.toString());
             if (token !== this.reloadToken) {
+                return;
+            }
+            if (this.error) {
+                this.error =
+                    `Weight windows file not supported by the native viewer: ${this.error}. ` +
+                    'Open the converted VTK file in the generic VTK viewer (Visualizer) instead.';
+                this.fileUri = this.sourceUri;
+                this.isLoading = false;
+                this.update();
                 return;
             }
             this.fileUri = this.sourceUri;
@@ -231,6 +249,44 @@ export class OpenMCWeightWindowsViewerWidget extends NativeVtkViewerWidget {
                         </ul>
                         <p className="dep-backend-error">
                             <span className="dep-backend-label">Backend error:</span> {this.error}
+                        </p>
+                        <button className="theia-button secondary" onClick={() => this.reload()}>
+                            <i className={codicon('refresh')}></i>
+                            Retry
+                        </button>
+                    </div>
+                </div>
+            );
+        }
+        if (this.error?.includes('not supported by the native viewer')) {
+            return (
+                <div className="openmc-output-viewer-status">
+                    <div className="openmc-output-viewer-dep-panel">
+                        <div className="dep-title">
+                            <i className={codicon('warning')}></i>
+                            Not supported by the native viewer
+                        </div>
+                        <p className="dep-summary">
+                            This weight windows file cannot be displayed by the native 3D viewer — only the XML VTK datasets the converter
+                            produces are supported here.
+                        </p>
+                        <ul className="dep-actions">
+                            <li>
+                                Open the converted VTK file
+                                {this.lastVtkPath ? (
+                                    <>
+                                        {' '}
+                                        (<code>{this.lastVtkPath}</code>)
+                                    </>
+                                ) : (
+                                    ''
+                                )}{' '}
+                                in the generic VTK viewer (<strong>Visualizer</strong>) instead — it keeps the compatibility viewer for
+                                files the native viewer cannot parse.
+                            </li>
+                        </ul>
+                        <p className="dep-backend-error">
+                            <span className="dep-backend-label">Parser error:</span> {this.error}
                         </p>
                         <button className="theia-button secondary" onClick={() => this.reload()}>
                             <i className={codicon('refresh')}></i>

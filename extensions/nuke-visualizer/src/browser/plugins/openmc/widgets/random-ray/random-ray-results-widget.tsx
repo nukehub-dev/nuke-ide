@@ -29,21 +29,14 @@ import * as React from 'react';
 import { injectable, postConstruct, inject } from '@theia/core/shared/inversify';
 import { codicon } from '@theia/core/lib/browser/widgets/widget';
 import URI from '@theia/core/lib/common/uri';
-import {
-    OpenMCBackendService,
-    OpenMCVtkArrayInfo,
-    OpenMCVtkConversionResult,
-    OpenMCVtkFileInfo
-} from '../../../../../common/openmc-protocol';
-import { VisualizerBackendService } from '../../../../../common/base-visualizer-protocol';
-import { toProxiedVisualizerUrl } from '../../../../visualizer-url';
+import { OpenMCBackendService, OpenMCVtkArrayInfo, OpenMCVtkConversionResult } from '../../../../../common/openmc-protocol';
 import { NativeVtkViewerWidget } from '../native-vtk-viewer-widget';
 import { parseNativeVtkXml } from '../native-vtk/native-vtk-data';
 import { ClassifiedVtkArrays, classifyVtkArrays, colorByValue, defaultColorBy } from './random-ray-arrays';
 import { detectMissingDependencies } from '../dependency-hints';
 import { startSplitDrag } from '../drag-split';
 
-/** Extensions served directly (already VTK); .h5 goes through voxel conversion */
+/** Extensions loaded directly (already VTK); .h5 goes through voxel conversion */
 const DIRECT_VTK_EXTENSIONS = new Set(['.vtk', '.vti', '.vtr', '.vtp', '.vtu', '.vts']);
 
 /**
@@ -52,12 +45,12 @@ const DIRECT_VTK_EXTENSIONS = new Set(['.vtk', '.vti', '.vtr', '.vtp', '.vtu', '
  * `.vtk` random-ray outputs, `.vti` files, or voxel `.h5` plots (converted
  * via `openmc.voxel-vtk`).
  *
- * Native-first: XML datasets load into the three.js viewer through
+ * Native-only: XML datasets load into the three.js viewer through
  * `FileService`, and the quick-select bar sets color-by instantly via
- * `applyProps` (no restart). Legacy ASCII `.vtk` outputs are XML-parser-only
- * in the native viewer, so when the native parse fails the widget falls back
- * to the old convert→serve→iframe path (`base.serve --color-by`, restart on
- * selection change) instead of extending the parser here.
+ * `applyProps` (no restart). Files the native XML parser cannot read
+ * (e.g. legacy ASCII `.vtk`) render an actionable error panel instead —
+ * open them in the generic VTK viewer, which keeps the compatibility
+ * viewer.
  */
 @injectable()
 export class OpenMCRandomRayResultsWidget extends NativeVtkViewerWidget {
@@ -67,22 +60,13 @@ export class OpenMCRandomRayResultsWidget extends NativeVtkViewerWidget {
     @inject(OpenMCBackendService)
     protected readonly openmcBackend!: OpenMCBackendService;
 
-    @inject(VisualizerBackendService)
-    protected readonly visualizerBackend!: VisualizerBackendService;
-
     /** The source file (the native base points at VTK; this stays on the source). */
     protected sourceUri: URI | undefined;
-    /** VTK file currently loaded or served (set by reload after conversion). */
+    /** VTK file produced by the last conversion (set by reload). */
     protected lastVtkPath: string | undefined;
-    /** Rendering path: native three.js, or the trame fallback for legacy files. */
-    protected mode: 'native' | 'served' = 'native';
-    protected serverUrl: string | undefined;
-    protected serverPort: number | undefined;
-    protected vtkInfo: OpenMCVtkFileInfo | undefined;
     /** Quick-select grouping (random-ray flux/source/id classes, separate from the base viewer's own classification). */
     protected quickSelect: ClassifiedVtkArrays | undefined;
     protected selectedColorBy: string | undefined;
-    protected restarting = false;
     /** Panel height in px once the user drags the split (undefined = CSS default 40%). */
     protected panelHeight?: number;
     private reloadToken = 0;
@@ -99,10 +83,7 @@ export class OpenMCRandomRayResultsWidget extends NativeVtkViewerWidget {
     setFile(uri: URI): void {
         this.sourceUri = uri;
         this.selectedColorBy = undefined;
-        this.vtkInfo = undefined;
         this.quickSelect = undefined;
-        this.mode = 'native';
-        void this.stopFallbackServer();
         this.id = `${OpenMCRandomRayResultsWidget.ID}:${uri.path.toString()}`;
         this.title.label = `${OpenMCRandomRayResultsWidget.LABEL}: ${uri.path.base}`;
         this.title.caption = `${OpenMCRandomRayResultsWidget.LABEL}: ${uri.path.toString()}`;
@@ -124,11 +105,6 @@ export class OpenMCRandomRayResultsWidget extends NativeVtkViewerWidget {
         await super.setVtkFile(uri);
     }
 
-    /** Initial color-by for a freshly started fallback server. */
-    protected getColorBy(): string | undefined {
-        return this.selectedColorBy;
-    }
-
     protected convert(filePath: string): Promise<OpenMCVtkConversionResult> {
         const ext = this.sourceUri?.path.ext.toLowerCase() ?? '';
         if (DIRECT_VTK_EXTENSIONS.has(ext)) {
@@ -141,7 +117,7 @@ export class OpenMCRandomRayResultsWidget extends NativeVtkViewerWidget {
         return Promise.resolve({ success: false, error: `Unsupported file type for random-ray results: ${ext || filePath}` });
     }
 
-    /** (Re)run the conversion and load the result natively (or via the fallback server). */
+    /** (Re)run the conversion and load the result natively. */
     async reload(): Promise<void> {
         const filePath = this.sourceUri?.path.toString();
         if (!filePath) {
@@ -169,71 +145,41 @@ export class OpenMCRandomRayResultsWidget extends NativeVtkViewerWidget {
             if (token !== this.reloadToken) {
                 return;
             }
-            // Probe the native XML reader first: legacy ASCII `.vtk` (and
-            // other non-XML datasets) throw here and take the serve fallback
-            // below — the native parser stays XML-only by design.
-            let nativeText: string | undefined;
+            // Probe the native XML reader: legacy ASCII `.vtk` (and other
+            // non-XML datasets) throw here — the native parser stays
+            // XML-only by design, so an unparseable file is an actionable
+            // error (open it in the generic VTK viewer instead).
+            let nativeText: string;
             try {
                 await parseNativeVtkXml(content.value.toString());
                 nativeText = content.value.toString();
             } catch (probeError) {
-                console.warn(
-                    `[random-ray] Native VTK parse failed for ${result.vtkPath}, falling back to the trame server:`,
-                    probeError instanceof Error ? probeError.message : probeError
+                const detail = probeError instanceof Error ? probeError.message : String(probeError);
+                throw new Error(
+                    `Random-ray results file not supported by the native viewer: ${detail}. ` +
+                        'Open the file in the generic VTK viewer (Visualizer) instead.'
                 );
             }
             if (token !== this.reloadToken) {
                 return;
             }
 
-            if (nativeText !== undefined) {
-                await this.stopFallbackServer();
-                if (token !== this.reloadToken) {
-                    return;
-                }
-                this.mode = 'native';
-                this.serverUrl = undefined;
-                // setVtkText parses without touching fileUri/title, so the
-                // header keeps showing the source file.
-                this.fileUri = this.sourceUri;
-                await this.setVtkText(nativeText);
-                if (token !== this.reloadToken) {
-                    return;
-                }
-                this.fileUri = this.sourceUri;
-                const arrays = [...(this.model?.pointArrays ?? []), ...(this.model?.cellArrays ?? [])];
-                this.quickSelect = classifyVtkArrays(arrays);
-                if (!this.selectedColorBy) {
-                    this.selectedColorBy = defaultColorBy(this.quickSelect);
-                }
-                if (this.selectedColorBy !== undefined) {
-                    this.applyProps({ colorBy: this.selectedColorBy });
-                }
-                this.isLoading = false;
-                this.statusMessage = '';
-                this.update();
-                return;
-            }
-
-            // Legacy path: inspect the file and serve it through base.serve.
-            this.statusMessage = 'Loading data…';
-            this.update();
-            this.vtkInfo = await this.openmcBackend.getVtkInfo(result.vtkPath);
+            this.fileUri = this.sourceUri;
+            // setVtkText parses without touching fileUri/title, so the
+            // header keeps showing the source file.
+            await this.setVtkText(nativeText);
             if (token !== this.reloadToken) {
                 return;
             }
-            this.quickSelect = classifyVtkArrays(this.vtkInfo.arrays);
+            this.fileUri = this.sourceUri;
+            const arrays = [...(this.model?.pointArrays ?? []), ...(this.model?.cellArrays ?? [])];
+            this.quickSelect = classifyVtkArrays(arrays);
             if (!this.selectedColorBy) {
                 this.selectedColorBy = defaultColorBy(this.quickSelect);
             }
-            this.statusMessage = 'Starting viewer…';
-            this.update();
-            await this.restartServer(result.vtkPath);
-            if (token !== this.reloadToken) {
-                return;
+            if (this.selectedColorBy !== undefined) {
+                this.applyProps({ colorBy: this.selectedColorBy });
             }
-            this.mode = 'served';
-            this.fileUri = this.sourceUri;
             this.isLoading = false;
             this.statusMessage = '';
             this.update();
@@ -247,61 +193,17 @@ export class OpenMCRandomRayResultsWidget extends NativeVtkViewerWidget {
         }
     }
 
-    protected async restartServer(vtkPath: string): Promise<void> {
-        await this.stopFallbackServer();
-        const info = await this.visualizerBackend.startServer(vtkPath, undefined, undefined, this.getColorBy());
-        this.lastVtkPath = vtkPath;
-        this.serverPort = info.port;
-        this.serverUrl = toProxiedVisualizerUrl(info.url);
-    }
-
-    /** Restart the fallback trame server for the current VTK file (e.g. after a color-by change). */
-    protected async refreshServer(): Promise<void> {
-        if (this.lastVtkPath) {
-            await this.restartServer(this.lastVtkPath);
-            this.update();
-        }
-    }
-
-    protected async stopFallbackServer(): Promise<void> {
-        if (this.serverPort !== undefined) {
-            try {
-                await this.visualizerBackend.stopServer(this.serverPort);
-            } catch {
-                // best effort — the process may already be gone
-            }
-            this.serverPort = undefined;
-            this.serverUrl = undefined;
-        }
-    }
-
     override dispose(): void {
         this.reloadToken++;
-        if (this.serverPort !== undefined) {
-            this.visualizerBackend.stopServer(this.serverPort).catch(() => undefined);
-            this.serverPort = undefined;
-        }
         super.dispose();
     }
 
-    protected async selectColorBy(value: string | undefined): Promise<void> {
+    /** Instant color-by switch on the already-loaded dataset (no restart). */
+    protected selectColorBy(value: string | undefined): void {
         this.selectedColorBy = value;
-        if (this.mode === 'native') {
-            // Instant: rewrite the color buffer, no server involved.
-            if (value !== undefined) {
-                this.applyProps({ colorBy: value });
-            }
-            this.update();
-            return;
+        if (value !== undefined) {
+            this.applyProps({ colorBy: value });
         }
-        this.restarting = true;
-        this.update();
-        try {
-            await this.refreshServer();
-        } catch (error) {
-            this.messageService.error(`Failed to restart viewer: ${error instanceof Error ? error.message : error}`);
-        }
-        this.restarting = false;
         this.update();
     }
 
@@ -314,24 +216,21 @@ export class OpenMCRandomRayResultsWidget extends NativeVtkViewerWidget {
         );
     }
 
-    /** Array quick-select bar: instant color-by on the native path, server restart on the legacy fallback. */
+    /** Array quick-select bar: instant color-by on the loaded dataset. */
     protected renderQuickSelect(): React.ReactNode {
         if (!this.quickSelect) {
             return undefined;
         }
         const { fluxGroups, sources, ids } = this.quickSelect;
         return (
-            <div
-                className="openmc-output-viewer-header"
-                title={this.mode === 'native' ? 'Quick-select colors the grid instantly' : 'Quick-select restarts the legacy viewer'}
-            >
+            <div className="openmc-output-viewer-header" title="Quick-select colors the grid instantly">
                 {fluxGroups.length > 0 && (
                     <label className="openmc-output-viewer-control">
                         Flux group
                         <select
                             value={this.selectedColorBy ?? ''}
                             onChange={(e) => this.selectColorBy(e.target.value || undefined)}
-                            disabled={this.isLoading || this.restarting}
+                            disabled={this.isLoading}
                         >
                             {fluxGroups.map((array) => (
                                 <option key={array.name} value={colorByValue(array)}>
@@ -346,7 +245,7 @@ export class OpenMCRandomRayResultsWidget extends NativeVtkViewerWidget {
                         key={array.name}
                         className={`theia-button${this.selectedColorBy === colorByValue(array) ? '' : ' secondary'}`}
                         onClick={() => this.selectColorBy(colorByValue(array))}
-                        disabled={this.isLoading || this.restarting}
+                        disabled={this.isLoading}
                     >
                         {array.name}
                     </button>
@@ -356,7 +255,7 @@ export class OpenMCRandomRayResultsWidget extends NativeVtkViewerWidget {
                         key={array.name}
                         className={`theia-button${this.selectedColorBy === colorByValue(array) ? '' : ' secondary'}`}
                         onClick={() => this.selectColorBy(colorByValue(array))}
-                        disabled={this.isLoading || this.restarting}
+                        disabled={this.isLoading}
                     >
                         {array.name}
                     </button>
@@ -364,7 +263,7 @@ export class OpenMCRandomRayResultsWidget extends NativeVtkViewerWidget {
                 <button
                     className={`theia-button${this.selectedColorBy === 'Solid Color' ? '' : ' secondary'}`}
                     onClick={() => this.selectColorBy('Solid Color')}
-                    disabled={this.isLoading || this.restarting}
+                    disabled={this.isLoading}
                 >
                     Solid
                 </button>
@@ -373,9 +272,6 @@ export class OpenMCRandomRayResultsWidget extends NativeVtkViewerWidget {
     }
 
     protected override renderContent(): React.ReactNode {
-        if (this.mode === 'served') {
-            return this.renderServedContent();
-        }
         const base = super.renderContent();
         const panel = this.renderPanel();
         if (!panel) {
@@ -396,52 +292,6 @@ export class OpenMCRandomRayResultsWidget extends NativeVtkViewerWidget {
                 >
                     {panel}
                 </div>
-            </>
-        );
-    }
-
-    /** Legacy fallback content: trame iframe plus the array panel. */
-    protected renderServedContent(): React.ReactNode {
-        if (this.isLoading && !this.serverUrl) {
-            return (
-                <div className="openmc-output-viewer-status">
-                    <div className="openmc-output-viewer-spinner"></div>
-                    <span>{this.statusMessage || 'Loading…'}</span>
-                </div>
-            );
-        }
-        const panel = this.renderPanel();
-        return (
-            <>
-                <div className="openmc-output-viewer-viewarea">
-                    <div className="openmc-output-viewer-hint">
-                        Legacy VTK file — served through the compatibility viewer. Quick-select colors the voxel grid by array (restarts the
-                        viewer). Fine-tuning (color map, slicing, representation) is in the viewer&apos;s control panel.
-                    </div>
-                    {this.serverUrl ? (
-                        <iframe className="openmc-output-viewer-iframe" src={this.serverUrl} title={this.title.label} />
-                    ) : (
-                        <div className="openmc-output-viewer-status">
-                            <span>{this.statusMessage || 'No file loaded'}</span>
-                        </div>
-                    )}
-                </div>
-                {panel && (
-                    <>
-                        <div
-                            className="openmc-output-viewer-split-handle"
-                            onMouseDown={this.startSplitDrag}
-                            role="separator"
-                            aria-orientation="horizontal"
-                        />
-                        <div
-                            className="openmc-output-viewer-panel-host"
-                            style={this.panelHeight !== undefined ? { height: `${this.panelHeight}px`, flex: 'none' } : undefined}
-                        >
-                            {panel}
-                        </div>
-                    </>
-                )}
             </>
         );
     }
@@ -508,11 +358,49 @@ export class OpenMCRandomRayResultsWidget extends NativeVtkViewerWidget {
                 </div>
             );
         }
+        if (this.error?.includes('not supported by the native viewer')) {
+            return (
+                <div className="openmc-output-viewer-status">
+                    <div className="openmc-output-viewer-dep-panel">
+                        <div className="dep-title">
+                            <i className={codicon('warning')}></i>
+                            Not supported by the native viewer
+                        </div>
+                        <p className="dep-summary">
+                            This random-ray results file cannot be displayed by the native 3D viewer — only XML VTK datasets are supported
+                            here (legacy ASCII <code>.vtk</code> outputs are not).
+                        </p>
+                        <ul className="dep-actions">
+                            <li>
+                                Open the file
+                                {this.lastVtkPath ? (
+                                    <>
+                                        {' '}
+                                        (<code>{this.lastVtkPath}</code>)
+                                    </>
+                                ) : (
+                                    ''
+                                )}{' '}
+                                in the generic VTK viewer (<strong>Visualizer</strong>) instead — it keeps the compatibility viewer for
+                                files the native viewer cannot parse.
+                            </li>
+                        </ul>
+                        <p className="dep-backend-error">
+                            <span className="dep-backend-label">Parser error:</span> {this.error}
+                        </p>
+                        <button className="theia-button secondary" onClick={() => this.reload()}>
+                            <i className={codicon('refresh')}></i>
+                            Retry
+                        </button>
+                    </div>
+                </div>
+            );
+        }
         return super.renderError();
     }
 
     protected renderPanel(): React.ReactNode {
-        if (this.mode === 'native' && this.model) {
+        if (this.model) {
             const model = this.model;
             const arrays = [...model.pointArrays, ...model.cellArrays];
             const kind = model.family === 'rectilinear' ? 'RectilinearGrid' : model.family === 'image' ? 'ImageData' : 'PolyData';
@@ -520,11 +408,6 @@ export class OpenMCRandomRayResultsWidget extends NativeVtkViewerWidget {
                 model.family === 'polydata' ? `${model.nPoints.toLocaleString()} points` : `${model.nPoints.toLocaleString()} cells`;
             const grid = model.gridDimensions ? ` (grid ${model.gridDimensions.join(' × ')})` : '';
             return this.renderArrayTable(arrays, `${kind} — ${count}${grid}`);
-        }
-        if (this.vtkInfo) {
-            const info = this.vtkInfo;
-            const grid = info.dimensions ? ` (grid ${info.dimensions.join(' × ')})` : '';
-            return this.renderArrayTable(info.arrays, `${info.type} — ${info.nCells.toLocaleString()} cells${grid}`);
         }
         return undefined;
     }
