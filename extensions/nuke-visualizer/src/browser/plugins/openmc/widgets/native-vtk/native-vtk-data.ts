@@ -828,23 +828,61 @@ export async function parseNativeVtkXml(text: string): Promise<NativeVtkModel> {
         const pointsDecoded = await decodeDataArray(pointsRaw[0].raw, pointsRaw[0].dataType, nPoints, appended);
         const positions = new Float32Array(pointsDecoded.values.subarray(0, nPoints * 3));
 
-        // Connectivity: walk [n, id...] cells into renderable index lists.
+        // Connectivity: standard VTK XML form is separate `connectivity` +
+        // `offsets` arrays (offsets[i] = end of cell i in connectivity);
+        // unnamed inline `[n, id...]` arrays are also accepted for compat.
         // Cells are numbered verts-first, then lines, then polys (VTK order).
         const readCells = async (tag: string): Promise<number[][]> => {
             const cells: number[][] = [];
+            const walkInline = (values: Float64Array): void => {
+                let cursor = 0;
+                while (cursor < values.length) {
+                    const count = Math.round(values[cursor]);
+                    cursor++;
+                    const ids: number[] = [];
+                    for (let k = 0; k < count && cursor < values.length; k++, cursor++) {
+                        ids.push(Math.round(values[cursor]));
+                    }
+                    cells.push(ids);
+                }
+            };
             for (const section of collectSections(text, tag)) {
+                let connectivity: Float64Array | undefined;
+                let offsets: Float64Array | undefined;
+                const inline: Float64Array[] = [];
                 for (const { raw, dataType } of typedArrays(section)) {
                     const decoded = await decodeDataArray(raw, dataType, 0, appended);
-                    const values = decoded.values;
-                    let cursor = 0;
-                    while (cursor < values.length) {
-                        const count = Math.round(values[cursor]);
-                        cursor++;
+                    const name = (raw.name ?? '').toLowerCase();
+                    if (name === 'connectivity') {
+                        connectivity = decoded.values;
+                    } else if (name === 'offsets') {
+                        offsets = decoded.values;
+                    } else {
+                        inline.push(decoded.values);
+                    }
+                }
+                if (connectivity !== undefined && offsets !== undefined) {
+                    for (let c = 0; c < offsets.length; c++) {
+                        const start = c === 0 ? 0 : Math.round(offsets[c - 1]);
+                        const end = Math.round(offsets[c]);
                         const ids: number[] = [];
-                        for (let k = 0; k < count && cursor < values.length; k++, cursor++) {
-                            ids.push(Math.round(values[cursor]));
+                        for (let k = start; k < end && k < connectivity.length; k++) {
+                            ids.push(Math.round(connectivity[k]));
                         }
                         cells.push(ids);
+                    }
+                } else {
+                    // No offsets array: a lone connectivity array (or any other
+                    // unnamed array) keeps the historical inline [n, id...]
+                    // walk rather than failing the file.
+                    if (connectivity !== undefined) {
+                        inline.unshift(connectivity);
+                    }
+                    if (offsets !== undefined) {
+                        inline.unshift(offsets);
+                    }
+                    for (const values of inline) {
+                        walkInline(values);
                     }
                 }
             }
@@ -1613,16 +1651,28 @@ export function parseLegacyVtkAscii(text: string): NativeVtkModel {
             const count = nextInt(`${section} count`);
             nextInt(`${section} size`);
             const cells = readCellList(count);
+            // NOTE: plain for-loop append — spread (`push(...cells)`) blows
+            // the call stack on real files (100k+ cells in DAGMC outputs).
             if (section === 'VERTICES') {
-                vertCells.push(...cells);
+                for (let i = 0; i < cells.length; i++) {
+                    vertCells.push(cells[i]);
+                }
             } else if (section === 'LINES' || section === 'POLYLINES') {
-                lineCells.push(...cells);
+                for (let i = 0; i < cells.length; i++) {
+                    lineCells.push(cells[i]);
+                }
             } else if (section === 'POLYGONS') {
-                polyCells.push(...cells);
+                for (let i = 0; i < cells.length; i++) {
+                    polyCells.push(cells[i]);
+                }
             } else if (section === 'TRIANGLE_STRIPS') {
-                stripCells.push(...cells);
+                for (let i = 0; i < cells.length; i++) {
+                    stripCells.push(cells[i]);
+                }
             } else {
-                ugCells.push(...cells);
+                for (let i = 0; i < cells.length; i++) {
+                    ugCells.push(cells[i]);
+                }
             }
         } else if (keyword === 'CELL_TYPES') {
             next();

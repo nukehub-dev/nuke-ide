@@ -1,0 +1,7 @@
+<?xml version="1.0"?>
+<VTKFile type="vtkMultiBlockDataSet" version="1.0" byte_order="LittleEndian">
+  <vtkMultiBlockDataSet>
+    <DataSet index="0" name="Volume_1" file="native-volume_1.vtu" />
+    <DataSet index="1" name="Volume_2" file="native-volume_2.vtu" />
+  </vtkMultiBlockDataSet>
+</VTKFile>

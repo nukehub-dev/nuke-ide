@@ -783,3 +783,36 @@ describe('classifier coverage for the newly accepted kinds', () => {
         expect(defaultNativeColorBy(structured, 'rectilinear')).toBe('Cell: flux_group_0');
     });
 });
+
+describe('large-file robustness (screenshot regression)', () => {
+    it('parses a 150k-cell legacy UNSTRUCTURED_GRID without stack overflow', async () => {
+        // Guards the real-world failure: DAGMC outputs carry 100k+ cells and
+        // spread-push (`push(...cells)`) blows the call stack on them.
+        const nCells = 150000;
+        const points = ['# vtk DataFile Version 3.0', 'large', 'ASCII', 'DATASET UNSTRUCTURED_GRID', `POINTS ${nCells + 1} float`];
+        for (let i = 0; i <= nCells; i++) {
+            points.push(`${i} 0 0`);
+        }
+        const cells: string[] = [`CELLS ${nCells} ${nCells * 3}`, ...Array.from({ length: nCells }, (_, i) => `2 ${i} ${i + 1}`)];
+        const types: string[] = [`CELL_TYPES ${nCells}`, ...Array(nCells).fill('3')];
+        const text = [...points, ...cells, ...types].join('\n');
+        const model = await parseNativeVtk(text, '.vtk');
+        expect(model.nPoints).toBe(nCells + 1);
+        expect(model.segments?.length).toBe(nCells * 2);
+    });
+});
+
+describe('standard connectivity+offsets form (Playwright regression)', () => {
+    it('parses Polys connectivity+offsets exactly, with in-range indices', async () => {
+        const text = await import('fs').then((fs) =>
+            fs.promises.readFile('tests/ui/fixtures/native-polydata.vtp', 'utf8')
+        );
+        const model = await parseNativeVtk(text, '.vtp');
+        expect(model.nPoints).toBe(4);
+        // Two triangles as closed loops: 3 segments each.
+        expect(model.segments ? Array.from(model.segments) : []).toEqual([0, 1, 1, 2, 2, 0, 0, 2, 2, 3, 3, 0]);
+        const maxIndex = Math.max(...(model.segments ?? []));
+        expect(maxIndex).toBeLessThan(model.nPoints);
+        expect(Array.from(model.positions).every((v) => Number.isFinite(v))).toBe(true);
+    });
+});

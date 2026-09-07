@@ -23,7 +23,10 @@ export default defineConfig({
     },
     projects: [{ name: 'chromium', use: { browserName: 'chromium' } }],
     webServer: {
-        command: 'yarn --cwd applications/browser start',
+        // `../..` (relative to applications/browser) opens the repo root as
+        // the workspace: without it Quick Open file search finds nothing and
+        // every file-opening spec fails, locally and in CI.
+        command: 'yarn --cwd applications/browser start ../..',
         url: 'http://127.0.0.1:3000',
         timeout: 180_000,
         reuseExistingServer: !process.env.CI,

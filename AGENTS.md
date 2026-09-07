@@ -119,9 +119,9 @@ Notes:
 
 ## UI smoke tests (Playwright)
 
-- `tests/ui/` holds the Playwright GUI smoke suite (`playwright.config.ts` at root). Run it with `yarn test:ui`; it starts the built browser app itself via the config's `webServer` (`yarn --cwd applications/browser start` on 127.0.0.1:3000, `reuseExistingServer` locally) and tears it down afterwards.
+- `tests/ui/` holds the Playwright GUI smoke suite (`playwright.config.ts` at root). Run it with `yarn test:ui`; it starts the built browser app itself via the config's `webServer` (`yarn --cwd applications/browser start ../..` — repo root as workspace, on 127.0.0.1:3000, `reuseExistingServer` locally) and tears it down afterwards. Quick Open file search needs the workspace open, and the first search warms the index — specs opening files must tolerate a slow first query.
 - Prerequisites: `yarn build:browser` first (the suite tests the bundled app), and `npx playwright install chromium` once to download the browser (the npm package `@playwright/test` does not include it).
-- Suite conventions: no testing-only hooks in the app — selectors use Theia/lumino ids and widget classes (`#theia-app-shell`, `.simulation-dashboard`, widget root classes); the Command Palette is driven with `Ctrl+Shift+P` plus the `>` command prefix (F1 is a browser help shortcut in headless Chromium and the quick-open searches files without `>`); every spec collects console severity-`error` + pageerror messages and asserts zero. Artifacts (`test-results/`, screenshots/traces on failure) are gitignored.
+- Suite conventions: no testing-only hooks in the app — selectors use Theia/lumino ids and widget classes (`#theia-app-shell`, `.simulation-dashboard`, widget root classes); the Command Palette is driven with `Ctrl+Shift+P` plus the `>` command prefix (F1 is a browser help shortcut in headless Chromium and the quick-open searches files without `>`); every spec collects console severity-`error` + pageerror messages and asserts zero. Tiny committed fixtures live in `tests/ui/fixtures/`. Artifacts (`test-results/`, screenshots/traces on failure) are gitignored.
 - CI runs it weekly via `.github/workflows/ui-smoke.yml` (build → boot → tests → artifact on failure); it is not part of per-PR CI because the browser bundle is heavy.
 
 ## CI/CD

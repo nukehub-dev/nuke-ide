@@ -54,11 +54,19 @@ test('right-click context menu and draggable feature dialog', async ({ page }) =
     const center = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
     const menu = viewport.locator('.cad-viewport-context-menu');
 
-    // Solid surface: Edit Feature (attributed), the three measure tools, Fit to Solid.
+    // Solid surface: Edit Feature (attributed), the three measure tools, Fit to Solid, Hide/Isolate Solid.
     await page.mouse.click(center.x, center.y, { button: 'right' });
     await expect(menu).toBeVisible();
     const solidLabels = (await menu.locator('.cad-viewport-context-menu-item').allTextContents()).map((t) => t.trim());
-    expect(solidLabels).toEqual(['Edit Feature…', 'Measure Distance', 'Measure Angle', 'Measure Radius', 'Fit to Solid']);
+    expect(solidLabels).toEqual([
+        'Edit Feature…',
+        'Measure Distance',
+        'Measure Angle',
+        'Measure Radius',
+        'Fit to Solid',
+        'Hide Solid',
+        'Isolate Solid'
+    ]);
     const editItem = menu.locator('.cad-viewport-context-menu-item', { hasText: 'Edit Feature…' });
     await expect(editItem).toBeEnabled();
 
@@ -79,7 +87,7 @@ test('right-click context menu and draggable feature dialog', async ({ page }) =
     await page.mouse.click(box.x + 20, box.y + box.height - 20, { button: 'right' });
     await expect(menu).toBeVisible();
     const emptyLabels = (await menu.locator('.cad-viewport-context-menu-item').allTextContents()).map((t) => t.trim());
-    expect(emptyLabels).toEqual(['Fit All', 'Reset Explode']);
+    expect(emptyLabels).toEqual(['Fit All', 'Reset Explode', 'Show All Solids', 'Show Section View']);
     await expect(menu.locator('.cad-viewport-context-menu-item', { hasText: 'Reset Explode' })).toBeDisabled();
     await page.keyboard.press('Escape');
     await expect(menu).toBeHidden();

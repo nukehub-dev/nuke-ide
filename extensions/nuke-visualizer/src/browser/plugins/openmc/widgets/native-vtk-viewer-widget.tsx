@@ -46,7 +46,7 @@ import {
     NativeVtkModel,
     normalizeToUnit,
     parseColorBy,
-    parseNativeVtkXml,
+    parseNativeVtk,
     sampleNativeColormap,
     SOLID_COLOR,
     strideForBudget,
@@ -217,7 +217,9 @@ export class NativeVtkViewerWidget extends ReactWidget {
         this.statusMessage = 'Parsing VTK dataset…';
         this.update();
         try {
-            const model = await parseNativeVtkXml(text);
+            // Dispatcher (XML + legacy ASCII): the probe and this parse must
+            // agree, or probed-OK legacy files fail here with an XML error.
+            const model = await parseNativeVtk(text, this.fileUri?.path.ext ?? '');
             if (token !== this.loadToken) {
                 return;
             }
@@ -483,7 +485,18 @@ export class NativeVtkViewerWidget extends ReactWidget {
     };
 
     private ensureRenderer(): void {
-        if (this.renderer || !this.host || !this.isAttached) {
+        if (!this.host || !this.isAttached) {
+            return;
+        }
+        if (this.renderer) {
+            // React may replace the host div between renders (spinner swaps
+            // the whole subtree); the renderer's canvas went down with the
+            // old node, so re-attach it instead of stranding an empty view.
+            if (this.renderer.domElement.parentElement !== this.host) {
+                this.host.appendChild(this.renderer.domElement);
+                this.resizeRenderer();
+                this.renderScene();
+            }
             return;
         }
         this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
@@ -506,7 +519,6 @@ export class NativeVtkViewerWidget extends ReactWidget {
             this.renderScene();
         }
     }
-
     private teardownRenderer(): void {
         this.resizeObserver?.disconnect();
         this.resizeObserver = undefined;
@@ -634,7 +646,11 @@ export class NativeVtkViewerWidget extends ReactWidget {
         const selection = parseColorBy(this.colorBy);
         const solid = new THREE.Color(this.solidColor);
         const paint = (geometry: THREE.BufferGeometry, colorAt: (vertex: number) => [number, number, number]): void => {
-            const colors = geometry.getAttribute('color') as THREE.BufferAttribute;
+            // Box3Helper (grid bounds) carries no color attribute — leave it gray.
+            const colors = geometry.getAttribute('color') as THREE.BufferAttribute | undefined;
+            if (!colors) {
+                return;
+            }
             const count = geometry.getAttribute('position').count;
             for (let i = 0; i < count; i++) {
                 const [r, g, b] = colorAt(i);
