@@ -2,9 +2,7 @@
 
 Each command converts statepoint/source data to a VTK XML file that the
 native tally viewer renders directly (``TallyNativeViewerWidget`` via
-``FileService.read`` + ``setTallyText``). The trame
-``openmc.visualize-mesh`` / ``openmc.visualize-overlay`` /
-``openmc.visualize-source`` servers stay as the fallback path.
+``FileService.read`` + ``setTallyText``) — no trame server.
 """
 
 import json

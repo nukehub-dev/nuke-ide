@@ -55,8 +55,7 @@ python/                        # Python scripts
 │   └── base/                  # Base visualizer plugin
 │       ├── plugin.py
 │       ├── commands/
-│       │   ├── serve.py       # Trame server command
-│       │   └── convert.py     # File format converters
+│       │   └── convert.py     # Headless file-format converters
 │       └── lib/               # common.py, dagmc.py, step.py
 ```
 

@@ -27,7 +27,6 @@ OpenMC Studio requires a working OpenMC installation with cross-section data and
 | `matplotlib` | Yes       | Plotting and 2D slice previews                 |
 | `scipy`      | No        | Statistical tests in Simulation Comparison     |
 | `pandas`     | No        | Optimization data export                       |
-| `trame`      | No        | For 3D visualization via nuke-visualizer       |
 | `vtk`        | No        | For 3D mesh and geometry rendering             |
 
 > **Tip:** The easiest way to get everything is via conda:  

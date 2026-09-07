@@ -1,19 +1,6 @@
 {
   "base": [
     {
-      "name": "trame",
-      "submodule": "app",
-      "required": true,
-      "condaSpec": "trame"
-    },
-    {
-      "name": "paraview",
-      "submodule": "simple",
-      "required": true,
-      "condaOnly": true,
-      "condaSpec": "paraview"
-    },
-    {
       "name": "pydagmc",
       "required": false,
       "pipSpec": "git+https://github.com/svalinn/pydagmc@4afa678d24aa091417798ef4b3d11fda98b165f8"
@@ -30,19 +17,6 @@
     }
   ],
   "dagmcServer": [
-    {
-      "name": "trame",
-      "submodule": "app",
-      "required": true,
-      "condaSpec": "trame"
-    },
-    {
-      "name": "paraview",
-      "submodule": "simple",
-      "required": true,
-      "condaOnly": true,
-      "condaSpec": "paraview"
-    },
     {
       "name": "moab",
       "required": false,

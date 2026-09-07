@@ -43,11 +43,17 @@ import {
     detectNativeVtkFamily,
     fluxGroupIndex,
     formatColorBy,
+    NATIVE_PROBE_EXTENSIONS,
     NATIVE_VTK_COLORMAPS,
     normalizeToUnit,
     parseColorBy,
+    parseLegacyVtkAscii,
+    parseNativeVtk,
     parseNativeVtkXml,
+    parseStructuredGridXml,
+    parseUnstructuredGridXml,
     sampleNativeColormap,
+    sniffVtkDatasetType,
     SOLID_COLOR,
     strideForBudget,
     tupleValue
@@ -65,8 +71,20 @@ describe('detectNativeVtkFamily', () => {
         expect(detectNativeVtkFamily('', '.vtr')).toBe('rectilinear');
     });
 
+    it('maps the P6 gap kinds onto the existing viewer families', () => {
+        // Unstructured grids render through the polydata path (triangle edges/mesh).
+        expect(detectNativeVtkFamily('vtkUnstructuredGrid', '.vtu')).toBe('polydata');
+        expect(detectNativeVtkFamily('', '.vtu')).toBe('polydata');
+        // Structured grids render through the rectilinear path (cell centers + dims).
+        expect(detectNativeVtkFamily('vtkStructuredGrid', '.vts')).toBe('rectilinear');
+        expect(detectNativeVtkFamily('', '.vts')).toBe('rectilinear');
+        // Legacy converter outputs are polydata-shaped pending parse.
+        expect(detectNativeVtkFamily('', '.vtk')).toBe('polydata');
+        expect([...NATIVE_PROBE_EXTENSIONS]).toEqual(['.vtp', '.vtr', '.vti', '.vtu', '.vts', '.vtk']);
+    });
+
     it('returns undefined for unknown types', () => {
-        expect(detectNativeVtkFamily('vtkUnstructuredGrid', '.vtu')).toBeUndefined();
+        expect(detectNativeVtkFamily('vtkHyperTreeGrid', '.htg')).toBeUndefined();
         expect(detectNativeVtkFamily('', '.h5')).toBeUndefined();
     });
 });
@@ -387,7 +405,7 @@ describe('parseNativeVtkXml ascii', () => {
 
     it('rejects non-VTK, unsupported types, and bad extents', async () => {
         await expect(parseNativeVtkXml('<html></html>')).rejects.toThrow(/Not a VTK XML/);
-        await expect(parseNativeVtkXml('<VTKFile type="UnstructuredGrid" byte_order="LittleEndian"></VTKFile>')).rejects.toThrow(
+        await expect(parseNativeVtkXml('<VTKFile type="vtkMultiBlockDataSet" byte_order="LittleEndian"></VTKFile>')).rejects.toThrow(
             /Unsupported VTK dataset type/
         );
         await expect(parseNativeVtkXml('<VTKFile type="PolyData" byte_order="BigEndian"></VTKFile>')).rejects.toThrow(/byte order/);
@@ -447,5 +465,321 @@ describe('parseNativeVtkXml appended', () => {
         block.set(compressed, 16);
         const model = await parseNativeVtkXml(appendedVtp(block, 4, true));
         expect([...model.positions]).toEqual([0, 0, 0, 3, 0, 4]);
+    });
+});
+
+describe('parseNativeVtkXml appended', () => {
+    it('parses uncompressed appended points with verts', async () => {
+        const model = await parseNativeVtkXml(appendedVtp(rawBlock(new Float32Array([0, 0, 0, 3, 0, 4])), 4, false));
+        expect(model.family).toBe('polydata');
+        expect(model.nPoints).toBe(2);
+        expect([...model.positions]).toEqual([0, 0, 0, 3, 0, 4]);
+        expect(model.vertices ? [...model.vertices] : []).toEqual([0, 1]);
+        expect(model.segments).toBeUndefined();
+    });
+
+    it.runIf(typeof DecompressionStream !== 'undefined')('parses zlib-compressed appended points', async () => {
+        const raw = new Uint8Array(new Float32Array([0, 0, 0, 3, 0, 4]).buffer);
+        const compressed = deflateSync(raw);
+        const block = new Uint8Array(4 * 4 + compressed.length);
+        const view = new DataView(block.buffer);
+        view.setUint32(0, 1, true);
+        view.setUint32(4, raw.length, true);
+        view.setUint32(8, 0, true);
+        view.setUint32(12, compressed.length, true);
+        block.set(compressed, 16);
+        const model = await parseNativeVtkXml(appendedVtp(block, 4, true));
+        expect([...model.positions]).toEqual([0, 0, 0, 3, 0, 4]);
+    });
+});
+
+const VTU_SHARED_FIXTURE = `<?xml version="1.0"?>
+<VTKFile type="UnstructuredGrid" version="0.1" byte_order="LittleEndian" header_type="UInt32">
+<UnstructuredGrid>
+<Piece NumberOfPoints="4" NumberOfCells="2">
+<PointData>
+<DataArray type="Float64" Name="temperature" format="ascii">
+300 310 320 330
+</DataArray>
+</PointData>
+<CellData>
+<DataArray type="Int32" Name="volume_id" format="ascii">
+1 2
+</DataArray>
+<DataArray type="String" Name="material" format="ascii">
+fuel clad
+</DataArray>
+</CellData>
+<Points>
+<DataArray type="Float32" NumberOfComponents="3" format="ascii">
+0 0 0  1 0 0  1 1 0  0 1 0
+</DataArray>
+</Points>
+<Cells>
+<DataArray type="Int32" Name="connectivity" format="ascii">
+0 1 2  0 2 3
+</DataArray>
+<DataArray type="Int32" Name="offsets" format="ascii">
+3 6
+</DataArray>
+<DataArray type="UInt8" Name="types" format="ascii">
+5 5
+</DataArray>
+</Cells>
+</Piece>
+</UnstructuredGrid>
+</VTKFile>
+`;
+
+const VTS_SHARED_FIXTURE = `<VTKFile type="StructuredGrid" version="0.1" byte_order="LittleEndian">
+<StructuredGrid WholeExtent="0 1 0 1 0 1">
+<Piece Extent="0 1 0 1 0 1" Dimensions="2 2 2">
+<PointData>
+<DataArray type="Float64" Name="node_temp" format="ascii">
+10 20 30 40 50 60 70 80
+</DataArray>
+</PointData>
+<CellData>
+<DataArray type="Float64" Name="flux_group_0" format="ascii">
+1.5
+</DataArray>
+</CellData>
+<Points>
+<DataArray type="Float64" NumberOfComponents="3" format="ascii">
+0 0 0  2 0 0  0 4 0  2 4 0  0 0 6  2 0 6  0 4 6  2 4 6
+</DataArray>
+</Points>
+</Piece>
+</StructuredGrid>
+</VTKFile>`;
+
+describe('parseUnstructuredGridXml (shared .vtu decoder)', () => {
+    it('decodes ascii triangles into a polydata model', async () => {
+        const model = await parseUnstructuredGridXml(VTU_SHARED_FIXTURE);
+        expect(model.family).toBe('polydata');
+        expect(model.nPoints).toBe(4);
+        expect([...(model.triangles ?? [])]).toEqual([0, 1, 2, 0, 2, 3]);
+        expect([...(model.triangleCells ?? [])]).toEqual([0, 1]);
+        expect(model.segments).toHaveLength(12);
+        expect([...(model.segmentCells ?? [])]).toEqual([0, 0, 0, 1, 1, 1]);
+        expect(model.nonTriangleCells).toBe(0);
+        expect(model.skippedArrays).toEqual(['material']);
+        const volumeId = model.cellArrays.find((a) => a.name === 'volume_id');
+        expect(volumeId?.association).toBe('cell');
+        expect([...(volumeId?.values ?? [])]).toEqual([1, 2]);
+        const temperature = model.pointArrays.find((a) => a.name === 'temperature');
+        expect(temperature?.range).toEqual([300, 330]);
+    });
+
+    it('is reachable through parseNativeVtkXml for direct .vtu files', async () => {
+        const model = await parseNativeVtkXml(VTU_SHARED_FIXTURE);
+        expect(model.family).toBe('polydata');
+        expect([...(model.triangles ?? [])]).toEqual([0, 1, 2, 0, 2, 3]);
+    });
+
+    it('rejects non-unstructured input and malformed blocks', async () => {
+        await expect(parseUnstructuredGridXml(VTP_ASCII)).rejects.toThrow(/expected UnstructuredGrid/);
+        await expect(parseUnstructuredGridXml('nope')).rejects.toThrow(/missing <VTKFile>/);
+        await expect(parseUnstructuredGridXml(VTU_SHARED_FIXTURE.replace(/<Cells>[\s\S]*<\/Cells>/, ''))).rejects.toThrow(/no <Cells>/);
+    });
+});
+
+describe('parseStructuredGridXml (.vts decoder)', () => {
+    it('averages grid points into cell centers with grid dimensions', async () => {
+        const model = await parseStructuredGridXml(VTS_SHARED_FIXTURE);
+        expect(model.family).toBe('rectilinear');
+        expect(model.gridDimensions).toEqual([1, 1, 1]);
+        expect(model.nPoints).toBe(1);
+        expect([...model.positions]).toEqual([1, 2, 3]);
+        expect(model.cellArrays.map((a) => a.name)).toEqual(['flux_group_0']);
+        expect(model.pointArrays.map((a) => a.name)).toEqual(['node_temp']);
+    });
+
+    it('is reachable through parseNativeVtkXml', async () => {
+        const model = await parseNativeVtkXml(VTS_SHARED_FIXTURE);
+        expect(model.family).toBe('rectilinear');
+        expect(model.gridDimensions).toEqual([1, 1, 1]);
+    });
+
+    it('rejects empty grids and cell-count mismatches', async () => {
+        await expect(parseStructuredGridXml(VTS_SHARED_FIXTURE.replace('Dimensions="2 2 2"', 'Dimensions="1 1 1"'))).rejects.toThrow(
+            /empty grid/
+        );
+        await expect(parseStructuredGridXml(VTS_SHARED_FIXTURE.replace('1.5', '1.5 2.5'))).rejects.toThrow(
+            /has .* values for 1 grid cells/
+        );
+        await expect(parseStructuredGridXml(VTP_ASCII)).rejects.toThrow(/expected StructuredGrid/);
+    });
+});
+
+const LEGACY_POLYDATA_FIXTURE = `# vtk DataFile Version 2.0
+nuke-ide legacy polydata fixture
+ASCII
+DATASET POLYDATA
+POINTS 4 float
+0 0 0 1 0 0 1 1 0 0 1 0
+VERTICES 1 2
+1 0
+LINES 1 3
+2 1 2
+POLYGONS 1 5
+4 0 1 2 3
+POINT_DATA 4
+SCALARS energy float 1
+LOOKUP_TABLE default
+1.0 2.0 4.0 8.0
+CELL_DATA 3
+SCALARS pdg int 1
+LOOKUP_TABLE default
+11 12 13
+`;
+
+const LEGACY_UNSTRUCTURED_FIXTURE = `# vtk DataFile Version 2.0
+nuke-cad FEM results
+ASCII
+DATASET UNSTRUCTURED_GRID
+POINTS 5 float
+0 0 0 1 0 0 1 1 0 0 1 0 0.5 0.5 1
+CELLS 2 10
+4 0 1 2 3
+4 0 1 2 4
+CELL_TYPES 2
+9
+10
+POINT_DATA 5
+VECTORS displacement float
+0 0 0 0.1 0 0 0.2 0 0 0.3 0 0 0.4 0 0
+SCALARS temperature float 1
+LOOKUP_TABLE default
+300 310 320 330 340
+`;
+
+const LEGACY_FIELD_FIXTURE = `# vtk DataFile Version 2.0
+field fixture
+ASCII
+DATASET POLYDATA
+POINTS 2 float
+0 0 0 1 0 0
+VERTICES 2 4
+1 0 1 1
+POINT_DATA 2
+FIELD FieldData 2
+energy 1 2 float
+1.5 2.5
+mom 3 2 float
+0 0 1 0 1 0
+`;
+
+describe('parseLegacyVtkAscii', () => {
+    it('parses a legacy POLYDATA file with scalars', () => {
+        const model = parseLegacyVtkAscii(LEGACY_POLYDATA_FIXTURE);
+        expect(model.family).toBe('polydata');
+        expect(model.nPoints).toBe(4);
+        expect([...model.positions]).toEqual([0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0]);
+        expect(model.vertices ? [...model.vertices] : []).toEqual([0]);
+        // Line cell 1 (verts-first order) plus two fan triangles from the quad.
+        expect(model.segments ? [...model.segments] : []).toEqual([1, 2, 0, 1, 1, 2, 2, 0, 0, 2, 2, 3, 3, 0]);
+        expect(model.segmentCells ? [...model.segmentCells] : []).toEqual([1, 2, 2, 2, 2, 2, 2]);
+        expect([...(model.triangles ?? [])]).toEqual([0, 1, 2, 0, 2, 3]);
+        const energy = model.pointArrays.find((a) => a.name === 'energy');
+        expect(energy?.range).toEqual([1, 8]);
+        const pdg = model.cellArrays.find((a) => a.name === 'pdg');
+        expect(pdg?.association).toBe('cell');
+        expect([...(pdg?.values ?? [])]).toEqual([11, 12, 13]);
+    });
+
+    it('parses a FEM-style legacy UNSTRUCTURED_GRID with vectors', () => {
+        const model = parseLegacyVtkAscii(LEGACY_UNSTRUCTURED_FIXTURE);
+        expect(model.family).toBe('polydata');
+        expect(model.nPoints).toBe(5);
+        // Quad surfaces triangulate; the tetra contributes its 6 wireframe edges.
+        expect([...(model.triangles ?? [])]).toEqual([0, 1, 2, 0, 2, 3]);
+        expect([...(model.triangleCells ?? [])]).toEqual([0, 0]);
+        expect(model.segments?.length).toBe(24);
+        expect(model.nonTriangleCells).toBe(0);
+        const displacement = model.pointArrays.find((a) => a.name === 'displacement');
+        expect(displacement?.components).toBe(3);
+        expect(displacement?.range).toEqual([0, 0.4]);
+        const temperature = model.pointArrays.find((a) => a.name === 'temperature');
+        expect(temperature?.range).toEqual([300, 340]);
+    });
+
+    it('parses FIELD arrays with scalar and vector components', () => {
+        const model = parseLegacyVtkAscii(LEGACY_FIELD_FIXTURE);
+        const energy = model.pointArrays.find((a) => a.name === 'energy');
+        expect(energy?.components).toBe(1);
+        expect([...(energy?.values ?? [])]).toEqual([1.5, 2.5]);
+        const mom = model.pointArrays.find((a) => a.name === 'mom');
+        expect(mom?.components).toBe(3);
+        expect(mom?.range[1]).toBe(1);
+    });
+
+    it('rejects binary, unsupported datasets, and malformed files', () => {
+        expect(() => parseLegacyVtkAscii('# vtk DataFile Version 2.0\ntitle\nBINARY\nDATASET POLYDATA\n')).toThrow(/ASCII-only/);
+        expect(() => parseLegacyVtkAscii('not vtk at all')).toThrow(/missing "# vtk DataFile"/);
+        expect(() => parseLegacyVtkAscii('# vtk DataFile Version 2.0\nt\nASCII\nDATASET STRUCTURED_POINTS\n')).toThrow(
+            /Unsupported legacy VTK dataset/
+        );
+        expect(() => parseLegacyVtkAscii('# vtk DataFile Version 2.0\nt\nASCII\nDATASET POLYDATA\nVERTICES 1 2\n1 0\n')).toThrow(
+            /no POINTS/
+        );
+        expect(() =>
+            parseLegacyVtkAscii(
+                '# vtk DataFile Version 2.0\nmismatch\nASCII\nDATASET POLYDATA\nPOINTS 2 float\n0 0 0 1 0 0\nVERTICES 2 4\n1 0 1 1\nCELL_DATA 1\nSCALARS id int 1\nLOOKUP_TABLE default\n7\n'
+            )
+        ).toThrow(/does not match/);
+        expect(() => parseLegacyVtkAscii(LEGACY_POLYDATA_FIXTURE.replace('POINTS 4 float', 'POINTS 40 float'))).toThrow(/truncated/);
+    });
+});
+
+describe('parseNativeVtk dispatcher', () => {
+    it('auto-detects XML and legacy content', async () => {
+        expect((await parseNativeVtk(VTP_ASCII)).family).toBe('polydata');
+        const vtu = await parseNativeVtk(VTU_SHARED_FIXTURE, '.vtu');
+        expect(vtu.triangles).toBeDefined();
+        const vts = await parseNativeVtk(VTS_SHARED_FIXTURE, '.vts');
+        expect(vts.gridDimensions).toEqual([1, 1, 1]);
+        const legacy = await parseNativeVtk(LEGACY_UNSTRUCTURED_FIXTURE, '.vtk');
+        expect(legacy.family).toBe('polydata');
+        expect(legacy.pointArrays.map((a) => a.name)).toEqual(['displacement', 'temperature']);
+    });
+
+    it('rejects non-VTK text', async () => {
+        await expect(parseNativeVtk('<html></html>')).rejects.toThrow(/Not a VTK dataset/);
+        await expect(parseNativeVtk('garbage')).rejects.toThrow(/Not a VTK dataset/);
+    });
+});
+
+describe('sniffVtkDatasetType', () => {
+    it('reads XML and legacy dataset types without parsing', () => {
+        expect(sniffVtkDatasetType(VTP_ASCII)).toBe('PolyData');
+        expect(sniffVtkDatasetType(VTU_SHARED_FIXTURE)).toBe('UnstructuredGrid');
+        expect(sniffVtkDatasetType(VTS_SHARED_FIXTURE)).toBe('StructuredGrid');
+        expect(sniffVtkDatasetType(LEGACY_UNSTRUCTURED_FIXTURE)).toBe('UNSTRUCTURED_GRID');
+        expect(sniffVtkDatasetType('garbage')).toBeUndefined();
+    });
+});
+
+describe('classifier coverage for the newly accepted kinds', () => {
+    it('classifies unstructured, structured, and legacy arrays', () => {
+        const result = classifyNativeVtkArrays([
+            array('temperature'),
+            array('volume_id', 'cell'),
+            array('flux_group_0', 'cell'),
+            array('energy'),
+            array('pdg', 'cell'),
+            array('displacement')
+        ]);
+        expect(result.energies.map((a) => a.name)).toEqual(['energy']);
+        expect(result.fluxGroups.map((a) => a.name)).toEqual(['flux_group_0']);
+        expect(result.ids.map((a) => a.name)).toEqual(['pdg']);
+        expect(result.other.map((a) => a.name).sort()).toEqual(['displacement', 'temperature', 'volume_id']);
+    });
+
+    it('picks defaults for unstructured and structured models', () => {
+        const unstructured = classifyNativeVtkArrays([array('volume_id', 'cell'), array('energy')]);
+        expect(defaultNativeColorBy(unstructured, 'polydata')).toBe('Point: energy');
+        const structured = classifyNativeVtkArrays([array('flux_group_0', 'cell')]);
+        expect(defaultNativeColorBy(structured, 'rectilinear')).toBe('Cell: flux_group_0');
     });
 });

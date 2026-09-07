@@ -55,7 +55,7 @@ The frontend runs in the browser/Electron renderer. It is built on **Theia** and
 
 **Responsibilities:**
 
-- Render widgets (React-based or iframe-based)
+- Render widgets (React-based, including native three.js 3D viewers)
 - Register commands, menus, and keyboard shortcuts
 - Handle file open events via `OpenHandler`
 - Display plots via Plotly.js
@@ -90,15 +90,15 @@ The backend runs in Node.js. It spawns Python processes and manages their lifecy
 
 - Accept RPC calls from the frontend
 - Detect Python environments with required packages
-- Spawn Python visualization servers on free ports
+- Run short-lived Python converter commands and return their JSON/file results
 - Stream stdout/stderr back to the frontend via `VisualizerClient`
 - Convert file formats (e.g., DAGMC .h5m → VTK)
 
 **Key concepts:**
 
 - **RPC handlers:** `RpcConnectionHandler` maps a WebSocket path to a service implementation.
-- **Process management:** Each visualization server gets its own `RawProcess`. Processes are tracked in a `Map<port, process>` and killed on shutdown.
-- **Port allocation:** `findFreePort(startPort)` scans for an available TCP port.
+- **Process management:** Each conversion spawns its own short-lived Python process; nothing listens on ports and nothing persists after the command exits.
+- **Timeouts:** conversion waits scale with file size via the `nukeVisualizer.serverTimeout` + `nukeVisualizer.serverTimeoutPerMB` preferences.
 
 ### 4. Python Layer (`python/`)
 
@@ -107,18 +107,20 @@ Python scripts that do the actual scientific visualization.
 **Responsibilities:**
 
 - Read domain-specific files (HDF5, XML, VTK)
-- Render 3D scenes (Trame + ParaView)
+- Convert scientific data to XML VTK (numpy geometry, `vtk` imports lazily for the final write)
 - Compute derived data (spectra, spatial plots, cross-sections)
-- Serve HTTP on the loopback interface (`127.0.0.1:<port>`)
+- Print JSON results to stdout and exit — commands never bind ports or serve HTTP
 
-Browser traffic never touches these ports directly: `VisualizerProxyContribution` (in `src/node/visualizer-proxy-contribution.ts`) reverse-proxies `/visualizer/<port>/*` (HTTP + WebSocket) on the Theia backend to `127.0.0.1:<port>`, restricted to ports registered by the visualizer/OpenMC backend services. This makes the widgets work when the IDE runs behind nginx in a container, where loopback ports are unreachable from the user's browser. Widget iframes convert server URLs via `toProxiedVisualizerUrl()` (`src/browser/visualizer-url.ts`), which builds the proxy path with Theia's `Endpoint` class. Trame is path-prefix friendly (relative asset paths, ws URL derived from the page directory), so no response rewriting is needed.
+There are no visualization servers to reach: a conversion command runs, writes its VTK/JSON output, and exits. The frontend reads the converted file (via the Theia `FileService`) and renders it natively with three.js, so the viewers work identically in browser and Electron deployments with no proxying.
+
+> **Residual:** `src/browser/visualizer-widget.tsx` still falls back to a server iframe path for formats the native parser cannot read, and `src/node/visualizer-proxy-contribution.ts` still reverse-proxies those servers. Both are slated for removal with the last server code.
 
 **Key scripts:**
 
 - `server.py` — Unified entry point with auto-discovery and plugin routing
 - `nuke_viz/` — Shared framework (`@command` decorator, registry, server)
 - `plugins/openmc/` — OpenMC plugin (commands + lib modules)
-- `plugins/base/` — Base visualizer plugin (Trame server, file converters, shared libraries)
+- `plugins/base/` — Base visualizer plugin (headless file converters, shared libraries)
 
 Plugins register commands via the `@command` decorator. Importing a command module triggers registration automatically — no manual routing needed.
 
@@ -161,7 +163,7 @@ Plugins reuse shared infrastructure:
 
 - `HealthCheckFramework` — register package requirements once
 - `PythonCommandHelper` — detect Python, execute scripts
-- `VisualizerWidget` — iframe container for Python servers
+- `NativeVtkViewerWidget` — native three.js viewer for converted VTK
 - `PlotlyService` — display 2D plots
 
 See [Adding a Plugin](adding-a-plugin.md) for the step-by-step creation guide.
@@ -180,7 +182,7 @@ extensions/nuke-visualizer/
 │   ├── browser/                         # Frontend
 │   │   ├── visualizer-frontend-module.ts    # DI module (bindings)
 │   │   ├── visualizer-contribution.ts       # Base viz commands/menus/OpenHandler
-│   │   ├── visualizer-widget.tsx            # iframe widget
+│   │   ├── visualizer-widget.tsx            # native viewer widget (+ legacy server fallback)
 │   │   ├── visualizer-preferences.ts        # Settings schema
 │   │   ├── plotly/                      # Plotly integration
 │   │   │   ├── plotly-service.ts
@@ -214,7 +216,6 @@ extensions/nuke-visualizer/
 │       │   └── lib/                     # Helper modules
 │       └── base/                        # Base visualizer plugin
 │           ├── commands/
-│           │   ├── serve.py             # Trame visualization server
 │           │   └── convert.py           # File format converters (DAGMC, STEP)
 │           └── lib/
 │               ├── common.py
@@ -227,10 +228,10 @@ extensions/nuke-visualizer/
 
 ## Key Design Decisions
 
-| Decision                                 | Rationale                                                                                                                |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| **iframe widgets for 3D**                | Trame/Dash render their own HTML/Canvas. An iframe isolates them from Theia's CSS and gives full control.                |
-| **React widgets for 2D plots**           | Plotly.js integrates cleanly with React. No server needed — data comes over RPC and renders directly.                    |
-| **One Python process per visualization** | Simplifies lifecycle. Killing a tab kills its server. No shared state corruption.                                        |
-| **RPC over WebSocket**                   | Theia's standard. Bidirectional: frontend calls backend methods; backend streams logs via `VisualizerClient`.            |
-| **Health checks in frontend**            | Frontend registers requirements; backend executes them via `nuke-core`. Keeps plugin logic decoupled from env detection. |
+| Decision                                 | Rationale                                                                                                                                           |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Native three.js widgets for 3D**       | Converters write XML VTK; the frontend parses and renders client-side. No servers, ports, or iframes — color-by switches instantly with no restart. |
+| **React widgets for 2D plots**           | Plotly.js integrates cleanly with React. No server needed — data comes over RPC and renders directly.                                               |
+| **One Python process per visualization** | Simplifies lifecycle. Killing a tab kills its server. No shared state corruption.                                                                   |
+| **RPC over WebSocket**                   | Theia's standard. Bidirectional: frontend calls backend methods; backend streams logs via `VisualizerClient`.                                       |
+| **Health checks in frontend**            | Frontend registers requirements; backend executes them via `nuke-core`. Keeps plugin logic decoupled from env detection.                            |

@@ -31,7 +31,7 @@ This resolves to:
 2. `src/python/server.py` (development)
 3. Fallback relative to `__dirname`
 
-All operations — visualization servers, file converters, data queries — go through the unified `server.py` entry point.
+All operations — file converters, data queries — go through the unified `server.py` entry point.
 
 ---
 
@@ -116,7 +116,7 @@ REQUIREMENTS = ["numpy"]
 
 ### Graceful Dependency Handling
 
-If a command module requires heavy dependencies (e.g., `openmc`, `paraview`), wrap imports in `try/except` at the plugin level so missing deps don't break the entire plugin:
+If a command module requires heavy dependencies (e.g., `openmc`, `vtk`), wrap imports in `try/except` at the plugin level so missing deps don't break the entire plugin:
 
 ```python
 # python/plugins/openmc/plugin.py
@@ -131,43 +131,24 @@ for mod_name in _COMMAND_MODULES:
 
 ---
 
-## Server Startup (Trame / ParaView)
+## Headless Commands (No Servers)
 
-For visualization servers that need to bind a port, use `@command` + `@arg` like any other command:
+Commands run, print JSON, and exit. Nothing binds a port and nothing serves HTTP — the frontend renders converted files natively. A converter looks like any other command:
 
 ```python
-# python/plugins/base/commands/serve.py
+# python/plugins/base/commands/convert.py
 from nuke_viz.plugin import command, arg
 
-@command('base.serve', help='Start the base visualizer server')
-@arg('--port', type=int, help='Port to run server on')
-@arg('--file', type=str, help='File to load')
-@arg('--host', type=str, default='127.0.0.1', help='Host to report in URL')
-@arg('--theme', type=str, default='dark', choices=['dark', 'light'])
-def cmd_serve(args):
-    port = args.port or find_free_port()
-    server = create_app(args.file, port, theme=args.theme)
-    print(f"Starting visualizer server on port {port}")
-    server.start(port=port, host='0.0.0.0', open_browser=False)
+@command('base.convert-step', help='Convert STEP to VTK')
+@arg('--file', required=True, help='Input file path')
+def cmd_convert_step(args):
+    from plugins.base.lib.step import convert_step_to_vtk_cached
+    result = convert_step_to_vtk_cached(args.file)
+    print(json.dumps(result))
     return 0
 ```
 
-### Readiness Signaling
-
-Python servers must signal readiness so the backend knows when to return:
-
-**Option 1: Print a ready message**
-
-```python
-print(f"Starting visualizer server on port {port}")
-server.start(port=port)
-```
-
-The backend watches stdout for `"Starting visualizer server on"`.
-
-**Option 2: Just bind the port**
-
-The backend also polls the TCP port every second. Once the port accepts connections, the server is considered ready.
+The backend invokes the command, parses stdout JSON, and reads the converted file — there is no readiness handshake because there is nothing to wait for beyond process exit.
 
 ---
 
@@ -179,11 +160,11 @@ All commands are invoked through `server.py`:
 # Data query
 python server.py openmc.info /path/to/statepoint.h5
 
-# 3D visualization
-python server.py openmc.visualize-mesh /path/to/statepoint.h5 1 --port 8090
+# Headless conversion (geometry + VTK export, then exit)
+python server.py openmc.tally-mesh-vtk /path/to/statepoint.h5 1
 
 # Base visualizer
-python server.py base.serve --file /path/to/mesh.vtk --port 8080
+python server.py base.convert-dagmc --file /path/to/model.h5m
 ```
 
 `server.py` auto-discovers plugins, builds argparse from registered commands, and routes to the handler.
@@ -233,17 +214,9 @@ This causes `executeScriptJson()` to throw with the stderr text.
 
 ---
 
-## Port Binding
+## No Ports
 
-The backend allocates a free port and passes it to your script:
-
-```bash
-python server.py openmc.visualize-mesh statepoint.h5 1 --port 8090
-```
-
-Your script must bind to **exactly** that port. Do not pick your own port.
-
-If you need multiple ports (rare), discuss with the backend service author.
+There is no port management: commands must never bind ports or start servers. The backend allocates nothing and passes no `--port` — a command that needs to expose data writes a file (VTK/JSON) and prints its path.
 
 ---
 
@@ -278,41 +251,20 @@ If you need shared caching, implement it in the Node backend, not in Python.
 
 ---
 
-## Headless / Offscreen Rendering
+## Headless Conversion (No Display Needed)
 
-VTK/ParaView scripts must render offscreen so trame streams the view instead of a native window popping up. Two mechanisms, both already wired in `server.py` / `plugins/base/commands/serve.py`:
-
-```python
-# serve.py, BEFORE importing vtk or paraview:
-if "DISPLAY" not in os.environ:
-    os.environ["DISPLAY"] = ""  # preserve an inherited Xvfb display (e.g. :99)
-os.environ["QT_QPA_PLATFORM"] = "offscreen"
-
-# server.py, before plugin discovery:
-import paraview
-paraview.options.batch = True  # pvbatch-style: never maps a native window
-```
+Converters write files with the `vtk` writers and never create a render window, so no display server, `DISPLAY` handling, or offscreen GL setup is needed. Keep `QT_QPA_PLATFORM=offscreen` defensively (some `vtk` imports touch rendering modules), and keep heavy imports lazy inside the handler so a missing `vtk` surfaces as a clean JSON error instead of a traceback.
 
 Rules:
 
-- Do **not** force `DISPLAY = ""`: conda-forge VTK builds are X11/GLX-only and abort with `bad X server connection` (then segfault via the EGL/OSMesa fallbacks) when no X connection exists. Container images provide Xvfb (`DISPLAY=:99`) for exactly this.
+- Do all geometry work in numpy; import `vtk` only for the final write (see `tally_vtk._load_vtk` / `output_vtk._load_vtk`).
+- Never create render windows or mappers in converter code — rendering happens client-side in the IDE's three.js viewers.
 
 ---
 
-## Local / Remote Rendering Modes
+## Client-Side Rendering
 
-All trame 3D viewers use `VtkRemoteLocalView` (trame-vtk >= 2.11), which embeds both a **local** vtk.js view (client-side WebGL) and a **remote** ParaView view (server-rendered image stream). The user switches modes at runtime via a small toggle (bottom-right of the canvas); the default is **local**, so CPU-bound containers do not pay for server renders during interaction. Remote mode remains as a fallback.
-
-Shared helpers in `plugins/base/lib/common.py`:
-
-- `create_view_widget(pv_widgets, view, namespace, default_mode=None, **kwargs)` — builds the `VtkRemoteLocalView` with a unique state namespace per viewer (`dagmcView`, `serveView`, `geomView`, `tallyView`, `tallySliceView`, `tally3dView`). The mode lives in the state variable `<namespace>Mode` ("local"|"remote"). `default_mode=None` reads `NUKE_VISUALIZER_RENDER_MODE` ("local"/"remote", default "local"; invalid values fall back to "local"). `disable_auto_switch=True` is always set to avoid surprise server-side renders while the local scene loads.
-- `update_view_widget(view_widget, state)` — mode-aware push: `update_geometry()` in local mode, `update_image()` in remote mode. Use it instead of the bare `view_widget.update()` (which pushes both). `create_update_view` already routes through it.
-- `UIComponents.create_render_mode_toggle(vuetify, namespace)` — the floating local/remote toggle; place it next to the canvas gadget with the same namespace as the view widget.
-
-Rules:
-
-- One namespace per viewer; the widget, the toggle, and every update call must share it.
-- Do not construct `pv_widgets.VtkRemoteView` directly for new viewers — use `create_view_widget`.
+All 3D rendering happens in the frontend (`NativeVtkViewerWidget` + `src/browser/viewer-core/`: LUT pack, toolbar state model, clip plane, canvas screenshots). Color-by, colormap, clip, and screenshot controls run against the parsed VTK with no backend round-trip — so there is no server-side render mode, toggle, or fallback to maintain in new viewer code.
 
 ---
 
@@ -344,7 +296,8 @@ python/
     └── base/
         ├── plugin.py
         ├── commands/
-        │   └── serve.py
+        │   ├── convert.py     # headless converters (DAGMC, STEP)
+        │   └── exodus.py      # headless Exodus time-series extractor
         └── lib/
             ├── common.py
             ├── dagmc.py           # DAGMC → VTK library
@@ -369,7 +322,7 @@ You can test Python scripts independently of the IDE:
 ```bash
 cd extensions/nuke-visualizer/python
 python server.py openmc.info /path/to/statepoint.h5
-python server.py base.serve --file /path/to/mesh.vtk --port 8080
+python server.py base.convert-dagmc --file /path/to/model.h5m
 ```
 
 This is useful for debugging without starting the full Theia application.
@@ -386,7 +339,7 @@ yarn test:python:cov    # run with the coverage report
 Tests must pass with only `pytest` + `numpy` installed — guard heavy imports
 and use `pytest.importorskip` for optional dependencies. Coverage of the
 logic layer is ratcheted in CI (see "Coverage" in the root `AGENTS.md`); the
-trame/ParaView rendering modules are excluded by design and covered by
+headless VTK converter modules are excluded by design and covered by
 error-path contract tests instead.
 
 ---
@@ -437,8 +390,8 @@ When writing a new Python backend command:
 - [ ] Output data as JSON to stdout
 - [ ] Print errors to stderr, exit non-zero on failure
 - [ ] Use `NUKE_IDE_WARNING:{json}` or `nuke_viz.logging.warning()` for IDE warnings
-- [ ] For servers: accept `--port` and bind to it exactly
-- [ ] Set headless env vars before importing VTK
+- [ ] Never bind ports or start servers — write files and exit
+- [ ] Keep heavy imports lazy (inside the handler) so missing deps report clean JSON errors
 - [ ] Put reusable code in `python/plugins/<plugin>/lib/`
 - [ ] Register the command module in `python/plugins/<plugin>/plugin.py`
 - [ ] Test standalone: `python server.py plugin.command-name ...`

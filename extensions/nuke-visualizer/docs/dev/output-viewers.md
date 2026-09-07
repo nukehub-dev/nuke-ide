@@ -1,6 +1,6 @@
 # Output Viewers
 
-How OpenMC output files (`tracks.h5`, `weight_windows.h5`, …) become interactive 3D viewers: the **OutputViewerRegistry** routes files to contributions, each contribution **converts** the file to VTK via the Python backend, **serves** it with a trame server, and embeds the server in an **iframe**.
+How OpenMC output files (`tracks.h5`, `weight_windows.h5`, …) become interactive 3D viewers: the **OutputViewerRegistry** routes files to contributions, each contribution **converts** the file to VTK via the Python backend, **parses** the VTK in the frontend, and **renders** it natively with three.js — no server, no port, no iframe.
 
 ---
 
@@ -26,9 +26,9 @@ To add a viewer: add a pattern, implement the contribution, bind it with `bind(O
 
 ---
 
-## Convert → Serve → Iframe
+## Convert → Parse → Render
 
-3D output viewers extend `OpenMCOutputViewerWidget` (`src/browser/plugins/openmc/widgets/output-viewer-widget.tsx`), which implements the whole pipeline; subclasses only provide `convert(filePath)` and panel content.
+3D output viewers extend `NativeVtkViewerWidget` (`src/browser/plugins/openmc/widgets/native-vtk-viewer-widget.tsx`), which implements the whole pipeline; subclasses only provide `convert(filePath)` and panel content.
 
 ```
 reload()
@@ -36,25 +36,24 @@ reload()
   │    └─ python server.py openmc.<cmd>    # plugins/openmc/lib/output_vtk.py
   │         tracks-vtk / collision-vtk / weight-windows-vtk [--mesh-id] / voxel-vtk
   │         → writes .vtp / .vtr / .vti (numpy-only geometry; vtk imports lazily for the write)
-  └─ restartServer(vtkPath)
-       └─ VisualizerBackendService.startServer(filePath, config?, theme?, colorBy?)
-            └─ python server.py base.serve --port p --file f [--theme dark|light] [--color-by c]
-       └─ <iframe src={toProxiedVisualizerUrl(serverUrl)}>   # via /visualizer/<port>/ reverse proxy
+  └─ FileService.read(vtkPath) → setVtkText(text)
+       └─ parseNativeVtkXml → three.js scene (instant color-by, no restart)
 ```
 
-### The `--color-by` Contract
+### The Color-By Contract
 
-`--color-by` is an argument of **`base.serve`**, not of the converters. Format: `'Solid Color' | 'Point: <array>' | 'Cell: <array>'`, validated against the arrays the loaded dataset actually has (`state.available_arrays`). The widget passes its current color-by selection on every server (re)start; users can also switch arrays in the trame UI's Display Controls drawer. Converters decide _which_ arrays exist — e.g. weight windows write one cell-data array per (bound, group) named `lower_g<i>` / `upper_g<i>`, which is what makes Color By act as the group/bound selector.
+Color-by is a pure client-side control: `'Solid Color' | 'Point: <array>' | 'Cell: <array>'`, validated against the arrays the parsed dataset actually has. Switching arrays re-colors instantly — no conversion re-run, no restart. Converters decide _which_ arrays exist — e.g. weight windows write one cell-data array per (bound, group) named `lower_g<i>` / `upper_g<i>`, which is what makes Color By act as the group/bound selector.
 
-### Server Lifecycle
+### Lifecycle
 
-- `startServer` waits for the server's `ACTUAL_PORT:` line; the timeout scales with file size via the `nukeVisualizer.serverTimeout` + `nukeVisualizer.serverTimeoutPerMB` preferences.
-- Servers bind `127.0.0.1` only and are reached through the Theia backend reverse proxy (`src/node/visualizer-proxy-contribution.ts`), so iframes work in both browser and Electron deployments. The proxy retries `ECONNREFUSED`/`ECONNRESET` for up to 5 s (250 ms intervals, `src/node/proxy-retry.ts`) on both the HTTP and WebSocket paths — trame needs a moment to bind after printing its startup banner, and answering the first request immediately produced a false 'Visualizer server unreachable'.
-- The widget kills its server on dispose (`stopServer(port)`); parameter changes (filters, mesh selection) re-run `reload()` — convert again, restart the server.
+- `reload()` converts, reads the file text, and re-parses; parameter changes (filters, mesh selection) re-run `reload()` — convert again, re-parse.
+- There are no servers to start, wait for, or kill: conversion timeouts scale with file size via the `nukeVisualizer.serverTimeout` + `nukeVisualizer.serverTimeoutPerMB` preferences, and conversion/parse failure surfaces an error panel pointing at the generic VTK viewer instead of starting anything.
+
+> **Residual:** the generic `visualizer-widget.tsx` still falls back to a server iframe path for formats the native parser cannot read. The output viewers themselves no longer use it.
 
 ### Split Drag (`drag-split.ts`)
 
-The resizable split between the 3D area and the data panel uses `src/browser/plugins/openmc/widgets/drag-split.ts::startSplitDrag`. During the drag it sets `pointer-events: none` on every `iframe` in the widget (an iframe swallows the document-level mouse events mid-drag, jamming the splitter) and writes sizes directly to the DOM — no per-pixel React renders; state commits once on mouseup. The Nuclear Data window's horizontal split uses the same helper.
+The resizable split between the 3D area and the data panel uses `src/browser/plugins/openmc/widgets/drag-split.ts::startSplitDrag`. During the drag it shields the 3D view's mouse capture (direct DOM writes — no per-pixel React renders; state commits once on mouseup). The Nuclear Data window's horizontal split uses the same helper.
 
 ### Summary Conversion
 
@@ -68,15 +67,12 @@ The resizable split between the 3D area and the data panel uses `src/browser/plu
 
 ## Key Files
 
-| Purpose                    | File                                                                         |
-| -------------------------- | ---------------------------------------------------------------------------- |
-| Viewer registry            | `src/browser/output-viewer/output-viewer-registry.ts`                        |
-| Filename patterns          | `src/browser/output-viewer/output-file-patterns.ts`                          |
-| Viewer base class          | `src/browser/plugins/openmc/widgets/output-viewer-widget.tsx`                |
-| Split-drag helper          | `src/browser/plugins/openmc/widgets/drag-split.ts`                           |
-| Proxy retry policy         | `src/node/proxy-retry.ts`                                                    |
-| Backend conversion service | `src/node/plugins/openmc/services/openmc-output-service.ts`                  |
-| VTK converters (Python)    | `python/plugins/openmc/lib/output_vtk.py`                                    |
-| Summary → XML (Python)     | `python/plugins/openmc/lib/geometry_parser.py`                               |
-| Trame server command       | `python/plugins/base/commands/serve.py`                                      |
-| URL proxying               | `src/browser/visualizer-url.ts`, `src/node/visualizer-proxy-contribution.ts` |
+| Purpose                    | File                                                              |
+| -------------------------- | ----------------------------------------------------------------- |
+| Viewer registry            | `src/browser/output-viewer/output-viewer-registry.ts`             |
+| Filename patterns          | `src/browser/output-viewer/output-file-patterns.ts`               |
+| Viewer base class          | `src/browser/plugins/openmc/widgets/native-vtk-viewer-widget.tsx` |
+| Split-drag helper          | `src/browser/plugins/openmc/widgets/drag-split.ts`                |
+| Backend conversion service | `src/node/plugins/openmc/services/openmc-output-service.ts`       |
+| VTK converters (Python)    | `python/plugins/openmc/lib/output_vtk.py`                         |
+| Summary → XML (Python)     | `python/plugins/openmc/lib/geometry_parser.py`                    |

@@ -15,8 +15,15 @@ from typing import Any
 import h5py
 import numpy as np
 import vtk
-from paraview import simple
 from vtk.util import numpy_support
+
+try:
+    from paraview import simple
+except ImportError:  # pragma: no cover - paraview removed with the trame servers
+    simple = None  # type: ignore[assignment]
+    # Visualization methods below require paraview and raise a clean error
+    # through the calling command's handler when it is missing; the
+    # h5py/vtk-only readers keep working.
 
 
 @dataclass

@@ -134,7 +134,7 @@ python/plugins/moose/
 ├── commands/
 │   ├── __init__.py
 │   ├── info.py        # @command('moose.info')
-│   └── serve.py       # @command('moose.serve') — optional Trame server
+│   └── convert.py     # @command('moose.convert') — headless converter
 └── lib/
     ├── __init__.py
     └── reader.py      # Reusable helpers
@@ -434,14 +434,14 @@ canHandle(uri: URI): number {
 
 ### 3. Widget Creation
 
-**Option A — Reuse `VisualizerWidget` (iframe-based):**
+**Option A — Subclass `NativeVtkViewerWidget`:**
 
-Best for Python servers that render their own UI (Trame, Dash, etc.).
+Best for 3D datasets: convert to XML VTK in the backend, read the file text, and render natively.
 
 ```typescript
-const widget = await this.widgetManager.getOrCreateWidget(VisualizerWidget.ID, { uri: filePath, id: 'your-prefix-' + filePath });
-// Set the server URL after the server starts
-widget.setServerUrl(serverUrl);
+const widget = await this.widgetManager.getOrCreateWidget(NativeVtkViewerWidget.ID, { uri: filePath, id: 'your-prefix-' + filePath });
+// Convert via RPC, then render the converted text
+widget.setVtkText(vtkText);
 ```
 
 **Option B — Custom React widget:**

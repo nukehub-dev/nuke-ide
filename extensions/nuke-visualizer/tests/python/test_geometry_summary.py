@@ -1,5 +1,5 @@
 """Tests for summary.h5 → XML conversion (geometry_parser.convert_summary_to_xml)
-and the openmc.geometry / openmc.visualize-geometry commands' .h5 handling.
+and the openmc.geometry command's .h5 handling.
 
 openmc itself is faked via sys.modules entries — the conversion's heavy import
 is lazy, so no real OpenMC install is needed.

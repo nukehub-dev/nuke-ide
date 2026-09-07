@@ -44,36 +44,6 @@ def _resolve_geometry_path(file_path: str) -> str:
     return file_path
 
 
-@command("openmc.visualize-geometry", help="Visualize OpenMC geometry")
-@arg("file", help="Path to geometry.xml or summary.h5")
-@arg("--port", type=int, help="Server port")
-@arg("--highlight", help="Cell ID(s) to highlight (comma-separated)")
-@arg("--overlaps", help="Path to JSON file with overlap markers")
-def cmd_visualize_geometry(args):
-    """Visualize OpenMC geometry in 3D."""
-    try:
-        import os
-
-        from plugins.openmc.lib.geometry_viz import visualize_geometry
-
-        path = _resolve_geometry_path(args.file)
-        if os.path.isdir(path):
-            path = os.path.join(path, "geometry.xml")
-
-        highlight_ids = None
-        if args.highlight:
-            # Handle both single int and comma-separated string
-            if isinstance(args.highlight, str):
-                highlight_ids = [int(x.strip()) for x in args.highlight.split(",")]
-            else:
-                highlight_ids = [int(args.highlight)]
-
-        return visualize_geometry(path, args.port, highlight_ids, args.overlaps)
-    except Exception as e:
-        print(json.dumps({"error": str(e)}))
-        return 1
-
-
 @command("openmc.check-overlaps", help="Check for geometry overlaps")
 @arg("geometry", help="Path to geometry.xml or Python model")
 @arg("--samples", type=int, default=100000, help="Number of sample points")

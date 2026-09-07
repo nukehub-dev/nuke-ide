@@ -33,9 +33,6 @@ export const VisualizerBackendService = Symbol('VisualizerBackendService');
 /** Default package requirements for base visualizer (VTK/Paraview) operations */
 export const BASE_VISUALIZER_REQUIREMENTS: PackageDependency[] = packages.base;
 
-/** Package requirements for the DAGMC visualization server */
-export const DAGMC_SERVER_REQUIREMENTS: PackageDependency[] = packages.dagmcServer;
-
 /** Package requirements for STEP/STP/BREP conversion */
 export const STEP_REQUIREMENTS: PackageDependency[] = packages.step;
 
@@ -232,18 +229,6 @@ export interface VisualizerBackendService {
     // === Server Management ===
 
     /**
-     * Start a new Trame visualizer server for the given file.
-     * Spawns a Python process running `python/server.py base.serve`.
-     *
-     * @param filePath Path to file to visualize (VTK, H5M, STL, etc.)
-     * @param config Optional Python environment override
-     * @param theme UI theme — 'dark' or 'light', propagated to the Trame app
-     * @param colorBy Optional initial color-by selection ('Solid Color', 'Point: <name>', 'Cell: <name>')
-     * @returns Server info including allocated port and URL
-     */
-    startServer(filePath?: string, config?: PythonConfig, theme?: string, colorBy?: string): Promise<ServerInfo>;
-
-    /**
      * Stop the visualizer server running on the given port.
      * Kills the associated Python process and frees the port.
      */
@@ -276,16 +261,6 @@ export interface VisualizerBackendService {
      * @returns DAGMC model information
      */
     getDagmcInfo(filePath: string): Promise<DagmcModelInfo>;
-
-    /**
-     * Start a DAGMC-specific visualization server with volume/material/group selection.
-     * Runs `python server.py dagmc.visualize` via pydagmc.
-     *
-     * @param filePath Path to the .h5m file
-     * @param theme UI theme — 'dark' or 'light'
-     * @returns Server info including allocated port and URL
-     */
-    startDagmcServer(filePath: string, theme?: string): Promise<ServerInfo>;
 
     /**
      * Extract an Exodus-II time series to headless JSON (no server).

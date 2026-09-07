@@ -1,10 +1,10 @@
 name: Upstream latest
 
-# Tests the Python backend stack against the LATEST upstream releases, with
-# the paraview pin relaxed. environment.yml stays pinned for reproducible
-# builds (docker image, user installs); this job is the early-warning signal
-# that a new paraview/vtk/trame/openmc release breaks us — it fails here
-# before it would ever reach a release build.
+# Tests the Python backend stack against the LATEST upstream releases.
+# environment.yml stays pinned for reproducible builds (docker image, user
+# installs); this job is the early-warning signal that a new vtk/openmc
+# release breaks us — it fails here before it would ever reach a release
+# build.
 
 on:
   schedule:
@@ -42,11 +42,10 @@ jobs:
           miniforge-version: latest
           activate-environment: ide
 
-      - name: Create environment with latest paraview
-        # Relax ONLY the paraview pin; everything else already floats.
+      - name: Create environment
+        # environment.yml already floats everything except deliberate pins.
         run: |
-          sed 's/- paraview=.*/- paraview/' applications/docker/environment.yml > /tmp/environment-latest.yml
-          conda env create -n ide -f /tmp/environment-latest.yml
+          conda env create -n ide -f applications/docker/environment.yml
 
       - name: Install build123d + OCP 7.9 shim
         # Mirrors the docker image: build123d is pip-installed --no-deps (never
@@ -63,9 +62,10 @@ jobs:
           pip install -q pytest
           python -m pytest -q
 
-      - name: Smoke test the rendering stack
-        # Same functional check as the docker job: offscreen render, composite
-        # serialization, VtkRemoteLocalView API. Headless, no X server.
+      - name: Smoke test the converter stack
+        # Same functional check as the docker job: synthetic tracks.h5 ->
+        # .vtp through the repo converter, read back via vtk, plus the
+        # server.py CLI. Headless, no X server.
         run: |
           env -u DISPLAY VTK_USE_OFFSCREEN=1 QT_QPA_PLATFORM=offscreen \
             python applications/docker/render_smoke_test.py
@@ -84,7 +84,7 @@ jobs:
               labels: labels.join(','),
             });
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-            const body = `The weekly check against the latest upstream releases failed (paraview pin relaxed, everything else floating).\n\nRun: ${runUrl}\n\nThis means a new upstream release (paraview/vtk/trame/openmc) breaks the backend stack. The pinned \`environment.yml\` is unaffected — decide whether to fix forward or document the incompatibility before the next pin bump.`;
+            const body = `The weekly check against the latest upstream releases failed.\n\nRun: ${runUrl}\n\nThis means a new upstream release (vtk/openmc) breaks the backend stack. The pinned \`environment.yml\` is unaffected — decide whether to fix forward or document the incompatibility before the next pin bump.`;
             const open = existing.find((issue) => issue.title === title);
             if (open) {
               await github.rest.issues.createComment({

@@ -51,10 +51,10 @@ package.
 ### Dedicated dev/test environment
 
 For running the Python test suites against real dependencies, use a lean conda
-env (no ParaView/trame — the test profile doesn't need them, and conda-forge
-currently cannot co-solve paraview with a build123d-compatible ocp; see below).
-The verified recipe (`~/.conda/envs/nuke` on the maintainer machine; the root
-`AGENTS.md` `NUKE_TEST_PYTHON` example points there):
+env (the test profile doesn't need the VTK stack — converter coverage comes
+from the docker image). The verified recipe (`~/.conda/envs/nuke` on the
+maintainer machine; the root `AGENTS.md` `NUKE_TEST_PYTHON` example points
+there):
 
 ```bash
 conda create -n nuke -c conda-forge --strict-channel-priority python=3.13 \
@@ -68,8 +68,9 @@ conda create -n nuke -c conda-forge --strict-channel-priority python=3.13 \
 The ocp pin matters: conda `ocp` 7.8.1.2 still provides the `TopoDS.*_s`
 downcast API that conda build123d requires, while `ocp` 7.9.x dropped it
 (build123d then fails with `TopoDS has no attribute 'Vertex_s'`). That API gap
-is also why build123d cannot be a conda dependency alongside paraview
-(paraview 6.1.1 forces the ocp 7.9 line via occt's vtk-base pin): the Docker
+is also why build123d cannot be a conda dependency (conda build123d tracks an
+OCP flavor incompatible with the Docker env's OCP 7.9 stack — OCP 7.9 removed
+the TopoDS `*_s` downcast statics build123d 0.9.1 uses): the Docker
 runtime env (`applications/docker/environment.yml`) instead pip-installs
 build123d 0.9.1 `--no-deps` (pure Python — it cannot clobber conda's binary
 stack) and re-attaches the removed aliases via nuke-cad's OCP 7.9 shim
@@ -109,7 +110,7 @@ The `yarn` command will:
 ### Docker (all-in-one)
 
 A ready-to-use image with the browser IDE and the full Python backend
-environment (`ide` conda env: OpenMC, Trame/ParaView, CAD toolchain) is
+environment (`ide` conda env: OpenMC, headless VTK converters, CAD toolchain) is
 available:
 
 ```bash
@@ -203,9 +204,9 @@ The selection only affects the bundled IDE; it does not change the Docker Python
 
 > Use the command `Nuke: Switch Environment` to select the correct Python interpreter. If OpenMC is missing, install it via `pip install openmc --extra-index-url https://shimwell.github.io/wheels` (or `conda install -c conda-forge openmc`).
 
-**Visualizer reports missing/broken trame**
+**Visualizer reports missing `vtk`**
 
-> The visualizer backends need trame >= 3 (`pip install trame trame-vuetify trame-vtk trame-components` or `conda install -c conda-forge trame trame-vuetify trame-vtk trame-components`). Do not mix pip and conda trame packages in the same environment — the install gets clobbered and `trame.app` goes missing; repair with `pip install --force-reinstall trame` or reinstall via conda only.
+> The converter backends need `vtk` for VTK export (`conda install -c conda-forge vtk`); geometry extraction itself is numpy-only. Run the health check (`Visualizer: Run Health Check`) and follow the suggested install commands.
 
 **Build errors in extensions**
 

@@ -9,7 +9,6 @@ import argparse
 import json
 import sys
 import tempfile
-import types
 
 import pytest
 from nuke_viz.plugin import setup_parser_for_handler
@@ -139,70 +138,6 @@ def test_dagmc_info_missing_pydagmc(tmp_path, monkeypatch, capsys):
 
 
 # ---------------------------------------------------------------------------
-# dagmc.visualize
-# ---------------------------------------------------------------------------
-
-
-def test_dagmc_visualize_missing_vtk(monkeypatch, capsys):
-    """With vtk unavailable, dagmc.visualize reports the library failure
-    without ever starting a server."""
-    monkeypatch.delitem(sys.modules, "plugins.base.lib.dagmc_viz", raising=False)
-    monkeypatch.setitem(sys.modules, "vtk", None)
-
-    args = _parse(dagmc_cmds.cmd_dagmc_visualize, ["--file", "model.h5m"])
-    rc = dagmc_cmds.cmd_dagmc_visualize(args)
-
-    assert rc == 1
-    assert "DAGMC visualization library not available" in _stderr_error_line(capsys)
-
-
-def test_dagmc_visualize_highlight_list_parsing(monkeypatch):
-    """The --highlight comma-separated string becomes a list of ints."""
-    captured = {}
-
-    def fake_visualize_dagmc(file, port, theme, highlight_ids):
-        captured.update(file=file, port=port, theme=theme, highlight_ids=highlight_ids)
-        return 0
-
-    fake_module = types.ModuleType("plugins.base.lib.dagmc_viz")
-    fake_module.visualize_dagmc = fake_visualize_dagmc
-    monkeypatch.setitem(sys.modules, "plugins.base.lib.dagmc_viz", fake_module)
-
-    args = _parse(
-        dagmc_cmds.cmd_dagmc_visualize,
-        ["--file", "model.h5m", "--port", "8123", "--theme", "light", "--highlight", "1, 2,3"],
-    )
-    rc = dagmc_cmds.cmd_dagmc_visualize(args)
-
-    assert rc == 0
-    assert captured == {
-        "file": "model.h5m",
-        "port": 8123,
-        "theme": "light",
-        "highlight_ids": [1, 2, 3],
-    }
-
-
-def test_dagmc_visualize_no_highlight_passes_none(monkeypatch):
-    """Without --highlight, highlight_ids is None."""
-    captured = {}
-
-    def fake_visualize_dagmc(file, port, theme, highlight_ids):
-        captured["highlight_ids"] = highlight_ids
-        return 0
-
-    fake_module = types.ModuleType("plugins.base.lib.dagmc_viz")
-    fake_module.visualize_dagmc = fake_visualize_dagmc
-    monkeypatch.setitem(sys.modules, "plugins.base.lib.dagmc_viz", fake_module)
-
-    args = _parse(dagmc_cmds.cmd_dagmc_visualize, ["--file", "model.h5m"])
-    rc = dagmc_cmds.cmd_dagmc_visualize(args)
-
-    assert rc == 0
-    assert captured["highlight_ids"] is None
-
-
-# ---------------------------------------------------------------------------
 # Argument parsing behavior
 # ---------------------------------------------------------------------------
 
@@ -224,14 +159,3 @@ def test_convert_step_mesh_size_default_and_override():
 
     args = _parse(convert_cmds.cmd_convert_step, ["--file", "a.step", "--mesh-size", "2.5"])
     assert args.mesh_size == pytest.approx(2.5)
-
-
-def test_dagmc_visualize_theme_choices_enforced():
-    """--theme only accepts 'dark' or 'light' (default 'dark')."""
-    args = _parse(dagmc_cmds.cmd_dagmc_visualize, ["--file", "m.h5m"])
-    assert args.theme == "dark"
-
-    parser = argparse.ArgumentParser()
-    setup_parser_for_handler(dagmc_cmds.cmd_dagmc_visualize, parser)
-    with pytest.raises(SystemExit):
-        parser.parse_args(["--file", "m.h5m", "--theme", "blue"])

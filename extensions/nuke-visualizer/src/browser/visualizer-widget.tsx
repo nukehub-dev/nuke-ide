@@ -25,58 +25,36 @@
 // SPDX-License-Identifier: BSD-2-Clause
 // *****************************************************************************
 
-import { Message, CommonCommands } from '@theia/core/lib/browser';
 import { injectable, postConstruct, inject } from '@theia/core/shared/inversify';
 import * as React from '@theia/core/shared/react';
 import URI from '@theia/core/lib/common/uri';
 import { FileDialogService } from '@theia/filesystem/lib/browser/file-dialog';
-import { CommandRegistry } from '@theia/core/lib/common/command';
 import { VisualizerBackendService } from '../common/base-visualizer-protocol';
-import { VisualizerPreferences } from './visualizer-preferences';
-import { toProxiedVisualizerUrl } from './visualizer-url';
 import { NativeVtkViewerWidget } from './plugins/openmc/widgets/native-vtk-viewer-widget';
-import { parseNativeVtkXml } from './plugins/openmc/widgets/native-vtk/native-vtk-data';
+import { parseNativeVtk } from './plugins/openmc/widgets/native-vtk/native-vtk-data';
 
 /**
- * Single-dataset XML VTK extensions probed for native rendering. The probe
- * itself (`parseNativeVtkXml`) is the gate — it only accepts PolyData,
- * RectilinearGrid, and ImageData, so grid kinds it rejects (.vtu/.vts) and
- * unparseable files fall through to the trame fallback.
+ * Generic single-file visualizer (native-only): arbitrary VTK/DAGMC/STEP
+ * files render in the three.js viewer after a `parseNativeVtkXml` probe.
+ * DAGMC/STEP inputs convert first (convert-then-probe); anything the native
+ * XML parser rejects (legacy `.vtk`, `.vtu`/`.vts` grids, `.stl`/`.ply`/`.obj`
+ * meshes, unparseable files) renders an error panel naming the supported
+ * kinds instead of starting a visualization server. There is no served/iframe
+ * path — widget ID, open-handler claims, and the DAGMC sibling logic are
+ * unchanged.
  */
-const NATIVE_PROBE_EXTENSIONS = new Set(['.vtu', '.vtp', '.vts', '.vtr', '.vti']);
-
 @injectable()
 export class VisualizerWidget extends NativeVtkViewerWidget {
     static override readonly ID = 'nuke-visualizer.widget';
     static override readonly LABEL = 'Visualizer';
 
-    private static instances: Set<VisualizerWidget> = new Set();
-
-    public static onServerStop(port: number): void {
-        for (const instance of VisualizerWidget.instances) {
-            instance.handleServerStop(port);
-        }
-    }
-
-    private serverUrl: string | null = null;
-    private serverPort: number | null = null;
-    private warningMessage: string | null = null;
-    private checkInterval: number | null = null;
     private currentFile: string | null = null;
     private currentFileUri: URI | null = null;
     private currentLoadId: number = 0;
     private highlightVolumeId: number | undefined = undefined;
-    /** Rendering path: native three.js for XML VTK, or the trame fallback for everything else. */
-    private mode: 'native' | 'served' = 'served';
 
     @inject(VisualizerBackendService)
     protected readonly visualizerBackend: VisualizerBackendService;
-
-    @inject(VisualizerPreferences)
-    protected readonly preferences: VisualizerPreferences;
-
-    @inject(CommandRegistry)
-    protected readonly commandRegistry: CommandRegistry;
 
     @inject(FileDialogService)
     protected readonly fileDialogService: FileDialogService;
@@ -92,21 +70,7 @@ export class VisualizerWidget extends NativeVtkViewerWidget {
         this.title.label = VisualizerWidget.LABEL;
         this.title.caption = VisualizerWidget.LABEL;
         this.title.closable = true;
-        VisualizerWidget.instances.add(this);
         this.update();
-    }
-
-    private handleServerStop(port: number): void {
-        if (this.serverPort === port) {
-            this.serverUrl = null;
-            this.serverPort = null;
-            this.statusMessage = 'Visualizer server stopped unexpectedly. Check logs for details.';
-            if (this.checkInterval) {
-                clearInterval(this.checkInterval);
-                this.checkInterval = null;
-            }
-            this.update();
-        }
     }
 
     /**
@@ -117,8 +81,6 @@ export class VisualizerWidget extends NativeVtkViewerWidget {
         this.currentFileUri = uri;
         this.currentFile = uri.path.toString();
         this.highlightVolumeId = volumeId;
-        // A new file starts on the served path until the native probe succeeds.
-        this.mode = 'served';
         // Use a unique ID based on the file path so Theia can manage multiple instances
         this.id = `${VisualizerWidget.ID}:${this.currentFile}`;
         this.title.label = `Visualizer: ${uri.path.base}`;
@@ -127,132 +89,30 @@ export class VisualizerWidget extends NativeVtkViewerWidget {
     }
 
     /**
-     * Set the server URL directly (for when server is already running, e.g., OpenMC).
-     */
-    public setServerUrl(url: string, port: number): void {
-        this.serverUrl = toProxiedVisualizerUrl(url);
-        this.serverPort = port;
-        this.statusMessage = `Server ready at ${url}`;
-        this.update();
-    }
-
-    /**
-     * Get the current server port.
-     */
-    public getServerPort(): number | null {
-        return this.serverPort;
-    }
-
-    /**
-     * Header reload/retry buttons call `setVtkFile(this.fileUri)`; the file
-     * URI stays on the opened file, so keep the generic visualizer identity
-     * (the base implementation rebrands to the native viewer ID).
+     * Header reload/retry buttons call `setVtkFile(this.fileUri)`; re-run the
+     * full convert-then-probe load so DAGMC/STEP inputs convert again, and
+     * keep the generic visualizer identity (the base implementation rebrands
+     * to the native viewer ID).
      */
     override async setVtkFile(uri: URI): Promise<void> {
-        await super.setVtkFile(uri);
-        const path = uri.path.toString();
-        if (this.currentFile === path) {
+        await this.loadFile(uri, this.highlightVolumeId);
+        const path = this.currentFileUri?.path.toString();
+        if (path) {
             this.id = `${VisualizerWidget.ID}:${path}`;
-            this.title.label = `Visualizer: ${uri.path.base}`;
+            this.title.label = `Visualizer: ${this.currentFileUri?.path.base}`;
             this.title.caption = `Visualizer: ${path}`;
             this.update();
         }
     }
 
-    protected override onActivateRequest(msg: Message): void {
-        super.onActivateRequest(msg);
-        const iframe = this.node.querySelector('iframe');
-        iframe?.focus();
-    }
-
-    protected override onAfterShow(msg: Message): void {
-        super.onAfterShow(msg);
-
-        this.update();
-    }
-
     protected render(): React.ReactNode {
-        // Native path: XML VTK datasets render in the three.js viewer with
-        // instant color-by (no server, no iframe). Everything else stays on
-        // the served compatibility UI below.
-        if (this.mode === 'native') {
-            return super.render();
-        }
-        const statusLower = this.statusMessage.toLowerCase();
-        const isError =
-            statusLower.includes('failed') ||
-            statusLower.includes('error') ||
-            statusLower.includes('unable') ||
-            statusLower.includes('unavailable') ||
-            statusLower.includes('not found') ||
-            statusLower.includes('missing') ||
-            statusLower.includes('invalid') ||
-            statusLower.includes('timeout') ||
-            statusLower.includes('cannot') ||
-            statusLower.includes('not responding') ||
-            statusLower.includes('no suitable') ||
-            statusLower.includes('not installed') ||
-            statusLower.includes('cannot find') ||
-            statusLower.includes('unexpected');
-        const isLoading =
-            !this.serverUrl &&
-            (statusLower.includes('starting') ||
-                statusLower.includes('waiting') ||
-                statusLower.includes('loading') ||
-                statusLower.includes('initializing') ||
-                statusLower.includes('converting') ||
-                statusLower.includes('overlay') ||
-                statusLower === 'initializing...' ||
-                statusLower.includes('server started'));
-        const hasWarning = this.warningMessage !== null;
-
-        // Inject global styles for animations
-        const globalStyles = `
-            @keyframes visualizer-spin {
-                0% { transform: rotate(0deg); }
-                100% { transform: rotate(360deg); }
-            }
-            @keyframes visualizer-pulse {
-                0%, 100% { opacity: 1; }
-                50% { opacity: 0.5; }
-            }
-            @keyframes visualizer-fadeIn {
-                from { opacity: 0; transform: translateY(10px); }
-                to { opacity: 1; transform: translateY(0); }
-            }
-            @keyframes visualizer-shimmer {
-                0% { background-position: -200% 0; }
-                100% { background-position: 200% 0; }
-            }
-            @keyframes visualizer-float {
-                0%, 100% { transform: translateY(0); }
-                50% { transform: translateY(-8px); }
-            }
-            @keyframes visualizer-glow {
-                0%, 100% { opacity: 0.6; filter: drop-shadow(0 0 8px rgba(0,0,0,0.1)); }
-                50% { opacity: 1; filter: drop-shadow(0 0 16px rgba(0,127,212,0.3)); }
-            }
-            @keyframes visualizer-scale-in {
-                0% { opacity: 0; transform: scale(0.9); }
-                100% { opacity: 1; transform: scale(1); }
-            }
-            @keyframes visualizer-slide-up {
-                0% { opacity: 0; transform: translateY(20px); }
-                100% { opacity: 1; transform: translateY(0); }
-            }
-            .visualizer-empty-icon {
-                animation: visualizer-float 3s ease-in-out infinite, visualizer-glow 2s ease-in-out infinite;
-            }
-            .visualizer-empty-button:hover {
-                transform: translateY(-2px);
-                box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-            }
-        `;
-
-        return (
-            <div className="visualizer-container" style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
-                <style>{globalStyles}</style>
-                {!this.serverUrl && (
+        // Empty state before any file is opened: the base viewer would show a
+        // bare "No dataset loaded" viewarea, so keep the rich empty UI with
+        // the file browser entry point. Everything else (loading spinner,
+        // native canvas, error panel) comes from the base implementation.
+        if (!this.currentFileUri && !this.model && !this.isLoading && !this.error) {
+            return (
+                <div className="visualizer-container" style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
                     <div
                         style={{
                             padding: '24px',
@@ -261,421 +121,90 @@ export class VisualizerWidget extends NativeVtkViewerWidget {
                             flexDirection: 'column',
                             alignItems: 'center',
                             justifyContent: 'center',
-                            height: '100%',
-                            animation: 'visualizer-fadeIn 0.3s ease-out'
+                            height: '100%'
                         }}
                     >
-                        {isLoading && (
+                        <div
+                            style={{
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                padding: '48px 32px',
+                                background: 'var(--theia-editorWidget-background)',
+                                height: '80%',
+                                width: '80%'
+                            }}
+                        >
+                            <div style={{ fontSize: '64px', marginBottom: '24px', color: 'var(--theia-foreground)', opacity: 0.8 }}>
+                                <span className="codicon codicon-symbol-misc" style={{ fontSize: '64px' }} />
+                            </div>
+                            <h3 style={{ margin: '0 0 12px 0', fontSize: '22px', fontWeight: 600, color: 'var(--theia-foreground)' }}>
+                                No Visualization Loaded
+                            </h3>
+                            <p
+                                style={{
+                                    margin: '0 0 24px 0',
+                                    fontSize: '14px',
+                                    color: 'var(--theia-descriptionForeground)',
+                                    textAlign: 'center',
+                                    maxWidth: '320px',
+                                    lineHeight: 1.6
+                                }}
+                            >
+                                Open a VTK, DAGMC, or mesh file to visualize geometry and results in interactive 3D
+                            </p>
+                            <button
+                                className="visualizer-empty-button"
+                                style={{
+                                    padding: '12px 24px',
+                                    backgroundColor: 'var(--theia-button-background)',
+                                    color: 'var(--theia-button-foreground)',
+                                    border: '1px solid var(--theia-button-border)',
+                                    borderRadius: '8px',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px',
+                                    fontSize: '14px',
+                                    fontWeight: 500
+                                }}
+                                onClick={() => this.browseAndOpen()}
+                            >
+                                <span className="codicon codicon-folder-opened" />
+                                Browse Files
+                            </button>
                             <div
                                 style={{
-                                    marginBottom: '32px',
-                                    display: 'flex',
-                                    flexDirection: 'column',
-                                    alignItems: 'center',
-                                    padding: '32px',
-                                    background: 'var(--theia-editorWidget-background, rgba(100,100,100,0.1))',
-                                    borderRadius: '12px',
+                                    marginTop: '32px',
+                                    padding: '16px 20px',
+                                    background: 'rgba(100,100,100,0.05)',
+                                    borderRadius: '8px',
+                                    fontSize: '12px',
+                                    color: 'var(--theia-descriptionForeground)',
                                     border: '1px solid var(--theia-panel-border)'
                                 }}
                             >
-                                {/* Animated spinner with gradient */}
-                                <div
-                                    style={{
-                                        width: '56px',
-                                        height: '56px',
-                                        position: 'relative',
-                                        marginBottom: '20px'
-                                    }}
-                                >
-                                    <div
-                                        style={{
-                                            position: 'absolute',
-                                            inset: '0',
-                                            borderRadius: '50%',
-                                            border: '3px solid transparent',
-                                            borderTopColor: 'var(--theia-focusBorder, #007fd4)',
-                                            borderRightColor: 'var(--theia-focusBorder, #007fd4)',
-                                            animation: 'visualizer-spin 1s linear infinite'
-                                        }}
-                                    ></div>
-                                    <div
-                                        style={{
-                                            position: 'absolute',
-                                            inset: '6px',
-                                            borderRadius: '50%',
-                                            border: '3px solid transparent',
-                                            borderBottomColor: 'var(--theia-charts-blue, #3794ff)',
-                                            borderLeftColor: 'var(--theia-charts-blue, #3794ff)',
-                                            animation: 'visualizer-spin 1.5s linear infinite reverse'
-                                        }}
-                                    ></div>
-                                </div>
-                                <div
-                                    style={{
-                                        fontSize: '15px',
-                                        fontWeight: 500,
-                                        color: 'var(--theia-foreground)',
-                                        marginBottom: '8px'
-                                    }}
-                                >
-                                    {this.statusMessage || 'Starting visualization server...'}
-                                </div>
-                                <div
-                                    style={{
-                                        fontSize: '12px',
-                                        color: 'var(--theia-descriptionForeground)',
-                                        animation: 'visualizer-pulse 2s ease-in-out infinite'
-                                    }}
-                                >
-                                    Please wait
-                                </div>
+                                <div style={{ fontWeight: 500, marginBottom: '6px' }}>Supported formats (native rendering):</div>
+                                <div>VTK XML (.vtp, .vtr, .vti)</div>
+                                <div>H5M (DAGMC — converted)</div>
+                                <div>STEP, STP, BREP (CAD — converted)</div>
                             </div>
-                        )}
-                        {hasWarning && (
-                            <div
-                                style={{
-                                    color: 'var(--theia-foreground)',
-                                    backgroundColor: 'var(--theia-inputValidation-warningBackground, rgba(255, 204, 0, 0.1))',
-                                    border: '1px solid var(--theia-inputValidation-warningBorder, #ffcc00)',
-                                    padding: '16px 20px',
-                                    borderRadius: '8px',
-                                    marginBottom: '20px',
-                                    maxWidth: '640px',
-                                    textAlign: 'left',
-                                    animation: 'visualizer-fadeIn 0.3s ease-out',
-                                    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)'
-                                }}
-                            >
-                                <div
-                                    style={{
-                                        fontWeight: 600,
-                                        marginBottom: '10px',
-                                        color: 'var(--theia-warningForeground, #b58900)',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: '8px',
-                                        fontSize: '14px'
-                                    }}
-                                >
-                                    <span className="codicon codicon-warning" style={{ fontSize: '16px' }} />
-                                    Warning
-                                </div>
-                                <div
-                                    style={{
-                                        fontFamily: 'var(--theia-code-font-family, monospace)',
-                                        fontSize: '12px',
-                                        whiteSpace: 'pre-wrap',
-                                        lineHeight: '1.5',
-                                        opacity: 0.9
-                                    }}
-                                >
-                                    {this.warningMessage}
-                                </div>
-                            </div>
-                        )}
-                        {isError && (
-                            <div
-                                style={{
-                                    color: 'var(--theia-errorForeground)',
-                                    backgroundColor: 'var(--theia-inputValidation-errorBackground, rgba(244, 67, 54, 0.1))',
-                                    border: '1px solid var(--theia-inputValidation-errorBorder, #f44336)',
-                                    padding: '16px 20px',
-                                    borderRadius: '8px',
-                                    marginBottom: '20px',
-                                    maxWidth: '640px',
-                                    textAlign: 'left',
-                                    animation: 'visualizer-fadeIn 0.3s ease-out',
-                                    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)'
-                                }}
-                            >
-                                <div
-                                    style={{
-                                        fontWeight: 600,
-                                        marginBottom: '10px',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: '8px',
-                                        fontSize: '14px'
-                                    }}
-                                >
-                                    <span className="codicon codicon-error" style={{ fontSize: '16px' }} />
-                                    Error
-                                </div>
-                                <div
-                                    style={{
-                                        fontFamily: 'var(--theia-code-font-family, monospace)',
-                                        fontSize: '12px',
-                                        whiteSpace: 'pre-wrap',
-                                        lineHeight: '1.5',
-                                        opacity: 0.9
-                                    }}
-                                >
-                                    {this.statusMessage}
-                                </div>
-                            </div>
-                        )}
-                        {!isLoading && !isError && !hasWarning && (
-                            <div
-                                style={{
-                                    display: 'flex',
-                                    flexDirection: 'column',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    padding: '48px 32px',
-                                    background: 'var(--theia-editorWidget-background)',
-                                    animation: 'visualizer-slide-up 0.5s ease-out',
-                                    height: '80%',
-                                    width: '80%'
-                                }}
-                            >
-                                <div
-                                    className="visualizer-empty-icon"
-                                    style={{
-                                        fontSize: '64px',
-                                        marginBottom: '24px',
-                                        color: 'var(--theia-foreground)',
-                                        opacity: 0.8
-                                    }}
-                                >
-                                    <span className="codicon codicon-symbol-misc" style={{ fontSize: '64px' }} />
-                                </div>
-                                <h3
-                                    style={{
-                                        margin: '0 0 12px 0',
-                                        fontSize: '22px',
-                                        fontWeight: 600,
-                                        color: 'var(--theia-foreground)',
-                                        animation: 'visualizer-fadeIn 0.4s ease-out 0.1s both'
-                                    }}
-                                >
-                                    No Visualization Loaded
-                                </h3>
-                                <p
-                                    style={{
-                                        margin: '0 0 24px 0',
-                                        fontSize: '14px',
-                                        color: 'var(--theia-descriptionForeground)',
-                                        textAlign: 'center',
-                                        maxWidth: '320px',
-                                        lineHeight: 1.6,
-                                        animation: 'visualizer-fadeIn 0.4s ease-out 0.2s both'
-                                    }}
-                                >
-                                    Open a VTK, DAGMC, or mesh file to visualize geometry and results in interactive 3D
-                                </p>
-                                <button
-                                    className="visualizer-empty-button"
-                                    style={{
-                                        padding: '12px 24px',
-                                        backgroundColor: 'var(--theia-button-background)',
-                                        color: 'var(--theia-button-foreground)',
-                                        border: '1px solid var(--theia-button-border)',
-                                        borderRadius: '8px',
-                                        cursor: 'pointer',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: '8px',
-                                        fontSize: '14px',
-                                        fontWeight: 500,
-                                        transition: 'all 0.2s ease',
-                                        animation: 'visualizer-scale-in 0.3s ease-out 0.3s both'
-                                    }}
-                                    onClick={() => this.browseAndOpen()}
-                                >
-                                    <span className="codicon codicon-folder-opened" />
-                                    Browse Files
-                                </button>
-                                <div
-                                    style={{
-                                        marginTop: '32px',
-                                        padding: '16px 20px',
-                                        background: 'rgba(100,100,100,0.05)',
-                                        borderRadius: '8px',
-                                        fontSize: '12px',
-                                        color: 'var(--theia-descriptionForeground)',
-                                        animation: 'visualizer-fadeIn 0.4s ease-out 0.4s both',
-                                        border: '1px solid var(--theia-panel-border)'
-                                    }}
-                                >
-                                    <div style={{ fontWeight: 500, marginBottom: '6px' }}>Supported formats:</div>
-                                    <div>VTK, VTU, VTP, VTS, VTR, PVTU, PFTP</div>
-                                    <div>H5M (DAGMC)</div>
-                                    <div>STEP, STP, BREP (CAD)</div>
-                                    <div>STL, PLY, OBJ (meshes)</div>
-                                </div>
-                            </div>
-                        )}
-                        {this.currentFile && (
-                            <div
-                                style={{
-                                    marginTop: '16px',
-                                    padding: '8px 16px',
-                                    background: 'var(--theia-badge-background, rgba(100,100,100,0.2))',
-                                    borderRadius: '16px',
-                                    fontSize: '12px',
-                                    color: 'var(--theia-badge-foreground)',
-                                    fontFamily: 'var(--theia-code-font-family, monospace)',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '6px'
-                                }}
-                            >
-                                <span className="codicon codicon-file" />
-                                <span
-                                    style={{
-                                        maxWidth: '400px',
-                                        overflow: 'hidden',
-                                        textOverflow: 'ellipsis',
-                                        whiteSpace: 'nowrap'
-                                    }}
-                                >
-                                    {this.currentFile}
-                                </span>
-                            </div>
-                        )}
-                        {isError && (
-                            <div style={{ marginTop: '24px', display: 'flex', gap: '12px', flexDirection: 'column', alignItems: 'center' }}>
-                                <button
-                                    style={{
-                                        padding: '10px 20px',
-                                        backgroundColor: 'var(--theia-button-background)',
-                                        color: 'var(--theia-button-foreground)',
-                                        border: '1px solid var(--theia-button-border)',
-                                        borderRadius: '6px',
-                                        cursor: 'pointer',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: '8px',
-                                        fontSize: '13px',
-                                        fontWeight: 500,
-                                        transition: 'all 0.2s ease',
-                                        boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)'
-                                    }}
-                                    onMouseEnter={(e) => {
-                                        e.currentTarget.style.transform = 'translateY(-1px)';
-                                        e.currentTarget.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.15)';
-                                    }}
-                                    onMouseLeave={(e) => {
-                                        e.currentTarget.style.transform = 'translateY(0)';
-                                        e.currentTarget.style.boxShadow = '0 2px 4px rgba(0, 0, 0, 0.1)';
-                                    }}
-                                    onClick={() => this.retry()}
-                                >
-                                    <span className="codicon codicon-refresh" />
-                                    Retry
-                                </button>
-                                <button
-                                    style={{
-                                        padding: '10px 20px',
-                                        backgroundColor: 'var(--theia-button-secondaryBackground, transparent)',
-                                        color: 'var(--theia-button-secondaryForeground)',
-                                        border: '1px solid var(--theia-button-border)',
-                                        borderRadius: '6px',
-                                        cursor: 'pointer',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: '8px',
-                                        fontSize: '13px',
-                                        fontWeight: 500,
-                                        transition: 'all 0.2s ease'
-                                    }}
-                                    onMouseEnter={(e) => {
-                                        e.currentTarget.style.backgroundColor =
-                                            'var(--theia-button-hoverBackground, rgba(100,100,100,0.1))';
-                                    }}
-                                    onMouseLeave={(e) => {
-                                        e.currentTarget.style.backgroundColor = 'var(--theia-button-secondaryBackground, transparent)';
-                                    }}
-                                    onClick={() => this.openSettings()}
-                                >
-                                    <span className="codicon codicon-settings-gear" />
-                                    Configure Python Path
-                                </button>
-                            </div>
-                        )}
+                        </div>
                     </div>
-                )}
-                {this.serverUrl && (
-                    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', animation: 'visualizer-fadeIn 0.3s ease-out' }}>
-                        {this.warningMessage && (
-                            <div
-                                style={{
-                                    color: 'var(--theia-foreground)',
-                                    backgroundColor: 'var(--theia-inputValidation-warningBackground, rgba(255, 204, 0, 0.1))',
-                                    border: '1px solid var(--theia-inputValidation-warningBorder, #ffcc00)',
-                                    padding: '10px 16px',
-                                    borderRadius: '6px',
-                                    margin: '8px 8px 0 8px',
-                                    fontSize: '12px',
-                                    textAlign: 'left',
-                                    display: 'flex',
-                                    alignItems: 'flex-start',
-                                    gap: '8px'
-                                }}
-                            >
-                                <span
-                                    className="codicon codicon-warning"
-                                    style={{
-                                        color: 'var(--theia-warningForeground, #b58900)',
-                                        marginTop: '2px',
-                                        flexShrink: 0
-                                    }}
-                                />
-                                <div
-                                    style={{
-                                        fontFamily: 'var(--theia-code-font-family, monospace)',
-                                        whiteSpace: 'pre-wrap',
-                                        flex: 1
-                                    }}
-                                >
-                                    {this.warningMessage}
-                                </div>
-                            </div>
-                        )}
-                        <iframe
-                            key={`${this.serverUrl}-${this.currentLoadId}`}
-                            src={this.serverUrl}
-                            style={{ width: '100%', height: '100%', border: 'none', flex: 1 }}
-                            title="Visualizer Visualization"
-                            sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
-                        />
-                    </div>
-                )}
-            </div>
-        );
+                </div>
+            );
+        }
+        return super.render();
     }
 
     public async loadFile(fileUri: URI, volumeId?: number): Promise<void> {
         const loadId = ++this.currentLoadId;
         const filePath = fileUri.path.toString();
 
-        // Check if volume changed (before updating)
-        const volumeChanged = volumeId !== undefined && this.highlightVolumeId !== volumeId;
-        const wasShowingSingleVolume = this.highlightVolumeId !== undefined;
-
-        // Update highlight volume ID: set if provided, clear if explicitly undefined
-        if (volumeId !== undefined) {
-            this.highlightVolumeId = volumeId;
-        } else {
-            // Clear volume ID to show full model
-            this.highlightVolumeId = undefined;
-        }
-
-        // If already showing this file with the same volume, just activate
-        // Also reload if we were showing a single volume and now want full model
-        const needReload = wasShowingSingleVolume && volumeId === undefined;
-        if (this.currentFile === filePath && this.serverUrl && !volumeChanged && !needReload) {
-            this.ensureClosable();
-            this.update();
-            return;
-        }
-
         // Ensure URI and ID are set correctly
-        if (!this.currentFileUri || this.currentFileUri.toString() !== fileUri.toString()) {
-            this.setUri(fileUri);
-        }
+        this.setUri(fileUri, volumeId);
 
-        this.ensureClosable();
         this.update();
 
         // Check if file needs conversion before visualization
@@ -684,70 +213,8 @@ export class VisualizerWidget extends NativeVtkViewerWidget {
         } else if (/\.(step|stp|brep)$/i.test(filePath)) {
             await this.convertAndLoadSTEP(filePath, loadId);
         } else {
-            await this.startVisualizerServer(filePath, loadId);
+            await this.loadNativeFile(filePath, loadId);
         }
-    }
-
-    private async cleanupServer(): Promise<void> {
-        if (this.checkInterval) {
-            clearInterval(this.checkInterval);
-            this.checkInterval = null;
-        }
-
-        const portToStop = this.serverPort;
-
-        // Reset all widget state IMMEDIATELY to avoid race conditions in UI
-        this.serverUrl = null;
-        this.serverPort = null;
-        this.mode = 'served';
-        this.model = undefined;
-        this.classified = undefined;
-        this.fileUri = undefined;
-        this.error = undefined;
-        this.isLoading = false;
-        this.statusMessage = 'No file loaded';
-        this.warningMessage = null;
-        this.currentFile = null;
-        this.currentFileUri = null;
-        this.title.label = VisualizerWidget.LABEL;
-        this.title.closable = true;
-        this.update();
-
-        if (portToStop) {
-            try {
-                console.log(`[Visualizer] Stopping server on port ${portToStop}...`);
-                await this.visualizerBackend.stopServer(portToStop);
-                console.log(`[Visualizer] Stopped server on port ${portToStop}`);
-            } catch (err) {
-                console.error('[Visualizer] Failed to stop server:', err);
-            }
-        }
-    }
-
-    private ensureClosable(): void {
-        if (!this.title.closable) {
-            this.title.closable = true;
-        }
-    }
-
-    private async retry(): Promise<void> {
-        const uri = this.currentFileUri;
-        this.warningMessage = null;
-        this.statusMessage = 'Retrying...';
-        this.update();
-
-        await this.cleanupServer();
-
-        if (uri) {
-            await this.loadFile(uri);
-        } else {
-            await this.startVisualizerServer();
-        }
-    }
-
-    private openSettings(): void {
-        // Open the preferences view
-        this.commandRegistry.executeCommand(CommonCommands.OPEN_PREFERENCES.id);
     }
 
     private async browseAndOpen(): Promise<void> {
@@ -775,43 +242,11 @@ export class VisualizerWidget extends NativeVtkViewerWidget {
     private async convertAndLoadDAGMC(h5mPath: string, loadId: number): Promise<void> {
         if (loadId !== this.currentLoadId) return;
 
-        this.mode = 'served';
         const volumeInfo = this.highlightVolumeId !== undefined ? ` (volume ${this.highlightVolumeId})` : '';
+        this.isLoading = true;
+        this.error = undefined;
         this.statusMessage = `Converting DAGMC file: ${h5mPath}${volumeInfo}...`;
         this.update();
-
-        // Try the DAGMC-specific server first
-        try {
-            if (this.highlightVolumeId === undefined) {
-                this.statusMessage = `Starting DAGMC viewer...`;
-                this.update();
-
-                const theme = this.detectTheme();
-                const serverInfo = await this.visualizerBackend.startDagmcServer(h5mPath, theme);
-
-                if (loadId !== this.currentLoadId) {
-                    this.visualizerBackend.stopServer(serverInfo.port);
-                    return;
-                }
-
-                this.serverPort = serverInfo.port;
-                if (serverInfo.warning) {
-                    this.warningMessage = serverInfo.warning;
-                    this.messageService.warn(serverInfo.warning);
-                }
-
-                this.statusMessage = `Server started on port ${serverInfo.port}. Waiting for it to be ready...`;
-                this.update();
-                this.ensureClosable();
-
-                // Poll to check if server is ready (same pattern as startVisualizerServer)
-                await this.pollServerReady(serverInfo.url, theme, loadId);
-                return;
-            }
-        } catch (dagmcError) {
-            console.log('[Visualizer] DAGMC-specific server failed, falling back to base viewer:', dagmcError);
-            // Fall through to base viewer
-        }
 
         try {
             // Use backend service to convert DAGMC to VTK
@@ -824,107 +259,22 @@ export class VisualizerWidget extends NativeVtkViewerWidget {
             this.statusMessage = `Conversion successful. Loading visualization...`;
             this.update();
 
-            // Start visualizer server with the converted VTK file
-            await this.startVisualizerServer(vtkPath, loadId);
+            // Probe the converted file for native rendering
+            await this.loadNativeFile(vtkPath, loadId);
         } catch (error) {
+            if (loadId !== this.currentLoadId) return;
             console.error('[Visualizer] DAGMC conversion failed:', error);
-            const errorMsg = error instanceof Error ? error.message : String(error);
-            this.statusMessage = errorMsg;
+            this.isLoading = false;
+            this.error = error instanceof Error ? error.message : String(error);
             this.update();
-            this.ensureClosable();
-            // Still try to start server with default visualization
-            await this.startVisualizerServer(undefined, loadId);
         }
-    }
-
-    private detectTheme(): string {
-        let theme = 'dark';
-        try {
-            const body = document.body;
-            const classes = body?.className || '';
-            const computedStyle = window.getComputedStyle(body);
-            const bgColor = computedStyle.backgroundColor;
-            const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-
-            if (classes.includes('theia-light') || classes.includes('light-theia')) {
-                theme = 'light';
-            } else if (classes.includes('theia-dark') || classes.includes('dark-theia') || classes.includes('vs-dark')) {
-                theme = 'dark';
-            } else if (bgColor && (bgColor.includes('255') || bgColor.includes('rgb(255'))) {
-                theme = 'light';
-            } else if (bgColor && (bgColor.includes('0, 0, 0') || bgColor.includes('30') || bgColor.includes('37'))) {
-                theme = 'dark';
-            } else if (prefersDark) {
-                theme = 'dark';
-            }
-        } catch (e) {
-            // ignore
-        }
-        return theme;
-    }
-
-    private async pollServerReady(url: string, theme: string, loadId: number): Promise<void> {
-        const timeout = (this.preferences['nukeVisualizer.serverTimeout'] || 30) * 1000;
-        let attempts = 0;
-        const maxAttempts = timeout / 1000;
-
-        await new Promise((resolve) => setTimeout(resolve, 1500));
-
-        this.checkInterval = window.setInterval(async () => {
-            if (loadId !== this.currentLoadId) {
-                if (this.checkInterval) {
-                    clearInterval(this.checkInterval);
-                    this.checkInterval = null;
-                }
-                return;
-            }
-
-            attempts++;
-            try {
-                const testImg = new Image();
-
-                const setReady = () => {
-                    if (loadId !== this.currentLoadId) return;
-                    if (!this.serverUrl) {
-                        this.serverUrl = `${toProxiedVisualizerUrl(url)}?theme=${theme}`;
-                        this.statusMessage = `Server ready at ${url}`;
-                        this.update();
-                        this.ensureClosable();
-                        if (this.checkInterval) {
-                            clearInterval(this.checkInterval);
-                            this.checkInterval = null;
-                        }
-                    }
-                };
-
-                testImg.onload = setReady;
-                testImg.onerror = () => {
-                    if (loadId !== this.currentLoadId) return;
-                    if (!this.serverUrl) {
-                        setReady();
-                    }
-                };
-                testImg.src = `${toProxiedVisualizerUrl(url)}/favicon.ico?${Date.now()}`;
-
-                if (!this.serverUrl && attempts >= maxAttempts) {
-                    if (this.checkInterval) {
-                        clearInterval(this.checkInterval);
-                        this.checkInterval = null;
-                    }
-                    this.statusMessage = `Server not responding after ${maxAttempts}s. Check backend logs.`;
-                    this.update();
-                    this.ensureClosable();
-                }
-            } catch (e) {
-                // ignore polling errors
-            }
-        }, 2000);
     }
 
     private async convertAndLoadSTEP(stepPath: string, loadId: number): Promise<void> {
         if (loadId !== this.currentLoadId) return;
 
-        this.mode = 'served';
+        this.isLoading = true;
+        this.error = undefined;
         this.statusMessage = `Converting CAD file: ${stepPath}...`;
         this.update();
 
@@ -938,238 +288,76 @@ export class VisualizerWidget extends NativeVtkViewerWidget {
             this.statusMessage = `Conversion successful. Loading visualization...`;
             this.update();
 
-            // Start visualizer server with the converted VTK file
-            await this.startVisualizerServer(vtkPath, loadId);
+            // Probe the converted file for native rendering
+            await this.loadNativeFile(vtkPath, loadId);
         } catch (error) {
+            if (loadId !== this.currentLoadId) return;
             console.error('[Visualizer] STEP conversion failed:', error);
-            const errorMsg = error instanceof Error ? error.message : String(error);
-            this.statusMessage = `CAD conversion failed: ${errorMsg}`;
+            this.isLoading = false;
+            this.error = `CAD conversion failed: ${error instanceof Error ? error.message : String(error)}`;
             this.update();
-            this.ensureClosable();
-            // Still try to start server with default visualization
-            await this.startVisualizerServer(undefined, loadId);
         }
     }
 
     /**
-     * Fast extension pre-filter for the native probe. The probe itself
-     * (`parseNativeVtkXml`) is the real gate — it only accepts PolyData,
-     * RectilinearGrid, and ImageData, so rejected grid kinds (.vtu/.vts) and
-     * unparseable files fall through to the trame fallback.
+     * Render `filePath` natively: read through Theia's FileService, probe
+     * with `parseNativeVtkXml`, and render with instant color-by on success.
+     * Anything the native parser rejects (legacy `.vtk`, `.vtu`/`.vts`
+     * grids, `.stl`/`.ply`/`.obj` meshes, unparseable files) surfaces an
+     * error panel naming the supported kinds — there is no server fallback.
+     * Stale loads bail out instead of touching widget state.
      */
-    private isNativeProbeCandidate(filePath: string): boolean {
-        const dot = filePath.lastIndexOf('.');
-        const ext = dot >= 0 ? filePath.slice(dot).toLowerCase() : '';
-        return NATIVE_PROBE_EXTENSIONS.has(ext);
-    }
+    private async loadNativeFile(filePath: string, loadId: number): Promise<void> {
+        this.isLoading = true;
+        this.error = undefined;
+        this.statusMessage = 'Reading file...';
+        this.update();
 
-    /**
-     * Try rendering `filePath` natively: read through Theia's FileService,
-     * probe with `parseNativeVtkXml`, and render with instant color-by on
-     * success. Returns false (after a logged `console.warn`) for everything
-     * the native parser rejects so the caller keeps the base.serve iframe
-     * fallback. Stale loads return false so the caller bails out instead of
-     * starting a server.
-     */
-    private async tryLoadNative(filePath: string, loadId: number): Promise<boolean> {
-        if (!this.isNativeProbeCandidate(filePath)) {
-            return false;
-        }
         let text: string;
         try {
             const content = await this.fileService.read(new URI(filePath));
             text = content.value.toString();
         } catch (readError) {
-            console.warn(
-                `[Visualizer] Native VTK read failed for ${filePath}, falling back to the trame server:`,
-                readError instanceof Error ? readError.message : readError
-            );
-            return false;
+            if (loadId !== this.currentLoadId) return;
+            this.isLoading = false;
+            this.error = `Cannot read '${new URI(filePath).path.base}': ${readError instanceof Error ? readError.message : readError}`;
+            this.update();
+            return;
         }
         if (loadId !== this.currentLoadId) {
-            return false;
+            return;
         }
-        // Probe the native XML reader first: non-XML datasets throw here and
-        // take the serve fallback below — the native parser stays XML-only
-        // by design.
+        // Probe the native reader first (XML kinds plus legacy ASCII .vtk,
+        // covering .vtp/.vtr/.vti/.vtu/.vts/.vtk): files outside the probe
+        // set throw here and surface the supported-kinds error below.
         try {
-            await parseNativeVtkXml(text);
+            await parseNativeVtk(text, filePath);
         } catch (probeError) {
+            if (loadId !== this.currentLoadId) return;
             console.warn(
-                `[Visualizer] Native VTK parse failed for ${filePath}, falling back to the trame server:`,
+                `[Visualizer] Native VTK parse failed for ${filePath}:`,
                 probeError instanceof Error ? probeError.message : probeError
             );
-            return false;
+            this.isLoading = false;
+            this.error =
+                `Cannot preview '${new URI(filePath).path.base}' in the native viewer ` +
+                `(${probeError instanceof Error ? probeError.message : probeError}). ` +
+                `Supported kinds: XML VTK (.vtp, .vtr, .vti); ` +
+                `.h5m (DAGMC) and .step/.stp/.brep (CAD) convert automatically when the converter emits XML VTK.`;
+            this.update();
+            return;
         }
         if (loadId !== this.currentLoadId) {
-            return false;
+            return;
         }
-        if (this.serverPort) {
-            try {
-                await this.visualizerBackend.stopServer(this.serverPort);
-            } catch {
-                // best effort — the process may already be gone
-            }
-            this.serverPort = null;
-        }
-        if (this.checkInterval) {
-            clearInterval(this.checkInterval);
-            this.checkInterval = null;
-        }
-        this.serverUrl = null;
-        this.mode = 'native';
-        // setVtkText parses without touching fileUri/title, so point it at
-        // the opened file for the native header.
+        // Point the native header at the opened file (not the converted temp
+        // file) and render the probed text.
         this.fileUri = this.currentFileUri ?? new URI(filePath);
         await this.setVtkText(text);
         if (loadId !== this.currentLoadId) {
-            return false;
+            return;
         }
         this.fileUri = this.currentFileUri ?? new URI(filePath);
-        this.ensureClosable();
         this.update();
-        return true;
-    }
-
-    private async startVisualizerServer(filePath?: string, loadId?: number): Promise<void> {
-        const currentId = loadId ?? ++this.currentLoadId;
-        if (currentId !== this.currentLoadId) {
-            return;
-        }
-
-        if (!filePath) {
-            // If no filePath provided and we don't already have an error message, set it
-            const statusLower = this.statusMessage.toLowerCase();
-            const alreadyHasError = statusLower.includes('failed') || statusLower.includes('error');
-            if (!alreadyHasError) {
-                this.statusMessage = 'No file loaded';
-            }
-            this.warningMessage = null;
-            this.mode = 'served';
-            this.update();
-            return;
-        }
-
-        this.statusMessage = 'Starting visualizer server...';
-        this.warningMessage = null;
-        this.update();
-
-        // Native-first: XML VTK datasets render client-side with instant
-        // color-by; everything else keeps the base.serve iframe fallback.
-        if (await this.tryLoadNative(filePath, currentId)) {
-            return;
-        }
-        if (currentId !== this.currentLoadId) {
-            return;
-        }
-        this.mode = 'served';
-
-        try {
-            const theme = this.detectTheme();
-            console.log('[Visualizer] Requesting server start from backend...');
-            const result = await this.visualizerBackend.startServer(filePath, undefined, theme);
-
-            // Check again after async call
-            if (currentId !== this.currentLoadId) {
-                this.visualizerBackend.stopServer(result.port);
-                return;
-            }
-
-            this.serverPort = result.port;
-
-            if (result.warning) {
-                this.warningMessage = result.warning;
-                this.messageService.warn(result.warning);
-                this.ensureClosable();
-            }
-
-            this.statusMessage = `Server started on port ${result.port}. Waiting for it to be ready...`;
-            this.update();
-            this.ensureClosable();
-
-            // Poll to check if server is actually responding
-            const timeout = (this.preferences['nukeVisualizer.serverTimeout'] || 30) * 1000;
-            let attempts = 0;
-            const maxAttempts = timeout / 1000;
-
-            // Wait a moment before first poll to let server initialize
-            await new Promise((resolve) => setTimeout(resolve, 1500));
-
-            this.checkInterval = window.setInterval(async () => {
-                // Check if this load is still active
-                if (currentId !== this.currentLoadId) {
-                    if (this.checkInterval) {
-                        clearInterval(this.checkInterval);
-                        this.checkInterval = null;
-                    }
-                    return;
-                }
-
-                attempts++;
-                try {
-                    // Use an image request to test connectivity - most robust cross-origin probe
-                    const testImg = new Image();
-
-                    const setReady = () => {
-                        if (currentId !== this.currentLoadId) return;
-
-                        if (!this.serverUrl) {
-                            // Append theme to URL so trame knows which theme to use
-                            this.serverUrl = `${toProxiedVisualizerUrl(result.url)}?theme=${theme}`;
-                            this.statusMessage = `Server ready at ${result.url}`;
-                            this.update();
-                            this.ensureClosable();
-
-                            // Once ready, we can stop the probing interval as we now rely on
-                            // the backend to notify us of process exit via onServerStop
-                            if (this.checkInterval) {
-                                clearInterval(this.checkInterval);
-                                this.checkInterval = null;
-                            }
-                        }
-                    };
-
-                    testImg.onload = setReady;
-
-                    testImg.onerror = () => {
-                        if (currentId !== this.currentLoadId) return;
-
-                        // If we haven't reached serverUrl yet, any error (including 404/403)
-                        // means the server is at least responding at the network level
-                        if (!this.serverUrl) {
-                            setReady();
-                        }
-                    };
-
-                    testImg.src = `${toProxiedVisualizerUrl(result.url)}/favicon.ico?${Date.now()}`;
-
-                    if (!this.serverUrl && attempts >= maxAttempts) {
-                        if (this.checkInterval) {
-                            clearInterval(this.checkInterval);
-                            this.checkInterval = null;
-                        }
-                        this.statusMessage = `Server not responding after ${maxAttempts}s. Check backend logs.`;
-                        this.update();
-                        this.ensureClosable();
-                    }
-                } catch (e) {
-                    // Handle unexpected errors in polling
-                }
-            }, 2000); // Check every 2 seconds
-        } catch (error) {
-            if (currentId !== this.currentLoadId) return;
-
-            console.error('[Visualizer] Failed to start server:', error);
-            const errorMsg = error instanceof Error ? error.message : String(error);
-            this.statusMessage = `Failed to start server: ${errorMsg}`;
-            this.update();
-            this.ensureClosable();
-        }
-    }
-
-    protected override onCloseRequest(msg: Message): void {
-        VisualizerWidget.instances.delete(this);
-        this.cleanupServer();
-        super.onCloseRequest(msg);
     }
 }

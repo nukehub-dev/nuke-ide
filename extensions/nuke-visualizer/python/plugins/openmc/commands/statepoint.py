@@ -15,15 +15,6 @@ try:
 except ImportError:
     HAS_H5PY = False
 
-try:
-    import vtk  # noqa: F401  # availability probe: sets HAS_PARAVIEW
-    from paraview import simple  # noqa: F401  # availability probe: sets HAS_PARAVIEW
-    from vtk.util import numpy_support  # noqa: F401  # availability probe: sets HAS_PARAVIEW
-
-    HAS_PARAVIEW = True
-except ImportError:
-    HAS_PARAVIEW = False
-
 
 @command("openmc.statepoint-info", help="Get full statepoint information")
 @arg("statepoint", help="Path to statepoint file")

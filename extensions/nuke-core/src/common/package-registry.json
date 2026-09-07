@@ -5,8 +5,6 @@
   "pydagmc": {
     "pipSpec": "git+https://github.com/svalinn/pydagmc@4afa678d24aa091417798ef4b3d11fda98b165f8"
   },
-  "trame": { "submodule": "app", "condaSpec": "trame" },
-  "paraview": { "submodule": "simple", "condaOnly": true, "condaSpec": "paraview" },
   "gmsh": { "condaSpec": "python-gmsh" },
   "OCP": { "condaSpec": "ocp", "pipSpec": "cadquery-ocp" },
   "OCC": { "condaSpec": "pythonocc-core" },

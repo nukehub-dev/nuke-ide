@@ -25,7 +25,7 @@ Or use the menu: `Tools → Visualizer → OpenMC → Tally → Visualize Tally`
 
 ### What You See
 
-- An interactive 3D volume rendered with ParaView/Trame.
+- An interactive 3D volume rendered natively in the IDE.
 - The mesh cells are colored by tally value using a selectable colormap.
 - Controls for opacity, representation, and clipping work the same as the [Base Visualizer](../base-visualizer.md).
 

@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 #
 # NukeIDE all-in-one image: Theia browser IDE + the 'ide' conda environment
-# with all Python backends (OpenMC, Trame/ParaView, CAD toolchain).
+# with all Python backends (OpenMC, headless VTK converters, CAD toolchain).
 #
 # Build:  docker compose -f applications/docker/compose.yml build
 # Run:    docker compose -f applications/docker/compose.yml up
@@ -52,20 +52,20 @@ RUN yarn install --frozen-lockfile \
 FROM docker.io/condaforge/miniforge3:latest AS runtime
 
 # System libraries needed by gmsh (libXft/libGL family) and the OCP/cadquery
-# VTK bindings — even though rendering is headless, these wheels link X/GL.
+# VTK bindings — even though conversion is headless, these wheels link X/GL.
 # libosmesa6 is not optional: the container has no X server and no EGL device,
-# so conda VTK's only working GL backend is the OSMesa software renderer —
-# without it every ParaView render fails (caught by render_smoke_test.py).
+# so OSMesa's software GL is conda VTK's only working GL backend — without it
+# any VTK import that touches rendering fails (caught by render_smoke_test.py).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 libglu1-mesa libxft2 libxext6 libxrender1 \
     libxinerama1 libxcursor1 libxfixes3 libxi6 \
     libosmesa6 \
     && rm -rf /var/lib/apt/lists/*
 
-# Python backend environment (OpenMC, Trame/ParaView, CAD toolchain, Node 22).
+# Python backend environment (OpenMC, headless VTK converters, CAD toolchain, Node 22).
 # Node comes from conda so no separate Node installation is needed.
 COPY applications/docker/environment.yml /tmp/environment.yml
-# Large wheels (ParaView/VTK, OCCT, MOAB) can hit flaky connections; be generous
+# Large wheels (VTK, OCCT, MOAB) can hit flaky connections; be generous
 # with retries for both conda package fetches and the pip subprocess.
 ENV PIP_RETRIES=10 \
     PIP_TIMEOUT=120
@@ -93,7 +93,7 @@ RUN /opt/conda/envs/ide/bin/pip install --no-deps build123d==0.9.1 ocpsvg==0.6.0
 WORKDIR /opt/nuke-ide
 COPY --from=build /opt/nuke-ide /opt/nuke-ide
 
-# Headless VTK/ParaView + unbuffered Python output for backend log scraping.
+# Headless VTK + unbuffered Python output for backend log scraping.
 # The ide env's bin dir provides both `python` and `node`.
 ENV QT_QPA_PLATFORM=offscreen \
     VTK_USE_OFFSCREEN=1 \

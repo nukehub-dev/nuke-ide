@@ -7,8 +7,8 @@ Usage:
 
 Examples:
     python server.py openmc.info statepoint.h5
-    python server.py openmc.visualize-mesh statepoint.h5 1 --port 8090
-    python server.py base.serve --file model.vtk --port 8080
+    python server.py openmc.geometry-mesh --file geometry.xml --out mesh.json
+    python server.py dagmc.info --file model.h5m
 """
 
 import argparse
@@ -23,18 +23,6 @@ if _SCRIPT_DIR not in sys.path:
 
 from nuke_viz.plugin import get_commands, setup_parser_for_handler
 from nuke_viz.registry import discover_plugins
-
-# Force ParaView into pvbatch-style offscreen mode BEFORE any plugin imports
-# paraview.simple or creates a view: without this, `simple.Render()` maps a
-# native render window whenever the process has an X connection (DISPLAY set),
-# instead of staying offscreen for trame to stream. Some commands (e.g.
-# dagmc.info, base.convert) work without paraview, so tolerate its absence.
-try:
-    import paraview
-
-    paraview.options.batch = True
-except ImportError:
-    pass
 
 
 def main():

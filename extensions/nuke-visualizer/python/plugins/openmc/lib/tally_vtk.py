@@ -8,11 +8,10 @@ via ``parseNativeVtkXml`` — no trame server, no restart:
 - source distributions -> ``.vtp`` point cloud (``source_to_vtk``)
 - overlay/slice views -> ``.vtp`` point clouds (``overlay_to_vtk``)
 
-Data computation reuses the ``tally_viz`` pipeline logic without starting a
-server: statepoint parsing follows the ``tallies/tally <id>`` HDF5 layout used
-by ``plugins.openmc.lib.reader`` (mesh bins are x-major,
-``ix + iy*nx + iz*nx*ny``, as in ``slice_viz.create_tally_grid``), and slice
-resampling is the same cell-centered trilinear sampling as
+Data computation needs no server: statepoint parsing follows the
+``tallies/tally <id>`` HDF5 layout used by ``plugins.openmc.lib.reader``
+(mesh bins are x-major, ``ix + iy*nx + iz*nx*ny``), and slice resampling
+is the same cell-centered trilinear sampling as
 ``slice_viz.sample_structured_values``.
 
 Geometry construction is numpy-only (unit-testable without ``vtk`` or

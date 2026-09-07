@@ -273,7 +273,10 @@ export default new ContainerModule((bind: interfaces.Bind) => {
                     channel.appendLine(`WARNING: ${message}`);
                 },
                 onServerStop: (port: number) => {
-                    VisualizerWidget.onServerStop(port);
+                    // No frontend widget tracks server ports anymore (all
+                    // viewers render natively); the backend still reports
+                    // process exits for the output channel.
+                    console.log(`[Visualizer] Server on port ${port} stopped`);
                 }
             };
 

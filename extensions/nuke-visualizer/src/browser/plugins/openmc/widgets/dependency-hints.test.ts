@@ -36,25 +36,20 @@ describe('detectMissingDependencies', () => {
     it('detects the python commands’ missing-dependency messages', () => {
         expect(detectMissingDependencies('vtk not installed (required for VTK export)')).toEqual(['vtk']);
         expect(detectMissingDependencies('h5py not installed')).toEqual(['h5py']);
-        expect(detectMissingDependencies("No module named 'trame'")).toEqual(['trame']);
-        expect(detectMissingDependencies('Required dependencies not installed: No module named paraview')).toEqual(['paraview']);
+        expect(detectMissingDependencies("No module named 'openmc'")).toEqual(['openmc']);
         expect(detectMissingDependencies('netCDF4 is not installed (required for Exodus time-series reads)')).toEqual(['netCDF4']);
         expect(detectMissingDependencies('meshio is not installed (fallback reader unavailable)')).toEqual(['meshio']);
     });
 
     it('collects several dependencies without duplicates', () => {
-        expect(detectMissingDependencies("Required dependencies not installed: No module named 'vtk'; trame missing")).toEqual([
+        expect(detectMissingDependencies("Required dependencies not installed: No module named 'vtk'; h5py missing")).toEqual([
             'vtk',
-            'trame'
+            'h5py'
         ]);
     });
 
     it('detects the node-side environment detection failure', () => {
-        expect(detectMissingDependencies('Failed to detect Python environment with trame, paraview, vtk')).toEqual([
-            'vtk',
-            'trame',
-            'paraview'
-        ]);
+        expect(detectMissingDependencies('Failed to detect Python environment with openmc, vtk, h5py')).toEqual(['vtk', 'h5py', 'openmc']);
     });
 
     it('returns undefined for non-dependency errors', () => {

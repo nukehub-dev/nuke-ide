@@ -3,8 +3,8 @@
 The new extractors in ``plugins.openmc.lib.geometry_viz`` (CSG->mesh JSON
 for a three.js client) and ``plugins.openmc.lib.slice_viz`` (static .vtp
 slices without a server) build geometry with numpy only. These tests need
-only pytest + numpy: ``vtk`` is stubbed at import time (both lib modules
-import it at module level for the legacy trame path), ``openmc`` absence is
+only pytest + numpy: ``vtk`` is stubbed at import time (``slice_viz``
+imports it at module level for DAGMC grid building), ``openmc`` absence is
 forced via ``sys.modules``, and VTK writes are exercised with recording
 fake ``vtk`` modules. New ``openmc.geometry-mesh`` /
 ``openmc.geometry-slice-vtk`` command handlers report errors as JSON on

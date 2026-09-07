@@ -13,7 +13,6 @@ _COMMAND_MODULES = [
     "depletion",
     "xs_plot",
     "statepoint",
-    "tally_viz",
     "tracks",
     "collision_track",
     "weight_windows",

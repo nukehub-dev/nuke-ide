@@ -50,8 +50,8 @@ import { VisualizerPreferences } from '../../visualizer-preferences';
 import { NukeCoreService } from 'nuke-core/lib/common';
 import { EnvironmentActionsHelper } from 'nuke-core/lib/browser/services';
 import { HealthCheckFramework } from '../../services/health-check-framework';
-import { OpenMCWidgetFactory } from './services/openmc-widget-factory';
 import { OpenMCFileDiscoveryService } from './services/openmc-file-discovery';
+import { GeometryNativeViewerWidget } from './widgets/geometry-native/geometry-native-viewer-widget';
 import { TallyNativeViewerWidget } from './widgets/tally-native/tally-native-viewer-widget';
 import { TallyOverlayKind } from './widgets/tally-native/tally-overlay-model';
 import { parseNativeVtkXml } from './widgets/native-vtk/native-vtk-data';
@@ -104,9 +104,6 @@ export class OpenMCService {
 
     @inject(NukeCoreService)
     protected readonly nukeCoreService: NukeCoreService;
-
-    @inject(OpenMCWidgetFactory)
-    protected readonly widgetFactory: OpenMCWidgetFactory;
 
     @inject(OpenMCFileDiscoveryService)
     protected readonly fileDiscovery: OpenMCFileDiscoveryService;
@@ -1134,7 +1131,9 @@ export class OpenMCService {
     }
 
     /**
-     * Visualize geometry in 3D.
+     * Visualize geometry in 3D via the `openmc.visualize-geometry` trame
+     * server. Kept for the tree View 3D fallback and the openmc-studio
+     * CSG-builder preview; all tally/source/overlay flows are native-only.
      */
     async visualizeGeometry(
         fileUri: URI,
@@ -1150,9 +1149,13 @@ export class OpenMCService {
     }
 
     /**
-     * Open geometry in a new Visualizer widget (for Material Explorer cell linkage).
+     * Open geometry in the native geometry viewer (no server): extract the
+     * CSG mesh headlessly, then load it into `GeometryNativeViewerWidget`.
+     * The first highlighted cell (if any) is selected; overlap spheres have
+     * no native equivalent — the marker list stays in the overlap widget
+     * that opened this view.
      */
-    async openGeometryViewer(fileUri: URI, highlightCellIds?: number[], overlaps?: any[]): Promise<VisualizerWidget | null> {
+    async openGeometryViewer(fileUri: URI, highlightCellIds?: number[], overlaps?: any[]): Promise<GeometryNativeViewerWidget | null> {
         const available = await this.checkAvailability();
         if (!available) {
             return null;
@@ -1161,18 +1164,6 @@ export class OpenMCService {
         try {
             const hasOverlaps = overlaps && overlaps.length > 0;
             const hasHighlights = highlightCellIds && highlightCellIds.length > 0;
-
-            // Overlaps are limited to 1000 for performance on backend
-            const MAX_OVERLAPS = 1000;
-            const overlapDisplayCount = hasOverlaps ? Math.min(overlaps.length, MAX_OVERLAPS) : 0;
-
-            // Create unique suffix for geometry visualization
-            let uniqueSuffix = `geometry:${Date.now()}`;
-            if (hasOverlaps) {
-                uniqueSuffix = `geometry:overlaps:${Date.now()}`;
-            } else if (hasHighlights) {
-                uniqueSuffix = `geometry:highlight:${highlightCellIds.join('_')}:${Date.now()}`;
-            }
 
             let label = 'OpenMC Geometry';
             if (hasOverlaps) {
@@ -1184,33 +1175,30 @@ export class OpenMCService {
                         : `OpenMC Geometry (${highlightCellIds.length} cells)`;
             }
 
-            const loadingMessage = hasOverlaps
-                ? overlaps.length > MAX_OVERLAPS
-                    ? `Loading geometry with ${overlapDisplayCount} of ${overlaps.length} overlap markers...`
-                    : `Loading geometry with ${overlaps.length} overlap markers...`
-                : hasHighlights
-                  ? `Loading geometry and highlighting ${highlightCellIds.length} cell(s)...`
-                  : 'Loading geometry...';
-
-            // Create widget immediately with loading state
-            const { widget, completeLoading } = await this.widgetFactory.createVisualizerWidgetLoading(
-                fileUri,
-                label,
-                uniqueSuffix,
-                loadingMessage
-            );
-
-            const result = await this.openmcBackend.visualizeGeometry(fileUri.path.toString(), highlightCellIds, overlaps);
-
-            if (!result.success || !result.port || !result.url) {
-                throw new Error(result.error || 'Unknown error loading geometry');
+            const mesh = await this.openmcBackend.extractGeometryMesh(fileUri.path.toString());
+            if (!mesh.success || !mesh.meshPath) {
+                throw new Error(mesh.error || 'Mesh extraction failed');
             }
 
-            // Complete loading by setting server URL
-            completeLoading(result.port, result.url);
+            const widget = await this.widgetManager.getOrCreateWidget<GeometryNativeViewerWidget>(GeometryNativeViewerWidget.ID, {
+                id: `${GeometryNativeViewerWidget.ID}:${fileUri.toString()}`
+            } as any);
+            if (!widget.isAttached) {
+                await this.shell.addWidget(widget, { area: 'main' });
+            }
+            await this.shell.activateWidget(widget.id);
+            await widget.setModelFile(new URI(mesh.meshPath));
+            if (hasHighlights) {
+                widget.selectCell(highlightCellIds[0]);
+            }
+            widget.title.label = label;
 
             this.messageService.info(
-                hasHighlights ? `Loaded geometry with ${highlightCellIds!.length} cell(s) highlighted` : 'Loaded geometry visualization'
+                hasOverlaps
+                    ? 'Loaded geometry natively (markers stay in the overlap list; first overlapping cell selected)'
+                    : hasHighlights
+                      ? `Loaded geometry with cell ${highlightCellIds![0]} highlighted`
+                      : 'Loaded geometry visualization'
             );
             return widget;
         } catch (error) {

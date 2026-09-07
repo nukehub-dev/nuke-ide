@@ -50,7 +50,7 @@ Double-clicking `summary.h5` opens the geometry 3D view (hierarchy tree + 3D). T
 
 All 3D output viewers share the base visualizer's [display controls](../base-visualizer.md): color-by array, color map, scalar bar, opacity, representation, clip plane, point size / line width, and Save Screenshot.
 
-- **Resizable split** — drag the handle between the 3D area and the data panel to resize it (the handle disables the 3D iframe's mouse capture while dragging, so fast drags stay smooth).
-- **Missing dependencies** — if the active Python environment lacks `vtk`/`trame`, the viewer shows an actionable panel (what to install, or switch environment in Settings → Nuke Utils) with a Retry button.
+- **Resizable split** — drag the handle between the 3D area and the data panel to resize it (the handle shields the 3D view's mouse capture while dragging, so fast drags stay smooth).
+- **Missing dependencies** — if the active Python environment lacks `vtk`, the viewer shows an actionable panel (what to install, or switch environment in Settings → Nuke Utils) with a Retry button.
 
 > **Tip:** Conversions run in the active Python environment and cache nothing — if you switch environments, reopen the file to re-convert.

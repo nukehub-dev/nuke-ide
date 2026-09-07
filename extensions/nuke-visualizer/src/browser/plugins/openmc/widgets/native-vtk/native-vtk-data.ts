@@ -27,18 +27,27 @@
 
 /**
  * Pure helpers for the native VTK viewer (P1-B2 of the trame-to-frontend
- * migration): color-by parsing, array classification for the four P1 dataset
- * kinds (tracks `.vtp` polylines, collision `.vtp` points, weight-windows
- * `.vtr` rectilinear grids, voxel `.vti` image data), the 6-map colormap LUT
- * pack, point-budget decimation, and a dependency-free VTK XML reader.
+ * migration, P6 format gap closed): color-by parsing, array classification
+ * for the dataset kinds the viewer renders (tracks `.vtp` polylines,
+ * collision `.vtp` points, weight-windows `.vtr` rectilinear grids, voxel
+ * `.vti` image data, plus DAGMC/STEP/FEM outputs: legacy ASCII `.vtk`
+ * PolyData/UnstructuredGrid, XML `.vtu` UnstructuredGrid, `.vts`
+ * StructuredGrid), the 6-map colormap LUT pack, point-budget decimation,
+ * and dependency-free VTK readers.
  *
- * No DOM, DI, or three.js dependencies — unit-testable in node. The reader is
- * hand-rolled (rather than three.js `VTKLoader`, which only carries PolyData)
- * so all four kinds parse through one path with named point/cell arrays and
- * ranges preserved for instant client-side color-by. It handles `ascii` and
- * `appended` DataArray encodings; appended blocks may be raw or zlib
- * compressed (vtk default) — decompression uses the platform
- * `DecompressionStream('deflate')`, available in Chromium and Node 18+.
+ * No DOM, DI, or three.js dependencies — unit-testable in node. The XML
+ * reader is hand-rolled (rather than three.js `VTKLoader`, which only
+ * carries PolyData) so every XML kind parses through one path with named
+ * point/cell arrays and ranges preserved for instant client-side color-by.
+ * It handles `ascii` and `appended` DataArray encodings; appended blocks
+ * may be raw or zlib compressed (vtk default) — decompression uses the
+ * platform `DecompressionStream('deflate')`, available in Chromium and
+ * Node 18+. The legacy reader handles ASCII `DATASET POLYDATA` and
+ * `DATASET UNSTRUCTURED_GRID` (binary legacy files are detected and
+ * rejected with an ASCII-only error). Unstructured grids decode to the
+ * `polydata` family (triangle edges in `segments`, mesh triples in
+ * `triangles`); structured grids decode to the `rectilinear` family (cell
+ * centers plus `gridDimensions`).
  */
 
 import type { OpenMCVtkArrayInfo } from '../../../../../common/openmc-protocol';
@@ -51,18 +60,45 @@ import type { OpenMCVtkArrayInfo } from '../../../../../common/openmc-protocol';
 export type NativeVtkDatasetFamily = 'polydata' | 'rectilinear' | 'image';
 
 /**
+ * File extensions the native probe accepts: XML kinds (`.vtp`/`.vtr`/`.vti`
+ * plus `.vtu`/`.vts`) and legacy ASCII `.vtk` (PolyData/UnstructuredGrid).
+ */
+export const NATIVE_PROBE_EXTENSIONS = ['.vtp', '.vtr', '.vti', '.vtu', '.vts', '.vtk'] as const;
+
+/** One of the probe-accepted file extensions. */
+export type NativeProbeExtension = (typeof NATIVE_PROBE_EXTENSIONS)[number];
+
+/**
  * Detect the dataset family from an `openmc.vtk-info` type string (e.g.
- * `vtkPolyData`) or a file extension. Returns undefined when unknown.
+ * `vtkPolyData`) or a file extension. Unstructured grids (`.vtu`) render
+ * through the `polydata` path (triangle edges/mesh); structured grids
+ * (`.vts`) render through the `rectilinear` path (cell centers plus grid
+ * dimensions); legacy `.vtk` files are polydata-shaped pending parse.
+ * Returns undefined when unknown.
  */
 export function detectNativeVtkFamily(vtkType: string, fileExtension: string): NativeVtkDatasetFamily | undefined {
     const type = vtkType.toLowerCase();
-    if (type.includes('rectilinear') || fileExtension.toLowerCase() === '.vtr') {
+    const ext = fileExtension.toLowerCase();
+    if (type.includes('rectilinear') || ext === '.vtr') {
         return 'rectilinear';
     }
-    if (type.includes('imagedata') || fileExtension.toLowerCase() === '.vti') {
+    // 'unstructured' contains 'structured' — check it first.
+    if (type.includes('unstructured') || ext === '.vtu') {
+        return 'polydata';
+    }
+    if (type.includes('structured') || ext === '.vts') {
+        return 'rectilinear';
+    }
+    if (type.includes('imagedata') || ext === '.vti') {
         return 'image';
     }
-    if (type.includes('polydata') || fileExtension.toLowerCase() === '.vtp') {
+    if (type.includes('polydata') || ext === '.vtp') {
+        return 'polydata';
+    }
+    if (type.includes('unstructured') || ext === '.vtu') {
+        return 'polydata';
+    }
+    if (ext === '.vtk') {
         return 'polydata';
     }
     return undefined;
@@ -418,6 +454,18 @@ export interface NativeVtkModel {
     gridDimensions?: [number, number, number];
     pointArrays: NativeVtkDataArray[];
     cellArrays: NativeVtkDataArray[];
+    /**
+     * Triangle index triples for unstructured surface meshes (`.vtu` XML,
+     * legacy `UNSTRUCTURED_GRID` surface cells): point indices, three per
+     * triangle, fan-split from polygons/quads/strips.
+     */
+    triangles?: Uint32Array;
+    /** Cell index per triangle in `triangles` (fan-split polygons repeat their cell). */
+    triangleCells?: Uint32Array;
+    /** Cells skipped while triangulating (non-surface volumetric or unknown types). */
+    nonTriangleCells?: number;
+    /** Data-array names skipped (string-typed XML arrays, never numeric data). */
+    skippedArrays?: string[];
 }
 
 interface RawDataArray {
@@ -696,8 +744,12 @@ function parseTriple(text: string | undefined, fallback: [number, number, number
 
 /**
  * Parse a VTK XML file (`.vtp` PolyData, `.vtr` RectilinearGrid, `.vti`
- * ImageData) as written by VTK's XML writers (including
- * `output_vtk.py`): ascii or appended (raw/zlib) encodings, little-endian.
+ * ImageData, `.vtu` UnstructuredGrid, `.vts` StructuredGrid) as written by
+ * VTK's XML writers (including `output_vtk.py` and the DAGMC multiblock
+ * blocks): ascii or appended (raw/zlib) encodings, little-endian.
+ * Unstructured grids decode to the `polydata` family (shared decoder also
+ * used by the DAGMC multiblock path); structured grids decode to the
+ * `rectilinear` family.
  */
 export async function parseNativeVtkXml(text: string): Promise<NativeVtkModel> {
     const fileMatch = VTKFILE_RE.exec(text);
@@ -911,5 +963,907 @@ export async function parseNativeVtkXml(text: string): Promise<NativeVtkModel> {
         return { family, nPoints: nCells, positions: centers, gridDimensions: [nx, ny, nz], pointArrays, cellArrays };
     }
 
-    throw new Error(`Unsupported VTK dataset type '${fileType}' (expected PolyData, RectilinearGrid, or ImageData)`);
+    if (fileType === 'UnstructuredGrid') {
+        return parseUnstructuredGridXml(text);
+    }
+
+    if (fileType === 'StructuredGrid') {
+        return parseStructuredGridXml(text);
+    }
+
+    throw new Error(
+        `Unsupported VTK dataset type '${fileType}' (expected PolyData, UnstructuredGrid, StructuredGrid, RectilinearGrid, or ImageData)`
+    );
+}
+
+// ============================================================================
+// Shared .vtu UnstructuredGrid decoder (DAGMC volume blocks + direct .vtu)
+// ============================================================================
+
+/** VTK cell type ids triangulated here (triangle + polygon/quad fans). */
+const VTK_TRIANGLE = 5;
+const VTK_POLYGON = 7;
+const VTK_QUAD = 9;
+
+interface RawUnstructuredArray {
+    name: string;
+    dataType: string;
+    components: number;
+    format: string;
+    offset?: number;
+    text?: string;
+}
+
+function collectUnstructuredArrays(sectionText: string): RawUnstructuredArray[] {
+    const out: RawUnstructuredArray[] = [];
+    DATAARRAY_RE.lastIndex = 0;
+    let match = DATAARRAY_RE.exec(sectionText);
+    while (match) {
+        const attrs = parseAttributes(match[1]);
+        out.push({
+            name: attrs['Name'] ?? attrs['name'] ?? '',
+            dataType: attrs['type'] ?? 'Float64',
+            components: attrs['NumberOfComponents'] !== undefined ? parseInt(attrs['NumberOfComponents'], 10) : 1,
+            format: (attrs['format'] ?? 'ascii').toLowerCase(),
+            offset: attrs['offset'] !== undefined ? parseInt(attrs['offset'], 10) : undefined,
+            text: match[2]
+        });
+        match = DATAARRAY_RE.exec(sectionText);
+    }
+    return out;
+}
+
+function parseUnstructuredAsciiValues(text: string | undefined, type: string): Float64Array {
+    if (!text) {
+        return new Float64Array(0);
+    }
+    const tokens = text.split(/\s+/).filter((token) => token.length > 0);
+    const out = new Float64Array(tokens.length);
+    const integer = VTK_TYPE_SIZES[type] !== undefined && type !== 'Float32' && type !== 'Float64';
+    for (let i = 0; i < tokens.length; i++) {
+        out[i] = integer ? parseInt(tokens[i], 10) : parseFloat(tokens[i]);
+    }
+    return out;
+}
+
+interface UnstructuredAppended {
+    blob: Uint8Array;
+    headerBytes: number;
+    compressed: boolean;
+}
+
+async function decodeUnstructuredArray(raw: RawUnstructuredArray, appended: UnstructuredAppended | undefined): Promise<Float64Array> {
+    if (raw.format === 'appended') {
+        if (!appended || raw.offset === undefined) {
+            throw new Error(`DataArray '${raw.name || '<cells>'}' uses appended encoding but no AppendedData section was found`);
+        }
+        return decodeAppendedBlock(appended.blob, raw.offset, appended.headerBytes, appended.compressed, raw.dataType);
+    }
+    return parseUnstructuredAsciiValues(raw.text, raw.dataType);
+}
+
+function toUnstructuredDataArray(raw: RawUnstructuredArray, decoded: Float64Array, association: 'point' | 'cell'): NativeVtkDataArray {
+    return toDataArray({ name: raw.name, components: raw.components, format: 'ascii' }, decoded, association);
+}
+
+/**
+ * Parse a `.vtu` unstructured-grid XML document into a `polydata`-family
+ * model: triangle edges become `segments` (with per-edge cell ids in
+ * `segmentCells` for cell color-by) and the triangle index triples are
+ * kept in `triangles` for mesh rendering. Shared by the direct `.vtu`
+ * probe path here and the DAGMC multiblock path (`dagmc-multiblock.ts`
+ * wraps it to attach block identity — no duplicated decode logic).
+ */
+export async function parseUnstructuredGridXml(text: string): Promise<NativeVtkModel> {
+    const root = VTKFILE_RE.exec(text);
+    if (!root) {
+        throw new Error('Not a VTK XML file: missing <VTKFile> root element');
+    }
+    const fileAttrs = parseAttributes(root[1]);
+    if ((fileAttrs['type'] ?? '') !== 'UnstructuredGrid') {
+        throw new Error(`Unsupported VTK dataset type '${fileAttrs['type'] ?? ''}' (expected UnstructuredGrid)`);
+    }
+    if ((fileAttrs['byte_order'] ?? 'LittleEndian') !== 'LittleEndian') {
+        throw new Error(`Unsupported VTK byte order '${fileAttrs['byte_order']}' (only LittleEndian is supported)`);
+    }
+    const headerBytes = (fileAttrs['header_type'] ?? 'UInt32') === 'UInt64' ? 8 : 4;
+    const compressed = fileAttrs['compressor'] !== undefined;
+
+    let appended: UnstructuredAppended | undefined;
+    const appendedSections = collectSections(text, 'AppendedData');
+    if (appendedSections.length > 0) {
+        appended = { blob: decodeBase64(appendedSections[0].replace(/^\s*_/, '').trim()), headerBytes, compressed };
+    }
+
+    const pieceMatch = /<Piece\b([^>]*)>/.exec(text);
+    const pieceAttrs = pieceMatch ? parseAttributes(pieceMatch[1]) : {};
+    const nPoints = pieceAttrs['NumberOfPoints'] !== undefined ? parseInt(pieceAttrs['NumberOfPoints'], 10) : 0;
+
+    const pointsSections = collectSections(text, 'Points');
+    if (pointsSections.length === 0) {
+        throw new Error('UnstructuredGrid file has no <Points> section');
+    }
+    const pointsArrays = collectUnstructuredArrays(pointsSections[0]);
+    if (pointsArrays.length === 0) {
+        throw new Error('UnstructuredGrid <Points> section has no DataArray');
+    }
+    const pointsDecoded = await decodeUnstructuredArray(pointsArrays[0], appended);
+    const positions = new Float32Array(pointsDecoded.subarray(0, nPoints * 3));
+
+    const pointArrays: NativeVtkDataArray[] = [];
+    const cellArrays: NativeVtkDataArray[] = [];
+    const skippedArrays: string[] = [];
+    const decodeSection = async (tag: 'PointData' | 'CellData'): Promise<NativeVtkDataArray[]> => {
+        const out: NativeVtkDataArray[] = [];
+        for (const section of collectSections(text, tag)) {
+            for (const raw of collectUnstructuredArrays(section)) {
+                if (raw.dataType === 'String') {
+                    skippedArrays.push(raw.name);
+                    continue;
+                }
+                out.push(
+                    toUnstructuredDataArray(raw, await decodeUnstructuredArray(raw, appended), tag === 'PointData' ? 'point' : 'cell')
+                );
+            }
+        }
+        return out;
+    };
+    pointArrays.push(...(await decodeSection('PointData')));
+    cellArrays.push(...(await decodeSection('CellData')));
+
+    const cellsSections = collectSections(text, 'Cells');
+    if (cellsSections.length === 0) {
+        throw new Error('UnstructuredGrid file has no <Cells> section');
+    }
+    let connectivity: Float64Array = new Float64Array(0);
+    let offsets: Float64Array = new Float64Array(0);
+    let types: Float64Array = new Float64Array(0);
+    for (const raw of collectUnstructuredArrays(cellsSections[0])) {
+        const lowered = raw.name.toLowerCase();
+        const decoded = await decodeUnstructuredArray(raw, appended);
+        if (lowered === 'connectivity') {
+            connectivity = decoded;
+        } else if (lowered === 'offsets') {
+            offsets = decoded;
+        } else if (lowered === 'types') {
+            types = decoded;
+        }
+    }
+    if (types.length === 0) {
+        throw new Error('UnstructuredGrid <Cells> section has no cell types array');
+    }
+
+    const triangles: number[] = [];
+    const triangleCells: number[] = [];
+    const segments: number[] = [];
+    const segmentCells: number[] = [];
+    let nonTriangleCells = 0;
+    const cellCount = types.length;
+    for (let c = 0; c < cellCount; c++) {
+        const type = Math.round(types[c]);
+        const start = c === 0 ? 0 : Math.round(offsets[c - 1]);
+        const end = c < offsets.length ? Math.round(offsets[c]) : connectivity.length;
+        const ids: number[] = [];
+        for (let k = start; k < end; k++) {
+            ids.push(Math.round(connectivity[k]));
+        }
+        const pushTriangle = (a: number, b: number, d: number): void => {
+            triangles.push(a, b, d);
+            triangleCells.push(c);
+            segments.push(a, b, b, d, d, a);
+            segmentCells.push(c, c, c);
+        };
+        if (type === VTK_TRIANGLE && ids.length === 3) {
+            pushTriangle(ids[0], ids[1], ids[2]);
+        } else if ((type === VTK_POLYGON || type === VTK_QUAD) && ids.length >= 3) {
+            for (let k = 1; k + 1 < ids.length; k++) {
+                pushTriangle(ids[0], ids[k], ids[k + 1]);
+            }
+        } else {
+            nonTriangleCells++;
+        }
+    }
+
+    return {
+        family: 'polydata',
+        nPoints,
+        positions,
+        segments: segments.length > 0 ? new Uint32Array(segments) : undefined,
+        segmentCells: segmentCells.length > 0 ? new Uint32Array(segmentCells) : undefined,
+        pointArrays,
+        cellArrays,
+        triangles: triangles.length > 0 ? new Uint32Array(triangles) : undefined,
+        triangleCells: triangleCells.length > 0 ? new Uint32Array(triangleCells) : undefined,
+        nonTriangleCells,
+        skippedArrays
+    };
+}
+
+// ============================================================================
+// .vts StructuredGrid XML decoder (cell centers + grid dimensions)
+// ============================================================================
+
+function parseDimensions(text: string | undefined, fallback: [number, number, number]): [number, number, number] {
+    if (!text) {
+        return fallback;
+    }
+    const parts = text.split(/\s+/).map((token) => parseInt(token, 10));
+    if (parts.length !== 3 || parts.some((v) => Number.isNaN(v))) {
+        return fallback;
+    }
+    return [parts[0], parts[1], parts[2]];
+}
+
+/**
+ * Parse a `.vts` structured-grid XML document into a `rectilinear`-family
+ * model: explicit grid points are averaged into cell centers (matching the
+ * rectilinear/image rendering path) with `gridDimensions` in cells.
+ */
+export async function parseStructuredGridXml(text: string): Promise<NativeVtkModel> {
+    const root = VTKFILE_RE.exec(text);
+    if (!root) {
+        throw new Error('Not a VTK XML file: missing <VTKFile> root element');
+    }
+    const fileAttrs = parseAttributes(root[1]);
+    if ((fileAttrs['type'] ?? '') !== 'StructuredGrid') {
+        throw new Error(`Unsupported VTK dataset type '${fileAttrs['type'] ?? ''}' (expected StructuredGrid)`);
+    }
+    if ((fileAttrs['byte_order'] ?? 'LittleEndian') !== 'LittleEndian') {
+        throw new Error(`Unsupported VTK byte order '${fileAttrs['byte_order']}' (only LittleEndian is supported)`);
+    }
+    const headerBytes = (fileAttrs['header_type'] ?? 'UInt32') === 'UInt64' ? 8 : 4;
+    const compressed = fileAttrs['compressor'] !== undefined;
+
+    let appended: UnstructuredAppended | undefined;
+    const appendedSections = collectSections(text, 'AppendedData');
+    if (appendedSections.length > 0) {
+        appended = { blob: decodeBase64(appendedSections[0].replace(/^\s*_/, '').trim()), headerBytes, compressed };
+    }
+
+    const pieceMatch = /<Piece\b([^>]*)>/.exec(text);
+    const pieceAttrs = pieceMatch ? parseAttributes(pieceMatch[1]) : {};
+    const [nx, ny, nz] = parseDimensions(pieceAttrs['Dimensions'], [0, 0, 0]);
+    if (nx <= 0 || ny <= 0 || nz <= 0) {
+        throw new Error('StructuredGrid file has an empty grid (Dimensions must be positive)');
+    }
+    const nGridPoints = nx * ny * nz;
+    const cx = nx - 1;
+    const cy = ny - 1;
+    const cz = nz - 1;
+    const nCells = cx * cy * cz;
+    if (nCells === 0) {
+        throw new Error('StructuredGrid file has an empty grid (no cells)');
+    }
+
+    const pointsSections = collectSections(text, 'Points');
+    if (pointsSections.length === 0) {
+        throw new Error('StructuredGrid file has no <Points> section');
+    }
+    const pointsArrays = collectUnstructuredArrays(pointsSections[0]);
+    if (pointsArrays.length === 0) {
+        throw new Error('StructuredGrid <Points> section has no DataArray');
+    }
+    const gridPoints = await decodeUnstructuredArray(pointsArrays[0], appended);
+    if (gridPoints.length < nGridPoints * 3) {
+        throw new Error(`StructuredGrid points array has ${gridPoints.length} values for ${nGridPoints} grid points`);
+    }
+
+    const pointAt = (i: number, j: number, k: number): [number, number, number] => {
+        const at = ((k * ny + j) * nx + i) * 3;
+        return [gridPoints[at], gridPoints[at + 1], gridPoints[at + 2]];
+    };
+    const centers = new Float32Array(nCells * 3);
+    let at = 0;
+    for (let k = 0; k < cz; k++) {
+        for (let j = 0; j < cy; j++) {
+            for (let i = 0; i < cx; i++) {
+                let sx = 0;
+                let sy = 0;
+                let sz = 0;
+                let count = 0;
+                for (let dk = 0; dk <= (cz > 0 && nz > 1 ? 1 : 0); dk++) {
+                    for (let dj = 0; dj <= (cy > 0 && ny > 1 ? 1 : 0); dj++) {
+                        for (let di = 0; di <= (cx > 0 && nx > 1 ? 1 : 0); di++) {
+                            const [px, py, pz] = pointAt(i + di, j + dj, k + dk);
+                            sx += px;
+                            sy += py;
+                            sz += pz;
+                            count++;
+                        }
+                    }
+                }
+                centers[at++] = sx / count;
+                centers[at++] = sy / count;
+                centers[at++] = sz / count;
+            }
+        }
+    }
+
+    const cellSections = collectSections(text, 'CellData');
+    const cellArrays: NativeVtkDataArray[] = [];
+    for (const section of cellSections) {
+        for (const raw of collectUnstructuredArrays(section)) {
+            if (raw.dataType === 'String') {
+                continue;
+            }
+            const decoded = await decodeUnstructuredArray(raw, appended);
+            if (Math.floor(decoded.length / Math.max(1, raw.components)) !== nCells) {
+                throw new Error(`Cell array '${raw.name}' has ${decoded.length} values for ${nCells} grid cells`);
+            }
+            cellArrays.push(toUnstructuredDataArray(raw, decoded, 'cell'));
+        }
+    }
+    const pointSections = collectSections(text, 'PointData');
+    const pointArrays: NativeVtkDataArray[] = [];
+    for (const section of pointSections) {
+        for (const raw of collectUnstructuredArrays(section)) {
+            if (raw.dataType === 'String') {
+                continue;
+            }
+            pointArrays.push(toUnstructuredDataArray(raw, await decodeUnstructuredArray(raw, appended), 'point'));
+        }
+    }
+    return { family: 'rectilinear', nPoints: nCells, positions: centers, gridDimensions: [cx, cy, cz], pointArrays, cellArrays };
+}
+
+// ============================================================================
+// Legacy VTK ASCII reader (.vtk as emitted by gmsh/MOAB/FEM converters)
+// ============================================================================
+
+/** VTK legacy cell-type ids with wireframe edge tables (corner indices). */
+const LEGACY_CELL_EDGES: Record<number, [number, number][]> = {
+    3: [[0, 1]],
+    5: [
+        [0, 1],
+        [1, 2],
+        [2, 0]
+    ],
+    7: [],
+    8: [
+        [0, 1],
+        [1, 2],
+        [2, 3],
+        [3, 0]
+    ],
+    9: [
+        [0, 1],
+        [1, 2],
+        [2, 3],
+        [3, 0]
+    ],
+    10: [
+        [0, 1],
+        [0, 2],
+        [0, 3],
+        [1, 2],
+        [1, 3],
+        [2, 3]
+    ],
+    11: [
+        [0, 1],
+        [0, 2],
+        [1, 3],
+        [2, 3],
+        [4, 5],
+        [4, 6],
+        [5, 7],
+        [6, 7],
+        [0, 4],
+        [1, 5],
+        [2, 6],
+        [3, 7]
+    ],
+    12: [
+        [0, 1],
+        [1, 2],
+        [2, 3],
+        [3, 0],
+        [4, 5],
+        [5, 6],
+        [6, 7],
+        [7, 4],
+        [0, 4],
+        [1, 5],
+        [2, 6],
+        [3, 7]
+    ],
+    13: [
+        [0, 1],
+        [1, 2],
+        [2, 0],
+        [3, 4],
+        [4, 5],
+        [5, 3],
+        [0, 3],
+        [1, 4],
+        [2, 5]
+    ],
+    14: [
+        [0, 1],
+        [1, 2],
+        [2, 3],
+        [3, 0],
+        [0, 4],
+        [1, 4],
+        [2, 4],
+        [3, 4]
+    ]
+};
+
+/** Map higher-order legacy cell types onto their linear corner subsets. */
+function linearizeLegacyCell(type: number, ids: number[]): { edges: [number, number][]; surface: number[] | undefined } {
+    if (type === 1 || type === 2) {
+        return { edges: [], surface: undefined };
+    }
+    if (type === 4) {
+        const edges: [number, number][] = [];
+        for (let k = 0; k + 1 < ids.length; k++) {
+            edges.push([ids[k], ids[k + 1]]);
+        }
+        return { edges, surface: undefined };
+    }
+    if (type === 6) {
+        const triangles: number[][] = [];
+        for (let k = 0; k + 2 < ids.length; k++) {
+            const tri = k % 2 === 0 ? [ids[k], ids[k + 1], ids[k + 2]] : [ids[k + 1], ids[k], ids[k + 2]];
+            triangles.push(tri);
+        }
+        const edges: [number, number][] = [];
+        for (const tri of triangles) {
+            edges.push([tri[0], tri[1]], [tri[1], tri[2]], [tri[2], tri[0]]);
+        }
+        return { edges, surface: triangles.length === 1 ? triangles[0] : undefined };
+    }
+    const table = LEGACY_CELL_EDGES[type];
+    if (table !== undefined) {
+        if (type === 7) {
+            const edges: [number, number][] = [];
+            for (let k = 0; k < ids.length; k++) {
+                edges.push([ids[k], ids[(k + 1) % ids.length]]);
+            }
+            return { edges, surface: ids.length >= 3 ? ids : undefined };
+        }
+        // Surface cells fan-triangulate in the caller; volumetric cells wireframe.
+        const surface = type === 5 || type === 8 || type === 9 ? ids : undefined;
+        return { edges: table.map(([a, b]) => [ids[a], ids[b]] as [number, number]), surface };
+    }
+    // Quadratic counterparts reuse their linear corner nodes.
+    if (type === 21 && ids.length >= 2) {
+        return { edges: [[ids[0], ids[1]]], surface: undefined };
+    }
+    if (type === 22 && ids.length >= 3) {
+        return linearizeLegacyCell(5, ids.slice(0, 3));
+    }
+    if (type === 23 && ids.length >= 4) {
+        return linearizeLegacyCell(9, ids.slice(0, 4));
+    }
+    if (type === 24 && ids.length >= 4) {
+        return linearizeLegacyCell(10, ids.slice(0, 4));
+    }
+    if (type === 25 && ids.length >= 8) {
+        return linearizeLegacyCell(12, ids.slice(0, 8));
+    }
+    if (type === 26 && ids.length >= 6) {
+        return linearizeLegacyCell(13, ids.slice(0, 6));
+    }
+    if (type === 27 && ids.length >= 5) {
+        return linearizeLegacyCell(14, ids.slice(0, 5));
+    }
+    return { edges: [], surface: undefined };
+}
+
+function makeLegacyArray(name: string, association: 'point' | 'cell', components: number, values: Float64Array): NativeVtkDataArray {
+    return toDataArray({ name, components, format: 'ascii' }, values, association);
+}
+
+/**
+ * Parse a legacy VTK ASCII file (`.vtk` as emitted by gmsh `step.py`,
+ * MOAB `dagmc.py`, and nuke-cad `fem_service.py`): `DATASET POLYDATA`
+ * (`POINTS` plus `VERTICES`/`LINES`/`POLYGONS`/`TRIANGLE_STRIPS`) or
+ * `DATASET UNSTRUCTURED_GRID` (`POINTS` plus `CELLS`/`CELL_TYPES`), with
+ * `POINT_DATA`/`CELL_DATA` carrying `SCALARS`/`VECTORS`/`FIELD` (plus
+ * `NORMALS`/`TENSORS`). Produces the same `NativeVtkModel` shape the
+ * classifier consumes. Binary files are rejected with an ASCII-only error.
+ */
+export function parseLegacyVtkAscii(text: string): NativeVtkModel {
+    const lines = text.split(/\r?\n/);
+    if (lines.length === 0 || !/^#\s*vtk DataFile/i.test(lines[0].trim())) {
+        throw new Error('Not a legacy VTK file: missing "# vtk DataFile" header');
+    }
+    const formatLine = (lines[2] ?? '').trim().toUpperCase();
+    if (formatLine === 'BINARY') {
+        throw new Error('Legacy VTK BINARY format is not supported (ASCII-only): re-export the file as ASCII');
+    }
+    if (formatLine !== 'ASCII') {
+        if (text.includes('\0')) {
+            throw new Error('Legacy VTK BINARY format is not supported (ASCII-only): re-export the file as ASCII');
+        }
+        throw new Error(`Unsupported legacy VTK format '${(lines[2] ?? '').trim()}' (expected ASCII)`);
+    }
+    let dataset = '';
+    let datasetLine = -1;
+    for (let i = 3; i < lines.length; i++) {
+        const match = /^\s*DATASET\s+(\w+)/i.exec(lines[i]);
+        if (match) {
+            dataset = match[1].toUpperCase();
+            datasetLine = i;
+            break;
+        }
+    }
+    if (!dataset) {
+        throw new Error('Legacy VTK file has no DATASET section');
+    }
+    if (dataset !== 'POLYDATA' && dataset !== 'UNSTRUCTURED_GRID') {
+        throw new Error(`Unsupported legacy VTK dataset '${dataset}' (expected POLYDATA or UNSTRUCTURED_GRID)`);
+    }
+
+    // Token cursor over the remaining lines (values flow across line breaks).
+    const rest = lines.slice(datasetLine + 1).join('\n');
+    const tokens = rest.split(/\s+/).filter((token) => token.length > 0);
+    let cursor = 0;
+    const peek = (): string | undefined => tokens[cursor];
+    const next = (): string => {
+        if (cursor >= tokens.length) {
+            throw new Error('Unexpected end of legacy VTK file (truncated data section)');
+        }
+        return tokens[cursor++];
+    };
+    const nextInt = (what: string): number => {
+        const token = next();
+        if (KEYWORDS.has(token.toUpperCase())) {
+            throw new Error('Unexpected end of legacy VTK file (truncated data section)');
+        }
+        const v = parseInt(token, 10);
+        if (Number.isNaN(v)) {
+            throw new Error(`Malformed legacy VTK file: expected an integer ${what}`);
+        }
+        return v;
+    };
+    const nextFloat = (what: string): number => {
+        const token = next();
+        if (KEYWORDS.has(token.toUpperCase())) {
+            throw new Error('Unexpected end of legacy VTK file (truncated data section)');
+        }
+        const v = parseFloat(token);
+        if (Number.isNaN(v)) {
+            throw new Error(`Malformed legacy VTK file: expected a number ${what}`);
+        }
+        return v;
+    };
+    const KEYWORDS = new Set([
+        'POINTS',
+        'VERTICES',
+        'LINES',
+        'POLYGONS',
+        'POLYLINES',
+        'TRIANGLE_STRIPS',
+        'CELLS',
+        'CELL_TYPES',
+        'POINT_DATA',
+        'CELL_DATA',
+        'SCALARS',
+        'VECTORS',
+        'NORMALS',
+        'TENSORS',
+        'FIELD',
+        'LOOKUP_TABLE'
+    ]);
+
+    let positions = new Float32Array(0);
+    let nPoints = 0;
+    let pointsSeen = false;
+    const vertCells: number[][] = [];
+    const lineCells: number[][] = [];
+    const polyCells: number[][] = [];
+    const stripCells: number[][] = [];
+    const ugCells: number[][] = [];
+    let ugTypes: number[] = [];
+    const pointArrays: NativeVtkDataArray[] = [];
+    const cellArrays: NativeVtkDataArray[] = [];
+    let pointDataCount = -1;
+    let cellDataCount = -1;
+    let dataAssociation: 'point' | 'cell' | undefined;
+
+    const readCellList = (count: number): number[][] => {
+        const cells: number[][] = [];
+        for (let c = 0; c < count; c++) {
+            const size = nextInt('cell size');
+            if (size < 0) {
+                throw new Error('Malformed legacy VTK file: negative cell size');
+            }
+            const ids: number[] = [];
+            for (let k = 0; k < size; k++) {
+                ids.push(nextInt('cell index'));
+            }
+            cells.push(ids);
+        }
+        return cells;
+    };
+
+    const readDataArray = (name: string, components: number, tuples: number): Float64Array => {
+        const out = new Float64Array(tuples * components);
+        for (let i = 0; i < out.length; i++) {
+            out[i] = nextFloat(`data value for array '${name}'`);
+        }
+        return out;
+    };
+
+    while (cursor < tokens.length) {
+        const keyword = peek()?.toUpperCase();
+        if (keyword === 'POINTS') {
+            next();
+            const count = nextInt('POINTS count');
+            next(); // data type (float/double/...)
+            const values = new Float32Array(count * 3);
+            for (let i = 0; i < values.length; i++) {
+                values[i] = nextFloat('point coordinate');
+            }
+            positions = values;
+            nPoints = count;
+            pointsSeen = true;
+        } else if (
+            keyword === 'VERTICES' ||
+            keyword === 'LINES' ||
+            keyword === 'POLYGONS' ||
+            keyword === 'POLYLINES' ||
+            keyword === 'TRIANGLE_STRIPS' ||
+            keyword === 'CELLS'
+        ) {
+            const section = next().toUpperCase();
+            const count = nextInt(`${section} count`);
+            nextInt(`${section} size`);
+            const cells = readCellList(count);
+            if (section === 'VERTICES') {
+                vertCells.push(...cells);
+            } else if (section === 'LINES' || section === 'POLYLINES') {
+                lineCells.push(...cells);
+            } else if (section === 'POLYGONS') {
+                polyCells.push(...cells);
+            } else if (section === 'TRIANGLE_STRIPS') {
+                stripCells.push(...cells);
+            } else {
+                ugCells.push(...cells);
+            }
+        } else if (keyword === 'CELL_TYPES') {
+            next();
+            const count = nextInt('CELL_TYPES count');
+            ugTypes = [];
+            for (let i = 0; i < count; i++) {
+                ugTypes.push(nextInt('cell type'));
+            }
+        } else if (keyword === 'POINT_DATA' || keyword === 'CELL_DATA') {
+            const section = next().toUpperCase();
+            const count = nextInt(`${section} count`);
+            dataAssociation = section === 'POINT_DATA' ? 'point' : 'cell';
+            if (dataAssociation === 'point') {
+                pointDataCount = count;
+            } else {
+                cellDataCount = count;
+            }
+        } else if (keyword === 'SCALARS') {
+            if (!dataAssociation) {
+                throw new Error('Malformed legacy VTK file: SCALARS outside POINT_DATA/CELL_DATA');
+            }
+            next();
+            const name = next();
+            next(); // data type
+            let components = 1;
+            if (peek() !== undefined && /^-?\d+$/.test(peek() ?? '')) {
+                components = Math.max(1, parseInt(peek() ?? '1', 10));
+                next();
+            }
+            const lookup = next();
+            if (lookup.toUpperCase() !== 'LOOKUP_TABLE') {
+                throw new Error(`Malformed legacy VTK file: SCALARS '${name}' is missing its LOOKUP_TABLE line`);
+            }
+            next(); // table name (usually 'default')
+            const expected = dataAssociation === 'point' ? pointDataCount : cellDataCount;
+            if (expected < 0) {
+                throw new Error(`Malformed legacy VTK file: SCALARS '${name}' has no tuple count`);
+            }
+            const values = readDataArray(name, components, expected);
+            (dataAssociation === 'point' ? pointArrays : cellArrays).push(makeLegacyArray(name, dataAssociation, components, values));
+        } else if (keyword === 'VECTORS' || keyword === 'NORMALS') {
+            if (!dataAssociation) {
+                throw new Error(`Malformed legacy VTK file: ${keyword} outside POINT_DATA/CELL_DATA`);
+            }
+            next();
+            const name = next();
+            next(); // data type
+            const expected = dataAssociation === 'point' ? pointDataCount : cellDataCount;
+            const values = readDataArray(name, 3, expected);
+            (dataAssociation === 'point' ? pointArrays : cellArrays).push(makeLegacyArray(name, dataAssociation, 3, values));
+        } else if (keyword === 'TENSORS') {
+            if (!dataAssociation) {
+                throw new Error('Malformed legacy VTK file: TENSORS outside POINT_DATA/CELL_DATA');
+            }
+            next();
+            const name = next();
+            next(); // data type
+            const expected = dataAssociation === 'point' ? pointDataCount : cellDataCount;
+            const values = readDataArray(name, 9, expected);
+            (dataAssociation === 'point' ? pointArrays : cellArrays).push(makeLegacyArray(name, dataAssociation, 9, values));
+        } else if (keyword === 'FIELD') {
+            if (!dataAssociation) {
+                throw new Error('Malformed legacy VTK file: FIELD outside POINT_DATA/CELL_DATA');
+            }
+            next(); // FIELD keyword
+            next(); // field name
+            const numArrays = nextInt('FIELD array count');
+            const expected = dataAssociation === 'point' ? pointDataCount : cellDataCount;
+            for (let a = 0; a < numArrays; a++) {
+                const arrayName = next();
+                const numComponents = nextInt(`FIELD array '${arrayName}' component count`);
+                const numTuples = nextInt(`FIELD array '${arrayName}' tuple count`);
+                next(); // data type
+                if (numTuples !== expected) {
+                    throw new Error(`FIELD array '${arrayName}' has ${numTuples} tuples for ${expected} ${dataAssociation} entries`);
+                }
+                const values = readDataArray(arrayName, numComponents, numTuples);
+                (dataAssociation === 'point' ? pointArrays : cellArrays).push(
+                    makeLegacyArray(arrayName, dataAssociation, numComponents, values)
+                );
+            }
+        } else {
+            throw new Error(`Unsupported legacy VTK section '${peek()}'`);
+        }
+    }
+
+    if (!pointsSeen) {
+        throw new Error('Legacy VTK file has no POINTS section');
+    }
+    if (dataset === 'UNSTRUCTURED_GRID') {
+        if (ugCells.length === 0) {
+            throw new Error('Legacy VTK UNSTRUCTURED_GRID file has no CELLS section');
+        }
+        if (ugTypes.length === 0) {
+            throw new Error('Legacy VTK UNSTRUCTURED_GRID file has no CELL_TYPES section');
+        }
+        if (ugTypes.length !== ugCells.length) {
+            throw new Error(`Legacy VTK CELLS (${ugCells.length}) and CELL_TYPES (${ugTypes.length}) counts disagree`);
+        }
+    }
+
+    const segments: number[] = [];
+    const segmentCells: number[] = [];
+    const vertices: number[] = [];
+    const triangles: number[] = [];
+    const triangleCells: number[] = [];
+    let nonTriangleCells = 0;
+    const pushTriangle = (tri: number[], cell: number): void => {
+        triangles.push(tri[0], tri[1], tri[2]);
+        triangleCells.push(cell);
+        segments.push(tri[0], tri[1], tri[1], tri[2], tri[2], tri[0]);
+        segmentCells.push(cell, cell, cell);
+    };
+
+    if (dataset === 'POLYDATA') {
+        for (const ids of vertCells) {
+            vertices.push(...ids);
+        }
+        lineCells.forEach((ids, lineIndex) => {
+            for (let k = 0; k + 1 < ids.length; k++) {
+                segments.push(ids[k], ids[k + 1]);
+                segmentCells.push(vertCells.length + lineIndex);
+            }
+        });
+        polyCells.forEach((ids, polyIndex) => {
+            const cell = vertCells.length + lineCells.length + polyIndex;
+            if (ids.length >= 3) {
+                for (let k = 1; k + 1 < ids.length; k++) {
+                    pushTriangle([ids[0], ids[k], ids[k + 1]], cell);
+                }
+            } else if (ids.length === 2) {
+                segments.push(ids[0], ids[1]);
+                segmentCells.push(cell);
+            } else {
+                vertices.push(...ids);
+            }
+        });
+        stripCells.forEach((ids, stripIndex) => {
+            const cell = vertCells.length + lineCells.length + polyCells.length + stripIndex;
+            const { edges } = linearizeLegacyCell(6, ids);
+            if (ids.length >= 3) {
+                for (let k = 0; k + 2 < ids.length; k++) {
+                    const tri = k % 2 === 0 ? [ids[k], ids[k + 1], ids[k + 2]] : [ids[k + 1], ids[k], ids[k + 2]];
+                    pushTriangle(tri, cell);
+                }
+            } else {
+                for (const [a, b] of edges) {
+                    segments.push(a, b);
+                    segmentCells.push(cell);
+                }
+            }
+        });
+        const totalCells = vertCells.length + lineCells.length + polyCells.length + stripCells.length;
+        if (cellDataCount >= 0 && cellDataCount !== totalCells) {
+            throw new Error(`Legacy VTK CELL_DATA (${cellDataCount}) does not match the cell count (${totalCells})`);
+        }
+        if (pointDataCount >= 0 && pointDataCount !== nPoints) {
+            throw new Error(`Legacy VTK POINT_DATA (${pointDataCount}) does not match the point count (${nPoints})`);
+        }
+    } else {
+        ugTypes.forEach((type, cell) => {
+            const ids = ugCells[cell];
+            if (type === 1 || type === 2) {
+                vertices.push(...ids);
+                return;
+            }
+            const { edges, surface } = linearizeLegacyCell(type, ids);
+            if (surface && surface.length === 3) {
+                pushTriangle(surface, cell);
+                return;
+            }
+            if (surface && surface.length > 3) {
+                for (let k = 1; k + 1 < surface.length; k++) {
+                    pushTriangle([surface[0], surface[k], surface[k + 1]], cell);
+                }
+                return;
+            }
+            if (edges.length > 0) {
+                for (const [a, b] of edges) {
+                    segments.push(a, b);
+                    segmentCells.push(cell);
+                }
+                return;
+            }
+            if (type === 5 || type === 7 || type === 9) {
+                nonTriangleCells++;
+                return;
+            }
+            nonTriangleCells++;
+        });
+        if (cellDataCount >= 0 && cellDataCount !== ugCells.length) {
+            throw new Error(`Legacy VTK CELL_DATA (${cellDataCount}) does not match the cell count (${ugCells.length})`);
+        }
+        if (pointDataCount >= 0 && pointDataCount !== nPoints) {
+            throw new Error(`Legacy VTK POINT_DATA (${pointDataCount}) does not match the point count (${nPoints})`);
+        }
+    }
+
+    return {
+        family: 'polydata',
+        nPoints,
+        positions,
+        segments: segments.length > 0 ? new Uint32Array(segments) : undefined,
+        segmentCells: segmentCells.length > 0 ? new Uint32Array(segmentCells) : undefined,
+        vertices: vertices.length > 0 ? new Uint32Array(vertices) : undefined,
+        pointArrays,
+        cellArrays,
+        triangles: triangles.length > 0 ? new Uint32Array(triangles) : undefined,
+        triangleCells: triangleCells.length > 0 ? new Uint32Array(triangleCells) : undefined,
+        nonTriangleCells,
+        skippedArrays: []
+    };
+}
+
+/** Read the `<VTKFile type="...">` dataset type without fully parsing. */
+export function sniffVtkDatasetType(text: string): string | undefined {
+    const root = VTKFILE_RE.exec(text);
+    if (root) {
+        return parseAttributes(root[1])['type'];
+    }
+    const legacy = /^\s*#\s*vtk DataFile[\s\S]*?^\s*DATASET\s+(\w+)/im.exec(text);
+    return legacy ? legacy[1] : undefined;
+}
+
+/**
+ * Parse any natively supported VTK text: XML kinds (`.vtp`/`.vtr`/`.vti`
+ * plus `.vtu`/`.vts`) or legacy ASCII `.vtk` (PolyData/UnstructuredGrid).
+ * Dispatches on content (the `<VTKFile` root vs the legacy header), so the
+ * generic visualizer probe accepts converted DAGMC/STEP/FEM outputs
+ * without an extension gate. Binary legacy files throw an ASCII-only error.
+ */
+export async function parseNativeVtk(text: string, fileExtension = ''): Promise<NativeVtkModel> {
+    const trimmed = text.replace(/^\s+/, '');
+    if (trimmed.includes('<VTKFile')) {
+        return parseNativeVtkXml(text);
+    }
+    if (/^#\s*vtk DataFile/i.test(trimmed.slice(0, 256))) {
+        return parseLegacyVtkAscii(text);
+    }
+    if (fileExtension.toLowerCase() === '.vtk') {
+        return parseLegacyVtkAscii(text);
+    }
+    throw new Error('Not a VTK dataset: missing <VTKFile> root element or legacy "# vtk DataFile" header');
 }

@@ -12,20 +12,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-visualizer: **native 3D output viewers** — tracks, collision-track,
   weight-windows, and random-ray/voxel viewers now render directly in the
   IDE (three.js) with instant color-by/colormap switching and no per-viewer
-  server; the trame server remains as an automatic fallback for files the
-  native parser cannot read.
+  server; unreadable files show an error panel pointing at the generic
+  VTK viewer instead.
 - nuke-visualizer: **native tally/geometry/DAGMC viewers** — tally mesh,
   source, overlay/slice, `geometry.xml`, and multiblock `.vtm` files now
   open in native three.js viewers (volume/group toggles, cell pick sync,
-  arbitrary clip plane) with the trame servers as automatic fallback.
+  arbitrary clip plane).
 - nuke-visualizer: **native Exodus viewer** — `*.e`/`*.exo*` files open in
   a time-slider viewer (per-step points, global-range colormapping,
   instant array switching) backed by the headless `base.exodus-series`
   extractor (optional `netCDF4`/`meshio` dependencies).
-- nuke-visualizer: **native-first generic viewer and View 3D** — arbitrary
-  XML VTK files and the geometry tree's View 3D now render natively with
-  instant color control; legacy formats and unparseable files keep the
-  trame server as automatic fallback.
+- nuke-visualizer: **native-first generic viewer and View 3D** — XML and
+  legacy-ASCII VTK files (including STEP, DAGMC, and FEM outputs) and the
+  geometry tree's View 3D now render natively with instant color control;
+  binary legacy VTK and unparseable files show an error instead.
+- nuke-visualizer: **trame/ParaView servers removed** — `base.serve`,
+  `dagmc.visualize`, and the tally/geometry trame servers are deleted along
+  with the proxy/iframe layer and the `trame`/`paraview` dependencies;
+  only openmc-studio's CSG-builder preview still uses the 3D widget path.
 - nuke-visualizer: output viewers (tracks, collision-track, weight-windows,
   random-ray, tally, DAGMC) are now native-only — the per-viewer trame
   fallback is removed and unreadable files show an error panel pointing
@@ -252,6 +256,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   button) frames the selected solid when one is active, double-clicking a
   solid selects and frames it, and `.` fits the selection; `Tab` enters/exits
   sketch mode.
+
+### Removed
+
+- nuke-visualizer: **trame/ParaView visualization servers removed** — all
+  viewers now follow convert → parse → render: headless Python commands
+  convert to XML VTK (numpy geometry, `vtk` lazily for the write) and the
+  IDE's native three.js viewers render it with instant color-by and no
+  servers, ports, or iframes. What goes away: the `base.serve`/dagmc/tally/
+  geometry trame servers, the `/visualizer/<port>/` reverse proxy, and the
+  `trame`/`paraview` (`trame-vtk`, `trame-vuetify`) dependencies —
+  dropped from `packages.json`, the shared package registry, and the Docker
+  image (which now ships conda `vtk` for the converters instead of
+  `paraview`). The docker converter smoke test covers the new seam
+  (synthetic `tracks.h5` → `.vtp` via the repo converter and the
+  `server.py` CLI, read back with `vtk`).
 
 ### Fixed
 

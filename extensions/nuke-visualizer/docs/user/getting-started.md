@@ -12,8 +12,7 @@ Nuke Visualizer requires a Python environment with scientific computing packages
 
 | Package           | Required? | Notes                                 |
 | ----------------- | --------- | ------------------------------------- |
-| `trame`           | Yes       | Web UI framework for Python           |
-| `paraview`        | Yes       | Usually installed via conda           |
+| `vtk`             | Yes       | VTK export — converters write XML VTK |
 | `pydagmc`         | No        | For advanced DAGMC features           |
 | `moab` / `pymoab` | No        | For DAGMC .h5m file conversion        |
 | `gmsh`            | No        | For STEP/STP/BREP CAD file conversion |
@@ -26,8 +25,8 @@ Nuke Visualizer requires a Python environment with scientific computing packages
 | `h5py`   | Yes       | For reading HDF5 statepoint files |
 | `numpy`  | Yes       | Array processing                  |
 
-> **Tip:** The easiest way to get everything is via conda:  
-> `conda install -c conda-forge openmc paraview trame`
+> **Tip:** The easiest way to get everything is via conda:
+> `conda install -c conda-forge openmc vtk h5py numpy`
 
 ---
 

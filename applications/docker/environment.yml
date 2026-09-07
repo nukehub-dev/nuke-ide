@@ -1,5 +1,5 @@
 # Conda environment for NukeIDE's Python backends.
-# Python 3.13, OpenMC + Trame/ParaView visualization + CAD toolchain.
+# Python 3.13, OpenMC + headless VTK converters + CAD toolchain.
 #
 # Used by applications/docker/Dockerfile; can also be created locally:
 #   conda env create -f applications/docker/environment.yml
@@ -17,16 +17,11 @@ dependencies:
   - matplotlib
   - pandas
   - pyyaml
-  # Visualization (served by the nuke-visualizer extension). Everything comes
-  # from conda so the whole stack shares conda's vtk. trame>=3 required: the
-  # visualizer backends use the vuetify3/vue3 API (trame 2's trame.ui.vuetify2
-  # is gone); trame-vtk>=2.11 required for VtkRemoteLocalView's local/remote
-  # toggle.
-  - paraview=6.1.1
-  - trame>=3
-  - trame-vtk>=2.11
-  - trame-vuetify>=3
-  - trame-components
+  # Visualization (headless converters in the nuke-visualizer extension:
+  # numpy geometry -> XML VTK files via the `vtk` package, rendered
+  # client-side by the IDE's native three.js viewers). Everything comes
+  # from conda so the whole stack shares conda's vtk.
+  - vtk
   - python-multipart
   # CAD import/conversion (openmc-studio cad_conversion). Conda cadquery pulls
   # conda ocp and links conda's vtk — never install pip cadquery/cadquery-ocp/
@@ -35,10 +30,10 @@ dependencies:
   - cadquery
   # nuke-cad full profile: meshio for CalculiX/VTK mesh export, netCDF4 for the
   # custom ExodusII writer, plus build123d's pure-Python dependencies. build123d
-  # itself is deliberately NOT a conda dependency here: with paraview pinned
-  # above, the solver is forced onto the ocp 7.9 line and would silently pick
-  # the broken build123d 0.7.0 (0.9.1 declares cadquery-ocp <7.9,>=7.8, and OCP
-  # 7.9 removed the TopoDS `*_s` downcast statics build123d uses). Instead the
+  # itself is deliberately NOT a conda dependency here: a conda build123d
+  # would pull an OCP flavor incompatible with this env's OCP stack (OCP
+  # 7.9 removed the TopoDS `*_s` downcast statics build123d 0.9.1 uses).
+  # Instead the
   # Dockerfile installs build123d==0.9.1 via `pip install --no-deps` (pure
   # Python — no binary wheels, so it cannot clobber conda's stack) and activates
   # nuke-cad's OCP 7.9 alias shim (extensions/nuke-cad/python/ocp_compat.py)

@@ -11,8 +11,7 @@ _SERVER_PY = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "..", "python", "server.py")
 )
 
-# Discovery imports every command module; tally_viz pulls in paraview/vtk
-# when available, so allow generous but bounded time.
+# Discovery imports every command module, so allow generous but bounded time.
 _TIMEOUT = 30
 
 

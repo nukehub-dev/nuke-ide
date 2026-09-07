@@ -1,6 +1,6 @@
 # Base Visualizer — 3D Mesh & DAGMC Viewer
 
-The Base Visualizer renders 3D geometry and scientific datasets using **ParaView + Trame** under the hood. It runs a local Python server that streams an interactive visualization into an IDE panel.
+The Base Visualizer renders 3D geometry and scientific datasets with **native in-IDE viewers**. Files are converted to VTK by short-lived headless Python commands and rendered directly by three.js — no visualization server, no ports, no iframes.
 
 ---
 
@@ -42,7 +42,7 @@ The visualizer supports **multi-instance** tabs. Each file gets its own tab with
 
 ## Interactive Controls
 
-Once the server loads, the visualization panel shows an interactive 3D view with a control sidebar:
+Once the file loads, the visualization panel shows an interactive 3D view with a control sidebar:
 
 ### Appearance
 
@@ -97,7 +97,7 @@ When you open a `.step`, `.stp`, or `.brep` file:
 
 1. The backend detects the format.
 2. It runs `python server.py base.convert-step` (using **gmsh** + OpenCASCADE) to mesh the geometry into VTK.
-3. The VTK file is passed to the Trame server for visualization.
+3. The VTK file is parsed and rendered natively in the IDE.
 
 > Conversion time depends on model complexity and mesh density. A loading spinner is shown while gmsh generates the surface mesh. The result is cached, so re-opening the same file is instant.
 
@@ -121,7 +121,7 @@ When you open a `.h5m` file:
 
 1. The backend detects the format.
 2. It runs `python server.py base.convert-dagmc` (using MOAB/PyDAGMC) to extract geometry into VTK.
-3. The VTK file is passed to the Trame server for visualization.
+3. The VTK file is parsed and rendered natively in the IDE.
 
 > Conversion may take a few seconds for large models. A loading spinner is shown.
 
@@ -143,11 +143,11 @@ You can adjust the server timeout in settings:
 
 ## Troubleshooting
 
-| Symptom                                 | Likely Cause                  | Fix                                                                    |
-| --------------------------------------- | ----------------------------- | ---------------------------------------------------------------------- |
-| "Starting visualizer server..." forever | Python/Trame/ParaView missing | Run health check, install missing packages                             |
-| "Conversion failed" for .h5m            | MOAB not installed            | `pip install --extra-index-url https://shimwell.github.io/wheels moab` |
-| Blank iframe after loading              | Server crashed                | Check **Nuke Visualizer** output channel for Python errors             |
-| Widget shows "No Visualization Loaded"  | No file selected              | Click a supported file or use Browse                                   |
+| Symptom                                          | Likely Cause         | Fix                                                                    |
+| ------------------------------------------------ | -------------------- | ---------------------------------------------------------------------- |
+| "Loading..." forever / conversion never finishes | Python/`vtk` missing | Run health check, install missing packages                             |
+| "Conversion failed" for .h5m                     | MOAB not installed   | `pip install --extra-index-url https://shimwell.github.io/wheels moab` |
+| Blank 3D view after loading                      | Conversion crashed   | Check **Nuke Visualizer** output channel for Python errors             |
+| Widget shows "No Visualization Loaded"           | No file selected     | Click a supported file or use Browse                                   |
 
 See the full [Troubleshooting Guide](troubleshooting.md) for more.

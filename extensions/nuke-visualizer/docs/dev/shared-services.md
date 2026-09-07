@@ -166,35 +166,33 @@ Helper namespace for converting domain data to Plotly traces:
 
 ---
 
-## VisualizerWidget
+## NativeVtkViewerWidget
 
-**File:** `src/browser/visualizer-widget.tsx`
+**File:** `src/browser/plugins/openmc/widgets/native-vtk-viewer-widget.tsx`
 
-The standard iframe-based widget for Python-rendered visualizations (Trame, Dash, etc.).
+The standard widget for 3D visualizations: it takes converted VTK text and renders it natively with three.js — no server, no iframe.
 
 ### Usage
 
 ```typescript
 // Create via WidgetFactory
-const widget = (await this.widgetManager.getOrCreateWidget(VisualizerWidget.ID, {
+const widget = (await this.widgetManager.getOrCreateWidget(NativeVtkViewerWidget.ID, {
   uri: fileUri.toString(),
   id: 'my-prefix-' + filePath
-})) as VisualizerWidget;
+})) as NativeVtkViewerWidget;
 
-// Set the server URL once the Python server is ready
-widget.setServerUrl('http://127.0.0.1:8080', 8080);
+// Convert via RPC, read the file text, hand it to the widget
+const vtkText = (await this.fileService.read(convertedUri)).value.toString();
+await widget.setVtkText(vtkText);
 ```
 
 ### Key Properties & Methods
 
-| Member                      | Description                                              |
-| --------------------------- | -------------------------------------------------------- |
-| `static ID`                 | Widget type identifier (`nuke-visualizer.widget`)        |
-| `setUri(uri, volumeId?)`    | Associate a file and update the widget ID                |
-| `setServerUrl(url, port)`   | Point the iframe to a running server                     |
-| `getServerPort()`           | Get the current server port                              |
-| `loadFile(uri)`             | Full lifecycle: start server, convert if needed, set URL |
-| `static onServerStop(port)` | Static callback when any server stops                    |
+| Member               | Description                                                                                                  |
+| -------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `static ID`          | Widget type identifier (`native-vtk-viewer-widget`)                                                          |
+| `setVtkText(text)`   | Parse VTK XML text and render it (guarded by a load token, so stale conversions cannot overwrite newer ones) |
+| `setTallyText(kind)` | Tally-native subclass entry point (mesh/slice/source routing)                                                |
 
 ### States
 
@@ -203,15 +201,15 @@ The widget renders different UI based on state:
 - **Empty:** Shows "No Visualization Loaded" with a browse button
 - **Loading:** Animated spinner with status message
 - **Warning:** Yellow banner (non-fatal issues like spatial mismatch)
-- **Error:** Red banner with retry button
-- **Active:** iframe showing the Python server UI
+- **Error:** Red banner with retry button (conversion/parse failure points at the generic VTK viewer)
+- **Active:** native three.js canvas with color-by, clip, and screenshot controls
 
 ### Multi-Instance
 
-VisualizerWidget is bound with `inTransientScope()` so each tab gets a fresh instance. The widget ID is derived from the file path to prevent duplicates:
+Native viewer widgets are bound per file so each tab gets a fresh instance. The widget ID is derived from the file path to prevent duplicates:
 
 ```typescript
-widget.id = `${VisualizerWidget.ID}:${filePath}`;
+widget.id = `${NativeVtkViewerWidget.ID}:${filePath}`;
 ```
 
 ---

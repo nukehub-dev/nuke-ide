@@ -8,8 +8,6 @@
     "theia-extension",
     "nuclear",
     "visualization",
-    "trame",
-    "paraview",
     "dagmc",
     "h5m",
     "vtk"

@@ -451,17 +451,6 @@ def test_read_voxel_info_reports_missing_h5py(monkeypatch):
         output_readers.read_voxel_info("voxel.h5")
 
 
-def test_serve_command_accepts_color_by_arg():
-    """base.serve parses --color-by (drives the initial viewer coloring)."""
-    from plugins.base.commands import serve as serve_cmds
-
-    args = _parse(serve_cmds.cmd_serve, ["--file", "plot.vti", "--color-by", "Point: flux_group_0"])
-    assert args.color_by == "Point: flux_group_0"
-
-    args = _parse(serve_cmds.cmd_serve, ["--file", "plot.vti"])
-    assert args.color_by is None
-
-
 @pytest.fixture
 def voxel_file(tmp_path, h5py):
     """Synthetic voxel plot: 2x3x4 grid of domain ids (nz, ny, nx ordering)."""

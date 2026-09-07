@@ -226,43 +226,8 @@ export interface OpenMCBackendService {
     /** List all tallies in a statepoint file */
     listTallies(statepointPath: string): Promise<OpenMCTallyInfo[]>;
 
-    /** Visualize a mesh tally from statepoint file */
-    visualizeMeshTally(statepointPath: string, tallyId: number, score?: string, nuclide?: string): Promise<OpenMCVisualizationResult>;
-
-    /** Visualize source distribution from source.h5 */
-    visualizeSource(sourcePath: string): Promise<OpenMCVisualizationResult>;
-
-    /** Overlay tally on geometry (geometry + statepoint) */
-    visualizeTallyOnGeometry(
-        geometryPath: string,
-        statepointPath: string,
-        tallyId: number,
-        score?: string,
-        filterGraveyard?: boolean,
-        pixelated?: boolean
-    ): Promise<OpenMCVisualizationResult>;
-
     /** Get geometry bounds from DAGMC file */
     getGeometryBounds(geometryPath: string): Promise<{ x: [number, number]; y: [number, number]; z: [number, number] } | null>;
-
-    /** Overlay tally on geometry with slice-based visualization */
-    visualizeTallySlice(
-        geometryPath: string,
-        statepointPath: string,
-        tallyId: number,
-        options: OpenMCSliceOptions,
-        score?: string,
-        nuclide?: string
-    ): Promise<OpenMCVisualizationResult>;
-
-    /** Overlay tally on geometry with source particles (geometry + statepoint) */
-    visualizeTallyAndSourceOnGeometry(
-        geometryPath: string,
-        statepointPath: string,
-        tallyId: number,
-        score?: string,
-        filterGraveyard?: boolean
-    ): Promise<OpenMCVisualizationResult>;
 
     /** Get energy spectrum data for a tally */
     getEnergySpectrum(statepointPath: string, tallyId: number, scoreIndex?: number, nuclideIndex?: number): Promise<OpenMCSpectrumData>;
@@ -372,9 +337,6 @@ export interface OpenMCBackendService {
     /** Get energy distribution histogram */
     getEnergyDistribution(statepointPath: string, nBins?: number): Promise<OpenMCEnergyDistribution>;
 
-    /** Visualize source from statepoint file */
-    visualizeStatepointSource(statepointPath: string): Promise<OpenMCVisualizationResult>;
-
     // === Material Explorer ===
 
     /** Parse materials.xml and return material definitions */
@@ -405,7 +367,7 @@ export interface OpenMCBackendService {
     /** Get decimated track polylines (paginated) */
     getTracksData(filePath: string, options?: OpenMCTracksDataOptions): Promise<OpenMCTracksData>;
 
-    /** Convert track file(s) to a VTK polyline file for the trame viewer */
+    /** Convert track file(s) to a VTK polyline file for the native viewer */
     convertTracksToVtk(filePath: string, options?: OpenMCTracksVtkOptions): Promise<OpenMCVtkConversionResult>;
 
     /** Get summary info for a collision track file */
@@ -414,13 +376,13 @@ export interface OpenMCBackendService {
     /** Get collision track rows (filtered, paginated) */
     getCollisionTrackData(filePath: string, query?: OpenMCCollisionTrackQuery): Promise<OpenMCCollisionTrackData>;
 
-    /** Convert a collision track file to a VTK point cloud for the trame viewer */
+    /** Convert a collision track file to a VTK point cloud for the native viewer */
     convertCollisionTrackToVtk(filePath: string, options?: OpenMCCollisionVtkOptions): Promise<OpenMCVtkConversionResult>;
 
     /** Read a weight windows file (meshes + bounds) */
     getWeightWindows(filePath: string): Promise<OpenMCWeightWindowsData>;
 
-    /** Convert a weight windows file to a VTK rectilinear grid for the trame viewer */
+    /** Convert a weight windows file to a VTK rectilinear grid for the native viewer */
     convertWeightWindowsToVtk(filePath: string, meshId?: number): Promise<OpenMCVtkConversionResult>;
 
     /** Get IFP kinetics parameters (beta_eff, Lambda_eff) from a statepoint */
