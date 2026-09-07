@@ -45,6 +45,7 @@ import {
     NativeVtkDataArray,
     normalizeToUnit,
     parseColorBy,
+    readVtkText,
     sampleNativeColormap,
     SOLID_COLOR,
     tupleValue
@@ -252,11 +253,11 @@ export class DagmcViewerWidget extends ReactWidget {
         this.statusMessage = 'Reading multiblock manifest…';
         this.update();
         try {
-            const content = await this.fileService.read(uri);
+            const text = await readVtkText(this.fileService, uri);
             if (token !== this.loadToken) {
                 return;
             }
-            await this.setVtmText(content.value.toString(), token);
+            await this.setVtmText(text, token);
         } catch (error) {
             if (token !== this.loadToken) {
                 return;
@@ -284,11 +285,11 @@ export class DagmcViewerWidget extends ReactWidget {
                 }
                 this.statusMessage = `Reading ${ref.name}…`;
                 this.update();
-                const content = await this.fileService.read(blockUri);
+                const text = await readVtkText(this.fileService, blockUri);
                 if (token !== this.loadToken) {
                     return;
                 }
-                models.push(await parseBlockDataset(ref.file, content.value.toString(), ref.name, ref.index));
+                models.push(await parseBlockDataset(ref.file, text, ref.name, ref.index));
             }
             if (token !== this.loadToken) {
                 return;

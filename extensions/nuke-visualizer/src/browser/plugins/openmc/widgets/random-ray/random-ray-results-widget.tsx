@@ -31,7 +31,7 @@ import { codicon } from '@theia/core/lib/browser/widgets/widget';
 import URI from '@theia/core/lib/common/uri';
 import { OpenMCBackendService, OpenMCVtkArrayInfo, OpenMCVtkConversionResult } from '../../../../../common/openmc-protocol';
 import { NativeVtkViewerWidget } from '../native-vtk-viewer-widget';
-import { parseNativeVtkXml } from '../native-vtk/native-vtk-data';
+import { parseNativeVtkXml, readVtkText } from '../native-vtk/native-vtk-data';
 import { ClassifiedVtkArrays, classifyVtkArrays, colorByValue, defaultColorBy } from './random-ray-arrays';
 import { detectMissingDependencies } from '../dependency-hints';
 import { startSplitDrag } from '../drag-split';
@@ -141,7 +141,7 @@ export class OpenMCRandomRayResultsWidget extends NativeVtkViewerWidget {
 
             this.statusMessage = 'Reading VTK file…';
             this.update();
-            const content = await this.fileService.read(new URI(result.vtkPath));
+            const text = await readVtkText(this.fileService, new URI(result.vtkPath));
             if (token !== this.reloadToken) {
                 return;
             }
@@ -151,8 +151,8 @@ export class OpenMCRandomRayResultsWidget extends NativeVtkViewerWidget {
             // error (open it in the generic VTK viewer instead).
             let nativeText: string;
             try {
-                await parseNativeVtkXml(content.value.toString());
-                nativeText = content.value.toString();
+                await parseNativeVtkXml(text);
+                nativeText = text;
             } catch (probeError) {
                 const detail = probeError instanceof Error ? probeError.message : String(probeError);
                 throw new Error(

@@ -31,6 +31,7 @@ import { codicon } from '@theia/core/lib/browser/widgets/widget';
 import URI from '@theia/core/lib/common/uri';
 import { OpenMCBackendService, OpenMCWeightWindowsData } from '../../../../../common/openmc-protocol';
 import { NativeVtkViewerWidget } from '../native-vtk-viewer-widget';
+import { readVtkText } from '../native-vtk/native-vtk-data';
 import { detectMissingDependencies } from '../dependency-hints';
 import { startSplitDrag } from '../drag-split';
 
@@ -135,7 +136,7 @@ export class OpenMCWeightWindowsViewerWidget extends NativeVtkViewerWidget {
 
             this.statusMessage = 'Reading VTK file…';
             this.update();
-            const content = await this.fileService.read(new URI(result.vtkPath));
+            const text = await readVtkText(this.fileService, new URI(result.vtkPath));
             if (token !== this.reloadToken) {
                 return;
             }
@@ -144,7 +145,7 @@ export class OpenMCWeightWindowsViewerWidget extends NativeVtkViewerWidget {
             // A parse failure lands in this.error — name the file kind and
             // point at the generic VTK viewer instead of failing bare.
             this.fileUri = this.sourceUri;
-            await this.setVtkText(content.value.toString());
+            await this.setVtkText(text);
             if (token !== this.reloadToken) {
                 return;
             }

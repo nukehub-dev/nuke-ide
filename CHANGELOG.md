@@ -26,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   legacy-ASCII VTK files (including STEP, DAGMC, and FEM outputs) and the
   geometry tree's View 3D now render natively with instant color control;
   binary legacy VTK and unparseable files show an error instead.
+  Large converter meshes (tens of MB) open through a raised 256 MB viewer
+  read budget instead of hitting the editor file-size gate.
 - nuke-visualizer: **trame/ParaView servers removed** — `base.serve`,
   `dagmc.visualize`, and the tally/geometry trame servers are deleted along
   with the proxy/iframe layer and the `trame`/`paraview` dependencies;

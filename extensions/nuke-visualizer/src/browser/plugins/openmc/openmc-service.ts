@@ -54,7 +54,7 @@ import { OpenMCFileDiscoveryService } from './services/openmc-file-discovery';
 import { GeometryNativeViewerWidget } from './widgets/geometry-native/geometry-native-viewer-widget';
 import { TallyNativeViewerWidget } from './widgets/tally-native/tally-native-viewer-widget';
 import { TallyOverlayKind } from './widgets/tally-native/tally-overlay-model';
-import { parseNativeVtkXml } from './widgets/native-vtk/native-vtk-data';
+import { parseNativeVtkXml, readVtkText } from './widgets/native-vtk/native-vtk-data';
 
 export interface OpenMCFileSet {
     /** Geometry file (DAGMC .h5m or VTK) */
@@ -312,8 +312,7 @@ export class OpenMCService {
         const widget = await this.widgetManager.getOrCreateWidget<TallyNativeViewerWidget>(TallyNativeViewerWidget.ID, {
             id: `${TallyNativeViewerWidget.ID}:${kind}:${Date.now()}`
         } as any);
-        const content = await this.fileService.read(new URI(vtkPath));
-        const text = content.value.toString();
+        const text = await readVtkText(this.fileService, new URI(vtkPath));
         // Probe the native XML reader first: non-XML datasets throw here and
         // take the trame fallback in the caller — the parser stays XML-only.
         await parseNativeVtkXml(text);

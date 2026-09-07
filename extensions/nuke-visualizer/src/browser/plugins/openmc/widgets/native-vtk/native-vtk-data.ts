@@ -1577,6 +1577,7 @@ export function parseLegacyVtkAscii(text: string): NativeVtkModel {
         'TRIANGLE_STRIPS',
         'CELLS',
         'CELL_TYPES',
+        'OFFSETS',
         'POINT_DATA',
         'CELL_DATA',
         'SCALARS',
@@ -1650,7 +1651,48 @@ export function parseLegacyVtkAscii(text: string): NativeVtkModel {
             const section = next().toUpperCase();
             const count = nextInt(`${section} count`);
             nextInt(`${section} size`);
-            const cells = readCellList(count);
+            // VTK 5+ writers (MOAB, recent vtk) emit an OFFSETS array instead
+            // of inline [n, id...] counts, optionally followed by an explicit
+            // CONNECTIVITY section. Offsets may carry a leading zero (N+1
+            // entries for N cells); cells are paired with an implicit
+            // leading zero and zero-length pairs are dropped, which accepts
+            // both forms and the leading-zero variant alike.
+            let cells: number[][];
+            if ((peek() ?? '').toUpperCase() === 'OFFSETS') {
+                next(); // OFFSETS
+                if (/^vtk/i.test(peek() ?? '')) {
+                    next(); // dtype tag, e.g. vtktypeint64
+                }
+                const offsets: number[] = [];
+                while (true) {
+                    const token = peek();
+                    if (token === undefined || KEYWORDS.has(token.toUpperCase()) || !/^-?\d+$/.test(token)) {
+                        break;
+                    }
+                    offsets.push(parseInt(next(), 10));
+                }
+                if ((peek() ?? '').toUpperCase() === 'CONNECTIVITY') {
+                    next(); // CONNECTIVITY
+                    if (/^vtk/i.test(peek() ?? '')) {
+                        next(); // dtype tag
+                    }
+                }
+                const total = offsets.length > 0 ? offsets[offsets.length - 1] : 0;
+                const conn: number[] = [];
+                for (let k = 0; k < total; k++) {
+                    conn.push(nextInt('cell index'));
+                }
+                cells = [];
+                let previous = 0;
+                for (const end of offsets) {
+                    if (end > previous) {
+                        cells.push(conn.slice(previous, end).map((v) => Math.round(v)));
+                    }
+                    previous = end;
+                }
+            } else {
+                cells = readCellList(count);
+            }
             // NOTE: plain for-loop append — spread (`push(...cells)`) blows
             // the call stack on real files (100k+ cells in DAGMC outputs).
             if (section === 'VERTICES') {
@@ -1916,4 +1958,33 @@ export async function parseNativeVtk(text: string, fileExtension = ''): Promise<
         return parseLegacyVtkAscii(text);
     }
     throw new Error('Not a VTK dataset: missing <VTKFile> root element or legacy "# vtk DataFile" header');
+}
+
+/**
+ * Viewer read budget: Theia's `files.maxFileSizeMB` gate targets editors,
+ * and converter meshes (a filtered DAGMC file is tens of MB) legitimately
+ * exceed it. Viewer reads raise the limit explicitly instead of failing.
+ */
+export const NATIVE_VTK_MAX_READ_BYTES = 256 * 1024 * 1024;
+
+/** Minimal structural surface of Theia's `FileService.read` (keeps this module import-free). */
+export interface VtkTextReader {
+    read(uri: unknown, options?: { limits?: { readonly size?: number } }): Promise<{ value: string }>;
+}
+
+/** Read VTK/JSON text through a `FileService` with the viewer budget applied. */
+export async function readVtkText(reader: VtkTextReader, uri: unknown): Promise<string> {
+    try {
+        const content = await reader.read(uri, { limits: { size: NATIVE_VTK_MAX_READ_BYTES } });
+        return content.value;
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (/too large/i.test(message)) {
+            throw new Error(
+                `File exceeds the ${Math.round(NATIVE_VTK_MAX_READ_BYTES / 1024 / 1024)} MB viewer read budget. ` +
+                    'Decimate or split the mesh before opening it.'
+            );
+        }
+        throw error;
+    }
 }

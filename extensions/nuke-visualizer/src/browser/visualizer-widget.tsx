@@ -31,7 +31,7 @@ import URI from '@theia/core/lib/common/uri';
 import { FileDialogService } from '@theia/filesystem/lib/browser/file-dialog';
 import { VisualizerBackendService } from '../common/base-visualizer-protocol';
 import { NativeVtkViewerWidget } from './plugins/openmc/widgets/native-vtk-viewer-widget';
-import { parseNativeVtk } from './plugins/openmc/widgets/native-vtk/native-vtk-data';
+import { parseNativeVtk, readVtkText } from './plugins/openmc/widgets/native-vtk/native-vtk-data';
 
 /**
  * Generic single-file visualizer (native-only): arbitrary VTK/DAGMC/STEP
@@ -315,8 +315,7 @@ export class VisualizerWidget extends NativeVtkViewerWidget {
 
         let text: string;
         try {
-            const content = await this.fileService.read(new URI(filePath));
-            text = content.value.toString();
+            text = await readVtkText(this.fileService, new URI(filePath));
         } catch (readError) {
             if (loadId !== this.currentLoadId) return;
             this.isLoading = false;

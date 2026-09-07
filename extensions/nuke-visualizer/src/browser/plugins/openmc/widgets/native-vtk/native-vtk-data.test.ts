@@ -816,3 +816,34 @@ describe('standard connectivity+offsets form (Playwright regression)', () => {
         expect(Array.from(model.positions).every((v) => Number.isFinite(v))).toBe(true);
     });
 });
+
+describe('legacy VTK9 OFFSETS+CONNECTIVITY form', () => {
+    const VTK9_OFFSETS = `# vtk DataFile Version 5.1
+MOAB 5.5.1
+ASCII
+DATASET UNSTRUCTURED_GRID
+POINTS 4 float
+0 0 0 1 0 0 1 1 0 0 1 0
+CELLS 2 5
+OFFSETS vtktypeint64
+0 2 5
+CONNECTIVITY vtktypeint64
+0 1 2 3 0
+CELL_TYPES 2
+3
+5
+CELL_DATA 2
+SCALARS volume_id int 1
+LOOKUP_TABLE default
+1
+2
+`;
+    it('pairs leading-zero offsets and skips the empty head cell', async () => {
+        const model = await parseNativeVtk(VTK9_OFFSETS, '.vtk');
+        expect(model.nPoints).toBe(4);
+        // Line (0-1) + triangle (2-3-0) as closed loop: 2 + 6 segment indices.
+        expect(model.segments ? Array.from(model.segments) : []).toEqual([0, 1, 2, 3, 3, 0, 0, 2]);
+        const maxIndex = Math.max(...(model.segments ?? []));
+        expect(maxIndex).toBeLessThan(model.nPoints);
+    });
+});

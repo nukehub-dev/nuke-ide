@@ -47,6 +47,7 @@ import {
     normalizeToUnit,
     parseColorBy,
     parseNativeVtk,
+    readVtkText,
     sampleNativeColormap,
     SOLID_COLOR,
     strideForBudget,
@@ -194,11 +195,11 @@ export class NativeVtkViewerWidget extends ReactWidget {
         this.statusMessage = 'Reading VTK file…';
         this.update();
         try {
-            const content = await this.fileService.read(uri);
+            const text = await readVtkText(this.fileService, uri);
             if (token !== this.loadToken) {
                 return;
             }
-            await this.setVtkText(content.value.toString(), token);
+            await this.setVtkText(text, token);
         } catch (error) {
             if (token !== this.loadToken) {
                 return;

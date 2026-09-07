@@ -34,6 +34,7 @@ import { OutputViewerContribution } from '../../../output-viewer/output-viewer-r
 import { VisualizerBackendService } from '../../../../common/base-visualizer-protocol';
 import { DagmcViewerWidget } from '../widgets/dagmc/dagmc-viewer-widget';
 import { parseVtmManifest } from '../widgets/dagmc/dagmc-multiblock';
+import { readVtkText } from '../widgets/native-vtk/native-vtk-data';
 
 /** Multiblock `.vtm` manifests (as written by `convert_h5m_to_multiblock_vtk`: `<stem>_volumes.vtm`). */
 function isDagmcMultiblockFileName(baseName: string): boolean {
@@ -96,8 +97,8 @@ export class OpenMCDagmcViewerContribution implements OutputViewerContribution {
         // be read/parsed natively surfaces an error naming the generic VTK
         // viewer as the alternative instead of starting a server.
         try {
-            const content = await this.fileService.read(uri);
-            parseVtmManifest(content.value.toString());
+            const text = await readVtkText(this.fileService, uri);
+            parseVtmManifest(text);
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             this.messageService.error(

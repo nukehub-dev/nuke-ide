@@ -56,6 +56,7 @@ import {
     parseGeometryNativeJson,
     parseGeometryNativeModel
 } from './geometry-native-model';
+import { readVtkText } from '../native-vtk/native-vtk-data';
 import '../output-viewer.css';
 
 /**
@@ -226,11 +227,11 @@ export class GeometryNativeViewerWidget extends ReactWidget {
         this.statusMessage = 'Reading geometry model…';
         this.update();
         try {
-            const content = await this.fileService.read(uri);
+            const text = await readVtkText(this.fileService, uri);
             if (token !== this.loadToken) {
                 return;
             }
-            this.setModelJson(parseGeometryNativeJson(content.value.toString()));
+            this.setModelJson(parseGeometryNativeJson(text));
         } catch (error) {
             if (token !== this.loadToken) {
                 return;

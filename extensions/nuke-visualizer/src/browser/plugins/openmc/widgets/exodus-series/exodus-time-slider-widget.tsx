@@ -65,6 +65,7 @@ import {
     stepValueRange,
     stepValueSamples
 } from './exodus-series-model';
+import { readVtkText } from '../native-vtk/native-vtk-data';
 import { detectMissingDependencies } from '../dependency-hints';
 import '../output-viewer.css';
 
@@ -138,11 +139,11 @@ export class ExodusTimeSliderWidget extends ReactWidget {
         this.error = undefined;
         this.update();
         try {
-            const content = await this.fileService.read(uri);
+            const text = await readVtkText(this.fileService, uri);
             if (token !== this.loadToken) {
                 return;
             }
-            this.setSeriesText(content.value.toString());
+            this.setSeriesText(text);
         } catch (error) {
             if (token !== this.loadToken) {
                 return;
