@@ -156,6 +156,86 @@
     margin: 2px 0;
 }
 
+/* CAD-style orientation gizmo (top-right overlay below the header chrome) */
+
+.viewer-gizmo {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    width: 96px;
+    height: 96px;
+    z-index: 10;
+}
+
+.viewer-gizmo-spokes {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+}
+
+.viewer-gizmo-knob-slot {
+    position: absolute;
+    left: 48px;
+    top: 48px;
+    width: 0;
+    height: 0;
+}
+
+.viewer-gizmo-knob {
+    /* Round axis knob: undo Theia's global .theia-button min-width/offset */
+    min-width: 0;
+    margin-left: 0;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border-radius: 50%;
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transform: translate(-50%, -50%);
+    cursor: pointer;
+    background: var(--theia-editor-background);
+    color: var(--theia-foreground);
+}
+
+.viewer-gizmo-axis-x {
+    border: 2px solid #d45a5a;
+}
+
+.viewer-gizmo-axis-y {
+    border: 2px solid #5aa862;
+}
+
+.viewer-gizmo-axis-z {
+    border: 2px solid #5a8fd4;
+}
+
+/* Distance measure (viewport annotations; cleared on rebuild) */
+
+.viewer-measure-toggle.active {
+    outline: 1px solid var(--theia-focusBorder);
+    outline-offset: -1px;
+}
+
+.viewer-measure-label {
+    position: absolute;
+    left: 0;
+    top: 0;
+    z-index: 11;
+    pointer-events: none;
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+    padding: 2px 8px;
+    border-radius: 8px;
+    background: var(--theia-editor-background);
+    color: var(--theia-foreground);
+    border: 1px solid #e8a400;
+}
+
 /* Imperative right-click context menu (viewer-core/viewer-context-menu.ts) */
 
 .viewer-context-menu {

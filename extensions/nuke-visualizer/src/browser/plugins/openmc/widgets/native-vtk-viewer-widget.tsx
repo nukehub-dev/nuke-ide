@@ -55,6 +55,17 @@ import {
     tupleValue
 } from './native-vtk/native-vtk-data';
 import { createOrbitControls, standardViewDirection, type OrbitControlsHandle } from '../../../viewer-core/orbit-controls';
+import type { GizmoCameraPose } from '../../../viewer-core/orientation-gizmo';
+import {
+    addMeasurePoint,
+    cancelMeasureStep,
+    formatMeasureDistance,
+    projectMeasurePoint,
+    resetMeasureState,
+    setMeasureActive,
+    type MeasurePoint3D,
+    type MeasureState
+} from '../../../viewer-core/measure-model';
 import { isViewerContextMenuClick, openViewerContextMenu } from '../../../viewer-core/viewer-context-menu';
 import {
     anyClipEnabled,
@@ -78,6 +89,8 @@ import {
 } from '../../../viewer-core/shading-mode';
 import { OpenMCVtkArrayInfo } from '../../../../common/openmc-protocol';
 import { ViewerNavAction, ViewerNavCluster } from './viewer-nav-cluster';
+import { ViewerGizmo, type ViewerGizmoHandle } from './viewer-gizmo';
+import { ViewerMeasureLabel, type ViewerMeasureHandle } from './viewer-measure';
 import './output-viewer.css';
 
 /**
@@ -155,6 +168,14 @@ export class NativeVtkViewerWidget extends ReactWidget {
     private orbitControls: OrbitControlsHandle | undefined;
     private resizeObserver: ResizeObserver | undefined;
     private contextMenuClose: (() => void) | undefined;
+    private gizmo: ViewerGizmoHandle | null = null;
+    /** Viewport-only distance-measure session (never document state; cleared on rebuild). */
+    private measure: MeasureState = { active: false, pending: undefined, segment: undefined };
+    private measureGroup: THREE.Group | undefined;
+    private measureLabel: ViewerMeasureHandle | null = null;
+    /** World-size endpoint marker radius, derived from the dataset bounds at build time. */
+    private measureMarkerSize = 0.01;
+    private measureKeysAttached = false;
 
     @postConstruct()
     protected init(): void {
@@ -340,6 +361,7 @@ export class NativeVtkViewerWidget extends ReactWidget {
                 {this.renderColormapSelect()}
                 {this.renderShadingSelect()}
                 {this.renderClipControls()}
+                {this.renderMeasureToggle()}
                 <Tooltip content="Download PNG screenshot" position="bottom">
                     <button
                         className="theia-button secondary"
@@ -538,10 +560,13 @@ export class NativeVtkViewerWidget extends ReactWidget {
                     <div className="openmc-output-viewer-hint">
                         {this.describeModel()}
                         {this.note ? ` — ${this.note}` : ''} Drag to orbit, wheel to zoom, right-drag to pan.
+                        {this.measure.active ? ' Measure mode: click two surface points; Escape cancels.' : ''}
                     </div>
                     <div style={{ flex: '1', minHeight: '0', position: 'relative', display: 'flex' }}>
                         <div ref={this.attachHost} style={{ flex: '1', minHeight: '0', position: 'relative' }} />
                         {this.renderNavCluster()}
+                        {this.renderGizmo()}
+                        {this.renderMeasureLabel()}
                     </div>
                     {this.renderLegend()}
                 </div>
@@ -552,6 +577,219 @@ export class NativeVtkViewerWidget extends ReactWidget {
     /** CAD-style nav cluster over the 3D viewarea, driving the orbit handle. */
     protected renderNavCluster(): React.ReactNode {
         return <ViewerNavCluster disabled={this.isLoading || !this.model} onAction={(action) => this.handleNavAction(action)} />;
+    }
+
+    /** CAD-style orientation gizmo over the 3D viewarea (hidden until a dataset loads). */
+    protected renderGizmo(): React.ReactNode {
+        if (!this.model) {
+            return undefined;
+        }
+        return (
+            <ViewerGizmo
+                ref={(handle) => {
+                    this.gizmo = handle;
+                }}
+                onSnap={(direction) => this.orbitControls?.setViewDirection(direction)}
+            />
+        );
+    }
+
+    /**
+     * Distance-measure toggle in the header — the single entry point (the nav
+     * cluster stays view-only). Hidden until a dataset loads, like the gizmo.
+     */
+    protected renderMeasureToggle(): React.ReactNode {
+        if (!this.model) {
+            return undefined;
+        }
+        const pressed = this.measure.active;
+        return (
+            <Tooltip
+                content={pressed ? 'Measure: click two surface points (Escape cancels)' : 'Measure distance between two surface points'}
+                position="bottom"
+            >
+                <button
+                    className={`theia-button secondary viewer-measure-toggle${pressed ? ' active' : ''}`}
+                    aria-pressed={pressed}
+                    aria-label="Measure distance"
+                    onClick={() => this.toggleMeasure()}
+                    disabled={this.isLoading}
+                >
+                    <i className={codicon('ruler')}></i>
+                </button>
+            </Tooltip>
+        );
+    }
+
+    /** Distance-measure label over the 3D viewarea (hidden until a dataset loads; positioned imperatively). */
+    protected renderMeasureLabel(): React.ReactNode {
+        if (!this.model) {
+            return undefined;
+        }
+        return (
+            <ViewerMeasureLabel
+                ref={(handle) => {
+                    this.measureLabel = handle;
+                }}
+            />
+        );
+    }
+
+    /** Flip the measure tool; turning it off drops a pending point but keeps a committed segment on screen. */
+    private toggleMeasure(): void {
+        this.measure = setMeasureActive(this.measure, !this.measure.active);
+        this.update();
+    }
+
+    /** Raycast-pick threshold from the dataset bounds (points/lines need a world-size tolerance). */
+    private measurePickTolerance(): number {
+        const bounds = this.model ? boundingBoxFromPositions(this.model.positions) : undefined;
+        if (!bounds) {
+            return this.measureMarkerSize;
+        }
+        const dx = bounds.max[0] - bounds.min[0];
+        const dy = bounds.max[1] - bounds.min[1];
+        const dz = bounds.max[2] - bounds.min[2];
+        return Math.max(Math.sqrt(dx * dx + dy * dy + dz * dz) * 0.01, 1e-9);
+    }
+
+    /** Canvas click while the measure tool is active: raycast the data meshes and record the surface point. */
+    private onMeasureClick = (event: MouseEvent): void => {
+        if (!this.measure.active || event.button !== 0) {
+            return;
+        }
+        const canvas = this.renderer?.domElement;
+        const camera = this.camera;
+        const dataGroup = this.dataGroup;
+        if (!canvas || !camera || !dataGroup) {
+            return;
+        }
+        const rect = canvas.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) {
+            return;
+        }
+        const ndc = new THREE.Vector2(
+            ((event.clientX - rect.left) / rect.width) * 2 - 1,
+            -((event.clientY - rect.top) / rect.height) * 2 + 1
+        );
+        const raycaster = new THREE.Raycaster();
+        raycaster.params.Points.threshold = this.measurePickTolerance();
+        raycaster.params.Line.threshold = this.measurePickTolerance();
+        raycaster.setFromCamera(ndc, camera);
+        // Data meshes only (never the measure overlay itself): a miss leaves
+        // the session untouched so stray clicks cannot commit bogus pairs.
+        const hit = raycaster.intersectObjects(dataGroup.children, true)[0];
+        if (!hit) {
+            return;
+        }
+        const point: MeasurePoint3D = [hit.point.x, hit.point.y, hit.point.z];
+        const next = addMeasurePoint(this.measure, point);
+        if (next !== this.measure) {
+            this.measure = next;
+            this.syncMeasureScene();
+            this.update();
+        }
+    };
+
+    /**
+     * Escape while focus is inside this widget: cancel the pending point,
+     * else clear the committed segment, else deactivate the tool. Window
+     * capture phase (like nuke-cad's viewport keys) so Theia's own Escape
+     * bindings do not swallow it; propagation stops only when a measure
+     * step was actually cancelled.
+     */
+    private onWindowKeyDown = (event: KeyboardEvent): void => {
+        if (event.key !== 'Escape') {
+            return;
+        }
+        if (!(event.target instanceof Node) || !this.node.contains(event.target)) {
+            return;
+        }
+        const next = cancelMeasureStep(this.measure);
+        if (next !== this.measure) {
+            this.measure = next;
+            this.syncMeasureScene();
+            this.update();
+            event.stopPropagation();
+            event.preventDefault();
+        }
+    };
+
+    /** Lazily create the world-anchored measure overlay group (line + endpoint spheres live outside the data group). */
+    private ensureMeasureGroup(): THREE.Group | undefined {
+        if (!this.scene) {
+            return undefined;
+        }
+        if (!this.measureGroup) {
+            this.measureGroup = new THREE.Group();
+            this.measureGroup.name = 'measure-overlay';
+            this.scene.add(this.measureGroup);
+        }
+        return this.measureGroup;
+    }
+
+    /** Dispose every measure overlay object (geometries + materials). */
+    private clearMeasureSceneObjects(): void {
+        const group = this.measureGroup;
+        if (!group) {
+            return;
+        }
+        while (group.children.length > 0) {
+            const child = group.children.pop();
+            if (child instanceof THREE.Mesh || child instanceof THREE.Line) {
+                child.geometry.dispose();
+                (child.material as THREE.Material).dispose();
+            }
+        }
+    }
+
+    /** Rebuild the 3D annotation from the session: pending sphere, or segment line + two spheres. */
+    private syncMeasureScene(): void {
+        const group = this.ensureMeasureGroup();
+        if (!group) {
+            return;
+        }
+        this.clearMeasureSceneObjects();
+        const color = 0xe8a400;
+        const addSphere = (point: MeasurePoint3D): void => {
+            const geometry = new THREE.SphereGeometry(this.measureMarkerSize, 16, 12);
+            const material = new THREE.MeshBasicMaterial({ color });
+            const sphere = new THREE.Mesh(geometry, material);
+            sphere.position.set(point[0], point[1], point[2]);
+            group.add(sphere);
+        };
+        const segment = this.measure.segment;
+        if (segment) {
+            const geometry = new THREE.BufferGeometry().setFromPoints([
+                new THREE.Vector3(segment.a[0], segment.a[1], segment.a[2]),
+                new THREE.Vector3(segment.b[0], segment.b[1], segment.b[2])
+            ]);
+            group.add(new THREE.Line(geometry, new THREE.LineBasicMaterial({ color })));
+            addSphere(segment.a);
+            addSphere(segment.b);
+        } else if (this.measure.pending) {
+            addSphere(this.measure.pending);
+        }
+        this.renderScene();
+    }
+
+    /** Re-project the measure label for the current camera (direct DOM writes, never React state). */
+    private updateMeasureLabel(): void {
+        const label = this.measureLabel;
+        const camera = this.camera;
+        const host = this.host;
+        if (!label || !camera || !host) {
+            return;
+        }
+        const segment = this.measure.segment;
+        if (!segment || !this.model) {
+            label.setLabel(0, 0, '', false);
+            return;
+        }
+        camera.updateMatrixWorld();
+        const viewProjection = new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+        const projected = projectMeasurePoint(segment.midpoint, viewProjection.elements, host.clientWidth, host.clientHeight);
+        label.setLabel(projected.x, projected.y, formatMeasureDistance(segment.distance), projected.visible);
     }
 
     private handleNavAction(action: ViewerNavAction): void {
@@ -613,9 +851,17 @@ export class NativeVtkViewerWidget extends ReactWidget {
     protected onAfterAttach(msg: Message): void {
         super.onAfterAttach(msg);
         this.ensureRenderer();
+        if (!this.measureKeysAttached) {
+            window.addEventListener('keydown', this.onWindowKeyDown, true);
+            this.measureKeysAttached = true;
+        }
     }
 
     protected onBeforeDetach(msg: Message): void {
+        if (this.measureKeysAttached) {
+            window.removeEventListener('keydown', this.onWindowKeyDown, true);
+            this.measureKeysAttached = false;
+        }
         this.teardownRenderer();
         super.onBeforeDetach(msg);
     }
@@ -667,6 +913,7 @@ export class NativeVtkViewerWidget extends ReactWidget {
         this.camera = new THREE.PerspectiveCamera(45, 1, 0.01, 1e9);
         this.attachOrbitControls();
         this.attachContextMenu(this.renderer.domElement);
+        this.renderer.domElement.addEventListener('click', this.onMeasureClick);
         this.resizeObserver = new ResizeObserver(() => this.resizeRenderer());
         if (this.host) {
             this.resizeObserver.observe(this.host);
@@ -693,6 +940,7 @@ export class NativeVtkViewerWidget extends ReactWidget {
         this.scene = undefined;
         this.camera = undefined;
         this.dataGroup = undefined;
+        this.measureGroup = undefined;
     }
 
     private resizeRenderer(): void {
@@ -711,6 +959,20 @@ export class NativeVtkViewerWidget extends ReactWidget {
         if (this.renderer && this.scene && this.camera) {
             this.renderer.render(this.scene, this.camera);
         }
+        this.updateGizmo();
+        this.updateMeasureLabel();
+    }
+
+    /** Re-project the gizmo axes for the current camera (direct DOM writes, never React state). */
+    private updateGizmo(): void {
+        const gizmo = this.gizmo;
+        const camera = this.camera;
+        if (!gizmo || !camera || !this.model) {
+            return;
+        }
+        const look = camera.getWorldDirection(new THREE.Vector3());
+        const pose: GizmoCameraPose = { look: [look.x, look.y, look.z], up: [camera.up.x, camera.up.y, camera.up.z] };
+        gizmo.update(pose);
     }
 
     /** Rebuild the data group from the current model (new dataset only). */
@@ -730,6 +992,11 @@ export class NativeVtkViewerWidget extends ReactWidget {
             });
             this.dataGroup = undefined;
         }
+        // Rebuild clears the measure session (viewport state, never document
+        // state); the label hides on the next repaint via updateMeasureLabel.
+        this.measure = resetMeasureState();
+        this.clearMeasureSceneObjects();
+        this.measureMarkerSize = this.measurePickTolerance();
         this.dataGroup = new THREE.Group();
         if (model.triangles && model.triangles.length > 0) {
             // Surface datasets render filled triangles (lit, DoubleSide for

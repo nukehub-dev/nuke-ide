@@ -195,7 +195,7 @@ Does your visualization need 3D rendering
 
 | Widget                         | Pattern          | Purpose                            |
 | ------------------------------ | ---------------- | ---------------------------------- |
-| `VisualizerWidget`             | A (iframe)       | Base 3D mesh/DAGMC viewer          |
+| `VisualizerWidget`             | A (native)       | Base 3D mesh/DAGMC viewer          |
 | `OpenMCPlotWidget`             | B (React+Plotly) | 2D tally plots (spectrum, spatial) |
 | `OpenMCHeatmapWidget`          | B (React+Plotly) | 2D mesh tally slices               |
 | `XSPlotWidget`                 | B (React+Plotly) | Cross-section plotting             |
@@ -205,4 +205,3 @@ Does your visualization need 3D rendering
 | `OpenMCDepletionWidget`        | B (React+Plotly) | Depletion curves                   |
 | `OpenMCMaterialExplorerWidget` | B (React)        | Material compositions              |
 | `OpenMCOverlapWidget`          | B (React)        | Overlap checker UI                 |
-| `OpenMCGeometry3DWidget`       | A (iframe)       | 3D geometry renderer               |

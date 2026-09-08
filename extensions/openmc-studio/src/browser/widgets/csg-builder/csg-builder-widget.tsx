@@ -33,7 +33,6 @@ import { MessageService } from '@theia/core/lib/common/message-service';
 import { CommandRegistry } from '@theia/core/lib/common/command';
 import { PreferenceService } from '@theia/core/lib/common/preferences';
 import { FileDialogService, OpenFileDialogProps } from '@theia/filesystem/lib/browser';
-import { WidgetManager, ApplicationShell } from '@theia/core/lib/browser';
 import URI from '@theia/core/lib/common/uri';
 import { OpenMCStateManager } from '../../openmc-state-manager';
 import { NukeCoreStatusBarVisibility, NukeCoreStatusBarVisibilityService } from 'nuke-core/lib/common';
@@ -55,9 +54,9 @@ import {
     DAGMCInfo
 } from '../../../common/openmc-state-schema';
 
-// Import from nuke-visualizer for 3D preview
+// 3D preview reuses the nuke-visualizer native geometry viewer through
+// OpenMCService.openGeometryViewer (no visualization infrastructure here).
 import { OpenMCService } from 'nuke-visualizer/lib/browser/plugins/openmc/openmc-service';
-import { OpenMCGeometry3DWidget } from 'nuke-visualizer/lib/browser/plugins/openmc/widgets/geometry/openmc-geometry-3d-widget';
 
 /**
  * Active tab identifier for the CSG Builder widget.
@@ -210,7 +209,6 @@ const BOUNDARY_CONDITIONS: { value: OpenMCBoundaryCondition; label: string }[] =
  * expressions, managing universes and lattices, and importing CAD/DAGMC files.
  *
  * @see {@link SimulationDashboardWidget} for simulation settings and material management
- * @see {@link OpenMCGeometry3DWidget} for 3D geometry preview
  */
 @injectable()
 export class CSGBuilderWidget extends ReactWidget {
@@ -231,12 +229,6 @@ export class CSGBuilderWidget extends ReactWidget {
     @inject(OpenMCXMLGenerationService)
     protected readonly xmlService!: OpenMCXMLGenerationService;
 
-    @inject(WidgetManager)
-    protected readonly widgetManager!: WidgetManager;
-
-    @inject(ApplicationShell)
-    protected readonly shell!: ApplicationShell;
-
     @inject(OpenMCService)
     protected readonly openmcService!: OpenMCService;
 
@@ -254,9 +246,6 @@ export class CSGBuilderWidget extends ReactWidget {
 
     private activeTab: CSGBuilderTab = 'surfaces';
     private visibilityHandle?: { dispose: () => void };
-
-    // 3D Preview widget reference
-    private previewWidget: OpenMCGeometry3DWidget | null = null;
 
     // Surface form state
     private editingSurface?: OpenMCSurface;
@@ -2939,8 +2928,12 @@ export class CSGBuilderWidget extends ReactWidget {
     // ============================================================================
 
     /**
-     * Open a 3D preview of the current CSG geometry.
-     * @see {@link OpenMCGeometry3DWidget}
+     * Open a native 3D preview of the current CSG geometry.
+     *
+     * Saves the model to `geometry.xml`, then delegates to
+     * `OpenMCService.openGeometryViewer` (headless `extractGeometryMesh` →
+     * `GeometryNativeViewerWidget.setModelFile`) — the same native path the
+     * geometry tree's View 3D uses.
      */
     private async previewGeometry(): Promise<void> {
         const state = this.stateManager.getState();
@@ -2968,34 +2961,9 @@ export class CSGBuilderWidget extends ReactWidget {
             const geomFile = `${previewDir}/geometry.xml`;
             const uri = new URI(geomFile);
 
-            // Open or create the 3D widget
-            let widget = this.previewWidget;
-            if (!widget || widget.isDisposed) {
-                widget = await this.widgetManager.getOrCreateWidget<OpenMCGeometry3DWidget>(OpenMCGeometry3DWidget.ID, {
-                    id: `${OpenMCGeometry3DWidget.ID}:preview`
-                } as any);
-                this.previewWidget = widget;
-            }
-
-            // Show widget
-            if (!widget.isAttached) {
-                await this.shell.addWidget(widget, { area: 'main' });
-            }
-            await this.shell.activateWidget(widget.id);
-
-            // Set geometry and start visualization
-            widget.setGeometry(uri);
-            widget.setLoading(true);
-
-            // Start visualization server
-            const vizResult = await this.openmcService.visualizeGeometry(uri);
-
-            if (vizResult.success && vizResult.url && vizResult.port) {
-                widget.setServerInfo(vizResult.url, vizResult.port);
+            const widget = await this.openmcService.openGeometryViewer(uri);
+            if (widget) {
                 this.messageService.info('3D preview loaded');
-            } else {
-                widget.setError(vizResult.error || 'Failed to start visualization');
-                this.messageService.error(`Preview failed: ${vizResult.error}`);
             }
         } catch (error) {
             this.messageService.error(`Preview error: ${error}`);

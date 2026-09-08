@@ -24,11 +24,7 @@ function severe(errors: string[]): string[] {
             !e.includes('localization bundles') &&
             // Upstream Theia plugin-host race when tabs open/close in quick
             // succession (extHostTab dto arrives for a closed tab).
-            !e.includes('INVALID tab') &&
-            // Pre-existing intermittent React key warning at page load from
-            // IDE chrome outside these viewers (tracked follow-up); viewer
-            // code paths below assert their own rendered content instead.
-            !e.includes('unique "key" prop')
+            !e.includes('INVALID tab')
     );
 }
 
@@ -91,6 +87,78 @@ test('native polydata (.vtp) renders with canvas and instant color-by', async ({
         await expect(canvas).toBeVisible();
         await expect(container.locator('.openmc-output-viewer-status.error')).toHaveCount(0);
     }
+
+    const bad = severe(errors);
+    expect(bad, `unexpected severe errors:\n${bad.join('\n')}`).toEqual([]);
+});
+
+test('orientation gizmo is visible and X snaps the view', async ({ page }) => {
+    const errors = collectErrors(page);
+    await page.goto('/');
+    await waitForWorkbench(page);
+
+    const container = await openViewer(page, 'native-polydata.vtp');
+    await expect(container.locator('.openmc-output-viewer-status.error')).toHaveCount(0);
+    const canvas = container.locator('.openmc-output-viewer-viewarea canvas');
+    await expect(canvas).toBeVisible({ timeout: 30_000 });
+
+    // CAD-parity gizmo: six axis knobs top-right below the header chrome.
+    const gizmo = container.locator('.viewer-gizmo');
+    await expect(gizmo).toBeVisible({ timeout: 30_000 });
+    await expect(gizmo.locator('.viewer-gizmo-knob')).toHaveCount(6);
+
+    // Clicking the +X knob snaps the standard view (orbit handle): the
+    // canvas must survive with no errors.
+    await gizmo.locator('.viewer-gizmo-knob', { hasText: /^X$/ }).click();
+    await expect(canvas).toBeVisible();
+    await expect(container.locator('.openmc-output-viewer-status.error')).toHaveCount(0);
+
+    const bad = severe(errors);
+    expect(bad, `unexpected severe errors:\n${bad.join('\n')}`).toEqual([]);
+});
+
+test('distance measure labels a known-size fixture and Escape clears', async ({ page }) => {
+    const errors = collectErrors(page);
+    await page.goto('/');
+    await waitForWorkbench(page);
+
+    // The legacy fixture is a 1x1 unit square in the z=0 plane: two clicks on
+    // the same surface point must read exactly 0.
+    const container = await openViewer(page, 'native-legacy.vtk');
+    await expect(container.locator('.openmc-output-viewer-status.error')).toHaveCount(0);
+    const canvas = container.locator('.openmc-output-viewer-viewarea canvas');
+    await expect(canvas).toBeVisible({ timeout: 30_000 });
+
+    const toggle = container.locator('.viewer-measure-toggle');
+    await expect(toggle).toBeVisible({ timeout: 30_000 });
+    await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+
+    const box = await canvas.boundingBox();
+    if (!box) {
+        throw new Error('measure test needs a laid-out canvas');
+    }
+    const cx = box.x + box.width / 2;
+    const cy = box.y + box.height / 2;
+    await page.mouse.click(cx, cy);
+    await page.mouse.click(cx, cy);
+    const label = container.locator('.viewer-measure-label');
+    await expect(label).toBeVisible({ timeout: 30_000 });
+    await expect(label).toHaveText('0');
+
+    // Escape clears the committed segment (label hides).
+    await page.keyboard.press('Escape');
+    await expect(label).toBeHidden({ timeout: 30_000 });
+
+    // Two spread clicks on the same unit square commit a non-zero distance.
+    await page.mouse.click(box.x + box.width * 0.4, cy);
+    await page.mouse.click(box.x + box.width * 0.6, cy);
+    await expect(label).toBeVisible({ timeout: 30_000 });
+    const text = (await label.textContent())?.trim() ?? '';
+    expect(text).toMatch(/^\d+(\.\d+)?$/);
+    expect(text).not.toBe('0');
+    await page.keyboard.press('Escape');
+    await expect(label).toBeHidden({ timeout: 30_000 });
 
     const bad = severe(errors);
     expect(bad, `unexpected severe errors:\n${bad.join('\n')}`).toEqual([]);

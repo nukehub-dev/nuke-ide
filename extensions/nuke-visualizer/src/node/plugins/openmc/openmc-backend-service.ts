@@ -26,11 +26,7 @@
 // *****************************************************************************
 
 import { injectable, inject } from '@theia/core/shared/inversify';
-import { RawProcessFactory, RawProcess, RawProcessOptions } from '@theia/process/lib/node/raw-process';
-import * as path from 'path';
-import * as fs from 'fs';
-import * as net from 'net';
-import * as os from 'os';
+import { RawProcessFactory, RawProcess } from '@theia/process/lib/node/raw-process';
 
 import {
     OpenMCBackendService,
@@ -99,8 +95,9 @@ function pipInstallHint(name: string): string {
 /**
  * Node.js backend implementation of the OpenMC visualization RPC service.
  *
- * Spawns Python processes running `server.py` for 3D tally/geometry
- * visualization, and delegates data queries to specialized sub-services:
+ * Runs headless `server.py` conversion/info commands and delegates data
+ * queries to specialized sub-services (no visualization servers are spawned;
+ * all viewers render natively in the frontend):
  * - {@link OpenMCStatepointService} — statepoint and tally data
  * - {@link OpenMCGeometryService} — geometry hierarchy and materials
  * - {@link OpenMCXSService} — cross-section plotting
@@ -144,8 +141,9 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
     }
 
     /**
-     * Check whether a port belongs to a trame server started by this service.
-     * Used by the visualizer reverse proxy to restrict forwarding to known servers.
+     * Check whether a port belongs to a visualization server started by this
+     * service. No servers are spawned anymore (all viewers render natively),
+     * so this always reports false; it stays so the RPC surface is stable.
      */
     isVisualizerPort(port: number): boolean {
         return this.processes.has(port);
@@ -313,76 +311,6 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
         return this.geometryService.getGeometryHierarchy(filePath);
     }
 
-    async visualizeGeometry(
-        filePath: string,
-        highlightCellIds?: number[],
-        overlaps?: any[]
-    ): Promise<{ success: boolean; port?: number; url?: string; error?: string }> {
-        const port = await this.findFreePort(8090);
-        this.reservedPorts.add(port);
-
-        let overlapsPath: string | undefined;
-        try {
-            const pythonInfo = await this.pythonHelper.detectPython();
-            const pythonCommand = pythonInfo.command;
-            const scriptPath = this.pythonHelper.findScript('server.py');
-
-            const args: string[] = [scriptPath, 'openmc.visualize-geometry', filePath, '--port', port.toString()];
-
-            if (highlightCellIds && highlightCellIds.length > 0) {
-                args.push('--highlight', highlightCellIds.join(','));
-            }
-
-            if (overlaps && overlaps.length > 0) {
-                // Limit overlaps for performance
-                const MAX_OVERLAPS = 1000;
-                const limitedOverlaps = overlaps.length > MAX_OVERLAPS ? overlaps.slice(0, MAX_OVERLAPS) : overlaps;
-                if (overlaps.length > MAX_OVERLAPS) {
-                    console.log(`[OpenMC] Limiting overlaps from ${overlaps.length} to ${MAX_OVERLAPS} for performance`);
-                }
-
-                const tempDir = os.tmpdir();
-                overlapsPath = path.join(tempDir, `overlaps_${Date.now()}.json`);
-                const overlapData = {
-                    geometryPath: filePath,
-                    overlaps: limitedOverlaps.map((o) => ({
-                        coordinates: o.coordinates,
-                        cellIds: o.cellIds
-                    }))
-                };
-                fs.writeFileSync(overlapsPath, JSON.stringify(overlapData));
-                args.push('--overlaps', overlapsPath);
-            }
-
-            const process = this.startPythonProcess(pythonCommand, args, port);
-
-            // Wait for server to be ready (longer timeout when overlaps present)
-            const serverTimeout = overlaps && overlaps.length > 0 ? 60000 : 30000;
-            await this.waitForServer(port, process, serverTimeout);
-
-            return {
-                success: true,
-                port,
-                url: `http://127.0.0.1:${port}`
-            };
-        } catch (error) {
-            this.reservedPorts.delete(port);
-            return {
-                success: false,
-                error: error instanceof Error ? error.message : String(error)
-            };
-        } finally {
-            // Cleanup temp file
-            if (overlapsPath && fs.existsSync(overlapsPath)) {
-                try {
-                    fs.unlinkSync(overlapsPath);
-                } catch (e) {
-                    // Ignore cleanup errors
-                }
-            }
-        }
-    }
-
     // === Material Explorer ===
 
     async extractGeometryMesh(filePath: string, segments?: number): Promise<OpenMCGeometryMeshResult> {
@@ -448,81 +376,6 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
 
     async getOverlapVisualization(geometryPath: string, overlaps: any[]): Promise<any> {
         return this.geometryService.getOverlapVisualization(geometryPath, overlaps);
-    }
-
-    private startPythonProcess(command: string, args: string[], port: number): RawProcess {
-        const processOptions: RawProcessOptions = {
-            command,
-            args
-        };
-
-        const process = this.rawProcessFactory(processOptions);
-
-        process.outputStream.on('data', (data: Buffer) => {
-            console.log(`[OpenMC ${port}] ${data.toString().trim()}`);
-        });
-
-        process.errorStream.on('data', (data: Buffer) => {
-            const message = data.toString().trim();
-            console.error(`[OpenMC ${port}] ERROR: ${message}`);
-        });
-
-        process.onExit((event: { code?: number; signal?: string }) => {
-            console.log(`[OpenMC ${port}] Process exited (code: ${event.code}, signal: ${event.signal})`);
-            this.processes.delete(port);
-            this.reservedPorts.delete(port);
-        });
-
-        this.processes.set(port, { process, port, filePath: args[2] || '' });
-
-        return process;
-    }
-
-    private async waitForServer(
-        port: number,
-        process: RawProcess,
-        timeoutMs: number = 30000,
-        stderrOutput?: { data: string }
-    ): Promise<void> {
-        return new Promise((resolve, reject) => {
-            const timeout = setTimeout(() => {
-                cleanup();
-                reject(new Error(`Server startup timeout on port ${port}`));
-            }, timeoutMs);
-
-            const portCheckInterval = setInterval(() => {
-                const socket = new net.Socket();
-                socket.on('error', () => socket.destroy());
-                socket.on('connect', () => {
-                    socket.destroy();
-                    cleanup();
-                    resolve();
-                });
-                socket.connect(port, '127.0.0.1');
-            }, 1000);
-
-            const exitListener = (event: { code?: number; signal?: string }) => {
-                cleanup();
-                let errorMsg = `Process exited with code ${event.code} before server started`;
-                // Include stderr output if available
-                if (stderrOutput?.data) {
-                    // Extract the last error line from stderr
-                    const lines = stderrOutput.data.split('\n').filter((l) => l.trim());
-                    const errorLine = lines.find((l) => l.includes('Error:') || l.includes('Traceback'));
-                    if (errorLine) {
-                        errorMsg += `: ${errorLine}`;
-                    }
-                }
-                reject(new Error(errorMsg));
-            };
-            const exitDisposable = process.onExit(exitListener);
-
-            const cleanup = () => {
-                clearTimeout(timeout);
-                clearInterval(portCheckInterval);
-                exitDisposable.dispose();
-            };
-        });
     }
 
     // === Output File Viewers (tracks / collision track / weight windows) ===
@@ -613,33 +466,5 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
 
     async convertOverlayToVtk(statepointPath: string, options?: OpenMCOverlayVtkOptions): Promise<OpenMCVtkConversionResult> {
         return this.outputService.convertOverlayToVtk(statepointPath, options);
-    }
-
-    private async findFreePort(startPort: number): Promise<number> {
-        for (let port = startPort; port < startPort + 1000; port++) {
-            if (this.reservedPorts.has(port)) {
-                continue;
-            }
-            try {
-                await new Promise<void>((resolve, reject) => {
-                    const server = net.createServer();
-                    server.once('error', (err: any) => {
-                        if (err.code === 'EADDRINUSE') {
-                            reject();
-                        } else {
-                            reject(err);
-                        }
-                    });
-                    server.once('listening', () => {
-                        server.close(() => resolve());
-                    });
-                    server.listen(port);
-                });
-                return port;
-            } catch {
-                continue;
-            }
-        }
-        throw new Error(`No free port found in range ${startPort}-${startPort + 1000}`);
     }
 }

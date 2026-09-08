@@ -143,7 +143,6 @@ export interface OpenMCBackendService {
 
   // Geometry
   getGeometryHierarchy(filePath: string): Promise<OpenMCGeometryResponse>;
-  visualizeGeometry(filePath, highlightCellIds?, overlaps?): Promise<{ success; port?; url?; error? }>;
   checkOverlaps(request: OpenMCOverlapRequest): Promise<OpenMCOverlapResponse>;
   getOverlapVisualization(geometryPath, overlaps): Promise<OpenMCOverlapVizData>;
 

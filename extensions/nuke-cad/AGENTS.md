@@ -794,6 +794,10 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
     volumes (and face counts for non-spline bodies) against the authoritative
     STEP reference; plasma-facing spline boundaries are approximated with dense
     polylines and therefore checked to a relaxed 1e-3 volume tolerance.
+  - Only the small `.nuke-cad` sources under `tests/e2e/assets/` are fixtures:
+    document builds write regenerable sidecars beside them (`<stem>.tess.json`,
+    `<stem>.step` exports) that are gitignored and never committed; large
+    reference STEPs likewise stay developer-local via env vars (see below).
 - `.nuke-cad` shell integration:
   - `.nuke-cad` files open in the CAD viewport by default (open-handler priority
     500). The handler parses the JSON, loads it into the document store, and

@@ -65,7 +65,6 @@ import { XSPlotWidget } from './plugins/openmc/widgets/plotting/xs-plot-widget';
 import { OpenMCDepletionWidget } from './plugins/openmc/widgets/depletion/openmc-depletion-widget';
 import { OpenMCDepletionCompareWidget } from './plugins/openmc/widgets/depletion/openmc-depletion-compare-widget';
 import { OpenMCGeometryTreeWidget } from './plugins/openmc/widgets/geometry/openmc-geometry-tree';
-import { OpenMCGeometry3DWidget } from './plugins/openmc/widgets/geometry/openmc-geometry-3d-widget';
 import { OpenMCMaterialExplorerWidget } from './plugins/openmc/widgets/materials/openmc-material-explorer';
 import { OpenMCOverlapWidget } from './plugins/openmc/widgets/geometry/openmc-overlap-widget';
 import { OpenMCStatepointViewerWidget } from './plugins/openmc/widgets/statepoint/statepoint-viewer';
@@ -162,7 +161,7 @@ export default new ContainerModule((bind: interfaces.Bind) => {
     bind(OpenMCWeightWindowsViewerContribution).toSelf().inSingletonScope();
     bind(OutputViewerContribution).toService(OpenMCWeightWindowsViewerContribution);
 
-    // Bind native DAGMC viewer widget (trame dagmc.visualize stays as fallback)
+    // Bind native DAGMC viewer widget (renders natively, no server)
     bind(DagmcViewerWidget).toSelf().inTransientScope();
     bind(WidgetFactory)
         .toDynamicValue((context) => ({
@@ -179,7 +178,7 @@ export default new ContainerModule((bind: interfaces.Bind) => {
     bind(OpenMCDagmcViewerContribution).toSelf().inSingletonScope();
     bind(OutputViewerContribution).toService(OpenMCDagmcViewerContribution);
 
-    // Bind native geometry viewer widget (tree + trame View 3D stay working)
+    // Bind native geometry viewer widget (tree View 3D target)
     bind(GeometryNativeViewerWidget).toSelf().inTransientScope();
     bind(WidgetFactory)
         .toDynamicValue((context) => ({
@@ -481,21 +480,6 @@ export default new ContainerModule((bind: interfaces.Bind) => {
         }))
         .inSingletonScope();
 
-    // Bind geometry 3D widget
-    bind(OpenMCGeometry3DWidget).toSelf().inTransientScope();
-    bind(WidgetFactory)
-        .toDynamicValue((context) => ({
-            id: OpenMCGeometry3DWidget.ID,
-            createWidget: (options?: { id?: string }) => {
-                const widget = context.container.get<OpenMCGeometry3DWidget>(OpenMCGeometry3DWidget);
-                if (options?.id) {
-                    widget.id = options.id;
-                }
-                return widget;
-            }
-        }))
-        .inSingletonScope();
-
     // Bind material explorer widget
     bind(OpenMCMaterialExplorerWidget).toSelf().inTransientScope();
     bind(WidgetFactory)
@@ -548,8 +532,7 @@ export default new ContainerModule((bind: interfaces.Bind) => {
         .inSingletonScope();
 
     // Bind native tally viewer widget (no contribution: the tally flows open
-    // it programmatically after convert → FileService.read → setTallyText,
-    // with the trame visualize-mesh/overlay/source servers as fallback)
+    // it programmatically after convert → FileService.read → setTallyText)
     bind(TallyNativeViewerWidget).toSelf().inTransientScope();
     bind(WidgetFactory)
         .toDynamicValue((context) => ({

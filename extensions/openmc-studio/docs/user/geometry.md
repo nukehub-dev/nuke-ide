@@ -142,7 +142,7 @@ Lattices are regular arrays of universes — essential for reactor assemblies.
 
 Click **"Preview 3D"** at any time to visualize the current geometry.
 
-- A new **Visualizer** tab opens (via nuke-visualizer).
+- A native **geometry viewer** tab opens (via nuke-visualizer) and reloads on every preview.
 - Cells are colored by material or by cell ID.
 - Mouse controls: rotate (left-drag), pan (right-drag), zoom (scroll).
 - The preview updates automatically when you regenerate XML.

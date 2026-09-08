@@ -304,18 +304,6 @@ export interface OpenMCBackendService {
     /** Get geometry hierarchy from OpenMC geometry file */
     getGeometryHierarchy(filePath: string): Promise<OpenMCGeometryResponse>;
 
-    /** Visualize geometry in 3D */
-    visualizeGeometry(
-        filePath: string,
-        highlightCellIds?: number[],
-        overlaps?: any[]
-    ): Promise<{
-        success: boolean;
-        port?: number;
-        url?: string;
-        error?: string;
-    }>;
-
     /**
      * Extract CSG geometry as three.js-ready mesh JSON without starting a
      * server (runs `openmc.geometry-mesh --out`). The returned `meshPath`

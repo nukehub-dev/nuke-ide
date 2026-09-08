@@ -39,12 +39,11 @@ import { GeometryNativeViewerWidget } from '../widgets/geometry-native/geometry-
  * native geometry viewer via the OutputViewerRegistry: the tree opens exactly
  * as before (`OpenMCGeometryContribution.openGeometryHierarchy`), then
  * `openmc.geometry-mesh` extracts the CSG cells to a mesh JSON file that
- * loads into `GeometryNativeViewerWidget.setModelFile` — no trame server.
+ * loads into `GeometryNativeViewerWidget.setModelFile` — no server.
  *
- * Additive, no replacement: the tree and its trame-3D hierarchy view
- * (`View 3D` → `visualizeGeometry`) are untouched. When the mesh extraction
- * fails the tree stays open and the error names the trame view as the
- * working alternative.
+ * Additive, no replacement: the tree and its hierarchy view are untouched.
+ * When the mesh extraction fails the tree stays open and the error names
+ * the cause.
  */
 @injectable()
 export class OpenMCGeometryNativeViewerContribution implements OutputViewerContribution {
@@ -81,13 +80,13 @@ export class OpenMCGeometryNativeViewerContribution implements OutputViewerContr
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             console.warn(`[geometry-native] openmc.geometry-mesh failed for ${uri.path.toString()}: ${message}`);
-            this.messageService.error(`Native geometry view failed: ${message}. Use View 3D for the trame view.`);
+            this.messageService.error(`Native geometry view failed: ${message}.`);
             return;
         }
         if (!mesh.success || !mesh.meshPath) {
             const message = mesh.error || 'Mesh extraction failed';
             console.warn(`[geometry-native] openmc.geometry-mesh failed for ${uri.path.toString()}: ${message}`);
-            this.messageService.error(`Native geometry view failed: ${message}. Use View 3D for the trame view.`);
+            this.messageService.error(`Native geometry view failed: ${message}.`);
             return;
         }
 

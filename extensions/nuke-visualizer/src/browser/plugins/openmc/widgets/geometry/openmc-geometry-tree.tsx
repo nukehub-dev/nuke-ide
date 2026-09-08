@@ -469,12 +469,8 @@ export class OpenMCGeometryTreeWidget extends ReactWidget {
         else if (surface.type.includes('torus')) icon = 'refresh';
 
         return (
-            <Tooltip content={surface.description || `${surface.type} surface`} position="top">
-                <div
-                    key={`surface-${surface.id}`}
-                    className={`surface-item ${isSelected ? 'selected' : ''}`}
-                    onClick={() => this.selectSurface(surface.id)}
-                >
+            <Tooltip key={`surface-${surface.id}`} content={surface.description || `${surface.type} surface`} position="top">
+                <div className={`surface-item ${isSelected ? 'selected' : ''}`} onClick={() => this.selectSurface(surface.id)}>
                     <i className={codicon(icon)}></i>
                     <span className="surface-id">{surface.id}</span>
                     <span className="surface-type">{surface.type}</span>

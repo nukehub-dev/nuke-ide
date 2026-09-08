@@ -33,7 +33,6 @@ import { FileDialogService } from '@theia/filesystem/lib/browser/file-dialog';
 import { OpenMCService } from '../openmc-service';
 import { OpenMCBackendService } from '../../../../common/openmc-protocol';
 import { OpenMCGeometryTreeWidget, GeometryView3DRequest, GeometryLoadedEvent } from '../widgets/geometry/openmc-geometry-tree';
-import { OpenMCGeometry3DWidget } from '../widgets/geometry/openmc-geometry-3d-widget';
 import { GeometryNativeViewerWidget } from '../widgets/geometry-native/geometry-native-viewer-widget';
 import { OpenMCMaterialExplorerWidget } from '../widgets/materials/openmc-material-explorer';
 import { OpenMCOverlapWidget } from '../widgets/geometry/openmc-overlap-widget';
@@ -58,7 +57,6 @@ export class OpenMCGeometryContribution {
     @inject(FileDialogService)
     protected readonly fileDialogService: FileDialogService;
 
-    private geometry3DWidget: OpenMCGeometry3DWidget | null = null;
     private geometryTreeWidget: OpenMCGeometryTreeWidget | undefined;
 
     initialize(): void {
@@ -125,10 +123,13 @@ export class OpenMCGeometryContribution {
         }
     }
 
+    /**
+     * View 3D renders natively: the headless mesh extractor
+     * (`extractGeometryMesh`) writes the CSG cells to a mesh JSON file that
+     * loads into `GeometryNativeViewerWidget.setModelFile`. Extraction
+     * failure surfaces an error naming the cause.
+     */
     private async showGeometry3D(request: GeometryView3DRequest): Promise<void> {
-        // Native-first (P6 1b): try the headless mesh extractor + native
-        // viewer before the trame server. Any failure warns and falls through
-        // to the verbatim trame path below, which stays as the fallback.
         try {
             const treeWidget = await this.getOrCreateGeometryTreeWidget();
             const currentGeometryUri = treeWidget.getCurrentGeometryUri();
@@ -154,66 +155,8 @@ export class OpenMCGeometryContribution {
             }
             return;
         } catch (error) {
-            console.warn(
-                '[OpenMC] Native geometry view failed, falling back to the trame server:',
-                error instanceof Error ? error.message : error
-            );
-        }
-
-        // Get or create the 3D widget
-        let widget = this.geometry3DWidget;
-        if (!widget || widget.isDisposed) {
-            widget = await this.widgetManager.getOrCreateWidget<OpenMCGeometry3DWidget>(OpenMCGeometry3DWidget.ID, {
-                id: `${OpenMCGeometry3DWidget.ID}:${request.fileUri.toString()}`
-            } as any);
-            this.geometry3DWidget = widget;
-        }
-
-        // IMPORTANT: Use the geometry tree widget's CURRENT geometry URI
-        // to avoid stale closure issues when loading new files
-        const treeWidget = await this.getOrCreateGeometryTreeWidget();
-        const currentGeometryUri = treeWidget.getCurrentGeometryUri();
-        const currentHierarchy = treeWidget.getCurrentHierarchy();
-
-        // Show widget even if no geometry (it will show "No geometry loaded" state)
-        if (!widget.isAttached) {
-            await this.shell.addWidget(widget, { area: 'main' });
-        }
-        await this.shell.activateWidget(widget.id);
-
-        // Check if geometry is loaded and valid
-        if (!currentHierarchy) {
-            widget.setGeometry(request.fileUri); // Set URI for reference
-            // Widget will show "No geometry loaded" empty state
-            return;
-        }
-        if (currentHierarchy.totalCells === 0) {
-            this.messageService.warn('Cannot visualize: Geometry has no cells. The file may not be a valid geometry file.');
-            return;
-        }
-
-        const geometryUri = currentGeometryUri || request.fileUri;
-        const highlightCellId = request.highlightCellId;
-
-        widget.setGeometry(geometryUri);
-        widget.setLoading(true);
-
-        try {
-            const result = await this.openmcService.visualizeGeometry(
-                geometryUri,
-                highlightCellId !== undefined ? [highlightCellId] : undefined
-            );
-
-            if (result.success && result.url && result.port) {
-                widget.setServerInfo(result.url, result.port);
-                if (highlightCellId !== undefined) {
-                    widget.setHighlightedCell(highlightCellId);
-                }
-            } else {
-                widget.setError(result.error || 'Failed to start 3D visualization server');
-            }
-        } catch (error) {
-            widget.setError(`Error: ${error}`);
+            const message = error instanceof Error ? error.message : String(error);
+            this.messageService.error(`Native geometry view failed: ${message}`);
         }
     }
 

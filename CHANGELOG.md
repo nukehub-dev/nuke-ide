@@ -28,6 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the character-based form vtk multiblock output emits, and decompression
   is synchronous (no platform-stream stalls); `.h5m` files open with
   volume isolation.
+- nuke-visualizer: **orientation gizmo in the native 3D viewers** — a CAD-style ±X/±Y/±Z overlay (top-right, below the header) in the native VTK and DAGMC viewers tracks the camera and snaps to the standard view when an axis knob is clicked; it hides when no dataset is loaded.
+- nuke-visualizer: **distance measure in the native 3D viewers** — a header ruler toggle in the native VTK and DAGMC viewers captures two raycast surface points and shows the distance as a viewport label (line + endpoint spheres in the scene); Escape cancels newest-first and rebuild clears. Angle/radius stay CAD-only.
 - nuke-visualizer: **viewer navigation and tools** — OrbitControls camera
   (orbit/pan/zoom with damping) in all native viewers, plus Shading
   (shaded/wireframe/points/x-ray) and clip-plane (axis/position/flip)
@@ -58,7 +60,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-visualizer: **trame/ParaView servers removed** — `base.serve`,
   `dagmc.visualize`, and the tally/geometry trame servers are deleted along
   with the proxy/iframe layer and the `trame`/`paraview` dependencies;
-  only openmc-studio's CSG-builder preview still uses the 3D widget path.
+  openmc-studio's CSG-builder preview kept the 3D widget path until the
+  native reroute below.
+- nuke-visualizer: **last trame remnants removed** — `openmc-geometry-3d-widget.tsx`,
+  `visualizeGeometry`, and the `/visualizer/<port>/` reverse proxy
+  (`visualizer-proxy-contribution`, `proxy-retry`, `visualizer-url`) are
+  deleted; openmc-studio's CSG-builder preview now renders through the
+  native geometry viewer (`extractGeometryMesh` →
+  `GeometryNativeViewerWidget.setModelFile`, the same path as tree View 3D).
 - nuke-visualizer: output viewers (tracks, collision-track, weight-windows,
   random-ray, tally, DAGMC) are now native-only — the per-viewer trame
   fallback is removed and unreadable files show an error panel pointing

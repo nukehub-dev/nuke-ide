@@ -1130,24 +1130,6 @@ export class OpenMCService {
     }
 
     /**
-     * Visualize geometry in 3D via the `openmc.visualize-geometry` trame
-     * server. Kept for the tree View 3D fallback and the openmc-studio
-     * CSG-builder preview; all tally/source/overlay flows are native-only.
-     */
-    async visualizeGeometry(
-        fileUri: URI,
-        highlightCellIds?: number[],
-        overlaps?: any[]
-    ): Promise<{ success: boolean; port?: number; url?: string; error?: string }> {
-        try {
-            return await this.openmcBackend.visualizeGeometry(fileUri.path.toString(), highlightCellIds, overlaps);
-        } catch (error) {
-            this.messageService.error(`Failed to visualize geometry: ${error}`);
-            return { success: false, error: String(error) };
-        }
-    }
-
-    /**
      * Open geometry in the native geometry viewer (no server): extract the
      * CSG mesh headlessly, then load it into `GeometryNativeViewerWidget`.
      * The first highlighted cell (if any) is selected; overlap spheres have
