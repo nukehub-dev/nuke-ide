@@ -31,6 +31,10 @@ import {
     DEFAULT_GIZMO_POSE,
     GIZMO_AXES,
     GIZMO_VIEW_DIRECTIONS,
+    VIEWER_GIZMO_BOX,
+    VIEWER_GIZMO_CENTER,
+    VIEWER_GIZMO_KNOB,
+    VIEWER_GIZMO_RADIUS,
     projectGizmoAxes,
     type GizmoCameraPose,
     type GizmoVector
@@ -64,15 +68,6 @@ export interface ViewerGizmoProps {
     /** Snap callback: the host drives its orbit handle's `setViewDirection`. */
     readonly onSnap: (direction: GizmoVector) => void;
 }
-
-/** Gizmo box edge in pixels; the overlay center sits at half this size. */
-export const VIEWER_GIZMO_BOX = 96;
-
-/** Overlay center in pixels (half the box edge). */
-export const VIEWER_GIZMO_CENTER = VIEWER_GIZMO_BOX / 2;
-
-/** Spoke length in pixels for a unit overlay coordinate. */
-export const VIEWER_GIZMO_RADIUS = 32;
 
 /** Spoke color per axis family (CAD convention: X red, Y green, Z blue). */
 const GIZMO_AXIS_COLORS: Record<string, string> = { X: '#d45a5a', Y: '#5aa862', Z: '#5a8fd4' };
@@ -149,6 +144,16 @@ export const ViewerGizmo = React.forwardRef<ViewerGizmoHandle, ViewerGizmoProps>
                     }}
                     className="viewer-gizmo-knob-slot"
                     style={{
+                        // Definite hit box centered on the overlay center: the
+                        // translate below moves the whole box so its center
+                        // lands on the spoke endpoint (a 0x0 slot lets the
+                        // Tooltip span collapse and shrink the knob to a
+                        // sliver). The knob button fills the box, so it owns
+                        // no centering transform of its own.
+                        width: VIEWER_GIZMO_KNOB,
+                        height: VIEWER_GIZMO_KNOB,
+                        left: VIEWER_GIZMO_CENTER - VIEWER_GIZMO_KNOB / 2,
+                        top: VIEWER_GIZMO_CENTER - VIEWER_GIZMO_KNOB / 2,
                         transform: `translate(${initial[index].x * VIEWER_GIZMO_RADIUS}px, ${-initial[index].y * VIEWER_GIZMO_RADIUS}px)`,
                         zIndex: Math.round((initial[index].facing + 1) * 10),
                         opacity: initial[index].facing >= 0 ? 1 : 0.55

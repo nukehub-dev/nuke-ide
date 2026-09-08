@@ -50,7 +50,13 @@ import {
     updateToolbarState,
     ViewerToolbarState
 } from '../../../../viewer-core/viewer-toolbar-model';
-import { createOrbitControls, type OrbitControlsHandle } from '../../../../viewer-core/orbit-controls';
+import { createOrbitControls, type BoundsCorner, type OrbitControlsHandle } from '../../../../viewer-core/orbit-controls';
+import {
+    ViewerSettingsHost,
+    ViewerSettingsPatch,
+    ViewerSettingsSnapshot,
+    viewerSnapDirection
+} from '../../../../viewer-settings/viewer-settings-model';
 import {
     arrayRange,
     clampStepIndex,
@@ -86,7 +92,7 @@ import '../output-viewer.css';
  * files into this widget via `VisualizerBackendService.getExodusSeries`.
  */
 @injectable()
-export class ExodusTimeSliderWidget extends ReactWidget {
+export class ExodusTimeSliderWidget extends ReactWidget implements ViewerSettingsHost {
     static readonly ID: string = 'exodus-time-slider-widget';
     static readonly LABEL: string = 'Exodus Time Slider';
 
@@ -209,6 +215,54 @@ export class ExodusTimeSliderWidget extends ReactWidget {
         this.toolbar = updateToolbarState(this.toolbar, { colormap: name });
         this.refreshScene();
         this.update();
+    }
+
+    // ------------------------------------------------------------------
+    // Viewer Settings sidebar API (single-direction sync: the panel reads
+    // the snapshot and applies edits through these setters — the same calls
+    // the header makes, never duplicated state). Exodus has no
+    // shading/clip/measure sections, so the snapshot carries only color-by,
+    // colormap, the time step, and the snap handle.
+    // ------------------------------------------------------------------
+
+    /** Snap the camera to an orbit-handle direction (sidebar snap group). */
+    snapViewerTo(direction: BoundsCorner): void {
+        this.orbitControls?.setViewDirection(direction);
+    }
+
+    /** Read the current settings for the sidebar panel. */
+    getViewerSettingsSnapshot(): ViewerSettingsSnapshot {
+        const solid = this.toolbar.colorBy === SOLID_COLOR;
+        return {
+            widgetId: this.id,
+            title: this.title.label,
+            hasDataset: this.series !== undefined && this.series.nSteps > 0,
+            colorBy: {
+                value: this.toolbar.colorBy,
+                options: this.series ? colorByOptions(this.series).map((option) => ({ value: option, label: option })) : []
+            },
+            colormap: { value: this.toolbar.colormap, options: [...SHORT_COLORMAP_NAMES], disabled: solid },
+            step:
+                this.series !== undefined && this.series.nSteps > 0
+                    ? { index: this.stepIndex, count: this.series.nSteps, label: formatStepLabel(this.series, this.stepIndex) }
+                    : undefined
+        };
+    }
+
+    /** Apply a sidebar edit through the existing setters. */
+    applyViewerSettings(patch: ViewerSettingsPatch): void {
+        if (patch.snap !== undefined) {
+            this.snapViewerTo(viewerSnapDirection(patch.snap));
+        }
+        if (patch.colorBy !== undefined) {
+            this.setColorBy(patch.colorBy);
+        }
+        if (patch.colormap !== undefined) {
+            this.setColormap(patch.colormap);
+        }
+        if (patch.stepIndex !== undefined) {
+            this.setStepIndex(patch.stepIndex);
+        }
     }
 
     protected render(): React.ReactNode {

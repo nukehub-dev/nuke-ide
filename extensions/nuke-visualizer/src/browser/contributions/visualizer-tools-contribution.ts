@@ -42,6 +42,7 @@ import {
     InstallOpenMCCommand
 } from '../commands/visualizer-commands';
 import { OpenMCCommands } from '../plugins/openmc/commands';
+import { OpenViewerSettingsCommand } from '../viewer-settings/viewer-settings-contribution';
 
 @injectable()
 export class VisualizerToolsContribution implements NukeToolsContribution {
@@ -55,6 +56,17 @@ export class VisualizerToolsContribution implements NukeToolsContribution {
             order: 'a',
             icon: 'graph',
             description: 'Open the Nuke Visualizer panel.'
+        });
+
+        registry.registerItem({
+            id: 'nuke-visualizer.viewer-settings',
+            label: 'Viewer Settings',
+            commandId: OpenViewerSettingsCommand.id,
+            category: ['Visualizer'],
+            sectionOrder: 'd',
+            order: 'b',
+            icon: 'settings-gear',
+            description: 'Open the Viewer Settings sidebar for the active 3D viewer.'
         });
 
         registry.registerItem({

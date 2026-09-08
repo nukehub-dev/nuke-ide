@@ -45,8 +45,14 @@ import {
     toThreePlaneParamsArray,
     updateAxisClip
 } from '../../../../viewer-core/clip-plane';
-import { createOrbitControls, type OrbitControlsHandle } from '../../../../viewer-core/orbit-controls';
+import { createOrbitControls, type BoundsCorner, type OrbitControlsHandle } from '../../../../viewer-core/orbit-controls';
 import { clampSliderValue, DEFAULT_VIEWER_TOOLBAR_STATE, OPACITY_SPEC } from '../../../../viewer-core/viewer-toolbar-model';
+import {
+    ViewerSettingsHost,
+    ViewerSettingsPatch,
+    ViewerSettingsSnapshot,
+    viewerSnapDirection
+} from '../../../../viewer-settings/viewer-settings-model';
 import {
     cellDisplayName,
     cellIdFromMeshName,
@@ -96,7 +102,7 @@ export interface GeometryNativeViewerProps {
  * and forwards tree selections from `openmc-geometry-tree.tsx`.
  */
 @injectable()
-export class GeometryNativeViewerWidget extends ReactWidget {
+export class GeometryNativeViewerWidget extends ReactWidget implements ViewerSettingsHost {
     static readonly ID: string = 'geometry-native-viewer-widget';
     static readonly LABEL: string = 'Native Geometry Viewer';
 
@@ -185,6 +191,42 @@ export class GeometryNativeViewerWidget extends ReactWidget {
             this.buildScene();
         }
         this.update();
+    }
+
+    // ------------------------------------------------------------------
+    // Viewer Settings sidebar API (single-direction sync: the panel reads
+    // the snapshot and applies edits through these setters — the same calls
+    // the side panel makes, never duplicated state). Geometry has no
+    // color-by/shading/measure sections, so the snapshot carries only clip,
+    // opacity, and the snap handle.
+    // ------------------------------------------------------------------
+
+    /** Snap the camera to an orbit-handle direction (sidebar snap group). */
+    snapViewerTo(direction: BoundsCorner): void {
+        this.orbitControls?.setViewDirection(direction);
+    }
+
+    /** Read the current settings for the sidebar panel. */
+    getViewerSettingsSnapshot(): ViewerSettingsSnapshot {
+        return {
+            widgetId: this.id,
+            title: this.title.label,
+            hasDataset: this.cells.length > 0,
+            clip: { state: this.clip, tab: this.clipTab },
+            opacity: { value: this.opacity, min: OPACITY_SPEC.min, max: OPACITY_SPEC.max, step: OPACITY_SPEC.step }
+        };
+    }
+
+    /** Apply a sidebar edit through the existing prop setters. */
+    applyViewerSettings(patch: ViewerSettingsPatch): void {
+        if (patch.clipTab !== undefined && patch.clipTab !== this.clipTab) {
+            this.clipTab = patch.clipTab;
+            this.update();
+        }
+        if (patch.snap !== undefined) {
+            this.snapViewerTo(viewerSnapDirection(patch.snap));
+        }
+        this.applyProps({ opacity: patch.opacity, clip: patch.clip });
     }
 
     /** Tree-side selection entry point: highlight the mesh for a cell id. */

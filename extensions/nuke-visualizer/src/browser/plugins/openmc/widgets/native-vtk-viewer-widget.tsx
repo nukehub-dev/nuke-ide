@@ -54,7 +54,12 @@ import {
     strideForBudget,
     tupleValue
 } from './native-vtk/native-vtk-data';
-import { createOrbitControls, standardViewDirection, type OrbitControlsHandle } from '../../../viewer-core/orbit-controls';
+import {
+    createOrbitControls,
+    standardViewDirection,
+    type BoundsCorner,
+    type OrbitControlsHandle
+} from '../../../viewer-core/orbit-controls';
 import type { GizmoCameraPose } from '../../../viewer-core/orientation-gizmo';
 import {
     addMeasurePoint,
@@ -69,15 +74,12 @@ import {
 import { isViewerContextMenuClick, openViewerContextMenu } from '../../../viewer-core/viewer-context-menu';
 import {
     anyClipEnabled,
-    AxisAlignedBounds,
     boundingBoxFromPositions,
-    CLIP_AXES,
     ClipAxis,
     ClipPlanesState,
     createClipPlanesState,
     setAllClipEnabled,
-    toThreePlaneParamsArray,
-    updateAxisClip
+    toThreePlaneParamsArray
 } from '../../../viewer-core/clip-plane';
 import {
     DEFAULT_VIEWER_SHADING_MODE,
@@ -88,6 +90,12 @@ import {
     resolveViewerShadingFlags
 } from '../../../viewer-core/shading-mode';
 import { OpenMCVtkArrayInfo } from '../../../../common/openmc-protocol';
+import {
+    ViewerSettingsHost,
+    ViewerSettingsPatch,
+    ViewerSettingsSnapshot,
+    viewerSnapDirection
+} from '../../../viewer-settings/viewer-settings-model';
 import { ViewerNavAction, ViewerNavCluster } from './viewer-nav-cluster';
 import { ViewerGizmo, type ViewerGizmoHandle } from './viewer-gizmo';
 import { ViewerMeasureLabel, type ViewerMeasureHandle } from './viewer-measure';
@@ -132,7 +140,7 @@ export interface NativeVtkViewerProps {
  * convert→serve→iframe lifecycle with convert→FileService→native rendering.
  */
 @injectable()
-export class NativeVtkViewerWidget extends ReactWidget {
+export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettingsHost {
     static readonly ID: string = 'native-vtk-viewer-widget';
     static readonly LABEL: string = 'Native VTK Viewer';
 
@@ -243,6 +251,95 @@ export class NativeVtkViewerWidget extends ReactWidget {
         }
     }
 
+    // ------------------------------------------------------------------
+    // Viewer Settings sidebar API (single-direction sync: the panel reads
+    // the snapshot and applies edits through these setters — the same calls
+    // the header used to make, never duplicated state)
+    // ------------------------------------------------------------------
+
+    /** Color-by entries for the sidebar select (same options the header offered). */
+    colorByOptions(): { value: string; label: string }[] {
+        if (!this.model || !this.classified) {
+            return [{ value: SOLID_COLOR, label: SOLID_COLOR }];
+        }
+        const options: { value: string; label: string }[] = [{ value: SOLID_COLOR, label: SOLID_COLOR }];
+        const push = (arrays: OpenMCVtkArrayInfo[]): void => {
+            for (const array of arrays) {
+                const value = colorByValue(array);
+                options.push({ value, label: `${array.association === 'point' ? 'Point' : 'Cell'}: ${array.name}` });
+            }
+        };
+        push(this.classified.energies);
+        push(this.classified.fluxGroups);
+        for (const group of this.classified.windowGroups) {
+            if (group.lower) {
+                options.push({ value: colorByValue(group.lower), label: `Cell: ${group.lower.name}` });
+            }
+            if (group.upper) {
+                options.push({ value: colorByValue(group.upper), label: `Cell: ${group.upper.name}` });
+            }
+        }
+        push(this.classified.scalars);
+        push(this.classified.sources);
+        push(this.classified.ids);
+        push(this.classified.other);
+        return options;
+    }
+
+    /** Whether the distance-measure tool is armed (sidebar toggle state). */
+    isMeasureActive(): boolean {
+        return this.measure.active;
+    }
+
+    /** Arm or disarm the distance-measure tool (sidebar toggle). */
+    setMeasureActive(active: boolean): void {
+        const next = setMeasureActive(this.measure, active);
+        if (next !== this.measure) {
+            this.measure = next;
+            this.update();
+        }
+    }
+
+    /** Snap the camera to an orbit-handle direction (sidebar snap group). */
+    snapViewerTo(direction: BoundsCorner): void {
+        this.orbitControls?.setViewDirection(direction);
+    }
+
+    /** Read the current settings for the sidebar panel. */
+    getViewerSettingsSnapshot(): ViewerSettingsSnapshot {
+        const solid = this.colorBy === SOLID_COLOR;
+        return {
+            widgetId: this.id,
+            title: this.title.label,
+            hasDataset: this.model !== undefined,
+            colorBy: { value: this.colorBy, options: this.colorByOptions() },
+            colormap: { value: this.colormap, options: [...NATIVE_VTK_COLORMAPS], disabled: solid },
+            shading: { value: this.shading },
+            clip: { state: this.clip, tab: this.clipTab },
+            measure: { active: this.measure.active }
+        };
+    }
+
+    /** Apply a sidebar edit through the existing prop setters. */
+    applyViewerSettings(patch: ViewerSettingsPatch): void {
+        if (patch.clipTab !== undefined && patch.clipTab !== this.clipTab) {
+            this.clipTab = patch.clipTab;
+            this.update();
+        }
+        if (patch.measureActive !== undefined) {
+            this.setMeasureActive(patch.measureActive);
+        }
+        if (patch.snap !== undefined) {
+            this.snapViewerTo(viewerSnapDirection(patch.snap));
+        }
+        this.applyProps({
+            colorBy: patch.colorBy,
+            colormap: patch.colormap as NativeVtkColormapName | undefined,
+            shading: patch.shading,
+            clip: patch.clip
+        });
+    }
+
     /** Load a VTK file from disk through Theia's FileService (no HTTP fetch). */
     async setVtkFile(uri: URI): Promise<void> {
         this.fileUri = uri;
@@ -349,6 +446,11 @@ export class NativeVtkViewerWidget extends ReactWidget {
         );
     }
 
+    /**
+     * Slim file/status header. Display settings (color-by, colormap,
+     * shading, clip, measure) live in the Viewer Settings sidebar, which
+     * drives this widget through `applyViewerSettings`.
+     */
     protected renderHeader(): React.ReactNode {
         const fileName = this.fileUri?.path.base ?? 'No file loaded';
         return (
@@ -357,11 +459,6 @@ export class NativeVtkViewerWidget extends ReactWidget {
                     <i className={codicon('file')}></i>
                     {fileName}
                 </span>
-                {this.renderColorBySelect()}
-                {this.renderColormapSelect()}
-                {this.renderShadingSelect()}
-                {this.renderClipControls()}
-                {this.renderMeasureToggle()}
                 <Tooltip content="Download PNG screenshot" position="bottom">
                     <button
                         className="theia-button secondary"
@@ -381,167 +478,6 @@ export class NativeVtkViewerWidget extends ReactWidget {
                     </button>
                 </Tooltip>
             </div>
-        );
-    }
-
-    protected renderColorBySelect(): React.ReactNode {
-        if (!this.model || !this.classified) {
-            return undefined;
-        }
-        const options: { value: string; label: string }[] = [{ value: SOLID_COLOR, label: SOLID_COLOR }];
-        const push = (arrays: OpenMCVtkArrayInfo[]): void => {
-            for (const array of arrays) {
-                const value = colorByValue(array);
-                options.push({ value, label: `${array.association === 'point' ? 'Point' : 'Cell'}: ${array.name}` });
-            }
-        };
-        push(this.classified.energies);
-        push(this.classified.fluxGroups);
-        for (const group of this.classified.windowGroups) {
-            if (group.lower) {
-                options.push({ value: colorByValue(group.lower), label: `Cell: ${group.lower.name}` });
-            }
-            if (group.upper) {
-                options.push({ value: colorByValue(group.upper), label: `Cell: ${group.upper.name}` });
-            }
-        }
-        push(this.classified.scalars);
-        push(this.classified.sources);
-        push(this.classified.ids);
-        push(this.classified.other);
-        return (
-            <Tooltip content="Color-by array (applies instantly, no viewer restart)" position="bottom">
-                <label className="openmc-output-viewer-control">
-                    Color by
-                    <select value={this.colorBy} onChange={(e) => this.applyProps({ colorBy: e.target.value })} disabled={this.isLoading}>
-                        {options.map((option) => (
-                            <option key={option.value} value={option.value}>
-                                {option.label}
-                            </option>
-                        ))}
-                    </select>
-                </label>
-            </Tooltip>
-        );
-    }
-
-    protected renderColormapSelect(): React.ReactNode {
-        if (!this.model) {
-            return undefined;
-        }
-        const solid = this.colorBy === SOLID_COLOR;
-        return (
-            <Tooltip
-                content={solid ? 'Colormap (select a data array in Color by first)' : 'Colormap (applies instantly)'}
-                position="bottom"
-            >
-                <label className="openmc-output-viewer-control">
-                    Map
-                    <select
-                        value={this.colormap}
-                        onChange={(e) => this.applyProps({ colormap: e.target.value as NativeVtkColormapName })}
-                        disabled={this.isLoading || solid}
-                    >
-                        {NATIVE_VTK_COLORMAPS.map((name) => (
-                            <option key={name} value={name}>
-                                {name}
-                            </option>
-                        ))}
-                    </select>
-                </label>
-            </Tooltip>
-        );
-    }
-
-    protected renderShadingSelect(): React.ReactNode {
-        if (!this.model) {
-            return undefined;
-        }
-        return (
-            <Tooltip content="Shading mode (applies instantly)" position="bottom">
-                <label className="openmc-output-viewer-control">
-                    Shading
-                    <select
-                        value={this.shading}
-                        onChange={(e) => this.applyProps({ shading: e.target.value as ViewerShadingMode })}
-                        disabled={this.isLoading}
-                    >
-                        {VIEWER_SHADING_MODES.map((mode) => (
-                            <option key={mode.id} value={mode.id}>
-                                {mode.label}
-                            </option>
-                        ))}
-                    </select>
-                </label>
-            </Tooltip>
-        );
-    }
-
-    protected renderClipControls(): React.ReactNode {
-        if (!this.model) {
-            return undefined;
-        }
-        const bounds: AxisAlignedBounds | undefined = boundingBoxFromPositions(this.model.positions);
-        const tab = this.clip[this.clipTab];
-        return (
-            <span className="openmc-output-viewer-control">
-                <Tooltip content="Clip planes: master toggle (enabled planes apply together)" position="bottom">
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                        <input
-                            type="checkbox"
-                            checked={anyClipEnabled(this.clip)}
-                            onChange={(e) => this.applyProps({ clip: setAllClipEnabled(this.clip, e.target.checked) })}
-                            disabled={this.isLoading}
-                        />
-                        Clip
-                    </label>
-                </Tooltip>
-                {CLIP_AXES.map((axis) => (
-                    <Tooltip key={axis} content={`Clip ${axis} plane settings`} position="bottom">
-                        <button
-                            className={`theia-button${this.clipTab === axis ? '' : ' secondary'}`}
-                            disabled={this.isLoading}
-                            onClick={() => {
-                                this.clipTab = axis;
-                                this.update();
-                            }}
-                        >
-                            {axis}
-                        </button>
-                    </Tooltip>
-                ))}
-                <Tooltip content={`Clip ${this.clipTab} position (percent across the dataset; enables the plane)`} position="bottom">
-                    <input
-                        type="range"
-                        min={0}
-                        max={100}
-                        step={1}
-                        value={Math.round(tab.fraction * 100)}
-                        disabled={this.isLoading || !bounds}
-                        onChange={(e) =>
-                            this.applyProps({
-                                clip: updateAxisClip(this.clip, this.clipTab, {
-                                    enabled: true,
-                                    fraction: parseFloat(e.target.value) / 100
-                                })
-                            })
-                        }
-                    />
-                </Tooltip>
-                <Tooltip content={`Flip kept ${this.clipTab} half-space (enables the plane)`} position="bottom">
-                    <button
-                        className="theia-button secondary"
-                        disabled={this.isLoading}
-                        onClick={() =>
-                            this.applyProps({
-                                clip: updateAxisClip(this.clip, this.clipTab, { enabled: true, invert: !tab.invert })
-                            })
-                        }
-                    >
-                        {tab.invert ? 'Unflip' : 'Flip'}
-                    </button>
-                </Tooltip>
-            </span>
         );
     }
 
@@ -594,33 +530,6 @@ export class NativeVtkViewerWidget extends ReactWidget {
         );
     }
 
-    /**
-     * Distance-measure toggle in the header — the single entry point (the nav
-     * cluster stays view-only). Hidden until a dataset loads, like the gizmo.
-     */
-    protected renderMeasureToggle(): React.ReactNode {
-        if (!this.model) {
-            return undefined;
-        }
-        const pressed = this.measure.active;
-        return (
-            <Tooltip
-                content={pressed ? 'Measure: click two surface points (Escape cancels)' : 'Measure distance between two surface points'}
-                position="bottom"
-            >
-                <button
-                    className={`theia-button secondary viewer-measure-toggle${pressed ? ' active' : ''}`}
-                    aria-pressed={pressed}
-                    aria-label="Measure distance"
-                    onClick={() => this.toggleMeasure()}
-                    disabled={this.isLoading}
-                >
-                    <i className={codicon('ruler')}></i>
-                </button>
-            </Tooltip>
-        );
-    }
-
     /** Distance-measure label over the 3D viewarea (hidden until a dataset loads; positioned imperatively). */
     protected renderMeasureLabel(): React.ReactNode {
         if (!this.model) {
@@ -633,12 +542,6 @@ export class NativeVtkViewerWidget extends ReactWidget {
                 }}
             />
         );
-    }
-
-    /** Flip the measure tool; turning it off drops a pending point but keeps a committed segment on screen. */
-    private toggleMeasure(): void {
-        this.measure = setMeasureActive(this.measure, !this.measure.active);
-        this.update();
     }
 
     /** Raycast-pick threshold from the dataset bounds (points/lines need a world-size tolerance). */

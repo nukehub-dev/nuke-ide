@@ -48,11 +48,11 @@ Double-clicking `summary.h5` opens the geometry 3D view (hierarchy tree + 3D). T
 
 ## Viewer Controls
 
-All 3D output viewers share the base visualizer's [display controls](../base-visualizer.md): color-by array, color map, scalar bar, opacity, representation, clip plane, point size / line width, and Save Screenshot.
+Display settings live in the **Viewer Settings** sidebar (`Ctrl+Shift+P` → "Open Viewer Settings", or Nuke Tools → Visualizer → Viewer Settings), bound to the active 3D viewer tab: **Color by** array, **Map**, **Shading**, per-axis **Clip** (X/Y/Z tabs remember their position/flip), the **measure** toggle, and ISO/T/F/R/X/Y/Z **axis snaps** (same action as the canvas nav cluster). Viewer headers keep file/status actions (screenshot, reload) and the canvas keeps the nav cluster, orientation gizmo, and measure annotations. Geometry (`geometry.xml`) viewers show Clip plus opacity; Exodus viewers show Color by, Map, and the time-step slider.
 
 - **Resizable split** — drag the handle between the 3D area and the data panel to resize it (the handle shields the 3D view's mouse capture while dragging, so fast drags stay smooth).
 - **Orientation gizmo** — the ±X/±Y/±Z overlay in the top-right corner tracks the camera as you orbit; click an axis knob to snap to that standard view. The bottom-right nav cluster (ISO/top/front/right + fit + zoom) drives the same views.
-- **Distance measure** — the header ruler button captures two clicks on the model surface and labels the distance (model units); Escape cancels the pending point, then the measurement, then the tool, and reloading clears it. Angle/radius measurement stays in CAD.
+- **Distance measure** — the sidebar measure toggle captures two clicks on the model surface and labels the distance (model units); Escape cancels the pending point, then the measurement, then the tool, and reloading clears it. Angle/radius measurement stays in CAD.
 - **Missing dependencies** — if the active Python environment lacks `vtk`, the viewer shows an actionable panel (what to install, or switch environment in Settings → Nuke Utils) with a Retry button.
 
 > **Tip:** Conversions run in the active Python environment and cache nothing — if you switch environments, reopen the file to re-convert.

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { collectErrors, waitForWorkbench, openFileByQuickOpen, closeAllEditors } from './helpers';
+import { collectErrors, waitForWorkbench, openFileByQuickOpen, closeAllEditors, runCommand } from './helpers';
 
 /**
  * Native 3D viewer smoke suite (trame-to-frontend migration).
@@ -45,6 +45,18 @@ async function openViewer(page: Parameters<typeof openFileByQuickOpen>[0], name:
     return container;
 }
 
+/**
+ * Open the Viewer Settings sidebar (display controls moved out of the
+ * viewer headers). The panel binds to the last-active viewer tab and keeps
+ * the binding while its own controls have focus.
+ */
+async function openViewerSettings(page: Parameters<typeof openFileByQuickOpen>[0]) {
+    await runCommand(page, 'Open Viewer Settings');
+    const panel = page.locator('.viewer-settings-panel');
+    await expect(panel).toBeVisible({ timeout: 30_000 });
+    return panel;
+}
+
 test('native polydata (.vtp) renders with canvas and instant color-by', async ({ page }) => {
     const errors = collectErrors(page);
     await page.goto('/');
@@ -56,19 +68,20 @@ test('native polydata (.vtp) renders with canvas and instant color-by', async ({
     await expect(canvas).toBeVisible({ timeout: 30_000 });
 
     // Instant color-by switch (no server restart): point energy -> cell id.
-    const colorBy = container.locator('.openmc-output-viewer-header select').first();
+    // Display controls live in the Viewer Settings sidebar, not the header.
+    const settings = await openViewerSettings(page);
+    const colorBy = settings.locator('select.viewer-settings-color-by');
     await expect(colorBy).toBeVisible();
     await colorBy.selectOption('Cell: cell_id');
     await expect(container.locator('.openmc-output-viewer-status.error')).toHaveCount(0);
     await expect(canvas).toBeVisible();
 
     // Shading + clip controls (CAD parity): wireframe mode and an enabled
-    // clip plane must apply instantly without errors. Header selects are
-    // color-by, colormap, shading — in that order.
-    const shading = container.locator('.openmc-output-viewer-header select').nth(2);
+    // clip plane must apply instantly without errors.
+    const shading = settings.locator('select.viewer-settings-shading');
     await shading.selectOption('Wireframe');
     await expect(container.locator('.openmc-output-viewer-status.error')).toHaveCount(0);
-    const clipToggle = container.locator('.openmc-output-viewer-header input[type="checkbox"]').first();
+    const clipToggle = settings.locator('input.viewer-settings-clip-master');
     await clipToggle.check();
     await expect(container.locator('.openmc-output-viewer-status.error')).toHaveCount(0);
     await expect(canvas).toBeVisible();
@@ -92,6 +105,44 @@ test('native polydata (.vtp) renders with canvas and instant color-by', async ({
     expect(bad, `unexpected severe errors:\n${bad.join('\n')}`).toEqual([]);
 });
 
+test('viewer settings sidebar shows values and drives shading', async ({ page }) => {
+    const errors = collectErrors(page);
+    await page.goto('/');
+    await waitForWorkbench(page);
+
+    const container = await openViewer(page, 'native-polydata.vtp');
+    await expect(container.locator('.openmc-output-viewer-status.error')).toHaveCount(0);
+    const canvas = container.locator('.openmc-output-viewer-viewarea canvas');
+    await expect(canvas).toBeVisible({ timeout: 30_000 });
+
+    // The slim header carries file/status actions only — no display selects remain.
+    await expect(container.locator('.openmc-output-viewer-header select')).toHaveCount(0);
+
+    // The sidebar binds to the active viewer tab and shows its live values.
+    const settings = await openViewerSettings(page);
+    await expect(settings.locator('.viewer-settings-title')).toContainText('Native VTK Viewer');
+    const colorBy = settings.locator('select.viewer-settings-color-by');
+    await expect(colorBy).toBeVisible();
+    expect(await colorBy.locator('option').count()).toBeGreaterThan(1);
+    expect((await colorBy.inputValue()).length).toBeGreaterThan(0);
+    const shading = settings.locator('select.viewer-settings-shading');
+    await expect(shading).toHaveValue('shaded');
+
+    // A sidebar shading change applies to the canvas instantly.
+    await shading.selectOption('X-Ray');
+    await expect(container.locator('.openmc-output-viewer-status.error')).toHaveCount(0);
+    await expect(canvas).toBeVisible();
+    await expect(settings.locator('select.viewer-settings-shading')).toHaveValue('xray');
+
+    // The axis snap group drives the orbit handle without errors.
+    await settings.locator('button.viewer-settings-snap-iso').click();
+    await expect(canvas).toBeVisible();
+    await expect(container.locator('.openmc-output-viewer-status.error')).toHaveCount(0);
+
+    const bad = severe(errors);
+    expect(bad, `unexpected severe errors:\n${bad.join('\n')}`).toEqual([]);
+});
+
 test('orientation gizmo is visible and X snaps the view', async ({ page }) => {
     const errors = collectErrors(page);
     await page.goto('/');
@@ -106,6 +157,16 @@ test('orientation gizmo is visible and X snaps the view', async ({ page }) => {
     const gizmo = container.locator('.viewer-gizmo');
     await expect(gizmo).toBeVisible({ timeout: 30_000 });
     await expect(gizmo.locator('.viewer-gizmo-knob')).toHaveCount(6);
+
+    // Overlay-sizing regression (collapsed-cross bug): the box must be a
+    // healthy fixed-size overlay and every knob a real hit target, not a
+    // shrunken sliver.
+    const gizmoBox = await gizmo.boundingBox();
+    expect(gizmoBox?.width).toBeGreaterThanOrEqual(60);
+    expect(gizmoBox?.height).toBeGreaterThanOrEqual(60);
+    const knobBox = await gizmo.locator('.viewer-gizmo-knob').first().boundingBox();
+    expect(knobBox?.width).toBeGreaterThanOrEqual(20);
+    expect(knobBox?.height).toBeGreaterThanOrEqual(20);
 
     // Clicking the +X knob snaps the standard view (orbit handle): the
     // canvas must survive with no errors.
@@ -129,7 +190,7 @@ test('distance measure labels a known-size fixture and Escape clears', async ({ 
     const canvas = container.locator('.openmc-output-viewer-viewarea canvas');
     await expect(canvas).toBeVisible({ timeout: 30_000 });
 
-    const toggle = container.locator('.viewer-measure-toggle');
+    const toggle = (await openViewerSettings(page)).locator('.viewer-measure-toggle');
     await expect(toggle).toBeVisible({ timeout: 30_000 });
     await toggle.click();
     await expect(toggle).toHaveAttribute('aria-pressed', 'true');

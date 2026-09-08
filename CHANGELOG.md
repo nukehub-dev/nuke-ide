@@ -30,6 +30,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   volume isolation.
 - nuke-visualizer: **orientation gizmo in the native 3D viewers** — a CAD-style ±X/±Y/±Z overlay (top-right, below the header) in the native VTK and DAGMC viewers tracks the camera and snaps to the standard view when an axis knob is clicked; it hides when no dataset is loaded.
 - nuke-visualizer: **distance measure in the native 3D viewers** — a header ruler toggle in the native VTK and DAGMC viewers captures two raycast surface points and shows the distance as a viewport label (line + endpoint spheres in the scene); Escape cancels newest-first and rebuild clears. Angle/radius stay CAD-only.
+- nuke-visualizer: **Viewer Settings sidebar** — Color by, Map, Shading,
+  per-axis Clip (axis/position/flip), the measure toggle, and ISO/T/F/R/X/Y/Z
+  axis snaps moved out of the native viewer headers into a right-area sidebar
+  bound to the active viewer tab (native VTK/tally/output, DAGMC,
+  geometry-native, Exodus); headers keep file/status actions and the canvas
+  keeps the nav cluster, orientation gizmo, and measure annotations.
 - nuke-visualizer: **viewer navigation and tools** — OrbitControls camera
   (orbit/pan/zoom with damping) in all native viewers, plus Shading
   (shaded/wireframe/points/x-ray) and clip-plane (axis/position/flip)

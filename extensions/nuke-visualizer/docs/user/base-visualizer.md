@@ -46,22 +46,22 @@ Once the file loads, the visualization panel shows an interactive 3D view with a
 
 ### Appearance
 
-| Control            | What It Does                                                   |
-| ------------------ | -------------------------------------------------------------- |
-| **Opacity**        | Slider from 0 (invisible) to 1 (fully opaque)                  |
-| **Representation** | Surface / Surface with Edges / Wireframe / Points              |
-| **Color By**       | Choose a data array (e.g., temperature, flux) or "Solid Color" |
-| **Color Map**      | Select from 30+ presets (Viridis, Cool to Warm, Jet, etc.)     |
-| **Scalar Bar**     | Toggle the color legend on/off                                 |
+| Control        | What It Does                                                   |
+| -------------- | -------------------------------------------------------------- |
+| **Opacity**    | Slider from 0 (invisible) to 1 (fully opaque)                  |
+| **Shading**    | Shaded / Wireframe / Points / X-Ray                            |
+| **Color By**   | Choose a data array (e.g., temperature, flux) or "Solid Color" |
+| **Color Map**  | Short preset list (Plasma, Viridis, Inferno, Jet, Hot, Cool)   |
+| **Scalar Bar** | Toggle the color legend on/off                                 |
 
 ### Clipping
 
-| Control         | What It Does                            |
-| --------------- | --------------------------------------- |
-| **Enable Clip** | Turn the clipping plane on/off          |
-| **Clip Origin** | XYZ position of the clip plane center   |
-| **Clip Normal** | Direction vector the plane faces        |
-| **Invert Clip** | Swap which side of the plane is visible |
+| Control         | What It Does                                     |
+| --------------- | ------------------------------------------------ |
+| **Enable Clip** | Turn the clipping planes on/off                  |
+| **Clip Axis**   | X / Y / Z tabs, each remembering its own setting |
+| **Position**    | Slider moving the plane through the volume       |
+| **Unflip**      | Swap which side of the plane is visible          |
 
 ### Camera
 
@@ -133,11 +133,12 @@ If you select a specific volume ID (e.g., from the Geometry Hierarchy), only tha
 
 ## Preferences
 
-You can adjust the server timeout in settings:
+Conversion commands (STEP/DAGMC meshing) time out based on file size:
 
-- **Setting:** `nukeVisualizer.serverTimeout`
-- **Default:** 30 seconds
-- **Description:** How long to wait for the Python visualization server to start before showing an error.
+- **Setting:** `nukeVisualizer.serverTimeout` / `nukeVisualizer.serverTimeoutPerMB`
+- **Defaults:** 30 seconds + 0.5 seconds per MB (capped at 10 minutes)
+- **Description:** How long a headless conversion may run before it is
+  cancelled with an error. Raise either value for very large models.
 
 ---
 

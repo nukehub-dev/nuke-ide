@@ -94,6 +94,8 @@ import { OpenMCVoxelPlotViewerContribution } from './plugins/openmc/contribution
 import { OpenMCSummaryViewerContribution } from './plugins/openmc/contributions/openmc-summary-viewer-contribution';
 import { ExodusTimeSliderWidget } from './plugins/openmc/widgets/exodus-series/exodus-time-slider-widget';
 import { OpenMCExodusViewerContribution } from './plugins/openmc/contributions/openmc-exodus-viewer-contribution';
+import { ViewerSettingsWidget } from './viewer-settings/viewer-settings-widget';
+import { ViewerSettingsContribution } from './viewer-settings/viewer-settings-contribution';
 
 export default new ContainerModule((bind: interfaces.Bind) => {
     // Bind Plotly service
@@ -563,4 +565,16 @@ export default new ContainerModule((bind: interfaces.Bind) => {
         .inSingletonScope();
     bind(OpenMCExodusViewerContribution).toSelf().inSingletonScope();
     bind(OutputViewerContribution).toService(OpenMCExodusViewerContribution);
+
+    // Viewer Settings sidebar (right area): one panel bound to the active
+    // native viewer through the shared ViewerSettingsHost surface
+    bind(WidgetFactory)
+        .toDynamicValue((context) => ({
+            id: ViewerSettingsWidget.ID,
+            createWidget: () => context.container.get<ViewerSettingsWidget>(ViewerSettingsWidget)
+        }))
+        .inSingletonScope();
+    bind(ViewerSettingsWidget).toSelf();
+    bind(ViewerSettingsContribution).toSelf().inSingletonScope();
+    bind(CommandContribution).toService(ViewerSettingsContribution);
 });

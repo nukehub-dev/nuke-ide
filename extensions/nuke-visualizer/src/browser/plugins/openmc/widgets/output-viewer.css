@@ -156,7 +156,10 @@
     margin: 2px 0;
 }
 
-/* CAD-style orientation gizmo (top-right overlay below the header chrome) */
+/* CAD-style orientation gizmo (top-right overlay below the header chrome).
+   Geometry mirrors VIEWER_GIZMO_* in viewer-core/orientation-gizmo.ts (box,
+   center, radius, knob) — keep both in sync, pinned by
+   orientation-gizmo.test.ts. */
 
 .viewer-gizmo {
     position: absolute;
@@ -175,10 +178,13 @@
 
 .viewer-gizmo-knob-slot {
     position: absolute;
-    left: 48px;
-    top: 48px;
-    width: 0;
-    height: 0;
+    /* Definite hit box (knob edge, centered on the overlay center): a 0x0
+       slot collapses the Tooltip span (max-width: 100% of nothing) and
+       shrinks the knob buttons to slivers. */
+    left: 37px;
+    top: 37px;
+    width: 22px;
+    height: 22px;
 }
 
 .viewer-gizmo-knob {
@@ -195,7 +201,8 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    transform: translate(-50%, -50%);
+    /* No centering transform here: the slot box itself is positioned with
+       its center on the spoke endpoint, and the knob fills the slot. */
     cursor: pointer;
     background: var(--theia-editor-background);
     color: var(--theia-foreground);

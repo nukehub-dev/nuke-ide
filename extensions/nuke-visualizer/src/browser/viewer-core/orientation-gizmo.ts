@@ -124,6 +124,28 @@ export const GIZMO_VIEW_DIRECTIONS: Record<GizmoAxisId, GizmoVector> = {
     '-Z': [0, 0, -1]
 };
 
+/**
+ * Gizmo overlay box edge in CSS px. The overlay is a fixed-size box (never a
+ * fraction of the viewarea), mirrored by `.viewer-gizmo` in
+ * `plugins/openmc/widgets/output-viewer.css` — keep both in sync (covered by
+ * `orientation-gizmo.test.ts`).
+ */
+export const VIEWER_GIZMO_BOX = 96;
+
+/** Overlay center in CSS px (half the box edge). */
+export const VIEWER_GIZMO_CENTER = VIEWER_GIZMO_BOX / 2;
+
+/** Spoke length in CSS px for a unit overlay coordinate (a third of the box edge). */
+export const VIEWER_GIZMO_RADIUS = VIEWER_GIZMO_BOX / 3;
+
+/**
+ * Axis-knob hit-box edge in CSS px. Each knob slot is a definite box of this
+ * size (never 0x0: a zero-size slot lets the Nuke Tooltip span collapse and
+ * shrink the knob buttons to slivers), mirrored by
+ * `.viewer-gizmo-knob-slot` in `output-viewer.css`.
+ */
+export const VIEWER_GIZMO_KNOB = 22;
+
 function gizmoDot(a: GizmoVector, b: GizmoVector): number {
     return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 }
