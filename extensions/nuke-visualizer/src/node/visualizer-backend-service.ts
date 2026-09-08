@@ -201,6 +201,62 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
         throw new Error(`Conversion completed but could not find output VTK file: ${vtkPath}`);
     }
 
+    /**
+     * Convert a DAGMC H5M file to a multiblock `.vtm` (one block per volume).
+     * Mirrors {@link convertDagmc}: same python detection, proportional
+     * timeout, and stdout-first JSON contract, but runs
+     * `base.convert-dagmc-multiblock` and returns the manifest (`.vtm`) path.
+     */
+    async convertDagmcMultiblock(filePath: string): Promise<string> {
+        this.log(`Starting DAGMC multiblock conversion: ${filePath}`);
+
+        const serverScript = this.pythonHelper.findScript('server.py');
+        const pythonInfo = await this.pythonHelper.detectPythonForBaseVisualizer();
+        this.log(`[Converter] Using Python: ${pythonInfo.command}`);
+
+        const args = ['base.convert-dagmc-multiblock', '--file', filePath];
+
+        this.log(`[Converter] Command: "${pythonInfo.command}" "${serverScript}" "${args.join('" "')}"`);
+
+        // Compute proportional timeout for large files
+        const baseTimeoutSec = this.getUserPreference('nukeVisualizer.serverTimeout', 30);
+        const perMBSec = this.getUserPreference('nukeVisualizer.serverTimeoutPerMB', 0.5);
+        const stats = fs.statSync(filePath);
+        const fileSizeMB = stats.size / (1024 * 1024);
+        const timeoutMs = Math.round(
+            Math.max(baseTimeoutSec * 1000, Math.min(600000, baseTimeoutSec * 1000 + fileSizeMB * perMBSec * 1000))
+        );
+        this.log(
+            `[Converter] Timeout: ${(timeoutMs / 1000).toFixed(1)}s (base=${baseTimeoutSec}s, perMB=${perMBSec}s, size=${fileSizeMB.toFixed(1)}MB)`
+        );
+
+        const execResult = await this.pythonHelper.executeScript(serverScript, args, { timeout: timeoutMs });
+        if (execResult.status !== 0) {
+            const errorOutput = (execResult.stdout || '') + (execResult.stderr || '');
+            this.errorLog(`[Converter] FAILED with status ${execResult.status}. Output: ${errorOutput}`);
+            throw new Error(errorOutput || `Multiblock conversion failed with status ${execResult.status}`);
+        }
+
+        const result = this.parseJsonFromMixedOutput(execResult.stdout) as {
+            vtm_path: string;
+            from_cache: boolean;
+            error?: string;
+        };
+
+        if (result.error) {
+            this.errorLog(`[Converter] FAILED: ${result.error}`);
+            throw new Error(result.error);
+        }
+
+        const vtmPath = result.vtm_path;
+        if (vtmPath && fs.existsSync(vtmPath)) {
+            this.log(`[Converter] Success: ${vtmPath}`);
+            return vtmPath;
+        }
+
+        throw new Error(`Multiblock conversion completed but could not find output manifest: ${vtmPath}`);
+    }
+
     async convertStep(filePath: string): Promise<string> {
         this.log(`Starting STEP conversion: ${filePath}`);
 

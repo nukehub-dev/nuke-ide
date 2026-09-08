@@ -928,6 +928,97 @@ def convert_h5m_to_vtk_cached(
     return result
 
 
+# Marker segment in the multiblock cache key: reuses the get_cache_path
+# ``name:size:mtime:flag:vFILTER_VERSION`` pattern so content changes and
+# filter-derivation bumps invalidate multiblock entries in step.
+MULTIBLOCK_CACHE_MARKER = "multiblock"
+
+
+def get_multiblock_cache_path(
+    h5m_path: str, cache_dir: str = None, include_graveyard: bool = False
+) -> tuple[str, bool]:
+    """Get the cached multiblock manifest path for an H5M file.
+
+    Inputs: ``h5m_path`` (path to the ``.h5m`` file), optional
+    ``cache_dir`` (default: the temp-dir ``nuke-visualizer/dagmc`` cache),
+    ``include_graveyard`` (keeps the ``Graveyard`` volume; cached
+    separately).
+    Output: ``(manifest_path, exists)`` where the manifest is
+    ``<stem>_volumes.vtm`` inside the hash subdirectory
+    ``<stem>_<hash>_multiblock``. The hash reuses the
+    :func:`get_cache_path` key pattern (file name, size, mtime, and
+    ``FILTER_VERSION``) plus the multiblock marker, so stale manifests are
+    never reused. A hit is simply an existing manifest file.
+    Raises :class:`DagmcError` for a bad path or a missing file.
+    """
+    h5m_path = _require_h5m_path(h5m_path)
+
+    if cache_dir is None:
+        cache_dir = Path(tempfile.gettempdir()) / "nuke-visualizer" / "dagmc"
+    else:
+        cache_dir = Path(cache_dir)
+
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    stat = h5m_path.stat()
+    grave_flag = "graveyard" if include_graveyard else "nograveyard"
+    hash_input = (
+        f"{h5m_path.name}:{stat.st_size}:{stat.st_mtime}:"
+        f"{MULTIBLOCK_CACHE_MARKER}-{grave_flag}:v{FILTER_VERSION}"
+    )
+    file_hash = hashlib.md5(hash_input.encode()).hexdigest()[:12]
+
+    manifest_dir = cache_dir / f"{h5m_path.stem}_{file_hash}_multiblock"
+    manifest_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = manifest_dir / f"{h5m_path.stem}_volumes.vtm"
+
+    return str(manifest_path), manifest_path.is_file()
+
+
+def convert_h5m_to_multiblock_vtk_cached(
+    h5m_path: str,
+    use_cache: bool = True,
+    cache_dir: str = None,
+    include_graveyard: bool = False,
+) -> dict:
+    """Convert H5M to a multiblock ``.vtm`` with manifest caching.
+
+    Inputs: ``h5m_path`` (path to the ``.h5m`` file), ``use_cache``
+    (default True), optional ``cache_dir`` (default: the temp-dir
+    ``nuke-visualizer/dagmc`` cache), ``include_graveyard`` (default
+    False).
+    Output: dict with ``vtm_path``, ``from_cache``, ``volume_info``,
+    ``materials`` and ``groups``. On a cache hit the manifest exists
+    already, so ``volume_info``/``materials``/``groups`` are empty (the
+    client reads block structure from the manifest and toggles from
+    ``dagmc.info``).
+    Raises :class:`DagmcError` for a bad path, a missing file, or missing
+    pydagmc/vtk.
+    """
+    h5m_path = _require_h5m_path(h5m_path)
+
+    manifest_path, exists = get_multiblock_cache_path(
+        str(h5m_path), cache_dir, include_graveyard=include_graveyard
+    )
+    if use_cache and exists:
+        print(f"[DAGMC] Using cached multiblock: {manifest_path}")
+        return {
+            "vtm_path": manifest_path,
+            "from_cache": True,
+            "volume_info": [],
+            "materials": {},
+            "groups": {},
+        }
+
+    result = convert_h5m_to_multiblock_vtk(
+        str(h5m_path),
+        output_dir=str(Path(manifest_path).parent),
+        include_graveyard=include_graveyard,
+    )
+    result["from_cache"] = False
+    return result
+
+
 if __name__ == "__main__":
     import sys
 

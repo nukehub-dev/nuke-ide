@@ -57,12 +57,16 @@ import {
 import { createOrbitControls, standardViewDirection, type OrbitControlsHandle } from '../../../viewer-core/orbit-controls';
 import { isViewerContextMenuClick, openViewerContextMenu } from '../../../viewer-core/viewer-context-menu';
 import {
-    ClipPlaneState,
+    anyClipEnabled,
+    AxisAlignedBounds,
     boundingBoxFromPositions,
-    clipOriginAtFraction,
-    clipProjectionExtent,
-    createClipPlaneState,
-    toThreePlaneParams
+    CLIP_AXES,
+    ClipAxis,
+    ClipPlanesState,
+    createClipPlanesState,
+    setAllClipEnabled,
+    toThreePlaneParamsArray,
+    updateAxisClip
 } from '../../../viewer-core/clip-plane';
 import {
     DEFAULT_VIEWER_SHADING_MODE,
@@ -95,10 +99,8 @@ export interface NativeVtkViewerProps {
     opacity?: number;
     /** Shading mode (`shaded` | `wireframe` | `points` | `xray`). */
     shading?: ViewerShadingMode;
-    /** Clip state; applied only when `clipEnabled` is true. */
-    clip?: ClipPlaneState;
-    /** Whether the clip plane is active. */
-    clipEnabled?: boolean;
+    /** Per-axis clip state; each enabled axis plane applies (box-section view). */
+    clip?: ClipPlanesState;
 }
 
 /**
@@ -136,8 +138,9 @@ export class NativeVtkViewerWidget extends ReactWidget {
     protected pointSize = 3;
     protected opacity = 1;
     protected shading: ViewerShadingMode = DEFAULT_VIEWER_SHADING_MODE;
-    protected clip: ClipPlaneState = createClipPlaneState();
-    protected clipEnabled = false;
+    protected clip: ClipPlanesState = createClipPlanesState();
+    /** Active X/Y/Z tab of the header clip control (per-axis settings persist). */
+    protected clipTab: ClipAxis = 'X';
     protected isLoading = false;
     protected error: string | undefined;
     protected statusMessage = '';
@@ -174,8 +177,11 @@ export class NativeVtkViewerWidget extends ReactWidget {
             pointSize: this.pointSize,
             opacity: this.opacity,
             shading: this.shading,
-            clip: { ...this.clip, normal: [...this.clip.normal], origin: [...this.clip.origin] },
-            clipEnabled: this.clipEnabled
+            clip: {
+                X: { ...this.clip.X },
+                Y: { ...this.clip.Y },
+                Z: { ...this.clip.Z }
+            }
         };
     }
 
@@ -208,10 +214,6 @@ export class NativeVtkViewerWidget extends ReactWidget {
         }
         if (props.clip !== undefined) {
             this.clip = props.clip;
-            changed = true;
-        }
-        if (props.clipEnabled !== undefined && props.clipEnabled !== this.clipEnabled) {
-            this.clipEnabled = props.clipEnabled;
             changed = true;
         }
         if (changed) {
@@ -338,20 +340,6 @@ export class NativeVtkViewerWidget extends ReactWidget {
                 {this.renderColormapSelect()}
                 {this.renderShadingSelect()}
                 {this.renderClipControls()}
-                <Tooltip content="Solid color (no data mapping)" position="bottom">
-                    <button
-                        className={`theia-button${this.colorBy === SOLID_COLOR ? '' : ' secondary'}`}
-                        onClick={() => this.applyProps({ colorBy: SOLID_COLOR })}
-                        disabled={this.isLoading || !this.model}
-                    >
-                        Solid
-                    </button>
-                </Tooltip>
-                <Tooltip content="Fit view to dataset" position="bottom">
-                    <button className="theia-button secondary" onClick={() => this.fitView()} disabled={this.isLoading || !this.model}>
-                        <i className={codicon('screen-full')}></i>
-                    </button>
-                </Tooltip>
                 <Tooltip content="Download PNG screenshot" position="bottom">
                     <button
                         className="theia-button secondary"
@@ -419,14 +407,18 @@ export class NativeVtkViewerWidget extends ReactWidget {
         if (!this.model) {
             return undefined;
         }
+        const solid = this.colorBy === SOLID_COLOR;
         return (
-            <Tooltip content="Colormap (applies instantly)" position="bottom">
+            <Tooltip
+                content={solid ? 'Colormap (select a data array in Color by first)' : 'Colormap (applies instantly)'}
+                position="bottom"
+            >
                 <label className="openmc-output-viewer-control">
                     Map
                     <select
                         value={this.colormap}
                         onChange={(e) => this.applyProps({ colormap: e.target.value as NativeVtkColormapName })}
-                        disabled={this.isLoading}
+                        disabled={this.isLoading || solid}
                     >
                         {NATIVE_VTK_COLORMAPS.map((name) => (
                             <option key={name} value={name}>
@@ -467,65 +459,64 @@ export class NativeVtkViewerWidget extends ReactWidget {
         if (!this.model) {
             return undefined;
         }
-        const bounds = boundingBoxFromPositions(this.model.positions);
-        const extent = bounds ? clipProjectionExtent(bounds, this.clip.normal) : { min: 0, max: 0 };
-        const span = extent.max - extent.min;
-        const dot =
-            this.clip.normal[0] * this.clip.origin[0] +
-            this.clip.normal[1] * this.clip.origin[1] +
-            this.clip.normal[2] * this.clip.origin[2];
-        const fraction = span > 0 ? (dot - extent.min) / span : 0.5;
-        const axis = dominantClipAxis(this.clip.normal);
+        const bounds: AxisAlignedBounds | undefined = boundingBoxFromPositions(this.model.positions);
+        const tab = this.clip[this.clipTab];
         return (
             <span className="openmc-output-viewer-control">
-                <Tooltip content="Clip plane: axis, position, and kept half-space (applies instantly)" position="bottom">
+                <Tooltip content="Clip planes: master toggle (enabled planes apply together)" position="bottom">
                     <label style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                         <input
                             type="checkbox"
-                            checked={this.clipEnabled}
-                            onChange={(e) => this.applyProps({ clipEnabled: e.target.checked })}
+                            checked={anyClipEnabled(this.clip)}
+                            onChange={(e) => this.applyProps({ clip: setAllClipEnabled(this.clip, e.target.checked) })}
                             disabled={this.isLoading}
                         />
                         Clip
                     </label>
                 </Tooltip>
-                <Tooltip content="Clip axis (plane normal)" position="bottom">
-                    <select
-                        value={axis}
-                        onChange={(e) => this.applyProps({ clip: { ...this.clip, normal: clipAxisNormal(e.target.value) } })}
-                        disabled={this.isLoading || !this.clipEnabled}
-                    >
-                        <option value="X">X</option>
-                        <option value="Y">Y</option>
-                        <option value="Z">Z</option>
-                    </select>
-                </Tooltip>
-                <Tooltip content="Clip position (percent across the dataset)" position="bottom">
+                {CLIP_AXES.map((axis) => (
+                    <Tooltip key={axis} content={`Clip ${axis} plane settings`} position="bottom">
+                        <button
+                            className={`theia-button${this.clipTab === axis ? '' : ' secondary'}`}
+                            disabled={this.isLoading}
+                            onClick={() => {
+                                this.clipTab = axis;
+                                this.update();
+                            }}
+                        >
+                            {axis}
+                        </button>
+                    </Tooltip>
+                ))}
+                <Tooltip content={`Clip ${this.clipTab} position (percent across the dataset; enables the plane)`} position="bottom">
                     <input
                         type="range"
                         min={0}
                         max={100}
                         step={1}
-                        value={Math.round(Math.min(1, Math.max(0, fraction)) * 100)}
-                        disabled={this.isLoading || !this.clipEnabled || !bounds}
+                        value={Math.round(tab.fraction * 100)}
+                        disabled={this.isLoading || !bounds}
                         onChange={(e) =>
-                            bounds &&
                             this.applyProps({
-                                clip: {
-                                    ...this.clip,
-                                    origin: clipOriginAtFraction(this.clip.normal, bounds, parseFloat(e.target.value) / 100)
-                                }
+                                clip: updateAxisClip(this.clip, this.clipTab, {
+                                    enabled: true,
+                                    fraction: parseFloat(e.target.value) / 100
+                                })
                             })
                         }
                     />
                 </Tooltip>
-                <Tooltip content="Flip kept half-space" position="bottom">
+                <Tooltip content={`Flip kept ${this.clipTab} half-space (enables the plane)`} position="bottom">
                     <button
                         className="theia-button secondary"
-                        disabled={this.isLoading || !this.clipEnabled}
-                        onClick={() => this.applyProps({ clip: { ...this.clip, invert: !this.clip.invert } })}
+                        disabled={this.isLoading}
+                        onClick={() =>
+                            this.applyProps({
+                                clip: updateAxisClip(this.clip, this.clipTab, { enabled: true, invert: !tab.invert })
+                            })
+                        }
                     >
-                        {this.clip.invert ? 'Unflip' : 'Flip'}
+                        {tab.invert ? 'Unflip' : 'Flip'}
                     </button>
                 </Tooltip>
             </span>
@@ -1053,12 +1044,12 @@ export class NativeVtkViewerWidget extends ReactWidget {
         });
     }
 
-    /** Apply the viewer-core clip state to every data material (three.js native clipping). */
+    /** Apply the viewer-core per-axis clip state to every data material (three.js native clipping). */
     private applyClip(): void {
         if (!this.dataGroup) {
             return;
         }
-        const planes = this.clipEnabled ? [this.toThreePlane()] : [];
+        const planes = this.toThreePlanes();
         this.dataGroup.children.forEach((child) => {
             if (child instanceof THREE.Points || child instanceof THREE.LineSegments || child instanceof THREE.Mesh) {
                 (child.material as THREE.Material).clippingPlanes = planes;
@@ -1066,9 +1057,17 @@ export class NativeVtkViewerWidget extends ReactWidget {
         });
     }
 
-    private toThreePlane(): THREE.Plane {
-        const params = toThreePlaneParams(this.clip);
-        return new THREE.Plane(new THREE.Vector3(...params.normal), params.constant);
+    private toThreePlanes(): THREE.Plane[] {
+        if (!this.model) {
+            return [];
+        }
+        const bounds = boundingBoxFromPositions(this.model.positions);
+        if (!bounds) {
+            return [];
+        }
+        return toThreePlaneParamsArray(this.clip, bounds).map(
+            (params) => new THREE.Plane(new THREE.Vector3(...params.normal), params.constant)
+        );
     }
 
     /** Re-apply material props, shading visibility, and clip, then repaint. */
@@ -1158,7 +1157,7 @@ export class NativeVtkViewerWidget extends ReactWidget {
             [
                 { id: 'fit', label: 'Fit to View' },
                 { id: 'screenshot', label: 'Save Screenshot (PNG)' },
-                { id: 'clip', label: 'Clip Plane', checked: this.clipEnabled },
+                { id: 'clip', label: 'Clip Planes', checked: anyClipEnabled(this.clip) },
                 { id: 'shading', label: `Shading: ${shadingLabel}` }
             ],
             (id) => this.handleContextMenuAction(id)
@@ -1171,7 +1170,7 @@ export class NativeVtkViewerWidget extends ReactWidget {
         } else if (id === 'screenshot') {
             this.saveScreenshot();
         } else if (id === 'clip') {
-            this.applyProps({ clipEnabled: !this.clipEnabled });
+            this.applyProps({ clip: setAllClipEnabled(this.clip, !anyClipEnabled(this.clip)) });
         } else if (id === 'shading') {
             this.applyProps({ shading: nextViewerShadingMode(this.shading) });
         }
@@ -1204,29 +1203,4 @@ export class NativeVtkViewerWidget extends ReactWidget {
                 console.warn('[NativeVtkViewer] Failed to load orbit controls:', error);
             });
     }
-}
-
-/** Dominant axis of a clip normal, driving the header axis select. */
-function dominantClipAxis(normal: readonly [number, number, number]): 'X' | 'Y' | 'Z' {
-    const ax = Math.abs(normal[0]);
-    const ay = Math.abs(normal[1]);
-    const az = Math.abs(normal[2]);
-    if (ay > ax && ay >= az) {
-        return 'Y';
-    }
-    if (az > ax && az > ay) {
-        return 'Z';
-    }
-    return 'X';
-}
-
-/** Unit normal for a header axis-select value. */
-function clipAxisNormal(axis: string): [number, number, number] {
-    if (axis === 'Y') {
-        return [0, 1, 0];
-    }
-    if (axis === 'Z') {
-        return [0, 0, 1];
-    }
-    return [1, 0, 0];
 }

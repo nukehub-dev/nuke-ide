@@ -36,12 +36,14 @@ import { MessageService } from '@theia/core/lib/common';
 import { FileService } from '@theia/filesystem/lib/browser/file-service';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
 import {
-    ClipPlaneState,
-    clipOriginAtFraction,
-    clipProjectionExtent,
-    createClipPlaneState,
-    fitClipOriginToBounds,
-    toThreePlaneParams
+    anyClipEnabled,
+    CLIP_AXES,
+    ClipAxis,
+    ClipPlanesState,
+    createClipPlanesState,
+    setAllClipEnabled,
+    toThreePlaneParamsArray,
+    updateAxisClip
 } from '../../../../viewer-core/clip-plane';
 import { createOrbitControls, type OrbitControlsHandle } from '../../../../viewer-core/orbit-controls';
 import { clampSliderValue, DEFAULT_VIEWER_TOOLBAR_STATE, OPACITY_SPEC } from '../../../../viewer-core/viewer-toolbar-model';
@@ -64,7 +66,7 @@ import '../output-viewer.css';
 /**
  * Props driving the native geometry viewer. Every field applies instantly to
  * the already-loaded cells — selecting, hiding materials, changing opacity,
- * or moving the clip plane never restarts anything (there is no trame
+ * or moving the clip planes never restarts anything (there is no trame
  * server; this is the P3-D2 replacement for the `geometry_viz.py` CSG
  * multiblock server and the `openmc-geometry-3d-widget.tsx` iframe).
  */
@@ -73,10 +75,8 @@ export interface GeometryNativeViewerProps {
     selectedCellId?: number | null;
     /** Material opacity in [0, 1]. */
     opacity?: number;
-    /** Clip state; applied only when `clipEnabled` is true. */
-    clip?: ClipPlaneState;
-    /** Whether the clip plane is active. */
-    clipEnabled?: boolean;
+    /** Per-axis clip state; each enabled axis plane applies (box-section view). */
+    clip?: ClipPlanesState;
     /** Materials hidden in the 3D view (tree still lists them). */
     hiddenMaterials?: string[];
 }
@@ -114,8 +114,9 @@ export class GeometryNativeViewerWidget extends ReactWidget {
     protected filterText = '';
     protected hiddenMaterials: string[] = [];
     protected opacity = DEFAULT_VIEWER_TOOLBAR_STATE.opacity;
-    protected clip: ClipPlaneState = createClipPlaneState();
-    protected clipEnabled = false;
+    protected clip: ClipPlanesState = createClipPlanesState();
+    /** Active X/Y/Z tab of the side-panel clip control (per-axis settings persist). */
+    protected clipTab: ClipAxis = 'X';
     protected isLoading = false;
     protected error: string | undefined;
     protected statusMessage = '';
@@ -146,8 +147,11 @@ export class GeometryNativeViewerWidget extends ReactWidget {
         return {
             selectedCellId: this.selectedCellId,
             opacity: this.opacity,
-            clip: { ...this.clip, normal: [...this.clip.normal], origin: [...this.clip.origin] },
-            clipEnabled: this.clipEnabled,
+            clip: {
+                X: { ...this.clip.X },
+                Y: { ...this.clip.Y },
+                Z: { ...this.clip.Z }
+            },
             hiddenMaterials: [...this.hiddenMaterials]
         };
     }
@@ -170,11 +174,6 @@ export class GeometryNativeViewerWidget extends ReactWidget {
         }
         if (props.clip !== undefined) {
             this.clip = props.clip;
-            this.applyClip();
-            this.renderScene();
-        }
-        if (props.clipEnabled !== undefined && props.clipEnabled !== this.clipEnabled) {
-            this.clipEnabled = props.clipEnabled;
             this.applyClip();
             this.renderScene();
         }
@@ -201,10 +200,6 @@ export class GeometryNativeViewerWidget extends ReactWidget {
         this.selectedCellId = null;
         this.isLoading = false;
         this.error = undefined;
-        const bounds = geometryBounds(this.cells);
-        if (bounds) {
-            this.clip = fitClipOriginToBounds(this.clip, bounds);
-        }
         this.buildScene();
         this.update();
     }
@@ -405,13 +400,7 @@ export class GeometryNativeViewerWidget extends ReactWidget {
         const materials = materialNamesInOrder(this.cells);
         const visible = this.visibleCells().length;
         const bounds = geometryBounds(this.visibleCells());
-        const extent = bounds ? clipProjectionExtent(bounds, this.clip.normal) : { min: 0, max: 0 };
-        const span = extent.max - extent.min;
-        const dot =
-            this.clip.normal[0] * this.clip.origin[0] +
-            this.clip.normal[1] * this.clip.origin[1] +
-            this.clip.normal[2] * this.clip.origin[2];
-        const fraction = span > 0 ? (dot - extent.min) / span : 0.5;
+        const tab = this.clip[this.clipTab];
         return (
             <div style={{ display: 'flex', gap: '16px', padding: '4px 8px', flexWrap: 'wrap', fontSize: '11px', alignItems: 'center' }}>
                 <span title="Visible cells">
@@ -449,34 +438,53 @@ export class GeometryNativeViewerWidget extends ReactWidget {
                 </label>
                 <label
                     style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
-                    title="Arbitrary-normal clip plane (viewer-core clip state)"
+                    title="Clip planes: master toggle (enabled planes apply together)"
                 >
                     <input
                         type="checkbox"
-                        checked={this.clipEnabled}
-                        onChange={(e) => this.applyProps({ clipEnabled: e.target.checked })}
+                        checked={anyClipEnabled(this.clip)}
+                        onChange={(e) => this.applyProps({ clip: setAllClipEnabled(this.clip, e.target.checked) })}
                     />
                     Clip
                 </label>
+                {CLIP_AXES.map((axis) => (
+                    <button
+                        key={axis}
+                        className={`theia-button${this.clipTab === axis ? '' : ' secondary'}`}
+                        title={`Clip ${axis} plane settings`}
+                        onClick={() => {
+                            this.clipTab = axis;
+                            this.update();
+                        }}
+                    >
+                        {axis}
+                    </button>
+                ))}
                 <button
                     className="theia-button secondary"
-                    title="Flip kept half-space"
-                    disabled={!this.clipEnabled}
-                    onClick={() => this.applyProps({ clip: { ...this.clip, invert: !this.clip.invert } })}
+                    title={`Flip kept ${this.clipTab} half-space (enables the plane)`}
+                    onClick={() =>
+                        this.applyProps({
+                            clip: updateAxisClip(this.clip, this.clipTab, { enabled: true, invert: !tab.invert })
+                        })
+                    }
                 >
-                    {this.clip.invert ? 'Unflip' : 'Flip'}
+                    {tab.invert ? 'Unflip' : 'Flip'}
                 </button>
                 <input
                     type="range"
                     min={0}
-                    max={1}
-                    step={0.01}
-                    value={Math.min(1, Math.max(0, fraction))}
-                    disabled={!this.clipEnabled || !bounds}
-                    title="Sweep the plane origin across the dataset"
+                    max={100}
+                    step={1}
+                    value={Math.round(tab.fraction * 100)}
+                    disabled={!bounds}
+                    title={`Clip ${this.clipTab} position in percent across the dataset (enables the plane)`}
                     onChange={(e) =>
                         this.applyProps({
-                            clip: { ...this.clip, origin: clipOriginAtFraction(this.clip.normal, bounds!, parseFloat(e.target.value)) }
+                            clip: updateAxisClip(this.clip, this.clipTab, {
+                                enabled: true,
+                                fraction: parseFloat(e.target.value) / 100
+                            })
                         })
                     }
                 />
@@ -691,13 +699,17 @@ export class GeometryNativeViewerWidget extends ReactWidget {
         });
     }
 
-    /** Apply the viewer-core clip state to every cell material. */
+    /** Apply the viewer-core per-axis clip state to every cell material. */
     private applyClip(): void {
         if (!this.dataGroup) {
             return;
         }
-        const params = toThreePlaneParams(this.clip);
-        const planes = this.clipEnabled ? [new THREE.Plane(new THREE.Vector3(...params.normal), params.constant)] : [];
+        const bounds = geometryBounds(this.visibleCells());
+        const planes = bounds
+            ? toThreePlaneParamsArray(this.clip, bounds).map(
+                  (params) => new THREE.Plane(new THREE.Vector3(...params.normal), params.constant)
+              )
+            : [];
         this.dataGroup.traverse((child) => {
             if (child instanceof THREE.Mesh || child instanceof THREE.LineSegments) {
                 (child.material as THREE.Material).clippingPlanes = planes;

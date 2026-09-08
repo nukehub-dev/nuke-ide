@@ -18,10 +18,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   source, overlay/slice, `geometry.xml`, and multiblock `.vtm` files now
   open in native three.js viewers (volume/group toggles, cell pick sync,
   arbitrary clip plane).
-- nuke-visualizer: **native Exodus viewer** — `*.e`/`*.exo*` files open in
-  a time-slider viewer (per-step points, global-range colormapping,
-  instant array switching) backed by the headless `base.exodus-series`
-  extractor (optional `netCDF4`/`meshio` dependencies).
+- nuke-visualizer: **DAGMC files open with volume isolation** — `.h5m`
+  converts to multiblock (cached) and opens in the DAGMC viewer with
+  volume/material/group toggles; failures fall back to the single-file
+  viewer. Headers are deduped (no Solid/Fit buttons, Map disables in
+  Solid mode) and clip is per-axis (X/Y/Z tabs) for box-section views.
+- nuke-visualizer: **compressed multiblock DAGMC renders** — appended
+  payloads with per-array base64 padding decode correctly, offsets accept
+  the character-based form vtk multiblock output emits, and decompression
+  is synchronous (no platform-stream stalls); `.h5m` files open with
+  volume isolation.
 - nuke-visualizer: **viewer navigation and tools** — OrbitControls camera
   (orbit/pan/zoom with damping) in all native viewers, plus Shading
   (shaded/wireframe/points/x-ray) and clip-plane (axis/position/flip)

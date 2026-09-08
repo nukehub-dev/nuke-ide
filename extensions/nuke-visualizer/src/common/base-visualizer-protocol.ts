@@ -245,6 +245,17 @@ export interface VisualizerBackendService {
     convertDagmc(filePath: string, volumeId?: number): Promise<string>;
 
     /**
+     * Convert a DAGMC H5M file to a multiblock `.vtm` (one block per volume)
+     * for the native DAGMC viewer (volume/material/group isolation).
+     * Runs `python server.py base.convert-dagmc-multiblock` via pydagmc/vtk
+     * with manifest caching.
+     *
+     * @param filePath Path to the H5M file
+     * @returns Path to the generated `.vtm` manifest
+     */
+    convertDagmcMultiblock(filePath: string): Promise<string>;
+
+    /**
      * Convert a STEP/STP/BREP CAD file to VTK format for visualization.
      * Runs `python server.py base.convert-step` via gmsh.
      *

@@ -40,17 +40,18 @@
  * carries PolyData) so every XML kind parses through one path with named
  * point/cell arrays and ranges preserved for instant client-side color-by.
  * It handles `ascii` and `appended` DataArray encodings; appended blocks
- * may be raw or zlib compressed (vtk default) — decompression uses the
- * platform `DecompressionStream('deflate')`, available in Chromium and
- * Node 18+. The legacy reader handles ASCII `DATASET POLYDATA` and
- * `DATASET UNSTRUCTURED_GRID` (binary legacy files are detected and
- * rejected with an ASCII-only error). Unstructured grids decode to the
+ * may be raw or zlib compressed — decompression is synchronous fflate
+ * inflate (no platform DecompressionStream dependency), available in every
+ * runtime including headless shells. The legacy reader handles ASCII
+ * `DATASET POLYDATA` and `DATASET UNSTRUCTURED_GRID` (binary legacy files
+ * are detected and rejected with an ASCII-only error). Unstructured grids decode to the
  * `polydata` family (triangle edges in `segments`, mesh triples in
  * `triangles`); structured grids decode to the `rectilinear` family (cell
  * centers plus `gridDimensions`).
  */
 
 import type { OpenMCVtkArrayInfo } from '../../../../../common/openmc-protocol';
+import { inflateSync, unzlibSync } from 'fflate';
 
 // ============================================================================
 // Dataset kinds
@@ -512,22 +513,28 @@ export function decodeBase64(base64: string): Uint8Array {
     for (let i = 0; i < BASE64_CHARS.length; i++) {
         lookup.set(BASE64_CHARS[i], i);
     }
+    const decodeQuartet = (a: string, b: string, c: string, d: string): [number, number, number] => {
+        const triple = ((lookup.get(a) ?? 0) << 18) | ((lookup.get(b) ?? 0) << 12) | ((lookup.get(c) ?? 0) << 6) | (lookup.get(d) ?? 0);
+        return [(triple >> 16) & 0xff, (triple >> 8) & 0xff, triple & 0xff];
+    };
     const bytes: number[] = [];
-    for (let i = 0; i < clean.length; i += 4) {
-        const a = lookup.get(clean[i]) ?? 0;
-        const b = lookup.get(clean[i + 1]) ?? 0;
-        const c = lookup.get(clean[i + 2]) ?? 0;
-        const d = lookup.get(clean[i + 3]) ?? 0;
-        const triple = (a << 18) | (b << 12) | (c << 6) | d;
-        bytes.push((triple >> 16) & 0xff, (triple >> 8) & 0xff, triple & 0xff);
+    // Writers (VTK appended payloads) concatenate separately-padded blocks,
+    // so padding can appear mid-stream: decode each padded chunk on its own.
+    for (const chunk of clean.split('=')) {
+        if (chunk.length === 0) {
+            continue;
+        }
+        const padded = chunk + '='.repeat((4 - (chunk.length % 4)) % 4);
+        for (let i = 0; i < padded.length; i += 4) {
+            const [x, y, z] = decodeQuartet(padded[i], padded[i + 1], padded[i + 2], padded[i + 3]);
+            bytes.push(x, y, z);
+        }
+        const padCount = (4 - (chunk.length % 4)) % 4;
+        if (padCount > 0) {
+            bytes.splice(bytes.length - padCount, padCount);
+        }
     }
-    let length = bytes.length;
-    if (clean.endsWith('==')) {
-        length -= 2;
-    } else if (clean.endsWith('=')) {
-        length -= 1;
-    }
-    return new Uint8Array(bytes.slice(0, length));
+    return new Uint8Array(bytes);
 }
 
 const VTK_TYPE_SIZES: Record<string, number> = {
@@ -589,75 +596,137 @@ function readTypedValues(bytes: Uint8Array, type: string): Float64Array {
     return out;
 }
 
-async function inflateBlock(block: Uint8Array): Promise<Uint8Array> {
-    if (typeof DecompressionStream === 'undefined') {
-        throw new Error('Compressed VTK block needs DecompressionStream, which this runtime does not provide');
-    }
-    const stream = new DecompressionStream('deflate');
-    const writer = stream.writable.getWriter();
-    const reader = stream.readable.getReader();
-    await writer.write(block as unknown as ArrayBuffer);
-    await writer.close();
-    const chunks: Uint8Array[] = [];
-    let total = 0;
-    for (;;) {
-        const { done, value } = await reader.read();
-        if (done) {
-            break;
+async function inflateBlock(block: Uint8Array, label = 'block'): Promise<Uint8Array> {
+    // Synchronous fflate inflate (no DecompressionStream): deterministic on
+    // every runtime — the platform stream API stalled indefinitely on some
+    // real-world blocks in headless Chromium instead of settling.
+    // VTK writers emit RAW deflate blocks while other writers emit
+    // zlib-wrapped ones: sniff the zlib header (0x78), trying the sniffed
+    // format first and the other as fallback.
+    const sniffed = block.length >= 2 && block[0] === 0x78 ? 'wrapped' : 'raw';
+    const order: ('raw' | 'wrapped')[] = sniffed === 'wrapped' ? ['wrapped', 'raw'] : ['raw', 'wrapped'];
+    let lastError: unknown;
+    for (const format of order) {
+        try {
+            return format === 'wrapped' ? unzlibSync(block) : inflateSync(block);
+        } catch (error) {
+            lastError = error;
         }
-        chunks.push(value);
-        total += value.length;
     }
-    const out = new Uint8Array(total);
-    let at = 0;
-    for (const chunk of chunks) {
-        out.set(chunk, at);
-        at += chunk.length;
-    }
-    return out;
+    const detail = lastError instanceof Error ? lastError.message : String(lastError);
+    throw new Error(`Cannot decompress VTK block '${label}' (${block.length} bytes): ${detail}`);
 }
 
 /**
  * Decode one appended block: `[length][payload]`, payload raw or vtk-zlib
  * (`[#blocks][u-size][p-size][c-size...][data...]`, header_type-sized tokens).
+ *
+ * Offsets are normally byte positions into the decoded blob, but some
+ * writers (observed in vtk 9.3 multiblock output) emit base64 CHARACTER
+ * offsets instead. When the byte position fails structural validation and
+ * `payloadText` (the exact string that produced the blob) is available, a
+ * character-offset conversion is tried before giving up.
  */
 async function decodeAppendedBlock(
     blob: Uint8Array,
     offset: number,
     headerBytes: number,
     compressed: boolean,
-    type: string
+    type: string,
+    payloadText?: string,
+    label?: string
 ): Promise<Float64Array> {
-    const view = new DataView(blob.buffer, blob.byteOffset + offset);
-    const readToken = (at: number): number => {
+    let at = offset;
+    if (!isValidAppendedOffset(blob, at, headerBytes, compressed)) {
+        const converted = payloadText !== undefined ? charOffsetToByteOffset(payloadText, offset) : undefined;
+        if (converted !== undefined && isValidAppendedOffset(blob, converted, headerBytes, compressed)) {
+            at = converted;
+        } else {
+            throw new Error(
+                `VTK appended offset ${offset} is neither a valid byte position nor a base64 character position into the payload`
+            );
+        }
+    }
+    const view = new DataView(blob.buffer, blob.byteOffset + at);
+    const readToken = (pos: number): number => {
         let v = 0;
         for (let i = 0; i < headerBytes; i++) {
-            v |= view.getUint8(at + i) << (8 * i);
+            v |= view.getUint8(pos + i) << (8 * i);
         }
         return v;
     };
     if (!compressed) {
         const nbytes = readToken(0);
-        return readTypedValues(blob.subarray(offset + headerBytes, offset + headerBytes + nbytes), type);
+        return readTypedValues(blob.subarray(at + headerBytes, at + headerBytes + nbytes), type);
     }
     const nBlocks = readToken(0);
     const cSizeStart = 3 * headerBytes;
-    const dataStart = offset + (nBlocks + 3) * headerBytes;
+    const dataStart = at + (nBlocks + 3) * headerBytes;
     const parts: Uint8Array[] = [];
-    let at = dataStart;
+    let cursor = dataStart;
     for (let b = 0; b < nBlocks; b++) {
-        const cSize = readToken(offset + cSizeStart + b * headerBytes);
-        parts.push(await inflateBlock(blob.subarray(at, at + cSize)));
-        at += cSize;
+        const cSize = readToken(cSizeStart + b * headerBytes);
+        parts.push(await inflateBlock(blob.subarray(cursor, cursor + cSize)));
+        cursor += cSize;
     }
     const total = parts.reduce((sum, part) => sum + part.length, 0);
     const joined = new Uint8Array(total);
-    let cursor = 0;
+    let fill = 0;
     for (const part of parts) {
-        joined.set(part, cursor);
-        cursor += part.length;
+        joined.set(part, fill);
+        fill += part.length;
     }
     return readTypedValues(joined, type);
+}
+
+/** Structural check for an appended-block header (no decompression). */
+function isValidAppendedOffset(blob: Uint8Array, at: number, headerBytes: number, compressed: boolean): boolean {
+    if (!Number.isInteger(at) || at < 0 || at + headerBytes > blob.length) {
+        return false;
+    }
+    if (!compressed) {
+        let length = 0;
+        for (let i = 0; i < headerBytes; i++) {
+            length |= blob[at + i] << (8 * i);
+        }
+        return length >= 0 && at + headerBytes + length <= blob.length;
+    }
+    let nBlocks = 0;
+    for (let i = 0; i < headerBytes; i++) {
+        nBlocks |= blob[at + i] << (8 * i);
+    }
+    if (nBlocks < 1 || nBlocks > 4096) {
+        return false;
+    }
+    return at + (nBlocks + 3) * headerBytes <= blob.length;
+}
+
+/**
+ * Convert a base64 CHARACTER offset (as emitted by some writers instead of
+ * a decoded-byte offset) into a decoded-byte position: the payload prefix
+ * is split at padding runs (writers flush padded chunks independently) and
+ * each run contributes complete quads plus its remainder (2 chars → 1 byte,
+ * 3 chars → 2 bytes).
+ */
+export function charOffsetToByteOffset(payload: string, charOffset: number): number | undefined {
+    if (!Number.isInteger(charOffset) || charOffset < 0 || charOffset > payload.length) {
+        return undefined;
+    }
+    const prefix = payload.slice(0, charOffset).replace(/\s+/g, '');
+    let bytes = 0;
+    for (const run of prefix.split(/=+/)) {
+        if (run.length === 0) {
+            continue;
+        }
+        bytes += Math.floor(run.length / 4) * 3;
+        const rem = run.length % 4;
+        if (rem === 2) {
+            bytes += 1;
+        } else if (rem === 3) {
+            bytes += 2;
+        }
+    }
+    return bytes;
 }
 
 function parseAsciiValues(text: string | undefined, type: string, expected: number): Float64Array {
@@ -682,7 +751,7 @@ async function decodeDataArray(
     raw: RawDataArray,
     dataType: string,
     expectedTuples: number,
-    appended: { blob: Uint8Array; headerBytes: number; compressed: boolean } | undefined
+    appended: { blob: Uint8Array; headerBytes: number; compressed: boolean; payloadText: string } | undefined
 ): Promise<DecodedArray> {
     const expected = expectedTuples * raw.components;
     if (raw.format === 'appended') {
@@ -690,7 +759,15 @@ async function decodeDataArray(
             throw new Error(`DataArray '${raw.name || '<connectivity>'}' uses appended encoding but no AppendedData section was found`);
         }
         return {
-            values: await decodeAppendedBlock(appended.blob, raw.offset, appended.headerBytes, appended.compressed, dataType),
+            values: await decodeAppendedBlock(
+                appended.blob,
+                raw.offset,
+                appended.headerBytes,
+                appended.compressed,
+                dataType,
+                appended.payloadText,
+                raw.name || dataType
+            ),
             dataType
         };
     }
@@ -764,11 +841,11 @@ export async function parseNativeVtkXml(text: string): Promise<NativeVtkModel> {
     const headerBytes = (fileAttrs['header_type'] ?? 'UInt32') === 'UInt64' ? 8 : 4;
     const compressed = fileAttrs['compressor'] !== undefined;
 
-    let appended: { blob: Uint8Array; headerBytes: number; compressed: boolean } | undefined;
+    let appended: { blob: Uint8Array; headerBytes: number; compressed: boolean; payloadText: string } | undefined;
     const appendedSections = collectSections(text, 'AppendedData');
     if (appendedSections.length > 0) {
         const payload = appendedSections[0].replace(/^\s*_/, '').trim();
-        appended = { blob: decodeBase64(payload), headerBytes, compressed };
+        appended = { blob: decodeBase64(payload), headerBytes, compressed, payloadText: payload };
     }
 
     const pieceMatch = /<Piece\b([^>]*)>/.exec(text);
@@ -1068,6 +1145,7 @@ interface UnstructuredAppended {
     blob: Uint8Array;
     headerBytes: number;
     compressed: boolean;
+    payloadText: string;
 }
 
 async function decodeUnstructuredArray(raw: RawUnstructuredArray, appended: UnstructuredAppended | undefined): Promise<Float64Array> {
@@ -1075,7 +1153,15 @@ async function decodeUnstructuredArray(raw: RawUnstructuredArray, appended: Unst
         if (!appended || raw.offset === undefined) {
             throw new Error(`DataArray '${raw.name || '<cells>'}' uses appended encoding but no AppendedData section was found`);
         }
-        return decodeAppendedBlock(appended.blob, raw.offset, appended.headerBytes, appended.compressed, raw.dataType);
+        return decodeAppendedBlock(
+            appended.blob,
+            raw.offset,
+            appended.headerBytes,
+            appended.compressed,
+            raw.dataType,
+            appended.payloadText,
+            raw.name || raw.dataType
+        );
     }
     return parseUnstructuredAsciiValues(raw.text, raw.dataType);
 }
@@ -1110,7 +1196,8 @@ export async function parseUnstructuredGridXml(text: string): Promise<NativeVtkM
     let appended: UnstructuredAppended | undefined;
     const appendedSections = collectSections(text, 'AppendedData');
     if (appendedSections.length > 0) {
-        appended = { blob: decodeBase64(appendedSections[0].replace(/^\s*_/, '').trim()), headerBytes, compressed };
+        const payload = appendedSections[0].replace(/^\s*_/, '').trim();
+        appended = { blob: decodeBase64(payload), headerBytes, compressed, payloadText: payload };
     }
 
     const pieceMatch = /<Piece\b([^>]*)>/.exec(text);
@@ -1255,7 +1342,8 @@ export async function parseStructuredGridXml(text: string): Promise<NativeVtkMod
     let appended: UnstructuredAppended | undefined;
     const appendedSections = collectSections(text, 'AppendedData');
     if (appendedSections.length > 0) {
-        appended = { blob: decodeBase64(appendedSections[0].replace(/^\s*_/, '').trim()), headerBytes, compressed };
+        const payload = appendedSections[0].replace(/^\s*_/, '').trim();
+        appended = { blob: decodeBase64(payload), headerBytes, compressed, payloadText: payload };
     }
 
     const pieceMatch = /<Piece\b([^>]*)>/.exec(text);

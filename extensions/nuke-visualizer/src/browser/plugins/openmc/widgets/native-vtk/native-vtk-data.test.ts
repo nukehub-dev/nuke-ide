@@ -35,6 +35,7 @@ import { deflateSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
 import type { OpenMCVtkArrayInfo } from '../../../../../common/openmc-protocol';
 import {
+    charOffsetToByteOffset,
     classifyNativeVtkArrays,
     colorByValue,
     decodeBase64,
@@ -453,7 +454,7 @@ describe('parseNativeVtkXml appended', () => {
         expect(model.segments).toBeUndefined();
     });
 
-    it.runIf(typeof DecompressionStream !== 'undefined')('parses zlib-compressed appended points', async () => {
+    it('parses zlib-compressed appended points', async () => {
         const raw = new Uint8Array(new Float32Array([0, 0, 0, 3, 0, 4]).buffer);
         const compressed = deflateSync(raw);
         const block = new Uint8Array(4 * 4 + compressed.length);
@@ -478,7 +479,7 @@ describe('parseNativeVtkXml appended', () => {
         expect(model.segments).toBeUndefined();
     });
 
-    it.runIf(typeof DecompressionStream !== 'undefined')('parses zlib-compressed appended points', async () => {
+    it('parses zlib-compressed appended points', async () => {
         const raw = new Uint8Array(new Float32Array([0, 0, 0, 3, 0, 4]).buffer);
         const compressed = deflateSync(raw);
         const block = new Uint8Array(4 * 4 + compressed.length);
@@ -804,9 +805,7 @@ describe('large-file robustness (screenshot regression)', () => {
 
 describe('standard connectivity+offsets form (Playwright regression)', () => {
     it('parses Polys connectivity+offsets exactly, with in-range indices', async () => {
-        const text = await import('fs').then((fs) =>
-            fs.promises.readFile('tests/ui/fixtures/native-polydata.vtp', 'utf8')
-        );
+        const text = await import('fs').then((fs) => fs.promises.readFile('tests/ui/fixtures/native-polydata.vtp', 'utf8'));
         const model = await parseNativeVtk(text, '.vtp');
         expect(model.nPoints).toBe(4);
         // Two triangles as closed loops: 3 segments each.
@@ -845,5 +844,84 @@ LOOKUP_TABLE default
         expect(model.segments ? Array.from(model.segments) : []).toEqual([0, 1, 2, 3, 3, 0, 0, 2]);
         const maxIndex = Math.max(...(model.segments ?? []));
         expect(maxIndex).toBeLessThan(model.nPoints);
+    });
+});
+
+describe('appended offset conventions', () => {
+    it('converts base64 character offsets to byte positions', () => {
+        // Two independently padded chunks: "ABC" + "DEFGH" (the vtk writer
+        // flushes per array): chars "QUJD" + "==" + "REFH" + "==".
+        const payload = 'QUJD==REFH==';
+        expect(charOffsetToByteOffset(payload, 0)).toBe(0);
+        expect(charOffsetToByteOffset(payload, 6)).toBe(3);
+        expect(charOffsetToByteOffset(payload, 12)).toBe(6);
+        expect(charOffsetToByteOffset(payload, -1)).toBeUndefined();
+        expect(charOffsetToByteOffset(payload, 99)).toBeUndefined();
+    });
+
+    it('parses appended arrays addressed by character offsets (vtk writer quirk)', async () => {
+        // Points block + energy block, each padded separately; the energy
+        // offset is its base64 character position, not a byte position.
+        const points = rawBlock(new Float32Array([0, 0, 0, 1, 0, 0]));
+        const energy = rawBlock(new Float32Array([5, 6]));
+        const enc = (b: Uint8Array): string => Buffer.from(b).toString('base64');
+        const pText = enc(points);
+        const eText = enc(energy);
+        const xml = `<VTKFile type="PolyData" version="0.1" byte_order="LittleEndian">
+<PolyData>
+<Piece NumberOfPoints="2" NumberOfVerts="0" NumberOfLines="0" NumberOfStrips="0" NumberOfPolys="0">
+<PointData>
+<DataArray type="Float32" Name="energy" format="appended" offset="${pText.length}" />
+</PointData>
+<Points>
+<DataArray type="Float32" NumberOfComponents="3" format="appended" offset="0" />
+</Points>
+</Piece>
+</PolyData>
+<AppendedData encoding="base64">
+_${pText}${eText}
+</AppendedData>
+</VTKFile>`;
+        const model = await parseNativeVtkXml(xml);
+        expect([...model.positions]).toEqual([0, 0, 0, 1, 0, 0]);
+        expect(model.pointArrays.map((a) => a.name)).toEqual(['energy']);
+    });
+
+    it('parses compressed arrays addressed by character offsets', async () => {
+        // Same quirk as above but with vtk-zlib blocks (the real multiblock
+        // failure): each block padded separately, second offset in chars.
+        const zblock = (values: Float32Array): Uint8Array => {
+            const raw = new Uint8Array(values.buffer, values.byteOffset, values.byteLength);
+            const compressed = deflateSync(raw);
+            const block = new Uint8Array(16 + compressed.length);
+            const view = new DataView(block.buffer);
+            view.setUint32(0, 1, true);
+            view.setUint32(4, raw.length, true);
+            view.setUint32(8, 0, true);
+            view.setUint32(12, compressed.length, true);
+            block.set(compressed, 16);
+            return block;
+        };
+        const enc = (b: Uint8Array): string => Buffer.from(b).toString('base64');
+        const pText = enc(zblock(new Float32Array([0, 0, 0, 1, 0, 0])));
+        const eText = enc(zblock(new Float32Array([5, 6])));
+        const xml = `<VTKFile type="PolyData" version="0.1" byte_order="LittleEndian" compressor="vtkZLibDataCompressor">
+<PolyData>
+<Piece NumberOfPoints="2" NumberOfVerts="0" NumberOfLines="0" NumberOfStrips="0" NumberOfPolys="0">
+<PointData>
+<DataArray type="Float32" Name="energy" format="appended" offset="${pText.length}" />
+</PointData>
+<Points>
+<DataArray type="Float32" NumberOfComponents="3" format="appended" offset="0" />
+</Points>
+</Piece>
+</PolyData>
+<AppendedData encoding="base64">
+_${pText}${eText}
+</AppendedData>
+</VTKFile>`;
+        const model = await parseNativeVtkXml(xml);
+        expect([...model.positions]).toEqual([0, 0, 0, 1, 0, 0]);
+        expect(model.pointArrays[0].values).toEqual(new Float64Array([5, 6]));
     });
 });

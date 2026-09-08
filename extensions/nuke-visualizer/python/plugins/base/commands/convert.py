@@ -41,6 +41,31 @@ def cmd_convert_dagmc(args):
     return 0
 
 
+@command("base.convert-dagmc-multiblock", help="Convert a DAGMC .h5m file to a multiblock .vtm")
+@arg("--file", required=True, help="Path to the input .h5m file")
+@arg("--include-graveyard", action="store_true", help="Keep the Graveyard termination volume")
+def cmd_convert_dagmc_multiblock(args):
+    """Convert DAGMC H5M to a multiblock .vtm (one block per volume)."""
+    try:
+        from plugins.base.lib.dagmc import convert_h5m_to_multiblock_vtk_cached
+    except ImportError as e:
+        print(f'{{"error": "DAGMC library not available: {e}"}}', file=sys.stderr)
+        return 1
+
+    import json
+
+    try:
+        result = convert_h5m_to_multiblock_vtk_cached(
+            args.file, use_cache=True, include_graveyard=args.include_graveyard
+        )
+    except Exception as e:
+        print(f'{{"error": "{str(e)}"}}', file=sys.stderr)
+        return 1
+
+    print(json.dumps(result))
+    return 0
+
+
 @command("base.convert-step", help="Convert a STEP/STP/BREP file to VTK")
 @arg("--file", required=True, help="Path to the input STEP/STP/BREP file")
 @arg("--mesh-size", type=float, default=10.0, help="Maximum mesh element size")

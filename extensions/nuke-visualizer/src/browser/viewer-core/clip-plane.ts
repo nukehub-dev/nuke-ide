@@ -26,41 +26,60 @@
 // *****************************************************************************
 
 /**
- * Arbitrary-normal clip-plane state for the native 3D viewer core.
+ * Per-axis clip-plane state for the native 3D viewer core.
  *
- * Generalizes the axis-only section plane from nuke-cad
- * (`viewer-core/section-plane.ts`, axis + flip + fraction by design) to the
- * full plane-clip semantics ParaView exposes (`vtkPVClipDataSet` origin /
- * normal / invert): any unit normal, any origin point, and a side flip.
+ * Each world axis (X/Y/Z) owns an independent clip plane: an enable flag, a
+ * 0..1 position fraction across the dataset bounds along that axis, and a
+ * side flip. Enabled planes apply TOGETHER (a box-section view), matching
+ * the combined-clip semantics ParaView exposes across its
+ * `vtkPVClipDataSet` planes.
  *
  * Pure functions + types only; no trame, no vuetify, no DOM, no three.js
- * import. {@link toThreePlaneParams} returns `{ normal, constant }` tuples
- * that map 1:1 onto `THREE.Plane`:
+ * import. {@link toThreePlaneParamsArray} returns `{ normal, constant }`
+ * tuples that map 1:1 onto `THREE.Plane`:
  *
  * ```ts
- * const params = toThreePlaneParams(state);
- * const plane = new THREE.Plane(new THREE.Vector3(...params.normal), params.constant);
+ * const planes = toThreePlaneParamsArray(state, bounds).map(
+ *     (params) => new THREE.Plane(new THREE.Vector3(...params.normal), params.constant)
+ * );
  * renderer.localClippingEnabled = true;
- * material.clippingPlanes = [plane];
+ * material.clippingPlanes = planes;
  * ```
  *
  * three.js discards fragments with a negative signed distance
  * (`normal.dot(point) + constant < 0`), so with `invert: false` the kept
- * half-space is `{ p : n . (p - origin) >= 0 }` — the side the normal points
- * into is removed. `invert: true` keeps the opposite side.
+ * half-space is `{ p : p[axis] >= origin }` — the low side is removed.
+ * `invert: true` keeps the opposite side.
  */
 
 /** A 3D vector as an xyz tuple. */
 export type Vector3Tuple = [number, number, number];
 
+/** Clip axis selecting one of the three world-axis planes. */
+export type ClipAxis = 'X' | 'Y' | 'Z';
+
+/** The three clip axes in tab order. */
+export const CLIP_AXES: readonly ClipAxis[] = ['X', 'Y', 'Z'];
+
 /**
- * Clip-plane state: an arbitrary (not necessarily unit) normal, an origin
- * point on the plane, and a flag selecting which half-space is kept.
+ * Clip state for one axis: whether its plane is active, where the plane
+ * sits as a fraction across the dataset bounds along that axis (0 = min
+ * face, 1 = max face, 0.5 = middle), and which half-space is kept.
  */
-export interface ClipPlaneState {
-    readonly normal: Vector3Tuple;
-    readonly origin: Vector3Tuple;
+export interface AxisClipState {
+    readonly enabled: boolean;
+    readonly fraction: number;
     readonly invert: boolean;
+}
+
+/**
+ * Per-axis clip state: each axis remembers its own enable flag, position,
+ * and flip, so header X/Y/Z tabs never lose their settings.
+ */
+export interface ClipPlanesState {
+    readonly X: AxisClipState;
+    readonly Y: AxisClipState;
+    readonly Z: AxisClipState;
 }
 
 /** Axis-aligned bounding box of a dataset (world coordinates). */
@@ -79,107 +98,135 @@ export interface ThreePlaneParams {
     readonly constant: number;
 }
 
-/** Default clip state: +X normal through the world origin, nothing inverted. */
-export const DEFAULT_CLIP_PLANE_STATE: ClipPlaneState = {
-    normal: [1, 0, 0],
-    origin: [0, 0, 0],
+/** Default per-axis state: plane through the middle, disabled, nothing inverted. */
+export const DEFAULT_AXIS_CLIP_STATE: AxisClipState = {
+    enabled: false,
+    fraction: 0.5,
     invert: false
 };
 
-/** Fallback normal used when a caller supplies a zero or non-finite vector. */
-export const FALLBACK_CLIP_NORMAL: Vector3Tuple = [1, 0, 0];
+/** Default clip state: every axis through its middle, all planes disabled. */
+export const DEFAULT_CLIP_PLANES_STATE: ClipPlanesState = {
+    X: { ...DEFAULT_AXIS_CLIP_STATE },
+    Y: { ...DEFAULT_AXIS_CLIP_STATE },
+    Z: { ...DEFAULT_AXIS_CLIP_STATE }
+};
 
-/** Length of a vector; non-finite components count as zero length. */
-export function vectorLength(value: readonly [number, number, number]): number {
-    const [x, y, z] = value;
-    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) {
-        return 0;
+/** Clamp a fraction to the [0, 1] slider range; non-finite input maps to 0.5. */
+export function clampClipFraction(value: number): number {
+    if (!Number.isFinite(value)) {
+        return 0.5;
     }
-    return Math.sqrt(x * x + y * y + z * z);
+    return Math.min(1, Math.max(0, value));
 }
 
-/** Normalize a vector to unit length; zero/non-finite input yields the +X fallback. */
-export function normalizeClipNormal(value: readonly [number, number, number]): Vector3Tuple {
-    const length = vectorLength(value);
-    if (!(length > 0)) {
-        return [...FALLBACK_CLIP_NORMAL];
-    }
-    return [value[0] / length, value[1] / length, value[2] / length];
-}
-
-/** Copy a raw xyz triple, replacing non-finite components with `fallback`. */
-export function sanitizePoint(value: readonly [number, number, number], fallback = 0): Vector3Tuple {
-    const clean = (v: number): number => (Number.isFinite(v) ? v : fallback);
-    return [clean(value[0]), clean(value[1]), clean(value[2])];
-}
-
-/** Normalize negative zero to positive zero (vitest `toEqual` distinguishes them). */
-function canonicalZero(value: number): number {
-    return value === 0 ? 0 : value;
-}
-
-/** Create a clip state from a partial patch over the defaults. */
-export function createClipPlaneState(patch: Partial<ClipPlaneState> = {}): ClipPlaneState {
+/** Sanitize one axis entry (finite fraction, boolean flags). */
+function sanitizeAxisClip(value: Partial<AxisClipState>): AxisClipState {
     return {
-        normal: patch.normal !== undefined ? normalizeClipNormal(patch.normal) : [...DEFAULT_CLIP_PLANE_STATE.normal],
-        origin: patch.origin !== undefined ? sanitizePoint(patch.origin) : [...DEFAULT_CLIP_PLANE_STATE.origin],
-        invert: patch.invert ?? DEFAULT_CLIP_PLANE_STATE.invert
+        enabled: value.enabled ?? DEFAULT_AXIS_CLIP_STATE.enabled,
+        fraction: value.fraction !== undefined ? clampClipFraction(value.fraction) : DEFAULT_AXIS_CLIP_STATE.fraction,
+        invert: value.invert ?? DEFAULT_AXIS_CLIP_STATE.invert
     };
 }
 
-/** Runtime guard for clip-plane states (finite xyz triples plus a boolean flag). */
-export function isClipPlaneState(value: unknown): value is ClipPlaneState {
+/** Create a per-axis clip state from a partial patch over the defaults. */
+export function createClipPlanesState(patch: Partial<Record<ClipAxis, Partial<AxisClipState>>> = {}): ClipPlanesState {
+    return {
+        X: sanitizeAxisClip(patch.X ?? {}),
+        Y: sanitizeAxisClip(patch.Y ?? {}),
+        Z: sanitizeAxisClip(patch.Z ?? {})
+    };
+}
+
+/** Runtime guard for one axis entry (boolean enabled/invert, finite fraction). */
+export function isAxisClipState(value: unknown): value is AxisClipState {
     if (typeof value !== 'object' || value === null) {
         return false;
     }
     const candidate = value as Record<string, unknown>;
-    const isTuple = (entry: unknown): entry is Vector3Tuple =>
-        Array.isArray(entry) && entry.length === 3 && entry.every((v) => typeof v === 'number' && Number.isFinite(v));
-    return isTuple(candidate['normal']) && isTuple(candidate['origin']) && typeof candidate['invert'] === 'boolean';
+    return (
+        typeof candidate['enabled'] === 'boolean' &&
+        typeof candidate['fraction'] === 'number' &&
+        Number.isFinite(candidate['fraction']) &&
+        typeof candidate['invert'] === 'boolean'
+    );
+}
+
+/** Runtime guard for per-axis clip states. */
+export function isClipPlanesState(value: unknown): value is ClipPlanesState {
+    if (typeof value !== 'object' || value === null) {
+        return false;
+    }
+    const candidate = value as Record<string, unknown>;
+    return isAxisClipState(candidate['X']) && isAxisClipState(candidate['Y']) && isAxisClipState(candidate['Z']);
+}
+
+/** Index of an axis in xyz tuples. */
+function clipAxisIndex(axis: ClipAxis): number {
+    return axis === 'X' ? 0 : axis === 'Y' ? 1 : 2;
+}
+
+/** Unit normal for an axis plane (+X/+Y/+Z). */
+export function axisClipNormal(axis: ClipAxis): Vector3Tuple {
+    const index = clipAxisIndex(axis);
+    return [index === 0 ? 1 : 0, index === 1 ? 1 : 0, index === 2 ? 1 : 0];
+}
+
+/** Whether any axis plane is active. */
+export function anyClipEnabled(state: ClipPlanesState): boolean {
+    return state.X.enabled || state.Y.enabled || state.Z.enabled;
+}
+
+/** Return a copy of `state` with one axis entry patched (fraction clamped). */
+export function updateAxisClip(state: ClipPlanesState, axis: ClipAxis, patch: Partial<AxisClipState>): ClipPlanesState {
+    return { ...state, [axis]: sanitizeAxisClip({ ...state[axis], ...patch }) };
+}
+
+/** Return a copy of `state` with every axis enabled or disabled (positions kept). */
+export function setAllClipEnabled(state: ClipPlanesState, enabled: boolean): ClipPlanesState {
+    return {
+        X: { ...state.X, enabled },
+        Y: { ...state.Y, enabled },
+        Z: { ...state.Z, enabled }
+    };
 }
 
 /**
- * Derive three.js plane parameters from a clip state. The normal is
- * normalized and negated when inverted; the constant follows
- * `constant = -(normal . origin)` so the plane passes through `origin`.
+ * Derive three.js plane parameters for every ENABLED axis plane. Each
+ * plane sits at `min[axis] + fraction * size[axis]`; the normal is the
+ * axis unit vector, negated when the entry is inverted, and
+ * `constant = -(normal . origin)` so the plane passes through the origin
+ * point. Disabled axes contribute no plane (empty array = no clipping).
  */
-export function toThreePlaneParams(state: ClipPlaneState): ThreePlaneParams {
-    const unit = normalizeClipNormal(state.normal);
-    const sign = state.invert ? -1 : 1;
-    const normal: Vector3Tuple = [canonicalZero(unit[0] * sign), canonicalZero(unit[1] * sign), canonicalZero(unit[2] * sign)];
-    const origin = sanitizePoint(state.origin);
-    const constant = -(normal[0] * origin[0] + normal[1] * origin[1] + normal[2] * origin[2]);
-    return { normal, constant };
+export function toThreePlaneParamsArray(state: ClipPlanesState, bounds: AxisAlignedBounds): ThreePlaneParams[] {
+    const params: ThreePlaneParams[] = [];
+    for (const axis of CLIP_AXES) {
+        const entry = state[axis];
+        if (!entry.enabled) {
+            continue;
+        }
+        const index = clipAxisIndex(axis);
+        const distance = bounds.min[index] + clampClipFraction(entry.fraction) * (bounds.max[index] - bounds.min[index]);
+        const sign = entry.invert ? -1 : 1;
+        const normal: Vector3Tuple = [0, 0, 0];
+        normal[index] = sign;
+        // Normalize negative zero (vitest `toEqual` distinguishes -0 from 0).
+        const constant = -sign * distance === 0 ? 0 : -sign * distance;
+        params.push({ normal, constant });
+    }
+    return params;
 }
 
-/** Signed distance from `point` to the clip plane (negative = clipped away). */
-export function clipPlaneDistance(state: ClipPlaneState, point: readonly [number, number, number]): number {
-    const params = toThreePlaneParams(state);
-    return params.normal[0] * point[0] + params.normal[1] * point[1] + params.normal[2] * point[2] + params.constant;
-}
-
-/** Return a copy of `state` with the kept half-space flipped. */
-export function invertClipPlane(state: ClipPlaneState): ClipPlaneState {
-    return { ...state, invert: !state.invert };
-}
-
-/** Return a copy of `state` with a new (normalized) normal. */
-export function setClipNormal(state: ClipPlaneState, normal: readonly [number, number, number]): ClipPlaneState {
-    return { ...state, normal: normalizeClipNormal(normal) };
-}
-
-/** Return a copy of `state` with a new origin. */
-export function setClipOrigin(state: ClipPlaneState, origin: readonly [number, number, number]): ClipPlaneState {
-    return { ...state, origin: sanitizePoint(origin) };
-}
-
-/** Return a copy of `state` with the given fields replaced (normal/origin sanitized). */
-export function updateClipPlane(state: ClipPlaneState, patch: Partial<ClipPlaneState>): ClipPlaneState {
-    return {
-        normal: patch.normal !== undefined ? normalizeClipNormal(patch.normal) : state.normal,
-        origin: patch.origin !== undefined ? sanitizePoint(patch.origin) : state.origin,
-        invert: patch.invert ?? state.invert
-    };
+/** Short status-line description (`X: 50% [inverted]`, `off` when disabled). */
+export function describeClipPlanes(state: ClipPlanesState): string {
+    const parts: string[] = [];
+    for (const axis of CLIP_AXES) {
+        const entry = state[axis];
+        if (entry.enabled) {
+            parts.push(`${axis}: ${Math.round(clampClipFraction(entry.fraction) * 100)}%${entry.invert ? ' inverted' : ''}`);
+        }
+    }
+    return parts.length > 0 ? parts.join(' + ') : 'off';
 }
 
 /**
@@ -244,49 +291,4 @@ export function boundingBoxCorners(bounds: AxisAlignedBounds): Vector3Tuple[] {
         ]);
     }
     return corners;
-}
-
-/**
- * Projected interval of a bounding box onto a (normalized) normal: the range
- * of `normal . corner` over the eight corners. Drives origin sliders — an
- * origin swept across `[min, max]` moves the plane through the whole dataset.
- */
-export function clipProjectionExtent(bounds: AxisAlignedBounds, normal: readonly [number, number, number]): { min: number; max: number } {
-    const unit = normalizeClipNormal(normal);
-    let min = Number.POSITIVE_INFINITY;
-    let max = Number.NEGATIVE_INFINITY;
-    for (const corner of boundingBoxCorners(bounds)) {
-        const dot = unit[0] * corner[0] + unit[1] * corner[1] + unit[2] * corner[2];
-        if (dot < min) {
-            min = dot;
-        }
-        if (dot > max) {
-            max = dot;
-        }
-    }
-    return { min, max };
-}
-
-/**
- * Origin point at `fraction` (clamped to [0, 1]) of the sweep across `bounds`
- * along `normal`: `origin = normal * lerp(projMin, projMax, fraction)`.
- * Fraction 0/1 place the plane on the dataset faces, 0.5 through the middle.
- */
-export function clipOriginAtFraction(normal: readonly [number, number, number], bounds: AxisAlignedBounds, fraction: number): Vector3Tuple {
-    const unit = normalizeClipNormal(normal);
-    const extent = clipProjectionExtent(bounds, unit);
-    const clamped = Math.min(1, Math.max(0, fraction));
-    const distance = extent.min + (extent.max - extent.min) * clamped;
-    return [canonicalZero(unit[0] * distance), canonicalZero(unit[1] * distance), canonicalZero(unit[2] * distance)];
-}
-
-/** Return a copy of `state` with the origin moved to the bounds center (normal kept). */
-export function fitClipOriginToBounds(state: ClipPlaneState, bounds: AxisAlignedBounds): ClipPlaneState {
-    return { ...state, origin: boundingBoxCenter(bounds) };
-}
-
-/** Short status-line description (`n=(…) o=(…) [inverted]`) for toolbar hints. */
-export function describeClipPlane(state: ClipPlaneState): string {
-    const format = (v: Vector3Tuple): string => `(${v[0].toFixed(2)}, ${v[1].toFixed(2)}, ${v[2].toFixed(2)})`;
-    return `n=${format(state.normal)} o=${format(state.origin)}${state.invert ? ' inverted' : ''}`;
 }

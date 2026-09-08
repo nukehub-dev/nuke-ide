@@ -32,6 +32,7 @@ import URI from '@theia/core/lib/common/uri';
 import { FileService } from '@theia/filesystem/lib/browser/file-service';
 import { OutputViewerContribution } from '../../../output-viewer/output-viewer-registry';
 import { VisualizerBackendService } from '../../../../common/base-visualizer-protocol';
+import { VisualizerWidget } from '../../../visualizer-widget';
 import { DagmcViewerWidget } from '../widgets/dagmc/dagmc-viewer-widget';
 import { parseVtmManifest } from '../widgets/dagmc/dagmc-multiblock';
 import { readVtkText } from '../widgets/native-vtk/native-vtk-data';
@@ -40,6 +41,18 @@ import { readVtkText } from '../widgets/native-vtk/native-vtk-data';
 function isDagmcMultiblockFileName(baseName: string): boolean {
     return baseName.toLowerCase().endsWith('.vtm');
 }
+
+/** Raw DAGMC `.h5m` files, converted to multiblock `.vtm` on open. */
+function isDagmcH5mFileName(baseName: string): boolean {
+    return baseName.toLowerCase().endsWith('.h5m');
+}
+
+/**
+ * Claim scores: `.h5m` beats the generic visualizer opener (1000) so DAGMC
+ * files land in the isolating multiblock viewer; `.vtm` keeps its 600.
+ */
+export const DAGMC_H5M_CLAIM_SCORE = 1100;
+export const DAGMC_VTM_CLAIM_SCORE = 600;
 
 /**
  * Guess the source `.h5m` for a converter-written manifest (`<stem>_volumes.vtm`
@@ -52,18 +65,27 @@ function siblingH5mCandidate(uri: URI): URI | undefined {
 }
 
 /**
- * Routes multiblock `.vtm` files (e.g. `tokamak_volumes.vtm` from
- * `convert_h5m_to_multiblock_vtk`) to the native DAGMC viewer via the
- * OutputViewerRegistry: the manifest loads through `setVtmFile` (FileService,
- * no trame server) and volume/material/group toggles arrive via `setModelInfo`
- * with the `dagmc.info` payload for the sibling `.h5m`.
+ * Routes DAGMC files to the native DAGMC viewer via the
+ * OutputViewerRegistry:
+ *
+ * - `.h5m` (claimed at 1100, beating the generic visualizer's 1000):
+ *   converted to a multiblock `.vtm` through
+ *   `VisualizerBackendService.convertDagmcMultiblock` (cached), then loaded
+ *   through `setVtmFile` with `dagmc.info` toggles for the source file —
+ *   every DAGMC file gets volume/material/group isolation for free.
+ * - `.vtm` manifests (600): loaded directly as before.
  *
  * Native-only: the manifest loads through `setVtmFile` (FileService,
  * no trame server) and volume/material/group toggles arrive via `setModelInfo`
- * with the `dagmc.info` payload for the sibling `.h5m`.
+ * with the `dagmc.info` payload.
  *
- * When the manifest cannot even be read/parsed natively, opening fails with
- * an error naming the generic VTK viewer as the alternative. A
+ * Never a dead end: when the multiblock conversion fails (or pydagmc is
+ * missing), opening falls back to the generic single-file viewer path
+ * (`VisualizerWidget.loadFile`, the `base.convert-dagmc` convert-then-probe
+ * flow) instead of surfacing an error.
+ *
+ * When a `.vtm` manifest cannot even be read/parsed natively, opening fails
+ * with an error naming the generic VTK viewer as the alternative. A
  * missing `dagmc.info` payload is NOT a native failure — the viewer simply
  * renders every block without toggles.
  */
@@ -89,10 +111,54 @@ export class OpenMCDagmcViewerContribution implements OutputViewerContribution {
     protected readonly visualizerBackend!: VisualizerBackendService;
 
     canHandle(uri: URI): number {
-        return isDagmcMultiblockFileName(uri.path.base) ? 600 : 0;
+        const base = uri.path.base;
+        if (isDagmcH5mFileName(base)) {
+            return DAGMC_H5M_CLAIM_SCORE;
+        }
+        return isDagmcMultiblockFileName(base) ? DAGMC_VTM_CLAIM_SCORE : 0;
     }
 
     async open(uri: URI): Promise<void> {
+        if (isDagmcH5mFileName(uri.path.base)) {
+            await this.openH5m(uri);
+            return;
+        }
+        await this.openManifest(uri);
+    }
+
+    /**
+     * Convert an `.h5m` to multiblock `.vtm`, then open the manifest in the
+     * DAGMC viewer with toggles for the source file. Conversion failure
+     * (or a missing pydagmc) falls back to the generic single-file viewer
+     * path — never a dead end.
+     */
+    protected async openH5m(uri: URI): Promise<void> {
+        const h5mPath = uri.path.toString();
+        try {
+            const vtmPath = await this.visualizerBackend.convertDagmcMultiblock(h5mPath);
+            await this.openManifest(new URI(vtmPath), h5mPath);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            console.warn(`[dagmc-viewer] multiblock conversion failed for ${h5mPath} — falling back to the generic viewer:`, message);
+            this.messageService.warn(`Multiblock conversion failed (${message}); opening ${uri.path.base} in the generic viewer instead.`);
+            await this.openGenericViewer(uri);
+        }
+    }
+
+    /** Open the generic single-file viewer (the `base.convert-dagmc` convert-then-probe flow). */
+    protected async openGenericViewer(uri: URI): Promise<void> {
+        const widget = (await this.widgetManager.getOrCreateWidget<VisualizerWidget>(VisualizerWidget.ID, {
+            uri: uri.toString()
+        })) as VisualizerWidget;
+        widget.setUri(uri);
+        if (!widget.isAttached) {
+            this.shell.addWidget(widget, { area: 'main' });
+        }
+        this.shell.activateWidget(widget.id);
+        await widget.loadFile(uri);
+    }
+
+    protected async openManifest(uri: URI, h5mPath?: string): Promise<void> {
         // Probe the manifest before creating any widget: a .vtm that cannot
         // be read/parsed natively surfaces an error naming the generic VTK
         // viewer as the alternative instead of starting a server.
@@ -116,7 +182,7 @@ export class OpenMCDagmcViewerContribution implements OutputViewerContribution {
         this.shell.activateWidget(widget.id);
         try {
             await widget.setVtmFile(uri);
-            await this.loadModelInfo(widget, uri);
+            await this.loadModelInfo(widget, uri, h5mPath);
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             this.messageService.error(
@@ -126,12 +192,13 @@ export class OpenMCDagmcViewerContribution implements OutputViewerContribution {
     }
 
     /**
-     * Best-effort `dagmc.info` → `setModelInfo`: only attempted for a
-     * derivable sibling `.h5m`, and failures only log — the viewer stays
-     * usable with every block visible and no toggles.
+     * Best-effort `dagmc.info` → `setModelInfo`: for converted `.h5m` opens
+     * the source path is known directly; for `.vtm` opens it is derived
+     * from the sibling name. Failures only log — the viewer stays usable
+     * with every block visible and no toggles.
      */
-    protected async loadModelInfo(widget: DagmcViewerWidget, uri: URI): Promise<void> {
-        const h5mUri = siblingH5mCandidate(uri);
+    protected async loadModelInfo(widget: DagmcViewerWidget, uri: URI, h5mPath?: string): Promise<void> {
+        const h5mUri = h5mPath !== undefined ? new URI(h5mPath) : siblingH5mCandidate(uri);
         if (!h5mUri) {
             return;
         }

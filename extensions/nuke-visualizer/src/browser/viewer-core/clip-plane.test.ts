@@ -26,140 +26,177 @@
 // *****************************************************************************
 
 /**
- * Tests for the arbitrary-normal clip-plane state (no DOM, no three.js):
- * normalization, three.js plane derivation, inversion, and bounding-box
- * fitting for origin sliders.
+ * Tests for the per-axis clip-plane state (no DOM, no three.js):
+ * defaults, guards, updates, three.js plane derivation for box-section
+ * views, and bounding-box helpers for position sliders.
  */
 
 import { describe, expect, it } from 'vitest';
 import {
+    anyClipEnabled,
+    axisClipNormal,
+    AxisAlignedBounds,
     boundingBoxCenter,
     boundingBoxCorners,
     boundingBoxFromPositions,
     boundingBoxSize,
-    clipOriginAtFraction,
-    clipPlaneDistance,
-    clipProjectionExtent,
-    createClipPlaneState,
-    DEFAULT_CLIP_PLANE_STATE,
-    describeClipPlane,
-    fitClipOriginToBounds,
-    invertClipPlane,
-    isClipPlaneState,
-    normalizeClipNormal,
-    sanitizePoint,
-    setClipNormal,
-    setClipOrigin,
-    toThreePlaneParams,
-    updateClipPlane,
-    vectorLength
+    clampClipFraction,
+    CLIP_AXES,
+    createClipPlanesState,
+    DEFAULT_CLIP_PLANES_STATE,
+    describeClipPlanes,
+    isAxisClipState,
+    isClipPlanesState,
+    setAllClipEnabled,
+    toThreePlaneParamsArray,
+    updateAxisClip
 } from './clip-plane';
 
-describe('normalizeClipNormal', () => {
-    it('normalizes non-unit vectors', () => {
-        expect(normalizeClipNormal([2, 0, 0])).toEqual([1, 0, 0]);
-        const diagonal = normalizeClipNormal([1, 1, 1]);
-        expect(diagonal[0]).toBeCloseTo(1 / Math.sqrt(3));
-        expect(vectorLength(diagonal)).toBeCloseTo(1);
+const BOUNDS: AxisAlignedBounds = { min: [-2, 0, 0], max: [2, 4, 6] };
+
+describe('createClipPlanesState / guards / updates', () => {
+    it('defaults every axis to the middle, disabled', () => {
+        expect(DEFAULT_CLIP_PLANES_STATE).toEqual({
+            X: { enabled: false, fraction: 0.5, invert: false },
+            Y: { enabled: false, fraction: 0.5, invert: false },
+            Z: { enabled: false, fraction: 0.5, invert: false }
+        });
+        expect(createClipPlanesState()).toEqual(DEFAULT_CLIP_PLANES_STATE);
+        expect(CLIP_AXES).toEqual(['X', 'Y', 'Z']);
     });
 
-    it('falls back to +X for zero or non-finite input', () => {
-        expect(normalizeClipNormal([0, 0, 0])).toEqual([1, 0, 0]);
-        expect(normalizeClipNormal([NaN, 0, 0])).toEqual([1, 0, 0]);
-        expect(normalizeClipNormal([1, Infinity, 0])).toEqual([1, 0, 0]);
-    });
-});
-
-describe('createClipPlaneState / guards / updates', () => {
-    it('defaults to +X through the origin', () => {
-        expect(DEFAULT_CLIP_PLANE_STATE).toEqual({ normal: [1, 0, 0], origin: [0, 0, 0], invert: false });
-        expect(createClipPlaneState()).toEqual(DEFAULT_CLIP_PLANE_STATE);
-    });
-
-    it('sanitizes patched normals and origins', () => {
-        const state = createClipPlaneState({ normal: [0, 3, 4], origin: [1, 2, 3], invert: true });
-        expect(state.normal).toEqual([0, 0.6, 0.8]);
-        expect(state.origin).toEqual([1, 2, 3]);
-        expect(state.invert).toBe(true);
+    it('patches single axes and clamps fractions', () => {
+        const state = createClipPlanesState({ X: { enabled: true, fraction: 0.25, invert: true } });
+        expect(state.X).toEqual({ enabled: true, fraction: 0.25, invert: true });
+        expect(state.Y).toEqual(DEFAULT_CLIP_PLANES_STATE.Y);
+        expect(createClipPlanesState({ Z: { fraction: 99 } }).Z.fraction).toBe(1);
+        expect(createClipPlanesState({ Z: { fraction: Number.NaN } }).Z.fraction).toBe(0.5);
     });
 
     it('validates unknown payloads', () => {
-        expect(isClipPlaneState(createClipPlaneState())).toBe(true);
-        expect(isClipPlaneState({ normal: [1, 0, 0], origin: [0, 0, 0], invert: false })).toBe(true);
-        expect(isClipPlaneState(undefined)).toBe(false);
-        expect(isClipPlaneState({ normal: [1, 0], origin: [0, 0, 0], invert: false })).toBe(false);
-        expect(isClipPlaneState({ normal: [1, 0, NaN], origin: [0, 0, 0], invert: false })).toBe(false);
-        expect(isClipPlaneState({ normal: [1, 0, 0], origin: [0, 0, 0], invert: 'no' })).toBe(false);
+        expect(isClipPlanesState(createClipPlanesState())).toBe(true);
+        expect(
+            isClipPlanesState({
+                X: { enabled: true, fraction: 0, invert: false },
+                Y: { enabled: false, fraction: 1, invert: true },
+                Z: { enabled: false, fraction: 0.5, invert: false }
+            })
+        ).toBe(true);
+        expect(isClipPlanesState(undefined)).toBe(false);
+        expect(isClipPlanesState({ X: { enabled: true, fraction: 0, invert: false } })).toBe(false);
+        expect(
+            isClipPlanesState({
+                X: { enabled: true, fraction: Number.NaN, invert: false },
+                Y: { enabled: false, fraction: 0.5, invert: false },
+                Z: { enabled: false, fraction: 0.5, invert: false }
+            })
+        ).toBe(false);
+        expect(isAxisClipState({ enabled: false, fraction: 0.5, invert: false })).toBe(true);
+        expect(isAxisClipState({ enabled: 'yes', fraction: 0.5, invert: false })).toBe(false);
     });
 
-    it('updates single fields immutably', () => {
-        const state = createClipPlaneState();
-        expect(setClipNormal(state, [0, 0, 5])).toEqual({ normal: [0, 0, 1], origin: [0, 0, 0], invert: false });
-        expect(setClipOrigin(state, [1, 2, 3]).origin).toEqual([1, 2, 3]);
-        expect(updateClipPlane(state, { invert: true }).invert).toBe(true);
-        expect(state.invert).toBe(false);
+    it('updates single axes immutably', () => {
+        const state = createClipPlanesState();
+        const moved = updateAxisClip(state, 'Y', { fraction: 0.75 });
+        expect(moved.Y.fraction).toBe(0.75);
+        expect(state.Y.fraction).toBe(0.5);
+        expect(updateAxisClip(state, 'Z', { enabled: true, invert: true }).Z).toEqual({
+            enabled: true,
+            fraction: 0.5,
+            invert: true
+        });
     });
 
-    it('sanitizes non-finite origin components', () => {
-        expect(sanitizePoint([1, NaN, 3])).toEqual([1, 0, 3]);
+    it('toggles every axis while keeping positions', () => {
+        const state = createClipPlanesState({ X: { enabled: true, fraction: 0.25 } });
+        expect(anyClipEnabled(state)).toBe(true);
+        expect(anyClipEnabled(createClipPlanesState())).toBe(false);
+        const all = setAllClipEnabled(state, true);
+        expect(anyClipEnabled(all)).toBe(true);
+        expect(all.X.fraction).toBe(0.25);
+        const none = setAllClipEnabled(all, false);
+        expect(anyClipEnabled(none)).toBe(false);
+        expect(none.X.fraction).toBe(0.25);
+    });
+
+    it('clamps fractions', () => {
+        expect(clampClipFraction(0.25)).toBe(0.25);
+        expect(clampClipFraction(-1)).toBe(0);
+        expect(clampClipFraction(99)).toBe(1);
+        expect(clampClipFraction(Number.NaN)).toBe(0.5);
     });
 });
 
-describe('toThreePlaneParams', () => {
-    it('derives constant = -(n . o) with a unit normal', () => {
-        const params = toThreePlaneParams(createClipPlaneState({ normal: [0, 0, 2], origin: [0, 0, 5] }));
-        expect(params.normal).toEqual([0, 0, 1]);
-        expect(params.constant).toBeCloseTo(-5);
+describe('toThreePlaneParamsArray', () => {
+    it('emits no planes when every axis is disabled', () => {
+        expect(toThreePlaneParamsArray(createClipPlanesState(), BOUNDS)).toEqual([]);
     });
 
-    it('negates the plane when inverted', () => {
-        const plain = toThreePlaneParams(createClipPlaneState({ normal: [1, 0, 0], origin: [2, 0, 0] }));
-        const inverted = toThreePlaneParams(createClipPlaneState({ normal: [1, 0, 0], origin: [2, 0, 0], invert: true }));
-        expect(plain).toEqual({ normal: [1, 0, 0], constant: -2 });
-        expect(inverted).toEqual({ normal: [-1, 0, 0], constant: 2 });
-        expect(invertClipPlane(createClipPlaneState()).invert).toBe(true);
+    it('places one plane per enabled axis at its fraction', () => {
+        const params = toThreePlaneParamsArray(createClipPlanesState({ X: { enabled: true, fraction: 0.5 } }), BOUNDS);
+        expect(params).toEqual([{ normal: [1, 0, 0], constant: 0 }]);
+        const quarter = toThreePlaneParamsArray(createClipPlanesState({ Z: { enabled: true, fraction: 0 } }), BOUNDS);
+        expect(quarter).toEqual([{ normal: [0, 0, 1], constant: 0 }]);
+        const full = toThreePlaneParamsArray(createClipPlanesState({ Y: { enabled: true, fraction: 1 } }), BOUNDS);
+        expect(full).toEqual([{ normal: [0, 1, 0], constant: -4 }]);
+    });
+
+    it('negates the plane when inverted (keeps the opposite half-space)', () => {
+        const params = toThreePlaneParamsArray(createClipPlanesState({ X: { enabled: true, fraction: 0.5, invert: true } }), BOUNDS);
+        expect(params).toEqual([{ normal: [-1, 0, 0], constant: 0 }]);
+    });
+
+    it('applies enabled planes together for box-section views', () => {
+        const params = toThreePlaneParamsArray(
+            createClipPlanesState({ X: { enabled: true, fraction: 0.5 }, Z: { enabled: true, fraction: 0.5 } }),
+            BOUNDS
+        );
+        expect(params).toEqual([
+            { normal: [1, 0, 0], constant: 0 },
+            { normal: [0, 0, 1], constant: -3 }
+        ]);
     });
 
     it('matches the three.js clipping convention (negative = clipped)', () => {
-        const state = createClipPlaneState({ normal: [0, 0, 1], origin: [0, 0, 1] });
-        expect(clipPlaneDistance(state, [0, 0, 2])).toBeCloseTo(1);
-        expect(clipPlaneDistance(state, [0, 0, 0])).toBeCloseTo(-1);
-        expect(clipPlaneDistance(state, [0, 0, 1])).toBeCloseTo(0);
+        // X plane at fraction 0.5 of [-2, 2] sits at x = 0: points below are clipped.
+        const [params] = toThreePlaneParamsArray(createClipPlanesState({ X: { enabled: true, fraction: 0.5 } }), BOUNDS);
+        const distance = (point: [number, number, number]): number =>
+            params.normal[0] * point[0] + params.normal[1] * point[1] + params.normal[2] * point[2] + params.constant;
+        expect(distance([1, 0, 0])).toBeCloseTo(1);
+        expect(distance([-1, 0, 0])).toBeCloseTo(-1);
+        expect(distance([0, 9, 9])).toBeCloseTo(0);
     });
 });
 
-describe('bounding-box fitting', () => {
-    const bounds = { min: [-2, 0, 0] as [number, number, number], max: [2, 4, 6] as [number, number, number] };
+describe('axisClipNormal', () => {
+    it('returns unit axis normals', () => {
+        expect(axisClipNormal('X')).toEqual([1, 0, 0]);
+        expect(axisClipNormal('Y')).toEqual([0, 1, 0]);
+        expect(axisClipNormal('Z')).toEqual([0, 0, 1]);
+    });
+});
 
+describe('bounding-box helpers', () => {
     it('computes boxes from packed positions', () => {
         expect(boundingBoxFromPositions(new Float32Array([]))).toBeUndefined();
-        expect(boundingBoxFromPositions(new Float32Array([-2, 0, 0, 2, 4, 6]))).toEqual(bounds);
-        expect(boundingBoxCenter(bounds)).toEqual([0, 2, 3]);
-        expect(boundingBoxSize(bounds)).toEqual([4, 4, 6]);
-        expect(boundingBoxCorners(bounds)).toHaveLength(8);
+        expect(boundingBoxFromPositions(new Float32Array([-2, 0, 0, 2, 4, 6]))).toEqual(BOUNDS);
+        expect(boundingBoxCenter(BOUNDS)).toEqual([0, 2, 3]);
+        expect(boundingBoxSize(BOUNDS)).toEqual([4, 4, 6]);
+        expect(boundingBoxCorners(BOUNDS)).toHaveLength(8);
+    });
+});
+
+describe('describeClipPlanes', () => {
+    it('reports off when every axis is disabled', () => {
+        expect(describeClipPlanes(createClipPlanesState())).toBe('off');
     });
 
-    it('projects the box onto the normal for slider ranges', () => {
-        expect(clipProjectionExtent(bounds, [1, 0, 0])).toEqual({ min: -2, max: 2 });
-        expect(clipProjectionExtent(bounds, [0, 0, 1])).toEqual({ min: 0, max: 6 });
-    });
-
-    it('sweeps the origin across the dataset with a fraction', () => {
-        expect(clipOriginAtFraction([1, 0, 0], bounds, 0)).toEqual([-2, 0, 0]);
-        expect(clipOriginAtFraction([1, 0, 0], bounds, 1)).toEqual([2, 0, 0]);
-        expect(clipOriginAtFraction([1, 0, 0], bounds, 0.5)).toEqual([0, 0, 0]);
-        expect(clipOriginAtFraction([0, 0, 1], bounds, 0.5)).toEqual([0, 0, 3]);
-        expect(clipOriginAtFraction([1, 0, 0], bounds, 99)).toEqual([2, 0, 0]);
-    });
-
-    it('fits the origin to the box center', () => {
-        const fitted = fitClipOriginToBounds(createClipPlaneState({ normal: [0, 1, 0] }), bounds);
-        expect(fitted.origin).toEqual([0, 2, 3]);
-        expect(fitted.normal).toEqual([0, 1, 0]);
-    });
-
-    it('describes the state for status lines', () => {
-        expect(describeClipPlane(createClipPlaneState())).toBe('n=(1.00, 0.00, 0.00) o=(0.00, 0.00, 0.00)');
-        expect(describeClipPlane(createClipPlaneState({ invert: true }))).toContain('inverted');
+    it('lists enabled axes with percents', () => {
+        expect(describeClipPlanes(createClipPlanesState({ X: { enabled: true, fraction: 0.5 } }))).toBe('X: 50%');
+        expect(
+            describeClipPlanes(
+                createClipPlanesState({ X: { enabled: true, fraction: 0.25, invert: true }, Z: { enabled: true, fraction: 1 } })
+            )
+        ).toBe('X: 25% inverted + Z: 100%');
     });
 });
