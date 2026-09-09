@@ -368,7 +368,9 @@ export class ExodusTimeSliderWidget extends ReactWidget implements ViewerSetting
         }
         return (
             <div className="openmc-output-viewer-viewarea">
-                <div className="openmc-output-viewer-hint">{this.describeScene()} Drag to orbit, wheel to zoom, right-drag to pan.</div>
+                <div className="openmc-output-viewer-hint nuke-viewer-status-line">
+                    {this.describeScene()} Drag to orbit, wheel to zoom, right-drag to pan.
+                </div>
                 <div ref={this.attachHost} style={{ flex: '1', minHeight: '240px', position: 'relative' }} />
             </div>
         );

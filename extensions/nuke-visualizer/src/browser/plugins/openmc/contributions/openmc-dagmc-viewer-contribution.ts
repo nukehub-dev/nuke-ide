@@ -29,13 +29,11 @@ import { injectable, inject } from '@theia/core/shared/inversify';
 import { ApplicationShell, WidgetManager } from '@theia/core/lib/browser';
 import { MessageService } from '@theia/core/lib/common';
 import URI from '@theia/core/lib/common/uri';
-import { FileService } from '@theia/filesystem/lib/browser/file-service';
 import { OutputViewerContribution } from '../../../output-viewer/output-viewer-registry';
 import { VisualizerBackendService } from '../../../../common/base-visualizer-protocol';
 import { VisualizerWidget } from '../../../visualizer-widget';
+import { DagmcOutlineWidget } from '../../../dagmc-outline/dagmc-outline-widget';
 import { DagmcViewerWidget } from '../widgets/dagmc/dagmc-viewer-widget';
-import { parseVtmManifest } from '../widgets/dagmc/dagmc-multiblock';
-import { readVtkText } from '../widgets/native-vtk/native-vtk-data';
 
 /** Multiblock `.vtm` manifests (as written by `convert_h5m_to_multiblock_vtk`: `<stem>_volumes.vtm`). */
 function isDagmcMultiblockFileName(baseName: string): boolean {
@@ -68,25 +66,32 @@ function siblingH5mCandidate(uri: URI): URI | undefined {
  * Routes DAGMC files to the native DAGMC viewer via the
  * OutputViewerRegistry:
  *
- * - `.h5m` (claimed at 1100, beating the generic visualizer's 1000):
- *   converted to a multiblock `.vtm` through
- *   `VisualizerBackendService.convertDagmcMultiblock` (cached), then loaded
+ * - `.h5m` (claimed at 1100, beating the generic visualizer's 1000): the
+ *   viewer tab opens immediately with a loading overlay
+ *   (`beginPendingLoad`), then converts to a multiblock `.vtm` through
+ *   `VisualizerBackendService.convertDagmcMultiblock` (cached) and loads it
  *   through `setVtmFile` with `dagmc.info` toggles for the source file —
  *   every DAGMC file gets volume/material/group isolation for free.
- * - `.vtm` manifests (600): loaded directly as before.
+ *   Conversion failure shows the error panel in the same tab (with a
+ *   one-shot jump to the generic single-file viewer) instead of leaving a
+ *   toast-only dead end.
+ * - `.vtm` manifests (600): the tab opens immediately and loads directly
+ *   as before; an unreadable manifest shows the in-tab error panel naming
+ *   the generic VTK viewer as the alternative.
  *
  * Native-only: the manifest loads through `setVtmFile` (FileService,
  * no trame server) and volume/material/group toggles arrive via `setModelInfo`
  * with the `dagmc.info` payload.
  *
- * Never a dead end: when the multiblock conversion fails (or pydagmc is
- * missing), opening falls back to the generic single-file viewer path
- * (`VisualizerWidget.loadFile`, the `base.convert-dagmc` convert-then-probe
- * flow) instead of surfacing an error.
+ * The single-file fallback stays working: `openGenericViewer` (the
+ * `base.convert-dagmc` convert-then-probe flow) backs the error panel's
+ * "Open in generic viewer" action.
  *
- * When a `.vtm` manifest cannot even be read/parsed natively, opening fails
- * with an error naming the generic VTK viewer as the alternative. A
- * missing `dagmc.info` payload is NOT a native failure — the viewer simply
+ * Every open also reveals the DAGMC Outline sidebar (without stealing
+ * focus from the viewer), mirroring how the CAD open handler reveals its
+ * Model Outline panels.
+ *
+ * A missing `dagmc.info` payload is NOT a native failure — the viewer simply
  * renders every block without toggles.
  */
 @injectable()
@@ -103,9 +108,6 @@ export class OpenMCDagmcViewerContribution implements OutputViewerContribution {
 
     @inject(MessageService)
     protected readonly messageService!: MessageService;
-
-    @inject(FileService)
-    protected readonly fileService!: FileService;
 
     @inject(VisualizerBackendService)
     protected readonly visualizerBackend!: VisualizerBackendService;
@@ -127,21 +129,31 @@ export class OpenMCDagmcViewerContribution implements OutputViewerContribution {
     }
 
     /**
-     * Convert an `.h5m` to multiblock `.vtm`, then open the manifest in the
-     * DAGMC viewer with toggles for the source file. Conversion failure
-     * (or a missing pydagmc) falls back to the generic single-file viewer
-     * path — never a dead end.
+     * Open an `.h5m` instantly: the viewer tab (with its loading overlay)
+     * appears before `base.convert-dagmc-multiblock` runs. Conversion
+     * failure lands in the tab's error panel — with a one-shot jump to the
+     * generic single-file viewer — instead of blocking the open.
      */
     protected async openH5m(uri: URI): Promise<void> {
         const h5mPath = uri.path.toString();
+        const existing = this.findViewerForH5m(h5mPath);
+        const widget = existing ?? (await this.createViewerWidget(h5mPath));
+        if (existing) {
+            await this.revealDagmcOutline();
+            this.shell.activateWidget(existing.id);
+            return;
+        }
+        widget.beginPendingLoad(uri.path.base, `Converting ${uri.path.base} to multiblock…`, h5mPath);
+        widget.setGenericFallback(() => this.openGenericViewer(uri));
         try {
             const vtmPath = await this.visualizerBackend.convertDagmcMultiblock(h5mPath);
-            await this.openManifest(new URI(vtmPath), h5mPath);
+            await this.loadManifest(widget, new URI(vtmPath), h5mPath);
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
-            console.warn(`[dagmc-viewer] multiblock conversion failed for ${h5mPath} — falling back to the generic viewer:`, message);
-            this.messageService.warn(`Multiblock conversion failed (${message}); opening ${uri.path.base} in the generic viewer instead.`);
-            await this.openGenericViewer(uri);
+            widget.failPendingLoad(`Multiblock conversion failed: ${message}`);
+            this.messageService.error(
+                `Multiblock conversion failed for ${h5mPath} (${message}); use the error panel to open ${uri.path.base} in the generic viewer instead.`
+            );
         }
     }
 
@@ -159,27 +171,54 @@ export class OpenMCDagmcViewerContribution implements OutputViewerContribution {
     }
 
     protected async openManifest(uri: URI, h5mPath?: string): Promise<void> {
-        // Probe the manifest before creating any widget: a .vtm that cannot
-        // be read/parsed natively surfaces an error naming the generic VTK
-        // viewer as the alternative instead of starting a server.
-        try {
-            const text = await readVtkText(this.fileService, uri);
-            parseVtmManifest(text);
-        } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            this.messageService.error(
-                `Failed to load DAGMC multiblock ${uri.path.toString()}: ${message}. Try opening it in the generic VTK viewer instead.`
-            );
-            return;
-        }
+        const widget = await this.createViewerWidget(uri.path.toString());
+        await this.loadManifest(widget, uri, h5mPath);
+    }
 
+    /**
+     * Create (or reuse) the per-file viewer tab, reveal the DAGMC Outline
+     * sidebar without stealing focus, and activate the viewer — all before
+     * any conversion or file read runs, so the tab appears instantly.
+     */
+    protected async createViewerWidget(idSuffix: string): Promise<DagmcViewerWidget> {
         const widget = await this.widgetManager.getOrCreateWidget<DagmcViewerWidget>(DagmcViewerWidget.ID, {
-            id: `${DagmcViewerWidget.ID}:${uri.path.toString()}`
+            id: `${DagmcViewerWidget.ID}:${idSuffix}`
         });
         if (!widget.isAttached) {
             this.shell.addWidget(widget, { area: 'main' });
         }
+        await this.revealDagmcOutline();
         this.shell.activateWidget(widget.id);
+        return widget;
+    }
+
+    /**
+     * Reveal the DAGMC Outline sidebar when a viewer tab opens (mirrors the
+     * CAD open handler's model-panel reveal): attached panels are only
+     * revealed, and the panel is never activated, so focus stays in the
+     * viewer.
+     */
+    protected async revealDagmcOutline(): Promise<void> {
+        const panel = await this.widgetManager.getOrCreateWidget(DagmcOutlineWidget.ID);
+        if (!panel.isAttached) {
+            await this.shell.addWidget(panel, { area: 'right' });
+        } else {
+            await this.shell.revealWidget(panel.id);
+        }
+    }
+
+    /** Reuse the live tab when the same `.h5m` is opened again (it re-ids to the `.vtm` path on load). */
+    protected findViewerForH5m(h5mPath: string): DagmcViewerWidget | undefined {
+        for (const widget of this.widgetManager.getWidgets(DagmcViewerWidget.ID)) {
+            if (widget instanceof DagmcViewerWidget && !widget.isDisposed && widget.h5mSourcePath === h5mPath) {
+                return widget;
+            }
+        }
+        return undefined;
+    }
+
+    /** Load the manifest into an already-open tab; failures surface in-tab naming the generic viewer. */
+    protected async loadManifest(widget: DagmcViewerWidget, uri: URI, h5mPath?: string): Promise<void> {
         try {
             await widget.setVtmFile(uri);
             await this.loadModelInfo(widget, uri, h5mPath);

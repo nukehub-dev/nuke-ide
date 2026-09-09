@@ -424,7 +424,7 @@ export class GeometryNativeViewerWidget extends ReactWidget implements ViewerSet
                         ))}
                     </div>
                     <div style={{ flex: '1', minWidth: '0', display: 'flex', flexDirection: 'column' }}>
-                        <div className="openmc-output-viewer-hint">
+                        <div className="openmc-output-viewer-hint nuke-viewer-status-line">
                             {this.describeModel()} Drag to orbit, wheel to zoom, right-drag to pan, click a box to select.
                         </div>
                         <div ref={this.attachHost} style={{ flex: '1', minHeight: '0', position: 'relative' }} />

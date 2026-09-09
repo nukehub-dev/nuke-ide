@@ -1,0 +1,335 @@
+/* DAGMC Outline sidebar panel. All colors come from Theia CSS variables.
+   Layout mirrors the Viewer Settings sidebar (panel / title / groups /
+   rows); the shared nuke-essentials pieces (NukeEmptyState, Tooltip,
+   NukeLoadingOverlay in the viewer) own their own look. */
+
+.dagmc-outline-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 8px 12px;
+    overflow-y: auto;
+    height: 100%;
+    font-size: 12px;
+}
+
+.dagmc-outline-title {
+    min-width: 0;
+    overflow: hidden;
+}
+
+/* CAD-style header: accent icon + panel name + bound-viewer subtitle. */
+.dagmc-outline-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--theia-panel-border);
+}
+
+.dagmc-outline-header-icon {
+    font-size: 16px;
+    color: var(--theia-focusBorder);
+    flex-shrink: 0;
+    margin-top: 1px;
+}
+
+.dagmc-outline-header-text {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.dagmc-outline-panel-name {
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--theia-foreground);
+    white-space: nowrap;
+}
+
+/* Kept hook: previously the panel title line, now the ellipsis-truncated
+   bound-viewer subtitle (full tab label in the Nuke tooltip). */
+
+/* The shared Tooltip wraps the subtitle in an inline-flex span sized to the
+   content: without a shrinkable block chain the long viewer tab label
+   overflows the panel instead of ellipsizing (same flex-override pattern as
+   the search row below). */
+.dagmc-outline-title > span {
+    display: flex !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    overflow: hidden;
+}
+
+.dagmc-outline-title-text {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+}
+
+.dagmc-outline-status {
+    opacity: 0.8;
+}
+
+.dagmc-outline-search-tip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.dagmc-outline-search-icon {
+    color: var(--theia-focusBorder);
+    flex-shrink: 0;
+}
+
+.dagmc-outline-search-tip > span {
+    flex: 1 1 auto !important;
+    width: auto !important;
+    max-width: 100% !important;
+}
+
+.dagmc-outline-search {
+    flex: 1 1 auto;
+    min-width: 0;
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    border: 1px solid var(--theia-input-border);
+    padding: 2px 6px;
+}
+
+.dagmc-outline-group {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 6px 8px;
+    border: 1px solid var(--theia-panel-border);
+}
+
+.dagmc-outline-group-label {
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+    opacity: 0.8;
+}
+
+/* Sticky collapsible section header with a count badge: the header pins to
+   the panel top while a long section scrolls beneath it. Click toggles the
+   section (CAD TreeSection grammar); keyboard Enter/Space works too. */
+.dagmc-outline-group-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    padding: 2px;
+    border-radius: 3px;
+    background: var(--theia-sideBar-background, var(--theia-editor-background));
+    cursor: pointer;
+    user-select: none;
+}
+
+.dagmc-outline-group-header:hover {
+    color: var(--theia-foreground);
+}
+
+.dagmc-outline-group-header:focus-visible {
+    outline: 1px solid var(--theia-focusBorder);
+    outline-offset: -1px;
+}
+
+.dagmc-outline-chevron {
+    color: var(--theia-focusBorder);
+    display: inline-flex;
+    align-items: center;
+}
+
+.dagmc-outline-count-badge {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 0 6px;
+    border-radius: 8px;
+    background: var(--theia-badge-background);
+    color: var(--theia-badge-foreground);
+    white-space: nowrap;
+}
+
+.dagmc-outline-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    border-radius: 3px;
+    padding: 1px 2px;
+}
+
+div.dagmc-outline-row {
+    cursor: pointer;
+}
+
+div.dagmc-outline-row:hover {
+    background: var(--theia-list-hoverBackground);
+}
+
+div.dagmc-outline-row.selected {
+    background: var(--theia-list-activeSelectionBackground);
+    color: var(--theia-list-activeSelectionForeground);
+}
+
+/* Hidden rows read dimmed with an eye-closed marker (CAD outline grammar);
+   the hover isolate action stays reachable so the row can be un-hidden. */
+div.dagmc-outline-row-hidden {
+    opacity: 0.55;
+}
+
+.dagmc-outline-row-hidden-marker {
+    flex-shrink: 0;
+    font-size: 13px;
+    color: var(--theia-descriptionForeground);
+}
+
+/* Live visibility dot (CAD feature-tree-status grammar): green while the
+   row is visible, muted while hidden. */
+.dagmc-outline-state-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--theia-descriptionForeground);
+    opacity: 0.5;
+    flex-shrink: 0;
+}
+
+.dagmc-outline-state-dot.is-visible {
+    background: var(--theia-terminal-ansiGreen);
+    opacity: 1;
+}
+
+.dagmc-outline-state-dot.is-hidden {
+    background: var(--theia-descriptionForeground);
+    opacity: 0.5;
+}
+
+div.dagmc-outline-row.selected .dagmc-outline-row-material {
+    color: inherit;
+    opacity: 0.75;
+}
+
+.dagmc-outline-row-label {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dagmc-outline-row-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dagmc-outline-row-material {
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dagmc-outline-row-icon {
+    color: var(--theia-focusBorder);
+    flex-shrink: 0;
+}
+
+div.dagmc-outline-row.selected .dagmc-outline-row-icon {
+    color: inherit;
+}
+
+.dagmc-outline-hint {
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+}
+
+/* Info banner for inline plain-text hints (CAD outline-hint grammar with
+   an icon + bordered box instead of bare text). */
+.dagmc-outline-banner {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 8px 10px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 4px;
+    background: var(--theia-editorWidget-background);
+}
+
+.dagmc-outline-banner-icon {
+    font-size: 14px;
+    color: var(--theia-focusBorder);
+    flex-shrink: 0;
+}
+
+.dagmc-outline-show-all {
+    align-self: flex-start;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+/* Row-label Tooltip span: same flex-override pattern as the search row so
+   the label shrinks instead of pushing the hover isolate button out.
+   Scoped to label wrappers only — the isolate-button Tooltip keeps its
+   hug-the-button size. */
+.dagmc-outline-volume-row > span:has(> .dagmc-outline-row-label),
+.dagmc-outline-material-row > span:has(> .dagmc-outline-row-label),
+.dagmc-outline-group-row > span:has(> .dagmc-outline-row-label) {
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+}
+
+/* Hover isolate action: hidden until the row is hovered or focused. Plain
+   button (never .theia-button, whose 65px min-width would blow the row). */
+.dagmc-outline-isolate {
+    display: none;
+    flex-shrink: 0;
+    background: transparent;
+    border: none;
+    border-radius: 3px;
+    padding: 1px 4px;
+    color: var(--theia-descriptionForeground);
+    cursor: pointer;
+}
+
+div.dagmc-outline-volume-row:hover .dagmc-outline-isolate,
+div.dagmc-outline-volume-row:focus-within .dagmc-outline-isolate,
+div.dagmc-outline-material-row:hover .dagmc-outline-isolate,
+div.dagmc-outline-material-row:focus-within .dagmc-outline-isolate,
+div.dagmc-outline-group-row:hover .dagmc-outline-isolate,
+div.dagmc-outline-group-row:focus-within .dagmc-outline-isolate {
+    display: inline-flex;
+    align-items: center;
+}
+
+.dagmc-outline-isolate:hover {
+    color: var(--theia-foreground);
+    background: var(--theia-list-hoverBackground);
+}
+
+.dagmc-outline-isolate .codicon {
+    font-size: 13px;
+}
+
+/* Graveyard toggle row: muted italic so the termination volumes read as
+   special, matching the muted-suffix treatment of material names. */
+.dagmc-outline-graveyard-row .dagmc-outline-row-label {
+    color: var(--theia-descriptionForeground);
+    font-style: italic;
+}

@@ -130,39 +130,28 @@
     word-break: break-word;
 }
 
-/* Axis navigation gizmo (below the document toolbar, mirrors camera orientation) */
-.cad-viewport-gizmo {
+/* Shared viewer chrome (nuke-essentials ViewCube/ViewBadge): the labeled
+   triad cube sits top-right below the document toolbar and the view badge
+   top-left, mirroring the native VTK viewers. Knob/pill looks live in
+   nuke-essentials; only the below-toolbar placement stays here. */
+.cad-viewport .nuke-view-cube {
     position: absolute;
     top: 64px;
     right: 10px;
     z-index: 12;
-    width: 68px;
-    height: 68px;
     pointer-events: none;
 }
 
-.cad-viewport-gizmo svg {
-    pointer-events: none;
+.cad-viewport .nuke-view-cube .nuke-view-cube-knob-slot,
+.cad-viewport .nuke-view-cube .nuke-view-cube-knob {
+    pointer-events: auto;
 }
 
-.cad-viewport-gizmo circle[data-dir] {
-    pointer-events: all;
-    cursor: pointer;
-}
-
-/* View label overlay (top-left, e.g. "User view" / "Sketch — Sketch 1") */
-.cad-viewport-view-label {
+.cad-viewport .nuke-view-badge {
     position: absolute;
     top: 64px;
     left: 10px;
     z-index: 12;
-    padding: 2px 8px;
-    border-radius: 4px;
-    background: var(--theia-editorWidget-background);
-    color: var(--theia-descriptionForeground);
-    font-size: var(--theia-ui-font-size0);
-    pointer-events: none;
-    opacity: 0.85;
 }
 
 /* Sketch mode overlay */
@@ -1169,20 +1158,9 @@
     font-size: var(--theia-ui-font-size0);
 }
 
-.cad-viewport-nav {
-    position: absolute;
-    bottom: 8px;
-    right: 8px;
-    z-index: 15;
-    display: flex;
-    align-items: center;
-    gap: 2px;
-    padding: 3px;
-    border: 1px solid var(--theia-panel-border);
-    border-radius: 6px;
-    background: var(--theia-editorWidget-background);
-}
-
+/* CAD-only tools riding the shared bottom bar (shading, section, explode):
+   the ISO/T/F/R + fit + zoom core lives in nuke-essentials
+   (.nuke-viewer-nav-bar); only the host-specific buttons stay here. */
 .cad-viewport-nav-button {
     display: inline-flex;
     align-items: center;
@@ -1194,11 +1172,6 @@
 
 .cad-viewport-nav-button.active {
     color: var(--theia-focusBorder);
-}
-
-.cad-viewport-nav-text {
-    font-size: 10px;
-    font-weight: 600;
 }
 
 .cad-viewport-nav-divider {
@@ -1326,7 +1299,8 @@
     min-width: 80px;
 }
 
-/* Edges-only status hint (bottom-center pill, like the document hint) */
+/* Status hint (bottom-center pill, like the document hint): layout stays
+   here; the muted text treatment is the shared `.nuke-viewer-status-line`. */
 .cad-viewport-shading-hint {
     position: absolute;
     bottom: 10px;
@@ -1345,8 +1319,6 @@
     border: 1px solid var(--theia-panel-border);
     border-radius: 6px;
     background: var(--theia-editorWidget-background);
-    color: var(--theia-descriptionForeground);
-    font-size: var(--theia-ui-font-size1);
     pointer-events: none;
 }
 

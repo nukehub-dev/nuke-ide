@@ -34,7 +34,8 @@ import { codicon } from '@theia/core/lib/browser/widgets/widget';
 import URI from '@theia/core/lib/common/uri';
 import { MessageService } from '@theia/core/lib/common';
 import { FileService } from '@theia/filesystem/lib/browser/file-service';
-import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
+import { Tooltip, ViewBadge, ViewerNavBar, ViewCube } from 'nuke-essentials/lib/theme/browser/components';
+import type { ViewerNavAction, ViewCubeHandle } from 'nuke-essentials/lib/theme/browser/components';
 import {
     ClassifiedNativeVtkArrays,
     classifyNativeVtkArrays,
@@ -60,7 +61,6 @@ import {
     type BoundsCorner,
     type OrbitControlsHandle
 } from '../../../viewer-core/orbit-controls';
-import type { GizmoCameraPose } from '../../../viewer-core/orientation-gizmo';
 import {
     addMeasurePoint,
     cancelMeasureStep,
@@ -71,7 +71,7 @@ import {
     type MeasurePoint3D,
     type MeasureState
 } from '../../../viewer-core/measure-model';
-import { isViewerContextMenuClick, openViewerContextMenu } from '../../../viewer-core/viewer-context-menu';
+import { buildViewerContextMenuItems, isViewerContextMenuClick, openViewerContextMenu } from '../../../viewer-core/viewer-context-menu';
 import {
     anyClipEnabled,
     boundingBoxFromPositions,
@@ -83,10 +83,8 @@ import {
 } from '../../../viewer-core/clip-plane';
 import {
     DEFAULT_VIEWER_SHADING_MODE,
-    VIEWER_SHADING_MODES,
     ViewerShadingMode,
     isViewerShadingMode,
-    nextViewerShadingMode,
     resolveViewerShadingFlags
 } from '../../../viewer-core/shading-mode';
 import { OpenMCVtkArrayInfo } from '../../../../common/openmc-protocol';
@@ -96,8 +94,6 @@ import {
     ViewerSettingsSnapshot,
     viewerSnapDirection
 } from '../../../viewer-settings/viewer-settings-model';
-import { ViewerNavAction, ViewerNavCluster } from './viewer-nav-cluster';
-import { ViewerGizmo, type ViewerGizmoHandle } from './viewer-gizmo';
 import { ViewerMeasureLabel, type ViewerMeasureHandle } from './viewer-measure';
 import './output-viewer.css';
 
@@ -176,7 +172,7 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
     private orbitControls: OrbitControlsHandle | undefined;
     private resizeObserver: ResizeObserver | undefined;
     private contextMenuClose: (() => void) | undefined;
-    private gizmo: ViewerGizmoHandle | null = null;
+    private gizmo: ViewCubeHandle | null = null;
     /** Viewport-only distance-measure session (never document state; cleared on rebuild). */
     private measure: MeasureState = { active: false, pending: undefined, segment: undefined };
     private measureGroup: THREE.Group | undefined;
@@ -493,13 +489,14 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         return (
             <>
                 <div className="openmc-output-viewer-viewarea">
-                    <div className="openmc-output-viewer-hint">
+                    <div className="openmc-output-viewer-hint nuke-viewer-status-line">
                         {this.describeModel()}
                         {this.note ? ` — ${this.note}` : ''} Drag to orbit, wheel to zoom, right-drag to pan.
                         {this.measure.active ? ' Measure mode: click two surface points; Escape cancels.' : ''}
                     </div>
                     <div style={{ flex: '1', minHeight: '0', position: 'relative', display: 'flex' }}>
                         <div ref={this.attachHost} style={{ flex: '1', minHeight: '0', position: 'relative' }} />
+                        {this.renderViewBadge()}
                         {this.renderNavCluster()}
                         {this.renderGizmo()}
                         {this.renderMeasureLabel()}
@@ -510,18 +507,26 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         );
     }
 
-    /** CAD-style nav cluster over the 3D viewarea, driving the orbit handle. */
+    /** Shared viewer bottom bar over the 3D viewarea, driving the orbit handle. */
     protected renderNavCluster(): React.ReactNode {
-        return <ViewerNavCluster disabled={this.isLoading || !this.model} onAction={(action) => this.handleNavAction(action)} />;
+        return <ViewerNavBar disabled={this.isLoading || !this.model} onAction={(action) => this.handleNavAction(action)} />;
     }
 
-    /** CAD-style orientation gizmo over the 3D viewarea (hidden until a dataset loads). */
+    /** Dataset badge over the 3D viewarea (hidden until a dataset loads). */
+    protected renderViewBadge(): React.ReactNode {
+        if (!this.model) {
+            return undefined;
+        }
+        return <ViewBadge text={this.fileUri?.path.base ?? 'VTK dataset'} />;
+    }
+
+    /** Shared orientation cube over the 3D viewarea (hidden until a dataset loads). */
     protected renderGizmo(): React.ReactNode {
         if (!this.model) {
             return undefined;
         }
         return (
-            <ViewerGizmo
+            <ViewCube
                 ref={(handle) => {
                     this.gizmo = handle;
                 }}
@@ -866,16 +871,15 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         this.updateMeasureLabel();
     }
 
-    /** Re-project the gizmo axes for the current camera (direct DOM writes, never React state). */
+    /** Re-project the cube axes for the current camera (direct DOM writes, never React state). */
     private updateGizmo(): void {
         const gizmo = this.gizmo;
         const camera = this.camera;
         if (!gizmo || !camera || !this.model) {
             return;
         }
-        const look = camera.getWorldDirection(new THREE.Vector3());
-        const pose: GizmoCameraPose = { look: [look.x, look.y, look.z], up: [camera.up.x, camera.up.y, camera.up.z] };
-        gizmo.update(pose);
+        const quaternion = camera.quaternion;
+        gizmo.update({ quaternion: [quaternion.x, quaternion.y, quaternion.z, quaternion.w] });
     }
 
     /** Rebuild the data group from the current model (new dataset only). */
@@ -1315,21 +1319,15 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         });
     }
 
-    /** View-action menu: fit, screenshot, clip toggle, shading cycle. */
+    /** View-action menu: fit, screenshot, clip toggle, per-mode shading. */
     private openContextMenu(clientX: number, clientY: number): void {
         if (!this.model) {
             return;
         }
         this.contextMenuClose?.();
-        const shadingLabel = VIEWER_SHADING_MODES.find((mode) => mode.id === this.shading)?.label ?? this.shading;
         this.contextMenuClose = openViewerContextMenu(
             { x: clientX, y: clientY },
-            [
-                { id: 'fit', label: 'Fit to View' },
-                { id: 'screenshot', label: 'Save Screenshot (PNG)' },
-                { id: 'clip', label: 'Clip Planes', checked: anyClipEnabled(this.clip) },
-                { id: 'shading', label: `Shading: ${shadingLabel}` }
-            ],
+            buildViewerContextMenuItems({ shading: this.shading, clipChecked: anyClipEnabled(this.clip) }),
             (id) => this.handleContextMenuAction(id)
         );
     }
@@ -1341,8 +1339,11 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
             this.saveScreenshot();
         } else if (id === 'clip') {
             this.applyProps({ clip: setAllClipEnabled(this.clip, !anyClipEnabled(this.clip)) });
-        } else if (id === 'shading') {
-            this.applyProps({ shading: nextViewerShadingMode(this.shading) });
+        } else if (id.startsWith('shading:')) {
+            const mode = id.slice('shading:'.length);
+            if (isViewerShadingMode(mode)) {
+                this.applyProps({ shading: mode });
+            }
         }
         this.update();
     }

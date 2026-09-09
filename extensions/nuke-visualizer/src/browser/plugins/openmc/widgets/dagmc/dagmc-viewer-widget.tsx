@@ -30,11 +30,13 @@ import * as THREE from 'three';
 import { injectable, inject, postConstruct } from '@theia/core/shared/inversify';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { Message, Widget } from '@theia/core/lib/browser';
+import { Emitter, Event } from '@theia/core/lib/common/event';
 import { codicon } from '@theia/core/lib/browser/widgets/widget';
 import URI from '@theia/core/lib/common/uri';
 import { MessageService } from '@theia/core/lib/common';
 import { FileService } from '@theia/filesystem/lib/browser/file-service';
-import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
+import { NukeLoadingOverlay, Tooltip, ViewBadge, ViewerNavBar, ViewCube } from 'nuke-essentials/lib/theme/browser/components';
+import type { ViewerNavAction, ViewCubeHandle } from 'nuke-essentials/lib/theme/browser/components';
 import {
     ClassifiedNativeVtkArrays,
     classifyNativeVtkArrays,
@@ -67,7 +69,6 @@ import {
     type BoundsCorner,
     type OrbitControlsHandle
 } from '../../../../viewer-core/orbit-controls';
-import type { GizmoCameraPose } from '../../../../viewer-core/orientation-gizmo';
 import {
     addMeasurePoint,
     cancelMeasureStep,
@@ -78,13 +79,11 @@ import {
     type MeasurePoint3D,
     type MeasureState
 } from '../../../../viewer-core/measure-model';
-import { isViewerContextMenuClick, openViewerContextMenu } from '../../../../viewer-core/viewer-context-menu';
+import { buildViewerContextMenuItems, isViewerContextMenuClick, openViewerContextMenu } from '../../../../viewer-core/viewer-context-menu';
 import {
     DEFAULT_VIEWER_SHADING_MODE,
-    VIEWER_SHADING_MODES,
     ViewerShadingMode,
     isViewerShadingMode,
-    nextViewerShadingMode,
     resolveViewerShadingFlags
 } from '../../../../viewer-core/shading-mode';
 import {
@@ -93,6 +92,12 @@ import {
     ViewerSettingsSnapshot,
     viewerSnapDirection
 } from '../../../../viewer-settings/viewer-settings-model';
+import {
+    DagmcOutlineHost,
+    DagmcOutlinePatch,
+    DagmcOutlineSnapshot,
+    formatDagmcOutlineVolumeLabel
+} from '../../../../dagmc-outline/dagmc-outline-model';
 import { DagmcBlockModel, mergeDagmcBounds, parseBlockDataset, parseVtmManifest } from './dagmc-multiblock';
 import {
     DagmcModelInfo,
@@ -105,11 +110,8 @@ import {
     showAllDagmc,
     toggleDagmcGroup,
     toggleDagmcMaterial,
-    toggleDagmcVolume,
-    visibleDagmcVolumeIds
+    toggleDagmcVolume
 } from './dagmc-toggle-model';
-import { ViewerNavAction, ViewerNavCluster } from '../viewer-nav-cluster';
-import { ViewerGizmo, type ViewerGizmoHandle } from '../viewer-gizmo';
 import { ViewerMeasureLabel, type ViewerMeasureHandle } from '../viewer-measure';
 import '../output-viewer.css';
 
@@ -136,6 +138,8 @@ export interface DagmcViewerProps {
     clip?: ClipPlanesState;
     /** Volume/material/group visibility (toggle model). */
     visibility?: DagmcVisibility;
+    /** Highlighted volume id (outline↔canvas sync key); null clears the highlight. */
+    selectedVolumeId?: number | null;
 }
 
 /** Render-vertex kind used to map vertices back to data tuples. */
@@ -157,7 +161,7 @@ const VOLUME_BLOCK_RE = /^Volume_(\d+)$/;
  * and calls `setModelInfo` with the `dagmc.info` payload.
  */
 @injectable()
-export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost {
+export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost, DagmcOutlineHost {
     static readonly ID: string = 'dagmc-viewer-widget';
     static readonly LABEL: string = 'Native DAGMC Viewer';
 
@@ -185,6 +189,21 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
     protected error: string | undefined;
     protected statusMessage = '';
     protected note = '';
+    /** Source label shown under the loading overlay before a manifest exists (instant `.h5m` open). */
+    protected pendingLabel: string | undefined;
+    /** Source `.h5m` path for converted opens (lets the opener reuse the live tab on re-open). */
+    h5mSourcePath: string | undefined;
+    /** Outline↔canvas selection: the widget owns it, the panel mirrors it. */
+    protected selectedVolumeId: number | null = null;
+    /** One-shot generic-viewer fallback offered by the opener on conversion failure (cleared on load). */
+    protected genericFallback: (() => void) | undefined;
+    /**
+     * Outline-panel refresh signal: the panel binds once to the active
+     * viewer and re-reads the snapshot on fire (canvas picks, visibility
+     * edits, load completion), so selection sync needs no polling.
+     */
+    private readonly outlineChanged = new Emitter<void>();
+    readonly onDidChangeDagmcOutline: Event<void> = this.outlineChanged.event;
     private loadToken = 0;
 
     private host: HTMLElement | undefined;
@@ -195,7 +214,7 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
     private orbitControls: OrbitControlsHandle | undefined;
     private resizeObserver: ResizeObserver | undefined;
     private contextMenuClose: (() => void) | undefined;
-    private gizmo: ViewerGizmoHandle | null = null;
+    private gizmo: ViewCubeHandle | null = null;
     /** Viewport-only distance-measure session (never document state; cleared on rebuild). */
     private measure: MeasureState = { active: false, pending: undefined, segment: undefined };
     private measureGroup: THREE.Group | undefined;
@@ -230,7 +249,8 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
                 Y: { ...this.clip.Y },
                 Z: { ...this.clip.Z }
             },
-            visibility: { ...this.visibility }
+            visibility: { ...this.visibility },
+            selectedVolumeId: this.selectedVolumeId
         };
     }
 
@@ -272,6 +292,12 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
         if (props.visibility !== undefined) {
             this.visibility = props.visibility;
             structureChanged = true;
+        }
+        if (props.selectedVolumeId !== undefined && props.selectedVolumeId !== this.selectedVolumeId) {
+            this.selectedVolumeId = props.selectedVolumeId;
+            this.applyHighlight();
+            this.renderScene();
+            this.fireOutlineChanged();
         }
         if (structureChanged) {
             this.buildScene();
@@ -368,6 +394,143 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
         });
     }
 
+    // ------------------------------------------------------------------
+    // DAGMC Outline sidebar API (single-direction sync: the panel reads
+    // the snapshot and applies edits through these setters — the same
+    // toggle-model calls the footer used to make, plus the widget-owned
+    // canvas selection, never duplicated state)
+    // ------------------------------------------------------------------
+
+    /** Read the current visibility + selection for the outline panel. */
+    getDagmcOutlineSnapshot(): DagmcOutlineSnapshot {
+        const info = this.modelInfo;
+        const volumes = this.blocks
+            .map((block) => ({ block, volumeId: this.blockVolumeId(block) }))
+            .filter((entry): entry is { block: DagmcBlockModel; volumeId: number } => entry.volumeId !== undefined)
+            .sort((a, b) => a.volumeId - b.volumeId)
+            .map(({ block, volumeId }) => {
+                const meta = info?.volumes.find((volume) => volume.id === volumeId);
+                const material = meta?.material;
+                const groups = info ? groupsOfVolume(info, volumeId) : [];
+                return {
+                    id: volumeId,
+                    label: formatDagmcOutlineVolumeLabel(volumeId),
+                    material,
+                    groups,
+                    visible: this.isBlockVisible(block),
+                    selected: this.selectedVolumeId === volumeId
+                };
+            });
+        const materials = info
+            ? Object.entries(info.materials)
+                  .map(([name, meta]) => ({
+                      name,
+                      volumeCount: meta.volumeCount,
+                      visible: !this.visibility.hiddenMaterials.includes(name)
+                  }))
+                  .sort((a, b) => a.name.localeCompare(b.name))
+            : [];
+        const groups = info
+            ? Object.entries(info.groups)
+                  .map(([name, meta]) => ({ name, volumeCount: meta.volumeCount, visible: !this.visibility.hiddenGroups.includes(name) }))
+                  .sort((a, b) => a.name.localeCompare(b.name))
+            : [];
+        return {
+            widgetId: this.id,
+            title: this.title.label,
+            hasDataset: this.blocks.length > 0,
+            hasModelInfo: info !== undefined,
+            volumes,
+            materials,
+            groups,
+            showGraveyard: this.visibility.showGraveyard,
+            visibleCount: this.visibleBlocks().length,
+            totalCount: this.blocks.length,
+            selectedVolumeId: this.selectedVolumeId
+        };
+    }
+
+    /** Apply an outline edit through the existing visibility setters. */
+    applyDagmcOutline(patch: DagmcOutlinePatch): void {
+        if (patch.toggleVolume !== undefined) {
+            this.setVisibility(toggleDagmcVolume(this.visibility, patch.toggleVolume));
+        }
+        if (patch.toggleMaterial !== undefined) {
+            this.setVisibility(toggleDagmcMaterial(this.visibility, patch.toggleMaterial));
+        }
+        if (patch.toggleGroup !== undefined) {
+            this.setVisibility(toggleDagmcGroup(this.visibility, patch.toggleGroup));
+        }
+        if (patch.showGraveyard !== undefined) {
+            this.setVisibility(setDagmcShowGraveyard(this.visibility, patch.showGraveyard));
+        }
+        if (patch.showAll === true) {
+            this.setVisibility(showAllDagmc(this.visibility));
+        }
+        if (patch.selectVolume !== undefined) {
+            this.selectVolume(patch.selectVolume);
+        }
+    }
+
+    /**
+     * Outline/canvas selection entry point: highlight the volume's meshes
+     * for a volume id (null clears). The widget owns the value; the outline
+     * panel mirrors it from the snapshot.
+     */
+    selectVolume(id: number | null): void {
+        if (id === this.selectedVolumeId) {
+            return;
+        }
+        this.selectedVolumeId = id;
+        this.applyHighlight();
+        this.renderScene();
+        this.fireOutlineChanged();
+        this.update();
+    }
+
+    /** Notify the bound outline panel to re-read the snapshot. */
+    protected fireOutlineChanged(): void {
+        this.outlineChanged.fire(undefined);
+    }
+
+    /**
+     * Instant-open entry: show the viewer tab with a loading overlay while
+     * the `.h5m`→`.vtm` conversion runs, so the tab appears immediately
+     * instead of waiting on `base.convert-dagmc-multiblock`.
+     */
+    beginPendingLoad(label: string, statusMessage: string, sourcePath?: string): void {
+        this.vtmUri = undefined;
+        this.blocks = [];
+        this.modelInfo = undefined;
+        this.classified = undefined;
+        this.selectedVolumeId = null;
+        this.genericFallback = undefined;
+        this.pendingLabel = label;
+        this.h5mSourcePath = sourcePath;
+        this.title.label = `${DagmcViewerWidget.LABEL}: ${label}`;
+        this.title.caption = `${DagmcViewerWidget.LABEL}: ${label}`;
+        this.isLoading = true;
+        this.error = undefined;
+        this.statusMessage = statusMessage;
+        this.fireOutlineChanged();
+        this.update();
+    }
+
+    /** Fail the pending load in-tab (conversion failure shows the error panel, not a toast-only dead end). */
+    failPendingLoad(message: string): void {
+        this.isLoading = false;
+        this.error = message;
+        this.pendingLabel = undefined;
+        this.fireOutlineChanged();
+        this.update();
+    }
+
+    /** One-shot generic-viewer fallback the opener offers on the error panel (cleared on load). */
+    setGenericFallback(handler: (() => void) | undefined): void {
+        this.genericFallback = handler;
+        this.update();
+    }
+
     /** Load a `.vtm` manifest through Theia's FileService (no HTTP fetch). */
     async setVtmFile(uri: URI): Promise<void> {
         this.vtmUri = uri;
@@ -377,7 +540,9 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
         const token = ++this.loadToken;
         this.isLoading = true;
         this.error = undefined;
+        this.pendingLabel = uri.path.base;
         this.statusMessage = 'Reading multiblock manifest…';
+        this.fireOutlineChanged();
         this.update();
         try {
             const text = await readVtkText(this.fileService, uri);
@@ -391,7 +556,9 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
             }
             this.isLoading = false;
             this.error = error instanceof Error ? error.message : String(error);
+            this.pendingLabel = undefined;
             this.messageService.error(`Failed to load DAGMC manifest: ${this.error}`);
+            this.fireOutlineChanged();
             this.update();
         }
     }
@@ -430,7 +597,11 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
             this.note = '';
             this.isLoading = false;
             this.statusMessage = '';
+            this.pendingLabel = undefined;
+            this.genericFallback = undefined;
+            this.selectedVolumeId = null;
             this.buildScene();
+            this.fireOutlineChanged();
             this.update();
         } catch (error) {
             if (token !== this.loadToken) {
@@ -438,7 +609,9 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
             }
             this.isLoading = false;
             this.error = error instanceof Error ? error.message : String(error);
+            this.pendingLabel = undefined;
             this.messageService.error(`Failed to expand DAGMC multiblock: ${this.error}`);
+            this.fireOutlineChanged();
             this.update();
         }
     }
@@ -447,6 +620,7 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
     setModelInfo(value: unknown): void {
         this.modelInfo = parseDagmcModelInfo(value);
         this.buildScene();
+        this.fireOutlineChanged();
         this.update();
     }
 
@@ -483,10 +657,15 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
     }
 
     protected isBlockVisible(block: DagmcBlockModel): boolean {
+        const volumeId = this.blockVolumeId(block);
+        // Direct volume toggles apply even without model info (block-name
+        // rows in the outline); material/group/graveyard need the payload.
+        if (volumeId !== undefined && this.visibility.hiddenVolumes.includes(volumeId)) {
+            return false;
+        }
         if (!this.modelInfo) {
             return true;
         }
-        const volumeId = this.blockVolumeId(block);
         return volumeId === undefined || isDagmcVolumeVisible(this.visibility, this.modelInfo, volumeId);
     }
 
@@ -497,6 +676,7 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
     protected setVisibility(visibility: DagmcVisibility): void {
         this.visibility = visibility;
         this.buildScene();
+        this.fireOutlineChanged();
         this.update();
     }
 
@@ -515,9 +695,10 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
 
     /**
      * Slim file/status header. Display settings (color-by, colormap,
-     * shading, clip, measure) live in the Viewer Settings sidebar, which
-     * drives this widget through `applyViewerSettings`. Volume toggles stay
-     * here: they are dataset structure, not display settings.
+     * shading, clip, measure) live in the Viewer Settings sidebar and
+     * volume/material/group visibility lives in the DAGMC Outline sidebar;
+     * both drive this widget through their host surfaces. The canvas hint
+     * keeps the volume status line.
      */
     protected renderHeader(): React.ReactNode {
         const fileName = this.vtmUri?.path.base ?? 'No manifest loaded';
@@ -552,47 +733,55 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
     protected renderContent(): React.ReactNode {
         if (this.isLoading && this.blocks.length === 0) {
             return (
-                <div className="openmc-output-viewer-status">
-                    <div className="openmc-output-viewer-spinner"></div>
-                    <span>{this.statusMessage || 'Loading…'}</span>
+                <div className="openmc-output-viewer-status" style={{ position: 'relative' }}>
+                    <NukeLoadingOverlay
+                        message={this.statusMessage || 'Loading…'}
+                        subMessage={this.pendingLabel ?? this.vtmUri?.path.base}
+                    />
                 </div>
             );
         }
         return (
             <>
                 <div className="openmc-output-viewer-viewarea">
-                    <div className="openmc-output-viewer-hint">
+                    <div className="openmc-output-viewer-hint nuke-viewer-status-line">
                         {this.describeBlocks()}
                         {this.note ? ` — ${this.note}` : ''} Drag to orbit, wheel to zoom, right-drag to pan.
                         {this.measure.active ? ' Measure mode: click two surface points; Escape cancels.' : ''}
                     </div>
                     <div style={{ flex: '1', minHeight: '0', position: 'relative', display: 'flex' }}>
                         <div ref={this.attachHost} style={{ flex: '1', minHeight: '0', position: 'relative' }} />
+                        {this.renderViewBadge()}
                         {this.renderNavCluster()}
                         {this.renderGizmo()}
                         {this.renderMeasureLabel()}
                     </div>
                     {this.renderLegend()}
                 </div>
-                {this.renderSidePanel()}
             </>
         );
     }
 
-    /** CAD-style nav cluster over the 3D viewarea, driving the orbit handle. */
+    /** Shared viewer bottom bar over the 3D viewarea, driving the orbit handle. */
     protected renderNavCluster(): React.ReactNode {
-        return (
-            <ViewerNavCluster disabled={this.isLoading || this.blocks.length === 0} onAction={(action) => this.handleNavAction(action)} />
-        );
+        return <ViewerNavBar disabled={this.isLoading || this.blocks.length === 0} onAction={(action) => this.handleNavAction(action)} />;
     }
 
-    /** CAD-style orientation gizmo over the 3D viewarea (hidden until volumes load). */
+    /** Dataset badge over the 3D viewarea (hidden until volumes load). */
+    protected renderViewBadge(): React.ReactNode {
+        if (this.blocks.length === 0) {
+            return undefined;
+        }
+        return <ViewBadge text={this.vtmUri?.path.base ?? 'DAGMC volumes'} />;
+    }
+
+    /** Shared orientation cube over the 3D viewarea (hidden until volumes load). */
     protected renderGizmo(): React.ReactNode {
         if (this.blocks.length === 0) {
             return undefined;
         }
         return (
-            <ViewerGizmo
+            <ViewCube
                 ref={(handle) => {
                     this.gizmo = handle;
                 }}
@@ -782,105 +971,6 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
         this.orbitControls?.setViewDirection(standardViewDirection(action));
     }
 
-    protected renderSidePanel(): React.ReactNode {
-        if (this.blocks.length === 0) {
-            return undefined;
-        }
-        return <div style={{ display: 'flex', gap: '16px', padding: '4px 8px', flexWrap: 'wrap' }}>{this.renderToggleControls()}</div>;
-    }
-
-    protected renderToggleControls(): React.ReactNode {
-        if (!this.modelInfo) {
-            return (
-                <span style={{ fontSize: '11px', opacity: 0.7 }} title="Call setModelInfo with the dagmc.info payload to enable toggles">
-                    Volume toggles need model info (dagmc.info)
-                </span>
-            );
-        }
-        const info = this.modelInfo;
-        const visible = this.modelInfo ? visibleDagmcVolumeIds(this.visibility, this.modelInfo).length : 0;
-        return (
-            <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', fontSize: '11px' }}>
-                <span title="Visible volumes">
-                    {visible} of {info.volumes.length} volumes
-                </span>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '4px' }} title="Show graveyard termination volumes">
-                    <input
-                        type="checkbox"
-                        checked={this.visibility.showGraveyard}
-                        onChange={(e) => this.setVisibility(setDagmcShowGraveyard(this.visibility, e.target.checked))}
-                    />
-                    Graveyard
-                </label>
-                <label title="Volume visibility">
-                    Volumes
-                    <select
-                        value=""
-                        onChange={(e) => {
-                            if (e.target.value !== '') {
-                                this.setVisibility(toggleDagmcVolume(this.visibility, parseInt(e.target.value, 10)));
-                            }
-                        }}
-                    >
-                        <option value="">Toggle volume…</option>
-                        {info.volumes.map((volume) => {
-                            const groups = groupsOfVolume(info, volume.id);
-                            const suffix = groups.length > 0 ? ` [${groups.join(', ')}]` : '';
-                            return (
-                                <option key={volume.id} value={volume.id}>
-                                    {`${this.visibility.hiddenVolumes.includes(volume.id) ? '○' : '●'} ${volume.id} (${volume.material}, ${volume.numTriangles} tris)${suffix}`}
-                                </option>
-                            );
-                        })}
-                    </select>
-                </label>
-                <label title="Material visibility">
-                    Materials
-                    <select
-                        value=""
-                        onChange={(e) => {
-                            if (e.target.value !== '') {
-                                this.setVisibility(toggleDagmcMaterial(this.visibility, e.target.value));
-                            }
-                        }}
-                    >
-                        <option value="">Toggle material…</option>
-                        {Object.keys(info.materials).map((material) => (
-                            <option key={material} value={material}>
-                                {`${this.visibility.hiddenMaterials.includes(material) ? '○' : '●'} ${material}`}
-                            </option>
-                        ))}
-                    </select>
-                </label>
-                <label title="Group visibility">
-                    Groups
-                    <select
-                        value=""
-                        onChange={(e) => {
-                            if (e.target.value !== '') {
-                                this.setVisibility(toggleDagmcGroup(this.visibility, e.target.value));
-                            }
-                        }}
-                    >
-                        <option value="">Toggle group…</option>
-                        {Object.keys(info.groups).map((group) => (
-                            <option key={group} value={group}>
-                                {`${this.visibility.hiddenGroups.includes(group) ? '○' : '●'} ${group}`}
-                            </option>
-                        ))}
-                    </select>
-                </label>
-                <button
-                    className="theia-button secondary"
-                    title="Show every volume"
-                    onClick={() => this.setVisibility(showAllDagmc(this.visibility))}
-                >
-                    Show all
-                </button>
-            </div>
-        );
-    }
-
     protected renderLegend(): React.ReactNode {
         const selection = parseColorBy(this.colorBy);
         const array = selection && selection.kind !== 'solid' ? this.findArray(selection.kind, selection.name) : undefined;
@@ -893,12 +983,14 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
             stops.push(`rgb(${Math.round(r * 255)},${Math.round(g * 255)},${Math.round(b * 255)})`);
         }
         return (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 8px' }} title={`${array.name} range`}>
-                <span style={{ fontSize: '11px' }}>{array.range[0].toPrecision(3)}</span>
-                <div style={{ flex: '1', height: '10px', background: `linear-gradient(to right, ${stops.join(',')})` }} />
-                <span style={{ fontSize: '11px' }}>{array.range[1].toPrecision(3)}</span>
-                <span style={{ fontSize: '11px', opacity: 0.7 }}>{array.name}</span>
-            </div>
+            <Tooltip content={`${array.name} range`} position="top">
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 8px' }}>
+                    <span style={{ fontSize: '11px' }}>{array.range[0].toPrecision(3)}</span>
+                    <div style={{ flex: '1', height: '10px', background: `linear-gradient(to right, ${stops.join(',')})` }} />
+                    <span style={{ fontSize: '11px' }}>{array.range[1].toPrecision(3)}</span>
+                    <span style={{ fontSize: '11px', opacity: 0.7 }}>{array.name}</span>
+                </div>
+            </Tooltip>
         );
     }
 
@@ -911,6 +1003,12 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
                     <button className="theia-button secondary" onClick={() => this.vtmUri && this.setVtmFile(this.vtmUri)}>
                         <i className={codicon('refresh')}></i>
                         Retry
+                    </button>
+                )}
+                {this.genericFallback && (
+                    <button className="theia-button secondary" onClick={() => this.genericFallback?.()}>
+                        <i className={codicon('folder-opened')}></i>
+                        Open in generic viewer
                     </button>
                 )}
             </div>
@@ -941,6 +1039,7 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
 
     override dispose(): void {
         this.loadToken++;
+        this.outlineChanged.dispose();
         this.teardownRenderer();
         super.dispose();
     }
@@ -973,6 +1072,7 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
         this.camera = new THREE.PerspectiveCamera(45, 1, 0.01, 1e9);
         this.attachOrbitControls();
         this.attachContextMenu(this.renderer.domElement);
+        this.attachPickHandlers(this.renderer.domElement);
         this.renderer.domElement.addEventListener('click', this.onMeasureClick);
         this.resizeObserver = new ResizeObserver(() => this.resizeRenderer());
         if (this.host) {
@@ -1024,16 +1124,15 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
         this.updateMeasureLabel();
     }
 
-    /** Re-project the gizmo axes for the current camera (direct DOM writes, never React state). */
+    /** Re-project the cube axes for the current camera (direct DOM writes, never React state). */
     private updateGizmo(): void {
         const gizmo = this.gizmo;
         const camera = this.camera;
         if (!gizmo || !camera || this.blocks.length === 0) {
             return;
         }
-        const look = camera.getWorldDirection(new THREE.Vector3());
-        const pose: GizmoCameraPose = { look: [look.x, look.y, look.z], up: [camera.up.x, camera.up.y, camera.up.z] };
-        gizmo.update(pose);
+        const quaternion = camera.quaternion;
+        gizmo.update({ quaternion: [quaternion.x, quaternion.y, quaternion.z, quaternion.w] });
     }
 
     private disposeGroup(group: THREE.Group): void {
@@ -1075,6 +1174,7 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
         this.recolor();
         this.applyClip();
         this.applyShadingVisibility();
+        this.applyHighlight();
         this.syncMaterialProps();
         this.renderScene();
     }
@@ -1293,6 +1393,36 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
         });
     }
 
+    /**
+     * Outline↔canvas highlight sync: recolor only. The selected volume's
+     * meshes keep their base vertex colors but glow (emissive); every other
+     * mesh returns to no emission. Runs after every rebuild like the
+     * geometry-native `applyHighlight`.
+     */
+    private applyHighlight(): void {
+        if (!this.dataGroup) {
+            return;
+        }
+        const selected = this.selectedVolumeId;
+        const volumeOf = new Map<number, number>();
+        for (const block of this.blocks) {
+            const volumeId = this.blockVolumeId(block);
+            if (volumeId !== undefined) {
+                volumeOf.set(block.blockIndex, volumeId);
+            }
+        }
+        this.dataGroup.children.forEach((group) => {
+            const match = /^block:(\d+)$/.exec(group.name);
+            const volumeId = match ? volumeOf.get(parseInt(match[1], 10)) : undefined;
+            group.children.forEach((child) => {
+                if (child instanceof THREE.Mesh) {
+                    const material = child.material as THREE.MeshLambertMaterial;
+                    material.emissive = new THREE.Color(volumeId !== undefined && volumeId === selected ? 0x664400 : 0x000000);
+                }
+            });
+        });
+    }
+
     /** Apply the viewer-core per-axis clip state to every block material. */
     private applyClip(): void {
         if (!this.dataGroup) {
@@ -1431,21 +1561,15 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
         });
     }
 
-    /** View-action menu: fit, screenshot, clip toggle, shading cycle. */
+    /** View-action menu: fit, screenshot, clip toggle, per-mode shading. */
     private openContextMenu(clientX: number, clientY: number): void {
         if (this.blocks.length === 0) {
             return;
         }
         this.contextMenuClose?.();
-        const shadingLabel = VIEWER_SHADING_MODES.find((mode) => mode.id === this.shading)?.label ?? this.shading;
         this.contextMenuClose = openViewerContextMenu(
             { x: clientX, y: clientY },
-            [
-                { id: 'fit', label: 'Fit to View' },
-                { id: 'screenshot', label: 'Save Screenshot (PNG)' },
-                { id: 'clip', label: 'Clip Planes', checked: anyClipEnabled(this.clip) },
-                { id: 'shading', label: `Shading: ${shadingLabel}` }
-            ],
+            buildViewerContextMenuItems({ shading: this.shading, clipChecked: anyClipEnabled(this.clip) }),
             (id) => this.handleContextMenuAction(id)
         );
     }
@@ -1457,10 +1581,64 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
             this.saveScreenshot();
         } else if (id === 'clip') {
             this.applyProps({ clip: setAllClipEnabled(this.clip, !anyClipEnabled(this.clip)) });
-        } else if (id === 'shading') {
-            this.applyProps({ shading: nextViewerShadingMode(this.shading) });
+        } else if (id.startsWith('shading:')) {
+            const mode = id.slice('shading:'.length);
+            if (isViewerShadingMode(mode)) {
+                this.applyProps({ shading: mode });
+            }
         }
         this.update();
+    }
+
+    /**
+     * Click (not drag) raycasts block meshes and selects the volume — the
+     * canvas→outline half of sync. Skipped while the measure tool is armed
+     * (its own click handler owns the gesture then). OrbitControls owns drag
+     * gestures on the same canvas, so a pointerup within 4px of its
+     * pointerdown counts as a click (geometry-native parity).
+     */
+    private pickVolume(clientX: number, clientY: number): void {
+        if (!this.renderer || !this.camera || !this.dataGroup || this.measure.active) {
+            return;
+        }
+        const rect = this.renderer.domElement.getBoundingClientRect();
+        const pointer = new THREE.Vector2(
+            ((clientX - rect.left) / Math.max(1, rect.width)) * 2 - 1,
+            -((clientY - rect.top) / Math.max(1, rect.height)) * 2 + 1
+        );
+        const raycaster = new THREE.Raycaster();
+        raycaster.setFromCamera(pointer, this.camera);
+        const hits = raycaster.intersectObjects(this.dataGroup.children, true);
+        for (const hit of hits) {
+            let node: THREE.Object3D | null = hit.object;
+            while (node) {
+                const match = /^block:(\d+)$/.exec(node.name);
+                if (match) {
+                    const block = this.blocks.find((entry) => entry.blockIndex === parseInt(match[1], 10));
+                    const volumeId = block ? this.blockVolumeId(block) : undefined;
+                    if (volumeId !== undefined) {
+                        this.selectVolume(volumeId === this.selectedVolumeId ? null : volumeId);
+                    }
+                    return;
+                }
+                node = node.parent;
+            }
+        }
+    }
+
+    /** Click-vs-drag gate around {@link pickVolume} (same 4px rule as geometry-native). */
+    private attachPickHandlers(canvas: HTMLCanvasElement): void {
+        let downX = 0;
+        let downY = 0;
+        canvas.addEventListener('pointerdown', (event) => {
+            downX = event.clientX;
+            downY = event.clientY;
+        });
+        canvas.addEventListener('pointerup', (event) => {
+            if (event.button === 0 && Math.abs(event.clientX - downX) + Math.abs(event.clientY - downY) <= 4) {
+                this.pickVolume(event.clientX, event.clientY);
+            }
+        });
     }
 
     /**

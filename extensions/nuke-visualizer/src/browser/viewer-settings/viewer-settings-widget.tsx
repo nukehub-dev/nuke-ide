@@ -31,6 +31,7 @@ import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { ApplicationShell, Widget } from '@theia/core/lib/browser';
 import { Message } from '@theia/core/lib/browser';
 import { codicon } from '@theia/core/lib/browser/widgets/widget';
+import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
 import { NativeVtkViewerWidget } from '../plugins/openmc/widgets/native-vtk-viewer-widget';
 import { DagmcViewerWidget } from '../plugins/openmc/widgets/dagmc/dagmc-viewer-widget';
 import { GeometryNativeViewerWidget } from '../plugins/openmc/widgets/geometry-native/geometry-native-viewer-widget';
@@ -61,6 +62,11 @@ import './viewer-settings.css';
  * drops back to the empty state. Widget-side changes (context-menu
  * shading cycle, programmatic color-by) appear on the next shell
  * activation/change event, which re-renders the panel.
+ *
+ * Chrome follows the CAD Feature Tree / Model Outline panels (icon +
+ * subtitle header, collapsible count-badge sections, per-row icons, live
+ * status dots, Nuke tooltips throughout, never `title=`). Section collapse
+ * is panel-local UI state only — it never touches the viewer contract.
  */
 @injectable()
 export class ViewerSettingsWidget extends ReactWidget {
@@ -71,6 +77,8 @@ export class ViewerSettingsWidget extends ReactWidget {
     protected readonly shell: ApplicationShell;
 
     protected activeViewer: Widget | undefined;
+    /** Panel-local collapsed sections (CAD TreeSection pattern); viewer state is never cached here. */
+    protected collapsedSections = new Set<string>();
 
     @postConstruct()
     protected init(): void {
@@ -133,12 +141,96 @@ export class ViewerSettingsWidget extends ReactWidget {
         this.update();
     }
 
+    protected toggleSection(id: string): void {
+        if (this.collapsedSections.has(id)) {
+            this.collapsedSections.delete(id);
+        } else {
+            this.collapsedSections.add(id);
+        }
+        this.update();
+    }
+
+    /**
+     * CAD-style panel header: fixed panel name with an accent icon plus the
+     * bound viewer tab label as an ellipsis-truncated subtitle (full text in
+     * the Nuke tooltip, never overflowing raw text, never `title=`).
+     */
+    protected renderHeader(subtitle: string | undefined, subtitleTooltip: string): React.ReactNode {
+        return (
+            <div className="viewer-settings-header">
+                <i className={`${codicon('settings-gear')} viewer-settings-header-icon`}></i>
+                <div className="viewer-settings-header-text">
+                    <span className="viewer-settings-header-name">Viewer Settings</span>
+                    {subtitle !== undefined ? (
+                        <Tooltip content={subtitleTooltip} position="bottom">
+                            <span className="viewer-settings-title">{subtitle}</span>
+                        </Tooltip>
+                    ) : (
+                        <span className="viewer-settings-title viewer-settings-title-empty">No viewer open</span>
+                    )}
+                </div>
+            </div>
+        );
+    }
+
+    /**
+     * CAD-style collapsible section: chevron + icon + uppercase label +
+     * count badge, with an optional live status dot (clip planes active,
+     * measure armed). Collapse is panel-local; the body keeps every
+     * existing control hook unchanged.
+     */
+    protected renderSection(
+        id: string,
+        label: string,
+        icon: string,
+        count: string,
+        dotOn: boolean | undefined,
+        body: React.ReactNode
+    ): React.ReactNode {
+        const collapsed = this.collapsedSections.has(id);
+        return (
+            <div className={`viewer-settings-section${collapsed ? ' collapsed' : ''}`}>
+                <div
+                    className="viewer-settings-category-header"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => this.toggleSection(id)}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            this.toggleSection(id);
+                        }
+                    }}
+                >
+                    <i className={`codicon codicon-chevron-${collapsed ? 'right' : 'down'}`}></i>
+                    <i className={`codicon codicon-${icon} viewer-settings-section-icon`}></i>
+                    <span>{label}</span>
+                    <span className="viewer-settings-count-badge">{count}</span>
+                    {dotOn !== undefined && <span className={`viewer-settings-state-dot${dotOn ? ' is-on' : ''}`}></span>}
+                </div>
+                {!collapsed && <div className="viewer-settings-section-body">{body}</div>}
+            </div>
+        );
+    }
+
+    protected renderRowLabel(icon: string, text: string, tooltip: string): React.ReactNode {
+        return (
+            <Tooltip content={tooltip} position="right">
+                <span className="viewer-settings-row-label">
+                    <i className={`codicon codicon-${icon} viewer-settings-row-icon`}></i>
+                    {text}
+                </span>
+            </Tooltip>
+        );
+    }
+
     protected render(): React.ReactNode {
         const host = this.settingsHost();
         const snapshot = host?.getViewerSettingsSnapshot();
         if (!host || !snapshot) {
             return (
                 <div className="viewer-settings-panel">
+                    {this.renderHeader(undefined, '')}
                     <div className="viewer-settings-empty">
                         <i className={codicon('settings-gear')}></i>
                         <p>No viewer open.</p>
@@ -151,28 +243,73 @@ export class ViewerSettingsWidget extends ReactWidget {
         }
         return (
             <div className="viewer-settings-panel">
-                <div className="viewer-settings-title" title={snapshot.widgetId}>
-                    {snapshot.title}
-                </div>
+                {this.renderHeader(snapshot.title, snapshot.widgetId)}
                 {!snapshot.hasDataset ? (
                     <div className="viewer-settings-empty">
                         <p>No dataset loaded yet.</p>
                         <span className="empty-hint">Settings appear here once the viewer finishes loading its file.</span>
                     </div>
                 ) : (
-                    <>
-                        {snapshot.colorBy && this.renderColorBy(host, snapshot)}
-                        {snapshot.colormap && this.renderColormap(host, snapshot)}
-                        {snapshot.shading && this.renderShading(host, snapshot)}
-                        {snapshot.clip && this.renderClip(host, snapshot)}
-                        {snapshot.opacity && this.renderOpacity(host, snapshot)}
-                        {snapshot.step && this.renderStep(host, snapshot)}
-                        {snapshot.measure && this.renderMeasure(host, snapshot)}
-                        {this.renderSnap(host)}
-                    </>
+                    host && (
+                        <>
+                            {this.renderDisplaySection(host, snapshot)}
+                            {this.renderClipSection(host, snapshot)}
+                            {this.renderStepSection(host, snapshot)}
+                            {this.renderMeasureSection(host, snapshot)}
+                            {this.renderViewSection(host)}
+                        </>
+                    )
                 )}
             </div>
         );
+    }
+
+    protected renderDisplaySection(host: ViewerSettingsHost, snapshot: ViewerSettingsSnapshot): React.ReactNode {
+        const rows = [
+            snapshot.colorBy && this.renderColorBy(host, snapshot),
+            snapshot.colormap && this.renderColormap(host, snapshot),
+            snapshot.shading && this.renderShading(host, snapshot),
+            snapshot.opacity && this.renderOpacity(host, snapshot)
+        ].filter((row) => row !== undefined && row !== false);
+        if (rows.length === 0) {
+            return undefined;
+        }
+        return this.renderSection('display', 'Display', 'symbol-color', `${rows.length}`, undefined, <>{rows}</>);
+    }
+
+    protected renderClipSection(host: ViewerSettingsHost, snapshot: ViewerSettingsSnapshot): React.ReactNode {
+        const clip = snapshot.clip;
+        if (!clip) {
+            return undefined;
+        }
+        const enabledCount = CLIP_AXES.filter((axis) => clip.state[axis].enabled).length;
+        return this.renderSection(
+            'clip',
+            'Clip',
+            'layers',
+            `${enabledCount}/${CLIP_AXES.length}`,
+            anyClipEnabled(clip.state),
+            this.renderClipBody(host, snapshot)
+        );
+    }
+
+    protected renderStepSection(host: ViewerSettingsHost, snapshot: ViewerSettingsSnapshot): React.ReactNode {
+        if (!snapshot.step) {
+            return undefined;
+        }
+        return this.renderSection('playback', 'Playback', 'play', '1', undefined, this.renderStep(host, snapshot));
+    }
+
+    protected renderMeasureSection(host: ViewerSettingsHost, snapshot: ViewerSettingsSnapshot): React.ReactNode {
+        const measure = snapshot.measure;
+        if (!measure) {
+            return undefined;
+        }
+        return this.renderSection('measure', 'Measure', 'ruler', '1', measure.active, this.renderMeasure(host, snapshot));
+    }
+
+    protected renderViewSection(host: ViewerSettingsHost): React.ReactNode {
+        return this.renderSection('view', 'View', 'screen-full', `${VIEWER_SNAP_ACTIONS.length}`, undefined, this.renderSnap(host));
     }
 
     protected renderColorBy(host: ViewerSettingsHost, snapshot: ViewerSettingsSnapshot): React.ReactNode {
@@ -181,8 +318,8 @@ export class ViewerSettingsWidget extends ReactWidget {
             return undefined;
         }
         return (
-            <label className="viewer-settings-row" title="Color-by array (applies instantly, no viewer restart)">
-                Color by
+            <label className="viewer-settings-row" key="color-by">
+                {this.renderRowLabel('symbol-color', 'Color by', 'Color-by array (applies instantly, no viewer restart)')}
                 <select
                     className="viewer-settings-color-by"
                     value={colorBy.value}
@@ -204,11 +341,12 @@ export class ViewerSettingsWidget extends ReactWidget {
             return undefined;
         }
         return (
-            <label
-                className="viewer-settings-row"
-                title={colormap.disabled ? 'Colormap (select a data array in Color by first)' : 'Colormap (applies instantly)'}
-            >
-                Map
+            <label className="viewer-settings-row" key="colormap">
+                {this.renderRowLabel(
+                    'paintcan',
+                    'Map',
+                    colormap.disabled ? 'Colormap (select a data array in Color by first)' : 'Colormap (applies instantly)'
+                )}
                 <select
                     className="viewer-settings-colormap"
                     value={colormap.value}
@@ -231,8 +369,8 @@ export class ViewerSettingsWidget extends ReactWidget {
             return undefined;
         }
         return (
-            <label className="viewer-settings-row" title="Shading mode (applies instantly)">
-                Shading
+            <label className="viewer-settings-row" key="shading">
+                {this.renderRowLabel('layers', 'Shading', 'Shading mode (applies instantly)')}
                 <select
                     className="viewer-settings-shading"
                     value={shading.value}
@@ -252,65 +390,71 @@ export class ViewerSettingsWidget extends ReactWidget {
         );
     }
 
-    protected renderClip(host: ViewerSettingsHost, snapshot: ViewerSettingsSnapshot): React.ReactNode {
+    protected renderClipBody(host: ViewerSettingsHost, snapshot: ViewerSettingsSnapshot): React.ReactNode {
         const clip = snapshot.clip;
         if (!clip) {
             return undefined;
         }
         const tab = clip.state[clip.tab];
         return (
-            <div className="viewer-settings-group" title="Clip planes: enabled planes apply together (box-section view)">
+            <div className="viewer-settings-group">
                 <label className="viewer-settings-row">
-                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                        <input
-                            type="checkbox"
-                            className="viewer-settings-clip-master"
-                            checked={anyClipEnabled(clip.state)}
-                            onChange={(e) => this.applyPatch(host, { clip: setAllClipEnabled(clip.state, e.target.checked) })}
-                        />
-                        Clip
-                    </span>
+                    <Tooltip content="Clip planes: enabled planes apply together (box-section view)" position="right">
+                        <span className="viewer-settings-row-label">
+                            <input
+                                type="checkbox"
+                                className="viewer-settings-clip-master"
+                                checked={anyClipEnabled(clip.state)}
+                                onChange={(e) => this.applyPatch(host, { clip: setAllClipEnabled(clip.state, e.target.checked) })}
+                            />
+                            Clip
+                        </span>
+                    </Tooltip>
                 </label>
                 <div className="viewer-settings-row viewer-settings-clip-tabs">
                     {CLIP_AXES.map((axis) => (
-                        <button
-                            key={axis}
-                            className={`theia-button${clip.tab === axis ? '' : ' secondary'} viewer-settings-clip-tab`}
-                            title={`Clip ${axis} plane settings`}
-                            onClick={() => this.applyPatch(host, { clipTab: axis })}
-                        >
-                            {axis}
-                        </button>
+                        <Tooltip key={axis} content={`Clip ${axis} plane settings`} position="top">
+                            <button
+                                className={`theia-button${clip.tab === axis ? '' : ' secondary'} viewer-settings-clip-tab`}
+                                onClick={() => this.applyPatch(host, { clipTab: axis })}
+                            >
+                                {axis}
+                            </button>
+                        </Tooltip>
                     ))}
-                    <button
-                        className="theia-button secondary viewer-settings-clip-flip"
-                        title={`Flip kept ${clip.tab} half-space (enables the plane)`}
-                        onClick={() =>
-                            this.applyPatch(host, {
-                                clip: updateAxisClip(clip.state, clip.tab, { enabled: true, invert: !tab.invert })
-                            })
-                        }
-                    >
-                        {tab.invert ? 'Unflip' : 'Flip'}
-                    </button>
+                    <Tooltip content={`Flip kept ${clip.tab} half-space (enables the plane)`} position="top">
+                        <button
+                            className="theia-button secondary viewer-settings-clip-flip"
+                            onClick={() =>
+                                this.applyPatch(host, {
+                                    clip: updateAxisClip(clip.state, clip.tab, { enabled: true, invert: !tab.invert })
+                                })
+                            }
+                        >
+                            {tab.invert ? 'Unflip' : 'Flip'}
+                        </button>
+                    </Tooltip>
                 </div>
-                <input
-                    type="range"
-                    className="viewer-settings-clip-position"
-                    title={`Clip ${clip.tab} position (percent across the dataset; enables the plane)`}
-                    min={0}
-                    max={100}
-                    step={1}
-                    value={Math.round(tab.fraction * 100)}
-                    onChange={(e) =>
-                        this.applyPatch(host, {
-                            clip: updateAxisClip(clip.state, clip.tab, {
-                                enabled: true,
-                                fraction: parseFloat(e.target.value) / 100
-                            })
-                        })
-                    }
-                />
+                <div className="viewer-settings-tip-fill">
+                    <Tooltip content={`Clip ${clip.tab} position (percent across the dataset; enables the plane)`} position="top">
+                        <input
+                            type="range"
+                            className="viewer-settings-clip-position"
+                            min={0}
+                            max={100}
+                            step={1}
+                            value={Math.round(tab.fraction * 100)}
+                            onChange={(e) =>
+                                this.applyPatch(host, {
+                                    clip: updateAxisClip(clip.state, clip.tab, {
+                                        enabled: true,
+                                        fraction: parseFloat(e.target.value) / 100
+                                    })
+                                })
+                            }
+                        />
+                    </Tooltip>
+                </div>
             </div>
         );
     }
@@ -321,17 +465,21 @@ export class ViewerSettingsWidget extends ReactWidget {
             return undefined;
         }
         return (
-            <label className="viewer-settings-row" title="Material opacity">
-                Opacity
-                <input
-                    type="range"
-                    className="viewer-settings-opacity"
-                    min={opacity.min}
-                    max={opacity.max}
-                    step={opacity.step}
-                    value={opacity.value}
-                    onChange={(e) => this.applyPatch(host, { opacity: parseFloat(e.target.value) })}
-                />
+            <label className="viewer-settings-row" key="opacity">
+                {this.renderRowLabel('circle-outline', 'Opacity', 'Material opacity')}
+                <div className="viewer-settings-tip-fill">
+                    <Tooltip content="Material opacity" position="top">
+                        <input
+                            type="range"
+                            className="viewer-settings-opacity"
+                            min={opacity.min}
+                            max={opacity.max}
+                            step={opacity.step}
+                            value={opacity.value}
+                            onChange={(e) => this.applyPatch(host, { opacity: parseFloat(e.target.value) })}
+                        />
+                    </Tooltip>
+                </div>
             </label>
         );
     }
@@ -342,17 +490,21 @@ export class ViewerSettingsWidget extends ReactWidget {
             return undefined;
         }
         return (
-            <label className="viewer-settings-row" title="Exodus time step">
-                Step {step.label}
-                <input
-                    type="range"
-                    className="viewer-settings-step"
-                    min={0}
-                    max={step.count - 1}
-                    step={1}
-                    value={step.index}
-                    onChange={(e) => this.applyPatch(host, { stepIndex: parseInt(e.target.value, 10) })}
-                />
+            <label className="viewer-settings-row" key="step">
+                {this.renderRowLabel('play', `Step ${step.label}`, 'Exodus time step')}
+                <div className="viewer-settings-tip-fill">
+                    <Tooltip content="Exodus time step" position="top">
+                        <input
+                            type="range"
+                            className="viewer-settings-step"
+                            min={0}
+                            max={step.count - 1}
+                            step={1}
+                            value={step.index}
+                            onChange={(e) => this.applyPatch(host, { stepIndex: parseInt(e.target.value, 10) })}
+                        />
+                    </Tooltip>
+                </div>
             </label>
         );
     }
@@ -364,38 +516,42 @@ export class ViewerSettingsWidget extends ReactWidget {
         }
         return (
             <div className="viewer-settings-row">
-                <button
-                    className={`theia-button secondary viewer-measure-toggle viewer-settings-measure${measure.active ? ' active' : ''}`}
-                    aria-pressed={measure.active}
-                    aria-label="Measure distance"
-                    title={
+                <Tooltip
+                    content={
                         measure.active
                             ? 'Measure: click two surface points (Escape cancels)'
                             : 'Measure distance between two surface points'
                     }
-                    onClick={() => this.applyPatch(host, { measureActive: !measure.active })}
+                    position="right"
                 >
-                    <i className={codicon('ruler')}></i>
-                    Measure
-                </button>
+                    <button
+                        className={`theia-button secondary viewer-measure-toggle viewer-settings-measure${measure.active ? ' active' : ''}`}
+                        aria-pressed={measure.active}
+                        aria-label="Measure distance"
+                        onClick={() => this.applyPatch(host, { measureActive: !measure.active })}
+                    >
+                        <i className={codicon('ruler')}></i>
+                        Measure
+                    </button>
+                </Tooltip>
+                <span className={`viewer-settings-state-dot${measure.active ? ' is-on' : ''}`}></span>
             </div>
         );
     }
 
     protected renderSnap(host: ViewerSettingsHost): React.ReactNode {
         return (
-            <div className="viewer-settings-group" title="Snap the camera to a standard view (same action as the canvas nav cluster)">
-                <span className="viewer-settings-group-label">View</span>
+            <div className="viewer-settings-group">
                 <div className="viewer-settings-row viewer-settings-snap-row">
                     {VIEWER_SNAP_ACTIONS.map((action) => (
-                        <button
-                            key={action.id}
-                            className={`theia-button secondary viewer-settings-snap-${action.id}`}
-                            title={action.tooltip}
-                            onClick={() => this.applyPatch(host, { snap: action.id })}
-                        >
-                            {action.label}
-                        </button>
+                        <Tooltip key={action.id} content={action.tooltip} position="top">
+                            <button
+                                className={`theia-button secondary viewer-settings-snap-${action.id}`}
+                                onClick={() => this.applyPatch(host, { snap: action.id })}
+                            >
+                                {action.label}
+                            </button>
+                        </Tooltip>
                     ))}
                 </div>
             </div>

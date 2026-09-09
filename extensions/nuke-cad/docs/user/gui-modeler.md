@@ -50,10 +50,10 @@ it opens it in the CAD viewport by default.
   `tinkercad` orbits on right-drag with middle-drag pan; `touchpad` uses
   one-finger pan and two-finger dolly-rotate. Right-click context menus work
   in every style.
-- **Navigation cluster** (bottom-right of the viewport): `ISO`, `T` (top),
-  `F` (front), and `R` (right) snap to standard views; the remaining buttons
-  fit the view and zoom in/out.
-- **Shading menu** (navigation cluster): pick **Shaded**, **Shaded +
+- **Viewer bottom bar** (bottom-right of the viewport, shared with the native VTK viewers): `ISO`, `T` (top),
+  `F` (front), and `R` (right) snap to standard views; the remaining core buttons
+  fit the view and zoom in/out. Shading, section, and Explode stay CAD-only tools on the same bar.
+- **Shading menu** (bottom bar): pick **Shaded**, **Shaded +
   Wireframe**, **Edges only**, or **X-ray**. In X-ray mode a **Ghost opacity**
   slider (15–60%) controls how transparent bodies render, so interior bodies
   show through. The active mode survives rebuilds. Edges only hides face
@@ -70,14 +70,14 @@ it opens it in the CAD viewport by default.
   Measurements live in a list popover where individual rows can be deleted;
   they are viewport-only annotations (never saved into the document) and are
   cleared when the model rebuilds.
-- **Section plane** (navigation cluster): slices the model open along an X,
+- **Section plane** (bottom bar): slices the model open along an X,
   Y, or Z plane. A popover offers axis buttons, **Flip**, and a slider that
   slides the plane across the model's bounding box. Sectioning is visual
   only — exports are unaffected. Click the button again or press `Esc` to
   exit. The shading and section popovers share one slot: opening one closes
   the other, and picking a mode, pressing `Esc`, or clicking the canvas
   closes it.
-- **Explode view** (navigation cluster): the **Explode** slider (0–100%)
+- **Explode view** (bottom bar): the **Explode** slider (0–100%)
   moves every solid away from the model center along the direction to its
   own centroid, so a fused multi-part body (for example a circular pattern)
   separates into its solids — faces and edge lines move together. Travel is
@@ -91,9 +91,9 @@ it opens it in the CAD viewport by default.
   model.
 - **Canvas background** (`nukeCad.viewportBackground` setting): `theme`
   (default, follows the active Theia theme), `dark`, `light`, or `gradient`.
-- **Axis gizmo** (top-right, below the toolbar): mirrors the current camera
-  orientation; click an axis handle (or its opposite) to snap to that view.
-- **View label** (top-left, below the toolbar): shows the active view
+- **Orientation cube** (top-right, below the toolbar, shared with the native VTK viewers): mirrors the current camera
+  orientation; click an axis knob (or its opposite) to snap to that view.
+- **View badge** (top-left, below the toolbar, shared with the native VTK viewers): shows the active view
   (`User view` after orbiting, `Top view` after snapping) or the active sketch.
 - **Fit**: `F` or the fit button frames the whole model; with a solid selected
   it frames that selection instead — `.` and double-clicking a solid also fit

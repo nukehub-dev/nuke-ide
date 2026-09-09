@@ -31,7 +31,7 @@
  * Same posture as nuke-cad's `viewport-context-menu.ts`: plain DOM (no
  * React state, no Theia ContextMenuRenderer), so the menu opens at the
  * pointer-up position without re-rendering the widget. View actions only
- * (fit, screenshot, clip toggle, shading cycle) — never CAD feature
+ * (fit, screenshot, clip toggle, per-mode shading) — never CAD feature
  * actions. The menu closes on item click, Escape, pointer-leave, or a
  * pointer-down outside it.
  *
@@ -40,14 +40,20 @@
  * extension's `copy-css` build step.
  */
 
-/** One menu entry: a view action with an optional check mark. */
+import { VIEWER_SHADING_MODES, type ViewerShadingMode } from './shading-mode';
+
+/** One menu entry: a view action with an optional icon and check mark. */
 export interface ViewerContextMenuItem {
-    /** Stable id routed back through `onSelect`. */
+    /** Stable id routed back through `onSelect` (`shading:<mode>` for shading rows). */
     readonly id: string;
     /** Row label shown in the menu. */
     readonly label: string;
-    /** Check mark shown before the label (toggle state). */
+    /** Bare codicon class (`codicon-zoom-in`) rendered before the label; mirrors the CAD viewport menu. */
+    readonly icon?: string;
+    /** Check mark shown before the label (toggle state / active shading mode). */
     readonly checked?: boolean;
+    /** Render a separator above this item (group boundaries). */
+    readonly separatorAbove?: boolean;
     /** Disabled rows render dimmed and never fire `onSelect`. */
     readonly disabled?: boolean;
 }
@@ -78,10 +84,83 @@ export function isViewerContextMenuClick(
 }
 
 /**
+ * Viewer state behind the standard view-action menu: the active shading
+ * mode (checked in its group) and whether any clip plane is enabled.
+ */
+export interface ViewerContextMenuState {
+    readonly shading: ViewerShadingMode;
+    readonly clipChecked: boolean;
+}
+
+/**
+ * One icon per shading row so every menu row carries a glyph (CAD viewport
+ * menu grammar: icon + label on every row, check mark for the active
+ * entry). Pure data, covered with the item builder.
+ */
+export const VIEWER_SHADING_MENU_ICONS: Record<ViewerShadingMode, string> = {
+    shaded: 'codicon-circle-filled',
+    wireframe: 'codicon-circle-outline',
+    points: 'codicon-ellipsis',
+    xray: 'codicon-preview'
+};
+
+/**
+ * Standard view-action menu contents: Fit / Screenshot, then Clip Planes,
+ * then one row per shading mode with the active mode checked. Separators
+ * split the three groups. Pure (vitest-covered).
+ */
+export function buildViewerContextMenuItems(state: ViewerContextMenuState): ViewerContextMenuItem[] {
+    return [
+        { id: 'fit', label: 'Fit to View', icon: 'codicon-zoom-in' },
+        { id: 'screenshot', label: 'Save Screenshot (PNG)', icon: 'codicon-device-camera' },
+        {
+            id: 'clip',
+            label: 'Clip Planes',
+            icon: 'codicon-layers',
+            checked: state.clipChecked,
+            separatorAbove: true
+        },
+        ...VIEWER_SHADING_MODES.map((mode, index) => ({
+            id: `shading:${mode.id}`,
+            label: mode.label,
+            icon: VIEWER_SHADING_MENU_ICONS[mode.id],
+            checked: mode.id === state.shading,
+            separatorAbove: index === 0
+        }))
+    ];
+}
+
+/** Margin (px) kept between the menu and the viewport edges. */
+export const VIEWER_CONTEXT_MENU_MARGIN_PX = 4;
+
+/**
+ * Clamp a measured menu rect at client (`x`, `y`) into the viewport, so
+ * every row — including the first — stays fully visible. Pure
+ * (vitest-covered): the renderer measures the menu AFTER it renders and
+ * routes the numbers through here, never positioning from an estimate.
+ */
+export function clampViewerContextMenuPosition(
+    x: number,
+    y: number,
+    menuWidth: number,
+    menuHeight: number,
+    viewportWidth: number,
+    viewportHeight: number,
+    margin: number = VIEWER_CONTEXT_MENU_MARGIN_PX
+): ViewerContextMenuPosition {
+    const maxX = Math.max(margin, viewportWidth - menuWidth - margin);
+    const maxY = Math.max(margin, viewportHeight - menuHeight - margin);
+    return {
+        x: Math.min(Math.max(x, margin), maxX),
+        y: Math.min(Math.max(y, margin), maxY)
+    };
+}
+
+/**
  * Open the menu at client `position` and return an idempotent close
  * function. The menu is a fixed-position div on `document.body` (never
  * inside the widget's React tree, so widget re-renders cannot disturb
- * it), clamped into the viewport.
+ * it), measured after render and clamped into the viewport.
  */
 export function openViewerContextMenu(
     position: ViewerContextMenuPosition,
@@ -113,30 +192,60 @@ export function openViewerContextMenu(
         }
     };
     for (const item of items) {
+        if (item.separatorAbove === true) {
+            const separator = document.createElement('div');
+            separator.className = 'viewer-context-menu-separator';
+            separator.setAttribute('role', 'separator');
+            menu.appendChild(separator);
+        }
         const button = document.createElement('button');
         button.className = 'viewer-context-menu-item';
         button.setAttribute('role', 'menuitem');
         button.type = 'button';
         button.disabled = item.disabled ?? false;
+        if (item.icon !== undefined) {
+            const icon = document.createElement('span');
+            icon.className = 'viewer-context-menu-icon';
+            const glyph = document.createElement('i');
+            glyph.className = `codicon ${item.icon}`;
+            glyph.setAttribute('aria-hidden', 'true');
+            icon.appendChild(glyph);
+            button.appendChild(icon);
+        }
         const check = document.createElement('span');
         check.className = 'viewer-context-menu-check';
-        check.textContent = item.checked ? '✓' : '';
+        if (item.checked === true) {
+            const mark = document.createElement('i');
+            mark.className = 'codicon codicon-check';
+            mark.setAttribute('aria-hidden', 'true');
+            check.appendChild(mark);
+            button.classList.add('viewer-context-menu-item-checked');
+        }
         const label = document.createElement('span');
+        label.className = 'viewer-context-menu-label';
         label.textContent = item.label;
         button.appendChild(check);
         button.appendChild(label);
         button.addEventListener('click', () => {
             close();
-            onSelect(item.id);
+            if (item.disabled !== true) {
+                onSelect(item.id);
+            }
         });
         menu.appendChild(button);
     }
     menu.addEventListener('pointerleave', () => close());
+    // Measure AFTER render: append hidden so the laid-out rect reflects the
+    // final styles (icons, separators, theme fonts), clamp into the
+    // viewport, then show. Positioning from an estimate is what clipped the
+    // first row when the menu opened near an edge.
+    menu.style.visibility = 'hidden';
     document.body.appendChild(menu);
-    const width = menu.offsetWidth;
-    const height = menu.offsetHeight;
-    menu.style.left = `${Math.max(4, Math.min(position.x, window.innerWidth - width - 4))}px`;
-    menu.style.top = `${Math.max(4, Math.min(position.y, window.innerHeight - height - 4))}px`;
+    const rect = menu.getBoundingClientRect();
+    const clamped = clampViewerContextMenuPosition(position.x, position.y, rect.width, rect.height, window.innerWidth, window.innerHeight);
+    menu.style.left = `${clamped.x}px`;
+    menu.style.top = `${clamped.y}px`;
+    menu.style.visibility = '';
     window.addEventListener('keydown', handleKey, true);
     window.addEventListener('pointerdown', handleOutside, true);
     return close;

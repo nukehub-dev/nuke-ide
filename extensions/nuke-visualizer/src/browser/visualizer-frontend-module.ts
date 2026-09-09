@@ -96,6 +96,8 @@ import { ExodusTimeSliderWidget } from './plugins/openmc/widgets/exodus-series/e
 import { OpenMCExodusViewerContribution } from './plugins/openmc/contributions/openmc-exodus-viewer-contribution';
 import { ViewerSettingsWidget } from './viewer-settings/viewer-settings-widget';
 import { ViewerSettingsContribution } from './viewer-settings/viewer-settings-contribution';
+import { DagmcOutlineWidget } from './dagmc-outline/dagmc-outline-widget';
+import { DagmcOutlineContribution } from './dagmc-outline/dagmc-outline-contribution';
 
 export default new ContainerModule((bind: interfaces.Bind) => {
     // Bind Plotly service
@@ -577,4 +579,16 @@ export default new ContainerModule((bind: interfaces.Bind) => {
     bind(ViewerSettingsWidget).toSelf();
     bind(ViewerSettingsContribution).toSelf().inSingletonScope();
     bind(CommandContribution).toService(ViewerSettingsContribution);
+
+    // DAGMC Outline sidebar (right area): volume/material/group visibility
+    // for the active DAGMC viewer through the DagmcOutlineHost surface
+    bind(WidgetFactory)
+        .toDynamicValue((context) => ({
+            id: DagmcOutlineWidget.ID,
+            createWidget: () => context.container.get<DagmcOutlineWidget>(DagmcOutlineWidget)
+        }))
+        .inSingletonScope();
+    bind(DagmcOutlineWidget).toSelf();
+    bind(DagmcOutlineContribution).toSelf().inSingletonScope();
+    bind(CommandContribution).toService(DagmcOutlineContribution);
 });

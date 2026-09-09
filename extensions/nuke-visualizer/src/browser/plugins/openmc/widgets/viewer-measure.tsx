@@ -32,7 +32,7 @@ import * as React from 'react';
  * VTK viewer (and its subclasses, which inherit the chrome) and the DAGMC
  * viewer.
  *
- * Same overlay pattern as `ViewerGizmo` (absolute overlay on the 3D
+ * Same overlay pattern as `ViewCube` (absolute overlay on the 3D
  * viewarea) but imperative: the host widget owns the 3D annotation (line +
  * endpoint spheres in its scene, world-anchored so they track the camera for
  * free) and drives this label straight through {@link ViewerMeasureHandle}

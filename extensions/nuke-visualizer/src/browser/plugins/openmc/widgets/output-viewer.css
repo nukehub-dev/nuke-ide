@@ -97,8 +97,6 @@
 
 .openmc-output-viewer-hint {
     padding: 4px 16px;
-    font-size: 11px;
-    color: var(--theia-descriptionForeground);
     border-bottom: 1px solid var(--theia-panel-border);
     flex-shrink: 0;
 }
@@ -120,104 +118,22 @@
     position: relative;
 }
 
-/* CAD-style navigation cluster (bottom-right overlay on the 3D viewarea) */
+/* Shared viewer chrome (nuke-essentials): the bottom bar, orientation
+   cube, and dataset badge overlay the 3D viewarea. Button/knob/pill looks
+   live in nuke-essentials; only the overlay placement stays here. */
 
-.viewer-nav-cluster {
-    position: absolute;
-    right: 12px;
-    bottom: 12px;
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 4px;
-    z-index: 10;
-}
-
-.viewer-nav-cluster .viewer-nav-button {
-    /* Icon-only cluster button: undo Theia's global .theia-button min-width/offset */
-    min-width: 0;
-    margin-left: 0;
-    padding: 4px 6px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.viewer-nav-cluster .viewer-nav-button.viewer-nav-text {
-    font-size: 11px;
-    font-weight: 600;
-    min-width: 30px;
-}
-
-.viewer-nav-divider {
-    width: 100%;
-    height: 1px;
-    background: var(--theia-panel-border);
-    margin: 2px 0;
-}
-
-/* CAD-style orientation gizmo (top-right overlay below the header chrome).
-   Geometry mirrors VIEWER_GIZMO_* in viewer-core/orientation-gizmo.ts (box,
-   center, radius, knob) — keep both in sync, pinned by
-   orientation-gizmo.test.ts. */
-
-.viewer-gizmo {
+.openmc-output-viewer-viewarea .nuke-view-cube {
     position: absolute;
     top: 12px;
     right: 12px;
-    width: 96px;
-    height: 96px;
     z-index: 10;
 }
 
-.viewer-gizmo-spokes {
+.openmc-output-viewer-viewarea .nuke-view-badge {
     position: absolute;
-    inset: 0;
-    pointer-events: none;
-}
-
-.viewer-gizmo-knob-slot {
-    position: absolute;
-    /* Definite hit box (knob edge, centered on the overlay center): a 0x0
-       slot collapses the Tooltip span (max-width: 100% of nothing) and
-       shrinks the knob buttons to slivers. */
-    left: 37px;
-    top: 37px;
-    width: 22px;
-    height: 22px;
-}
-
-.viewer-gizmo-knob {
-    /* Round axis knob: undo Theia's global .theia-button min-width/offset */
-    min-width: 0;
-    margin-left: 0;
-    width: 22px;
-    height: 22px;
-    padding: 0;
-    border-radius: 50%;
-    font-size: 9px;
-    font-weight: 700;
-    line-height: 1;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    /* No centering transform here: the slot box itself is positioned with
-       its center on the spoke endpoint, and the knob fills the slot. */
-    cursor: pointer;
-    background: var(--theia-editor-background);
-    color: var(--theia-foreground);
-}
-
-.viewer-gizmo-axis-x {
-    border: 2px solid #d45a5a;
-}
-
-.viewer-gizmo-axis-y {
-    border: 2px solid #5aa862;
-}
-
-.viewer-gizmo-axis-z {
-    border: 2px solid #5a8fd4;
+    top: 12px;
+    left: 12px;
+    z-index: 10;
 }
 
 /* Distance measure (viewport annotations; cleared on rebuild) */
@@ -249,6 +165,9 @@
     position: fixed;
     z-index: 99999;
     min-width: 190px;
+    max-width: calc(100vw - 8px);
+    max-height: calc(100vh - 8px);
+    overflow-y: auto;
     background: var(--theia-dropdown-background, var(--theia-input-background));
     color: var(--theia-dropdown-foreground, var(--theia-input-foreground));
     border: 1px solid var(--theia-dropdown-border, var(--theia-input-border, var(--theia-panel-border)));
@@ -263,15 +182,15 @@
     display: flex;
     width: 100%;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
     background: transparent;
     border: none;
-    border-radius: 3px;
+    border-radius: 4px;
     color: inherit;
-    padding: 5px 8px;
+    padding: 4px 8px;
     cursor: pointer;
     text-align: left;
-    font-size: inherit;
+    font-size: var(--theia-ui-font-size1);
     font-family: inherit;
 }
 
@@ -289,6 +208,45 @@
     width: 14px;
     flex-shrink: 0;
     text-align: center;
+}
+
+.viewer-context-menu-separator {
+    height: 1px;
+    margin: 4px 6px;
+    background: var(--theia-dropdown-border, var(--theia-input-border, var(--theia-panel-border)));
+}
+
+.viewer-context-menu-icon {
+    width: 16px;
+    flex-shrink: 0;
+    text-align: center;
+    color: var(--theia-descriptionForeground);
+}
+
+.viewer-context-menu-icon .codicon,
+.viewer-context-menu-check .codicon {
+    font-size: 14px;
+    vertical-align: text-bottom;
+}
+
+.viewer-context-menu-item:hover:not(:disabled) .viewer-context-menu-icon {
+    color: inherit;
+}
+
+.viewer-context-menu-label {
+    flex: 1 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.viewer-context-menu-item-checked .viewer-context-menu-label {
+    font-weight: 600;
+}
+
+.viewer-context-menu-item:focus-visible {
+    outline: 1px solid var(--theia-focusBorder);
+    outline-offset: -1px;
 }
 
 .openmc-output-viewer-split-handle {

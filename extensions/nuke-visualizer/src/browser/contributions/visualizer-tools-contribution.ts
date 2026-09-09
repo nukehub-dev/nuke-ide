@@ -43,6 +43,7 @@ import {
 } from '../commands/visualizer-commands';
 import { OpenMCCommands } from '../plugins/openmc/commands';
 import { OpenViewerSettingsCommand } from '../viewer-settings/viewer-settings-contribution';
+import { OpenDagmcOutlineCommand } from '../dagmc-outline/dagmc-outline-contribution';
 
 @injectable()
 export class VisualizerToolsContribution implements NukeToolsContribution {
@@ -67,6 +68,17 @@ export class VisualizerToolsContribution implements NukeToolsContribution {
             order: 'b',
             icon: 'settings-gear',
             description: 'Open the Viewer Settings sidebar for the active 3D viewer.'
+        });
+
+        registry.registerItem({
+            id: 'nuke-visualizer.dagmc-outline',
+            label: 'DAGMC Outline',
+            commandId: OpenDagmcOutlineCommand.id,
+            category: ['Visualizer'],
+            sectionOrder: 'd',
+            order: 'c',
+            icon: 'layers',
+            description: 'Open the DAGMC Outline sidebar for the active DAGMC viewer.'
         });
 
         registry.registerItem({

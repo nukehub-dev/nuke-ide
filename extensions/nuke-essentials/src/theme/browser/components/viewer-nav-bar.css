@@ -1,0 +1,39 @@
+/* Shared viewer bottom bar (nuke-cad viewport + native VTK viewers): one
+   horizontal pill variant, bottom-right overlay on the 3D viewarea. */
+
+.nuke-viewer-nav-bar {
+    position: absolute;
+    bottom: 8px;
+    right: 8px;
+    z-index: 15;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 3px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editorWidget-background);
+}
+
+.nuke-viewer-nav-bar-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    /* Icon-only bar button: undo Theia's global .theia-button min-width/offset */
+    min-width: 24px;
+    height: 22px;
+    margin-left: 0;
+    padding: 0 4px;
+}
+
+.nuke-viewer-nav-bar-text {
+    font-size: 10px;
+    font-weight: 600;
+}
+
+.nuke-viewer-nav-bar-divider {
+    width: 1px;
+    height: 16px;
+    margin: 0 3px;
+    background: var(--theia-panel-border);
+}

@@ -38,6 +38,10 @@ import './components/nuke-empty-state.css';
 import './components/nuke-loading-overlay.css';
 import './components/nuke-panel.css';
 import './components/nuke-form.css';
+import './components/view-cube.css';
+import './components/viewer-nav-bar.css';
+import './components/view-badge.css';
+import './components/viewer-chrome.css';
 
 export default new ContainerModule((bind) => {
     bind(ThemeContribution).toSelf().inSingletonScope();

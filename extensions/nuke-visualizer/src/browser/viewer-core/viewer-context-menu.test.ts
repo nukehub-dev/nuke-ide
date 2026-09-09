@@ -26,12 +26,23 @@
 // *****************************************************************************
 
 /**
- * Tests for the viewer-core context-menu click detection (no DOM): small
- * press/release offsets count as a right-click, pans do not.
+ * Tests for the viewer-core context menu: click-vs-pan detection plus the
+ * pure menu model (item builder) and viewport clamping. The DOM renderer
+ * itself stays untested (vitest runs in node, no DOM) — it measures the
+ * laid-out menu after render and routes the numbers through
+ * `clampViewerContextMenuPosition`, which is covered here.
  */
 
 import { describe, expect, it } from 'vitest';
-import { isViewerContextMenuClick, VIEWER_CONTEXT_MENU_DRAG_TOLERANCE_PX } from './viewer-context-menu';
+import {
+    buildViewerContextMenuItems,
+    clampViewerContextMenuPosition,
+    isViewerContextMenuClick,
+    VIEWER_CONTEXT_MENU_DRAG_TOLERANCE_PX,
+    VIEWER_CONTEXT_MENU_MARGIN_PX,
+    VIEWER_SHADING_MENU_ICONS
+} from './viewer-context-menu';
+import { VIEWER_SHADING_MODES } from './shading-mode';
 
 describe('isViewerContextMenuClick', () => {
     it('accepts a stationary press and small jitter', () => {
@@ -56,5 +67,91 @@ describe('isViewerContextMenuClick', () => {
 
     it('defaults to the documented tolerance', () => {
         expect(VIEWER_CONTEXT_MENU_DRAG_TOLERANCE_PX).toBe(5);
+    });
+});
+
+describe('buildViewerContextMenuItems', () => {
+    it('lists view actions, clip toggle, then one row per shading mode', () => {
+        const items = buildViewerContextMenuItems({ shading: 'shaded', clipChecked: false });
+        expect(items.map((item) => item.id)).toEqual([
+            'fit',
+            'screenshot',
+            'clip',
+            ...VIEWER_SHADING_MODES.map((mode) => `shading:${mode.id}`)
+        ]);
+        expect(items[0].label).toBe('Fit to View');
+        expect(items[1].label).toBe('Save Screenshot (PNG)');
+    });
+
+    it('checks the active shading mode only', () => {
+        const items = buildViewerContextMenuItems({ shading: 'wireframe', clipChecked: false });
+        const shading = items.filter((item) => item.id.startsWith('shading:'));
+        expect(shading).toHaveLength(VIEWER_SHADING_MODES.length);
+        for (const item of shading) {
+            expect(item.checked).toBe(item.id === 'shading:wireframe');
+        }
+    });
+
+    it('passes the clip state through to the clip row', () => {
+        expect(buildViewerContextMenuItems({ shading: 'shaded', clipChecked: true })[2].checked).toBe(true);
+        expect(buildViewerContextMenuItems({ shading: 'shaded', clipChecked: false })[2].checked).toBe(false);
+    });
+
+    it('separates the view, clip, and shading groups', () => {
+        const items = buildViewerContextMenuItems({ shading: 'shaded', clipChecked: false });
+        expect(items[0].separatorAbove).toBeFalsy();
+        expect(items[1].separatorAbove).toBeFalsy();
+        expect(items[2].separatorAbove).toBe(true);
+        expect(items[3].separatorAbove).toBe(true);
+        for (const item of items.slice(4)) {
+            expect(item.separatorAbove).toBeFalsy();
+        }
+    });
+
+    it('icons every row with a codicon (CAD menu grammar)', () => {
+        const items = buildViewerContextMenuItems({ shading: 'shaded', clipChecked: false });
+        for (const item of items) {
+            expect(item.icon).toMatch(/^codicon-/);
+        }
+    });
+
+    it('gives each shading mode its own icon', () => {
+        const items = buildViewerContextMenuItems({ shading: 'shaded', clipChecked: false });
+        const shading = items.filter((item) => item.id.startsWith('shading:'));
+        expect(shading).toHaveLength(VIEWER_SHADING_MODES.length);
+        const icons = new Set(shading.map((item) => item.icon));
+        expect(icons.size).toBe(VIEWER_SHADING_MODES.length);
+        for (const mode of VIEWER_SHADING_MODES) {
+            expect(VIEWER_SHADING_MENU_ICONS[mode.id]).toMatch(/^codicon-/);
+            expect(shading.find((item) => item.id === `shading:${mode.id}`)?.icon).toBe(VIEWER_SHADING_MENU_ICONS[mode.id]);
+        }
+    });
+});
+
+describe('clampViewerContextMenuPosition', () => {
+    it('keeps an interior anchor exactly at the cursor', () => {
+        expect(clampViewerContextMenuPosition(200, 150, 190, 120, 1024, 768)).toEqual({ x: 200, y: 150 });
+    });
+
+    it('pulls right/bottom-edge anchors inside so no row clips', () => {
+        expect(clampViewerContextMenuPosition(950, 700, 190, 120, 1024, 768)).toEqual({ x: 830, y: 644 });
+    });
+
+    it('lifts near-edge anchors off the viewport margin', () => {
+        expect(clampViewerContextMenuPosition(0, 1, 190, 120, 1024, 768)).toEqual({
+            x: VIEWER_CONTEXT_MENU_MARGIN_PX,
+            y: VIEWER_CONTEXT_MENU_MARGIN_PX
+        });
+    });
+
+    it('pins an oversized menu at the margin instead of going negative', () => {
+        expect(clampViewerContextMenuPosition(400, 300, 2000, 1500, 1024, 768)).toEqual({
+            x: VIEWER_CONTEXT_MENU_MARGIN_PX,
+            y: VIEWER_CONTEXT_MENU_MARGIN_PX
+        });
+    });
+
+    it('honors an explicit margin', () => {
+        expect(clampViewerContextMenuPosition(1010, 760, 190, 120, 1024, 768, 10)).toEqual({ x: 824, y: 638 });
     });
 });

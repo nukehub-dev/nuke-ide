@@ -120,7 +120,11 @@ test('viewer settings sidebar shows values and drives shading', async ({ page })
 
     // The sidebar binds to the active viewer tab and shows its live values.
     const settings = await openViewerSettings(page);
+    await expect(settings.locator('.viewer-settings-header-name')).toHaveText('Viewer Settings');
     await expect(settings.locator('.viewer-settings-title')).toContainText('Native VTK Viewer');
+    // CAD panel chrome: collapsible count-badge sections with live status dots.
+    await expect(settings.locator('.viewer-settings-category-header').first()).toBeVisible();
+    await expect(settings.locator('.viewer-settings-state-dot').first()).toBeVisible();
     const colorBy = settings.locator('select.viewer-settings-color-by');
     await expect(colorBy).toBeVisible();
     expect(await colorBy.locator('option').count()).toBeGreaterThan(1);
@@ -143,7 +147,7 @@ test('viewer settings sidebar shows values and drives shading', async ({ page })
     expect(bad, `unexpected severe errors:\n${bad.join('\n')}`).toEqual([]);
 });
 
-test('orientation gizmo is visible and X snaps the view', async ({ page }) => {
+test('orientation cube is visible and X snaps the view', async ({ page }) => {
     const errors = collectErrors(page);
     await page.goto('/');
     await waitForWorkbench(page);
@@ -153,24 +157,25 @@ test('orientation gizmo is visible and X snaps the view', async ({ page }) => {
     const canvas = container.locator('.openmc-output-viewer-viewarea canvas');
     await expect(canvas).toBeVisible({ timeout: 30_000 });
 
-    // CAD-parity gizmo: six axis knobs top-right below the header chrome.
-    const gizmo = container.locator('.viewer-gizmo');
+    // Shared orientation cube (nuke-essentials ViewCube): six labeled axis
+    // knobs top-right below the header chrome.
+    const gizmo = container.locator('.nuke-view-cube');
     await expect(gizmo).toBeVisible({ timeout: 30_000 });
-    await expect(gizmo.locator('.viewer-gizmo-knob')).toHaveCount(6);
+    await expect(gizmo.locator('.nuke-view-cube-knob')).toHaveCount(6);
 
     // Overlay-sizing regression (collapsed-cross bug): the box must be a
-    // healthy fixed-size overlay and every knob a real hit target, not a
-    // shrunken sliver.
+    // healthy fixed-size overlay and every knob slot a real hit target, not
+    // a shrunken sliver (the visible knob circle itself is smaller).
     const gizmoBox = await gizmo.boundingBox();
     expect(gizmoBox?.width).toBeGreaterThanOrEqual(60);
     expect(gizmoBox?.height).toBeGreaterThanOrEqual(60);
-    const knobBox = await gizmo.locator('.viewer-gizmo-knob').first().boundingBox();
+    const knobBox = await gizmo.locator('.nuke-view-cube-knob-slot').first().boundingBox();
     expect(knobBox?.width).toBeGreaterThanOrEqual(20);
     expect(knobBox?.height).toBeGreaterThanOrEqual(20);
 
     // Clicking the +X knob snaps the standard view (orbit handle): the
     // canvas must survive with no errors.
-    await gizmo.locator('.viewer-gizmo-knob', { hasText: /^X$/ }).click();
+    await gizmo.locator('.nuke-view-cube-knob', { hasText: /^X$/ }).click();
     await expect(canvas).toBeVisible();
     await expect(container.locator('.openmc-output-viewer-status.error')).toHaveCount(0);
 
@@ -265,8 +270,164 @@ test('DAGMC multiblock (.vtm) renders both volumes', async ({ page }) => {
     await expect(container.locator('.openmc-output-viewer-status.error')).toHaveCount(0);
     await expect(container.locator('.openmc-output-viewer-viewarea canvas')).toBeVisible({ timeout: 30_000 });
     // No sibling .h5m exists for dagmc.info, so the viewer renders blocks
-    // with the model-info hint instead of volume toggles.
-    await expect(container.getByText('Volume toggles need model info').first()).toBeVisible({ timeout: 30_000 });
+    // with a block-count status line; volume toggles live in the DAGMC
+    // Outline sidebar, not the viewer footer.
+    await expect(container.getByText('2 of 2 volumes (no model info)').first()).toBeVisible({ timeout: 30_000 });
+    await expect(container.locator('.openmc-output-viewer-header select')).toHaveCount(0);
+
+    const bad = severe(errors);
+    expect(bad, `unexpected severe errors:\n${bad.join('\n')}`).toEqual([]);
+});
+
+test('DAGMC outline sidebar lists volumes and toggles visibility', async ({ page }) => {
+    const errors = collectErrors(page);
+    await page.goto('/');
+    await waitForWorkbench(page);
+
+    const container = await openViewer(page, 'native-volumes.vtm');
+    await expect(container.locator('.openmc-output-viewer-status.error')).toHaveCount(0);
+    const canvas = container.locator('.openmc-output-viewer-viewarea canvas');
+    await expect(canvas).toBeVisible({ timeout: 30_000 });
+
+    // The outline binds to the active DAGMC viewer tab and lists the loaded
+    // blocks as volume rows (no dagmc.info for this fixture, so no
+    // material/group sections — volumes fall back to block names).
+    await runCommand(page, 'Open DAGMC Outline');
+    const panel = page.locator('.dagmc-outline-panel');
+    await expect(panel).toBeVisible({ timeout: 30_000 });
+    // Regression for the empty-state report: with the .vtm tab open, the
+    // panel must bind it instead of showing "No DAGMC viewer open".
+    await expect(panel.locator('.dagmc-outline-empty')).toHaveCount(0);
+    const boxes = panel.locator('.dagmc-outline-volume-checkbox');
+    await expect(boxes).toHaveCount(2);
+    await expect(panel.getByText('Material and group info need model info')).toBeVisible();
+    // CAD panel chrome: icon header, collapsible badge sections, per-row
+    // status dots, and the no-model-info banner.
+    await expect(panel.locator('.dagmc-outline-header-icon')).toBeVisible();
+    await expect(panel.locator('.dagmc-outline-panel-name')).toHaveText('DAGMC Outline');
+    await expect(panel.locator('.dagmc-outline-group-header').first()).toBeVisible();
+    await expect(panel.locator('.dagmc-outline-volume-row .dagmc-outline-state-dot')).toHaveCount(2);
+    await expect(panel.locator('.dagmc-outline-banner')).toContainText('Material and group info need model info');
+
+    // Uncheck one volume: the canvas status line drops to 1 of 2.
+    await boxes.nth(0).uncheck();
+    await expect(container.getByText('1 of 2 volumes').first()).toBeVisible({ timeout: 30_000 });
+    await expect(panel.locator('.dagmc-outline-volume-row.dagmc-outline-row-hidden')).toHaveCount(1);
+    await expect(canvas).toBeVisible();
+    await expect(container.locator('.openmc-output-viewer-status.error')).toHaveCount(0);
+
+    // The search filter narrows the volume list for large models.
+    const search = panel.locator('.dagmc-outline-search');
+    await search.fill('zzz-no-such-volume');
+    await expect(panel.locator('.dagmc-outline-volume-checkbox')).toHaveCount(0);
+    await search.fill('');
+    await expect(panel.locator('.dagmc-outline-volume-checkbox')).toHaveCount(2);
+
+    // Show all restores the hidden volume.
+    await panel.locator('.dagmc-outline-show-all').click();
+    await expect(container.getByText('2 of 2 volumes').first()).toBeVisible({ timeout: 30_000 });
+    await expect(panel.locator('.dagmc-outline-volume-row.dagmc-outline-row-hidden')).toHaveCount(0);
+    await expect(canvas).toBeVisible();
+    await expect(container.locator('.openmc-output-viewer-status.error')).toHaveCount(0);
+
+    const bad = severe(errors);
+    expect(bad, `unexpected severe errors:\n${bad.join('\n')}`).toEqual([]);
+});
+
+test('DAGMC viewer auto-opens the outline and row click selects the volume', async ({ page }) => {
+    const errors = collectErrors(page);
+    await page.goto('/');
+    await waitForWorkbench(page);
+
+    const container = await openViewer(page, 'native-volumes.vtm');
+    await expect(container.locator('.openmc-output-viewer-status.error')).toHaveCount(0);
+    const canvas = container.locator('.openmc-output-viewer-viewarea canvas');
+    await expect(canvas).toBeVisible({ timeout: 30_000 });
+
+    // Auto-open: the viewer reveals the DAGMC Outline sidebar on open, so no
+    // command is needed (fresh context → the panel starts closed).
+    const panel = page.locator('.dagmc-outline-panel');
+    await expect(panel).toBeVisible({ timeout: 30_000 });
+    await expect(panel.locator('.nuke-empty-state')).toHaveCount(0);
+    await expect(panel.locator('.dagmc-outline-volume-checkbox')).toHaveCount(2);
+
+    // Row click selects the volume in the canvas: the widget owns the
+    // selection and the row mirrors it with the selected treatment.
+    const rows = panel.locator('.dagmc-outline-volume-row');
+    await expect(rows).toHaveCount(2);
+    await rows.nth(0).click();
+    await expect(rows.nth(0)).toHaveClass(/selected/);
+    await expect(rows.nth(1)).not.toHaveClass(/selected/);
+
+    // Clicking the selected row again clears the selection.
+    await rows.nth(0).click();
+    await expect(rows.nth(0)).not.toHaveClass(/selected/);
+
+    await expect(canvas).toBeVisible();
+    await expect(container.locator('.openmc-output-viewer-status.error')).toHaveCount(0);
+
+    const bad = severe(errors);
+    expect(bad, `unexpected severe errors:\n${bad.join('\n')}`).toEqual([]);
+});
+
+test('viewer context menu opens inside the viewport and fit works', async ({ page }) => {
+    const errors = collectErrors(page);
+    await page.goto('/');
+    await waitForWorkbench(page);
+
+    const container = await openViewer(page, 'native-polydata.vtp');
+    await expect(container.locator('.openmc-output-viewer-status.error')).toHaveCount(0);
+    const canvas = container.locator('.openmc-output-viewer-viewarea canvas');
+    await expect(canvas).toBeVisible({ timeout: 30_000 });
+    const box = await canvas.boundingBox();
+    if (!box) {
+        throw new Error('context-menu test needs a laid-out canvas');
+    }
+
+    // Bottom-right corner right-click: the menu must clamp fully inside the
+    // viewport instead of spilling over the edge.
+    await page.mouse.click(box.x + box.width - 8, box.y + box.height - 8, { button: 'right' });
+    const menu = page.locator('.viewer-context-menu');
+    await expect(menu).toBeVisible({ timeout: 30_000 });
+    const viewport = page.viewportSize();
+    const menuBox = await menu.boundingBox();
+    if (!menuBox || !viewport) {
+        throw new Error('context-menu test needs a laid-out menu and viewport');
+    }
+    expect(menuBox.x).toBeGreaterThanOrEqual(0);
+    expect(menuBox.y).toBeGreaterThanOrEqual(0);
+    expect(menuBox.x + menuBox.width).toBeLessThanOrEqual(viewport.width);
+    expect(menuBox.y + menuBox.height).toBeLessThanOrEqual(viewport.height);
+
+    // Escape dismisses without picking anything.
+    await page.keyboard.press('Escape');
+    await expect(menu).toBeHidden({ timeout: 30_000 });
+
+    // Center right-click: grouped menu (separators, icons, checked active
+    // shading mode) with the first row fully inside the menu — the
+    // top-item-clip regression.
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, { button: 'right' });
+    await expect(menu).toBeVisible({ timeout: 30_000 });
+    await expect(menu.locator('.viewer-context-menu-separator')).toHaveCount(2);
+    // CAD menu density: every row (including shading rows) carries an icon.
+    const menuRowCount = await menu.locator('.viewer-context-menu-item').count();
+    expect(await menu.locator('.viewer-context-menu-icon .codicon').count()).toBe(menuRowCount);
+    await expect(menu.locator('.viewer-context-menu-item-checked').first()).toContainText('Shaded');
+    const first = menu.locator('.viewer-context-menu-item').first();
+    await expect(first).toContainText('Fit to View');
+    const openBox = await menu.boundingBox();
+    const firstBox = await first.boundingBox();
+    if (!openBox || !firstBox) {
+        throw new Error('context-menu test needs laid-out menu rows');
+    }
+    expect(firstBox.y).toBeGreaterThanOrEqual(openBox.y);
+    expect(firstBox.y + firstBox.height).toBeLessThanOrEqual(openBox.y + openBox.height);
+
+    // Clicking Fit to View closes the menu and keeps the canvas healthy.
+    await first.click();
+    await expect(menu).toBeHidden({ timeout: 30_000 });
+    await expect(canvas).toBeVisible();
+    await expect(container.locator('.openmc-output-viewer-status.error')).toHaveCount(0);
 
     const bad = severe(errors);
     expect(bad, `unexpected severe errors:\n${bad.join('\n')}`).toEqual([]);

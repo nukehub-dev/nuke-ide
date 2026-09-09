@@ -119,15 +119,41 @@ conda install -c conda-forge gmsh
 
 When you open a `.h5m` file:
 
-1. The backend detects the format.
-2. It runs `python server.py base.convert-dagmc` (using MOAB/PyDAGMC) to extract geometry into VTK.
-3. The VTK file is parsed and rendered natively in the IDE.
+1. The viewer tab opens immediately with a loading overlay.
+2. The backend converts the file (`base.convert-dagmc-multiblock`, cached) while the spinner shows.
+3. The multiblock volumes load into the tab; conversion failure shows the
+   error panel in the same tab with a jump to the generic viewer.
 
-> Conversion may take a few seconds for large models. A loading spinner is shown.
+> Conversion may take a few seconds for large models. Re-opening the same file is instant (cached conversion, live tab reused).
 
 ### Volume Extraction
 
 If you select a specific volume ID (e.g., from the Geometry Hierarchy), only that volume is extracted and visualized.
+
+### DAGMC Outline Sidebar
+
+The **DAGMC Outline** sidebar opens automatically with every DAGMC viewer
+tab (or via `Tools → Visualizer → DAGMC Outline`), bound to the active
+DAGMC viewer tab. Like the CAD panels it has an icon + subtitle header
+(the bound viewer tab) and collapsible count-badge sections:
+
+- **Volumes** — one row per `Volume_<id>` block: per-row icon plus a live
+  status dot (green visible, muted hidden), the checkbox toggles
+  visibility, clicking the row highlights the volume in the 3D canvas
+  (click again to clear); picking a volume in the canvas selects its row.
+  Hidden rows dim with an eye-closed marker. Hovering a row reveals an eye
+  button isolating that volume (hide the rest). The material rides as a
+  muted suffix — never repeated in the name.
+- **Materials / Groups** — one row per name with the same icon, status
+  dot, checkbox, and hover isolate button; unchecking hides every member
+  volume. These sections need the `dagmc.info` model metadata (present for
+  converted `.h5m` files); without it an info banner says so instead of
+  bare text.
+- **Graveyard** — show or hide the graveyard termination volumes.
+- **Show all** — clear every hidden-set and restore all volumes.
+- **Filter** — search box matching volume id, material, or group (for 20+-volume models).
+
+Display settings (color-by, shading, clip) stay in the **Viewer Settings** sidebar; the viewer itself keeps an `N of M volumes` status line.
 
 ---
 

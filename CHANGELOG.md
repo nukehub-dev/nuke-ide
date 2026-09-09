@@ -28,19 +28,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the character-based form vtk multiblock output emits, and decompression
   is synchronous (no platform-stream stalls); `.h5m` files open with
   volume isolation.
-- nuke-visualizer: **orientation gizmo in the native 3D viewers** — a CAD-style ±X/±Y/±Z overlay (top-right, below the header) in the native VTK and DAGMC viewers tracks the camera and snaps to the standard view when an axis knob is clicked; it hides when no dataset is loaded.
+- nuke-visualizer: **orientation cube in the native 3D viewers** — a labeled ±X/±Y/±Z triad overlay (top-right, below the header; the shared nuke-essentials `ViewCube`, also used by the CAD viewport) in the native VTK and DAGMC viewers tracks the camera and snaps to the standard view when an axis knob is clicked; it hides when no dataset is loaded.
 - nuke-visualizer: **distance measure in the native 3D viewers** — a header ruler toggle in the native VTK and DAGMC viewers captures two raycast surface points and shows the distance as a viewport label (line + endpoint spheres in the scene); Escape cancels newest-first and rebuild clears. Angle/radius stay CAD-only.
 - nuke-visualizer: **Viewer Settings sidebar** — Color by, Map, Shading,
   per-axis Clip (axis/position/flip), the measure toggle, and ISO/T/F/R/X/Y/Z
   axis snaps moved out of the native viewer headers into a right-area sidebar
   bound to the active viewer tab (native VTK/tally/output, DAGMC,
   geometry-native, Exodus); headers keep file/status actions and the canvas
-  keeps the nav cluster, orientation gizmo, and measure annotations.
+  keeps the bottom bar, orientation cube, and measure annotations.
+- nuke-visualizer: **DAGMC Outline sidebar** — volume/material/group checkbox
+  trees, the Graveyard toggle, Show all, and a search filter for large models
+  moved out of the DAGMC viewer footer into a right-area sidebar bound to the
+  active DAGMC viewer tab; the viewer keeps its `N of M volumes` status line
+  and Viewer Settings keeps display settings (no overlap).
+- nuke-visualizer: **DAGMC Outline selection sync + auto-open** — volume rows
+  show the human name once with the material as a muted suffix (no more
+  `Volume 1 (mat_0) [mat:mat_0]` duplication) with Nuke tooltips throughout;
+  clicking a row highlights the volume in the canvas and picking in the canvas
+  selects the row (widget-owned selection, panel mirrors); the sidebar reveals
+  itself whenever a DAGMC viewer tab opens, without stealing focus.
+- nuke-visualizer: **instant DAGMC viewer launch** — `.h5m` files open their
+  viewer tab immediately with a loading overlay while the multiblock
+  conversion runs; conversion failure shows the in-tab error panel with a
+  jump to the generic single-file viewer (which keeps working).
+- nuke-essentials + nuke-visualizer + nuke-cad: **shared viewer chrome** —
+  one `ViewCube` labeled-triad orientation cube, one `ViewerNavBar` bottom
+  bar (ISO/T/F/R + fit + zoom), one `ViewBadge` dataset/view pill, and one
+  muted status-line pattern, owned by nuke-essentials and used by the CAD
+  viewport and every native VTK viewer (native VTK/tally/output, DAGMC).
+  The visualizer spoke gizmo, side nav cluster, and projection-math module
+  are deleted; CAD keeps its Explode slider, shading, and section tools as
+  siblings on the same bar, with no CAD features removed.
 - nuke-visualizer: **viewer navigation and tools** — OrbitControls camera
   (orbit/pan/zoom with damping) in all native viewers, plus Shading
   (shaded/wireframe/points/x-ray) and clip-plane (axis/position/flip)
   controls in the viewer headers. Surfaces render lit with facet shading;
-  the 3D view has an ISO/top/front/right + fit + zoom nav cluster, a
+  the 3D view has an ISO/top/front/right + fit + zoom bottom bar, a
   right-click view menu, and Nuke tooltips instead of native titles.
 - nuke-visualizer: **`vtk` is now a required dependency** (it used to ride
   in via paraview) — environments without it get a guided install instead
@@ -248,6 +271,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- nuke-visualizer: **Viewer Settings / DAGMC Outline CAD chrome polish** —
+  both sidebars now match the CAD Feature Tree / Model Outline aesthetic
+  with no behavior change: icon + subtitle headers naming the bound viewer
+  tab, collapsible count-badge sections (Display/Clip with an `n/3`
+  enabled badge/Playback/Measure/View; Volumes/Materials/Groups),
+  per-row icons, live status dots (clip planes enabled, measure armed,
+  row visible/hidden), hidden outline rows dimmed with an eye-closed
+  marker, hover isolate buttons on material/group rows (same eye-button
+  pattern as volumes, existing toggles only), an info banner where plain
+  text stood before, and Nuke tooltips instead of native titles. The
+  viewer right-click menu keeps its view-actions-only items with one icon
+  per row (each shading mode included) at CAD menu density.
 - nuke-cad: **faster large-model rebuilds** — the tessellation payload now
   parses in a Web Worker off the UI thread and transfers to the viewport as
   zero-copy typed arrays, and the viewport scene update is incremental:
@@ -1291,6 +1326,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`nukeCad.maxDisplayTriangles`, default 2 000 000) keep viewport tessellation
   bounded; a warning is added to the build result when the budget is exceeded.
   DAGMC and FEM export tolerances remain controlled by `nukeCad.facetingTolerance`.
+- nuke-visualizer: **viewer right-click menu positioning and design** — the
+  menu measures itself after render and clamps fully inside the viewport (the
+  first row no longer clips near an edge), and the flat four-row list becomes
+  grouped view actions (Fit to View, Save Screenshot) with codicons,
+  separators, a Clip Planes toggle, and one row per shading mode with the
+  active mode checked. Dismissal (item click, Escape, outside pointer-down)
+  is unchanged.
+- nuke-visualizer: **DAGMC Outline header overflow and row polish** — the
+  panel header keeps the bound viewer tab label as an ellipsis-truncated
+  subtitle with the full text in its Nuke tooltip instead of overflowing the
+  panel; VOLUMES/MATERIALS/GROUPS headers are sticky with count badges,
+  volume rows gain a hover eye button isolating that volume, and the
+  Graveyard toggle row renders muted italic.
 
 ## [0.1.3] - 2026-07-28
 

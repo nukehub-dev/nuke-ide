@@ -1,4 +1,8 @@
-/* Viewer Settings sidebar panel. All colors come from Theia CSS variables. */
+/* Viewer Settings sidebar panel. All colors come from Theia CSS variables.
+   Chrome mirrors the CAD Feature Tree / Model Outline panels: icon +
+   subtitle header, collapsible count-badge sections, per-row icons, live
+   status dots. The shared nuke-essentials pieces (Tooltip) own their own
+   look. Every pre-existing class hook is kept (additive classes only). */
 
 .viewer-settings-panel {
     display: flex;
@@ -10,13 +14,61 @@
     font-size: 12px;
 }
 
-.viewer-settings-title {
-    font-weight: 600;
-    padding-bottom: 4px;
+/* CAD-style header: accent icon + panel name + bound-viewer subtitle. */
+.viewer-settings-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding-bottom: 6px;
     border-bottom: 1px solid var(--theia-panel-border);
+}
+
+.viewer-settings-header-icon {
+    font-size: 16px;
+    color: var(--theia-focusBorder);
+    flex-shrink: 0;
+    margin-top: 1px;
+}
+
+.viewer-settings-header-text {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.viewer-settings-header-name {
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--theia-foreground);
+    white-space: nowrap;
+}
+
+/* Kept hook: previously the panel title line, now the ellipsis-truncated
+   bound-viewer subtitle (full tab label in the Nuke tooltip). The shared
+   Tooltip wraps it in an inline-flex span sized to the content: without a
+   shrinkable block chain the long viewer tab label overflows the panel
+   instead of ellipsizing (same flex-override pattern as DAGMC Outline). */
+.viewer-settings-header-text > span {
+    display: flex !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    overflow: hidden;
+}
+
+.viewer-settings-title {
+    flex: 1 1 auto;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+}
+
+.viewer-settings-title-empty {
+    font-style: italic;
 }
 
 .viewer-settings-empty {
@@ -43,11 +95,112 @@
     font-size: 11px;
 }
 
+/* Collapsible badge section (CAD TreeSection grammar). */
+.viewer-settings-section {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.viewer-settings-category-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--theia-descriptionForeground);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    cursor: pointer;
+    user-select: none;
+    border-radius: 3px;
+    padding: 1px 2px;
+}
+
+.viewer-settings-category-header:hover {
+    color: var(--theia-foreground);
+    background: var(--theia-list-hoverBackground);
+}
+
+.viewer-settings-category-header:focus-visible {
+    outline: 1px solid var(--theia-focusBorder);
+    outline-offset: -1px;
+}
+
+.viewer-settings-section-icon {
+    color: var(--theia-focusBorder);
+    display: inline-flex;
+    align-items: center;
+}
+
+.viewer-settings-count-badge {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 0 6px;
+    border-radius: 8px;
+    background: var(--theia-badge-background);
+    color: var(--theia-badge-foreground);
+    text-transform: none;
+    letter-spacing: normal;
+    white-space: nowrap;
+}
+
+/* Live status dot (CAD feature-tree-status grammar): muted while the
+   section's live state is off, green while clip planes are enabled or
+   measure is armed. */
+.viewer-settings-state-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--theia-descriptionForeground);
+    opacity: 0.5;
+    flex-shrink: 0;
+    margin-left: auto;
+}
+
+.viewer-settings-state-dot.is-on {
+    background: var(--theia-terminal-ansiGreen);
+    opacity: 1;
+}
+
+.viewer-settings-section-body {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 6px 8px;
+    border: 1px solid var(--theia-panel-border);
+}
+
 .viewer-settings-row {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 8px;
+}
+
+/* The shared Tooltip wraps row labels in an inline-flex span sized to the
+   content: stretch the label wrapper so labels hug the left and controls
+   the right. Scoped to label wrappers only — button Tooltips (clip tabs,
+   snap row, measure) keep their hug-the-button size. */
+.viewer-settings-row > span:has(> .viewer-settings-row-label) {
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+}
+
+.viewer-settings-row-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.viewer-settings-row-icon {
+    color: var(--theia-focusBorder);
+    flex-shrink: 0;
 }
 
 .viewer-settings-row select {
@@ -68,12 +221,32 @@
     min-width: 0;
 }
 
+/* Tooltip-wrapped sliders: the wrapper hugs content by default, so stretch
+   it to fill the row like the bare slider did. */
+.viewer-settings-tip-fill {
+    display: flex;
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.viewer-settings-tip-fill > span {
+    display: flex !important;
+    flex: 1 1 auto !important;
+    width: auto !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+}
+
+.viewer-settings-tip-fill input[type='range'] {
+    flex: 1 1 auto;
+    min-width: 0;
+    width: 100%;
+}
+
 .viewer-settings-group {
     display: flex;
     flex-direction: column;
     gap: 4px;
-    padding: 6px 8px;
-    border: 1px solid var(--theia-panel-border);
 }
 
 .viewer-settings-group-label {

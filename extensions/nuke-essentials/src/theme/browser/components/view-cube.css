@@ -1,0 +1,77 @@
+/* Shared orientation cube (nuke-cad viewport + native VTK viewers).
+   Geometry mirrors the layout constants in view-cube-math.ts (box, center,
+   radius, knob) — keep both in sync, pinned by view-cube-math.test.ts.
+   Placement (top-right offsets) stays with the host extension, whose
+   toolbar chrome differs. */
+
+.nuke-view-cube {
+    width: 68px;
+    height: 68px;
+}
+
+.nuke-view-cube-spokes {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+}
+
+.nuke-view-cube-spoke {
+    stroke: var(--theia-descriptionForeground);
+    stroke-width: 1.2;
+}
+
+.nuke-view-cube-knob-slot {
+    position: absolute;
+    /* Definite hit box (knob edge, centered on the overlay center): a 0x0
+       slot collapses the Tooltip span (max-width: 100% of nothing) and
+       shrinks the knob buttons to slivers. The visible knob circle below is
+       smaller and centered inside it. */
+    left: 23px;
+    top: 23px;
+    width: 22px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.nuke-view-cube-knob {
+    /* Round labeled-triad knob: undo Theia's global .theia-button min-width/offset */
+    min-width: 0;
+    margin-left: 0;
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    border-radius: 50%;
+    font-size: 8px;
+    font-weight: 700;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    /* No centering transform here: the slot box itself is positioned with
+       its center on the spoke endpoint, and the knob sits centered in it. */
+    cursor: pointer;
+    background: var(--theia-focusBorder);
+    color: var(--theia-button-foreground);
+    border: 1px solid var(--theia-descriptionForeground);
+}
+
+.nuke-view-cube-knob-negative {
+    width: 13px;
+    height: 13px;
+    background: var(--theia-editorWidget-background);
+    color: var(--theia-descriptionForeground);
+}
+
+.nuke-view-cube-axis-x {
+    border-color: #d45a5a;
+}
+
+.nuke-view-cube-axis-y {
+    border-color: #5aa862;
+}
+
+.nuke-view-cube-axis-z {
+    border-color: #5a8fd4;
+}

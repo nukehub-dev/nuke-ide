@@ -222,10 +222,13 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   Rendering always goes through `SketchModeController.getActiveCamera()`: the
   orthographic camera in sketch mode, the live perspective camera otherwise —
   never a throwaway camera, or orbit/zoom/pan disconnect from the screen. The
-  3D viewport exposes a navigation cluster (bottom-right: ISO/top/front/right
-  views, fit, zoom in/out) backed by `fitView`/`zoomView`/`setStandardView` on
-  the viewport API; `F` fits the view when no sketch, pick mode, or text field
-  is active. Pressing `Q` inside the viewport opens a transient context shortcut
+  3D viewport bottom bar is the shared `ViewerNavBar` (nuke-essentials, one
+  variant for CAD and the native VTK viewers): ISO/top/front/right views,
+  fit, and zoom in/out backed by `fitView`/`zoomView`/`setStandardView` on
+  the viewport API; CAD-only tools (shading popover, section view, Explode
+  slider) ride the same bar as `children` siblings, never forked buttons.
+  `F` fits the view when no sketch, pick mode, or text field is active.
+  Pressing `Q` inside the viewport opens a transient context shortcut
   bar anchored at the cursor: sketch tools when a sketch session is active,
   feature-creation actions otherwise; it closes on click, Escape, or pointer
   leaving the viewport. Right-clicking the canvas (no pick mode, no sketch
@@ -260,19 +263,20 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   view size. `sketchEntering` covers the solver-WASM load window between
   **Start Sketch** and an active session: the widget treats it as sketch mode
   (no document-hint flash) and shows a "Starting sketch solver..." overlay.
-  The 3D viewport also carries an axis gizmo (top-right SVG,
-  updated imperatively from `renderScene` — never from React state; click an
-  axis to snap views — snaps needing a different up re-create the controls
-  because OrbitControls freezes its orbit pole at construction, keeping mouse
-  orbit live after every snap; hidden in sketch mode and whenever no model is
-  loaded via `setGizmoVisible`; the view label follows the same visibility) and a
-  wireframe toggle (`setWireframe`) in the navigation cluster. Both the gizmo
-  and the view-label overlay sit **below the document toolbar** (gizmo at
-  top 64px, clear of the toolbar; view label at 64px) —
-  at the toolbar's z-index the full-width toolbar would cover them. The view
-  label (`cad-viewport-view-label`, imperative DOM) shows the active standard
-  view (`User` after orbiting, `Top`/`Left`/... after snapping) or
-  `Sketch — <name>` while sketching (`SketchModeController.getSketchName()`).
+  The 3D viewport also carries the shared `ViewCube` orientation cube
+  (top-right, imperative camera-quaternion updates from `renderScene` pushed
+  through the `ViewCubeHandle` — never React state; click a knob to snap
+  views — snaps needing a different up re-create the controls because
+  OrbitControls freezes its orbit pole at construction, keeping mouse orbit
+  live after every snap; hidden in sketch mode and whenever no model is
+  loaded by conditional rendering, like the bar) and the shared `ViewBadge`
+  view pill. Both overlays sit **below the document toolbar** (cube at top
+  64px, clear of the toolbar; badge at 64px) — at the toolbar's z-index the
+  full-width toolbar would cover them. The badge shows the active standard
+  view (`User view` after orbiting, `Top view` after snapping); the scene
+  reports renames through `onViewNameChange` into React state. The viewport
+  status pill shares the converged `.nuke-viewer-status-line` muted
+  treatment with the native VTK viewers.
   Model colors are theme-adaptive (`viewer-core/viewport-colors.ts`): the face albedo
   follows `--theia-foreground` on dark themes but switches to a fixed steel
   tone on light editor backgrounds (a light theme's foreground is near-black

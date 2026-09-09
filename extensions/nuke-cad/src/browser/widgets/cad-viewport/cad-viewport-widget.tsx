@@ -62,6 +62,8 @@ import { buildSolidSummaries } from '../outline-panel/solid-summaries';
 import { NukeCadCommands } from '../../commands';
 import { LoadingAnimations } from 'nuke-essentials/lib/theme/browser/components/loading-spinner';
 import { NukeEmptyState, NukeLoadingOverlay } from 'nuke-essentials/lib/theme/browser/components';
+import { ViewBadge, ViewerNavBar, ViewCube } from 'nuke-essentials/lib/theme/browser/components';
+import type { ViewCubeHandle, ViewerNavAction } from 'nuke-essentials/lib/theme/browser/components';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
 import { SketchModeController } from '../../sketch/sketch-mode-controller';
 import { SKETCH_TOOL_SHORTCUTS } from '../../sketch/sketch-session';
@@ -2038,16 +2040,45 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
         fitView?: () => void;
         zoomView?: (factor: number) => void;
         setStandardView?: (view: 'iso' | 'top' | 'front' | 'right') => void;
+        snapView?: (direction: readonly [number, number, number]) => void;
         setShading?: (mode: ShadingMode) => void;
         setGhostOpacity?: (value: number) => void;
         setViewportBackground?: (style: ViewportBackgroundStyle) => void;
         setNavigationStyle?: (style: NavigationStyle) => void;
         setSection?: (section?: SectionState) => void;
         setExplodeFactor?: (factor: number) => void;
-        setGizmoVisible?: (visible: boolean) => void;
         updateMeasureState?: (state: MeasureViewState) => void;
         setAutoDimensionEnabled?: (enabled: boolean) => void;
     }>({});
+
+    /** Active standard view name for the shared badge (`User` after orbiting, `Top` after snapping). */
+    const [viewName, setViewName] = React.useState('User');
+    /** Shared orientation cube handle: the scene pushes camera quaternions imperatively (no React state). */
+    const viewCubeRef = React.useRef<ViewCubeHandle | null>(null);
+    /** Scene callback: a snap or orbit gesture renamed the view. */
+    const handleViewNameChange = React.useCallback((name: string): void => {
+        setViewName(name);
+    }, []);
+    /** Scene callback: mirror the camera orientation on the shared cube (direct DOM writes, no re-render). */
+    const handleViewCubeUpdate = React.useCallback((quaternion: readonly [number, number, number, number]): void => {
+        viewCubeRef.current?.update({ quaternion });
+    }, []);
+    /** Shared bottom-bar router: standard views, fit, and zoom on the viewport API. */
+    const handleViewerNavAction = React.useCallback((action: ViewerNavAction): void => {
+        if (action === 'fit') {
+            viewportApi.current.fitView?.();
+            return;
+        }
+        if (action === 'zoom-in') {
+            viewportApi.current.zoomView?.(0.8);
+            return;
+        }
+        if (action === 'zoom-out') {
+            viewportApi.current.zoomView?.(1.25);
+            return;
+        }
+        viewportApi.current.setStandardView?.(action);
+    }, []);
 
     const measureMode: MeasureKind =
         (controller?.isActive ?? false) || props.sketchSetupVisible || props.sketchEntering ? 'sketch' : 'model3d';
@@ -2259,7 +2290,9 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                 handleToggleSection,
                 props.onHideSolid,
                 props.onIsolateSolid,
-                props.onShowAllSolids
+                props.onShowAllSolids,
+                handleViewCubeUpdate,
+                handleViewNameChange
             );
             if (disposed) {
                 api.cleanup();
@@ -2279,13 +2312,13 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             viewportApi.current.fitView = api.fitView;
             viewportApi.current.zoomView = api.zoomView;
             viewportApi.current.setStandardView = api.setStandardView;
+            viewportApi.current.snapView = api.snapView;
             viewportApi.current.setShading = api.setShading;
             viewportApi.current.setGhostOpacity = api.setGhostOpacity;
             viewportApi.current.setViewportBackground = api.setViewportBackground;
             viewportApi.current.setNavigationStyle = api.setNavigationStyle;
             viewportApi.current.setSection = api.setSection;
             viewportApi.current.setExplodeFactor = api.setExplodeFactor;
-            viewportApi.current.setGizmoVisible = api.setGizmoVisible;
             viewportApi.current.updateMeasureState = api.updateMeasureState;
             viewportApi.current.setAutoDimensionEnabled = api.setAutoDimensionEnabled;
             api.setFacePickMode(props.facePickMode);
@@ -2314,13 +2347,13 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             viewportApi.current.fitView = undefined;
             viewportApi.current.zoomView = undefined;
             viewportApi.current.setStandardView = undefined;
+            viewportApi.current.snapView = undefined;
             viewportApi.current.setShading = undefined;
             viewportApi.current.setGhostOpacity = undefined;
             viewportApi.current.setViewportBackground = undefined;
             viewportApi.current.setNavigationStyle = undefined;
             viewportApi.current.setSection = undefined;
             viewportApi.current.setExplodeFactor = undefined;
-            viewportApi.current.setGizmoVisible = undefined;
             viewportApi.current.updateMeasureState = undefined;
             viewportApi.current.setAutoDimensionEnabled = undefined;
             cleanup?.();
@@ -2422,14 +2455,6 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
     // All hooks must run on every render: the loading branch below returns
     // early, so nothing that calls a hook may sit after it.
     const sketchActive = (controller?.isActive ?? false) || props.sketchSetupVisible || props.sketchEntering;
-    const hasTessellation = props.tessData !== undefined;
-
-    // Gizmo and view label are imperative overlays; they are meaningless
-    // without geometry, so stay hidden in the empty/loading/document-only
-    // states and in sketch mode, and show once a build's tessellation lands.
-    React.useEffect(() => {
-        viewportApi.current.setGizmoVisible?.(hasTessellation && !sketchActive);
-    }, [hasTessellation, sketchActive, controller]);
 
     // Keep the status pill clear of the navigation cluster: re-measure the
     // cluster whenever it (re)mounts or resizes. The pill falls back to its
@@ -2607,62 +2632,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
     const navCluster =
         props.tessData !== undefined && !sketchActive && !props.loading ? (
             <>
-                <div className="cad-viewport-nav" ref={navRef}>
-                    <Tooltip content="Iso view" position="left">
-                        <button
-                            className="theia-button secondary cad-viewport-nav-button cad-viewport-nav-text"
-                            onClick={() => viewportApi.current.setStandardView?.('iso')}
-                        >
-                            ISO
-                        </button>
-                    </Tooltip>
-                    <Tooltip content="Top view" position="left">
-                        <button
-                            className="theia-button secondary cad-viewport-nav-button cad-viewport-nav-text"
-                            onClick={() => viewportApi.current.setStandardView?.('top')}
-                        >
-                            T
-                        </button>
-                    </Tooltip>
-                    <Tooltip content="Front view" position="left">
-                        <button
-                            className="theia-button secondary cad-viewport-nav-button cad-viewport-nav-text"
-                            onClick={() => viewportApi.current.setStandardView?.('front')}
-                        >
-                            F
-                        </button>
-                    </Tooltip>
-                    <Tooltip content="Right view" position="left">
-                        <button
-                            className="theia-button secondary cad-viewport-nav-button cad-viewport-nav-text"
-                            onClick={() => viewportApi.current.setStandardView?.('right')}
-                        >
-                            R
-                        </button>
-                    </Tooltip>
-                    <span className="cad-viewport-nav-divider" />
-                    <Tooltip content="Fit view (F) / selection (.)" position="left">
-                        <button className="theia-button secondary cad-viewport-nav-button" onClick={() => viewportApi.current.fitView?.()}>
-                            <span className="codicon codicon-screen-full" />
-                        </button>
-                    </Tooltip>
-                    <Tooltip content="Zoom in" position="left">
-                        <button
-                            className="theia-button secondary cad-viewport-nav-button"
-                            onClick={() => viewportApi.current.zoomView?.(0.8)}
-                        >
-                            <span className="codicon codicon-zoom-in" />
-                        </button>
-                    </Tooltip>
-                    <Tooltip content="Zoom out" position="left">
-                        <button
-                            className="theia-button secondary cad-viewport-nav-button"
-                            onClick={() => viewportApi.current.zoomView?.(1.25)}
-                        >
-                            <span className="codicon codicon-zoom-out" />
-                        </button>
-                    </Tooltip>
-                    <span className="cad-viewport-nav-divider" />
+                <ViewerNavBar ref={navRef} onAction={handleViewerNavAction}>
                     <Tooltip content={`Shading: ${activeShading.label}`} position="left">
                         <button
                             className={`theia-button secondary cad-viewport-nav-button ${shadingMode !== 'shaded' ? 'active' : ''}`}
@@ -2695,7 +2665,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                             <span className="cad-viewport-explode-value">{Math.round(explodeFactor * 100)}%</span>
                         </label>
                     </Tooltip>
-                </div>
+                </ViewerNavBar>
                 {openPopover === 'shading' && (
                     <div className="cad-viewport-popover cad-viewport-nav-popover">
                         {SHADING_MODES.map((mode) => (
@@ -2776,7 +2746,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                 )}
                 {statusHints.length > 0 && (
                     <div
-                        className="cad-viewport-shading-hint"
+                        className="cad-viewport-shading-hint nuke-viewer-status-line"
                         style={navWidth > 0 ? { maxWidth: `calc(100% - ${navWidth + 40}px)` } : undefined}
                     >
                         <span className="codicon codicon-info" />
@@ -2785,6 +2755,19 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                 )}
             </>
         ) : undefined;
+
+    const chromeVisible = props.tessData !== undefined && !sketchActive && !props.loading;
+
+    const viewCube = chromeVisible ? (
+        <ViewCube
+            ref={(handle) => {
+                viewCubeRef.current = handle;
+            }}
+            onSnap={(direction) => viewportApi.current.snapView?.(direction)}
+        />
+    ) : undefined;
+
+    const viewBadge = chromeVisible ? <ViewBadge text={`${viewName} view`} /> : undefined;
 
     const measureListPopover = measureListOpen ? (
         <MeasureListPopover
@@ -2860,6 +2843,8 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             {dirtyMarker}
             {props.loading && <NukeLoadingOverlay message={props.loadingMessage} />}
             {navCluster}
+            {viewCube}
+            {viewBadge}
             {measureListPopover}
             {sketchOverlay}
             {templatePicker}
@@ -3033,7 +3018,7 @@ interface ViewportApi {
     readonly setNavigationStyle: (style: NavigationStyle) => void;
     readonly setSection: (section?: SectionState) => void;
     readonly setExplodeFactor: (factor: number) => void;
-    readonly setGizmoVisible: (visible: boolean) => void;
+    readonly snapView: (direction: readonly [number, number, number]) => void;
     readonly updateMeasureState: (state: MeasureViewState) => void;
     readonly setAutoDimensionEnabled: (enabled: boolean) => void;
 }
@@ -3095,7 +3080,9 @@ function initViewport(
     onToggleSection: () => void,
     onHideSolid: (solidId: number) => void,
     onIsolateSolid: (solidId: number) => void,
-    onShowAllSolids: () => void
+    onShowAllSolids: () => void,
+    onViewCubeUpdate: (quaternion: readonly [number, number, number, number]) => void,
+    onViewNameChange: (name: string) => void
 ): ViewportApi {
     const width = container.clientWidth || 400;
     const height = container.clientHeight || 300;
@@ -3273,82 +3260,16 @@ function initViewport(
         depthWrite: false
     });
 
-    // Axis navigation gizmo: an SVG overlay that mirrors the
-    // camera orientation and snaps to the clicked axis view. Updated directly
-    // from renderScene — no React state, so orbiting causes no re-renders.
-    const gizmo = document.createElement('div');
-    gizmo.className = 'cad-viewport-gizmo';
-    // Hidden until a tessellation is on screen; setGizmoVisible owns visibility.
-    gizmo.style.display = 'none';
-    container.appendChild(gizmo);
-    const gizmoRadius = 26;
-    const gizmoAxes: Array<{ dir: THREE.Vector3; label: string }> = [
-        { dir: new THREE.Vector3(1, 0, 0), label: 'X' },
-        { dir: new THREE.Vector3(0, 1, 0), label: 'Y' },
-        { dir: new THREE.Vector3(0, 0, 1), label: 'Z' }
-    ];
-    const updateGizmo = (): void => {
-        const size = gizmoRadius * 2 + 16;
-        const c = size / 2;
-        const inverse = camera.quaternion.clone().invert();
-        const handles = gizmoAxes
-            .flatMap(({ dir, label }) => [
-                {
-                    v: dir.clone().applyQuaternion(inverse),
-                    label,
-                    d: dir.toArray() as [number, number, number],
-                    positive: true
-                },
-                {
-                    v: dir.clone().negate().applyQuaternion(inverse),
-                    label,
-                    d: dir.clone().negate().toArray() as [number, number, number],
-                    positive: false
-                }
-            ])
-            .map((h) => ({
-                ...h,
-                x: c + h.v.x * gizmoRadius,
-                y: c - h.v.y * gizmoRadius,
-                depth: h.v.z
-            }))
-            .sort((a, b) => a.depth - b.depth);
-        const parts: string[] = [];
-        for (const h of handles) {
-            if (h.positive) {
-                parts.push(
-                    `<line x1='${c}' y1='${c}' x2='${h.x.toFixed(1)}' y2='${h.y.toFixed(1)}' stroke='var(--theia-descriptionForeground)' stroke-width='1.2'/>`
-                );
-            }
-        }
-        for (const h of handles) {
-            const fill = h.positive ? 'var(--theia-focusBorder)' : 'var(--theia-editorWidget-background)';
-            const textFill = h.positive ? 'var(--theia-button-foreground)' : 'var(--theia-descriptionForeground)';
-            const r = h.positive ? 8 : 6.5;
-            parts.push(
-                `<circle cx='${h.x.toFixed(1)}' cy='${h.y.toFixed(1)}' r='${r}' fill='${fill}' stroke='var(--theia-descriptionForeground)' stroke-width='1' data-dir='${h.d.join(',')}'/>` +
-                    `<text x='${h.x.toFixed(1)}' y='${(h.y + 3).toFixed(1)}' text-anchor='middle' font-size='8' fill='${textFill}' style='pointer-events:none'>${h.label}</text>`
-            );
-        }
-        gizmo.innerHTML = `<svg width='${size}' height='${size}' viewBox='0 0 ${size} ${size}'>${parts.join('')}</svg>`;
+    // Shared orientation cube: the scene pushes the live camera orientation
+    // to the React chrome on every renderScene — never React state, so
+    // orbiting causes no re-renders. The cube itself is hidden with no model
+    // by conditional rendering (chromeVisible), not from in here.
+    const updateViewCube = (): void => {
+        const quaternion = camera.quaternion;
+        onViewCubeUpdate([quaternion.x, quaternion.y, quaternion.z, quaternion.w]);
     };
-    gizmo.addEventListener('click', (event) => {
-        const target = event.target as HTMLElement | null;
-        const dir = target?.dataset?.dir;
-        if (dir !== undefined) {
-            setViewDirection(dir.split(',').map(Number) as [number, number, number]);
-        }
-    });
-    // View label overlay: like the gizmo,
-    // updated imperatively from renderScene — never React state.
-    const viewLabel = document.createElement('div');
-    viewLabel.className = 'cad-viewport-view-label';
-    viewLabel.style.display = 'none';
-    container.appendChild(viewLabel);
-    let viewName = 'User';
-    let lastViewLabelText = '';
     // Maps a normalized camera direction to its standard-view name.
-    const viewNameForDirection = (dir: [number, number, number]): string => {
+    const viewNameForDirection = (dir: readonly [number, number, number]): string => {
         const v = new THREE.Vector3(...dir).normalize();
         const tol = 0.001;
         if (v.x > 1 - tol) {
@@ -3371,22 +3292,11 @@ function initViewport(
         }
         return 'Iso';
     };
-    const updateViewLabel = (): void => {
-        const text = controller.isActive ? `Sketch — ${controller.getSketchName()}` : `${viewName} view`;
-        if (text !== lastViewLabelText) {
-            lastViewLabelText = text;
-            viewLabel.textContent = text;
-        }
-    };
-    const setGizmoVisible = (visible: boolean): void => {
-        gizmo.style.display = visible ? '' : 'none';
-        viewLabel.style.display = visible ? '' : 'none';
-    };
 
     // Measure tool overlays: measurement lines and endpoint spheres live in a
     // scene-level group (never the model group, so rebuilds don't dispose them
     // implicitly), and their distance labels are imperative DOM positioned on
-    // every renderScene exactly like the gizmo and view label — no React state,
+    // every renderScene exactly like the shared cube — no React state,
     // no animation loop.
     const MEASURE_MARKER_PX = 6;
     const measureGroup = new THREE.Group();
@@ -3742,8 +3652,7 @@ function initViewport(
         cam.updateMatrixWorld();
         updateMeasureOverlays();
         renderer.render(scene, cam);
-        updateGizmo();
-        updateViewLabel();
+        updateViewCube();
     };
     controller = new SketchModeController(container, scene, renderer, controls, renderScene, {
         modelGroup,
@@ -4317,8 +4226,8 @@ function initViewport(
         controls.update();
     };
 
-    const setViewDirection = (dir: [number, number, number]): void => {
-        viewName = viewNameForDirection(dir);
+    const setViewDirection = (dir: readonly [number, number, number]): void => {
+        onViewNameChange(viewNameForDirection(dir));
         const viewDir = new THREE.Vector3(...dir).normalize();
         camera.position.copy(
             viewDir
@@ -4385,10 +4294,10 @@ function initViewport(
     // selection changes, the theme changes, or the container resizes. No
     // animation loop runs while the widget is idle, hidden, or detached.
     controls.addEventListener('change', renderScene);
-    // Any manual orbit/zoom/pan leaves the standard views; the label picks the
+    // Any manual orbit/zoom/pan leaves the standard views; the badge picks the
     // change up on the next render (OrbitControls fires 'change' throughout).
     const onViewInteractionStart = (): void => {
-        viewName = 'User';
+        onViewNameChange('User');
     };
     controls.addEventListener('start', onViewInteractionStart);
 
@@ -5303,7 +5212,9 @@ function initViewport(
             applyExplode();
             renderScene();
         },
-        setGizmoVisible,
+        snapView: (direction) => {
+            setViewDirection(direction);
+        },
         setAutoDimensionEnabled: (enabled) => {
             controller.setAutoDimensionEnabled(enabled);
         },
@@ -5320,8 +5231,6 @@ function initViewport(
             closeContextMenu?.();
             closeContextMenu = undefined;
             container.classList.remove('cad-viewport-gradient');
-            gizmo.remove();
-            viewLabel.remove();
             measureLabelLayer.remove();
             scene.remove(measureGroup);
             for (const visual of measureVisuals.values()) {
