@@ -115,22 +115,21 @@ test('viewer settings sidebar shows values and drives shading', async ({ page })
     const canvas = container.locator('.openmc-output-viewer-viewarea canvas');
     await expect(canvas).toBeVisible({ timeout: 30_000 });
 
-    // The slim header carries file/status actions only — no display selects remain.
-    await expect(container.locator('.openmc-output-viewer-header select')).toHaveCount(0);
+    // No header strip at all — screenshot/reload live on the bottom bar.
+    await expect(container.locator('.openmc-output-viewer-header')).toHaveCount(0);
 
-    // The file name renders exactly once, in the canvas dataset badge (never the header).
-    await expect(container.locator('.openmc-output-viewer-header .openmc-output-viewer-file')).toHaveCount(0);
+    // The file name renders exactly once, in the canvas dataset badge.
     await expect(container.locator('.nuke-view-badge')).toHaveCount(1);
     await expect(container.locator('.nuke-view-badge')).toContainText('native-polydata.vtp');
 
-    // Bottom-bar quick actions mirror the sidebar (clip + shading popovers past the core 7).
+    // Bottom-bar quick actions mirror the sidebar (clip + shading popovers, screenshot + reload past the core 7).
     await expect(container.locator('.nuke-viewer-nav-bar')).toBeVisible();
-    expect(await container.locator('.nuke-viewer-nav-bar button').count()).toBeGreaterThanOrEqual(9);
+    expect(await container.locator('.nuke-viewer-nav-bar button').count()).toBeGreaterThanOrEqual(11);
 
     // The sidebar binds to the active viewer tab and shows its live values.
     const settings = await openViewerSettings(page);
     await expect(settings.locator('.viewer-settings-header-name')).toHaveText('Viewer Settings');
-    await expect(settings.locator('.viewer-settings-title')).toContainText('Native VTK Viewer');
+    await expect(settings.locator('.viewer-settings-title')).toContainText('Visualizer: native-polydata.vtp');
     // CAD panel chrome: collapsible count-badge sections with live status dots.
     await expect(settings.locator('.viewer-settings-category-header').first()).toBeVisible();
     await expect(settings.locator('.viewer-settings-state-dot').first()).toBeVisible();
@@ -183,8 +182,9 @@ test('orientation cube is visible and X snaps the view', async ({ page }) => {
     expect(knobBox?.height).toBeGreaterThanOrEqual(20);
 
     // Clicking the +X knob snaps the standard view (orbit handle): the
-    // canvas must survive with no errors.
-    await gizmo.locator('.nuke-view-cube-knob', { hasText: /^X$/ }).click();
+    // canvas must survive with no errors. (The triad has ± knobs per axis;
+    // the positive one lacks the `-negative` marker class.)
+    await gizmo.locator('.nuke-view-cube-knob.nuke-view-cube-axis-x:not(.nuke-view-cube-knob-negative)').click();
     await expect(canvas).toBeVisible();
     await expect(container.locator('.openmc-output-viewer-status.error')).toHaveCount(0);
 

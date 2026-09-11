@@ -34,6 +34,7 @@
 import { deflateSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
 import type { OpenMCVtkArrayInfo } from '../../../../../common/openmc-protocol';
+import { COLORMAP_NAMES } from '../../../../viewer-core/colormaps';
 import {
     charOffsetToByteOffset,
     classifyNativeVtkArrays,
@@ -46,18 +47,15 @@ import {
     formatColorBy,
     NATIVE_PROBE_EXTENSIONS,
     NATIVE_VTK_COLORMAPS,
-    normalizeToUnit,
     parseColorBy,
     parseLegacyVtkAscii,
     parseNativeVtk,
     parseNativeVtkXml,
     parseStructuredGridXml,
     parseUnstructuredGridXml,
-    sampleNativeColormap,
     sniffVtkDatasetType,
     SOLID_COLOR,
-    strideForBudget,
-    tupleValue
+    strideForBudget
 } from './native-vtk-data';
 
 function array(name: string, association: 'point' | 'cell' = 'point'): OpenMCVtkArrayInfo {
@@ -211,39 +209,12 @@ describe('defaultNativeColorBy', () => {
 });
 
 describe('colormaps', () => {
-    it('ships the six short maps with Plasma as default', () => {
-        expect([...NATIVE_VTK_COLORMAPS]).toEqual(['Plasma', 'Viridis', 'Inferno', 'Jet', 'Hot', 'Cool']);
-        expect(DEFAULT_COLORMAP).toBe('Plasma');
-    });
-
-    it('pins the map endpoints', () => {
-        expect(sampleNativeColormap('Hot', 0)).toEqual([0, 0, 0]);
-        expect(sampleNativeColormap('Hot', 1)).toEqual([1, 1, 1]);
-        expect(sampleNativeColormap('Cool', 0)).toEqual([0, 1, 1]);
-        expect(sampleNativeColormap('Cool', 1)).toEqual([1, 0, 1]);
-        expect(sampleNativeColormap('Jet', 0)).toEqual([0, 0, 0.5]);
-        expect(sampleNativeColormap('Jet', 1)).toEqual([0.5, 0, 0]);
-    });
-
-    it('interpolates midpoints and clamps out-of-range t', () => {
-        expect(sampleNativeColormap('Cool', 0.5)).toEqual([0.5, 0.5, 1]);
-        expect(sampleNativeColormap('Hot', -1)).toEqual(sampleNativeColormap('Hot', 0));
-        expect(sampleNativeColormap('Hot', 2)).toEqual(sampleNativeColormap('Hot', 1));
-        const mid = sampleNativeColormap('Viridis', 0.5);
-        expect(mid.every((v) => v >= 0 && v <= 1)).toBe(true);
-    });
-
-    it('normalizes scalars with a degenerate-range guard', () => {
-        expect(normalizeToUnit(5, 0, 10)).toBe(0.5);
-        expect(normalizeToUnit(-1, 0, 10)).toBe(0);
-        expect(normalizeToUnit(11, 0, 10)).toBe(1);
-        expect(normalizeToUnit(5, 5, 5)).toBe(0);
-    });
-
-    it('reads scalar tuples and vector magnitudes', () => {
-        expect(tupleValue([1, 2, 3], 1, 1)).toBe(2);
-        expect(tupleValue([3, 4, 0, 0], 2, 0)).toBe(5);
-        expect(tupleValue([3, 4, 0, 0], 2, 1)).toBe(0);
+    it('re-exports the full LUT pack with the trame-era default', () => {
+        expect([...NATIVE_VTK_COLORMAPS]).toEqual([...COLORMAP_NAMES]);
+        expect(NATIVE_VTK_COLORMAPS).toHaveLength(34);
+        expect(NATIVE_VTK_COLORMAPS).toContain('Cool to Warm');
+        expect(NATIVE_VTK_COLORMAPS).toContain('Viridis');
+        expect(DEFAULT_COLORMAP).toBe('Cool to Warm');
     });
 });
 

@@ -42,19 +42,28 @@ import {
     colorByValue,
     DEFAULT_COLORMAP,
     defaultNativeColorBy,
-    NATIVE_VTK_COLORMAPS,
-    NativeVtkColormapName,
     NativeVtkDataArray,
     NativeVtkModel,
-    normalizeToUnit,
     parseColorBy,
     parseNativeVtk,
     readVtkText,
-    sampleNativeColormap,
     SOLID_COLOR,
-    strideForBudget,
-    tupleValue
+    strideForBudget
 } from './native-vtk/native-vtk-data';
+import { COLORMAP_NAMES, getColormap, isColormapName, type ColormapName } from '../../../viewer-core/colormaps';
+import {
+    componentOptions,
+    formatRangeValue,
+    logScaleAvailable,
+    MAGNITUDE_COMPONENT,
+    mapScalar,
+    mappingToCssGradient,
+    resolveEffectiveRange,
+    tupleScalar,
+    type ColorRangeMode,
+    type ScalarMapping
+} from '../../../viewer-core/scalar-mapping';
+import { LINE_WIDTH_SPEC, OPACITY_SPEC, POINT_SIZE_SPEC } from '../../../viewer-core/viewer-toolbar-model';
 import {
     createOrbitControls,
     standardViewDirection,
@@ -101,6 +110,7 @@ import { ViewerMeasureLabel, type ViewerMeasureHandle } from './viewer-measure';
 import {
     ViewerClipPopover,
     ViewerClipTrigger,
+    ViewerFileActions,
     ViewerNavPopoverShell,
     ViewerShadingPopover,
     ViewerShadingTrigger
@@ -119,15 +129,31 @@ const scratchViewProjection = new THREE.Matrix4();
 export interface NativeVtkViewerProps {
     /** `'Solid Color'`, `'Point: <name>'`, or `'Cell: <name>'` (base.serve format). */
     colorBy?: string;
-    /** One of the six short colormaps. */
-    colormap?: NativeVtkColormapName;
+    /** One of the ParaView-style colormaps in `COLORMAP_NAMES`. */
+    colormap?: ColormapName;
     /** CSS color used in Solid Color mode. */
     solidColor?: string;
     /** Point sprite size in pixels. */
     pointSize?: number;
     /** Material opacity in [0, 1]. */
     opacity?: number;
-    /** Shading mode (`shaded` | `wireframe` | `points` | `xray`). */
+    /** Line width in pixels (line and edge datasets). */
+    lineWidth?: number;
+    /** Canvas background CSS color; undefined follows the theme editor background. */
+    background?: string;
+    /** Scalar-bar (color legend) visibility. */
+    scalarBarVisible?: boolean;
+    /** Sample the colormap in reverse. */
+    invert?: boolean;
+    /** Log-scaled scalar mapping (applies only when the effective range is positive). */
+    logScale?: boolean;
+    /** Vector component to color by ({@link MAGNITUDE_COMPONENT} = L2 norm). */
+    component?: number;
+    /** Color-range mode: the data range or a custom user range. */
+    rangeMode?: ColorRangeMode;
+    /** Custom color range (used in `custom` mode). */
+    customRange?: readonly [number, number];
+    /** Shading mode (`shaded` | `edges` | `wireframe` | `points` | `xray`). */
     shading?: ViewerShadingMode;
     /** Per-axis clip state; each enabled axis plane applies (box-section view). */
     clip?: ClipPlanesState;
@@ -163,10 +189,19 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
     protected model: NativeVtkModel | undefined;
     protected classified: ClassifiedNativeVtkArrays | undefined;
     protected colorBy: string = SOLID_COLOR;
-    protected colormap: NativeVtkColormapName = DEFAULT_COLORMAP;
+    protected colormap: ColormapName = DEFAULT_COLORMAP;
     protected solidColor = '#d4d4d4';
     protected pointSize = 3;
     protected opacity = 1;
+    protected lineWidth = 1;
+    /** Canvas backdrop; undefined follows the theme editor background (the pre-scene.background look). */
+    protected background: string | undefined;
+    protected scalarBarVisible = true;
+    protected invert = false;
+    protected logScale = false;
+    protected component = MAGNITUDE_COMPONENT;
+    protected rangeMode: ColorRangeMode = 'auto';
+    protected customRange: [number, number] | undefined;
     protected shading: ViewerShadingMode = DEFAULT_VIEWER_SHADING_MODE;
     protected clip: ClipPlanesState = createClipPlanesState();
     /** Active X/Y/Z tab of the header clip control (per-axis settings persist). */
@@ -223,6 +258,14 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
             solidColor: this.solidColor,
             pointSize: this.pointSize,
             opacity: this.opacity,
+            lineWidth: this.lineWidth,
+            background: this.background,
+            scalarBarVisible: this.scalarBarVisible,
+            invert: this.invert,
+            logScale: this.logScale,
+            component: this.component,
+            rangeMode: this.rangeMode,
+            customRange: this.customRange ? [this.customRange[0], this.customRange[1]] : undefined,
             shading: this.shading,
             clip: {
                 X: { ...this.clip.X },
@@ -232,41 +275,98 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         };
     }
 
-    /** Apply viewer props; color-by/colormap/size/opacity take effect immediately. */
+    /** Apply viewer props; color-by/mapping/display fields take effect immediately. */
     applyProps(props: NativeVtkViewerProps): void {
-        let changed = false;
+        let colorsChanged = false;
+        let displayChanged = false;
+        let clipChanged = false;
+        let chromeChanged = false;
         if (props.colorBy !== undefined && props.colorBy !== this.colorBy) {
-            this.colorBy = props.colorBy;
-            changed = true;
+            this.setColorBy(props.colorBy);
+            colorsChanged = true;
         }
-        if (props.colormap !== undefined && NATIVE_VTK_COLORMAPS.includes(props.colormap) && props.colormap !== this.colormap) {
+        if (props.colormap !== undefined && isColormapName(props.colormap) && props.colormap !== this.colormap) {
             this.colormap = props.colormap;
-            changed = true;
+            colorsChanged = true;
+        }
+        if (props.component !== undefined && props.component !== this.component) {
+            this.component = props.component;
+            colorsChanged = true;
+        }
+        if (props.rangeMode !== undefined && props.rangeMode !== this.rangeMode) {
+            this.rangeMode = props.rangeMode;
+            colorsChanged = true;
+        }
+        if (
+            props.customRange !== undefined &&
+            (this.customRange === undefined || this.customRange[0] !== props.customRange[0] || this.customRange[1] !== props.customRange[1])
+        ) {
+            this.customRange = [props.customRange[0], props.customRange[1]];
+            colorsChanged = true;
+        }
+        if (props.invert !== undefined && props.invert !== this.invert) {
+            this.invert = props.invert;
+            colorsChanged = true;
+        }
+        if (props.logScale !== undefined && props.logScale !== this.logScale) {
+            this.logScale = props.logScale;
+            colorsChanged = true;
         }
         if (props.solidColor !== undefined && props.solidColor !== this.solidColor) {
             this.solidColor = props.solidColor;
-            changed = true;
-        }
-        if (props.pointSize !== undefined && props.pointSize > 0 && props.pointSize !== this.pointSize) {
-            this.pointSize = props.pointSize;
-            changed = true;
+            colorsChanged = true;
         }
         if (props.opacity !== undefined && props.opacity !== this.opacity) {
             this.opacity = Math.min(1, Math.max(0, props.opacity));
-            changed = true;
+            displayChanged = true;
+        }
+        if (props.pointSize !== undefined && props.pointSize > 0 && props.pointSize !== this.pointSize) {
+            this.pointSize = props.pointSize;
+            displayChanged = true;
+        }
+        if (props.lineWidth !== undefined && props.lineWidth > 0 && props.lineWidth !== this.lineWidth) {
+            this.lineWidth = props.lineWidth;
+            displayChanged = true;
+        }
+        if (props.background !== undefined && props.background !== this.background) {
+            this.background = props.background;
+            displayChanged = true;
+        }
+        if (props.scalarBarVisible !== undefined && props.scalarBarVisible !== this.scalarBarVisible) {
+            this.scalarBarVisible = props.scalarBarVisible;
+            chromeChanged = true;
         }
         if (props.shading !== undefined && isViewerShadingMode(props.shading) && props.shading !== this.shading) {
             this.shading = props.shading;
-            changed = true;
+            displayChanged = true;
         }
         if (props.clip !== undefined) {
             this.clip = props.clip;
-            changed = true;
+            clipChanged = true;
         }
-        if (changed) {
+        if (colorsChanged) {
             this.recolor();
+        } else if (displayChanged) {
+            this.applyDisplayProps();
+        } else if (clipChanged) {
+            this.applyClip();
+            this.renderScene();
+        }
+        if (colorsChanged || displayChanged || clipChanged || chromeChanged) {
             this.update();
         }
+    }
+
+    /**
+     * Switch the color-by array: a new array brings a new value domain, so the
+     * mapping state resets (component, range, log scale). Invert is a
+     * per-user preference and survives the switch.
+     */
+    private setColorBy(value: string): void {
+        this.colorBy = value;
+        this.component = MAGNITUDE_COMPONENT;
+        this.rangeMode = 'auto';
+        this.logScale = false;
     }
 
     // ------------------------------------------------------------------
@@ -326,15 +426,44 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
     /** Read the current settings for the sidebar panel. */
     getViewerSettingsSnapshot(): ViewerSettingsSnapshot {
         const solid = this.colorBy === SOLID_COLOR;
+        const selection = parseColorBy(this.colorBy);
+        const array = selection && selection.kind !== 'solid' ? this.findArray(selection.kind, selection.name) : undefined;
+        const effectiveRange = array ? resolveEffectiveRange(this.rangeMode, array.range, this.customRange) : undefined;
         return {
             widgetId: this.id,
             title: this.title.label,
             hasDataset: this.model !== undefined,
             colorBy: { value: this.colorBy, options: this.colorByOptions() },
-            colormap: { value: this.colormap, options: [...NATIVE_VTK_COLORMAPS], disabled: solid },
+            colormap: {
+                value: this.colormap,
+                options: [...COLORMAP_NAMES],
+                disabled: solid,
+                invert: this.invert,
+                logScale: { value: this.logScale, disabled: !effectiveRange || !logScaleAvailable(effectiveRange) }
+            },
+            ...(array && array.components > 1
+                ? { component: { value: this.component, options: [...componentOptions(array.components)] } }
+                : {}),
+            ...(array && effectiveRange
+                ? {
+                      range: {
+                          mode: this.rangeMode,
+                          min: effectiveRange[0],
+                          max: effectiveRange[1],
+                          dataMin: array.range[0],
+                          dataMax: array.range[1]
+                      }
+                  }
+                : {}),
+            scalarBar: { visible: this.scalarBarVisible },
+            ...(solid ? { solidColor: { value: this.solidColor } } : {}),
+            background: { value: this.resolveBackground() },
             shading: { value: this.shading },
             clip: { state: this.clip, tab: this.clipTab },
-            measure: { active: this.measure.active }
+            measure: { active: this.measure.active },
+            opacity: { value: this.opacity, ...OPACITY_SPEC },
+            pointSize: { value: this.pointSize, ...POINT_SIZE_SPEC },
+            lineWidth: { value: this.lineWidth, ...LINE_WIDTH_SPEC }
         };
     }
 
@@ -350,9 +479,30 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         if (patch.snap !== undefined) {
             this.snapViewerTo(viewerSnapDirection(patch.snap));
         }
+        let nextRangeMode: ColorRangeMode | undefined;
+        let nextCustomRange: [number, number] | undefined;
+        if (patch.range !== undefined) {
+            if (patch.range === 'auto') {
+                nextRangeMode = 'auto';
+            } else {
+                nextRangeMode = 'custom';
+                nextCustomRange = [patch.range[0], patch.range[1]];
+            }
+        }
         this.applyProps({
             colorBy: patch.colorBy,
-            colormap: patch.colormap as NativeVtkColormapName | undefined,
+            colormap: patch.colormap as ColormapName | undefined,
+            component: patch.component,
+            rangeMode: nextRangeMode,
+            customRange: nextCustomRange,
+            invert: patch.invert,
+            logScale: patch.logScale,
+            scalarBarVisible: patch.scalarBarVisible,
+            solidColor: patch.solidColor,
+            background: patch.background,
+            opacity: patch.opacity,
+            pointSize: patch.pointSize,
+            lineWidth: patch.lineWidth,
             shading: patch.shading,
             clip: patch.clip
         });
@@ -403,7 +553,7 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
             this.classified = classifyNativeVtkArrays([...model.pointArrays, ...model.cellArrays]);
             const fallback = defaultNativeColorBy(this.classified, model.family);
             if (parseColorBy(this.colorBy) === undefined || !this.hasArray(this.colorBy)) {
-                this.colorBy = fallback ?? SOLID_COLOR;
+                this.setColorBy(fallback ?? SOLID_COLOR);
             }
             this.note = '';
             this.isLoading = false;
@@ -465,35 +615,15 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
     }
 
     /**
-     * Slim status header: action buttons only (screenshot, reload). The file
-     * name lives exactly once in the canvas `ViewBadge` below — rendering it
-     * here too showed the name twice. Display settings live in the Viewer
-     * Settings sidebar, which drives this widget through
-     * `applyViewerSettings`.
+     * Optional header strip. The base viewer keeps no header at all —
+     * screenshot/reload ride the nav bar ({@link renderNavCluster}) and the
+     * file name lives exactly once in the canvas `ViewBadge`. Subclasses with
+     * real header content (tally kind chip, random-ray quick-select) override
+     * this. Display settings live in the Viewer Settings sidebar, which
+     * drives this widget through `applyViewerSettings`.
      */
     protected renderHeader(): React.ReactNode {
-        return (
-            <div className="openmc-output-viewer-header">
-                <Tooltip content="Download PNG screenshot" position="bottom">
-                    <button
-                        className="theia-button secondary"
-                        onClick={() => this.saveScreenshot()}
-                        disabled={this.isLoading || !this.model}
-                    >
-                        <i className={codicon('device-camera')}></i>
-                    </button>
-                </Tooltip>
-                <Tooltip content="Reload file" position="bottom">
-                    <button
-                        className="theia-button secondary"
-                        onClick={() => this.fileUri && this.setVtkFile(this.fileUri)}
-                        disabled={this.isLoading || !this.fileUri}
-                    >
-                        <i className={codicon('refresh')}></i>
-                    </button>
-                </Tooltip>
-            </div>
-        );
+        return undefined;
     }
 
     protected renderContent(): React.ReactNode {
@@ -559,6 +689,11 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
                         open={this.openNavPopover === 'shading'}
                         disabled={disabled}
                         onToggle={() => this.toggleNavPopover('shading')}
+                    />
+                    <ViewerFileActions
+                        disabled={disabled}
+                        onScreenshot={() => this.saveScreenshot()}
+                        onReload={() => this.fileUri && this.setVtkFile(this.fileUri)}
                     />
                 </ViewerNavBar>
                 {this.openNavPopover === 'clip' && (
@@ -860,22 +995,24 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
     }
 
     protected renderLegend(): React.ReactNode {
+        if (!this.scalarBarVisible) {
+            return undefined;
+        }
         const selection = parseColorBy(this.colorBy);
         const array = selection && selection.kind !== 'solid' ? this.findArray(selection.kind, selection.name) : undefined;
         if (!array) {
             return undefined;
         }
-        const stops: string[] = [];
-        for (let i = 0; i <= 8; i++) {
-            const [r, g, b] = sampleNativeColormap(this.colormap, i / 8);
-            stops.push(`rgb(${Math.round(r * 255)},${Math.round(g * 255)},${Math.round(b * 255)})`);
+        const mapping = this.scalarMappingFor(array);
+        if (!mapping) {
+            return undefined;
         }
         return (
             <Tooltip content={`${array.name} range`} position="top">
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 8px' }}>
-                    <span style={{ fontSize: '11px' }}>{array.range[0].toPrecision(3)}</span>
-                    <div style={{ flex: '1', height: '10px', background: `linear-gradient(to right, ${stops.join(',')})` }} />
-                    <span style={{ fontSize: '11px' }}>{array.range[1].toPrecision(3)}</span>
+                    <span style={{ fontSize: '11px' }}>{formatRangeValue(mapping.range[0])}</span>
+                    <div style={{ flex: '1', height: '10px', background: mappingToCssGradient(mapping) }} />
+                    <span style={{ fontSize: '11px' }}>{formatRangeValue(mapping.range[1])}</span>
                     <span style={{ fontSize: '11px', opacity: 0.7 }}>{array.name}</span>
                 </div>
             </Tooltip>
@@ -956,9 +1093,16 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         this.renderer.domElement.style.width = '100%';
         this.renderer.domElement.style.height = '100%';
         this.renderer.domElement.style.display = 'block';
+        // Focusable canvas: a click focuses it, so the window-capture Escape
+        // handler (measure cancel / popover dismiss) sees key events targeted
+        // inside this widget — plain canvas clicks otherwise leave focus on
+        // <body> and Escape dead-ends.
+        this.renderer.domElement.tabIndex = 0;
+        this.renderer.domElement.addEventListener('pointerdown', () => this.renderer?.domElement.focus());
         this.renderer.localClippingEnabled = true;
         this.host.appendChild(this.renderer.domElement);
         this.scene = new THREE.Scene();
+        this.scene.background = new THREE.Color(this.resolveBackground());
         // Lit scene (same intensities as the DAGMC viewer): Lambert surfaces
         // shade with depth instead of rendering flat gray.
         this.scene.add(new THREE.AmbientLight(0xffffff, 0.9));
@@ -1056,7 +1200,9 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
             // Surface datasets render filled triangles (lit, DoubleSide for
             // open shells); outlines/points come from the shading mode.
             const positions = this.triangleVertexPositions(model);
-            this.dataGroup.add(this.buildTriangleMesh(positions));
+            const mesh = this.buildTriangleMesh(positions);
+            this.dataGroup.add(mesh);
+            this.dataGroup.add(this.buildEdgeOverlay(mesh.geometry));
             this.dataGroup.add(this.buildTrianglePoints(positions));
         } else if (model.segments) {
             // Line datasets also carry a point cloud over the same vertices
@@ -1105,6 +1251,16 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
             side: THREE.DoubleSide
         });
         return new THREE.Mesh(geometry, material);
+    }
+
+    /** Dark edge overlay for `edges` shading (ParaView Surface With Edges), derived from the mesh geometry. */
+    private buildEdgeOverlay(meshGeometry: THREE.BufferGeometry): THREE.LineSegments {
+        const geometry = new THREE.EdgesGeometry(meshGeometry);
+        geometry.userData = { role: 'edges' };
+        const material = new THREE.LineBasicMaterial({ color: 0x1a1a1a, transparent: true, opacity: this.opacity });
+        const lines = new THREE.LineSegments(geometry, material);
+        lines.visible = this.shading === 'edges';
+        return lines;
     }
 
     /** Corner points over triangle data (shares the corner buffer); shown in `points` mode. */
@@ -1196,9 +1352,30 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
     }
 
     /**
+     * Build the effective scalar mapping for one array (shared by recolor and
+     * the legend): colormap definition, effective range (auto data range or
+     * the custom user range), log scale (only when strictly positive),
+     * invert, and component.
+     */
+    private scalarMappingFor(array: NativeVtkDataArray): ScalarMapping | undefined {
+        const definition = getColormap(this.colormap) ?? getColormap(DEFAULT_COLORMAP);
+        if (!definition) {
+            return undefined;
+        }
+        const range = resolveEffectiveRange(this.rangeMode, array.range, this.customRange);
+        return {
+            definition,
+            range,
+            logScale: this.logScale && logScaleAvailable(range),
+            invert: this.invert,
+            component: this.component
+        };
+    }
+
+    /**
      * Instant recolor: rewrite vertex colors from the current color-by array
-     * and colormap. No reload, no server restart — the random-ray restart hack
-     * is structurally impossible on this path.
+     * and scalar mapping. No reload, no server restart — the random-ray
+     * restart hack is structurally impossible on this path.
      */
     private recolor(): void {
         const model = this.model;
@@ -1209,7 +1386,7 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         const selection = parseColorBy(this.colorBy);
         const solid = new THREE.Color(this.solidColor);
         const paint = (geometry: THREE.BufferGeometry, colorAt: (vertex: number) => [number, number, number]): void => {
-            // Box3Helper (grid bounds) carries no color attribute — leave it gray.
+            // Box3Helper (grid bounds) and the edges overlay carry no color attribute — leave them.
             const colors = geometry.getAttribute('color') as THREE.BufferAttribute | undefined;
             if (!colors) {
                 return;
@@ -1221,51 +1398,65 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
             }
             colors.needsUpdate = true;
         };
-        const solidAt = (): [number, number, number] => [solid.r, solid.g, solid.b];
-        if (!selection || selection.kind === 'solid') {
-            this.dataGroup.children.forEach((child) => {
+        const paintAllSolid = (): void => {
+            const solidAt = (): [number, number, number] => [solid.r, solid.g, solid.b];
+            this.dataGroup?.children.forEach((child) => {
                 if (child instanceof THREE.Points || child instanceof THREE.LineSegments || child instanceof THREE.Mesh) {
                     paint(child.geometry, solidAt);
                 }
             });
-            this.refreshView();
-            return;
-        }
-        const array = this.findArray(selection.kind, selection.name);
+        };
+        const array = selection && selection.kind !== 'solid' ? this.findArray(selection.kind, selection.name) : undefined;
         if (!array) {
-            this.note = `'${this.colorBy}' is not in this file — showing Solid Color`;
-            this.dataGroup.children.forEach((child) => {
-                if (child instanceof THREE.Points || child instanceof THREE.LineSegments || child instanceof THREE.Mesh) {
-                    paint(child.geometry, solidAt);
-                }
-            });
+            if (selection && selection.kind !== 'solid') {
+                this.note = `'${this.colorBy}' is not in this file — showing Solid Color`;
+            }
+            paintAllSolid();
             this.refreshView();
             return;
         }
-        const [min, max] = array.range;
-        const mapAt = (value: number): [number, number, number] =>
-            Number.isFinite(value) ? sampleNativeColormap(this.colormap, normalizeToUnit(value, min, max)) : [solid.r, solid.g, solid.b];
+        const mapping = this.scalarMappingFor(array);
+        if (!mapping) {
+            paintAllSolid();
+            this.refreshView();
+            return;
+        }
+        // Non-finite values (no preset nanColor) paint the solid color, matching the pre-LUT behavior.
+        const mapAt = (value: number): [number, number, number] => {
+            const mapped = mapScalar(value, mapping);
+            return mapped ? [mapped[0], mapped[1], mapped[2]] : [solid.r, solid.g, solid.b];
+        };
         this.dataGroup.children.forEach((child) => {
             if (child instanceof THREE.LineSegments) {
                 const segments = model.segments ?? new Uint32Array(0);
                 const tupleOfVertex = this.lineTupleIndex(model, array, segments);
-                paint(child.geometry, (vertex) => mapAt(tupleValue(array.values, array.components, tupleOfVertex(vertex))));
+                paint(child.geometry, (vertex) =>
+                    mapAt(tupleScalar(array.values, array.components, tupleOfVertex(vertex), mapping.component))
+                );
             } else if (child instanceof THREE.Mesh) {
                 const triangles = model.triangles ?? new Uint32Array(0);
                 const tupleOfVertex = this.meshTupleIndex(model, array, triangles);
-                paint(child.geometry, (vertex) => mapAt(tupleValue(array.values, array.components, tupleOfVertex(vertex))));
+                paint(child.geometry, (vertex) =>
+                    mapAt(tupleScalar(array.values, array.components, tupleOfVertex(vertex), mapping.component))
+                );
             } else if (child instanceof THREE.Points) {
                 const role = child.geometry.userData?.['role'];
                 if (role === 'mesh-points' && model.triangles) {
                     const tupleOfVertex = this.meshTupleIndex(model, array, model.triangles);
-                    paint(child.geometry, (vertex) => mapAt(tupleValue(array.values, array.components, tupleOfVertex(vertex))));
+                    paint(child.geometry, (vertex) =>
+                        mapAt(tupleScalar(array.values, array.components, tupleOfVertex(vertex), mapping.component))
+                    );
                 } else if (role === 'line-points' && model.segments) {
                     const segments = model.segments;
                     const tupleOfVertex = this.lineTupleIndex(model, array, segments);
-                    paint(child.geometry, (vertex) => mapAt(tupleValue(array.values, array.components, tupleOfVertex(vertex))));
+                    paint(child.geometry, (vertex) =>
+                        mapAt(tupleScalar(array.values, array.components, tupleOfVertex(vertex), mapping.component))
+                    );
                 } else {
                     const tupleOfVertex = this.pointTupleIndex(model, array);
-                    paint(child.geometry, (vertex) => mapAt(tupleValue(array.values, array.components, tupleOfVertex(vertex))));
+                    paint(child.geometry, (vertex) =>
+                        mapAt(tupleScalar(array.values, array.components, tupleOfVertex(vertex), mapping.component))
+                    );
                 }
             }
         });
@@ -1329,11 +1520,14 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
                 material.size = this.pointSize;
                 material.opacity = flags.opacity;
                 material.transparent = flags.transparent;
+                material.needsUpdate = true;
             } else if (child instanceof THREE.LineSegments) {
                 const material = child.material as THREE.LineBasicMaterial;
                 material.opacity = flags.opacity;
                 material.transparent = flags.transparent;
                 material.depthWrite = flags.depthWrite;
+                material.linewidth = this.lineWidth;
+                material.needsUpdate = true;
             } else if (child instanceof THREE.Mesh) {
                 // Lambert supports wireframe/opacity/depthWrite; emissive stays untouched.
                 const material = child.material as THREE.MeshLambertMaterial;
@@ -1341,8 +1535,29 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
                 material.transparent = flags.transparent;
                 material.depthWrite = flags.depthWrite;
                 material.wireframe = flags.wireframe;
+                material.needsUpdate = true;
             }
         });
+    }
+
+    /** Effective canvas backdrop: the setting, else the theme editor background (the look before scene.background). */
+    private resolveBackground(): string {
+        if (this.background !== undefined) {
+            return this.background;
+        }
+        const themed = getComputedStyle(document.documentElement).getPropertyValue('--theia-editor-background').trim();
+        return themed.length > 0 ? themed : '#1a1a26';
+    }
+
+    /** Light display-only refresh: background/material props/visibility/clip, no vertex repaint. */
+    private applyDisplayProps(): void {
+        if (this.scene) {
+            this.scene.background = new THREE.Color(this.resolveBackground());
+        }
+        this.syncMaterialProps();
+        this.applyShadingVisibility();
+        this.applyClip();
+        this.renderScene();
     }
 
     /** Toggle line/point visibility for `points` mode; the bounds helper stays visible. */
@@ -1358,7 +1573,8 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
                 const role = child.geometry.userData?.['role'];
                 child.visible = role === 'line-points' || role === 'mesh-points' ? flags.pointsOnly : true;
             } else if (child instanceof THREE.LineSegments) {
-                child.visible = !flags.pointsOnly;
+                const role = child.geometry.userData?.['role'];
+                child.visible = role === 'edges' ? this.shading === 'edges' && !flags.pointsOnly : !flags.pointsOnly;
             } else if (child instanceof THREE.Mesh) {
                 child.visible = !flags.pointsOnly;
             }

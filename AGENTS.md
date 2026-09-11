@@ -161,7 +161,7 @@ High-level layout; see the Child NAD Index below for domain-specific details.
 - `extensions/` — custom Theia extensions; several ship Python backends under `python/` with pytest suites under `tests/python/`.
 - `docs/` — product documentation (read natively in the IDE by `extensions/nuke-docs`).
 - `resources/` — static assets (logos, preload templates, tips/quotes).
-- `scripts/` — Node build/utility scripts (preload generation, version bumps, css copy, electron patch).
+- `scripts/` — Node build/utility scripts (preload generation, version bumps, css copy, electron patch, colormap-library generation).
 - `configs/` — shared `base.tsconfig.json`.
 - `plugins/` — downloaded Theia `.vsix` plugins (generated; populated by `yarn download:plugins`).
 

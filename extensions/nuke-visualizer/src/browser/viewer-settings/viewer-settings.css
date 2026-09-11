@@ -262,8 +262,12 @@
     flex-wrap: wrap;
 }
 
+/* Compact secondary buttons: clip tabs, snap row, and the Map-row
+   Invert/Log toggles + Range Auto button share the clip-tab sizing. */
 .viewer-settings-clip-tabs .theia-button,
-.viewer-settings-snap-row .theia-button {
+.viewer-settings-snap-row .theia-button,
+.viewer-settings-map-toggle,
+.viewer-settings-range-auto {
     min-width: 0;
     padding: 2px 8px;
 }
@@ -272,6 +276,19 @@
     width: 100%;
 }
 
-.viewer-settings-measure.active {
+/* Narrow numeric range inputs sitting with the Auto toggle in the Range row
+   (same input chrome as the row selects). */
+.viewer-settings-range-input {
+    width: 7ch;
+    flex-shrink: 0;
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    border: 1px solid var(--theia-input-border);
+    padding: 2px 4px;
+}
+
+.viewer-settings-measure.active,
+.viewer-settings-map-toggle.active,
+.viewer-settings-range-auto.active {
     outline: 1px solid var(--theia-focusBorder);
 }

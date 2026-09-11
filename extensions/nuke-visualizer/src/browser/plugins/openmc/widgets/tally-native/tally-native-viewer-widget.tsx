@@ -134,8 +134,7 @@ export class TallyNativeViewerWidget extends NativeVtkViewerWidget {
 
     protected override renderHeader(): React.ReactNode {
         return (
-            <>
-                {super.renderHeader()}
+            <div className="openmc-output-viewer-header">
                 <Tooltip content={this.describeTallyKind()} position="bottom">
                     <span className="openmc-output-viewer-file" style={{ fontSize: '11px', opacity: 0.8 }}>
                         <i className={codicon('tag')}></i>
@@ -143,7 +142,7 @@ export class TallyNativeViewerWidget extends NativeVtkViewerWidget {
                         {this.sliceAxis ? ` ⟂ ${this.sliceAxis}` : ''}
                     </span>
                 </Tooltip>
-            </>
+            </div>
         );
     }
 

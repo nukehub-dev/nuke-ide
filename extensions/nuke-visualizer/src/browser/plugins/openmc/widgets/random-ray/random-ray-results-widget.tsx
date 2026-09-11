@@ -208,12 +208,7 @@ export class OpenMCRandomRayResultsWidget extends NativeVtkViewerWidget {
     }
 
     protected override renderHeader(): React.ReactNode {
-        return (
-            <>
-                {super.renderHeader()}
-                {this.renderQuickSelect()}
-            </>
-        );
+        return this.renderQuickSelect();
     }
 
     /** Array quick-select bar: instant color-by on the loaded dataset. */

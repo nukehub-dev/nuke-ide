@@ -41,20 +41,32 @@ import {
     ClassifiedNativeVtkArrays,
     classifyNativeVtkArrays,
     colorByValue,
-    DEFAULT_COLORMAP,
     defaultNativeColorBy,
-    NATIVE_VTK_COLORMAPS,
-    NativeVtkColormapName,
     NativeVtkDataArray,
-    normalizeToUnit,
-    parseColorBy,
-    readVtkText,
-    sampleNativeColormap,
-    SOLID_COLOR,
-    tupleValue
+    readVtkText
 } from '../native-vtk/native-vtk-data';
+import { COLORMAP_NAMES, ColormapName, getColormap, isColormapName } from '../../../../viewer-core/colormaps';
+import {
+    ColorRangeMode,
+    componentOptions,
+    formatRangeValue,
+    logScaleAvailable,
+    MAGNITUDE_COMPONENT,
+    mapScalar,
+    mappingToCssGradient,
+    resolveEffectiveRange,
+    ScalarMapping,
+    tupleScalar
+} from '../../../../viewer-core/scalar-mapping';
+import {
+    DEFAULT_VIEWER_TOOLBAR_STATE,
+    LINE_WIDTH_SPEC,
+    OPACITY_SPEC,
+    parseColorBy,
+    POINT_SIZE_SPEC,
+    SOLID_COLOR
+} from '../../../../viewer-core/viewer-toolbar-model';
 import { OpenMCVtkArrayInfo } from '../../../../../common/openmc-protocol';
-import { DEFAULT_VIEWER_TOOLBAR_STATE } from '../../../../viewer-core/viewer-toolbar-model';
 import {
     anyClipEnabled,
     ClipAxis,
@@ -121,6 +133,7 @@ import {
     DagmcIsolateActions,
     ViewerClipPopover,
     ViewerClipTrigger,
+    ViewerFileActions,
     ViewerNavPopoverShell,
     ViewerShadingPopover,
     ViewerShadingTrigger
@@ -139,12 +152,28 @@ const scratchViewProjection = new THREE.Matrix4();
 export interface DagmcViewerProps {
     /** `'Solid Color'`, `'Point: <name>'`, or `'Cell: <name>'` (base.serve format). */
     colorBy?: string;
-    /** One of the six short colormaps (viewer-core LUT pack). */
-    colormap?: NativeVtkColormapName;
+    /** One of the shared viewer-core colormaps. */
+    colormap?: ColormapName;
     /** CSS color used in Solid Color mode. */
     solidColor?: string;
+    /** Scalar bar (color legend) visibility. */
+    scalarBarVisible?: boolean;
+    /** Canvas background color. */
+    background?: string;
+    /** Color range source: the data range or a user range. */
+    rangeMode?: ColorRangeMode;
+    /** User range applied in `custom` mode. */
+    customRange?: readonly [number, number];
+    /** Sample the colormap in reverse. */
+    invert?: boolean;
+    /** Log-scaled scalar mapping. */
+    logScale?: boolean;
+    /** Multi-component array component index (-1 = L2 magnitude). */
+    component?: number;
     /** Point sprite size in pixels. */
     pointSize?: number;
+    /** Line width in pixels. */
+    lineWidth?: number;
     /** Material opacity in [0, 1]. */
     opacity?: number;
     /** Shading mode (`shaded` | `wireframe` | `points` | `xray`). */
@@ -161,6 +190,9 @@ export interface DagmcViewerProps {
 type DagmcRenderKind = 'mesh' | 'edges' | 'lines' | 'points';
 
 const VOLUME_BLOCK_RE = /^Volume_(\d+)$/;
+
+/** Canvas backdrop of `output-viewer.css` (`--theia-editor-background` in the shipped themes). */
+const DEFAULT_VIEWER_BACKGROUND = '#1e1e1e';
 
 /**
  * Native DAGMC viewer widget (P2-C2): renders multiblock `.vtm` volume sets
@@ -192,9 +224,17 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
     protected classified: ClassifiedNativeVtkArrays | undefined;
     protected visibility: DagmcVisibility = createDefaultDagmcVisibility();
     protected colorBy: string = SOLID_COLOR;
-    protected colormap: NativeVtkColormapName = DEFAULT_COLORMAP;
+    protected colormap: ColormapName = 'Cool to Warm';
+    protected scalarBarVisible = true;
+    protected background = DEFAULT_VIEWER_BACKGROUND;
+    protected rangeMode: ColorRangeMode = 'auto';
+    protected customRange: readonly [number, number] | undefined;
+    protected invert = false;
+    protected logScale = false;
+    protected component = MAGNITUDE_COMPONENT;
     protected solidColor = '#d4d4d4';
     protected pointSize = DEFAULT_VIEWER_TOOLBAR_STATE.pointSize;
+    protected lineWidth = DEFAULT_VIEWER_TOOLBAR_STATE.lineWidth;
     protected opacity = DEFAULT_VIEWER_TOOLBAR_STATE.opacity;
     protected shading: ViewerShadingMode = DEFAULT_VIEWER_SHADING_MODE;
     protected clip: ClipPlanesState = createClipPlanesState();
@@ -265,7 +305,15 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
             colorBy: this.colorBy,
             colormap: this.colormap,
             solidColor: this.solidColor,
+            scalarBarVisible: this.scalarBarVisible,
+            background: this.background,
+            rangeMode: this.rangeMode,
+            customRange: this.customRange,
+            invert: this.invert,
+            logScale: this.logScale,
+            component: this.component,
             pointSize: this.pointSize,
+            lineWidth: this.lineWidth,
             opacity: this.opacity,
             shading: this.shading,
             clip: {
@@ -284,9 +332,10 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
         let styleChanged = false;
         if (props.colorBy !== undefined && props.colorBy !== this.colorBy) {
             this.colorBy = props.colorBy;
+            this.resetColorMapping();
             styleChanged = true;
         }
-        if (props.colormap !== undefined && NATIVE_VTK_COLORMAPS.includes(props.colormap) && props.colormap !== this.colormap) {
+        if (props.colormap !== undefined && isColormapName(props.colormap) && props.colormap !== this.colormap) {
             this.colormap = props.colormap;
             styleChanged = true;
         }
@@ -294,8 +343,47 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
             this.solidColor = props.solidColor;
             styleChanged = true;
         }
+        if (props.scalarBarVisible !== undefined && props.scalarBarVisible !== this.scalarBarVisible) {
+            this.scalarBarVisible = props.scalarBarVisible;
+        }
+        if (props.background !== undefined && props.background !== this.background) {
+            this.background = props.background;
+            this.applyBackground();
+        }
+        if (props.rangeMode !== undefined && props.rangeMode !== this.rangeMode) {
+            this.rangeMode = props.rangeMode;
+            styleChanged = true;
+        }
+        if (props.customRange !== undefined) {
+            const next: readonly [number, number] = [props.customRange[0], props.customRange[1]];
+            if (next[0] !== this.customRange?.[0] || next[1] !== this.customRange?.[1]) {
+                this.customRange = next;
+                styleChanged = true;
+            }
+        }
+        if (props.invert !== undefined && props.invert !== this.invert) {
+            this.invert = props.invert;
+            styleChanged = true;
+        }
+        if (props.logScale !== undefined && props.logScale !== this.logScale) {
+            this.logScale = props.logScale;
+            styleChanged = true;
+        }
+        if (
+            props.component !== undefined &&
+            Number.isInteger(props.component) &&
+            props.component >= MAGNITUDE_COMPONENT &&
+            props.component !== this.component
+        ) {
+            this.component = props.component;
+            styleChanged = true;
+        }
         if (props.pointSize !== undefined && props.pointSize > 0 && props.pointSize !== this.pointSize) {
             this.pointSize = props.pointSize;
+            styleChanged = true;
+        }
+        if (props.lineWidth !== undefined && props.lineWidth > 0 && props.lineWidth !== this.lineWidth) {
+            this.lineWidth = props.lineWidth;
             styleChanged = true;
         }
         if (props.opacity !== undefined) {
@@ -386,15 +474,38 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
     /** Read the current settings for the sidebar panel. */
     getViewerSettingsSnapshot(): ViewerSettingsSnapshot {
         const solid = this.colorBy === SOLID_COLOR;
+        const active = this.activeColorArray();
+        const range = this.effectiveArrayRange();
+        const dataRange = active ? (this.mergedArrayRange(active.kind, active.name) ?? active.array.range) : undefined;
         return {
             widgetId: this.id,
             title: this.title.label,
             hasDataset: this.blocks.length > 0,
             colorBy: { value: this.colorBy, options: this.colorByOptions() },
-            colormap: { value: this.colormap, options: [...NATIVE_VTK_COLORMAPS], disabled: solid },
+            colormap: {
+                value: this.colormap,
+                options: [...COLORMAP_NAMES],
+                disabled: solid,
+                invert: this.invert,
+                logScale: { value: this.logScale, disabled: !logScaleAvailable(range ?? [0, 0]) }
+            },
+            component:
+                !solid && active && active.array.components > 1
+                    ? { value: this.component, options: componentOptions(active.array.components) }
+                    : undefined,
+            range:
+                !solid && active && range && dataRange
+                    ? { mode: this.rangeMode, min: range[0], max: range[1], dataMin: dataRange[0], dataMax: dataRange[1] }
+                    : undefined,
+            scalarBar: { visible: this.scalarBarVisible },
+            solidColor: solid ? { value: this.solidColor } : undefined,
+            background: { value: this.background },
             shading: { value: this.shading },
             clip: { state: this.clip, tab: this.clipTab },
-            measure: { active: this.measure.active }
+            measure: { active: this.measure.active },
+            opacity: { value: this.opacity, ...OPACITY_SPEC },
+            pointSize: { value: this.pointSize, ...POINT_SIZE_SPEC },
+            lineWidth: { value: this.lineWidth, ...LINE_WIDTH_SPEC }
         };
     }
 
@@ -412,10 +523,86 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
         }
         this.applyProps({
             colorBy: patch.colorBy,
-            colormap: patch.colormap as NativeVtkColormapName | undefined,
+            colormap: patch.colormap as ColormapName | undefined,
+            solidColor: patch.solidColor,
+            scalarBarVisible: patch.scalarBarVisible,
+            background: patch.background,
+            rangeMode: patch.range === undefined ? undefined : patch.range === 'auto' ? 'auto' : 'custom',
+            customRange: typeof patch.range === 'object' ? [patch.range[0], patch.range[1]] : undefined,
+            invert: patch.invert,
+            logScale: patch.logScale,
+            component: patch.component,
+            opacity: patch.opacity,
+            pointSize: patch.pointSize,
+            lineWidth: patch.lineWidth,
             shading: patch.shading,
             clip: patch.clip
         });
+    }
+
+    /**
+     * Color-by change resets the mapping state (component, range mode, log
+     * scaling) so a new array starts from the data range, native-viewer parity.
+     */
+    private resetColorMapping(): void {
+        this.component = MAGNITUDE_COMPONENT;
+        this.rangeMode = 'auto';
+        this.customRange = undefined;
+        this.logScale = false;
+    }
+
+    /** Active color-by array (first block that carries it) plus its selector; undefined in Solid Color mode. */
+    private activeColorArray(): { kind: 'point' | 'cell'; name: string; array: NativeVtkDataArray } | undefined {
+        const selection = parseColorBy(this.colorBy);
+        if (selection.kind === 'solid' || selection.arrayName === null) {
+            return undefined;
+        }
+        const array = this.findArray(selection.kind, selection.arrayName);
+        return array ? { kind: selection.kind, name: selection.arrayName, array } : undefined;
+    }
+
+    /** Data range of a color-by array merged across every block that carries it. */
+    private mergedArrayRange(kind: 'point' | 'cell', name: string): [number, number] | undefined {
+        let min = Infinity;
+        let max = -Infinity;
+        let found = false;
+        for (const block of this.blocks) {
+            const array = this.findArrayInBlock(block, kind, name);
+            if (array) {
+                found = true;
+                min = Math.min(min, array.range[0]);
+                max = Math.max(max, array.range[1]);
+            }
+        }
+        return found ? [min, max] : undefined;
+    }
+
+    /** Effective mapping range for the active array (`auto` = merged data range). */
+    private effectiveArrayRange(): [number, number] | undefined {
+        const active = this.activeColorArray();
+        if (!active) {
+            return undefined;
+        }
+        const dataRange = this.mergedArrayRange(active.kind, active.name) ?? active.array.range;
+        return resolveEffectiveRange(this.rangeMode, dataRange, this.customRange);
+    }
+
+    /** Scalar mapping for the current color state; undefined in Solid Color mode. */
+    private scalarMapping(): ScalarMapping | undefined {
+        const range = this.effectiveArrayRange();
+        const definition = getColormap(this.colormap);
+        if (!range || !definition) {
+            return undefined;
+        }
+        return { definition, range, logScale: this.logScale, invert: this.invert, component: this.component };
+    }
+
+    /** Apply the background state to the live scene (no-op until the renderer exists). */
+    private applyBackground(): void {
+        if (this.scene) {
+            this.scene.background = new THREE.Color(this.background);
+        }
+        this.renderScene();
     }
 
     // ------------------------------------------------------------------
@@ -615,8 +802,9 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
             this.blocks = models.sort((a, b) => a.blockIndex - b.blockIndex);
             this.classified = classifyNativeVtkArrays(this.blocks.flatMap((block) => [...block.pointArrays, ...block.cellArrays]));
             const fallback = this.blocks.length > 0 ? defaultNativeColorBy(this.classified, 'polydata') : undefined;
-            if (parseColorBy(this.colorBy) === undefined || (fallback && !this.hasArray(this.colorBy))) {
+            if (!this.hasArray(this.colorBy)) {
                 this.colorBy = fallback ?? SOLID_COLOR;
+                this.resetColorMapping();
             }
             this.note = '';
             this.isLoading = false;
@@ -709,44 +897,7 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
     // ------------------------------------------------------------------
 
     protected render(): React.ReactNode {
-        return (
-            <div className="openmc-output-viewer-container">
-                {this.renderHeader()}
-                {this.error ? this.renderError() : this.renderContent()}
-            </div>
-        );
-    }
-
-    /**
-     * Slim status header: action buttons only (screenshot, reload). The file
-     * name lives exactly once in the canvas `ViewBadge` below — rendering it
-     * here too showed the name twice. Display settings live in the Viewer
-     * Settings sidebar and volume visibility lives in the DAGMC Outline
-     * sidebar; both drive this widget through their host surfaces.
-     */
-    protected renderHeader(): React.ReactNode {
-        return (
-            <div className="openmc-output-viewer-header">
-                <Tooltip content="Download PNG screenshot" position="bottom">
-                    <button
-                        className="theia-button secondary"
-                        onClick={() => this.saveScreenshot()}
-                        disabled={this.isLoading || this.blocks.length === 0}
-                    >
-                        <i className={codicon('device-camera')}></i>
-                    </button>
-                </Tooltip>
-                <Tooltip content="Reload manifest" position="bottom">
-                    <button
-                        className="theia-button secondary"
-                        onClick={() => this.vtmUri && this.setVtmFile(this.vtmUri)}
-                        disabled={this.isLoading || !this.vtmUri}
-                    >
-                        <i className={codicon('refresh')}></i>
-                    </button>
-                </Tooltip>
-            </div>
-        );
+        return <div className="openmc-output-viewer-container">{this.error ? this.renderError() : this.renderContent()}</div>;
     }
 
     protected renderContent(): React.ReactNode {
@@ -820,6 +971,11 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
                         disabled={disabled}
                         onExclude={() => this.excludeSelectedVolume()}
                         onIsolate={() => this.isolateSelectedVolume()}
+                    />
+                    <ViewerFileActions
+                        disabled={disabled}
+                        onScreenshot={() => this.saveScreenshot()}
+                        onReload={() => this.vtmUri && this.setVtmFile(this.vtmUri)}
                     />
                 </ViewerNavBar>
                 {this.openNavPopover === 'clip' && (
@@ -1152,23 +1308,21 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
     }
 
     protected renderLegend(): React.ReactNode {
-        const selection = parseColorBy(this.colorBy);
-        const array = selection && selection.kind !== 'solid' ? this.findArray(selection.kind, selection.name) : undefined;
-        if (!array) {
+        if (!this.scalarBarVisible) {
             return undefined;
         }
-        const stops: string[] = [];
-        for (let i = 0; i <= 8; i++) {
-            const [r, g, b] = sampleNativeColormap(this.colormap, i / 8);
-            stops.push(`rgb(${Math.round(r * 255)},${Math.round(g * 255)},${Math.round(b * 255)})`);
+        const active = this.activeColorArray();
+        const mapping = this.scalarMapping();
+        if (!active || !mapping) {
+            return undefined;
         }
         return (
-            <Tooltip content={`${array.name} range`} position="top">
+            <Tooltip content={`${active.array.name} range`} position="top">
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 8px' }}>
-                    <span style={{ fontSize: '11px' }}>{array.range[0].toPrecision(3)}</span>
-                    <div style={{ flex: '1', height: '10px', background: `linear-gradient(to right, ${stops.join(',')})` }} />
-                    <span style={{ fontSize: '11px' }}>{array.range[1].toPrecision(3)}</span>
-                    <span style={{ fontSize: '11px', opacity: 0.7 }}>{array.name}</span>
+                    <span style={{ fontSize: '11px' }}>{formatRangeValue(mapping.range[0])}</span>
+                    <div style={{ flex: '1', height: '10px', background: mappingToCssGradient(mapping) }} />
+                    <span style={{ fontSize: '11px' }}>{formatRangeValue(mapping.range[1])}</span>
+                    <span style={{ fontSize: '11px', opacity: 0.7 }}>{active.array.name}</span>
                 </div>
             </Tooltip>
         );
@@ -1244,9 +1398,15 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
         this.renderer.domElement.style.width = '100%';
         this.renderer.domElement.style.height = '100%';
         this.renderer.domElement.style.display = 'block';
+        // Focusable canvas (same rationale as the native VTK viewer): a click
+        // focuses it so the window-capture Escape handler sees key events
+        // targeted inside this widget.
+        this.renderer.domElement.tabIndex = 0;
+        this.renderer.domElement.addEventListener('pointerdown', () => this.renderer?.domElement.focus());
         this.renderer.localClippingEnabled = true;
         this.host.appendChild(this.renderer.domElement);
         this.scene = new THREE.Scene();
+        this.scene.background = new THREE.Color(this.background);
         this.scene.add(new THREE.AmbientLight(0xffffff, 0.9));
         const directional = new THREE.DirectionalLight(0xffffff, 1.2);
         directional.position.set(1, 2, 3);
@@ -1442,7 +1602,12 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
         geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
         geometry.setAttribute('color', this.makeColorAttribute(pairs.length));
         geometry.userData = { blockIndex: block.blockIndex, kind: 'edges' as DagmcRenderKind };
-        const material = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: Math.min(1, this.opacity + 0.2) });
+        const material = new THREE.LineBasicMaterial({
+            vertexColors: true,
+            transparent: true,
+            opacity: Math.min(1, this.opacity + 0.2),
+            linewidth: this.lineWidth
+        });
         return new THREE.LineSegments(geometry, material);
     }
 
@@ -1459,7 +1624,12 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
         geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
         geometry.setAttribute('color', this.makeColorAttribute(segments.length));
         geometry.userData = { blockIndex: block.blockIndex, kind: 'lines' as DagmcRenderKind };
-        const material = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: this.opacity });
+        const material = new THREE.LineBasicMaterial({
+            vertexColors: true,
+            transparent: true,
+            opacity: this.opacity,
+            linewidth: this.lineWidth
+        });
         return new THREE.LineSegments(geometry, material);
     }
 
@@ -1531,7 +1701,8 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
 
     /**
      * Instant recolor: rewrite vertex colors from the current color-by array
-     * and colormap. No reload, no server restart.
+     * and the shared scalar-mapping pipeline (component picker, effective
+     * range, log/invert). No reload, no server restart.
      */
     private recolor(): void {
         if (!this.dataGroup) {
@@ -1540,14 +1711,17 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
         this.note = '';
         const selection = parseColorBy(this.colorBy);
         const solid = new THREE.Color(this.solidColor);
+        const mapping = this.scalarMapping();
         this.dataGroup.children.forEach((group) => {
             const block = this.blocks.find((entry) => `block:${entry.blockIndex}` === group.name);
             if (!block) {
                 return;
             }
             const array =
-                selection && selection.kind !== 'solid' ? this.findArrayInBlock(block, selection.kind, selection.name) : undefined;
-            if (selection && selection.kind !== 'solid' && !array) {
+                selection.kind !== 'solid' && selection.arrayName !== null
+                    ? this.findArrayInBlock(block, selection.kind, selection.arrayName)
+                    : undefined;
+            if (selection.kind !== 'solid' && !array) {
                 this.note = `'${this.colorBy}' is not in every block — missing blocks show Solid Color`;
             }
             group.children.forEach((child) => {
@@ -1557,15 +1731,15 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
                 const geometry = child.geometry as THREE.BufferGeometry;
                 const colors = geometry.getAttribute('color') as THREE.BufferAttribute;
                 const map = array ? this.tupleMap(block, geometry.userData['kind'] as DagmcRenderKind, array.association) : undefined;
-                const [min, max] = array ? array.range : [0, 0];
                 for (let i = 0; i < colors.count; i++) {
                     let r = solid.r;
                     let g = solid.g;
                     let b = solid.b;
-                    if (array && map && map[i] >= 0) {
-                        const value = tupleValue(array.values, array.components, map[i]);
-                        if (Number.isFinite(value)) {
-                            [r, g, b] = sampleNativeColormap(this.colormap, normalizeToUnit(value, min, max));
+                    if (array && map && map[i] >= 0 && mapping) {
+                        const value = tupleScalar(array.values, array.components, map[i], this.component);
+                        const mapped = mapScalar(value, mapping);
+                        if (mapped) {
+                            [r, g, b] = mapped;
                         }
                     }
                     colors.setXYZ(i, r, g, b);
@@ -1641,6 +1815,7 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
                 material.opacity = flags.opacity;
                 material.transparent = flags.transparent;
                 material.depthWrite = flags.depthWrite;
+                material.linewidth = this.lineWidth;
             } else if (child instanceof THREE.Mesh) {
                 const material = child.material as THREE.MeshLambertMaterial;
                 material.wireframe = flags.wireframe;
@@ -1697,7 +1872,10 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
 
     private hasArray(colorBy: string): boolean {
         const selection = parseColorBy(colorBy);
-        return !selection || selection.kind === 'solid' || this.findArray(selection.kind, selection.name) !== undefined;
+        return (
+            selection.kind === 'solid' ||
+            (selection.arrayName !== null && this.findArray(selection.kind, selection.arrayName) !== undefined)
+        );
     }
 
     private describeBlocks(): string {
@@ -1708,7 +1886,7 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
         const groups = this.modelInfo ? `, ${Object.keys(this.modelInfo.groups).length} groups` : '';
         const hint = this.modelInfo
             ? `${visible} of ${this.blocks.length} volumes (${Object.keys(this.modelInfo.materials).length} materials${groups})`
-            : `${this.blocks.length} volumes (no model info)`;
+            : `${visible} of ${this.blocks.length} volumes (no model info)`;
         return `Multiblock — ${hint}`;
     }
 

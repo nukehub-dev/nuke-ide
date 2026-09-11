@@ -42,8 +42,9 @@ import {
 } from './shading-mode';
 
 describe('isViewerShadingMode', () => {
-    it('accepts the four known modes', () => {
+    it('accepts the five known modes', () => {
         expect(isViewerShadingMode('shaded')).toBe(true);
+        expect(isViewerShadingMode('edges')).toBe(true);
         expect(isViewerShadingMode('wireframe')).toBe(true);
         expect(isViewerShadingMode('points')).toBe(true);
         expect(isViewerShadingMode('xray')).toBe(true);
@@ -57,7 +58,8 @@ describe('isViewerShadingMode', () => {
     });
 
     it('lists every mode in the select metadata with the default first', () => {
-        expect(VIEWER_SHADING_MODES.map((entry) => entry.id)).toEqual(['shaded', 'wireframe', 'points', 'xray']);
+        expect(VIEWER_SHADING_MODES.map((entry) => entry.id)).toEqual(['shaded', 'edges', 'wireframe', 'points', 'xray']);
+        expect(VIEWER_SHADING_MODES.map((entry) => entry.label)).toEqual(['Shaded', 'Shaded + Edges', 'Wireframe', 'Points', 'X-Ray']);
         expect(DEFAULT_VIEWER_SHADING_MODE).toBe('shaded');
     });
 });
@@ -86,6 +88,17 @@ describe('resolveViewerShadingFlags', () => {
             opacity: 1,
             depthWrite: true
         });
+    });
+
+    it('maps edges to the same flags as shaded (the overlay keys off the mode)', () => {
+        expect(resolveViewerShadingFlags('edges', 1)).toEqual({
+            wireframe: false,
+            pointsOnly: false,
+            transparent: false,
+            opacity: 1,
+            depthWrite: true
+        });
+        expect(resolveViewerShadingFlags('edges', 0.4).transparent).toBe(true);
     });
 
     it('maps wireframe to the wireframe flag only', () => {
@@ -125,7 +138,8 @@ describe('resolveViewerShadingFlags', () => {
 
 describe('nextViewerShadingMode', () => {
     it('cycles through the select order and wraps around', () => {
-        expect(nextViewerShadingMode('shaded')).toBe('wireframe');
+        expect(nextViewerShadingMode('shaded')).toBe('edges');
+        expect(nextViewerShadingMode('edges')).toBe('wireframe');
         expect(nextViewerShadingMode('wireframe')).toBe('points');
         expect(nextViewerShadingMode('points')).toBe('xray');
         expect(nextViewerShadingMode('xray')).toBe('shaded');

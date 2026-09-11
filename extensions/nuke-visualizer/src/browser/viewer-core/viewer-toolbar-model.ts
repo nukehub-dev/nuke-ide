@@ -29,10 +29,10 @@
  * Pure toolbar state model for the native 3D viewer core.
  *
  * Mirrors the trame `UIComponents` factory in
- * `python/plugins/base/lib/common.py` 1:1 (representation + color-by +
- * colormap selectors, opacity / point-size / line-width / ambient sliders,
- * background picker, appearance toggles, ortho toggle, camera buttons,
- * screenshot button) without trame or vuetify: plain types plus defaults.
+ * `python/plugins/base/lib/common.py` for the controls the native viewers
+ * actually surface (color-by + colormap selectors, opacity / point-size /
+ * line-width sliders, background picker, ortho toggle, screenshot status)
+ * without trame or vuetify: plain types plus defaults.
  *
  * Scalar defaults match `DEFAULT_STATE`; slider ranges match the
  * `UIComponents.*_slider` factory defaults; the camera view list matches
@@ -40,12 +40,6 @@
  *
  * Pure functions + types only; no trame, no vuetify, no DOM.
  */
-
-/** Surface representations offered by the representation selector. */
-export const REPRESENTATIONS = ['Surface', 'Surface With Edges', 'Wireframe', 'Points'] as const;
-
-/** One surface representation. */
-export type Representation = (typeof REPRESENTATIONS)[number];
 
 /** Color-by value for uncolored geometry. */
 export const SOLID_COLOR = 'Solid Color';
@@ -107,9 +101,6 @@ export const POINT_SIZE_SPEC: SliderSpec = { min: 1, max: 20, step: 0.5, default
 /** Line-width slider: min 0.5, max 10, step 0.5, default 1.0. */
 export const LINE_WIDTH_SPEC: SliderSpec = { min: 0.5, max: 10, step: 0.5, defaultValue: 1.0 };
 
-/** Ambient-light slider: min 0, max 1, step 0.05, default 0.2. */
-export const AMBIENT_SPEC: SliderSpec = { min: 0, max: 1, step: 0.05, defaultValue: 0.2 };
-
 /**
  * Clamp a value into a slider range and snap it to the slider step.
  * Keeps toolbar-driven material props inside the trame slider bounds.
@@ -129,27 +120,20 @@ export type CameraView = (typeof CAMERA_VIEWS)[number];
 
 /**
  * Full toolbar state. Field defaults match `DEFAULT_STATE` in
- * `python/plugins/base/lib/common.py` (`showCameraGadget` defaults to true
- * per `compact_appearance_controls`); `colormap` accepts any ParaView preset
- * name and defaults to the trame default `Cool to Warm`.
+ * `python/plugins/base/lib/common.py`; `colormap` accepts any ParaView
+ * preset name and defaults to the trame default `Cool to Warm`.
  */
 export interface ViewerToolbarState {
-    readonly representation: Representation;
     /** Color-by string (`Solid Color|Point: <name>|Cell: <name>`). */
     readonly colorBy: string;
-    /** ParaView preset name; the 6 short maps live in `colormaps.ts`. */
+    /** ParaView preset name; the full LUT pack lives in `colormaps.ts`. */
     readonly colormap: string;
     readonly showScalarBar: boolean;
     readonly opacity: number;
     readonly pointSize: number;
     readonly lineWidth: number;
-    readonly ambient: number;
     /** Background color as a hex string (`background_color_hex`). */
     readonly background: string;
-    readonly showOrientationAxes: boolean;
-    readonly showBoundingBox: boolean;
-    readonly showCubeAxes: boolean;
-    readonly showCameraGadget: boolean;
     /** Ortho toggle state (`parallel_projection`). */
     readonly parallelProjection: boolean;
     /** Screenshot status line shown under the screenshot button. */
@@ -158,19 +142,13 @@ export interface ViewerToolbarState {
 
 /** Default toolbar state (matches `DEFAULT_STATE`). */
 export const DEFAULT_VIEWER_TOOLBAR_STATE: ViewerToolbarState = {
-    representation: 'Surface',
     colorBy: SOLID_COLOR,
     colormap: 'Cool to Warm',
     showScalarBar: false,
     opacity: 1.0,
     pointSize: 2.0,
     lineWidth: 1.0,
-    ambient: 0.2,
     background: '#1a1a26',
-    showOrientationAxes: true,
-    showBoundingBox: false,
-    showCubeAxes: false,
-    showCameraGadget: true,
     parallelProjection: false,
     screenshotStatus: ''
 };
@@ -196,15 +174,7 @@ export function updateToolbarState(state: ViewerToolbarState, patch: Partial<Vie
     if (patch.lineWidth !== undefined) {
         return { ...next, lineWidth: clampSliderValue(patch.lineWidth, LINE_WIDTH_SPEC) };
     }
-    if (patch.ambient !== undefined) {
-        return { ...next, ambient: clampSliderValue(patch.ambient, AMBIENT_SPEC) };
-    }
     return next;
-}
-
-/** Runtime guard for representation values. */
-export function isRepresentation(value: string): value is Representation {
-    return (REPRESENTATIONS as readonly string[]).includes(value);
 }
 
 /** Runtime guard for camera view values. */

@@ -33,7 +33,6 @@
 
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import {
-    AMBIENT_SPEC,
     CAMERA_VIEWS,
     CELL_COLOR_PREFIX,
     DEFAULT_VIEWER_TOOLBAR_STATE,
@@ -41,14 +40,12 @@ import {
     OPACITY_SPEC,
     POINT_COLOR_PREFIX,
     POINT_SIZE_SPEC,
-    REPRESENTATIONS,
     SOLID_COLOR,
     clampSliderValue,
     createDefaultToolbarState,
     formatCellColorBy,
     formatPointColorBy,
     isCameraView,
-    isRepresentation,
     parseColorBy,
     updateToolbarState
 } from './viewer-toolbar-model';
@@ -58,19 +55,13 @@ import { SCREENSHOT_MIME_TYPE, buildScreenshotFilename, canvasToDataUrl, downloa
 describe('viewer toolbar model', () => {
     it('matches the trame VisualizerState defaults', () => {
         expect(DEFAULT_VIEWER_TOOLBAR_STATE).toEqual({
-            representation: 'Surface',
             colorBy: 'Solid Color',
             colormap: 'Cool to Warm',
             showScalarBar: false,
             opacity: 1.0,
             pointSize: 2.0,
             lineWidth: 1.0,
-            ambient: 0.2,
             background: '#1a1a26',
-            showOrientationAxes: true,
-            showBoundingBox: false,
-            showCubeAxes: false,
-            showCameraGadget: true,
             parallelProjection: false,
             screenshotStatus: ''
         });
@@ -83,11 +74,8 @@ describe('viewer toolbar model', () => {
         expect(first).not.toBe(second);
     });
 
-    it('lists the trame representation options and camera views', () => {
-        expect([...REPRESENTATIONS]).toEqual(['Surface', 'Surface With Edges', 'Wireframe', 'Points']);
+    it('lists the trame camera views', () => {
         expect([...CAMERA_VIEWS]).toEqual(['isometric', 'front', 'back', 'left', 'right', 'top', 'bottom']);
-        expect(isRepresentation('Wireframe')).toBe(true);
-        expect(isRepresentation('Volume')).toBe(false);
         expect(isCameraView('top')).toBe(true);
         expect(isCameraView('iso')).toBe(false);
     });
@@ -104,7 +92,6 @@ describe('viewer toolbar model', () => {
         expect(OPACITY_SPEC).toEqual({ min: 0, max: 1, step: 0.05, defaultValue: 1.0 });
         expect(POINT_SIZE_SPEC).toEqual({ min: 1, max: 20, step: 0.5, defaultValue: 2.0 });
         expect(LINE_WIDTH_SPEC).toEqual({ min: 0.5, max: 10, step: 0.5, defaultValue: 1.0 });
-        expect(AMBIENT_SPEC).toEqual({ min: 0, max: 1, step: 0.05, defaultValue: 0.2 });
     });
 
     it('clamps and snaps slider values', () => {

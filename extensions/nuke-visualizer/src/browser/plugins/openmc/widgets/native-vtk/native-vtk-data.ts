@@ -32,8 +32,9 @@
  * collision `.vtp` points, weight-windows `.vtr` rectilinear grids, voxel
  * `.vti` image data, plus DAGMC/STEP/FEM outputs: legacy ASCII `.vtk`
  * PolyData/UnstructuredGrid, XML `.vtu` UnstructuredGrid, `.vts`
- * StructuredGrid), the 6-map colormap LUT pack, point-budget decimation,
- * and dependency-free VTK readers.
+ * StructuredGrid), the full ParaView-style colormap LUT pack (re-exported
+ * from `viewer-core/colormaps.ts`), point-budget decimation, and
+ * dependency-free VTK readers.
  *
  * No DOM, DI, or three.js dependencies — unit-testable in node. The XML
  * reader is hand-rolled (rather than three.js `VTKLoader`, which only
@@ -51,6 +52,8 @@
  */
 
 import type { OpenMCVtkArrayInfo } from '../../../../../common/openmc-protocol';
+import type { ColormapName } from '../../../../viewer-core/colormaps';
+import { tupleScalar } from '../../../../viewer-core/scalar-mapping';
 import { inflateSync, unzlibSync } from 'fflate';
 
 // ============================================================================
@@ -295,115 +298,14 @@ export function defaultNativeColorBy(classified: ClassifiedNativeVtkArrays, fami
 }
 
 // ============================================================================
-// Colormaps (the 6 short maps from COLOR_MAPS_SHORT + legend sampling)
+// Colormaps (full LUT pack + scalar mapping from viewer-core)
 // ============================================================================
 
-/** Short colormap pack shipped first (ParaView `ColorMaps.json` names). */
-export const NATIVE_VTK_COLORMAPS = ['Plasma', 'Viridis', 'Inferno', 'Jet', 'Hot', 'Cool'] as const;
+export { COLORMAP_NAMES as NATIVE_VTK_COLORMAPS } from '../../../../viewer-core/colormaps';
+export type { ColormapName, ColormapName as NativeVtkColormapName } from '../../../../viewer-core/colormaps';
 
-/** One of the six short colormap names. */
-export type NativeVtkColormapName = (typeof NATIVE_VTK_COLORMAPS)[number];
-
-/** Default colormap for freshly opened datasets. */
-export const DEFAULT_COLORMAP: NativeVtkColormapName = 'Plasma';
-
-type Rgb = [number, number, number];
-
-/** Control-point stops (0..1 RGB) approximating each short map. */
-const COLORMAP_STOPS: Record<NativeVtkColormapName, Rgb[]> = {
-    Viridis: [
-        [0.267, 0.005, 0.329],
-        [0.283, 0.141, 0.458],
-        [0.254, 0.265, 0.53],
-        [0.207, 0.372, 0.553],
-        [0.164, 0.471, 0.558],
-        [0.128, 0.567, 0.551],
-        [0.135, 0.659, 0.518],
-        [0.267, 0.749, 0.441],
-        [0.478, 0.821, 0.318],
-        [0.741, 0.873, 0.15],
-        [0.993, 0.906, 0.144]
-    ],
-    Plasma: [
-        [0.05, 0.031, 0.529],
-        [0.254, 0.016, 0.616],
-        [0.416, 0.0, 0.659],
-        [0.561, 0.051, 0.642],
-        [0.694, 0.165, 0.565],
-        [0.798, 0.28, 0.47],
-        [0.882, 0.392, 0.384],
-        [0.949, 0.517, 0.295],
-        [0.988, 0.652, 0.211],
-        [0.988, 0.807, 0.145],
-        [0.941, 0.976, 0.129]
-    ],
-    Inferno: [
-        [0.0, 0.0, 0.016],
-        [0.106, 0.047, 0.255],
-        [0.29, 0.047, 0.42],
-        [0.471, 0.11, 0.427],
-        [0.647, 0.173, 0.376],
-        [0.812, 0.267, 0.275],
-        [0.929, 0.412, 0.145],
-        [0.985, 0.608, 0.024],
-        [0.969, 0.82, 0.238],
-        [0.988, 1.0, 0.643]
-    ],
-    Jet: [
-        [0.0, 0.0, 0.5],
-        [0.0, 0.0, 1.0],
-        [0.0, 0.5, 1.0],
-        [0.0, 1.0, 1.0],
-        [0.5, 1.0, 0.5],
-        [1.0, 1.0, 0.0],
-        [1.0, 0.5, 0.0],
-        [1.0, 0.0, 0.0],
-        [0.5, 0.0, 0.0]
-    ],
-    Hot: [
-        [0.0, 0.0, 0.0],
-        [1.0, 0.0, 0.0],
-        [1.0, 1.0, 0.0],
-        [1.0, 1.0, 1.0]
-    ],
-    Cool: [
-        [0.0, 1.0, 1.0],
-        [1.0, 0.0, 1.0]
-    ]
-};
-
-/** Sample a colormap at t in [0, 1] (clamped) with piecewise-linear stops. */
-export function sampleNativeColormap(name: NativeVtkColormapName, t: number): Rgb {
-    const stops = COLORMAP_STOPS[name] ?? COLORMAP_STOPS[DEFAULT_COLORMAP];
-    const clamped = Math.min(1, Math.max(0, t));
-    const scaled = clamped * (stops.length - 1);
-    const lower = Math.min(stops.length - 2, Math.floor(scaled));
-    const f = scaled - lower;
-    const a = stops[lower];
-    const b = stops[lower + 1];
-    return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f];
-}
-
-/** Normalize a scalar into [0, 1] over [min, max] (degenerate range maps to 0). */
-export function normalizeToUnit(value: number, min: number, max: number): number {
-    if (!(max > min)) {
-        return 0;
-    }
-    return Math.min(1, Math.max(0, (value - min) / (max - min)));
-}
-
-/** Scalar value of one tuple (vector magnitude for multi-component arrays). */
-export function tupleValue(values: ArrayLike<number>, components: number, tupleIndex: number): number {
-    if (components <= 1) {
-        return values[tupleIndex];
-    }
-    let sum = 0;
-    for (let c = 0; c < components; c++) {
-        const v = values[tupleIndex * components + c];
-        sum += v * v;
-    }
-    return Math.sqrt(sum);
-}
+/** Default colormap for freshly opened datasets (the old trame-era default). */
+export const DEFAULT_COLORMAP: ColormapName = 'Cool to Warm';
 
 // ============================================================================
 // Point budget (decimation stride for large clouds/grids)
@@ -779,7 +681,7 @@ function toDataArray(raw: RawDataArray, decoded: Float64Array, association: 'poi
     let max = Number.NEGATIVE_INFINITY;
     const tuples = Math.floor(decoded.length / Math.max(1, raw.components));
     for (let i = 0; i < tuples; i++) {
-        const v = tupleValue(decoded, raw.components, i);
+        const v = tupleScalar(decoded, raw.components, i);
         if (v < min) {
             min = v;
         }

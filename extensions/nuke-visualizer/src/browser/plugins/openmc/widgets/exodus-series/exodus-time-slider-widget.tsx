@@ -35,14 +35,15 @@ import URI from '@theia/core/lib/common/uri';
 import { MessageService } from '@theia/core/lib/common';
 import { FileService } from '@theia/filesystem/lib/browser/file-service';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
+import { COLORMAP_NAMES, ColormapName, getColormap, isColormapName } from '../../../../viewer-core/colormaps';
 import {
-    colormapToCssGradient,
-    getColormap,
-    isShortColormapName,
-    sampleColormap,
-    SHORT_COLORMAP_NAMES,
-    ShortColormapName
-} from '../../../../viewer-core/colormaps';
+    formatRangeValue,
+    logScaleAvailable,
+    MAGNITUDE_COMPONENT,
+    mapScalar,
+    mappingToCssGradient,
+    ScalarMapping
+} from '../../../../viewer-core/scalar-mapping';
 import {
     createDefaultToolbarState,
     parseColorBy,
@@ -86,10 +87,11 @@ import '../output-viewer.css';
  * first/prev/slider/next/last stepping plus an instant per-step array
  * switch (no server restart; the P1 color-by win applied to time). Coloring
  * state lives in the viewer-core toolbar model and the legend gradient
- * samples the viewer-core LUT pack. The current step's decimated mesh
- * (`stepPositions`) renders as a three.js point cloud colored per-vertex
- * from the same LUT; `OpenMCExodusViewerContribution` claims `*.e`/`*.exo*`
- * files into this widget via `VisualizerBackendService.getExodusSeries`.
+ * samples the shared viewer-core colormap library. The current step's
+ * decimated mesh (`stepPositions`) renders as a three.js point cloud colored
+ * per-vertex through the shared scalar-mapping pipeline;
+ * `OpenMCExodusViewerContribution` claims `*.e`/`*.exo*` files into this
+ * widget via `VisualizerBackendService.getExodusSeries`.
  */
 @injectable()
 export class ExodusTimeSliderWidget extends ReactWidget implements ViewerSettingsHost {
@@ -105,7 +107,9 @@ export class ExodusTimeSliderWidget extends ReactWidget implements ViewerSetting
     protected fileUri: URI | undefined;
     protected series: ExodusSeriesPayload | undefined;
     protected stepIndex = 0;
-    protected toolbar: ViewerToolbarState = createDefaultToolbarState();
+    protected toolbar: ViewerToolbarState = { ...createDefaultToolbarState(), showScalarBar: true };
+    protected invert = false;
+    protected logScale = false;
     protected isLoading = false;
     protected error: string | undefined;
     private loadToken = 0;
@@ -208,21 +212,55 @@ export class ExodusTimeSliderWidget extends ReactWidget implements ViewerSetting
 
     /** Switch the LUT used by the legend; instant, no reload. */
     setColormap(colormap: string): void {
-        if (!isShortColormapName(colormap)) {
+        if (!isColormapName(colormap)) {
             return;
         }
-        const name: ShortColormapName = colormap;
+        const name: ColormapName = colormap;
         this.toolbar = updateToolbarState(this.toolbar, { colormap: name });
         this.refreshScene();
         this.update();
+    }
+
+    /** Toggle the scalar bar (legend row in the step summary). */
+    setScalarBarVisible(visible: boolean): void {
+        this.toolbar = updateToolbarState(this.toolbar, { showScalarBar: visible });
+        this.update();
+    }
+
+    /** Sample the colormap in reverse; instant, no reload. */
+    setInvert(invert: boolean): void {
+        this.invert = invert;
+        this.refreshScene();
+        this.update();
+    }
+
+    /** Log-scale the scalar mapping; instant, no reload. */
+    setLogScale(logScale: boolean): void {
+        this.logScale = logScale;
+        this.refreshScene();
+        this.update();
+    }
+
+    /** Canvas background color; applies instantly. */
+    setBackground(background: string): void {
+        this.toolbar = updateToolbarState(this.toolbar, { background });
+        this.applyBackground();
+        this.update();
+    }
+
+    private applyBackground(): void {
+        if (this.scene) {
+            this.scene.background = new THREE.Color(this.toolbar.background);
+        }
+        this.renderScene();
     }
 
     // ------------------------------------------------------------------
     // Viewer Settings sidebar API (single-direction sync: the panel reads
     // the snapshot and applies edits through these setters — the same calls
     // the header makes, never duplicated state). Exodus has no
-    // shading/clip/measure sections, so the snapshot carries only color-by,
-    // colormap, the time step, and the snap handle.
+    // shading/clip/measure sections, so the snapshot carries color-by,
+    // colormap, scalar bar, background, the time step, and the snap handle.
     // ------------------------------------------------------------------
 
     /** Snap the camera to an orbit-handle direction (sidebar snap group). */
@@ -233,6 +271,12 @@ export class ExodusTimeSliderWidget extends ReactWidget implements ViewerSetting
     /** Read the current settings for the sidebar panel. */
     getViewerSettingsSnapshot(): ViewerSettingsSnapshot {
         const solid = this.toolbar.colorBy === SOLID_COLOR;
+        const colorBy = parseColorBy(this.toolbar.colorBy);
+        const arrayName = colorBy.kind === 'solid' ? undefined : colorBy.arrayName;
+        const dataRange =
+            this.series && arrayName
+                ? (arrayRange(this.series, arrayName) ?? stepValueRange(this.series, this.stepIndex, arrayName))
+                : undefined;
         return {
             widgetId: this.id,
             title: this.title.label,
@@ -241,7 +285,15 @@ export class ExodusTimeSliderWidget extends ReactWidget implements ViewerSetting
                 value: this.toolbar.colorBy,
                 options: this.series ? colorByOptions(this.series).map((option) => ({ value: option, label: option })) : []
             },
-            colormap: { value: this.toolbar.colormap, options: [...SHORT_COLORMAP_NAMES], disabled: solid },
+            colormap: {
+                value: this.toolbar.colormap,
+                options: [...COLORMAP_NAMES],
+                disabled: solid,
+                invert: this.invert,
+                logScale: { value: this.logScale, disabled: !logScaleAvailable(dataRange ?? [0, 0]) }
+            },
+            scalarBar: { visible: this.toolbar.showScalarBar },
+            background: { value: this.toolbar.background },
             step:
                 this.series !== undefined && this.series.nSteps > 0
                     ? { index: this.stepIndex, count: this.series.nSteps, label: formatStepLabel(this.series, this.stepIndex) }
@@ -262,6 +314,18 @@ export class ExodusTimeSliderWidget extends ReactWidget implements ViewerSetting
         }
         if (patch.stepIndex !== undefined) {
             this.setStepIndex(patch.stepIndex);
+        }
+        if (patch.scalarBarVisible !== undefined) {
+            this.setScalarBarVisible(patch.scalarBarVisible);
+        }
+        if (patch.invert !== undefined) {
+            this.setInvert(patch.invert);
+        }
+        if (patch.logScale !== undefined) {
+            this.setLogScale(patch.logScale);
+        }
+        if (patch.background !== undefined) {
+            this.setBackground(patch.background);
         }
     }
 
@@ -326,7 +390,7 @@ export class ExodusTimeSliderWidget extends ReactWidget implements ViewerSetting
                 <label className="openmc-output-viewer-control">
                     Map
                     <select value={this.toolbar.colormap} onChange={(e) => this.setColormap(e.target.value)} disabled={this.isLoading}>
-                        {SHORT_COLORMAP_NAMES.map((name) => (
+                        {COLORMAP_NAMES.map((name) => (
                             <option key={name} value={name}>
                                 {name}
                             </option>
@@ -453,7 +517,10 @@ export class ExodusTimeSliderWidget extends ReactWidget implements ViewerSetting
         const range = arrayName ? stepValueRange(series, this.stepIndex, arrayName) : undefined;
         const summary = arrayName ? step.values[arrayName] : undefined;
         const definition = getColormap(this.toolbar.colormap);
-        const gradient = definition ? colormapToCssGradient(definition) : undefined;
+        const mapping: ScalarMapping | undefined =
+            definition && range
+                ? { definition, range, logScale: this.logScale, invert: this.invert, component: MAGNITUDE_COMPONENT }
+                : undefined;
         return (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', padding: '4px 8px', fontSize: '11px' }}>
                 <span>
@@ -462,9 +529,13 @@ export class ExodusTimeSliderWidget extends ReactWidget implements ViewerSetting
                 </span>
                 {summary && range ? (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }} title={`${arrayName} at this step`}>
-                        <span>{range[0].toPrecision(3)}</span>
-                        {gradient ? <div style={{ flex: '1', height: '10px', background: gradient }} /> : undefined}
-                        <span>{range[1].toPrecision(3)}</span>
+                        {this.toolbar.showScalarBar && mapping ? (
+                            <>
+                                <span>{formatRangeValue(range[0])}</span>
+                                <div style={{ flex: '1', height: '10px', background: mappingToCssGradient(mapping) }} />
+                                <span>{formatRangeValue(range[1])}</span>
+                            </>
+                        ) : undefined}
                         <span style={{ opacity: 0.7 }}>
                             {arrayName} (mean {summary.mean.toPrecision(3)}, n={summary.count})
                         </span>
@@ -525,7 +596,7 @@ export class ExodusTimeSliderWidget extends ReactWidget implements ViewerSetting
 
     // ------------------------------------------------------------------
     // three.js scene: current step's decimated mesh as a point cloud,
-    // colored per-vertex from the viewer-core LUT (P5 wiring piece).
+    // colored per-vertex through the shared scalar-mapping pipeline.
     // ------------------------------------------------------------------
 
     protected onAfterAttach(msg: Message): void {
@@ -564,6 +635,7 @@ export class ExodusTimeSliderWidget extends ReactWidget implements ViewerSetting
         this.renderer.domElement.style.display = 'block';
         this.host.appendChild(this.renderer.domElement);
         this.scene = new THREE.Scene();
+        this.scene.background = new THREE.Color(this.toolbar.background);
         this.camera = new THREE.PerspectiveCamera(45, 1, 0.01, 1e9);
         this.attachOrbitControls();
         this.resizeObserver = new ResizeObserver(() => this.resizeRenderer());
@@ -620,9 +692,9 @@ export class ExodusTimeSliderWidget extends ReactWidget implements ViewerSetting
 
     /**
      * Rebuild the point cloud for the current step (positions from
-     * `stepPositions`, colors from the viewer-core LUT over the color-by
-     * array's decimated samples). No-ops until the canvas is attached;
-     * `ensureRenderer` replays it on attach.
+     * `stepPositions`, colors from the scalar-mapping pipeline over the
+     * color-by array's decimated samples). No-ops until the canvas is
+     * attached; `ensureRenderer` replays it on attach.
      */
     private refreshScene(): void {
         const series = this.series;
@@ -652,8 +724,8 @@ export class ExodusTimeSliderWidget extends ReactWidget implements ViewerSetting
     /**
      * Per-vertex colors for the current step: the color-by array's decimated
      * samples stride-mapped onto the stored nodes (exact when the extractor
-     * kept every node), normalized by the array's global range so colors stay
-     * stable across steps, then sampled from the viewer-core LUT.
+     * kept every node), mapped through the shared scalar-mapping pipeline
+     * with the global (across-steps) range so colors stay stable per step.
      */
     private vertexColors(series: ExodusSeriesPayload, count: number): Float32Array {
         const out = new Float32Array(count * 3);
@@ -671,15 +743,21 @@ export class ExodusTimeSliderWidget extends ReactWidget implements ViewerSetting
             }
             return out;
         }
-        const [min, max] = range;
-        const span = max - min;
+        const mapping: ScalarMapping = {
+            definition,
+            range,
+            logScale: this.logScale,
+            invert: this.invert,
+            component: MAGNITUDE_COMPONENT
+        };
         for (let i = 0; i < count; i++) {
             const sample = samples[Math.min(samples.length - 1, Math.floor((i * samples.length) / count))];
-            const t = span > 0 && Number.isFinite(sample) ? (sample - min) / span : 0;
-            const [r, g, b] = sampleColormap(definition, Math.min(1, Math.max(0, t)));
-            out[i * 3] = r;
-            out[i * 3 + 1] = g;
-            out[i * 3 + 2] = b;
+            const mapped = mapScalar(sample, mapping);
+            if (mapped) {
+                out[i * 3] = mapped[0];
+                out[i * 3 + 1] = mapped[1];
+                out[i * 3 + 2] = mapped[2];
+            }
         }
         return out;
     }

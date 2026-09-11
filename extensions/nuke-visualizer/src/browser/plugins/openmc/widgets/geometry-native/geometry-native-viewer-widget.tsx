@@ -87,6 +87,9 @@ export interface GeometryNativeViewerProps {
     hiddenMaterials?: string[];
 }
 
+/** Canvas backdrop of `output-viewer.css` (`--theia-editor-background` in the shipped themes). */
+const DEFAULT_VIEWER_BACKGROUND = '#1e1e1e';
+
 /**
  * Native geometry viewer widget (P3-D2): renders CSG cells from the P3-D1
  * JSON extractor shape as three.js box meshes — one box per cell bbox,
@@ -120,6 +123,7 @@ export class GeometryNativeViewerWidget extends ReactWidget implements ViewerSet
     protected filterText = '';
     protected hiddenMaterials: string[] = [];
     protected opacity = DEFAULT_VIEWER_TOOLBAR_STATE.opacity;
+    protected background = DEFAULT_VIEWER_BACKGROUND;
     protected clip: ClipPlanesState = createClipPlanesState();
     /** Active X/Y/Z tab of the side-panel clip control (per-axis settings persist). */
     protected clipTab: ClipAxis = 'X';
@@ -198,7 +202,7 @@ export class GeometryNativeViewerWidget extends ReactWidget implements ViewerSet
     // the snapshot and applies edits through these setters — the same calls
     // the side panel makes, never duplicated state). Geometry has no
     // color-by/shading/measure sections, so the snapshot carries only clip,
-    // opacity, and the snap handle.
+    // opacity, background, and the snap handle.
     // ------------------------------------------------------------------
 
     /** Snap the camera to an orbit-handle direction (sidebar snap group). */
@@ -213,7 +217,8 @@ export class GeometryNativeViewerWidget extends ReactWidget implements ViewerSet
             title: this.title.label,
             hasDataset: this.cells.length > 0,
             clip: { state: this.clip, tab: this.clipTab },
-            opacity: { value: this.opacity, min: OPACITY_SPEC.min, max: OPACITY_SPEC.max, step: OPACITY_SPEC.step }
+            opacity: { value: this.opacity, min: OPACITY_SPEC.min, max: OPACITY_SPEC.max, step: OPACITY_SPEC.step },
+            background: { value: this.background }
         };
     }
 
@@ -226,7 +231,19 @@ export class GeometryNativeViewerWidget extends ReactWidget implements ViewerSet
         if (patch.snap !== undefined) {
             this.snapViewerTo(viewerSnapDirection(patch.snap));
         }
+        if (patch.background !== undefined && patch.background !== this.background) {
+            this.background = patch.background;
+            this.applyBackground();
+        }
         this.applyProps({ opacity: patch.opacity, clip: patch.clip });
+    }
+
+    /** Apply the background state to the live scene (no-op until the renderer exists). */
+    private applyBackground(): void {
+        if (this.scene) {
+            this.scene.background = new THREE.Color(this.background);
+        }
+        this.renderScene();
     }
 
     /** Tree-side selection entry point: highlight the mesh for a cell id. */
@@ -599,6 +616,7 @@ export class GeometryNativeViewerWidget extends ReactWidget implements ViewerSet
         this.renderer.localClippingEnabled = true;
         this.host.appendChild(this.renderer.domElement);
         this.scene = new THREE.Scene();
+        this.scene.background = new THREE.Color(this.background);
         this.scene.add(new THREE.AmbientLight(0xffffff, 0.9));
         const directional = new THREE.DirectionalLight(0xffffff, 1.2);
         directional.position.set(1, 2, 3);

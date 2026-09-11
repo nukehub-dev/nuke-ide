@@ -29,11 +29,15 @@
  * Shading-mode state for the native 3D viewer core.
  *
  * Mode vocabulary mirrors the trame `Representation` list in
- * `viewer-toolbar-model.ts` (`Surface`, `Wireframe`, `Points`) plus the
- * `xray` ghost mode from nuke-cad's `viewer-core/shading-modes.ts` — adapted
- * to the visualizer's point/line/mesh datasets. Line and point datasets are
- * already wireframe-like, so `wireframe` only changes face meshes while
- * `points` swaps face/line rendering for a point cloud.
+ * `viewer-toolbar-model.ts` (`Surface`, `Surface With Edges`, `Wireframe`,
+ * `Points`) plus the `xray` ghost mode from nuke-cad's
+ * `viewer-core/shading-modes.ts` — adapted to the visualizer's
+ * point/line/mesh datasets. Line and point datasets are already
+ * wireframe-like, so `wireframe` only changes face meshes while `points`
+ * swaps face/line rendering for a point cloud. `edges` (ParaView
+ * `Surface With Edges`) renders the shaded mesh plus a dark edge overlay;
+ * widgets build the overlay from `THREE.EdgesGeometry` and key its
+ * visibility off the mode.
  *
  * Pure functions + types only; no three.js, no DOM, no Theia imports.
  * Widgets translate {@link ViewerShadingFlags} onto three.js materials:
@@ -46,11 +50,12 @@
  * meshMaterial.depthWrite = flags.depthWrite;
  * mesh.visible = !flags.pointsOnly;
  * points.visible = flags.pointsOnly || <point dataset>;
+ * edgeOverlay.visible = mode === 'edges' && !flags.pointsOnly;
  * ```
  */
 
 /** Shading modes offered by the viewer header select. */
-export type ViewerShadingMode = 'shaded' | 'wireframe' | 'points' | 'xray';
+export type ViewerShadingMode = 'shaded' | 'edges' | 'wireframe' | 'points' | 'xray';
 
 /** Select entry: display metadata for one mutually exclusive shading mode. */
 export interface ViewerShadingModeInfo {
@@ -60,6 +65,7 @@ export interface ViewerShadingModeInfo {
 
 export const VIEWER_SHADING_MODES: readonly ViewerShadingModeInfo[] = [
     { id: 'shaded', label: 'Shaded' },
+    { id: 'edges', label: 'Shaded + Edges' },
     { id: 'wireframe', label: 'Wireframe' },
     { id: 'points', label: 'Points' },
     { id: 'xray', label: 'X-Ray' }
@@ -94,7 +100,7 @@ export interface ViewerShadingFlags {
 
 /** Runtime guard for shading-mode values (header select + props API). */
 export function isViewerShadingMode(value: unknown): value is ViewerShadingMode {
-    return value === 'shaded' || value === 'wireframe' || value === 'points' || value === 'xray';
+    return value === 'shaded' || value === 'edges' || value === 'wireframe' || value === 'points' || value === 'xray';
 }
 
 /** Clamp a base opacity into [0, 1]; non-finite input means fully opaque. */
@@ -107,8 +113,10 @@ export function clampShadingBaseOpacity(value: number): number {
 
 /**
  * Decide the material flags for one shading mode under a base opacity.
- * `shaded`/`wireframe`/`points` stay opaque unless the base opacity is
- * already translucent; `xray` always ghosts (transparent, no depth write).
+ * `shaded`/`edges`/`wireframe`/`points` stay opaque unless the base opacity
+ * is already translucent; `xray` always ghosts (transparent, no depth
+ * write). `edges` shares the `shaded` flags — the edge overlay is an extra
+ * object whose visibility the widget keys off the mode.
  */
 export function resolveViewerShadingFlags(mode: ViewerShadingMode, baseOpacity: number): ViewerShadingFlags {
     const opacity = clampShadingBaseOpacity(baseOpacity);
@@ -120,6 +128,7 @@ export function resolveViewerShadingFlags(mode: ViewerShadingMode, baseOpacity: 
         case 'xray':
             return { wireframe: false, pointsOnly: false, transparent: true, opacity: opacity * XRAY_OPACITY_SCALE, depthWrite: false };
         case 'shaded':
+        case 'edges':
             return { wireframe: false, pointsOnly: false, transparent: opacity < 1, opacity, depthWrite: true };
     }
 }

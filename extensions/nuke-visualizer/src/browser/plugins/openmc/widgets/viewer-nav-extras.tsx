@@ -320,3 +320,30 @@ export const DagmcIsolateActions: React.FC<DagmcIsolateActionsProps> = ({ select
         </>
     );
 };
+
+/**
+ * Screenshot + reload direct buttons (no popover): the old two-button viewer
+ * header folded into the nav bar so the header row is gone entirely. Same
+ * actions, same disabled logic — the canvas ViewBadge stays the single
+ * file-name surface.
+ */
+export interface ViewerFileActionsProps {
+    readonly disabled?: boolean;
+    readonly onScreenshot: () => void;
+    readonly onReload: () => void;
+}
+
+export const ViewerFileActions: React.FC<ViewerFileActionsProps> = ({ disabled, onScreenshot, onReload }) => (
+    <>
+        <Tooltip content="Download PNG screenshot" position="left">
+            <button className={`${navButtonClass(false)} viewer-nav-screenshot`} disabled={disabled} onClick={onScreenshot}>
+                <span className="codicon codicon-device-camera" />
+            </button>
+        </Tooltip>
+        <Tooltip content="Reload file" position="left">
+            <button className={`${navButtonClass(false)} viewer-nav-reload`} disabled={disabled} onClick={onReload}>
+                <span className="codicon codicon-refresh" />
+            </button>
+        </Tooltip>
+    </>
+);

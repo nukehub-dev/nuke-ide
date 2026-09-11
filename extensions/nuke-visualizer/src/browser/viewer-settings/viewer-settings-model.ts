@@ -39,7 +39,8 @@ import type { ViewerShadingMode } from '../viewer-core/shading-mode';
  * setters the viewer headers used to call. Widgets own every value; the
  * panel never caches them. Sections the active viewer does not support
  * (geometry-native has no color-by/shading/measure, Exodus has no
- * shading/clip/measure) are absent from the snapshot and render nothing.
+ * shading/clip/measure, Solid Color mode drops the mapping controls) are
+ * absent from the snapshot and render nothing.
  *
  * Pure types + selection helpers only; no three.js, no DOM, no Theia imports.
  */
@@ -62,6 +63,43 @@ export interface ViewerColormapSettings {
     readonly options: readonly string[];
     /** True in Solid Color mode (there is no array to map). */
     readonly disabled: boolean;
+    /** Map sampled in reverse (legend gradient honors it). */
+    readonly invert: boolean;
+    /** Log-scaled mapping; disabled when the effective range is not strictly positive. */
+    readonly logScale: { readonly value: boolean; readonly disabled: boolean };
+}
+
+/** Scalar-bar (color legend) section of a settings snapshot. */
+export interface ViewerScalarBarSettings {
+    readonly visible: boolean;
+}
+
+/** Vector-component section (present only when the color-by array has multiple components). */
+export interface ViewerComponentSettings {
+    /** Selected component index; -1 is the L2 magnitude. */
+    readonly value: number;
+    readonly options: readonly ViewerComponentOption[];
+}
+
+export interface ViewerComponentOption {
+    readonly value: number;
+    readonly label: string;
+}
+
+/** Color-range section of a settings snapshot. */
+export interface ViewerRangeSettings {
+    readonly mode: 'auto' | 'custom';
+    /** Effective range (data range in auto mode, the user range otherwise). */
+    readonly min: number;
+    readonly max: number;
+    /** Data range of the active color-by array (Auto reset target). */
+    readonly dataMin: number;
+    readonly dataMax: number;
+}
+
+/** Hex color section (solid color, background) of a settings snapshot. */
+export interface ViewerColorSettings {
+    readonly value: string;
 }
 
 /** Shading section of a settings snapshot. */
@@ -80,13 +118,16 @@ export interface ViewerMeasureSettings {
     readonly active: boolean;
 }
 
-/** Opacity section of a settings snapshot (geometry-native viewer). */
-export interface ViewerOpacitySettings {
+/** Generic slider section of a settings snapshot (opacity, point size, line width). */
+export interface ViewerSliderSettings {
     readonly value: number;
     readonly min: number;
     readonly max: number;
     readonly step: number;
 }
+
+/** Opacity section of a settings snapshot. */
+export type ViewerOpacitySettings = ViewerSliderSettings;
 
 /** Time-step section of a settings snapshot (Exodus viewer). */
 export interface ViewerStepSettings {
@@ -106,10 +147,17 @@ export interface ViewerSettingsSnapshot {
     readonly hasDataset: boolean;
     readonly colorBy?: ViewerColorBySettings;
     readonly colormap?: ViewerColormapSettings;
+    readonly component?: ViewerComponentSettings;
+    readonly range?: ViewerRangeSettings;
+    readonly scalarBar?: ViewerScalarBarSettings;
+    readonly solidColor?: ViewerColorSettings;
+    readonly background?: ViewerColorSettings;
     readonly shading?: ViewerShadingSettings;
     readonly clip?: ViewerClipSettings;
     readonly measure?: ViewerMeasureSettings;
     readonly opacity?: ViewerOpacitySettings;
+    readonly pointSize?: ViewerSliderSettings;
+    readonly lineWidth?: ViewerSliderSettings;
     readonly step?: ViewerStepSettings;
 }
 
@@ -124,11 +172,20 @@ export type ViewerSnapId = 'iso' | 'top' | 'front' | 'right' | 'x' | 'y' | 'z';
 export interface ViewerSettingsPatch {
     readonly colorBy?: string;
     readonly colormap?: string;
+    readonly component?: number;
+    readonly range?: 'auto' | readonly [number, number];
+    readonly invert?: boolean;
+    readonly logScale?: boolean;
+    readonly scalarBarVisible?: boolean;
+    readonly solidColor?: string;
+    readonly background?: string;
     readonly shading?: ViewerShadingMode;
     readonly clip?: ClipPlanesState;
     readonly clipTab?: ClipAxis;
     readonly measureActive?: boolean;
     readonly opacity?: number;
+    readonly pointSize?: number;
+    readonly lineWidth?: number;
     readonly stepIndex?: number;
     readonly snap?: ViewerSnapId;
 }
@@ -167,14 +224,24 @@ export function isViewerSettingsWidgetId(id: string): boolean {
 
 /**
  * Pick the widget id the panel binds to: the active tab wins, otherwise the
- * current tab, otherwise nothing (empty state). Non-viewer ids never match.
+ * current tab, otherwise the fallback (the main area's current tab — this is
+ * what lets the panel bind when it has just been opened and holds both active
+ * and current itself), otherwise nothing (empty state). Non-viewer ids never
+ * match.
  */
-export function resolveViewerSettingsTargetId(activeId: string | undefined, currentId: string | undefined): string | undefined {
+export function resolveViewerSettingsTargetId(
+    activeId: string | undefined,
+    currentId: string | undefined,
+    fallbackId?: string | undefined
+): string | undefined {
     if (activeId !== undefined && isViewerSettingsWidgetId(activeId)) {
         return activeId;
     }
     if (currentId !== undefined && isViewerSettingsWidgetId(currentId)) {
         return currentId;
+    }
+    if (fallbackId !== undefined && isViewerSettingsWidgetId(fallbackId)) {
+        return fallbackId;
     }
     return undefined;
 }

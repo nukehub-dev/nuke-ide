@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- nuke-visualizer: **full ParaView-style color mapping in the native 3D
+  viewers** — the colormap picker grows from 6 coarse maps to the 34-preset
+  library ported verbatim from ParaView's ColorMaps.json (plus matplotlib/
+  cmocean canonical tables for Spectral/RdBu/Seismic/Balance/Twilight/Ocean;
+  default restored to Cool to Warm), and the Viewer Settings sidebar gains
+  the ParaView color-map-editor essentials: custom color range (Auto/min/max),
+  Invert and Log-scale toggles, Magnitude/X/Y/Z component selection for
+  vector arrays, a color-legend toggle, solid-color and background pickers,
+  point-size/line-width sliders, and a Shaded + Edges mode (Surface With
+  Edges). Non-finite values render in each preset's NaN color. All native
+  viewers (VTK/tally/output, DAGMC, Exodus) share one scalar-mapping
+  pipeline; `scripts/generate-colormaps.js` regenerates the preset library.
+
 - nuke-visualizer: **native 3D output viewers** — tracks, collision-track,
   weight-windows, and random-ray/voxel viewers now render directly in the
   IDE (three.js) with instant color-by/colormap switching and no per-viewer
@@ -271,6 +284,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- nuke-visualizer: **two-button viewer headers removed** — the native VTK and
+  DAGMC viewers no longer carry a header strip for just Screenshot/Reload;
+  both actions moved onto the canvas bottom bar (camera/refresh icons next to
+  Clip and Shading), and the top-left badge stays the single file-name
+  surface. Viewers with real header content (tally kind chip, random-ray
+  array quick-select, tracks/collision filter bars) keep their strip.
 - nuke-visualizer: **Viewer Settings / DAGMC Outline CAD chrome polish** —
   both sidebars now match the CAD Feature Tree / Model Outline aesthetic
   with no behavior change: icon + subtitle headers naming the bound viewer
@@ -353,10 +372,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- nuke-visualizer: **viewer header no longer repeats the file name** — the
-  slim header and the canvas dataset badge both rendered it; the header now
-  keeps action buttons only (screenshot, reload) and the top-left `ViewBadge`
-  is the single file-name surface in the native VTK and DAGMC viewers.
+- nuke-visualizer: **Viewer Settings sidebar stuck on "No viewer open"** —
+  opening the panel made it both the active and current widget, so its
+  binding resolution never saw the viewer tab; it now falls back to the main
+  area's selected tab (`shell.getCurrentWidget('main')`), the same pattern
+  the DAGMC Outline already used, and binds immediately on open.
+- nuke-visualizer: **Escape does nothing after clicking the 3D canvas** —
+  canvas clicks left focus on `<body>`, so the viewers' window-capture Escape
+  handler (measure cancel, popover dismiss) never matched its inside-widget
+  target check; the canvas is now focusable and focuses on pointerdown.
+- nuke-visualizer: **DAGMC status line lost the visible-volume count without
+  model info** — `2 volumes (no model info)` reads `2 of 2 volumes (no model
+  info)` again, matching the documented `N of M` contract (outline toggles
+  apply with or without `dagmc.info`).
 - nuke-visualizer: **smooth damped orbiting on large models** — the shared
   orbit helper now pumps `controls.update()` on a drive loop from gesture
   start until the damped camera settles (previously damping decayed with no

@@ -12,6 +12,10 @@
     overflow: hidden;
 }
 
+.openmc-output-viewer-viewarea canvas:focus {
+    outline: none;
+}
+
 .openmc-output-viewer-header {
     display: flex;
     align-items: center;

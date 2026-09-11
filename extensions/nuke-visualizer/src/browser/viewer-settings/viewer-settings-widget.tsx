@@ -31,7 +31,7 @@ import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { ApplicationShell, Widget } from '@theia/core/lib/browser';
 import { Message } from '@theia/core/lib/browser';
 import { codicon } from '@theia/core/lib/browser/widgets/widget';
-import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
+import { ColorPicker, Tooltip } from 'nuke-essentials/lib/theme/browser/components';
 import { NativeVtkViewerWidget } from '../plugins/openmc/widgets/native-vtk-viewer-widget';
 import { DagmcViewerWidget } from '../plugins/openmc/widgets/dagmc/dagmc-viewer-widget';
 import { GeometryNativeViewerWidget } from '../plugins/openmc/widgets/geometry-native/geometry-native-viewer-widget';
@@ -49,8 +49,9 @@ import './viewer-settings.css';
 
 /**
  * Viewer Settings sidebar panel: display settings for the active native 3D
- * viewer (color-by, colormap, shading, clip, measure, axis snaps) in one
- * Theia/React view, following the Model Outline active-widget pattern.
+ * viewer (color-by array/component, colormap, range, legend, solid color,
+ * background, shading, point/line size, opacity, clip, measure, axis snaps)
+ * in one Theia/React view, following the Model Outline active-widget pattern.
  *
  * The panel binds once — every native viewer (native-VTK and its tally /
  * output subclasses, DAGMC, geometry-native, Exodus) exposes the same
@@ -92,18 +93,20 @@ export class ViewerSettingsWidget extends ReactWidget {
     }
 
     /**
-     * Rebind to the active viewer tab (active wins, otherwise current).
-     * The binding is sticky: shell events fired by interacting with this
-     * panel resolve to no viewer, and must not unbind the tab being
+     * Rebind to the active viewer tab (active wins, otherwise current,
+     * otherwise the main area's current tab — the panel itself holds active
+     * and current right after opening). The binding is sticky: shell events
+     * fired by interacting with this panel must not unbind the tab being
      * adjusted — only another viewer tab switches the binding, and a
      * disposed (closed) tab drops it.
      */
     protected refreshActiveViewer(): void {
         const active = this.shell.activeWidget;
         const current = this.shell.currentWidget;
-        const targetId = resolveViewerSettingsTargetId(active?.id, current?.id);
+        const main = this.shell.getCurrentWidget('main');
+        const targetId = resolveViewerSettingsTargetId(active?.id, current?.id, main?.id);
         if (targetId !== undefined) {
-            const next = active?.id === targetId ? active : current?.id === targetId ? current : undefined;
+            const next = [active, current, main].find((candidate) => candidate?.id === targetId);
             if (next !== undefined && next !== this.activeViewer) {
                 this.activeViewer = next;
             }
@@ -267,8 +270,15 @@ export class ViewerSettingsWidget extends ReactWidget {
     protected renderDisplaySection(host: ViewerSettingsHost, snapshot: ViewerSettingsSnapshot): React.ReactNode {
         const rows = [
             snapshot.colorBy && this.renderColorBy(host, snapshot),
+            snapshot.component && this.renderComponent(host, snapshot),
             snapshot.colormap && this.renderColormap(host, snapshot),
+            snapshot.range && this.renderRange(host, snapshot),
+            snapshot.scalarBar && this.renderScalarBar(host, snapshot),
+            snapshot.solidColor && this.renderSolidColor(host, snapshot),
+            snapshot.background && this.renderBackground(host, snapshot),
             snapshot.shading && this.renderShading(host, snapshot),
+            snapshot.pointSize && this.renderPointSize(host, snapshot),
+            snapshot.lineWidth && this.renderLineWidth(host, snapshot),
             snapshot.opacity && this.renderOpacity(host, snapshot)
         ].filter((row) => row !== undefined && row !== false);
         if (rows.length === 0) {
@@ -335,13 +345,36 @@ export class ViewerSettingsWidget extends ReactWidget {
         );
     }
 
+    protected renderComponent(host: ViewerSettingsHost, snapshot: ViewerSettingsSnapshot): React.ReactNode {
+        const component = snapshot.component;
+        if (!component) {
+            return undefined;
+        }
+        return (
+            <label className="viewer-settings-row" key="component">
+                {this.renderRowLabel('symbol-numeric', 'Component', 'Vector component of the color-by array (Magnitude is the L2 norm)')}
+                <select
+                    className="viewer-settings-component"
+                    value={component.value}
+                    onChange={(e) => this.applyPatch(host, { component: parseInt(e.target.value, 10) })}
+                >
+                    {component.options.map((option) => (
+                        <option key={option.value} value={option.value}>
+                            {option.label}
+                        </option>
+                    ))}
+                </select>
+            </label>
+        );
+    }
+
     protected renderColormap(host: ViewerSettingsHost, snapshot: ViewerSettingsSnapshot): React.ReactNode {
         const colormap = snapshot.colormap;
         if (!colormap) {
             return undefined;
         }
         return (
-            <label className="viewer-settings-row" key="colormap">
+            <div className="viewer-settings-row" key="colormap">
                 {this.renderRowLabel(
                     'paintcan',
                     'Map',
@@ -359,7 +392,146 @@ export class ViewerSettingsWidget extends ReactWidget {
                         </option>
                     ))}
                 </select>
+                <Tooltip content="Sample the colormap in reverse (legend gradient honors it)" position="top">
+                    <button
+                        className={`theia-button secondary viewer-settings-map-toggle${colormap.invert ? ' active' : ''}`}
+                        aria-pressed={colormap.invert}
+                        aria-label="Invert colormap"
+                        disabled={colormap.disabled}
+                        onClick={() => this.applyPatch(host, { invert: !colormap.invert })}
+                    >
+                        Invert
+                    </button>
+                </Tooltip>
+                <Tooltip
+                    content={colormap.logScale.disabled ? 'Log scale needs a strictly positive range' : 'Map values on a log scale'}
+                    position="top"
+                >
+                    <button
+                        className={`theia-button secondary viewer-settings-map-toggle${colormap.logScale.value ? ' active' : ''}`}
+                        aria-pressed={colormap.logScale.value}
+                        aria-label="Log-scale colormap"
+                        disabled={colormap.disabled || colormap.logScale.disabled}
+                        onClick={() => this.applyPatch(host, { logScale: !colormap.logScale.value })}
+                    >
+                        Log
+                    </button>
+                </Tooltip>
+            </div>
+        );
+    }
+
+    protected renderRange(host: ViewerSettingsHost, snapshot: ViewerSettingsSnapshot): React.ReactNode {
+        const range = snapshot.range;
+        if (!range) {
+            return undefined;
+        }
+        const commit = (input: HTMLInputElement, isMin: boolean): void => {
+            const value = parseFloat(input.value);
+            if (Number.isNaN(value)) {
+                return;
+            }
+            this.applyPatch(host, { range: isMin ? [value, range.max] : [range.min, value] });
+        };
+        return (
+            <div className="viewer-settings-row" key="range">
+                {this.renderRowLabel(
+                    'graph',
+                    'Range',
+                    `Custom range clamps the colormap to [min, max]; Auto restores the data range (${range.dataMin} to ${range.dataMax})`
+                )}
+                <Tooltip content={`Restore the data range (${range.dataMin} to ${range.dataMax})`} position="top">
+                    <button
+                        className={`theia-button secondary viewer-settings-range-auto${range.mode === 'auto' ? ' active' : ''}`}
+                        aria-pressed={range.mode === 'auto'}
+                        onClick={() => this.applyPatch(host, { range: 'auto' })}
+                    >
+                        Auto
+                    </button>
+                </Tooltip>
+                <Tooltip content={`Custom range minimum (data min ${range.dataMin})`} position="top">
+                    <input
+                        type="number"
+                        className="viewer-settings-range-input"
+                        key={`min-${range.min}`}
+                        defaultValue={range.min}
+                        step="any"
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                                commit(e.currentTarget, true);
+                            }
+                        }}
+                        onBlur={(e) => commit(e.currentTarget, true)}
+                    />
+                </Tooltip>
+                <Tooltip content={`Custom range maximum (data max ${range.dataMax})`} position="top">
+                    <input
+                        type="number"
+                        className="viewer-settings-range-input"
+                        key={`max-${range.max}`}
+                        defaultValue={range.max}
+                        step="any"
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                                commit(e.currentTarget, false);
+                            }
+                        }}
+                        onBlur={(e) => commit(e.currentTarget, false)}
+                    />
+                </Tooltip>
+            </div>
+        );
+    }
+
+    protected renderScalarBar(host: ViewerSettingsHost, snapshot: ViewerSettingsSnapshot): React.ReactNode {
+        const scalarBar = snapshot.scalarBar;
+        if (!scalarBar) {
+            return undefined;
+        }
+        return (
+            <label className="viewer-settings-row" key="scalar-bar">
+                <Tooltip content="Show the color legend for the active colormap" position="right">
+                    <span className="viewer-settings-row-label">
+                        <input
+                            type="checkbox"
+                            className="viewer-settings-scalar-bar"
+                            checked={scalarBar.visible}
+                            onChange={() => this.applyPatch(host, { scalarBarVisible: !scalarBar.visible })}
+                        />
+                        Color legend
+                    </span>
+                </Tooltip>
             </label>
+        );
+    }
+
+    protected renderSolidColor(host: ViewerSettingsHost, snapshot: ViewerSettingsSnapshot): React.ReactNode {
+        const solidColor = snapshot.solidColor;
+        if (!solidColor) {
+            return undefined;
+        }
+        return (
+            <div className="viewer-settings-row" key="solid-color">
+                {this.renderRowLabel(
+                    'circle-filled',
+                    'Solid color',
+                    'Uniform surface color (Solid Color mode; pick a data array in Color by to map values instead)'
+                )}
+                <ColorPicker value={solidColor.value} onChange={(color) => this.applyPatch(host, { solidColor: color })} />
+            </div>
+        );
+    }
+
+    protected renderBackground(host: ViewerSettingsHost, snapshot: ViewerSettingsSnapshot): React.ReactNode {
+        const background = snapshot.background;
+        if (!background) {
+            return undefined;
+        }
+        return (
+            <div className="viewer-settings-row" key="background">
+                {this.renderRowLabel('layout-panel', 'Background', 'Viewport background color')}
+                <ColorPicker value={background.value} onChange={(color) => this.applyPatch(host, { background: color })} />
+            </div>
         );
     }
 
@@ -477,6 +649,56 @@ export class ViewerSettingsWidget extends ReactWidget {
                             step={opacity.step}
                             value={opacity.value}
                             onChange={(e) => this.applyPatch(host, { opacity: parseFloat(e.target.value) })}
+                        />
+                    </Tooltip>
+                </div>
+            </label>
+        );
+    }
+
+    protected renderPointSize(host: ViewerSettingsHost, snapshot: ViewerSettingsSnapshot): React.ReactNode {
+        const pointSize = snapshot.pointSize;
+        if (!pointSize) {
+            return undefined;
+        }
+        return (
+            <label className="viewer-settings-row" key="point-size">
+                {this.renderRowLabel('circle-small', 'Point size', 'Render point size')}
+                <div className="viewer-settings-tip-fill">
+                    <Tooltip content="Render point size" position="top">
+                        <input
+                            type="range"
+                            className="viewer-settings-point-size"
+                            min={pointSize.min}
+                            max={pointSize.max}
+                            step={pointSize.step}
+                            value={pointSize.value}
+                            onChange={(e) => this.applyPatch(host, { pointSize: parseFloat(e.target.value) })}
+                        />
+                    </Tooltip>
+                </div>
+            </label>
+        );
+    }
+
+    protected renderLineWidth(host: ViewerSettingsHost, snapshot: ViewerSettingsSnapshot): React.ReactNode {
+        const lineWidth = snapshot.lineWidth;
+        if (!lineWidth) {
+            return undefined;
+        }
+        return (
+            <label className="viewer-settings-row" key="line-width">
+                {this.renderRowLabel('horizontal-rule', 'Line width', 'Render line width')}
+                <div className="viewer-settings-tip-fill">
+                    <Tooltip content="Render line width" position="top">
+                        <input
+                            type="range"
+                            className="viewer-settings-line-width"
+                            min={lineWidth.min}
+                            max={lineWidth.max}
+                            step={lineWidth.step}
+                            value={lineWidth.value}
+                            onChange={(e) => this.applyPatch(host, { lineWidth: parseFloat(e.target.value) })}
                         />
                     </Tooltip>
                 </div>

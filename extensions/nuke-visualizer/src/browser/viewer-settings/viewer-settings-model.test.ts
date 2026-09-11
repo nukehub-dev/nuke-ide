@@ -31,6 +31,8 @@ import {
     VIEWER_SNAP_ACTIONS,
     isViewerSettingsWidgetId,
     resolveViewerSettingsTargetId,
+    ViewerSettingsPatch,
+    ViewerSettingsSnapshot,
     viewerSnapDirection
 } from './viewer-settings-model';
 
@@ -72,6 +74,37 @@ describe('viewer-settings-model binding', () => {
         expect(resolveViewerSettingsTargetId('code-editor-widget', 'explorer-widget')).toBe(undefined);
         expect(resolveViewerSettingsTargetId(undefined, undefined)).toBe(undefined);
     });
+
+    it('binds the main-area viewer when the panel itself holds active and current', () => {
+        expect(
+            resolveViewerSettingsTargetId(
+                'nuke-visualizer-viewer-settings-widget',
+                'nuke-visualizer-viewer-settings-widget',
+                'native-vtk-viewer-widget:/tmp/native-polydata.vtp'
+            )
+        ).toBe('native-vtk-viewer-widget:/tmp/native-polydata.vtp');
+    });
+
+    it('prefers active, then current, then the main-area tab', () => {
+        expect(
+            resolveViewerSettingsTargetId(
+                'dagmc-viewer-widget:/tmp/a.vtm',
+                'native-vtk-viewer-widget:/tmp/b.vtp',
+                'tally-native-viewer-widget:/tmp/c.vti'
+            )
+        ).toBe('dagmc-viewer-widget:/tmp/a.vtm');
+        expect(
+            resolveViewerSettingsTargetId(
+                'code-editor-widget',
+                'native-vtk-viewer-widget:/tmp/b.vtp',
+                'tally-native-viewer-widget:/tmp/c.vti'
+            )
+        ).toBe('native-vtk-viewer-widget:/tmp/b.vtp');
+        expect(resolveViewerSettingsTargetId('code-editor-widget', 'explorer-widget', 'tally-native-viewer-widget:/tmp/c.vti')).toBe(
+            'tally-native-viewer-widget:/tmp/c.vti'
+        );
+        expect(resolveViewerSettingsTargetId('code-editor-widget', 'explorer-widget', 'terminal-widget')).toBe(undefined);
+    });
 });
 
 describe('viewer-settings-model snap actions', () => {
@@ -90,5 +123,91 @@ describe('viewer-settings-model snap actions', () => {
         expect(viewerSnapDirection('x')).toEqual(viewerSnapDirection('right'));
         expect(viewerSnapDirection('y')).toEqual(viewerSnapDirection('top'));
         expect(viewerSnapDirection('z')).toEqual(viewerSnapDirection('front'));
+    });
+});
+
+describe('viewer-settings-model display contract', () => {
+    it('composes a patch with every display-section field', () => {
+        const patch: ViewerSettingsPatch = {
+            colorBy: 'Point: flux',
+            colormap: 'Cool to Warm',
+            component: 0,
+            range: [0, 2.5],
+            invert: true,
+            logScale: true,
+            scalarBarVisible: false,
+            solidColor: '#4A90D9',
+            background: '#1E1E1E',
+            shading: 'shaded',
+            pointSize: 3,
+            lineWidth: 2,
+            opacity: 0.8
+        };
+        expect(patch.range).toEqual([0, 2.5]);
+        expect(patch.component).toBe(0);
+        expect(patch.solidColor).toBe('#4A90D9');
+        expect(patch.background).toBe('#1E1E1E');
+    });
+
+    it('accepts the auto range sentinel alongside custom tuples', () => {
+        const auto: ViewerSettingsPatch = { range: 'auto' };
+        const custom: ViewerSettingsPatch = { range: [-1, 1] };
+        expect(auto.range).toBe('auto');
+        expect(custom.range).toEqual([-1, 1]);
+    });
+
+    it('carries the extended display sections on a full snapshot', () => {
+        const snapshot: ViewerSettingsSnapshot = {
+            widgetId: 'native-vtk-viewer-widget:/tmp/mesh.vtu',
+            title: 'mesh.vtu',
+            hasDataset: true,
+            colorBy: {
+                value: 'Point: flux',
+                options: [
+                    { value: 'Solid Color', label: 'Solid Color' },
+                    { value: 'Point: flux', label: 'Point: flux' }
+                ]
+            },
+            component: {
+                value: -1,
+                options: [
+                    { value: -1, label: 'Magnitude' },
+                    { value: 0, label: 'X' }
+                ]
+            },
+            colormap: {
+                value: 'Cool to Warm',
+                options: ['Cool to Warm'],
+                disabled: false,
+                invert: true,
+                logScale: { value: false, disabled: true }
+            },
+            range: { mode: 'custom', min: 0, max: 2.5, dataMin: -0.5, dataMax: 4 },
+            scalarBar: { visible: true },
+            solidColor: { value: '#DDDDDD' },
+            background: { value: '#1E1E1E' },
+            pointSize: { value: 2, min: 1, max: 10, step: 1 },
+            lineWidth: { value: 1, min: 1, max: 5, step: 0.5 },
+            opacity: { value: 1, min: 0, max: 1, step: 0.05 }
+        };
+        expect(snapshot.component?.value).toBe(-1);
+        expect(snapshot.colormap?.invert).toBe(true);
+        expect(snapshot.colormap?.logScale.disabled).toBe(true);
+        expect(snapshot.range?.dataMax).toBe(4);
+    });
+
+    it('leaves the extended sections absent on viewers that do not offer them', () => {
+        const snapshot: ViewerSettingsSnapshot = {
+            widgetId: 'geometry-native-viewer-widget:/tmp/geometry.xml',
+            title: 'geometry.xml',
+            hasDataset: true
+        };
+        expect(snapshot.component).toBeUndefined();
+        expect(snapshot.range).toBeUndefined();
+        expect(snapshot.scalarBar).toBeUndefined();
+        expect(snapshot.solidColor).toBeUndefined();
+        expect(snapshot.background).toBeUndefined();
+        expect(snapshot.pointSize).toBeUndefined();
+        expect(snapshot.lineWidth).toBeUndefined();
     });
 });

@@ -26,57 +26,101 @@
 // *****************************************************************************
 
 /**
- * Tests for the short-list LUT pack.
+ * Tests for the colormap library.
  *
- * The expected values below are pinned to ParaView
- * `Remoting/Views/ColorMaps.json` (preset names, stop counts, endpoints,
- * NaN colors); they fail loudly if a re-port drifts from the source.
+ * The expected values below are pinned to the preset sources (ParaView
+ * `Remoting/Views/ColorMaps.json`, matplotlib/cmocean canonical tables);
+ * they fail loudly if a regeneration drifts from the sources. Regenerate
+ * with `scripts/generate-colormaps.js`.
  */
 
 import { describe, expect, it } from 'vitest';
 import {
-    SHORT_COLORMAP_NAMES,
-    SHORT_COLORMAPS,
+    COLORMAP_NAMES,
+    COLORMAPS,
     colormapToCssGradient,
     colormapToLut,
     getColormap,
-    isShortColormapName,
+    isColormapName,
     normalizeStops,
     rgbToCss,
     sampleColormap
 } from './colormaps';
 
-describe('short colormap pack', () => {
-    it('exposes exactly the six trame short-list maps', () => {
-        expect([...SHORT_COLORMAP_NAMES]).toEqual(['Plasma', 'Viridis', 'Inferno', 'Jet', 'Hot', 'Cool']);
-        expect(Object.keys(SHORT_COLORMAPS).sort()).toEqual(['Cool', 'Hot', 'Inferno', 'Jet', 'Plasma', 'Viridis']);
+describe('colormap library', () => {
+    it('exposes the full old-list library in picker order', () => {
+        expect([...COLORMAP_NAMES]).toEqual([
+            'Viridis',
+            'Plasma',
+            'Inferno',
+            'Magma',
+            'Cividis',
+            'Cool to Warm',
+            'Cool to Warm (Extended)',
+            'Warm to Cool',
+            'Black-Body Radiation',
+            'X Ray',
+            'Blue to Red Rainbow',
+            'Red to Blue Rainbow',
+            'Rainbow Desaturated',
+            'Rainbow Uniform',
+            'Jet',
+            'Hot',
+            'Cool',
+            'Spectral',
+            'RdYlBu',
+            'RdYlGn',
+            'PuOr',
+            'PRGn',
+            'BrBG',
+            'PiYG',
+            'RdBu',
+            'Seismic',
+            'Balance',
+            'Twilight',
+            'Haze',
+            'Earth',
+            'Ocean',
+            'Blue Orange (div)',
+            'Black, Blue and White',
+            'Black, Orange and White'
+        ]);
+        expect(Object.keys(COLORMAPS).sort()).toEqual([...COLORMAP_NAMES].sort());
     });
 
-    it('records the ParaView preset provenance', () => {
-        expect(SHORT_COLORMAPS.Plasma.paraviewPreset).toBe('Plasma');
-        expect(SHORT_COLORMAPS.Viridis.paraviewPreset).toBe('Viridis');
-        expect(SHORT_COLORMAPS.Inferno.paraviewPreset).toBe('Inferno');
-        expect(SHORT_COLORMAPS.Jet.paraviewPreset).toBe('Jet');
-        // No same-named presets exist: Hot is the 2hot black-body gradient,
-        // Cool is the 7-entry categorical palette.
-        expect(SHORT_COLORMAPS.Hot.paraviewPreset).toBe('2hot');
-        expect(SHORT_COLORMAPS.Cool.paraviewPreset).toBe('Cool');
-    });
-
-    it('carries the dense 256-stop matplotlib tables verbatim', () => {
-        for (const name of ['Plasma', 'Viridis', 'Inferno'] as const) {
-            expect(SHORT_COLORMAPS[name].stops).toHaveLength(256);
+    it('records the preset provenance', () => {
+        expect(COLORMAPS.Plasma.paraviewPreset).toBe('Plasma');
+        // Aliases: the old trame-era names map to differently named presets.
+        expect(COLORMAPS.Hot.paraviewPreset).toBe('2hot');
+        expect(COLORMAPS.Earth.paraviewPreset).toBe('gist_earth');
+        expect(COLORMAPS['Blue Orange (div)'].paraviewPreset).toBe('Blue Orange (divergent)');
+        // Derived by mirroring Blue to Red Rainbow.
+        expect(COLORMAPS['Red to Blue Rainbow'].paraviewPreset).toBe('Blue to Red Rainbow');
+        // matplotlib/cmocean canonical definitions (no ParaView preset).
+        for (const name of ['Spectral', 'RdYlBu', 'RdYlGn', 'RdBu', 'Seismic', 'Twilight', 'Ocean', 'Balance'] as const) {
+            expect(COLORMAPS[name].paraviewPreset).toBeNull();
+            expect(COLORMAPS[name].stops).toHaveLength(256);
         }
-        expect(SHORT_COLORMAPS.Jet.stops).toHaveLength(7);
-        expect(SHORT_COLORMAPS.Hot.stops).toHaveLength(17);
-        expect(SHORT_COLORMAPS.Cool.stops).toHaveLength(7);
     });
 
-    it('keeps stops ordered with channels in range', () => {
-        for (const name of SHORT_COLORMAP_NAMES) {
-            const stops = SHORT_COLORMAPS[name].stops;
+    it('carries the dense 256-stop tables verbatim', () => {
+        for (const name of ['Plasma', 'Viridis', 'Inferno', 'Magma', 'Cividis'] as const) {
+            expect(COLORMAPS[name].stops).toHaveLength(256);
+        }
+        expect(COLORMAPS.Jet.stops).toHaveLength(7);
+        expect(COLORMAPS.Hot.stops).toHaveLength(17);
+        expect(COLORMAPS.Cool.stops).toHaveLength(7);
+    });
+
+    it('keeps every map ordered with channels in range', () => {
+        for (const name of COLORMAP_NAMES) {
+            const stops = COLORMAPS[name].stops;
+            expect(stops.length).toBeGreaterThanOrEqual(2);
             for (let i = 1; i < stops.length; i++) {
-                expect(stops[i].position).toBeGreaterThan(stops[i - 1].position);
+                // Non-decreasing: presets with hard transitions (e.g. Cool to
+                // Warm (Extended) at its midpoint) repeat a position with a
+                // new color; the sampler treats zero-span segments as steps.
+                expect(stops[i].position).toBeGreaterThanOrEqual(stops[i - 1].position);
             }
             for (const stop of stops) {
                 for (const channel of [stop.red, stop.green, stop.blue]) {
@@ -94,71 +138,68 @@ describe('short colormap pack', () => {
             }
         };
         // Viridis: dark purple to yellow.
-        close(sampleColormap(SHORT_COLORMAPS.Viridis, 0), [0.267004, 0.004874, 0.329415]);
-        close(sampleColormap(SHORT_COLORMAPS.Viridis, 1), [0.993248, 0.906157, 0.143936]);
-        // Plasma: dark purple-blue to yellow.
-        close(sampleColormap(SHORT_COLORMAPS.Plasma, 0), [0.050383, 0.029803, 0.527975]);
-        // Inferno: near-black to pale yellow.
-        close(sampleColormap(SHORT_COLORMAPS.Inferno, 0), [0.001462, 0.000466, 0.013866]);
-        close(sampleColormap(SHORT_COLORMAPS.Inferno, 1), [0.988362, 0.998364, 0.644924]);
-        // Hot (2hot): black to white through red/yellow.
-        close(sampleColormap(SHORT_COLORMAPS.Hot, 0), [0.0416667, 0, 0]);
-        close(sampleColormap(SHORT_COLORMAPS.Hot, 1), [1, 1, 1]);
+        close(sampleColormap(COLORMAPS.Viridis, 0), [0.267004, 0.004874, 0.329415]);
+        close(sampleColormap(COLORMAPS.Viridis, 1), [0.993248, 0.906157, 0.143936]);
+        // Cool to Warm (ParaView's diverging default): blue to red through white.
+        close(sampleColormap(COLORMAPS['Cool to Warm'], 0), [0.231373, 0.298039, 0.752941]);
+        close(sampleColormap(COLORMAPS['Cool to Warm'], 1), [0.705882, 0.015686, 0.14902]);
+        // Red to Blue Rainbow is the exact mirror of Blue to Red Rainbow.
+        close(sampleColormap(COLORMAPS['Red to Blue Rainbow'], 0), sampleColormap(COLORMAPS['Blue to Red Rainbow'], 1));
+        close(sampleColormap(COLORMAPS['Red to Blue Rainbow'], 1), sampleColormap(COLORMAPS['Blue to Red Rainbow'], 0));
         // Jet on its legacy [-1, 1] axis: dark blue to dark red.
-        close(sampleColormap(SHORT_COLORMAPS.Jet, 0), [0, 0, 0.5625]);
-        close(sampleColormap(SHORT_COLORMAPS.Jet, 1), [0.5, 0, 0]);
-        // Cool categorical palette endpoints.
-        close(sampleColormap(SHORT_COLORMAPS.Cool, 0), [0.4588235294117647, 0.6941176470588235, 0.00392156862745098]);
-        close(sampleColormap(SHORT_COLORMAPS.Cool, 1), [0.3725490196078431, 0.2, 0.5019607843137255]);
+        close(sampleColormap(COLORMAPS.Jet, 0), [0, 0, 0.5625]);
+        close(sampleColormap(COLORMAPS.Jet, 1), [0.5, 0, 0]);
+        // matplotlib RdBu: dark red to dark blue (matplotlib orientation).
+        close(sampleColormap(COLORMAPS.RdBu, 0), [0.403922, 0, 0.121569]);
+        close(sampleColormap(COLORMAPS.RdBu, 1), [0.019608, 0.188235, 0.380392]);
     });
 
     it('pins the NaN colors', () => {
-        expect(SHORT_COLORMAPS.Plasma.nanColor).toEqual([0, 1, 0]);
-        expect(SHORT_COLORMAPS.Viridis.nanColor).toEqual([1, 0, 0]);
-        expect(SHORT_COLORMAPS.Inferno.nanColor).toEqual([0, 1, 0]);
-        expect(SHORT_COLORMAPS.Jet.nanColor).toBeNull();
-        expect(SHORT_COLORMAPS.Hot.nanColor).toBeNull();
-        expect(SHORT_COLORMAPS.Cool.nanColor).toEqual([0.3725490196078431, 0.2, 0.5019607843137255]);
+        expect(COLORMAPS.Plasma.nanColor).toEqual([0, 1, 0]);
+        expect(COLORMAPS.Viridis.nanColor).toEqual([1, 0, 0]);
+        expect(COLORMAPS.Jet.nanColor).toBeNull();
+        expect(COLORMAPS['Cool to Warm'].nanColor).toEqual([1, 1, 0]);
     });
 
-    it('normalizes the legacy [-1, 1] axes to [0, 1]', () => {
-        for (const name of ['Jet', 'Hot'] as const) {
-            const stops = normalizeStops(SHORT_COLORMAPS[name]);
-            expect(stops[0].position).toBeCloseTo(0, 10);
-            expect(stops[stops.length - 1].position).toBeCloseTo(1, 10);
+    it('normalizes non-[0, 1] axes to [0, 1]', () => {
+        for (const name of ['Jet', 'Hot', 'Cividis', 'PuOr', 'Haze', 'Earth', 'Blue Orange (div)'] as const) {
+            const stops = normalizeStops(COLORMAPS[name]);
+            expect(stops[0].position).toBeCloseTo(0, 6);
+            expect(stops[stops.length - 1].position).toBeCloseTo(1, 6);
         }
-        const plasma = normalizeStops(SHORT_COLORMAPS.Plasma);
+        const plasma = normalizeStops(COLORMAPS.Plasma);
         expect(plasma[0].position).toBe(0);
         expect(plasma[plasma.length - 1].position).toBe(1);
     });
 
     it('clamps out-of-range samples to the end stops', () => {
-        const first = SHORT_COLORMAPS.Viridis.stops[0];
-        expect(sampleColormap(SHORT_COLORMAPS.Viridis, -5)).toEqual([first.red, first.green, first.blue]);
-        const lastStops = SHORT_COLORMAPS.Viridis.stops;
+        const first = COLORMAPS.Viridis.stops[0];
+        expect(sampleColormap(COLORMAPS.Viridis, -5)).toEqual([first.red, first.green, first.blue]);
+        const lastStops = COLORMAPS.Viridis.stops;
         const last = lastStops[lastStops.length - 1];
-        expect(sampleColormap(SHORT_COLORMAPS.Viridis, 42)).toEqual([last.red, last.green, last.blue]);
+        expect(sampleColormap(COLORMAPS.Viridis, 42)).toEqual([last.red, last.green, last.blue]);
     });
 
     it('expands to a fixed-size LUT with pinned ends', () => {
-        const lut = colormapToLut(SHORT_COLORMAPS.Plasma);
+        const lut = colormapToLut(COLORMAPS.Plasma);
         expect(lut).toHaveLength(256);
         expect(lut[0][0]).toBeCloseTo(0.050383, 6);
         expect(lut[255][0]).toBeGreaterThan(0.9);
-        expect(colormapToLut(SHORT_COLORMAPS.Jet, 4)).toHaveLength(4);
+        expect(colormapToLut(COLORMAPS.Jet, 4)).toHaveLength(4);
     });
 
     it('formats CSS colors and legend gradients', () => {
         expect(rgbToCss([1, 0, 0.5])).toBe('rgb(255, 0, 128)');
-        const gradient = colormapToCssGradient(SHORT_COLORMAPS.Viridis, 3);
+        const gradient = colormapToCssGradient(COLORMAPS.Viridis, 3);
         expect(gradient.startsWith('linear-gradient(to right, ')).toBe(true);
         expect(gradient).toContain('rgb(68, 1, 84)');
     });
 
     it('looks definitions up by name', () => {
-        expect(getColormap('Plasma')).toBe(SHORT_COLORMAPS.Plasma);
-        expect(getColormap('Cool to Warm')).toBeUndefined();
-        expect(isShortColormapName('Jet')).toBe(true);
-        expect(isShortColormapName('Hot (Diverging)')).toBe(false);
+        expect(getColormap('Plasma')).toBe(COLORMAPS.Plasma);
+        expect(getColormap('Cool to Warm')).toBe(COLORMAPS['Cool to Warm']);
+        expect(getColormap('Not a Map')).toBeUndefined();
+        expect(isColormapName('Jet')).toBe(true);
+        expect(isColormapName('Hot (Diverging)')).toBe(false);
     });
 });
