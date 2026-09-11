@@ -40,17 +40,20 @@ export type { ViewerNavAction } from './viewer-nav-actions';
  * handle (snap directions differ between the Y-up visualizer and the Z-up
  * CAD viewport, so the bar never embeds directions). Host-specific extras
  * render as `children` after a divider — nuke-cad keeps its Explode
- * slider, shading, and section tools there as siblings; the visualizer
- * passes none. The bar owns the overlay pill surface and bottom-right
- * placement, so both viewers converge on one chrome position. Styling
- * lives in `viewer-nav-bar.css` (`.nuke-viewer-nav-bar`).
+ * slider, shading, and section tools there as siblings; nuke-visualizer
+ * keeps its clip toggle, section view, shading cycle, and DAGMC
+ * exclude/isolate actions there (`widgets/viewer-nav-extras.tsx`,
+ * stateless mirrors of the sidebars). The bar owns the overlay pill surface
+ * and bottom-right placement, so both viewers converge on one chrome
+ * position. Styling lives in `viewer-nav-bar.css`
+ * (`.nuke-viewer-nav-bar`).
  */
 export interface ViewerNavBarProps {
     /** Single action router: the host widget drives its orbit handle. */
     readonly onAction: (action: ViewerNavAction) => void;
     /** Disables every core button (no dataset loaded, or still loading). */
     readonly disabled?: boolean;
-    /** Host-specific extras (CAD-only tools) rendered after a divider. */
+    /** Host-specific extras (CAD tools, visualizer quick actions) rendered after a divider. */
     readonly children?: React.ReactNode;
 }
 

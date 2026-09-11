@@ -34,7 +34,9 @@ import { describe, expect, it } from 'vitest';
 import {
     boundsCenter,
     boundsRadius,
+    createCoalescedChangeNotifier,
     fitDistanceForRadius,
+    ORBIT_DAMPING_FACTOR,
     ORBIT_FIT_FACTOR,
     ORBIT_MIN_DISTANCE,
     STANDARD_VIEW_DIRECTIONS,
@@ -90,5 +92,91 @@ describe('standardViewDirection', () => {
         for (const view of ['iso', 'top', 'front', 'right'] as const) {
             expect(standardViewDirection(view)).toEqual(STANDARD_VIEW_DIRECTIONS[view]);
         }
+    });
+});
+
+describe('orbit damping', () => {
+    it('pins an explicit damping factor (the orbit feel must not float with three defaults)', () => {
+        expect(ORBIT_DAMPING_FACTOR).toBe(0.05);
+    });
+});
+
+/** Synchronous frame stub: queued callbacks run on `flush`, like one animation frame. */
+function stubFrame() {
+    let nextId = 1;
+    const queued = new Map<number, () => void>();
+    return {
+        requestAnimationFrame: (callback: () => void): number => {
+            const id = nextId++;
+            queued.set(id, callback);
+            return id;
+        },
+        cancelAnimationFrame: (handle: number): void => {
+            queued.delete(handle);
+        },
+        flush: (): void => {
+            for (const [, callback] of [...queued]) {
+                queued.clear();
+                callback();
+            }
+        },
+        get scheduledCount(): number {
+            return queued.size;
+        }
+    };
+}
+
+describe('createCoalescedChangeNotifier', () => {
+    it('collapses a burst of changes into one repaint per frame', () => {
+        const frame = stubFrame();
+        let calls = 0;
+        const notifier = createCoalescedChangeNotifier(
+            () => {
+                calls++;
+            },
+            frame,
+            () => false
+        );
+        notifier.notify();
+        notifier.notify();
+        notifier.notify();
+        expect(notifier.pending).toBe(true);
+        expect(frame.scheduledCount).toBe(1);
+        frame.flush();
+        expect(calls).toBe(1);
+        expect(notifier.pending).toBe(false);
+    });
+
+    it('skips the repaint while the tab is hidden (camera state is already current)', () => {
+        const frame = stubFrame();
+        let calls = 0;
+        const notifier = createCoalescedChangeNotifier(
+            () => {
+                calls++;
+            },
+            frame,
+            () => true
+        );
+        notifier.notify();
+        frame.flush();
+        expect(calls).toBe(0);
+        expect(notifier.pending).toBe(false);
+    });
+
+    it('cancels a scheduled repaint on dispose', () => {
+        const frame = stubFrame();
+        let calls = 0;
+        const notifier = createCoalescedChangeNotifier(
+            () => {
+                calls++;
+            },
+            frame,
+            () => false
+        );
+        notifier.notify();
+        notifier.dispose();
+        expect(notifier.pending).toBe(false);
+        frame.flush();
+        expect(calls).toBe(0);
     });
 });

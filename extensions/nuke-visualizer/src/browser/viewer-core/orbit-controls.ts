@@ -36,6 +36,16 @@
  * its `change` event, so widgets stay render-on-demand (no animation loop):
  * the `onChange` callback repaints the canvas per gesture.
  *
+ * Damping note: with `enableDamping` the controls only settle when
+ * `update()` runs every frame while the camera moves — a bare `change`
+ * listener leaves the decay frozen mid-gesture (the slow/stuck orbit felt
+ * on large models). `createOrbitControls` therefore runs a small rAF drive
+ * loop from the controls `start` event until the camera settles after
+ * `end`, and coalesces the `change` stream so `onChange` (renderer repaint
+ * + ViewCube/measure overlay pushes, all imperative DOM/three writes, never
+ * React state) runs at most once per frame and never while the tab is
+ * hidden. Visual output is unchanged: same damping curve, same repaint.
+ *
  * The module is Theia-free (no imports from `@theia/*`, keeping viewer-core
  * pure and testable): widgets pass their camera and renderer canvas in and
  * get a disposable handle back. `OrbitControls` itself loads through the
@@ -53,6 +63,9 @@ export type BoundsCorner = readonly [number, number, number];
 
 /** Multiplier applied to the bounding-sphere radius for fit distances. */
 export const ORBIT_FIT_FACTOR = 2.2;
+
+/** Damping inertia applied to orbit gestures (three.js default, kept explicit so the feel is pinned). */
+export const ORBIT_DAMPING_FACTOR = 0.05;
 
 /** Floor for fit distances so degenerate bounds never collapse the camera. */
 export const ORBIT_MIN_DISTANCE = 1e-6;
@@ -116,6 +129,7 @@ export interface OrbitControlsCallbacks {
  */
 export interface ManagedOrbitControls {
     enableDamping: boolean;
+    dampingFactor: number;
     target: THREE.Vector3;
     update: () => void;
     addEventListener: (type: string, listener: () => void) => void;
@@ -136,9 +150,72 @@ export interface OrbitControlsHandle {
 }
 
 /**
+ * rAF-coalesced repaint notifier for the camera loop. OrbitControls fires
+ * `change` per input event (several per frame during a drag); each host
+ * repaint re-renders the whole scene plus the ViewCube/measure overlay
+ * pushes, so notifying synchronously multiplies full-scene renders. The
+ * notifier collapses a burst into one `onChange` per animation frame and
+ * drops the repaint while the tab is hidden (the camera already moved; the
+ * next visible change repaints). Host `onChange` implementations perform
+ * direct three.js/DOM writes only — never React state — so the loop cannot
+ * re-render the widget tree; see the vitest for the coalescing contract.
+ *
+ * Theia-free and DOM-light (only `requestAnimationFrame` /
+ * `cancelAnimationFrame` / `document.hidden`), so it is unit-testable with
+ * stubbed frame functions.
+ */
+export interface CoalescedChangeNotifier {
+    /** Record one controls change (schedules at most one repaint per frame). */
+    notify: () => void;
+    /** True while a repaint is scheduled but not yet delivered. */
+    readonly pending: boolean;
+    /** Cancel a scheduled repaint (dispose path). */
+    dispose: () => void;
+}
+
+export function createCoalescedChangeNotifier(
+    onChange: () => void,
+    frame: { requestAnimationFrame: (callback: () => void) => number; cancelAnimationFrame: (handle: number) => void } = globalThis,
+    hidden: () => boolean = () => typeof document !== 'undefined' && document.hidden
+): CoalescedChangeNotifier {
+    let scheduled: number | undefined;
+    return {
+        notify: () => {
+            if (scheduled !== undefined) {
+                return;
+            }
+            scheduled = frame.requestAnimationFrame(() => {
+                scheduled = undefined;
+                // Hidden tabs skip the repaint (and its overlay pushes);
+                // the camera state is already current, so nothing is lost.
+                if (!hidden()) {
+                    onChange();
+                }
+            });
+        },
+        get pending() {
+            return scheduled !== undefined;
+        },
+        dispose: () => {
+            if (scheduled !== undefined) {
+                frame.cancelAnimationFrame(scheduled);
+                scheduled = undefined;
+            }
+        }
+    };
+}
+
+/**
  * Create and wire an OrbitControls instance on a renderer canvas.
- * Damping is enabled; right-drag pans, so the context menu is suppressed on
- * the canvas (matching the old hand-rolled handlers).
+ * Damping is enabled at {@link ORBIT_DAMPING_FACTOR}; right-drag pans, so
+ * the context menu is suppressed on the canvas (matching the old
+ * hand-rolled handlers).
+ *
+ * The `change` stream is rAF-coalesced (see
+ * {@link createCoalescedChangeNotifier}) and a drive loop pumps
+ * `controls.update()` from the `start` event until the damped camera
+ * settles after `end` — without the loop the damping decay freezes
+ * mid-gesture and orbiting feels slow/stuck.
  */
 export async function createOrbitControls(
     camera: THREE.PerspectiveCamera,
@@ -148,21 +225,56 @@ export async function createOrbitControls(
     const { OrbitControls: OrbitControlsCtor } = await import('three/examples/jsm/controls/OrbitControls.js');
     const controls = new OrbitControlsCtor(camera, canvas) as ManagedOrbitControls;
     controls.enableDamping = true;
+    controls.dampingFactor = ORBIT_DAMPING_FACTOR;
     let disposed = false;
-    const handleChange = (): void => {
+    const notifier = createCoalescedChangeNotifier(() => {
         if (!disposed) {
             callbacks.onChange();
+        }
+    });
+    // Set while the drive loop runs; `change` events flip it so the loop
+    // keeps pumping `update()` while damped motion persists after `end`.
+    let movedSinceUpdate = false;
+    let interacting = false;
+    let driveScheduled = false;
+    const drive = (): void => {
+        driveScheduled = false;
+        if (disposed) {
+            return;
+        }
+        movedSinceUpdate = false;
+        controls.update();
+        if (movedSinceUpdate || interacting) {
+            driveScheduled = true;
+            requestAnimationFrame(drive);
+        }
+    };
+    const kickDrive = (): void => {
+        if (!driveScheduled && !disposed) {
+            driveScheduled = true;
+            requestAnimationFrame(drive);
+        }
+    };
+    const handleChange = (): void => {
+        if (!disposed) {
+            movedSinceUpdate = true;
+            notifier.notify();
         }
     };
     controls.addEventListener('change', handleChange);
     const handleStart = (): void => {
-        if (!disposed) {
-            callbacks.onStart?.();
+        if (disposed) {
+            return;
         }
+        interacting = true;
+        kickDrive();
+        callbacks.onStart?.();
     };
-    if (callbacks.onStart) {
-        controls.addEventListener('start', handleStart);
-    }
+    controls.addEventListener('start', handleStart);
+    const handleEnd = (): void => {
+        interacting = false;
+    };
+    controls.addEventListener('end', handleEnd);
     const suppressMenu = (event: Event): void => event.preventDefault();
     canvas.addEventListener('contextmenu', suppressMenu);
     return {
@@ -208,10 +320,10 @@ export async function createOrbitControls(
                 return;
             }
             disposed = true;
+            notifier.dispose();
             controls.removeEventListener('change', handleChange);
-            if (callbacks.onStart) {
-                controls.removeEventListener('start', handleStart);
-            }
+            controls.removeEventListener('start', handleStart);
+            controls.removeEventListener('end', handleEnd);
             canvas.removeEventListener('contextmenu', suppressMenu);
             controls.dispose();
         }

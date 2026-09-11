@@ -41,6 +41,7 @@ import {
     groupsOfVolume,
     isDagmcVolumeVisible,
     isGraveyardMaterial,
+    isolateDagmcVolume,
     parseDagmcModelInfo,
     setDagmcShowGraveyard,
     showAllDagmc,
@@ -136,5 +137,14 @@ describe('dagmc visibility', () => {
 
     it('never shows unknown volumes', () => {
         expect(isDagmcVolumeVisible(createDefaultDagmcVisibility(), sampleInfo(), 999)).toBe(false);
+    });
+
+    it('isolates one volume and keeps the other switches untouched', () => {
+        const info = sampleInfo();
+        const visibility = isolateDagmcVolume(toggleDagmcMaterial(createDefaultDagmcVisibility(), 'clad'), 1, [1, 2, 3]);
+        expect(visibility.hiddenVolumes).toEqual([2, 3]);
+        expect(visibility.hiddenMaterials).toEqual(['clad']);
+        expect(visibleDagmcVolumeIds(visibility, info)).toEqual([1]);
+        expect(visibleDagmcVolumeIds(showAllDagmc(visibility), info)).toEqual([1, 2]);
     });
 });

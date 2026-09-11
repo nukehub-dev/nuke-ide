@@ -61,7 +61,9 @@ import {
     ClipPlanesState,
     createClipPlanesState,
     setAllClipEnabled,
-    toThreePlaneParamsArray
+    toThreePlaneParamsArray,
+    updateAxisClip,
+    type AxisClipState
 } from '../../../../viewer-core/clip-plane';
 import {
     createOrbitControls,
@@ -86,6 +88,7 @@ import {
     isViewerShadingMode,
     resolveViewerShadingFlags
 } from '../../../../viewer-core/shading-mode';
+import { nextNavPopover, type ViewerNavPopoverKind } from '../../../../viewer-core/viewer-nav-popover';
 import {
     ViewerSettingsHost,
     ViewerSettingsPatch,
@@ -105,6 +108,7 @@ import {
     createDefaultDagmcVisibility,
     groupsOfVolume,
     isDagmcVolumeVisible,
+    isolateDagmcVolume,
     parseDagmcModelInfo,
     setDagmcShowGraveyard,
     showAllDagmc,
@@ -113,7 +117,18 @@ import {
     toggleDagmcVolume
 } from './dagmc-toggle-model';
 import { ViewerMeasureLabel, type ViewerMeasureHandle } from '../viewer-measure';
+import {
+    DagmcIsolateActions,
+    ViewerClipPopover,
+    ViewerClipTrigger,
+    ViewerNavPopoverShell,
+    ViewerShadingPopover,
+    ViewerShadingTrigger
+} from '../viewer-nav-extras';
 import '../output-viewer.css';
+
+/** Scratch view-projection matrix for the measure-label projection (module scope so the camera loop never allocates). */
+const scratchViewProjection = new THREE.Matrix4();
 
 /**
  * Props driving the native DAGMC viewer. Every field applies instantly to
@@ -185,6 +200,15 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
     protected clip: ClipPlanesState = createClipPlanesState();
     /** Active X/Y/Z tab of the header clip control (per-axis settings persist). */
     protected clipTab: ClipAxis = 'X';
+    /**
+     * Open bottom-bar popover (single slot, CAD `openPopover` parity — never
+     * both cards). The widget owns the slot; every card control routes onto
+     * the existing setters, so the sidebar stays authoritative.
+     */
+    protected openNavPopover: ViewerNavPopoverKind | undefined;
+    /** Bar + card elements behind the outside-click dismissal (trigger clicks are inside the bar). */
+    protected navBarElement: HTMLDivElement | null = null;
+    protected navPopoverElement: HTMLDivElement | null = null;
     protected isLoading = false;
     protected error: string | undefined;
     protected statusMessage = '';
@@ -694,20 +718,15 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
     }
 
     /**
-     * Slim file/status header. Display settings (color-by, colormap,
-     * shading, clip, measure) live in the Viewer Settings sidebar and
-     * volume/material/group visibility lives in the DAGMC Outline sidebar;
-     * both drive this widget through their host surfaces. The canvas hint
-     * keeps the volume status line.
+     * Slim status header: action buttons only (screenshot, reload). The file
+     * name lives exactly once in the canvas `ViewBadge` below — rendering it
+     * here too showed the name twice. Display settings live in the Viewer
+     * Settings sidebar and volume visibility lives in the DAGMC Outline
+     * sidebar; both drive this widget through their host surfaces.
      */
     protected renderHeader(): React.ReactNode {
-        const fileName = this.vtmUri?.path.base ?? 'No manifest loaded';
         return (
             <div className="openmc-output-viewer-header">
-                <span className="openmc-output-viewer-file">
-                    <i className={codicon('file')}></i>
-                    {fileName}
-                </span>
                 <Tooltip content="Download PNG screenshot" position="bottom">
                     <button
                         className="theia-button secondary"
@@ -762,9 +781,141 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
         );
     }
 
-    /** Shared viewer bottom bar over the 3D viewarea, driving the orbit handle. */
+    /**
+     * Shared viewer bottom bar over the 3D viewarea, driving the orbit
+     * handle. Clip/shading quick-access popovers ride as `children` (the
+     * same extension point CAD extras use): the triggers open anchored
+     * cards whose controls call the existing prop and visibility setters —
+     * stateless mirrors of the sidebars, never new state.
+     *
+     * The one-click X-plane section button is folded into the Clip card
+     * (per-axis enable covers it); Exclude/Isolate stay direct buttons
+     * (transient canvas selection, no CAD popover analog).
+     */
     protected renderNavCluster(): React.ReactNode {
-        return <ViewerNavBar disabled={this.isLoading || this.blocks.length === 0} onAction={(action) => this.handleNavAction(action)} />;
+        const disabled = this.isLoading || this.blocks.length === 0;
+        return (
+            <>
+                <ViewerNavBar
+                    ref={(element) => {
+                        this.navBarElement = element;
+                    }}
+                    disabled={disabled}
+                    onAction={(action) => this.handleNavAction(action)}
+                >
+                    <ViewerClipTrigger
+                        clipEnabled={anyClipEnabled(this.clip)}
+                        open={this.openNavPopover === 'clip'}
+                        disabled={disabled}
+                        onToggle={() => this.toggleNavPopover('clip')}
+                    />
+                    <ViewerShadingTrigger
+                        shading={this.shading}
+                        open={this.openNavPopover === 'shading'}
+                        disabled={disabled}
+                        onToggle={() => this.toggleNavPopover('shading')}
+                    />
+                    <DagmcIsolateActions
+                        selectedVolumeId={this.selectedVolumeId}
+                        disabled={disabled}
+                        onExclude={() => this.excludeSelectedVolume()}
+                        onIsolate={() => this.isolateSelectedVolume()}
+                    />
+                </ViewerNavBar>
+                {this.openNavPopover === 'clip' && (
+                    <ViewerNavPopoverShell
+                        popoverRef={(element) => {
+                            this.navPopoverElement = element;
+                        }}
+                    >
+                        <ViewerClipPopover
+                            clip={this.clip}
+                            tab={this.clipTab}
+                            disabled={disabled}
+                            onTabChange={(axis) => this.setClipTab(axis)}
+                            onAxisChange={(axis, patch) => this.updateClipAxis(axis, patch)}
+                        />
+                    </ViewerNavPopoverShell>
+                )}
+                {this.openNavPopover === 'shading' && (
+                    <ViewerNavPopoverShell
+                        popoverRef={(element) => {
+                            this.navPopoverElement = element;
+                        }}
+                    >
+                        <ViewerShadingPopover
+                            shading={this.shading}
+                            disabled={disabled}
+                            onSelect={(mode) => this.selectShadingMode(mode)}
+                        />
+                    </ViewerNavPopoverShell>
+                )}
+            </>
+        );
+    }
+
+    /** Toggle the open popover slot (re-click closes, the other trigger switches). */
+    private toggleNavPopover(kind: ViewerNavPopoverKind): void {
+        this.openNavPopover = nextNavPopover(this.openNavPopover, kind);
+        this.update();
+    }
+
+    /** Close the open popover card (Escape / outside-click dismissal). */
+    private closeNavPopover(): void {
+        if (this.openNavPopover !== undefined) {
+            this.openNavPopover = undefined;
+            this.update();
+        }
+    }
+
+    /** Clip-card axis tab through the widget-owned tab (the sidebar shows the same tab). */
+    private setClipTab(tab: ClipAxis): void {
+        if (tab !== this.clipTab) {
+            this.clipTab = tab;
+            this.update();
+        }
+    }
+
+    /** Clip-card axis edit through the existing clip prop (sidebar stays authoritative). */
+    private updateClipAxis(axis: ClipAxis, patch: Partial<AxisClipState>): void {
+        this.applyProps({ clip: updateAxisClip(this.clip, axis, patch) });
+    }
+
+    /** Shading-card pick through the existing shading prop (closes the card, CAD parity). */
+    private selectShadingMode(mode: ViewerShadingMode): void {
+        this.applyProps({ shading: mode });
+        this.closeNavPopover();
+    }
+
+    /** Hide the selected volume through the existing visibility setter, then clear the canvas selection. */
+    private excludeSelectedVolume(): void {
+        const id = this.selectedVolumeId;
+        if (id === null) {
+            return;
+        }
+        this.setVisibility(toggleDagmcVolume(this.visibility, id));
+        this.selectVolume(null);
+    }
+
+    /** Hide every volume but the selected one through the existing visibility setter. */
+    private isolateSelectedVolume(): void {
+        const id = this.selectedVolumeId;
+        if (id === null) {
+            return;
+        }
+        this.setVisibility(isolateDagmcVolume(this.visibility, id, this.knownVolumeIds()));
+    }
+
+    /** Volume ids behind the loaded blocks (block-name fallback included, so isolation works without model info). */
+    private knownVolumeIds(): number[] {
+        const ids: number[] = [];
+        for (const block of this.blocks) {
+            const volumeId = this.blockVolumeId(block);
+            if (volumeId !== undefined && !ids.includes(volumeId)) {
+                ids.push(volumeId);
+            }
+        }
+        return ids;
     }
 
     /** Dataset badge over the 3D viewarea (hidden until volumes load). */
@@ -855,17 +1006,44 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
     };
 
     /**
-     * Escape while focus is inside this widget: cancel the pending point,
-     * else clear the committed segment, else deactivate the tool. Window
-     * capture phase (like nuke-cad's viewport keys) so Theia's own Escape
-     * bindings do not swallow it; propagation stops only when a measure
-     * step was actually cancelled.
+     * Outside-click dismissal for the nav popover (CAD canvas-click parity,
+     * generalized): a pointer-down outside both the bottom bar (triggers
+     * live there, so re-clicks toggle instead of closing first) and the
+     * open card closes it. Window capture phase so canvas drags dismiss
+     * immediately; propagation continues so orbit/measure still work.
+     */
+    private onWindowPointerDown = (event: PointerEvent): void => {
+        if (this.openNavPopover === undefined) {
+            return;
+        }
+        if (!(event.target instanceof Node)) {
+            return;
+        }
+        if (this.navBarElement?.contains(event.target) === true || this.navPopoverElement?.contains(event.target) === true) {
+            return;
+        }
+        this.closeNavPopover();
+    };
+
+    /**
+     * Escape while focus is inside this widget: close the open nav popover
+     * first (CAD parity — the card never steals canvas shortcuts; focus is
+     * never moved into it), else cancel the measure step. Window capture
+     * phase (like nuke-cad's viewport keys) so Theia's own Escape bindings
+     * do not swallow it; propagation stops only when something was actually
+     * dismissed.
      */
     private onWindowKeyDown = (event: KeyboardEvent): void => {
         if (event.key !== 'Escape') {
             return;
         }
         if (!(event.target instanceof Node) || !this.node.contains(event.target)) {
+            return;
+        }
+        if (this.openNavPopover !== undefined) {
+            this.closeNavPopover();
+            event.stopPropagation();
+            event.preventDefault();
             return;
         }
         const next = cancelMeasureStep(this.measure);
@@ -950,8 +1128,10 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
             return;
         }
         camera.updateMatrixWorld();
-        const viewProjection = new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
-        const projected = projectMeasurePoint(segment.midpoint, viewProjection.elements, host.clientWidth, host.clientHeight);
+        // Scratch matrix (never allocated per frame): the camera loop must
+        // not churn the GC on large-model orbits.
+        scratchViewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+        const projected = projectMeasurePoint(segment.midpoint, scratchViewProjection.elements, host.clientWidth, host.clientHeight);
         label.setLabel(projected.x, projected.y, formatMeasureDistance(segment.distance), projected.visible);
     }
 
@@ -1024,6 +1204,7 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
         this.ensureRenderer();
         if (!this.measureKeysAttached) {
             window.addEventListener('keydown', this.onWindowKeyDown, true);
+            window.addEventListener('pointerdown', this.onWindowPointerDown, true);
             this.measureKeysAttached = true;
         }
     }
@@ -1031,6 +1212,7 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
     protected onBeforeDetach(msg: Message): void {
         if (this.measureKeysAttached) {
             window.removeEventListener('keydown', this.onWindowKeyDown, true);
+            window.removeEventListener('pointerdown', this.onWindowPointerDown, true);
             this.measureKeysAttached = false;
         }
         this.teardownRenderer();

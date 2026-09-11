@@ -169,6 +169,15 @@ export function showAllDagmc(visibility: DagmcVisibility): DagmcVisibility {
     return { ...visibility, hiddenVolumes: [], hiddenMaterials: [], hiddenGroups: [] };
 }
 
+/**
+ * Isolate one volume: hide every other volume id while keeping the material,
+ * group, and graveyard switches untouched. Works without model info too
+ * (block-name rows), since direct volume toggles apply regardless. Pure.
+ */
+export function isolateDagmcVolume(visibility: DagmcVisibility, volumeId: number, allVolumeIds: readonly number[]): DagmcVisibility {
+    return { ...visibility, hiddenVolumes: allVolumeIds.filter((id) => id !== volumeId) };
+}
+
 /** Error thrown when a `dagmc.info` payload fails validation. */
 export class DagmcModelInfoError extends Error {
     constructor(message: string) {

@@ -353,6 +353,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- nuke-visualizer: **viewer header no longer repeats the file name** — the
+  slim header and the canvas dataset badge both rendered it; the header now
+  keeps action buttons only (screenshot, reload) and the top-left `ViewBadge`
+  is the single file-name surface in the native VTK and DAGMC viewers.
+- nuke-visualizer: **smooth damped orbiting on large models** — the shared
+  orbit helper now pumps `controls.update()` on a drive loop from gesture
+  start until the damped camera settles (previously damping decayed with no
+  update pump, so orbits felt slow/stuck), coalesces the `change` stream to
+  one repaint per animation frame, skips repaints while the tab is hidden,
+  and pins the damping factor explicitly. No visual-output change; geometry
+  upload / fragment cost on integrated GPUs remains inherent.
+- nuke-visualizer: **bottom-bar quick actions** — the native VTK and DAGMC
+  viewers regain one-click clip toggle, X-plane section view, and shading
+  cycle on the shared bottom bar (DAGMC additionally gets exclude/isolate
+  for the selected volume), all as `ViewerNavBar` children calling the
+  existing setters, so the sidebars stay authoritative with no new state.
+- nuke-visualizer: **bottom-bar Clip/Shading popovers (CAD parity)** — the
+  inline clip toggle, X-plane section, and shading cycle become anchored
+  popover cards above the bottom bar like the CAD viewport: Clip offers
+  X/Y/Z tabs (shared with the sidebar) + enable + Flip + an Offset slider
+  with % readout that clips the canvas as it drags, Shading offers the mode
+  list with icons. Toggle on re-click, Escape/outside-click dismissal, and
+  the same existing setters throughout (sidebars stay authoritative).
+  Exclude/isolate stay direct DAGMC buttons.
 - nuke-cad: **DAGMC export mesh floor raised to tolerance/10** — the gmsh
   minimum characteristic length was tolerance/100, letting curvature
   refinement emit needle facets (aspect >100:1, edges far below the requested

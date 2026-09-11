@@ -118,6 +118,15 @@ test('viewer settings sidebar shows values and drives shading', async ({ page })
     // The slim header carries file/status actions only — no display selects remain.
     await expect(container.locator('.openmc-output-viewer-header select')).toHaveCount(0);
 
+    // The file name renders exactly once, in the canvas dataset badge (never the header).
+    await expect(container.locator('.openmc-output-viewer-header .openmc-output-viewer-file')).toHaveCount(0);
+    await expect(container.locator('.nuke-view-badge')).toHaveCount(1);
+    await expect(container.locator('.nuke-view-badge')).toContainText('native-polydata.vtp');
+
+    // Bottom-bar quick actions mirror the sidebar (clip + shading popovers past the core 7).
+    await expect(container.locator('.nuke-viewer-nav-bar')).toBeVisible();
+    expect(await container.locator('.nuke-viewer-nav-bar button').count()).toBeGreaterThanOrEqual(9);
+
     // The sidebar binds to the active viewer tab and shows its live values.
     const settings = await openViewerSettings(page);
     await expect(settings.locator('.viewer-settings-header-name')).toHaveText('Viewer Settings');
@@ -275,6 +284,15 @@ test('DAGMC multiblock (.vtm) renders both volumes', async ({ page }) => {
     await expect(container.getByText('2 of 2 volumes (no model info)').first()).toBeVisible({ timeout: 30_000 });
     await expect(container.locator('.openmc-output-viewer-header select')).toHaveCount(0);
 
+    // The file name renders exactly once, in the canvas dataset badge (never the header).
+    await expect(container.locator('.openmc-output-viewer-header .openmc-output-viewer-file')).toHaveCount(0);
+    await expect(container.locator('.nuke-view-badge')).toHaveCount(1);
+    await expect(container.locator('.nuke-view-badge')).toContainText('native-volumes.vtm');
+
+    // Bottom-bar quick actions mirror the sidebars (clip + shading popovers, exclude/isolate past the core 7).
+    await expect(container.locator('.nuke-viewer-nav-bar')).toBeVisible();
+    expect(await container.locator('.nuke-viewer-nav-bar button').count()).toBeGreaterThanOrEqual(11);
+
     const bad = severe(errors);
     expect(bad, `unexpected severe errors:\n${bad.join('\n')}`).toEqual([]);
 });
@@ -428,6 +446,68 @@ test('viewer context menu opens inside the viewport and fit works', async ({ pag
     await expect(menu).toBeHidden({ timeout: 30_000 });
     await expect(canvas).toBeVisible();
     await expect(container.locator('.openmc-output-viewer-status.error')).toHaveCount(0);
+
+    const bad = severe(errors);
+    expect(bad, `unexpected severe errors:\n${bad.join('\n')}`).toEqual([]);
+});
+
+test('nav-bar clip popover drives the X plane and shading popover applies X-Ray', async ({ page }) => {
+    const errors = collectErrors(page);
+    await page.goto('/');
+    await waitForWorkbench(page);
+
+    const container = await openViewer(page, 'native-polydata.vtp');
+    await expect(container.locator('.openmc-output-viewer-status.error')).toHaveCount(0);
+    const canvas = container.locator('.openmc-output-viewer-viewarea canvas');
+    await expect(canvas).toBeVisible({ timeout: 30_000 });
+
+    // Clip trigger opens the anchored card (X/Y/Z tabs + Flip + Offset).
+    const clipTrigger = container.locator('.viewer-nav-clip-trigger');
+    await expect(clipTrigger).toBeVisible();
+    await clipTrigger.click();
+    const clipPopover = container.locator('.viewer-nav-clip-popover');
+    await expect(clipPopover).toBeVisible({ timeout: 30_000 });
+
+    // Dragging Offset enables the tab plane and clips the canvas (no extra
+    // step — the slider implies the cut, like the geometry header).
+    const offset = clipPopover.locator('input.viewer-nav-clip-offset');
+    await offset.evaluate((element: HTMLInputElement, value: string) => {
+        element.value = value;
+        element.dispatchEvent(new Event('input', { bubbles: true }));
+        element.dispatchEvent(new Event('change', { bubbles: true }));
+    }, '80');
+    await expect(clipPopover.locator('.viewer-nav-clip-slider-row span').last()).toHaveText('80%');
+    // The trigger lights up (a plane is enabled) and the canvas survives.
+    await expect(clipTrigger).toHaveClass(/active/);
+    await expect(canvas).toBeVisible();
+    await expect(container.locator('.openmc-output-viewer-status.error')).toHaveCount(0);
+
+    // Re-clicking the trigger toggles the card closed.
+    await clipTrigger.click();
+    await expect(clipPopover).toBeHidden({ timeout: 30_000 });
+
+    // Escape also dismisses: reopen, then press Escape with the slider focused.
+    await clipTrigger.click();
+    await expect(clipPopover).toBeVisible({ timeout: 30_000 });
+    await offset.focus();
+    await page.keyboard.press('Escape');
+    await expect(clipPopover).toBeHidden({ timeout: 30_000 });
+
+    // Shading trigger opens the mode list; picking X-Ray applies it through
+    // the existing setter (the sidebar select shows the same value —
+    // single-sourced state, no duplication).
+    const shadingTrigger = container.locator('.viewer-nav-shading-trigger');
+    await shadingTrigger.click();
+    const shadingPopover = container.locator('.viewer-nav-shading-popover');
+    await expect(shadingPopover).toBeVisible({ timeout: 30_000 });
+    await shadingPopover.locator('.viewer-nav-shading-item', { hasText: 'X-Ray' }).click();
+    // Picking a mode closes the card and lights the trigger.
+    await expect(shadingPopover).toBeHidden({ timeout: 30_000 });
+    await expect(shadingTrigger).toHaveClass(/active/);
+    await expect(canvas).toBeVisible();
+    await expect(container.locator('.openmc-output-viewer-status.error')).toHaveCount(0);
+    const settings = await openViewerSettings(page);
+    await expect(settings.locator('select.viewer-settings-shading')).toHaveValue('xray');
 
     const bad = severe(errors);
     expect(bad, `unexpected severe errors:\n${bad.join('\n')}`).toEqual([]);

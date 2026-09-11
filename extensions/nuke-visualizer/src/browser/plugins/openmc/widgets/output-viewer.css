@@ -143,6 +143,119 @@
     outline-offset: -1px;
 }
 
+/* Toggled-on quick actions on the shared bottom bar (clip/shading mirrors the sidebar state) */
+
+.openmc-output-viewer-viewarea .nuke-viewer-nav-bar-button.active {
+    outline: 1px solid var(--theia-focusBorder);
+    outline-offset: -1px;
+}
+
+/* Bottom-bar quick-access popovers (CAD anchored-popover parity: small cards
+   above the navigation cluster; surface treatment mirrors
+   `.cad-viewport-popover`, scoped here so CAD stays visually untouched) */
+
+.viewer-nav-popover {
+    position: absolute;
+    z-index: 16;
+    display: flex;
+    flex-direction: column;
+    min-width: 180px;
+    max-width: calc(100% - 16px);
+    padding: 8px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editorWidget-background);
+    box-shadow:
+        0 4px 6px rgba(0, 0, 0, 0.1),
+        0 2px 4px rgba(0, 0, 0, 0.06);
+}
+
+.viewer-nav-clip-popover {
+    gap: 4px;
+}
+
+.viewer-nav-clip-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.viewer-nav-clip-axis,
+.viewer-nav-clip-flip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 24px;
+    height: 22px;
+    padding: 0 6px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 4px;
+    background: transparent;
+    color: var(--theia-foreground);
+    font-size: 10px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.viewer-nav-clip-axis:hover,
+.viewer-nav-clip-flip:hover {
+    background: var(--theia-list-hoverBackground);
+}
+
+.viewer-nav-clip-axis.active,
+.viewer-nav-clip-flip.active {
+    border-color: var(--theia-focusBorder);
+    color: var(--theia-focusBorder);
+}
+
+.viewer-nav-clip-slider-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 2px;
+    padding: 6px 2px 2px;
+    border-top: 1px solid var(--theia-panel-border);
+    font-size: var(--theia-ui-font-size0);
+    cursor: default;
+}
+
+.viewer-nav-clip-slider-row input[type='range'] {
+    flex: 1;
+    min-width: 80px;
+}
+
+.viewer-nav-shading-popover {
+    padding: 4px;
+}
+
+.viewer-nav-shading-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: 4px 8px;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--theia-foreground);
+    font-size: var(--theia-ui-font-size1);
+    text-align: left;
+    cursor: pointer;
+}
+
+.viewer-nav-shading-item:hover {
+    background: var(--theia-list-hoverBackground);
+}
+
+.viewer-nav-shading-item.active {
+    color: var(--theia-focusBorder);
+}
+
+.viewer-nav-shading-label {
+    flex: 1;
+    white-space: nowrap;
+}
+
 .viewer-measure-label {
     position: absolute;
     left: 0;
