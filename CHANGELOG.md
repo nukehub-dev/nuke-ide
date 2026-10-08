@@ -372,6 +372,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- nuke-visualizer: **DAGMC viewer stuck in Shaded + Edges** — the edge
+  overlay showed in both `Shaded` and `Shaded + Edges` modes (the widget
+  keyed its visibility off the material flags instead of the mode, unlike
+  the native VTK viewer). It now follows the documented contract and shows
+  only in `Shaded + Edges`, so `Shaded` faces render clean.
+- nuke-visualizer: **color legend gradient bar missing in every native
+  viewer** — the legend row wrapped in the hugging tooltip span collapsed
+  the `flex: 1` gradient to zero width, leaving only the range text
+  (`1.00 8.00 volume_id`). The shared `Tooltip` gains a `stretch` mode for
+  full-width rows, and the legend is now a floating bottom-left card
+  (array name with ellipsis, gradient bar, min/max ends, full range in the
+  hover tooltip) in the DAGMC and native VTK viewers instead of a
+  full-bleed bottom strip.
+- nuke-essentials: **empty-state card hugged the left in wide sidebars** —
+  the capped `NukeEmptyState` card (`max-width: 420px`) left an empty strip
+  on the right (visible in DAGMC Outline). The card now centers itself.
+- nuke-visualizer: **DAGMC Graveyard toggle did nothing** — the `.h5m`
+  multiblock conversion stripped the graveyard volume, so the outline toggle
+  had no block to show for either on or off. Conversion now keeps the
+  graveyard block (`--include-graveyard`, cached separately) and the viewer
+  hides it by default, so the toggle, the Graveyard material/group rows
+  (which now read hidden while the switch is off), and the per-volume row
+  all work. Isolating a graveyard volume/material/group (hover eye, canvas
+  isolate) also enables the switch — `Show all` keeps it off by design, so
+  without this the canvas went blank instead of showing the graveyard.
+  Reopening a file reconverts once into the new cache entry.
+- nuke-essentials: **color picker popup cut off in narrow sidebars** — the
+  palette rendered absolutely inside the scrolling panel and clipped at the
+  panel edge. It now portals to the document body, positioned before first
+  paint (no top-left flash) and clamped to the viewport: right-aligned to
+  the trigger near the right edge, flips above the trigger when there is no
+  room below, follows sidebar scroll, Escape closes.
+- nuke-essentials: **right-side tooltips cut off at the window edge** —
+  tooltips requested on the `right` (clip checkbox, row labels, outline
+  rows) extended past the viewport in the right-area sidebars. Tooltips now
+  flip to the opposite side when the anchor sits near that viewport edge
+  and clamp to the window, with overflow ellipsized instead of clipped.
 - nuke-visualizer: **Viewer Settings sidebar stuck on "No viewer open"** —
   opening the panel made it both the active and current widget, so its
   binding resolution never saw the viewer tab; it now falls back to the main

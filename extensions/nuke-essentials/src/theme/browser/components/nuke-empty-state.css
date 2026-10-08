@@ -11,6 +11,9 @@
     box-sizing: border-box;
     width: 100%;
     max-width: 420px;
+    /* Center the capped card: in wide sidebars `max-width` alone hugs the
+       left and leaves an empty strip on the right. */
+    margin-inline: auto;
     padding: var(--nuke-space-6);
     text-align: center;
     color: var(--theia-foreground);

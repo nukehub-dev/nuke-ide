@@ -260,6 +260,57 @@
     white-space: nowrap;
 }
 
+/* Floating color-legend card (ParaView scalar-bar parity): bottom-left over
+   the canvas, below the nav bar/cube/badge layer so it never covers
+   controls on narrow viewers. Surface treatment mirrors the nav popovers
+   above; both native viewers render the same markup. */
+
+.nuke-viewer-legend-anchor {
+    position: absolute;
+    left: 12px;
+    bottom: 12px;
+    z-index: 5;
+    width: 232px;
+    max-width: calc(100% - 24px);
+}
+
+.nuke-viewer-legend {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 8px 10px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editorWidget-background);
+    box-shadow:
+        0 4px 6px rgba(0, 0, 0, 0.1),
+        0 2px 4px rgba(0, 0, 0, 0.06);
+}
+
+.nuke-viewer-legend-title {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--theia-foreground);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.nuke-viewer-legend-bar {
+    height: 12px;
+    border-radius: 3px;
+}
+
+.nuke-viewer-legend-range {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 10px;
+    color: var(--theia-descriptionForeground);
+    font-variant-numeric: tabular-nums;
+}
+
 .viewer-measure-label {
     position: absolute;
     left: 0;

@@ -649,8 +649,8 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
                         {this.renderNavCluster()}
                         {this.renderGizmo()}
                         {this.renderMeasureLabel()}
+                        {this.renderLegend()}
                     </div>
-                    {this.renderLegend()}
                 </div>
             </>
         );
@@ -1008,14 +1008,22 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
             return undefined;
         }
         return (
-            <Tooltip content={`${array.name} range`} position="top">
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 8px' }}>
-                    <span style={{ fontSize: '11px' }}>{formatRangeValue(mapping.range[0])}</span>
-                    <div style={{ flex: '1', height: '10px', background: mappingToCssGradient(mapping) }} />
-                    <span style={{ fontSize: '11px' }}>{formatRangeValue(mapping.range[1])}</span>
-                    <span style={{ fontSize: '11px', opacity: 0.7 }}>{array.name}</span>
-                </div>
-            </Tooltip>
+            <div className="nuke-viewer-legend-anchor">
+                <Tooltip
+                    content={`${array.name}: ${formatRangeValue(mapping.range[0])} to ${formatRangeValue(mapping.range[1])}`}
+                    position="top"
+                    stretch
+                >
+                    <div className="nuke-viewer-legend">
+                        <div className="nuke-viewer-legend-title">{array.name}</div>
+                        <div className="nuke-viewer-legend-bar" style={{ background: mappingToCssGradient(mapping) }} />
+                        <div className="nuke-viewer-legend-range">
+                            <span>{formatRangeValue(mapping.range[0])}</span>
+                            <span>{formatRangeValue(mapping.range[1])}</span>
+                        </div>
+                    </div>
+                </Tooltip>
+            </div>
         );
     }
 

@@ -46,18 +46,18 @@ Once the file loads, the visualization panel shows an interactive 3D view with a
 
 ### Appearance
 
-| Control        | What It Does                                                              |
-| -------------- | ------------------------------------------------------------------------- |
-| **Opacity**    | Slider from 0 (invisible) to 1 (fully opaque)                             |
-| **Shading**    | Shaded / Shaded + Edges / Wireframe / Points / X-Ray                      |
-| **Color By**   | Choose a data array (e.g., temperature, flux) or "Solid Color"            |
-| **Component**  | For multi-component arrays: Magnitude or a single component (X / Y / Z)   |
-| **Color Map**  | Full ParaView preset list (34 maps — Viridis, Cool to Warm, Jet, RdBu, …) |
-| **Invert/Log** | Reverse the colormap, or map values log-scaled (needs a positive range)   |
-| **Range**      | Auto (data range) or a custom min/max the colormap clamps to              |
-| **Scalar Bar** | Toggle the color legend on/off                                            |
-| **Colors**     | Solid-color and background pickers                                        |
-| **Sizes**      | Point size and line width sliders (line width is driver-dependent)        |
+| Control        | What It Does                                                                 |
+| -------------- | ---------------------------------------------------------------------------- |
+| **Opacity**    | Slider from 0 (invisible) to 1 (fully opaque)                                |
+| **Shading**    | Shaded / Shaded + Edges / Wireframe / Points / X-Ray                         |
+| **Color By**   | Choose a data array (e.g., temperature, flux) or "Solid Color"               |
+| **Component**  | For multi-component arrays: Magnitude or a single component (X / Y / Z)      |
+| **Color Map**  | Full ParaView preset list (34 maps — Viridis, Cool to Warm, Jet, RdBu, …)    |
+| **Invert/Log** | Reverse the colormap, or map values log-scaled (needs a positive range)      |
+| **Range**      | Auto (data range) or a custom min/max the colormap clamps to                 |
+| **Scalar Bar** | Toggle the floating color-legend card (array name, gradient, min/max) on/off |
+| **Colors**     | Solid-color and background pickers                                           |
+| **Sizes**      | Point size and line width sliders (line width is driver-dependent)           |
 
 ### Clipping
 
@@ -154,7 +154,11 @@ DAGMC viewer tab. Like the CAD panels it has an icon + subtitle header
   volume. These sections need the `dagmc.info` model metadata (present for
   converted `.h5m` files); without it an info banner says so instead of
   bare text.
-- **Graveyard** — show or hide the graveyard termination volumes.
+- **Graveyard** — show or hide the graveyard termination volumes (hidden
+  by default; conversion keeps the block so the toggle takes effect on
+  either setting). Isolating a graveyard row with the hover eye also turns
+  this switch on, so the canvas shows the graveyard instead of going blank
+  (`Show all` still keeps it off).
 - **Show all** — clear every hidden-set and restore all volumes.
 - **Filter** — search box matching volume id, material, or group (for 20+-volume models).
 

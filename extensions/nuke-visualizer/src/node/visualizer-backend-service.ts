@@ -214,7 +214,11 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
         const pythonInfo = await this.pythonHelper.detectPythonForBaseVisualizer();
         this.log(`[Converter] Using Python: ${pythonInfo.command}`);
 
-        const args = ['base.convert-dagmc-multiblock', '--file', filePath];
+        // Always keep the graveyard block: the DAGMC Outline's Graveyard
+        // toggle is the client-side switch (hidden by default), so stripping
+        // the volume at conversion time would leave the toggle with nothing
+        // to show for both on/off.
+        const args = ['base.convert-dagmc-multiblock', '--file', filePath, '--include-graveyard'];
 
         this.log(`[Converter] Command: "${pythonInfo.command}" "${serverScript}" "${args.join('" "')}"`);
 

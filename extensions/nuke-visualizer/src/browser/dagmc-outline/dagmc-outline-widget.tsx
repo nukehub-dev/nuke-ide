@@ -34,6 +34,7 @@ import { Disposable } from '@theia/core/lib/common/disposable';
 import { codicon } from '@theia/core/lib/browser/widgets/widget';
 import { NukeEmptyState, Tooltip } from 'nuke-essentials/lib/theme/browser/components';
 import { DagmcViewerWidget } from '../plugins/openmc/widgets/dagmc/dagmc-viewer-widget';
+import { isGraveyardMaterial } from '../plugins/openmc/widgets/dagmc/dagmc-toggle-model';
 import {
     dagmcOutlineVolumeMatches,
     matchesDagmcOutlineQuery,
@@ -160,13 +161,20 @@ export class DagmcOutlineWidget extends ReactWidget {
     /**
      * Isolate one volume through the widget's existing visibility setters:
      * show everything, then hide every other visible volume. The target
-     * stays visible whether it started hidden or not.
+     * stays visible whether it started hidden or not. Isolating a graveyard
+     * volume also enables the Graveyard switch — `showAll` keeps it by
+     * design, so without this the canvas would go blank instead of showing
+     * the graveyard.
      */
     protected isolateVolume(host: DagmcOutlineHost, snapshot: DagmcOutlineSnapshot, id: number): void {
+        const entry = snapshot.volumes.find((candidate) => candidate.id === id);
         host.applyDagmcOutline({ showAll: true });
-        for (const entry of snapshot.volumes) {
-            if (entry.id !== id && entry.visible) {
-                host.applyDagmcOutline({ toggleVolume: entry.id });
+        if (!snapshot.showGraveyard && entry?.material !== undefined && isGraveyardMaterial(entry.material)) {
+            host.applyDagmcOutline({ showGraveyard: true });
+        }
+        for (const candidate of snapshot.volumes) {
+            if (candidate.id !== id && candidate.visible) {
+                host.applyDagmcOutline({ toggleVolume: candidate.id });
             }
         }
         this.update();
@@ -175,11 +183,24 @@ export class DagmcOutlineWidget extends ReactWidget {
     /**
      * Isolate one material or group through the widget's existing visibility
      * setters (same show-all-then-hide-others algebra as volumes, one patch
-     * field per entry — no contract change).
+     * field per entry — no contract change). Isolating the Graveyard
+     * material (or a graveyard-only group) also enables the Graveyard
+     * switch, otherwise the canvas goes blank.
      */
     protected isolateNamed(host: DagmcOutlineHost, snapshot: DagmcOutlineSnapshot, kind: 'material' | 'group', name: string): void {
         const entries = kind === 'material' ? snapshot.materials : snapshot.groups;
+        let needsGraveyard: boolean;
+        if (kind === 'material') {
+            needsGraveyard = isGraveyardMaterial(name);
+        } else {
+            const members = snapshot.volumes.filter((entry) => entry.groups.includes(name));
+            needsGraveyard =
+                members.length > 0 && members.every((entry) => entry.material !== undefined && isGraveyardMaterial(entry.material));
+        }
         host.applyDagmcOutline({ showAll: true });
+        if (needsGraveyard && !snapshot.showGraveyard) {
+            host.applyDagmcOutline({ showGraveyard: true });
+        }
         for (const entry of entries) {
             if (entry.name !== name && entry.visible) {
                 host.applyDagmcOutline(kind === 'material' ? { toggleMaterial: entry.name } : { toggleGroup: entry.name });

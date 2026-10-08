@@ -10,6 +10,9 @@
     font-size: 12px;
     font-family: var(--theia-ui-font-family);
     white-space: nowrap;
+    max-width: calc(100vw - 16px);
+    overflow: hidden;
+    text-overflow: ellipsis;
     pointer-events: none;
     box-shadow: 0 4px 12px var(--theia-scrollbar-shadow);
     border: 1px solid color-mix(in srgb, var(--theia-panel-border), transparent 50%);

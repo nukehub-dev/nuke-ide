@@ -120,6 +120,7 @@ import {
     createDefaultDagmcVisibility,
     groupsOfVolume,
     isDagmcVolumeVisible,
+    isGraveyardMaterial,
     isolateDagmcVolume,
     parseDagmcModelInfo,
     setDagmcShowGraveyard,
@@ -637,13 +638,29 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
                   .map(([name, meta]) => ({
                       name,
                       volumeCount: meta.volumeCount,
-                      visible: !this.visibility.hiddenMaterials.includes(name)
+                      // The graveyard switch is an extra override on top of the
+                      // material hidden-set: while it is off, the Graveyard
+                      // material reads hidden even though it is not in the set.
+                      visible:
+                          !this.visibility.hiddenMaterials.includes(name) && (!isGraveyardMaterial(name) || this.visibility.showGraveyard)
                   }))
                   .sort((a, b) => a.name.localeCompare(b.name))
             : [];
         const groups = info
             ? Object.entries(info.groups)
-                  .map(([name, meta]) => ({ name, volumeCount: meta.volumeCount, visible: !this.visibility.hiddenGroups.includes(name) }))
+                  .map(([name, meta]) => {
+                      const memberMaterials = new Set(
+                          meta.volumeIds.map((id) => info.volumes.find((volume) => volume.id === id)?.material)
+                      );
+                      const graveyardOnly =
+                          meta.volumeIds.length > 0 &&
+                          [...memberMaterials].every((material) => typeof material === 'string' && isGraveyardMaterial(material));
+                      return {
+                          name,
+                          volumeCount: meta.volumeCount,
+                          visible: !this.visibility.hiddenGroups.includes(name) && (!graveyardOnly || this.visibility.showGraveyard)
+                      };
+                  })
                   .sort((a, b) => a.name.localeCompare(b.name))
             : [];
         return {
@@ -925,8 +942,8 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
                         {this.renderNavCluster()}
                         {this.renderGizmo()}
                         {this.renderMeasureLabel()}
+                        {this.renderLegend()}
                     </div>
-                    {this.renderLegend()}
                 </div>
             </>
         );
@@ -1053,13 +1070,23 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
         this.selectVolume(null);
     }
 
-    /** Hide every volume but the selected one through the existing visibility setter. */
+    /**
+     * Hide every volume but the selected one through the existing visibility
+     * setter. Isolating a graveyard volume also enables the Graveyard
+     * switch, otherwise the canvas goes blank (the switch overrides every
+     * volume flag while off).
+     */
     private isolateSelectedVolume(): void {
         const id = this.selectedVolumeId;
         if (id === null) {
             return;
         }
-        this.setVisibility(isolateDagmcVolume(this.visibility, id, this.knownVolumeIds()));
+        let visibility = this.visibility;
+        const material = this.modelInfo?.volumes.find((volume) => volume.id === id)?.material;
+        if (material !== undefined && isGraveyardMaterial(material) && !visibility.showGraveyard) {
+            visibility = setDagmcShowGraveyard(visibility, true);
+        }
+        this.setVisibility(isolateDagmcVolume(visibility, id, this.knownVolumeIds()));
     }
 
     /** Volume ids behind the loaded blocks (block-name fallback included, so isolation works without model info). */
@@ -1317,14 +1344,22 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
             return undefined;
         }
         return (
-            <Tooltip content={`${active.array.name} range`} position="top">
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 8px' }}>
-                    <span style={{ fontSize: '11px' }}>{formatRangeValue(mapping.range[0])}</span>
-                    <div style={{ flex: '1', height: '10px', background: mappingToCssGradient(mapping) }} />
-                    <span style={{ fontSize: '11px' }}>{formatRangeValue(mapping.range[1])}</span>
-                    <span style={{ fontSize: '11px', opacity: 0.7 }}>{active.array.name}</span>
-                </div>
-            </Tooltip>
+            <div className="nuke-viewer-legend-anchor">
+                <Tooltip
+                    content={`${active.array.name}: ${formatRangeValue(mapping.range[0])} to ${formatRangeValue(mapping.range[1])}`}
+                    position="top"
+                    stretch
+                >
+                    <div className="nuke-viewer-legend">
+                        <div className="nuke-viewer-legend-title">{active.array.name}</div>
+                        <div className="nuke-viewer-legend-bar" style={{ background: mappingToCssGradient(mapping) }} />
+                        <div className="nuke-viewer-legend-range">
+                            <span>{formatRangeValue(mapping.range[0])}</span>
+                            <span>{formatRangeValue(mapping.range[1])}</span>
+                        </div>
+                    </div>
+                </Tooltip>
+            </div>
         );
     }
 
@@ -1845,9 +1880,11 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
                 } else if (role === 'mesh-points') {
                     child.visible = flags.pointsOnly;
                 } else if (kind === 'edges') {
-                    // Edges back shaded/xray faces; wireframe and points modes
-                    // have their own representation already.
-                    child.visible = !flags.pointsOnly && !flags.wireframe;
+                    // Edge overlay backs only `edges` (ParaView's Surface With
+                    // Edges, native-VTK parity): `shaded` faces render clean;
+                    // wireframe and points modes have their own
+                    // representation already.
+                    child.visible = this.shading === 'edges' && !flags.pointsOnly && !flags.wireframe;
                 } else {
                     child.visible = true;
                 }
