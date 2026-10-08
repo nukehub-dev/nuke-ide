@@ -391,6 +391,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   offset slider, and the DAGMC outline search/checkboxes/switches use
   them; the UI smoke specs drive the new controls. Research lives in
   `.research/nuke-essentials/ui-ports-plan.md`.
+- nuke-visualizer: **DAGMC Outline sometimes never binds on viewer open**
+  (empty "No DAGMC viewer open" with the viewer tab sitting open) — two
+  stacked causes: `revealDagmcOutline` only called `revealWidget` when the
+  panel was already attached, but adding to a collapsed side area attaches
+  without expanding, so it now always reveals; and the 3D viewers never
+  took DOM focus on activation while the shell's active/current tracking
+  (which both sidebars bind off) only updates on real focus events, so both
+  viewers now focus their node on `onActivateRequest` (statepoint parity).
 - nuke-visualizer: **DAGMC viewer stuck in Shaded + Edges** — the edge
   overlay showed in both `Shaded` and `Shaded + Edges` modes (the widget
   keyed its visibility off the material flags instead of the mode, unlike

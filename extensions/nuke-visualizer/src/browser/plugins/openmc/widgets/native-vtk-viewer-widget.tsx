@@ -247,6 +247,17 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         this.node.tabIndex = 0;
     }
 
+    /**
+     * Take DOM focus on activation (statepoint-viewer parity): the shell's
+     * `activeWidget`/`currentWidget` only update on real focus events, and
+     * the Viewer Settings binding keys off them — without this,
+     * programmatic activation (auto-open on file open) never binds it.
+     */
+    protected onActivateRequest(msg: Message): void {
+        super.onActivateRequest(msg);
+        this.node.focus();
+    }
+
     // ------------------------------------------------------------------
     // Public props API (instant, no restart)
     // ------------------------------------------------------------------

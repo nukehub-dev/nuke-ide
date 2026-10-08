@@ -194,17 +194,17 @@ export class OpenMCDagmcViewerContribution implements OutputViewerContribution {
 
     /**
      * Reveal the DAGMC Outline sidebar when a viewer tab opens (mirrors the
-     * CAD open handler's model-panel reveal): attached panels are only
-     * revealed, and the panel is never activated, so focus stays in the
-     * viewer.
+     * CAD open handler's model-panel reveal): the panel is never activated,
+     * so focus stays in the viewer. Always `revealWidget`, even right after
+     * `addWidget` — adding to a collapsed side area attaches the panel
+     * without expanding it, so add-only leaves it in the DOM but hidden.
      */
     protected async revealDagmcOutline(): Promise<void> {
         const panel = await this.widgetManager.getOrCreateWidget(DagmcOutlineWidget.ID);
         if (!panel.isAttached) {
             await this.shell.addWidget(panel, { area: 'right' });
-        } else {
-            await this.shell.revealWidget(panel.id);
         }
+        await this.shell.revealWidget(panel.id);
     }
 
     /** Reuse the live tab when the same `.h5m` is opened again (it re-ids to the `.vtm` path on load). */

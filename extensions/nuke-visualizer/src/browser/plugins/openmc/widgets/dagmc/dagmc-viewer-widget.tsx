@@ -297,6 +297,18 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
         this.node.tabIndex = 0;
     }
 
+    /**
+     * Take DOM focus on activation (statepoint-viewer parity): the shell's
+     * `activeWidget`/`currentWidget` only update on real focus events, and
+     * the sidebar bindings (DAGMC Outline, Viewer Settings) key off them —
+     * without this, programmatic activation (auto-open on file open) never
+     * binds the sidebars.
+     */
+    protected override onActivateRequest(msg: Message): void {
+        super.onActivateRequest(msg);
+        this.node.focus();
+    }
+
     // ------------------------------------------------------------------
     // Public props API (instant, no restart)
     // ------------------------------------------------------------------
