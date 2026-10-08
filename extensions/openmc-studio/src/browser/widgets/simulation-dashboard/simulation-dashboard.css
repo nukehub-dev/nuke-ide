@@ -405,14 +405,8 @@
     margin-bottom: 4px;
 }
 
-.simulation-dashboard .source-type-select select {
+.simulation-dashboard .source-type-select .nuke-select {
     width: 100%;
-    padding: 6px 8px;
-    font-size: 13px;
-    background: var(--theia-input-background);
-    color: var(--theia-input-foreground);
-    border: 1px solid var(--theia-input-border);
-    border-radius: 4px;
 }
 
 .simulation-dashboard .snap-main-btn {
@@ -670,7 +664,7 @@
     font-weight: 600;
 }
 
-.simulation-dashboard .template-selector select {
+.simulation-dashboard .template-selector .nuke-select {
     width: 100%;
 }
 
@@ -894,20 +888,13 @@
     margin: 0;
 }
 
-.simulation-dashboard .nuclide-row select {
+.simulation-dashboard .nuclide-row .nuke-select {
     width: 100px;
     min-width: 100px;
-    padding: 6px 8px;
-    border: 1px solid var(--theia-input-border);
-    border-radius: 4px;
-    background: var(--theia-input-background);
-    color: var(--theia-input-foreground);
-    font-size: 13px;
     box-sizing: border-box;
 }
 
-.simulation-dashboard .nuclide-row input:focus,
-.simulation-dashboard .nuclide-row select:focus {
+.simulation-dashboard .nuclide-row input:focus {
     outline: none;
     border-color: var(--theia-focusBorder);
     box-shadow: 0 0 0 2px rgba(243, 117, 36, 0.2);
@@ -1627,8 +1614,7 @@
 }
 
 .simulation-dashboard button:focus-visible,
-.simulation-dashboard input:focus-visible,
-.simulation-dashboard select:focus-visible {
+.simulation-dashboard input:focus-visible {
     outline: none;
     box-shadow: 0 0 0 3px rgba(243, 117, 36, 0.25);
 }
@@ -2159,8 +2145,7 @@
     margin-left: 4px;
 }
 
-.simulation-dashboard .config-item input,
-.simulation-dashboard .config-item select {
+.simulation-dashboard .config-item input {
     padding: 10px 12px;
     border: 1px solid var(--theia-input-border);
     border-radius: 6px;
@@ -2170,8 +2155,7 @@
     transition: all 150ms;
 }
 
-.simulation-dashboard .config-item input:focus,
-.simulation-dashboard .config-item select:focus {
+.simulation-dashboard .config-item input:focus {
     outline: none;
     border-color: var(--theia-focusBorder);
     box-shadow: 0 0 0 2px rgba(243, 117, 36, 0.2);
@@ -2210,12 +2194,8 @@
     border-bottom-right-radius: 0;
 }
 
-.simulation-dashboard .power-input-unit select {
+.simulation-dashboard .power-input-unit .nuke-select {
     width: 140px;
-    border-top-left-radius: 0;
-    border-bottom-left-radius: 0;
-    border-left: none;
-    background: var(--theia-list-hoverBackground);
 }
 
 /* Depletion Warning Box */
@@ -2601,13 +2581,7 @@
     border-color: var(--theia-focusBorder);
 }
 
-.simulation-dashboard .duration-input-combo select {
-    padding: 10px 12px;
-    border: 1px solid var(--theia-input-border);
-    border-radius: 0 6px 6px 0;
-    background: var(--theia-list-hoverBackground);
-    color: var(--theia-input-foreground);
-    font-size: 14px;
+.simulation-dashboard .duration-input-combo .nuke-select {
     min-width: 130px;
 }
 

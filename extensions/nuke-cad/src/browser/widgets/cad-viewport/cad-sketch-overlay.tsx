@@ -42,6 +42,7 @@ import {
     NukeFormRow,
     NukePanel,
     NukeSection,
+    NukeSelect,
     NukeToolbar,
     NukeToolbarGroup
 } from 'nuke-essentials/lib/theme/browser/components';
@@ -652,24 +653,22 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
 
                     <div className="cad-sketch-constraint-bar">
                         <span className="cad-sketch-constraint-label">Constraint:</span>
-                        <select
+                        <NukeSelect
                             className="theia-select cad-sketch-constraint-select"
+                            ariaLabel="Constraint"
                             value={constraintInput?.kind ?? ''}
-                            onChange={(e) => {
-                                if (e.target.value !== '') {
-                                    controller.startConstraint(e.target.value as ConstraintKind);
+                            options={[
+                                { value: '', label: 'None' },
+                                ...CONSTRAINT_OPTIONS.map((opt) => ({ value: opt.kind, label: opt.label }))
+                            ]}
+                            onChange={(value) => {
+                                if (value !== '') {
+                                    controller.startConstraint(value as ConstraintKind);
                                 } else {
                                     controller.cancel();
                                 }
                             }}
-                        >
-                            <option value="">None</option>
-                            {CONSTRAINT_OPTIONS.map((opt) => (
-                                <option key={opt.kind} value={opt.kind}>
-                                    {opt.label}
-                                </option>
-                            ))}
-                        </select>
+                        />
                         {constraintInput !== undefined && (
                             <span className="cad-sketch-constraint-hint">
                                 {constraintInput.targetIds.length} / {arityFor(constraintInput.kind)} selected
@@ -1508,20 +1507,21 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
                     {props.documentStore.dirty && <span className="cad-document-toolbar-dirty" title="Unsaved changes" />}
                 </div>
                 <Tooltip content={SET_UNITS_TOOLTIP} position="bottom">
-                    <select
+                    <NukeSelect
                         className="theia-select cad-document-toolbar-units"
-                        aria-label="Document units"
+                        ariaLabel="Document units"
                         value={doc?.units ?? ''}
-                        onChange={(e) => {
-                            const next = e.target.value === '' ? undefined : (e.target.value as DocumentUnits);
+                        options={[
+                            { value: '', label: 'Unitless' },
+                            { value: 'mm', label: 'mm' },
+                            { value: 'cm', label: 'cm' },
+                            { value: 'm', label: 'm' }
+                        ]}
+                        onChange={(value) => {
+                            const next = value === '' ? undefined : (value as DocumentUnits);
                             props.documentStore.setUnits(next);
                         }}
-                    >
-                        <option value="">Unitless</option>
-                        <option value="mm">mm</option>
-                        <option value="cm">cm</option>
-                        <option value="m">m</option>
-                    </select>
+                    />
                 </Tooltip>
             </div>
             <div className="cad-document-toolbar-actions">
@@ -3465,36 +3465,36 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
 
     const bodySelector = (
         <NukeFormRow label="Body" className="cad-feature-dialog-row">
-            <select value={bodyId} onChange={(e) => setBodyId(e.target.value)}>
-                {type === 'pad' ||
-                type === 'revolve' ||
-                type === 'sweep' ||
-                type === 'pipe' ||
-                type === 'loft' ||
-                type === 'helicalSweep' ||
-                isPrimitive ? (
-                    <option value={NEW_BODY_SENTINEL}>New body</option>
-                ) : null}
-                {bodies.map((b) => (
-                    <option key={b.id} value={b.id}>
-                        {b.name}
-                    </option>
-                ))}
-            </select>
+            <NukeSelect
+                ariaLabel="Body"
+                value={bodyId}
+                options={[
+                    ...(type === 'pad' ||
+                    type === 'revolve' ||
+                    type === 'sweep' ||
+                    type === 'pipe' ||
+                    type === 'loft' ||
+                    type === 'helicalSweep' ||
+                    isPrimitive
+                        ? [{ value: NEW_BODY_SENTINEL, label: 'New body' }]
+                        : []),
+                    ...bodies.map((b) => ({ value: b.id, label: b.name }))
+                ]}
+                onChange={(value) => setBodyId(value)}
+            />
         </NukeFormRow>
     );
 
     const dressUpBodySelector = (
-        <label className="cad-feature-dialog-row">
+        <div className="cad-feature-dialog-row">
             Body
-            <select value={dressUpBodyId} onChange={(e) => setDressUpBodyId(e.target.value)}>
-                {bodies.map((b) => (
-                    <option key={b.id} value={b.id}>
-                        {b.name}
-                    </option>
-                ))}
-            </select>
-        </label>
+            <NukeSelect
+                ariaLabel="Body"
+                value={dressUpBodyId}
+                options={bodies.map((b) => ({ value: b.id, label: b.name }))}
+                onChange={(value) => setDressUpBodyId(value)}
+            />
+        </div>
     );
 
     const labelInput = (
@@ -3505,16 +3505,15 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
 
     const booleanBodySelectors = (
         <>
-            <label className="cad-feature-dialog-row">
+            <div className="cad-feature-dialog-row">
                 Target body
-                <select value={targetBody} onChange={(e) => setTargetBody(e.target.value)}>
-                    {bodies.map((b) => (
-                        <option key={b.id} value={b.id}>
-                            {b.name}
-                        </option>
-                    ))}
-                </select>
-            </label>
+                <NukeSelect
+                    ariaLabel="Target body"
+                    value={targetBody}
+                    options={bodies.map((b) => ({ value: b.id, label: b.name }))}
+                    onChange={(value) => setTargetBody(value)}
+                />
+            </div>
             <label className="cad-feature-dialog-row">
                 Tool bodies
                 <select
@@ -3664,14 +3663,19 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
             )}
             {isDressUp && type === 'chamfer' && (
                 <>
-                    <label className="cad-feature-dialog-row">
+                    <div className="cad-feature-dialog-row">
                         Mode
-                        <select value={chamferMode} onChange={(e) => setChamferMode(e.target.value as ChamferMode)}>
-                            <option value="symmetric">Symmetric distance</option>
-                            <option value="twoDistance">Two distances</option>
-                            <option value="distanceAngle">Distance + angle</option>
-                        </select>
-                    </label>
+                        <NukeSelect
+                            ariaLabel="Mode"
+                            value={chamferMode}
+                            options={[
+                                { value: 'symmetric', label: 'Symmetric distance' },
+                                { value: 'twoDistance', label: 'Two distances' },
+                                { value: 'distanceAngle', label: 'Distance + angle' }
+                            ]}
+                            onChange={(value) => setChamferMode(value as ChamferMode)}
+                        />
+                    </div>
                     {chamferMode === 'symmetric' && (
                         <label className="cad-feature-dialog-row">
                             Distance
@@ -3823,11 +3827,16 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                             />
                         </NukeFormRow>
                         <NukeFormRow label="Direction" className="cad-feature-dialog-row">
-                            <select value={axis} onChange={(e) => setAxis(e.target.value as 'x' | 'y' | 'z')}>
-                                <option value="x">X</option>
-                                <option value="y">Y</option>
-                                <option value="z">Z</option>
-                            </select>
+                            <NukeSelect
+                                ariaLabel="Direction"
+                                value={axis}
+                                options={[
+                                    { value: 'x', label: 'X' },
+                                    { value: 'y', label: 'Y' },
+                                    { value: 'z', label: 'Z' }
+                                ]}
+                                onChange={(value) => setAxis(value as 'x' | 'y' | 'z')}
+                            />
                         </NukeFormRow>
                     </NukeSection>
                     <NukeSection title="End condition">
@@ -3836,18 +3845,18 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                             hint="First/Last span the body's intersections along the direction"
                             className="cad-feature-dialog-row"
                         >
-                            <select
+                            <NukeSelect
+                                ariaLabel="End"
                                 value={extrudeEnd}
-                                onChange={(e) =>
-                                    setExtrudeEnd(e.target.value as 'blind' | 'upToFirst' | 'upToLast' | 'upToFace' | 'throughAll')
-                                }
-                            >
-                                <option value="blind">Blind</option>
-                                <option value="upToFirst">Up to first</option>
-                                <option value="upToLast">Up to last</option>
-                                <option value="upToFace">Up to face</option>
-                                <option value="throughAll">Through all</option>
-                            </select>
+                                options={[
+                                    { value: 'blind', label: 'Blind' },
+                                    { value: 'upToFirst', label: 'Up to first' },
+                                    { value: 'upToLast', label: 'Up to last' },
+                                    { value: 'upToFace', label: 'Up to face' },
+                                    { value: 'throughAll', label: 'Through all' }
+                                ]}
+                                onChange={(value) => setExtrudeEnd(value as 'blind' | 'upToFirst' | 'upToLast' | 'upToFace' | 'throughAll')}
+                            />
                         </NukeFormRow>
                         {extrudeEnd === 'upToFace' && (
                             <div className="cad-feature-dialog-row vertical">
@@ -3894,14 +3903,12 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                             <input type="checkbox" checked={twoSided} onChange={(e) => setTwoSided(e.target.checked)} />
                         </NukeFormRow>
                         <NukeFormRow label="Up-to body" hint="Blank = none" className="cad-feature-dialog-row">
-                            <select value={upToBody} onChange={(e) => setUpToBody(e.target.value)}>
-                                <option value="">None</option>
-                                {bodies.map((b) => (
-                                    <option key={b.id} value={b.id}>
-                                        {b.name}
-                                    </option>
-                                ))}
-                            </select>
+                            <NukeSelect
+                                ariaLabel="Up-to body"
+                                value={upToBody}
+                                options={[{ value: '', label: 'None' }, ...bodies.map((b) => ({ value: b.id, label: b.name }))]}
+                                onChange={(value) => setUpToBody(value)}
+                            />
                         </NukeFormRow>
                     </NukeSection>
                     {props.onPreviewChange !== undefined && (
@@ -3928,25 +3935,35 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
             )}
             {isRevolve && (
                 <>
-                    <label className="cad-feature-dialog-row">
+                    <div className="cad-feature-dialog-row">
                         Axis
-                        <select value={axis} onChange={(e) => setAxis(e.target.value as 'x' | 'y' | 'z')}>
-                            <option value="x">X</option>
-                            <option value="y">Y</option>
-                            <option value="z">Z</option>
-                        </select>
-                    </label>
+                        <NukeSelect
+                            ariaLabel="Axis"
+                            value={axis}
+                            options={[
+                                { value: 'x', label: 'X' },
+                                { value: 'y', label: 'Y' },
+                                { value: 'z', label: 'Z' }
+                            ]}
+                            onChange={(value) => setAxis(value as 'x' | 'y' | 'z')}
+                        />
+                    </div>
                     <label className="cad-feature-dialog-row">
                         Angle (°)
                         <input type="number" value={angle} onChange={(e) => setAngle(e.target.value)} autoFocus />
                     </label>
-                    <label className="cad-feature-dialog-row">
+                    <div className="cad-feature-dialog-row">
                         End
-                        <select value={revolveEnd} onChange={(e) => setRevolveEnd(e.target.value as 'blind' | 'throughAll')}>
-                            <option value="blind">Blind</option>
-                            <option value="throughAll">Through all</option>
-                        </select>
-                    </label>
+                        <NukeSelect
+                            ariaLabel="End"
+                            value={revolveEnd}
+                            options={[
+                                { value: 'blind', label: 'Blind' },
+                                { value: 'throughAll', label: 'Through all' }
+                            ]}
+                            onChange={(value) => setRevolveEnd(value as 'blind' | 'throughAll')}
+                        />
+                    </div>
                     {props.onPreviewChange !== undefined && (
                         <label className="cad-feature-dialog-row check">
                             <input
@@ -3972,14 +3989,12 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                             {pathCurveId !== '' ? `(${curves.find((c) => c.id === pathCurveId)?.name ?? pathCurveId})` : '(none)'}
                         </span>
                         <div className="cad-feature-dialog-actions">
-                            <select value={pathCurveId} onChange={(e) => setPathCurveId(e.target.value)}>
-                                <option value="">Select a curve…</option>
-                                {curves.map((c) => (
-                                    <option key={c.id} value={c.id}>
-                                        {c.name}
-                                    </option>
-                                ))}
-                            </select>
+                            <NukeSelect
+                                ariaLabel="Path curve"
+                                value={pathCurveId}
+                                options={[{ value: '', label: 'Select a curve…' }, ...curves.map((c) => ({ value: c.id, label: c.name }))]}
+                                onChange={(value) => setPathCurveId(value)}
+                            />
                             <button
                                 className={`theia-button secondary ${props.curvePickMode === true ? 'active' : ''}`}
                                 onClick={() => {
@@ -3995,16 +4010,18 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                             </button>
                         </div>
                     </div>
-                    <label className="cad-feature-dialog-row">
+                    <div className="cad-feature-dialog-row">
                         Orientation
-                        <select
+                        <NukeSelect
+                            ariaLabel="Orientation"
                             value={sweepOrientation}
-                            onChange={(e) => setSweepOrientation(e.target.value as 'frenet' | 'fixedBinormal')}
-                        >
-                            <option value="frenet">Frenet (follow path)</option>
-                            <option value="fixedBinormal">Fixed binormal</option>
-                        </select>
-                    </label>
+                            options={[
+                                { value: 'frenet', label: 'Frenet (follow path)' },
+                                { value: 'fixedBinormal', label: 'Fixed binormal' }
+                            ]}
+                            onChange={(value) => setSweepOrientation(value as 'frenet' | 'fixedBinormal')}
+                        />
+                    </div>
                     {sweepOrientation === 'fixedBinormal' && (
                         <>
                             <label className="cad-feature-dialog-row">
@@ -4089,24 +4106,19 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                             {loftSections.length === 0 && <span className="cad-feature-dialog-label">No sections yet.</span>}
                         </div>
                         <div className="cad-feature-dialog-actions">
-                            <select
+                            <NukeSelect
+                                ariaLabel="Add section"
                                 value=""
-                                onChange={(e) => {
-                                    const value = e.target.value;
+                                options={[
+                                    { value: '', label: 'Add section…' },
+                                    ...sketches.filter((s) => !loftSections.includes(s.id)).map((s) => ({ value: s.id, label: s.name }))
+                                ]}
+                                onChange={(value) => {
                                     if (value.length > 0 && !loftSections.includes(value)) {
                                         setLoftSections((prev) => [...prev, value]);
                                     }
                                 }}
-                            >
-                                <option value="">Add section…</option>
-                                {sketches
-                                    .filter((s) => !loftSections.includes(s.id))
-                                    .map((s) => (
-                                        <option key={s.id} value={s.id}>
-                                            {s.name}
-                                        </option>
-                                    ))}
-                            </select>
+                            />
                         </div>
                     </div>
                     <label className="cad-feature-dialog-row check">
@@ -4123,22 +4135,24 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
             )}
             {isHelicalSweep && (
                 <>
-                    <label className="cad-feature-dialog-row">
+                    <div className="cad-feature-dialog-row">
                         Axis
-                        <select
+                        <NukeSelect
+                            ariaLabel="Axis"
                             value={helixAxis}
-                            onChange={(e) => {
-                                const axis = e.target.value as HelixAxis;
+                            options={[
+                                { value: 'X', label: 'X' },
+                                { value: 'Y', label: 'Y' },
+                                { value: 'Z', label: 'Z' }
+                            ]}
+                            onChange={(value) => {
+                                const axis = value as HelixAxis;
                                 setHelixAxis(axis);
                                 // Prefill the fixed-binormal vector with the new axis unit.
                                 setHelixBinormal(helixAxisUnit(axis).map((v) => String(v)) as [string, string, string]);
                             }}
-                        >
-                            <option value="X">X</option>
-                            <option value="Y">Y</option>
-                            <option value="Z">Z</option>
-                        </select>
-                    </label>
+                        />
+                    </div>
                     <label className="cad-feature-dialog-row">
                         Start radius
                         <input type="number" value={helixStartRadius} onChange={(e) => setHelixStartRadius(e.target.value)} autoFocus />
@@ -4155,16 +4169,18 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                         <input type="checkbox" checked={helixLeftHanded} onChange={(e) => setHelixLeftHanded(e.target.checked)} />
                         Left-handed
                     </label>
-                    <label className="cad-feature-dialog-row">
+                    <div className="cad-feature-dialog-row">
                         Orientation
-                        <select
+                        <NukeSelect
+                            ariaLabel="Orientation"
                             value={helixOrientation}
-                            onChange={(e) => setHelixOrientation(e.target.value as 'frenet' | 'fixedBinormal')}
-                        >
-                            <option value="fixedBinormal">Fixed binormal (no roll)</option>
-                            <option value="frenet">Frenet (follow path)</option>
-                        </select>
-                    </label>
+                            options={[
+                                { value: 'fixedBinormal', label: 'Fixed binormal (no roll)' },
+                                { value: 'frenet', label: 'Frenet (follow path)' }
+                            ]}
+                            onChange={(value) => setHelixOrientation(value as 'frenet' | 'fixedBinormal')}
+                        />
+                    </div>
                     {helixOrientation === 'fixedBinormal' && (
                         <>
                             <label className="cad-feature-dialog-row">
@@ -4217,16 +4233,15 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
             )}
             {isPattern && (
                 <>
-                    <label className="cad-feature-dialog-row">
+                    <div className="cad-feature-dialog-row">
                         Source feature
-                        <select value={patternSource} onChange={(e) => setPatternSource(e.target.value)}>
-                            {sourceFeatures.map((f) => (
-                                <option key={f.id} value={f.id}>
-                                    {f.name}
-                                </option>
-                            ))}
-                        </select>
-                    </label>
+                        <NukeSelect
+                            ariaLabel="Source feature"
+                            value={patternSource}
+                            options={sourceFeatures.map((f) => ({ value: f.id, label: f.name }))}
+                            onChange={(value) => setPatternSource(value)}
+                        />
+                    </div>
                     <label className="cad-feature-dialog-row">
                         Scale (blank/1 = unscaled)
                         <input type="number" value={patternScale} onChange={(e) => setPatternScale(e.target.value)} />
@@ -4243,25 +4258,31 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                                 Spacing
                                 <input type="number" value={patternSpacing} onChange={(e) => setPatternSpacing(e.target.value)} />
                             </label>
-                            <label className="cad-feature-dialog-row">
+                            <div className="cad-feature-dialog-row">
                                 Axis
-                                <select value={patternAxis} onChange={(e) => setPatternAxis(e.target.value as 'x' | 'y' | 'z')}>
-                                    <option value="x">X</option>
-                                    <option value="y">Y</option>
-                                    <option value="z">Z</option>
-                                </select>
-                            </label>
-                            <label className="cad-feature-dialog-row">
+                                <NukeSelect
+                                    ariaLabel="Axis"
+                                    value={patternAxis}
+                                    options={[
+                                        { value: 'x', label: 'X' },
+                                        { value: 'y', label: 'Y' },
+                                        { value: 'z', label: 'Z' }
+                                    ]}
+                                    onChange={(value) => setPatternAxis(value as 'x' | 'y' | 'z')}
+                                />
+                            </div>
+                            <div className="cad-feature-dialog-row">
                                 Axis datum (optional)
-                                <select value={linearAxisDatumId} onChange={(e) => setLinearAxisDatumId(e.target.value)}>
-                                    <option value="">Coordinate axis</option>
-                                    {datumOptions.map((d) => (
-                                        <option key={d.id} value={d.id}>
-                                            {d.name}
-                                        </option>
-                                    ))}
-                                </select>
-                            </label>
+                                <NukeSelect
+                                    ariaLabel="Axis datum (optional)"
+                                    value={linearAxisDatumId}
+                                    options={[
+                                        { value: '', label: 'Coordinate axis' },
+                                        ...datumOptions.map((d) => ({ value: d.id, label: d.name }))
+                                    ]}
+                                    onChange={(value) => setLinearAxisDatumId(value)}
+                                />
+                            </div>
                         </>
                     )}
                     {type === 'circularPattern' && (
@@ -4270,71 +4291,87 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                                 Angle (°)
                                 <input type="number" value={patternAngle} onChange={(e) => setPatternAngle(e.target.value)} />
                             </label>
-                            <label className="cad-feature-dialog-row">
+                            <div className="cad-feature-dialog-row">
                                 Axis
-                                <select value={patternAxis} onChange={(e) => setPatternAxis(e.target.value as 'x' | 'y' | 'z')}>
-                                    <option value="x">X</option>
-                                    <option value="y">Y</option>
-                                    <option value="z">Z</option>
-                                </select>
-                            </label>
-                            <label className="cad-feature-dialog-row">
+                                <NukeSelect
+                                    ariaLabel="Axis"
+                                    value={patternAxis}
+                                    options={[
+                                        { value: 'x', label: 'X' },
+                                        { value: 'y', label: 'Y' },
+                                        { value: 'z', label: 'Z' }
+                                    ]}
+                                    onChange={(value) => setPatternAxis(value as 'x' | 'y' | 'z')}
+                                />
+                            </div>
+                            <div className="cad-feature-dialog-row">
                                 Axis datum (optional)
-                                <select value={patternAxisDatumId} onChange={(e) => setPatternAxisDatumId(e.target.value)}>
-                                    <option value="">Coordinate axis</option>
-                                    {datumOptions.map((d) => (
-                                        <option key={d.id} value={d.id}>
-                                            {d.name}
-                                        </option>
-                                    ))}
-                                </select>
-                            </label>
+                                <NukeSelect
+                                    ariaLabel="Axis datum (optional)"
+                                    value={patternAxisDatumId}
+                                    options={[
+                                        { value: '', label: 'Coordinate axis' },
+                                        ...datumOptions.map((d) => ({ value: d.id, label: d.name }))
+                                    ]}
+                                    onChange={(value) => setPatternAxisDatumId(value)}
+                                />
+                            </div>
                         </>
                     )}
                     {type === 'mirror' && (
                         <>
-                            <label className="cad-feature-dialog-row">
+                            <div className="cad-feature-dialog-row">
                                 Plane
-                                <select value={mirrorPlane} onChange={(e) => setMirrorPlane(e.target.value as 'XY' | 'YZ' | 'XZ')}>
-                                    <option value="XY">XY</option>
-                                    <option value="YZ">YZ</option>
-                                    <option value="XZ">XZ</option>
-                                </select>
-                            </label>
-                            <label className="cad-feature-dialog-row">
+                                <NukeSelect
+                                    ariaLabel="Plane"
+                                    value={mirrorPlane}
+                                    options={[
+                                        { value: 'XY', label: 'XY' },
+                                        { value: 'YZ', label: 'YZ' },
+                                        { value: 'XZ', label: 'XZ' }
+                                    ]}
+                                    onChange={(value) => setMirrorPlane(value as 'XY' | 'YZ' | 'XZ')}
+                                />
+                            </div>
+                            <div className="cad-feature-dialog-row">
                                 Plane datum (optional)
-                                <select value={mirrorPlaneDatumId} onChange={(e) => setMirrorPlaneDatumId(e.target.value)}>
-                                    <option value="">Coordinate plane</option>
-                                    {datumOptions.map((d) => (
-                                        <option key={d.id} value={d.id}>
-                                            {d.name}
-                                        </option>
-                                    ))}
-                                </select>
-                            </label>
+                                <NukeSelect
+                                    ariaLabel="Plane datum (optional)"
+                                    value={mirrorPlaneDatumId}
+                                    options={[
+                                        { value: '', label: 'Coordinate plane' },
+                                        ...datumOptions.map((d) => ({ value: d.id, label: d.name }))
+                                    ]}
+                                    onChange={(value) => setMirrorPlaneDatumId(value)}
+                                />
+                            </div>
                         </>
                     )}
                 </>
             )}
             {isLattice && (
                 <>
-                    <label className="cad-feature-dialog-row">
+                    <div className="cad-feature-dialog-row">
                         Source feature
-                        <select value={patternSource} onChange={(e) => setPatternSource(e.target.value)}>
-                            {sourceFeatures.map((f) => (
-                                <option key={f.id} value={f.id}>
-                                    {f.name}
-                                </option>
-                            ))}
-                        </select>
-                    </label>
-                    <label className="cad-feature-dialog-row">
+                        <NukeSelect
+                            ariaLabel="Source feature"
+                            value={patternSource}
+                            options={sourceFeatures.map((f) => ({ value: f.id, label: f.name }))}
+                            onChange={(value) => setPatternSource(value)}
+                        />
+                    </div>
+                    <div className="cad-feature-dialog-row">
                         Lattice type
-                        <select value={latticeType} onChange={(e) => setLatticeType(e.target.value as 'rectangular' | 'hexagonal')}>
-                            <option value="rectangular">Rectangular</option>
-                            <option value="hexagonal">Hexagonal</option>
-                        </select>
-                    </label>
+                        <NukeSelect
+                            ariaLabel="Lattice type"
+                            value={latticeType}
+                            options={[
+                                { value: 'rectangular', label: 'Rectangular' },
+                                { value: 'hexagonal', label: 'Hexagonal' }
+                            ]}
+                            onChange={(value) => setLatticeType(value as 'rectangular' | 'hexagonal')}
+                        />
+                    </div>
                     <label className="cad-feature-dialog-row">
                         Pitch
                         <input type="number" value={latticePitch} onChange={(e) => setLatticePitch(e.target.value)} autoFocus />
@@ -4345,13 +4382,18 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                             <input type="number" value={latticePitchY} onChange={(e) => setLatticePitchY(e.target.value)} />
                         </label>
                     )}
-                    <label className="cad-feature-dialog-row">
+                    <div className="cad-feature-dialog-row">
                         Extents
-                        <select value={latticeExtents} onChange={(e) => setLatticeExtents(e.target.value as 'grid' | 'rings')}>
-                            <option value="grid">Rows × columns</option>
-                            <option value="rings">Hex rings</option>
-                        </select>
-                    </label>
+                        <NukeSelect
+                            ariaLabel="Extents"
+                            value={latticeExtents}
+                            options={[
+                                { value: 'grid', label: 'Rows × columns' },
+                                { value: 'rings', label: 'Hex rings' }
+                            ]}
+                            onChange={(value) => setLatticeExtents(value as 'grid' | 'rings')}
+                        />
+                    </div>
                     {latticeExtents === 'grid' ? (
                         <>
                             <label className="cad-feature-dialog-row">
@@ -4370,28 +4412,28 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                         </label>
                     )}
                     {latticeType === 'hexagonal' && (
-                        <label className="cad-feature-dialog-row">
+                        <div className="cad-feature-dialog-row">
                             Orientation
-                            <select
+                            <NukeSelect
+                                ariaLabel="Orientation"
                                 value={latticeOrientation}
-                                onChange={(e) => setLatticeOrientation(e.target.value as 'flatTop' | 'pointyTop')}
-                            >
-                                <option value="pointyTop">Pointy top</option>
-                                <option value="flatTop">Flat top</option>
-                            </select>
-                        </label>
+                                options={[
+                                    { value: 'pointyTop', label: 'Pointy top' },
+                                    { value: 'flatTop', label: 'Flat top' }
+                                ]}
+                                onChange={(value) => setLatticeOrientation(value as 'flatTop' | 'pointyTop')}
+                            />
+                        </div>
                     )}
-                    <label className="cad-feature-dialog-row">
+                    <div className="cad-feature-dialog-row">
                         Lattice plane datum (optional)
-                        <select value={latticeDatumId} onChange={(e) => setLatticeDatumId(e.target.value)}>
-                            <option value="">Default (XY)</option>
-                            {datumOptions.map((d) => (
-                                <option key={d.id} value={d.id}>
-                                    {d.name}
-                                </option>
-                            ))}
-                        </select>
-                    </label>
+                        <NukeSelect
+                            ariaLabel="Lattice plane datum (optional)"
+                            value={latticeDatumId}
+                            options={[{ value: '', label: 'Default (XY)' }, ...datumOptions.map((d) => ({ value: d.id, label: d.name }))]}
+                            onChange={(value) => setLatticeDatumId(value)}
+                        />
+                    </div>
                     <label className="cad-feature-dialog-row">
                         Origin X
                         <input type="number" value={latticeOriginX} onChange={(e) => setLatticeOriginX(e.target.value)} />
@@ -4424,16 +4466,15 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
             )}
             {isHole && (
                 <>
-                    <label className="cad-feature-dialog-row">
+                    <div className="cad-feature-dialog-row">
                         Body
-                        <select value={holeBodyId} onChange={(e) => setHoleBodyId(e.target.value)}>
-                            {bodies.map((b) => (
-                                <option key={b.id} value={b.id}>
-                                    {b.name}
-                                </option>
-                            ))}
-                        </select>
-                    </label>
+                        <NukeSelect
+                            ariaLabel="Body"
+                            value={holeBodyId}
+                            options={bodies.map((b) => ({ value: b.id, label: b.name }))}
+                            onChange={(value) => setHoleBodyId(value)}
+                        />
+                    </div>
                     <div className="cad-feature-dialog-row vertical">
                         <span className="cad-feature-dialog-label">
                             Placement face {holeFaceRef !== undefined ? `(${holeFaceRef.featureId})` : '(none)'}
@@ -4460,18 +4501,20 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                         Diameter
                         <input type="number" value={holeDiameter} onChange={(e) => setHoleDiameter(e.target.value)} autoFocus />
                     </label>
-                    <label className="cad-feature-dialog-row">
+                    <div className="cad-feature-dialog-row">
                         Type
-                        <select
+                        <NukeSelect
+                            ariaLabel="Type"
                             value={holeType}
-                            onChange={(e) => setHoleType(e.target.value as 'simple' | 'counterbore' | 'countersink' | 'counterdrill')}
-                        >
-                            <option value="simple">Simple / through</option>
-                            <option value="counterbore">Counterbore</option>
-                            <option value="countersink">Countersink</option>
-                            <option value="counterdrill">Counterdrill (stepped)</option>
-                        </select>
-                    </label>
+                            options={[
+                                { value: 'simple', label: 'Simple / through' },
+                                { value: 'counterbore', label: 'Counterbore' },
+                                { value: 'countersink', label: 'Countersink' },
+                                { value: 'counterdrill', label: 'Counterdrill (stepped)' }
+                            ]}
+                            onChange={(value) => setHoleType(value as 'simple' | 'counterbore' | 'countersink' | 'counterdrill')}
+                        />
+                    </div>
                     {holeType === 'simple' && (
                         <label className="cad-feature-dialog-row">
                             Depth (blank = through)
@@ -4546,14 +4589,19 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                         Drill point ° (blank = flat)
                         <input type="number" value={holeDrillPointAngle} onChange={(e) => setHoleDrillPointAngle(e.target.value)} />
                     </label>
-                    <label className="cad-feature-dialog-row">
+                    <div className="cad-feature-dialog-row">
                         Thread
-                        <select value={holeThread} onChange={(e) => setHoleThread(e.target.value as 'none' | 'cosmetic' | 'modeled')}>
-                            <option value="none">None</option>
-                            <option value="cosmetic">Cosmetic</option>
-                            <option value="modeled">Modeled</option>
-                        </select>
-                    </label>
+                        <NukeSelect
+                            ariaLabel="Thread"
+                            value={holeThread}
+                            options={[
+                                { value: 'none', label: 'None' },
+                                { value: 'cosmetic', label: 'Cosmetic' },
+                                { value: 'modeled', label: 'Modeled' }
+                            ]}
+                            onChange={(value) => setHoleThread(value as 'none' | 'cosmetic' | 'modeled')}
+                        />
+                    </div>
                     {holeThread === 'modeled' && (holeType !== 'simple' || holeDepth.trim() === '' || holeTaperAngle.trim() !== '') && (
                         <span className="cad-feature-dialog-label">
                             Modeled threads require a simple blind hole (set a depth, no taper).
@@ -4572,17 +4620,18 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
             {isPrimitive && (
                 <>
                     <NukeFormRow label="Shape" className="cad-feature-dialog-row">
-                        <select
+                        <NukeSelect
+                            ariaLabel="Shape"
                             value={primitiveShape}
-                            onChange={(e) => setPrimitiveShape(e.target.value as 'box' | 'cylinder' | 'sphere' | 'cone' | 'torus')}
-                            autoFocus
-                        >
-                            <option value="box">Box (dx, dy, dz about datum origin)</option>
-                            <option value="cylinder">Cylinder (radius, height along normal)</option>
-                            <option value="sphere">Sphere (radius at origin)</option>
-                            <option value="cone">Cone (radius, height along normal)</option>
-                            <option value="torus">Torus (major R, minor r in plane)</option>
-                        </select>
+                            options={[
+                                { value: 'box', label: 'Box (dx, dy, dz about datum origin)' },
+                                { value: 'cylinder', label: 'Cylinder (radius, height along normal)' },
+                                { value: 'sphere', label: 'Sphere (radius at origin)' },
+                                { value: 'cone', label: 'Cone (radius, height along normal)' },
+                                { value: 'torus', label: 'Torus (major R, minor r in plane)' }
+                            ]}
+                            onChange={(value) => setPrimitiveShape(value as 'box' | 'cylinder' | 'sphere' | 'cone' | 'torus')}
+                        />
                     </NukeFormRow>
                     {primitiveDimLabels.map((dimLabel, index) => (
                         <NukeFormRow key={dimLabel} label={dimLabel} hint="Model units" className="cad-feature-dialog-row">
@@ -4590,14 +4639,15 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                         </NukeFormRow>
                     ))}
                     <NukeFormRow label="Datum" hint="Blank = datum-xy" className="cad-feature-dialog-row">
-                        <select value={primitiveDatumId} onChange={(e) => setPrimitiveDatumId(e.target.value)}>
-                            <option value="">datum-xy (default)</option>
-                            {datumOptions.map((d) => (
-                                <option key={d.id} value={d.id}>
-                                    {d.name}
-                                </option>
-                            ))}
-                        </select>
+                        <NukeSelect
+                            ariaLabel="Datum"
+                            value={primitiveDatumId}
+                            options={[
+                                { value: '', label: 'datum-xy (default)' },
+                                ...datumOptions.map((d) => ({ value: d.id, label: d.name }))
+                            ]}
+                            onChange={(value) => setPrimitiveDatumId(value)}
+                        />
                     </NukeFormRow>
                     <label className="cad-feature-dialog-row check">
                         <input type="checkbox" checked={primitiveSubtractive} onChange={(e) => setPrimitiveSubtractive(e.target.checked)} />
@@ -4623,28 +4673,30 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
             )}
             {isMultiTransform && (
                 <>
-                    <label className="cad-feature-dialog-row">
+                    <div className="cad-feature-dialog-row">
                         First source (earlier)
-                        <select value={multiFirst} onChange={(e) => setMultiFirst(e.target.value)} autoFocus>
-                            <option value="">Select a pattern…</option>
-                            {patternLikeSources.map((f) => (
-                                <option key={f.id} value={f.id}>
-                                    {f.name}
-                                </option>
-                            ))}
-                        </select>
-                    </label>
-                    <label className="cad-feature-dialog-row">
+                        <NukeSelect
+                            ariaLabel="First source (earlier)"
+                            value={multiFirst}
+                            options={[
+                                { value: '', label: 'Select a pattern…' },
+                                ...patternLikeSources.map((f) => ({ value: f.id, label: f.name }))
+                            ]}
+                            onChange={(value) => setMultiFirst(value)}
+                        />
+                    </div>
+                    <div className="cad-feature-dialog-row">
                         Second source (later)
-                        <select value={multiSecond} onChange={(e) => setMultiSecond(e.target.value)}>
-                            <option value="">Select a pattern…</option>
-                            {patternLikeSources.map((f) => (
-                                <option key={f.id} value={f.id}>
-                                    {f.name}
-                                </option>
-                            ))}
-                        </select>
-                    </label>
+                        <NukeSelect
+                            ariaLabel="Second source (later)"
+                            value={multiSecond}
+                            options={[
+                                { value: '', label: 'Select a pattern…' },
+                                ...patternLikeSources.map((f) => ({ value: f.id, label: f.name }))
+                            ]}
+                            onChange={(value) => setMultiSecond(value)}
+                        />
+                    </div>
                 </>
             )}
             {isBoolean && booleanBodySelectors}

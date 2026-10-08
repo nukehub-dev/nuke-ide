@@ -372,6 +372,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- nuke-essentials + nuke-visualizer + openmc-studio + nuke-cad: **new
+  shared `NukeSelect` replaces all 157 builtin selects** — the docs-kit
+  `Select` behavior (portal dropdown, flip positioning, full keyboard nav,
+  hidden native select, ARIA listbox) re-implemented dependency-free on
+  Theia tokens + codicons + CSS animation (no Tailwind/framer/lucide in the
+  IDE); every dropdown (viewer color-by/colormap/shading, plot pickers,
+  dashboard tabs, CAD feature dialogs, …) uses it, so dropdowns can never
+  clip in narrow sidebars and all pickers share one keyboard model. The one
+  `<select multiple>` (CAD boolean tool bodies) stays native — `NukeSelect`
+  is single-value. `tooltip.css` also loads centrally now instead of via a
+  one-off widget import.
 - nuke-visualizer: **DAGMC viewer stuck in Shaded + Edges** — the edge
   overlay showed in both `Shaded` and `Shaded + Edges` modes (the widget
   keyed its visibility off the material flags instead of the mode, unlike

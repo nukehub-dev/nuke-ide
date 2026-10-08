@@ -31,6 +31,8 @@ import { ThemeContribution } from './theme-contribution';
 
 // Import global styles
 import './global-styles.css';
+import './components/tooltip.css';
+import './components/nuke-select.css';
 import './components/searchable-multi-select.css';
 import './components/nuke-dialog.css';
 import './components/nuke-toolbar.css';

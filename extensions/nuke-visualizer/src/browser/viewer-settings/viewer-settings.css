@@ -203,17 +203,12 @@
     flex-shrink: 0;
 }
 
-.viewer-settings-row select {
-    flex: 1;
+/* Shared NukeSelect (replaces every builtin select): hugs the right side
+   of the row like the old select did; the trigger paints its own input
+   chrome from Theia tokens. */
+.viewer-settings-row .nuke-select {
+    flex: 1 1 auto;
     min-width: 0;
-    background: var(--theia-input-background);
-    color: var(--theia-input-foreground);
-    border: 1px solid var(--theia-input-border);
-    padding: 2px 4px;
-}
-
-.viewer-settings-row select:disabled {
-    opacity: 0.5;
 }
 
 .viewer-settings-row input[type='range'] {

@@ -47,6 +47,7 @@ import { MessageService } from '@theia/core/lib/common/message-service';
 import { CommonCommands } from '@theia/core/lib/browser';
 import { CommandRegistry } from '@theia/core/lib/common/command';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
+import { NukeSelect } from 'nuke-essentials/lib/theme/browser/components';
 import { WIDGET_IDS } from '../widget-ids';
 
 /** Mode for XS plotting */
@@ -834,36 +835,26 @@ export class XSPlotWidget extends ReactWidget {
                         >
                             Group Structure (Multigroup)
                         </label>
-                        <select
+                        <NukeSelect
+                            ariaLabel="Group structure"
                             value={this.groupStructure}
-                            onChange={(e) => {
-                                this.groupStructure = e.target.value as XSGroupStructure;
+                            options={
+                                this.availableGroupStructures.length > 0
+                                    ? [
+                                          { value: 'continuous', label: 'Continuous Energy' },
+                                          ...this.availableGroupStructures.map((gs) => ({
+                                              value: gs.name,
+                                              label: `${gs.name} (${gs.groups} groups)`
+                                          }))
+                                      ]
+                                    : [{ value: '', label: 'No structures available', disabled: true }]
+                            }
+                            onChange={(value) => {
+                                this.groupStructure = value as XSGroupStructure;
                                 this.update();
                             }}
-                            style={{
-                                width: '100%',
-                                padding: '4px 8px',
-                                backgroundColor: checkboxBg,
-                                color: textColor,
-                                border: '1px solid var(--theia-input-border)',
-                                borderRadius: '3px',
-                                fontSize: '12px',
-                                boxSizing: 'border-box'
-                            }}
-                        >
-                            <option value="continuous">Continuous Energy</option>
-                            {this.availableGroupStructures.length > 0 ? (
-                                this.availableGroupStructures.map((gs) => (
-                                    <option key={gs.name} value={gs.name}>
-                                        {gs.name} ({gs.groups} groups)
-                                    </option>
-                                ))
-                            ) : (
-                                <option value="" disabled>
-                                    No structures available
-                                </option>
-                            )}
-                        </select>
+                            style={{ width: '100%' }}
+                        />
                         {this.groupStructure !== 'continuous' && (
                             <div
                                 style={{
@@ -2067,27 +2058,16 @@ export class XSPlotWidget extends ReactWidget {
                         </div>
                         {this.currentMaterial.components.map((comp, idx) => (
                             <div key={idx} style={{ display: 'flex', gap: '4px', marginBottom: '4px' }}>
-                                <select
+                                <NukeSelect
+                                    ariaLabel="Component nuclide"
                                     value={comp.nuclide}
-                                    onChange={(e) => this.updateComponent(idx, { nuclide: e.target.value })}
-                                    style={{
-                                        flex: 1,
-                                        padding: '4px',
-                                        fontSize: '11px',
-                                        backgroundColor: checkboxBg,
-                                        color: textColor,
-                                        border: '1px solid var(--theia-input-border)',
-                                        borderRadius: '3px',
-                                        boxSizing: 'border-box'
-                                    }}
-                                >
-                                    <option value="">Select nuclide...</option>
-                                    {this.availableNuclides.map((n) => (
-                                        <option key={n} value={n}>
-                                            {n}
-                                        </option>
-                                    ))}
-                                </select>
+                                    options={[
+                                        { value: '', label: 'Select nuclide...' },
+                                        ...this.availableNuclides.map((n) => ({ value: n, label: n }))
+                                    ]}
+                                    onChange={(value) => this.updateComponent(idx, { nuclide: value })}
+                                    style={{ flex: 1 }}
+                                />
                                 <input
                                     type="number"
                                     step="0.01"
@@ -2223,52 +2203,26 @@ export class XSPlotWidget extends ReactWidget {
                     <label style={{ display: 'block', fontSize: '11px', color: 'var(--theia-descriptionForeground)', marginBottom: '4px' }}>
                         Nuclide
                     </label>
-                    <select
+                    <NukeSelect
+                        ariaLabel="Temperature comparison nuclide"
                         value={this.tempComparisonNuclide}
-                        onChange={(e) => this.setTempComparisonNuclide(e.target.value)}
-                        style={{
-                            width: '100%',
-                            padding: '6px 8px',
-                            backgroundColor: checkboxBg,
-                            color: textColor,
-                            border: '1px solid var(--theia-input-border)',
-                            borderRadius: '3px',
-                            fontSize: '12px',
-                            boxSizing: 'border-box'
-                        }}
-                    >
-                        {this.availableNuclides.map((n) => (
-                            <option key={n} value={n}>
-                                {n}
-                            </option>
-                        ))}
-                    </select>
+                        options={this.availableNuclides.map((n) => ({ value: n, label: n }))}
+                        onChange={(value) => this.setTempComparisonNuclide(value)}
+                        style={{ width: '100%' }}
+                    />
                 </div>
 
                 <div style={{ marginBottom: '12px' }}>
                     <label style={{ display: 'block', fontSize: '11px', color: 'var(--theia-descriptionForeground)', marginBottom: '4px' }}>
                         Reaction
                     </label>
-                    <select
-                        value={this.tempComparisonReaction}
-                        onChange={(e) => this.setTempComparisonReaction(parseInt(e.target.value))}
-                        style={{
-                            width: '100%',
-                            padding: '6px 8px',
-                            backgroundColor: checkboxBg,
-                            color: textColor,
-                            border: '1px solid var(--theia-input-border)',
-                            borderRadius: '3px',
-                            fontSize: '12px',
-                            boxSizing: 'border-box'
-                        }}
-                    >
-                        {COMMON_XS_REACTIONS.map((r) => (
-                            <option key={r.mt} value={r.mt}>
-                                {r.label}
-                            </option>
-                        ))}
-                    </select>
+                    <NukeSelect
+                        ariaLabel="Temperature comparison reaction"
+                        value={String(this.tempComparisonReaction)}
+                        options={COMMON_XS_REACTIONS.map((r) => ({ value: String(r.mt), label: r.label }))}
+                        onChange={(value) => this.setTempComparisonReaction(parseInt(value))}
+                        style={{ width: '100%' }}
+                    />
                 </div>
 
                 <div style={{ marginBottom: '8px' }}>
@@ -2390,52 +2344,26 @@ export class XSPlotWidget extends ReactWidget {
                     <label style={{ display: 'block', fontSize: '10px', color: 'var(--theia-descriptionForeground)', marginBottom: '2px' }}>
                         Nuclide
                     </label>
-                    <select
+                    <NukeSelect
+                        ariaLabel="Library comparison nuclide"
                         value={this.libraryComparisonNuclide}
-                        onChange={(e) => this.setLibraryComparisonNuclide(e.target.value)}
-                        style={{
-                            width: '100%',
-                            padding: '4px 6px',
-                            backgroundColor: checkboxBg,
-                            color: textColor,
-                            border: '1px solid var(--theia-input-border)',
-                            borderRadius: '3px',
-                            fontSize: '11px',
-                            boxSizing: 'border-box'
-                        }}
-                    >
-                        {this.availableNuclides.map((n) => (
-                            <option key={n} value={n}>
-                                {n}
-                            </option>
-                        ))}
-                    </select>
+                        options={this.availableNuclides.map((n) => ({ value: n, label: n }))}
+                        onChange={(value) => this.setLibraryComparisonNuclide(value)}
+                        style={{ width: '100%' }}
+                    />
                 </div>
 
                 <div style={{ marginBottom: '8px' }}>
                     <label style={{ display: 'block', fontSize: '10px', color: 'var(--theia-descriptionForeground)', marginBottom: '2px' }}>
                         Reaction
                     </label>
-                    <select
-                        value={this.libraryComparisonReaction}
-                        onChange={(e) => this.setLibraryComparisonReaction(parseInt(e.target.value))}
-                        style={{
-                            width: '100%',
-                            padding: '4px 6px',
-                            backgroundColor: checkboxBg,
-                            color: textColor,
-                            border: '1px solid var(--theia-input-border)',
-                            borderRadius: '3px',
-                            fontSize: '11px',
-                            boxSizing: 'border-box'
-                        }}
-                    >
-                        {COMMON_XS_REACTIONS.map((r) => (
-                            <option key={r.mt} value={r.mt}>
-                                {r.label}
-                            </option>
-                        ))}
-                    </select>
+                    <NukeSelect
+                        ariaLabel="Library comparison reaction"
+                        value={String(this.libraryComparisonReaction)}
+                        options={COMMON_XS_REACTIONS.map((r) => ({ value: String(r.mt), label: r.label }))}
+                        onChange={(value) => this.setLibraryComparisonReaction(parseInt(value))}
+                        style={{ width: '100%' }}
+                    />
                 </div>
 
                 <div style={{ marginBottom: '8px' }}>
@@ -2599,26 +2527,13 @@ export class XSPlotWidget extends ReactWidget {
                     <label style={{ display: 'block', fontSize: '10px', color: 'var(--theia-descriptionForeground)', marginBottom: '2px' }}>
                         Thermal Scattering Material
                     </label>
-                    <select
+                    <NukeSelect
+                        ariaLabel="Thermal scattering material"
                         value={this.thermalMaterial}
-                        onChange={(e) => this.setThermalMaterial(e.target.value)}
-                        style={{
-                            width: '100%',
-                            padding: '4px 6px',
-                            backgroundColor: checkboxBg,
-                            color: textColor,
-                            border: '1px solid var(--theia-input-border)',
-                            borderRadius: '3px',
-                            fontSize: '11px',
-                            boxSizing: 'border-box'
-                        }}
-                    >
-                        {this.availableThermalMaterials.map((mat) => (
-                            <option key={mat} value={mat}>
-                                {mat}
-                            </option>
-                        ))}
-                    </select>
+                        options={this.availableThermalMaterials.map((mat) => ({ value: mat, label: mat }))}
+                        onChange={(value) => this.setThermalMaterial(value)}
+                        style={{ width: '100%' }}
+                    />
                 </div>
 
                 <div style={{ marginBottom: '8px' }}>
@@ -2696,21 +2611,10 @@ export class XSPlotWidget extends ReactWidget {
                     <label style={{ display: 'block', fontSize: '10px', color: 'var(--theia-descriptionForeground)', marginBottom: '2px' }}>
                         Parent Nuclide
                     </label>
-                    <select
+                    <NukeSelect
+                        ariaLabel="Parent nuclide"
                         value={this.chainDecayParent}
-                        onChange={(e) => this.setChainDecayParent(e.target.value)}
-                        style={{
-                            width: '100%',
-                            padding: '4px 6px',
-                            backgroundColor: checkboxBg,
-                            color: textColor,
-                            border: '1px solid var(--theia-input-border)',
-                            borderRadius: '3px',
-                            fontSize: '11px',
-                            boxSizing: 'border-box'
-                        }}
-                    >
-                        {this.availableNuclides
+                        options={this.availableNuclides
                             .filter(
                                 (n) =>
                                     [
@@ -2743,12 +2647,10 @@ export class XSPlotWidget extends ReactWidget {
                                     /^Cm2[0-9]{2}$/.test(n) ||
                                     /^Cm2[0-9]{2}_m1$/.test(n)
                             )
-                            .map((n) => (
-                                <option key={n} value={n}>
-                                    {n}
-                                </option>
-                            ))}
-                    </select>
+                            .map((n) => ({ value: n, label: n }))}
+                        onChange={(value) => this.setChainDecayParent(value)}
+                        style={{ width: '100%' }}
+                    />
                 </div>
 
                 <div style={{ marginBottom: '8px' }}>

@@ -26,7 +26,7 @@
 // *****************************************************************************
 
 import * as React from 'react';
-import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
+import { Tooltip, NukeSelect } from 'nuke-essentials/lib/theme/browser/components';
 import { OpenMCTallyFilter, OpenMCTallyFilterType, OpenMCMesh } from '../../../../common/openmc-state-schema';
 import { OPENMC_FILTERS, getFilterDescriptor, createDefaultFilter } from '../../../../common/filters-catalog';
 
@@ -101,17 +101,15 @@ export const FilterBuilder: React.FC<FilterBuilderProps> = ({ filters, meshes, o
     const renderMeshSelect = (filter: OpenMCTallyFilter, index: number): React.ReactNode => (
         <div className="form-group">
             <label>Mesh</label>
-            <select
-                value={filter.meshId}
-                onChange={(e) => updateFilter(index, { meshId: parseInt(e.target.value, 10), bins: [parseInt(e.target.value, 10)] })}
-            >
-                <option value={0}>Select Mesh</option>
-                {meshes.map((m) => (
-                    <option key={m.id} value={m.id}>
-                        {m.name || `Mesh ${m.id}`}
-                    </option>
-                ))}
-            </select>
+            <NukeSelect
+                value={String(filter.meshId)}
+                options={[
+                    { value: '0', label: 'Select Mesh' },
+                    ...meshes.map((m) => ({ value: String(m.id), label: m.name || `Mesh ${m.id}` }))
+                ]}
+                onChange={(value: string) => updateFilter(index, { meshId: parseInt(value, 10), bins: [parseInt(value, 10)] })}
+                ariaLabel="Mesh"
+            />
         </div>
     );
 
@@ -210,16 +208,18 @@ export const FilterBuilder: React.FC<FilterBuilderProps> = ({ filters, meshes, o
             <div className="energy-function-editor">
                 <div className="form-group">
                     <label>Interpolation</label>
-                    <select
+                    <NukeSelect
                         value={filter.interpolation ?? 'linear-linear'}
-                        onChange={(e) => updateFilter(index, { interpolation: e.target.value as OpenMCTallyFilter['interpolation'] })}
-                    >
-                        <option value="histogram">Histogram</option>
-                        <option value="linear-linear">Linear-Linear</option>
-                        <option value="linear-log">Linear-Log</option>
-                        <option value="log-linear">Log-Linear</option>
-                        <option value="log-log">Log-Log</option>
-                    </select>
+                        options={[
+                            { value: 'histogram', label: 'Histogram' },
+                            { value: 'linear-linear', label: 'Linear-Linear' },
+                            { value: 'linear-log', label: 'Linear-Log' },
+                            { value: 'log-linear', label: 'Log-Linear' },
+                            { value: 'log-log', label: 'Log-Log' }
+                        ]}
+                        onChange={(value: string) => updateFilter(index, { interpolation: value as OpenMCTallyFilter['interpolation'] })}
+                        ariaLabel="Interpolation"
+                    />
                 </div>
                 {Array.from({ length: rowCount }, (_, row) => (
                     <div className="form-row" key={row}>
@@ -288,14 +288,16 @@ export const FilterBuilder: React.FC<FilterBuilderProps> = ({ filters, meshes, o
                             {renderOrderInput(filter, index, 'Expansion Order')}
                             <div className="form-group">
                                 <label>Axis</label>
-                                <select
+                                <NukeSelect
                                     value={filter.axis ?? 'z'}
-                                    onChange={(e) => updateFilter(index, { axis: e.target.value as 'x' | 'y' | 'z' })}
-                                >
-                                    <option value="x">X</option>
-                                    <option value="y">Y</option>
-                                    <option value="z">Z</option>
-                                </select>
+                                    options={[
+                                        { value: 'x', label: 'X' },
+                                        { value: 'y', label: 'Y' },
+                                        { value: 'z', label: 'Z' }
+                                    ]}
+                                    onChange={(value: string) => updateFilter(index, { axis: value as 'x' | 'y' | 'z' })}
+                                    ariaLabel="Axis"
+                                />
                             </div>
                         </div>
                         <div className="form-row">
@@ -326,13 +328,15 @@ export const FilterBuilder: React.FC<FilterBuilderProps> = ({ filters, meshes, o
                         {renderOrderInput(filter, index, 'Expansion Order')}
                         <div className="form-group">
                             <label>Cosine Treatment</label>
-                            <select
+                            <NukeSelect
                                 value={filter.cosine ?? 'particle'}
-                                onChange={(e) => updateFilter(index, { cosine: e.target.value as 'scatter' | 'particle' })}
-                            >
-                                <option value="particle">Particle (direction)</option>
-                                <option value="scatter">Scatter (scattering angle)</option>
-                            </select>
+                                options={[
+                                    { value: 'particle', label: 'Particle (direction)' },
+                                    { value: 'scatter', label: 'Scatter (scattering angle)' }
+                                ]}
+                                onChange={(value: string) => updateFilter(index, { cosine: value as 'scatter' | 'particle' })}
+                                ariaLabel="Cosine treatment"
+                            />
                         </div>
                     </div>
                 );

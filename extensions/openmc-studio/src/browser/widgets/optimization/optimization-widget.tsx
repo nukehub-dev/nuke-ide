@@ -43,6 +43,7 @@ import { applyParameterByPath } from '../../../common/parameter-paths';
 import { STUDIO_CORE_PACKAGES } from '../../../common/packages';
 import { NukeCoreService, NukeCoreStatusBarVisibility, NukeCoreStatusBarVisibilityService } from 'nuke-core/lib/common';
 import { PlotlyComponent } from 'nuke-visualizer/lib/browser/plotly/plotly-component';
+import { NukeSelect } from 'nuke-essentials/lib/theme/browser/components';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
 
 /**
@@ -453,21 +454,19 @@ export class OptimizationWidget extends ReactWidget {
     /**
      * Build the searchable-parameter options (same vocabulary as the sweep
      * parameter picker: material density/temperature/nuclide fraction).
-     * @returns Option elements grouped per material.
+     * @returns Flat select options (one row per parameter).
      */
-    private renderSearchParameterOptions(): React.ReactNode {
+    private searchParameterSelectOptions(): { value: string; label: string }[] {
         const state = this.stateManager.getState();
-        return state.materials.map((mat) => (
-            <optgroup key={`mat-${mat.id}`} label={`Material: ${mat.name}`}>
-                <option value={`${mat.name}.density`}>{mat.name}.density</option>
-                <option value={`${mat.name}.temperature`}>{mat.name}.temperature</option>
-                {mat.nuclides.map((nuc) => (
-                    <option key={`${mat.name}.${nuc.name}`} value={`${mat.name}.${nuc.name}`}>
-                        {mat.name}.{nuc.name} (fraction)
-                    </option>
-                ))}
-            </optgroup>
-        ));
+        const options: { value: string; label: string }[] = [];
+        state.materials.forEach((mat) => {
+            options.push({ value: `${mat.name}.density`, label: `${mat.name}.density` });
+            options.push({ value: `${mat.name}.temperature`, label: `${mat.name}.temperature` });
+            mat.nuclides.forEach((nuc) => {
+                options.push({ value: `${mat.name}.${nuc.name}`, label: `${mat.name}.${nuc.name} (fraction)` });
+            });
+        });
+        return options;
     }
 
     /**
@@ -492,17 +491,16 @@ export class OptimizationWidget extends ReactWidget {
                         </p>
                         <div className="editor-row">
                             <label>Parameter:</label>
-                            <select
+                            <NukeSelect
                                 value={this.searchParameter}
-                                onChange={(e) => {
-                                    this.searchParameter = e.target.value;
+                                options={[{ value: '', label: '-- Select parameter --' }, ...this.searchParameterSelectOptions()]}
+                                onChange={(value: string) => {
+                                    this.searchParameter = value;
                                     this.update();
                                 }}
                                 className={`theia-select ${!this.searchParameter ? 'invalid' : ''}`}
-                            >
-                                <option value="">-- Select parameter --</option>
-                                {this.renderSearchParameterOptions()}
-                            </select>
+                                ariaLabel="Search parameter"
+                            />
                         </div>
                         <div className="editor-row">
                             <label>Target k-eff:</label>
@@ -561,19 +559,21 @@ export class OptimizationWidget extends ReactWidget {
                                 {!bracketValid && <p className="validation-warning">Bracket low must be below bracket high.</p>}
                                 <div className="editor-row">
                                     <label>Method:</label>
-                                    <select
+                                    <NukeSelect
                                         value={this.searchMethod}
-                                        onChange={(e) => {
-                                            this.searchMethod = e.target.value as KeffSearchMethod;
+                                        options={[
+                                            { value: 'bisect', label: 'Bisect (robust)' },
+                                            { value: 'brentq', label: 'Brent-Q (fast)' },
+                                            { value: 'brenth', label: 'Brent-H' },
+                                            { value: 'ridder', label: 'Ridder' }
+                                        ]}
+                                        onChange={(value: string) => {
+                                            this.searchMethod = value as KeffSearchMethod;
                                             this.update();
                                         }}
                                         className="theia-select"
-                                    >
-                                        <option value="bisect">Bisect (robust)</option>
-                                        <option value="brentq">Brent-Q (fast)</option>
-                                        <option value="brenth">Brent-H</option>
-                                        <option value="ridder">Ridder</option>
-                                    </select>
+                                        ariaLabel="Search method"
+                                    />
                                 </div>
                             </>
                         ) : (
@@ -1006,137 +1006,132 @@ export class OptimizationWidget extends ReactWidget {
                     </div>
                     <div className="editor-row">
                         <label>Parameter Type:</label>
-                        <select
+                        <NukeSelect
                             value={data.parameterType}
-                            onChange={(e) => {
-                                const newType = e.target.value as OpenMCParameterSweep['parameterType'];
+                            options={[
+                                { value: 'material', label: 'Material' },
+                                { value: 'geometry', label: 'Geometry' },
+                                { value: 'settings', label: 'Settings' },
+                                { value: 'tally', label: 'Tally' }
+                            ]}
+                            onChange={(value: string) => {
+                                const newType = value as OpenMCParameterSweep['parameterType'];
                                 updateField('parameterType', newType);
                                 if (newType !== 'material') {
                                     updateField('parameterPath', '');
                                 }
                             }}
                             className="theia-select"
-                        >
-                            <option value="material">Material</option>
-                            <option value="geometry">Geometry</option>
-                            <option value="settings">Settings</option>
-                            <option value="tally">Tally</option>
-                        </select>
+                            ariaLabel="Parameter type"
+                        />
                     </div>
                     {data.parameterType === 'material' && (
                         <div className="editor-row">
                             <label>Parameter Path:</label>
-                            <select
+                            <NukeSelect
                                 value={data.parameterPath}
-                                onChange={(e) => {
-                                    updateField('parameterPath', e.target.value);
-                                    if (e.target.value) {
-                                        const parts = e.target.value.split('.');
+                                options={[
+                                    { value: '', label: '-- Select parameter --' },
+                                    ...(() => {
+                                        const state = this.stateManager.getState();
+                                        const options: { value: string; label: string }[] = [];
+                                        state.materials.forEach((mat) => {
+                                            options.push({ value: `${mat.name}.density`, label: `${mat.name}.density` });
+                                            options.push({ value: `${mat.name}.temperature`, label: `${mat.name}.temperature` });
+                                            mat.nuclides.forEach((nuc) => {
+                                                options.push({ value: `${mat.name}.${nuc.name}`, label: `${mat.name}.${nuc.name}` });
+                                            });
+                                        });
+                                        return options;
+                                    })()
+                                ]}
+                                onChange={(value: string) => {
+                                    updateField('parameterPath', value);
+                                    if (value) {
+                                        const parts = value.split('.');
                                         if (parts.length >= 2) {
                                             updateField('variable', parts[1]);
                                         }
                                     }
                                 }}
                                 className={`theia-select ${!data.parameterPath ? 'invalid' : ''}`}
-                            >
-                                <option value="">-- Select parameter --</option>
-                                {(() => {
-                                    const state = this.stateManager.getState();
-                                    const options: React.JSX.Element[] = [];
-                                    state.materials.forEach((mat) => {
-                                        options.push(
-                                            <optgroup key={`mat-${mat.id}`} label={`Material: ${mat.name}`}>
-                                                <option key={`${mat.name}.density`} value={`${mat.name}.density`}>
-                                                    {mat.name}.density
-                                                </option>
-                                                <option key={`${mat.name}.temperature`} value={`${mat.name}.temperature`}>
-                                                    {mat.name}.temperature
-                                                </option>
-                                                {mat.nuclides.map((nuc) => (
-                                                    <option key={`${mat.name}.${nuc.name}`} value={`${mat.name}.${nuc.name}`}>
-                                                        {mat.name}.{nuc.name}
-                                                    </option>
-                                                ))}
-                                            </optgroup>
-                                        );
-                                    });
-                                    return options;
-                                })()}
-                            </select>
+                                ariaLabel="Parameter path"
+                            />
                         </div>
                     )}
                     {data.parameterType === 'geometry' && (
                         <div className="editor-row">
                             <label>Parameter Path:</label>
-                            <select
+                            <NukeSelect
                                 value={data.parameterPath}
-                                onChange={(e) => {
-                                    updateField('parameterPath', e.target.value);
-                                    if (e.target.value) {
-                                        const parts = e.target.value.split('.');
+                                options={[
+                                    { value: '', label: '-- Select parameter --' },
+                                    ...(() => {
+                                        const state = this.stateManager.getState();
+                                        const options: { value: string; label: string }[] = [];
+                                        if (state.geometry && state.geometry.cells) {
+                                            state.geometry.cells.forEach((cell) => {
+                                                options.push({
+                                                    value: `${cell.name}.temperature`,
+                                                    label: `${cell.name}.temperature`
+                                                });
+                                            });
+                                        }
+                                        return options;
+                                    })()
+                                ]}
+                                onChange={(value: string) => {
+                                    updateField('parameterPath', value);
+                                    if (value) {
+                                        const parts = value.split('.');
                                         if (parts.length >= 2) {
                                             updateField('variable', parts[1]);
                                         }
                                     }
                                 }}
                                 className={`theia-select ${!data.parameterPath ? 'invalid' : ''}`}
-                            >
-                                <option value="">-- Select parameter --</option>
-                                {(() => {
-                                    const state = this.stateManager.getState();
-                                    const options: React.JSX.Element[] = [];
-                                    if (state.geometry && state.geometry.cells) {
-                                        state.geometry.cells.forEach((cell) => {
-                                            options.push(
-                                                <optgroup key={`cell-${cell.id}`} label={`Cell: ${cell.name}`}>
-                                                    <option key={`${cell.name}.temperature`} value={`${cell.name}.temperature`}>
-                                                        {cell.name}.temperature
-                                                    </option>
-                                                </optgroup>
-                                            );
-                                        });
-                                    }
-                                    return options;
-                                })()}
-                            </select>
+                                ariaLabel="Parameter path"
+                            />
                         </div>
                     )}
                     {data.parameterType === 'settings' && (
                         <div className="editor-row">
                             <label>Parameter Path:</label>
-                            <select
+                            <NukeSelect
                                 value={data.parameterPath}
-                                onChange={(e) => {
-                                    updateField('parameterPath', e.target.value);
-                                    if (e.target.value) {
-                                        const parts = e.target.value.split('.');
+                                options={[
+                                    { value: '', label: '-- Select parameter --' },
+                                    { value: 'settings.particles', label: 'particles' },
+                                    { value: 'settings.inactive', label: 'inactive' },
+                                    { value: 'settings.batches', label: 'batches' },
+                                    { value: 'settings.seed', label: 'seed' }
+                                ]}
+                                onChange={(value: string) => {
+                                    updateField('parameterPath', value);
+                                    if (value) {
+                                        const parts = value.split('.');
                                         if (parts.length >= 2) {
                                             updateField('variable', parts[1]);
                                         }
                                     }
                                 }}
                                 className={`theia-select ${!data.parameterPath ? 'invalid' : ''}`}
-                            >
-                                <option value="">-- Select parameter --</option>
-                                <optgroup label="Settings">
-                                    <option value="settings.particles">particles</option>
-                                    <option value="settings.inactive">inactive</option>
-                                    <option value="settings.batches">batches</option>
-                                    <option value="settings.seed">seed</option>
-                                </optgroup>
-                            </select>
+                                ariaLabel="Parameter path"
+                            />
                         </div>
                     )}
                     <div className="editor-row">
                         <label>Range Type:</label>
-                        <select
+                        <NukeSelect
                             value={data.rangeType}
-                            onChange={(e) => updateField('rangeType', e.target.value as 'linear' | 'logarithmic')}
+                            options={[
+                                { value: 'linear', label: 'Linear' },
+                                { value: 'logarithmic', label: 'Logarithmic' }
+                            ]}
+                            onChange={(value: string) => updateField('rangeType', value as 'linear' | 'logarithmic')}
                             className="theia-select"
-                        >
-                            <option value="linear">Linear</option>
-                            <option value="logarithmic">Logarithmic</option>
-                        </select>
+                            ariaLabel="Range type"
+                        />
                     </div>
                     {data.parameterPath?.startsWith('settings.') && (
                         <div className="editor-row validation-warning">
@@ -2297,20 +2292,16 @@ export class OptimizationWidget extends ReactWidget {
                 <div className="analysis-header">
                     <h3>Results Analysis</h3>
                     <Tooltip content="Select a run to analyze" position="bottom">
-                        <select
-                            className="run-selector"
+                        <NukeSelect
                             value={this.analysisRunId || selectedRun.id}
-                            onChange={(e) => {
-                                this.analysisRunId = e.target.value;
+                            options={[...runs.map((run) => ({ value: run.id, label: run.name }))]}
+                            onChange={(value: string) => {
+                                this.analysisRunId = value;
                                 this.update();
                             }}
-                        >
-                            {runs.map((run) => (
-                                <option key={run.id} value={run.id}>
-                                    {run.name}
-                                </option>
-                            ))}
-                        </select>
+                            className="run-selector"
+                            ariaLabel="Analysis run"
+                        />
                     </Tooltip>
                 </div>
 

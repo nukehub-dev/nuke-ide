@@ -28,7 +28,7 @@
 import * as React from '@theia/core/shared/react';
 import { injectable } from '@theia/core/shared/inversify';
 import { OpenFileDialogProps } from '@theia/filesystem/lib/browser';
-import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
+import { Tooltip, NukeSelect } from 'nuke-essentials/lib/theme/browser/components';
 import { OpenMCState, OpenMCEigenvalueSettings, OpenMCFixedSourceSettings } from '../../../../common/openmc-state-schema';
 import { computeSetupChecklist, computeReadiness, ChecklistStatus } from '../../../../common/run-readiness';
 import { resolveDepletionSolver } from '../../../../common/depletion-solvers';
@@ -682,20 +682,18 @@ export class SimulationTabContribution implements DashboardTabContribution {
                             </div>
                             <div className="form-group">
                                 <label>Precursor Groups (β_eff)</label>
-                                <select
-                                    value={kinetics.numPrecursorGroups ?? 0}
-                                    onChange={(e) => {
-                                        const groups = parseInt(e.target.value);
+                                <NukeSelect
+                                    value={String(kinetics.numPrecursorGroups ?? 0)}
+                                    options={[
+                                        { value: '0', label: 'Total only' },
+                                        ...[2, 3, 4, 5, 6, 7, 8].map((n) => ({ value: String(n), label: `${n} groups` }))
+                                    ]}
+                                    onChange={(value: string) => {
+                                        const groups = parseInt(value);
                                         updateKinetics({ numPrecursorGroups: groups > 1 ? groups : undefined });
                                     }}
-                                >
-                                    <option value={0}>Total only</option>
-                                    {[2, 3, 4, 5, 6, 7, 8].map((n) => (
-                                        <option key={n} value={n}>
-                                            {n} groups
-                                        </option>
-                                    ))}
-                                </select>
+                                    ariaLabel="Precursor groups"
+                                />
                             </div>
                         </div>
                         <div className="form-row">

@@ -41,7 +41,7 @@
 import * as React from '@theia/core/shared/react';
 import { MATE_TYPES, type AssemblyConnector, type AssemblyInstance, type MateType } from '../../../common/assembly-document';
 import { freeDofHintText, resolveConnectorPick } from './assembly-view';
-import { NukeDialog } from 'nuke-essentials/lib/theme/browser/components';
+import { NukeDialog, NukeSelect } from 'nuke-essentials/lib/theme/browser/components';
 
 /** Draft mate submitted by the dialog. */
 export interface MateDraft {
@@ -130,16 +130,15 @@ export function MateDialog(props: MateDialogProps): React.ReactElement {
             }
         >
             {error !== undefined && <div className="cad-feature-dialog-error">{error}</div>}
-            <label className="cad-feature-dialog-row">
+            <div className="cad-feature-dialog-row">
                 Mate type
-                <select value={mateType} onChange={(e) => setMateType(e.target.value as MateType)}>
-                    {MATE_TYPES.map((type) => (
-                        <option key={type} value={type}>
-                            {type}
-                        </option>
-                    ))}
-                </select>
-            </label>
+                <NukeSelect
+                    ariaLabel="Mate type"
+                    value={mateType}
+                    options={MATE_TYPES.map((type) => ({ value: type, label: type }))}
+                    onChange={(value) => setMateType(value as MateType)}
+                />
+            </div>
             <div className="cad-feature-dialog-hint">{freeDofHintText(mateType)}</div>
             <div className="cad-feature-dialog-row">
                 <span>Connector A</span>

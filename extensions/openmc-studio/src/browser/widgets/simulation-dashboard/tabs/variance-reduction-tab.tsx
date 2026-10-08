@@ -26,6 +26,7 @@
 // *****************************************************************************
 
 import * as React from '@theia/core/shared/react';
+import { NukeSelect } from 'nuke-essentials/lib/theme/browser/components';
 import { injectable } from '@theia/core/shared/inversify';
 import { OpenFileDialogProps, SaveFileDialogProps } from '@theia/filesystem/lib/browser';
 import { OpenMCState } from '../../../../common/openmc-state-schema';
@@ -129,23 +130,24 @@ export class VarianceReductionTabContribution implements DashboardTabContributio
                         {vr.ufs?.enabled && meshes.length > 0 && (
                             <div className="form-group" style={{ marginTop: '12px' }}>
                                 <label>UFS Mesh (optional)</label>
-                                <select
-                                    value={vr.ufs.meshId || ''}
-                                    onChange={(e) => {
-                                        const meshId = e.target.value ? parseInt(e.target.value) : undefined;
+                                <NukeSelect
+                                    value={String(vr.ufs.meshId || '')}
+                                    options={[
+                                        { value: '', label: 'Use weight window mesh' },
+                                        ...meshes.map((mesh) => ({
+                                            value: String(mesh.id),
+                                            label: `${mesh.name || `Mesh ${mesh.id}`} (${mesh.type})`
+                                        }))
+                                    ]}
+                                    onChange={(value: string) => {
+                                        const meshId = value ? parseInt(value) : undefined;
                                         host.stateManager.updateVarianceReduction({
                                             ...vr,
                                             ufs: { ...vr.ufs, meshId }
                                         });
                                     }}
-                                >
-                                    <option value="">Use weight window mesh</option>
-                                    {meshes.map((mesh) => (
-                                        <option key={mesh.id} value={mesh.id}>
-                                            {mesh.name || `Mesh ${mesh.id}`} ({mesh.type})
-                                        </option>
-                                    ))}
-                                </select>
+                                    ariaLabel="UFS mesh"
+                                />
                                 <span className="form-hint">Select a specific mesh or use the weight window mesh</span>
                             </div>
                         )}
@@ -245,21 +247,23 @@ export class VarianceReductionTabContribution implements DashboardTabContributio
                             <div className="form-row">
                                 <div className="form-group">
                                     <label>Method</label>
-                                    <select
+                                    <NukeSelect
                                         value={vr.weightWindowGenerator.method ?? 'magic'}
-                                        onChange={(e) =>
+                                        options={[
+                                            { value: 'magic', label: 'MAGIC (default)' },
+                                            { value: 'fw_cadis', label: 'FW-CADIS (multi-group)' }
+                                        ]}
+                                        onChange={(value: string) =>
                                             host.stateManager.updateVarianceReduction({
                                                 ...vr,
                                                 weightWindowGenerator: {
                                                     ...vr.weightWindowGenerator,
-                                                    method: e.target.value as 'magic' | 'fw_cadis'
+                                                    method: value as 'magic' | 'fw_cadis'
                                                 }
                                             })
                                         }
-                                    >
-                                        <option value="magic">MAGIC (default)</option>
-                                        <option value="fw_cadis">FW-CADIS (multi-group)</option>
-                                    </select>
+                                        ariaLabel="Weight window generator method"
+                                    />
                                 </div>
 
                                 <div className="form-group">
@@ -287,21 +291,23 @@ export class VarianceReductionTabContribution implements DashboardTabContributio
 
                                 <div className="form-group">
                                     <label>Particle Type</label>
-                                    <select
+                                    <NukeSelect
                                         value={vr.weightWindowGenerator.particleType || 'neutron'}
-                                        onChange={(e) =>
+                                        options={[
+                                            { value: 'neutron', label: 'Neutron' },
+                                            { value: 'photon', label: 'Photon' }
+                                        ]}
+                                        onChange={(value: string) =>
                                             host.stateManager.updateVarianceReduction({
                                                 ...vr,
                                                 weightWindowGenerator: {
                                                     ...vr.weightWindowGenerator,
-                                                    particleType: e.target.value as 'neutron' | 'photon'
+                                                    particleType: value as 'neutron' | 'photon'
                                                 }
                                             })
                                         }
-                                    >
-                                        <option value="neutron">Neutron</option>
-                                        <option value="photon">Photon</option>
-                                    </select>
+                                        ariaLabel="Particle type"
+                                    />
                                     <span className="form-hint">Particle type to generate weight windows for</span>
                                 </div>
                             </div>

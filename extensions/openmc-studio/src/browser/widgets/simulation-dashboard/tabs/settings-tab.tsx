@@ -27,7 +27,7 @@
 
 import * as React from '@theia/core/shared/react';
 import { injectable } from '@theia/core/shared/inversify';
-import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
+import { Tooltip, NukeSelect } from 'nuke-essentials/lib/theme/browser/components';
 import {
     OpenMCState,
     OpenMCRunSettings,
@@ -204,11 +204,16 @@ export class SettingsTabContribution implements DashboardTabContribution {
                 <CollapsibleSection title="General" icon="run">
                     <div className="form-group">
                         <label>Run Mode</label>
-                        <select value={runSettings.mode} onChange={(e) => host.updateRunMode(e.target.value as OpenMCRunSettings['mode'])}>
-                            <option value="eigenvalue">Eigenvalue (Criticality)</option>
-                            <option value="fixed source">Fixed Source</option>
-                            <option value="volume">Volume Calculation</option>
-                        </select>
+                        <NukeSelect
+                            value={runSettings.mode}
+                            options={[
+                                { value: 'eigenvalue', label: 'Eigenvalue (Criticality)' },
+                                { value: 'fixed source', label: 'Fixed Source' },
+                                { value: 'volume', label: 'Volume Calculation' }
+                            ]}
+                            onChange={(value: string) => host.updateRunMode(value as OpenMCRunSettings['mode'])}
+                            ariaLabel="Run mode"
+                        />
                     </div>
 
                     {runSettings.mode === 'eigenvalue' && (
@@ -487,15 +492,17 @@ export class SettingsTabContribution implements DashboardTabContribution {
                 <div className="source-editor-header">
                     <div className="source-type-select">
                         <label>Spatial Distribution</label>
-                        <select
+                        <NukeSelect
                             value={source.spatial.type}
-                            onChange={(e) => this.updateSourceSpatial(host, index, e.target.value as OpenMCSourceSpatial['type'])}
-                        >
-                            <option value="point">Point</option>
-                            <option value="box">Box</option>
-                            <option value="sphere">Sphere</option>
-                            <option value="cylinder">Cylinder</option>
-                        </select>
+                            options={[
+                                { value: 'point', label: 'Point' },
+                                { value: 'box', label: 'Box' },
+                                { value: 'sphere', label: 'Sphere' },
+                                { value: 'cylinder', label: 'Cylinder' }
+                            ]}
+                            onChange={(value: string) => this.updateSourceSpatial(host, index, value as OpenMCSourceSpatial['type'])}
+                            ariaLabel="Spatial distribution"
+                        />
                     </div>
                     <button className="theia-button secondary snap-main-btn" onClick={() => this.snapSourceToGeometry(host, index)}>
                         <i className="codicon codicon-target"></i>
@@ -659,15 +666,17 @@ export class SettingsTabContribution implements DashboardTabContribution {
 
                 <div className="form-group">
                     <label>Energy Distribution</label>
-                    <select
+                    <NukeSelect
                         value={source.energy.type}
-                        onChange={(e) => this.updateSourceEnergy(host, index, e.target.value as OpenMCSourceEnergy['type'])}
-                    >
-                        <option value="discrete">Discrete</option>
-                        <option value="uniform">Uniform</option>
-                        <option value="maxwell">Maxwell</option>
-                        <option value="watt">Watt</option>
-                    </select>
+                        options={[
+                            { value: 'discrete', label: 'Discrete' },
+                            { value: 'uniform', label: 'Uniform' },
+                            { value: 'maxwell', label: 'Maxwell' },
+                            { value: 'watt', label: 'Watt' }
+                        ]}
+                        onChange={(value: string) => this.updateSourceEnergy(host, index, value as OpenMCSourceEnergy['type'])}
+                        ariaLabel="Energy distribution"
+                    />
                 </div>
 
                 {source.energy.type === 'discrete' && (
@@ -710,13 +719,15 @@ export class SettingsTabContribution implements DashboardTabContribution {
                 <div className="form-row">
                     <div className="form-group">
                         <label>Particle Type</label>
-                        <select
+                        <NukeSelect
                             value={source.particle || 'neutron'}
-                            onChange={(e) => this.updateSourceParticle(host, index, e.target.value as 'neutron' | 'photon')}
-                        >
-                            <option value="neutron">Neutron</option>
-                            <option value="photon">Photon</option>
-                        </select>
+                            options={[
+                                { value: 'neutron', label: 'Neutron' },
+                                { value: 'photon', label: 'Photon' }
+                            ]}
+                            onChange={(value: string) => this.updateSourceParticle(host, index, value as 'neutron' | 'photon')}
+                            ariaLabel="Particle type"
+                        />
                     </div>
                     <div className="form-group">
                         <label>Strength</label>

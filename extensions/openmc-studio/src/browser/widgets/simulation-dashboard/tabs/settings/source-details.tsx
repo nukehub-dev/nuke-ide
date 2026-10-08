@@ -27,7 +27,7 @@
 
 import * as React from '@theia/core/shared/react';
 import { OpenFileDialogProps } from '@theia/filesystem/lib/browser';
-import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
+import { Tooltip, NukeSelect } from 'nuke-essentials/lib/theme/browser/components';
 import {
     OpenMCState,
     OpenMCSource,
@@ -438,14 +438,19 @@ function renderEnergyFields(energy: OpenMCSourceEnergy, apply: (energy: OpenMCSo
         <>
             <div className="form-group">
                 <label>Energy</label>
-                <select value={energy.type} onChange={(e) => apply(defaultEnergyOfType(e.target.value as OpenMCSourceEnergy['type']))}>
-                    <option value="discrete">Discrete</option>
-                    <option value="uniform">Uniform</option>
-                    <option value="maxwell">Maxwell</option>
-                    <option value="watt">Watt</option>
-                    <option value="normal">Normal (Gaussian)</option>
-                    <option value="muir">Muir (D-T fusion)</option>
-                </select>
+                <NukeSelect
+                    value={energy.type}
+                    options={[
+                        { value: 'discrete', label: 'Discrete' },
+                        { value: 'uniform', label: 'Uniform' },
+                        { value: 'maxwell', label: 'Maxwell' },
+                        { value: 'watt', label: 'Watt' },
+                        { value: 'normal', label: 'Normal (Gaussian)' },
+                        { value: 'muir', label: 'Muir (D-T fusion)' }
+                    ]}
+                    onChange={(value: string) => apply(defaultEnergyOfType(value as OpenMCSourceEnergy['type']))}
+                    ariaLabel="Source energy type"
+                />
             </div>
             {renderEnergyParamFields(energy, apply)}
         </>
@@ -484,17 +489,15 @@ export function renderMeshSourceEditor(
             <div className="form-row">
                 <div className="form-group">
                     <label>Mesh</label>
-                    <select
-                        value={source.meshId ?? ''}
-                        onChange={(e) => updateSourceAt(host, index, { meshId: e.target.value ? parseInt(e.target.value) : undefined })}
-                    >
-                        <option value="">Select mesh…</option>
-                        {meshes.map((mesh) => (
-                            <option key={mesh.id} value={mesh.id}>
-                                {mesh.name || `Mesh ${mesh.id}`} ({mesh.type})
-                            </option>
-                        ))}
-                    </select>
+                    <NukeSelect
+                        value={String(source.meshId ?? '')}
+                        options={[
+                            { value: '', label: 'Select mesh…' },
+                            ...meshes.map((mesh) => ({ value: String(mesh.id), label: `${mesh.name || `Mesh ${mesh.id}`} (${mesh.type})` }))
+                        ]}
+                        onChange={(value: string) => updateSourceAt(host, index, { meshId: value ? parseInt(value) : undefined })}
+                        ariaLabel="Source mesh"
+                    />
                     <span className="form-hint">
                         {meshes.length === 0
                             ? 'No meshes defined — create one in the Tally Configurator (Meshes section)'
@@ -530,25 +533,29 @@ export function renderMeshSourceEditor(
                     </div>
                     <div className="form-group">
                         <label>Particle</label>
-                        <select
+                        <NukeSelect
                             value={sub.particle ?? 'neutron'}
-                            onChange={(e) => updateSub(j, { particle: e.target.value as 'neutron' | 'photon' })}
-                        >
-                            <option value="neutron">Neutron</option>
-                            <option value="photon">Photon</option>
-                        </select>
+                            options={[
+                                { value: 'neutron', label: 'Neutron' },
+                                { value: 'photon', label: 'Photon' }
+                            ]}
+                            onChange={(value: string) => updateSub(j, { particle: value as 'neutron' | 'photon' })}
+                            ariaLabel="Particle type"
+                        />
                     </div>
                     <div className="form-group">
                         <label>Energy</label>
-                        <select
+                        <NukeSelect
                             value={sub.energy.type}
-                            onChange={(e) => updateSub(j, { energy: defaultEnergyOfType(e.target.value as OpenMCSourceEnergy['type']) })}
-                        >
-                            <option value="discrete">Discrete</option>
-                            <option value="uniform">Uniform</option>
-                            <option value="maxwell">Maxwell</option>
-                            <option value="watt">Watt</option>
-                        </select>
+                            options={[
+                                { value: 'discrete', label: 'Discrete' },
+                                { value: 'uniform', label: 'Uniform' },
+                                { value: 'maxwell', label: 'Maxwell' },
+                                { value: 'watt', label: 'Watt' }
+                            ]}
+                            onChange={(value: string) => updateSub(j, { energy: defaultEnergyOfType(value as OpenMCSourceEnergy['type']) })}
+                            ariaLabel="Sub-source energy type"
+                        />
                     </div>
                     {renderEnergyParamFields(sub.energy, (energy) => updateSub(j, { energy }))}
                     <div className="form-group">
@@ -786,10 +793,15 @@ export function renderTokamakSourceEditor(host: SimulationDashboardWidget, sourc
                 </div>
                 <div className="form-group">
                     <label>Time Mode</label>
-                    <select
+                    <NukeSelect
                         value={source.time?.type ?? 'none'}
-                        onChange={(e) => {
-                            const mode = e.target.value;
+                        options={[
+                            { value: 'none', label: 'Born at t=0 (default)' },
+                            { value: 'delta', label: 'Delta (single time)' },
+                            { value: 'uniform', label: 'Uniform range' }
+                        ]}
+                        onChange={(value: string) => {
+                            const mode = value;
                             if (mode === 'none') {
                                 update({ time: undefined });
                             } else if (mode === 'delta') {
@@ -798,11 +810,8 @@ export function renderTokamakSourceEditor(host: SimulationDashboardWidget, sourc
                                 update({ time: { type: 'uniform', params: { min: 0, max: 1e-3 } } });
                             }
                         }}
-                    >
-                        <option value="none">Born at t=0 (default)</option>
-                        <option value="delta">Delta (single time)</option>
-                        <option value="uniform">Uniform range</option>
-                    </select>
+                        ariaLabel="Time mode"
+                    />
                     <span className="form-hint">Per-radius energy lists are not modeled (single energy for all radii)</span>
                 </div>
                 {source.time?.type === 'delta' && (
@@ -920,20 +929,22 @@ export function ConstraintsEditor(props: { host: SimulationDashboardWidget; sour
                     <div className="form-row">
                         <div className="form-group">
                             <label>Domain Type</label>
-                            <select
+                            <NukeSelect
                                 value={constraints?.domainType ?? ''}
-                                onChange={(e) =>
+                                options={[
+                                    { value: '', label: 'None' },
+                                    { value: 'cell', label: 'Cell' },
+                                    { value: 'material', label: 'Material' },
+                                    { value: 'universe', label: 'Universe' }
+                                ]}
+                                onChange={(value: string) =>
                                     updateConstraints({
-                                        domainType: (e.target.value || undefined) as 'cell' | 'material' | 'universe' | undefined,
-                                        domainIds: e.target.value ? constraints?.domainIds : undefined
+                                        domainType: (value || undefined) as 'cell' | 'material' | 'universe' | undefined,
+                                        domainIds: value ? constraints?.domainIds : undefined
                                     })
                                 }
-                            >
-                                <option value="">None</option>
-                                <option value="cell">Cell</option>
-                                <option value="material">Material</option>
-                                <option value="universe">Universe</option>
-                            </select>
+                                ariaLabel="Domain type"
+                            />
                         </div>
                         {constraints?.domainType && (
                             <div className="form-group">
@@ -1029,13 +1040,15 @@ export function ConstraintsEditor(props: { host: SimulationDashboardWidget; sour
                         </div>
                         <div className="form-group">
                             <label>Rejection Strategy</label>
-                            <select
+                            <NukeSelect
                                 value={constraints?.rejectionStrategy ?? 'resample'}
-                                onChange={(e) => updateConstraints({ rejectionStrategy: e.target.value as 'resample' | 'kill' })}
-                            >
-                                <option value="resample">Resample (pick a new site)</option>
-                                <option value="kill">Kill (accept and terminate)</option>
-                            </select>
+                                options={[
+                                    { value: 'resample', label: 'Resample (pick a new site)' },
+                                    { value: 'kill', label: 'Kill (accept and terminate)' }
+                                ]}
+                                onChange={(value: string) => updateConstraints({ rejectionStrategy: value as 'resample' | 'kill' })}
+                                ariaLabel="Rejection strategy"
+                            />
                         </div>
                     </div>
                 </>

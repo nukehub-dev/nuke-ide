@@ -13,8 +13,12 @@ import * as React from '@theia/core/shared/react';
 import { injectable, inject, postConstruct } from '@theia/core/shared/inversify';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { MessageService } from '@theia/core/lib/common/message-service';
+import { NukeSelect } from 'nuke-essentials/lib/theme/browser/components';
 import { OpenMCStateManager } from '../../openmc-state-manager';
 import { OpenMCStudioBackendService } from '../../../common/openmc-studio-protocol';
+
+// NOTE: dropdowns use the shared `NukeSelect` (never a builtin `<select>`):
+// portal dropdown, full keyboard support, Theia-theme trigger.
 
 @injectable()
 export class CrossSectionViewerWidget extends ReactWidget {
@@ -50,17 +54,19 @@ export class CrossSectionViewerWidget extends ReactWidget {
                     <h3>Cross Section Viewer</h3>
                 </div>
                 <div className='viewer-controls'>
-                    <select
+                    <NukeSelect
+                        ariaLabel='Nuclide'
                         value={this.selectedNuclide}
-                        onChange={e => {
-                            this.selectedNuclide = e.target.value;
+                        options={[
+                            { value: 'U235', label: 'U-235' },
+                            { value: 'U238', label: 'U-238' },
+                            { value: 'O16', label: 'O-16' }
+                        ]}
+                        onChange={value => {
+                            this.selectedNuclide = value;
                             this.update();
                         }}
-                    >
-                        <option value='U235'>U-235</option>
-                        <option value='U238'>U-238</option>
-                        <option value='O16'>O-16</option>
-                    </select>
+                    />
                     <button
                         className='theia-button primary'
                         onClick={() => this.loadCrossSection()}

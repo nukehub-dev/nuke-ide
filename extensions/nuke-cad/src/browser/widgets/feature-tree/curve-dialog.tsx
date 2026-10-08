@@ -39,7 +39,7 @@
 import * as React from '@theia/core/shared/react';
 import { FileDialogService } from '@theia/filesystem/lib/browser/file-dialog';
 import { FileService } from '@theia/filesystem/lib/browser/file-service';
-import { NukeDialog } from 'nuke-essentials/lib/theme/browser/components';
+import { NukeDialog, NukeSelect } from 'nuke-essentials/lib/theme/browser/components';
 import { type NukeCadDocument, type CurveDef, type CurveSource } from '../../../common/cad-document';
 import { parseExpression, sampleParametric, sampleFourier } from '../../../common/expression';
 import { sampleParametricWithUnits } from '../../document/cad-document-store';
@@ -149,14 +149,19 @@ export function CurveDialog(props: CurveDialogProps): React.ReactElement {
                     Name
                     <input type="text" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
                 </label>
-                <label className="cad-curve-dialog-row">
+                <div className="cad-curve-dialog-row">
                     Source kind
-                    <select value={kind} onChange={(e) => setKind(e.target.value as CurveSource['kind'])}>
-                        <option value="points">Points</option>
-                        <option value="parametric">Parametric</option>
-                        <option value="fourier">Fourier</option>
-                    </select>
-                </label>
+                    <NukeSelect
+                        ariaLabel="Source kind"
+                        value={kind}
+                        options={[
+                            { value: 'points', label: 'Points' },
+                            { value: 'parametric', label: 'Parametric' },
+                            { value: 'fourier', label: 'Fourier' }
+                        ]}
+                        onChange={(value) => setKind(value as CurveSource['kind'])}
+                    />
+                </div>
                 {kind === 'points' && (
                     <>
                         <label className="cad-curve-dialog-row stacked">

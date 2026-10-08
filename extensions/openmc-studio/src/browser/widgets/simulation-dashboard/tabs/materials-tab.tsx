@@ -27,7 +27,7 @@
 
 import * as React from '@theia/core/shared/react';
 import { injectable } from '@theia/core/shared/inversify';
-import { Tooltip, ColorPicker } from 'nuke-essentials/lib/theme/browser/components';
+import { Tooltip, ColorPicker, NukeSelect } from 'nuke-essentials/lib/theme/browser/components';
 import { OpenMCState, OpenMCMaterial } from '../../../../common/openmc-state-schema';
 import { NCRYSTAL_PACKAGES } from '../../../../common/packages';
 import type { SimulationDashboardWidget } from '../simulation-dashboard-widget';
@@ -412,34 +412,38 @@ export class MaterialsTabContribution implements DashboardTabContribution {
                         <label>
                             <i className="codicon codicon-symbol-snippet"></i> Start from Template (Optional)
                         </label>
-                        <select
+                        <NukeSelect
                             value=""
-                            onChange={(e) => {
-                                const template = this.MATERIAL_TEMPLATES.find((t) => t.name === e.target.value);
+                            options={[
+                                { value: '', label: 'Select a template...' },
+                                ...this.MATERIAL_TEMPLATES.map((template) => ({
+                                    value: template.name,
+                                    label: `${template.name} - ${template.description}`
+                                }))
+                            ]}
+                            onChange={(value: string) => {
+                                const template = this.MATERIAL_TEMPLATES.find((t) => t.name === value);
                                 if (template) {
                                     template.setup();
                                     host.update();
                                 }
-                                e.target.value = '';
                             }}
-                        >
-                            <option value="">Select a template...</option>
-                            {this.MATERIAL_TEMPLATES.map((template) => (
-                                <option key={template.name} value={template.name}>
-                                    {template.name} - {template.description}
-                                </option>
-                            ))}
-                        </select>
+                            ariaLabel="Material template"
+                        />
                     </div>
                 )}
 
                 <div className="form-row">
                     <div className="form-group">
                         <label>Material Type</label>
-                        <select
+                        <NukeSelect
                             value={this.newMaterialType}
-                            onChange={(e) => {
-                                this.newMaterialType = e.target.value as 'nuclides' | 'macroscopic';
+                            options={[
+                                { value: 'nuclides', label: 'Nuclide Mixture' },
+                                { value: 'macroscopic', label: 'Macroscopic (Multigroup)' }
+                            ]}
+                            onChange={(value: string) => {
+                                this.newMaterialType = value as 'nuclides' | 'macroscopic';
                                 // Macroscopic materials require density in 'macro' units (default 1.0)
                                 if (this.newMaterialType === 'macroscopic') {
                                     this.newMaterialDensityUnit = 'macro';
@@ -447,10 +451,8 @@ export class MaterialsTabContribution implements DashboardTabContribution {
                                 }
                                 host.update();
                             }}
-                        >
-                            <option value="nuclides">Nuclide Mixture</option>
-                            <option value="macroscopic">Macroscopic (Multigroup)</option>
-                        </select>
+                            ariaLabel="Material type"
+                        />
                         {this.newMaterialType === 'macroscopic' && (
                             <span className="form-hint">
                                 Requires multi-group energy mode and an MGXS library (generate one via Advanced → MGXS Generator)
@@ -509,25 +511,25 @@ export class MaterialsTabContribution implements DashboardTabContribution {
                 <div className="form-row">
                     <div className="form-group">
                         <label>Density Unit</label>
-                        <select
+                        <NukeSelect
                             value={this.newMaterialDensityUnit}
-                            disabled={this.newMaterialType === 'macroscopic'}
-                            onChange={(e) => {
-                                this.newMaterialDensityUnit = e.target.value as OpenMCMaterial['densityUnit'];
+                            options={
+                                this.newMaterialType === 'macroscopic'
+                                    ? [{ value: 'macro', label: 'Macro' }]
+                                    : [
+                                          { value: 'g/cm3', label: 'g/cm³' },
+                                          { value: 'kg/m3', label: 'kg/m³' },
+                                          { value: 'atom/b-cm', label: 'atom/b-cm' },
+                                          { value: 'sum', label: 'Sum' }
+                                      ]
+                            }
+                            onChange={(value: string) => {
+                                this.newMaterialDensityUnit = value as OpenMCMaterial['densityUnit'];
                                 host.update();
                             }}
-                        >
-                            {this.newMaterialType === 'macroscopic' ? (
-                                <option value="macro">Macro</option>
-                            ) : (
-                                <>
-                                    <option value="g/cm3">g/cm³</option>
-                                    <option value="kg/m3">kg/m³</option>
-                                    <option value="atom/b-cm">atom/b-cm</option>
-                                    <option value="sum">Sum</option>
-                                </>
-                            )}
-                        </select>
+                            disabled={this.newMaterialType === 'macroscopic'}
+                            ariaLabel="Density unit"
+                        />
                         {this.newMaterialType === 'macroscopic' && (
                             <span className="form-hint">Macroscopic materials must use 'macro' density units</span>
                         )}
@@ -686,16 +688,18 @@ export class MaterialsTabContribution implements DashboardTabContribution {
                                         host.update();
                                     }}
                                 />
-                                <select
+                                <NukeSelect
                                     value={nuclide.fractionType}
-                                    onChange={(e) => {
-                                        this.newMaterialNuclides[index].fractionType = e.target.value as 'ao' | 'wo';
+                                    options={[
+                                        { value: 'ao', label: 'ao (atom)' },
+                                        { value: 'wo', label: 'wo (weight)' }
+                                    ]}
+                                    onChange={(value: string) => {
+                                        this.newMaterialNuclides[index].fractionType = value as 'ao' | 'wo';
                                         host.update();
                                     }}
-                                >
-                                    <option value="ao">ao (atom)</option>
-                                    <option value="wo">wo (weight)</option>
-                                </select>
+                                    ariaLabel="Nuclide fraction type"
+                                />
                                 <Tooltip content="Remove Nuclide" position="top">
                                     <button
                                         className="theia-button secondary small"

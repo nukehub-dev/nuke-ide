@@ -90,8 +90,7 @@
     color: var(--theia-descriptionForeground);
 }
 
-.form-group input,
-.form-group select {
+.form-group input {
     background: var(--theia-input-background);
     color: var(--theia-input-foreground);
     border: 1px solid var(--theia-input-border);
@@ -100,8 +99,7 @@
     border-radius: 2px;
 }
 
-.form-group input:disabled,
-.form-group select:disabled {
+.form-group input:disabled {
     opacity: 0.6;
 }
 

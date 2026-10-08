@@ -35,6 +35,7 @@ import { parseNativeVtkXml, readVtkText } from '../native-vtk/native-vtk-data';
 import { ClassifiedVtkArrays, classifyVtkArrays, colorByValue, defaultColorBy } from './random-ray-arrays';
 import { detectMissingDependencies } from '../dependency-hints';
 import { startSplitDrag } from '../drag-split';
+import { NukeSelect } from 'nuke-essentials/lib/theme/browser/components';
 
 /** Extensions loaded directly (already VTK); .h5 goes through voxel conversion */
 const DIRECT_VTK_EXTENSIONS = new Set(['.vtk', '.vti', '.vtr', '.vtp', '.vtu', '.vts']);
@@ -220,20 +221,16 @@ export class OpenMCRandomRayResultsWidget extends NativeVtkViewerWidget {
         return (
             <div className="openmc-output-viewer-header" title="Quick-select colors the grid instantly">
                 {fluxGroups.length > 0 && (
-                    <label className="openmc-output-viewer-control">
+                    <div className="openmc-output-viewer-control">
                         Flux group
-                        <select
+                        <NukeSelect
+                            ariaLabel="Flux group"
                             value={this.selectedColorBy ?? ''}
-                            onChange={(e) => this.selectColorBy(e.target.value || undefined)}
+                            options={fluxGroups.map((array) => ({ value: colorByValue(array), label: array.name }))}
+                            onChange={(value) => this.selectColorBy(value || undefined)}
                             disabled={this.isLoading}
-                        >
-                            {fluxGroups.map((array) => (
-                                <option key={array.name} value={colorByValue(array)}>
-                                    {array.name}
-                                </option>
-                            ))}
-                        </select>
-                    </label>
+                        />
+                    </div>
                 )}
                 {sources.map((array) => (
                     <button

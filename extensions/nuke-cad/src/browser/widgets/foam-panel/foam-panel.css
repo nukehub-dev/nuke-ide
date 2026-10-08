@@ -54,9 +54,7 @@
 }
 
 .foam-row input,
-.foam-row select,
-.foam-boundary input,
-.foam-boundary select {
+.foam-boundary input {
     padding: 6px 8px;
     font-size: 12px;
     border: 1px solid var(--theia-input-border);
@@ -67,9 +65,7 @@
 }
 
 .foam-row input:focus,
-.foam-row select:focus,
-.foam-boundary input:focus,
-.foam-boundary select:focus {
+.foam-boundary input:focus {
     border-color: var(--theia-focusBorder);
 }
 

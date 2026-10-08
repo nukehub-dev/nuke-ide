@@ -367,7 +367,6 @@
 }
 
 .cad-curve-dialog-row input,
-.cad-curve-dialog-row select,
 .cad-curve-dialog-row textarea {
     background: var(--theia-input-background);
     color: var(--theia-input-foreground);
@@ -378,7 +377,6 @@
 }
 
 .cad-curve-dialog-row input:focus,
-.cad-curve-dialog-row select:focus,
 .cad-curve-dialog-row textarea:focus {
     outline: 1px solid var(--theia-focusBorder);
 }

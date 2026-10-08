@@ -34,7 +34,7 @@ import { codicon } from '@theia/core/lib/browser/widgets/widget';
 import URI from '@theia/core/lib/common/uri';
 import { MessageService } from '@theia/core/lib/common';
 import { FileService } from '@theia/filesystem/lib/browser/file-service';
-import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
+import { NukeSelect, Tooltip } from 'nuke-essentials/lib/theme/browser/components';
 import { COLORMAP_NAMES, ColormapName, getColormap, isColormapName } from '../../../../viewer-core/colormaps';
 import {
     formatRangeValue,
@@ -367,16 +367,16 @@ export class ExodusTimeSliderWidget extends ReactWidget implements ViewerSetting
         }
         return (
             <Tooltip content="Color-by array for the current step (applies instantly)" position="bottom">
-                <label className="openmc-output-viewer-control">
+                <div className="openmc-output-viewer-control">
                     Color by
-                    <select value={this.toolbar.colorBy} onChange={(e) => this.setColorBy(e.target.value)} disabled={this.isLoading}>
-                        {colorByOptions(this.series).map((option) => (
-                            <option key={option} value={option}>
-                                {option}
-                            </option>
-                        ))}
-                    </select>
-                </label>
+                    <NukeSelect
+                        ariaLabel="Color-by array"
+                        value={this.toolbar.colorBy}
+                        options={colorByOptions(this.series).map((option) => ({ value: option, label: option }))}
+                        onChange={(value) => this.setColorBy(value)}
+                        disabled={this.isLoading}
+                    />
+                </div>
             </Tooltip>
         );
     }
@@ -387,16 +387,16 @@ export class ExodusTimeSliderWidget extends ReactWidget implements ViewerSetting
         }
         return (
             <Tooltip content="Colormap for the legend (applies instantly)" position="bottom">
-                <label className="openmc-output-viewer-control">
+                <div className="openmc-output-viewer-control">
                     Map
-                    <select value={this.toolbar.colormap} onChange={(e) => this.setColormap(e.target.value)} disabled={this.isLoading}>
-                        {COLORMAP_NAMES.map((name) => (
-                            <option key={name} value={name}>
-                                {name}
-                            </option>
-                        ))}
-                    </select>
-                </label>
+                    <NukeSelect
+                        ariaLabel="Colormap"
+                        value={this.toolbar.colormap}
+                        options={COLORMAP_NAMES.map((name) => ({ value: name, label: name }))}
+                        onChange={(value) => this.setColormap(value)}
+                        disabled={this.isLoading}
+                    />
+                </div>
             </Tooltip>
         );
     }

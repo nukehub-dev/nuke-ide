@@ -43,7 +43,7 @@ import { injectable, inject, postConstruct } from '@theia/core/shared/inversify'
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { MessageService } from '@theia/core/lib/common/message-service';
 import { FileDialogService, OpenFileDialogProps, SaveFileDialogProps } from '@theia/filesystem/lib/browser';
-import { Tooltip, useTooltip } from 'nuke-essentials/lib/theme/browser/components';
+import { Tooltip, useTooltip, NukeSelect } from 'nuke-essentials/lib/theme/browser/components';
 import { WidgetManager, ApplicationShell } from '@theia/core/lib/browser';
 import { FileService } from '@theia/filesystem/lib/browser/file-service';
 import { BinaryBuffer } from '@theia/core/lib/common/buffer';
@@ -1473,19 +1473,15 @@ export class SimulationComparisonWidget extends ReactWidget {
                 {this.burnupPlotType === 'concentration' && (
                     <div className="material-selector-bar">
                         <label>Material:</label>
-                        <select
-                            value={this.selectedMaterialId}
-                            onChange={(e) => {
-                                this.selectedMaterialId = e.target.value;
+                        <NukeSelect
+                            value={this.selectedMaterialId ?? ''}
+                            options={[...materialList.map(([id, mat]) => ({ value: id, label: `${mat.name} (ID: ${id})` }))]}
+                            onChange={(value: string) => {
+                                this.selectedMaterialId = value;
                                 this.update();
                             }}
-                        >
-                            {materialList.map(([id, mat]) => (
-                                <option key={id} value={id}>
-                                    {mat.name} (ID: {id})
-                                </option>
-                            ))}
-                        </select>
+                            ariaLabel="Material"
+                        />
                         <div className="nuclide-quick-select">
                             <span>Quick Select:</span>
                             <button

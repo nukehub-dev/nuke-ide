@@ -2001,14 +2001,6 @@
     font-weight: 600;
 }
 
-.optimization-widget .run-selector {
-    padding: 6px 12px;
-    border: 1px solid var(--theia-input-border);
-    border-radius: 4px;
-    background: var(--theia-input-background);
-    color: var(--theia-input-foreground);
-}
-
 .optimization-widget .analysis-content {
     background: var(--theia-editorWidget-background);
     border: 1px solid var(--theia-panel-border);
@@ -2249,8 +2241,7 @@
 }
 
 .optimization-widget button:focus-visible,
-.optimization-widget input:focus-visible,
-.optimization-widget select:focus-visible {
+.optimization-widget input:focus-visible {
     outline: none;
     box-shadow: 0 0 0 3px rgba(243, 117, 36, 0.25);
 }
@@ -2314,8 +2305,7 @@
     font-weight: 500;
 }
 
-.optimization-widget .editor-row input,
-.optimization-widget .editor-row select {
+.optimization-widget .editor-row input {
     flex: 1;
     padding: 8px 12px;
     border: 1px solid var(--theia-input-border);
@@ -2325,21 +2315,23 @@
     font-size: 13px;
 }
 
-.optimization-widget .editor-row input.invalid,
-.optimization-widget .editor-row select.invalid {
+/* NukeSelect root keeps the editor-row layout contract (paint lives on the trigger). */
+.optimization-widget .editor-row .nuke-select {
+    flex: 1;
+}
+
+.optimization-widget .editor-row input.invalid {
     border-color: var(--theia-inputValidation-errorBorder);
     background: var(--theia-inputValidation-errorBackground);
 }
 
-.optimization-widget .editor-row input:focus,
-.optimization-widget .editor-row select:focus {
+.optimization-widget .editor-row input:focus {
     outline: none;
     border-color: var(--theia-focusBorder);
     box-shadow: 0 0 0 2px rgba(243, 117, 36, 0.2);
 }
 
-.optimization-widget .editor-row input.invalid:focus,
-.optimization-widget .editor-row select.invalid:focus {
+.optimization-widget .editor-row input.invalid:focus {
     border-color: var(--theia-inputValidation-errorBorder);
     box-shadow: 0 0 0 2px rgba(231, 76, 60, 0.2);
 }

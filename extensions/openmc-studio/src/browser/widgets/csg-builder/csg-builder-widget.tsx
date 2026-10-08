@@ -37,6 +37,7 @@ import URI from '@theia/core/lib/common/uri';
 import { OpenMCStateManager } from '../../openmc-state-manager';
 import { NukeCoreStatusBarVisibility, NukeCoreStatusBarVisibilityService } from 'nuke-core/lib/common';
 import { OpenMCXMLGenerationService } from '../../xml-generator/xml-generation-service';
+import { NukeSelect } from 'nuke-essentials/lib/theme/browser/components';
 import { Tooltip, useTooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
 import { LoadingAnimations, FancyLoadingSpinner } from 'nuke-essentials/lib/theme/browser/components/loading-spinner';
 import { OpenMCStudioBackendService, CADImportResult } from '../../../common/openmc-studio-protocol';
@@ -757,17 +758,13 @@ export class CSGBuilderWidget extends ReactWidget {
                     <div className="form-row">
                         <div className="form-group">
                             <label>Surface Type</label>
-                            <select
+                            <NukeSelect
                                 value={this.surfaceFormType}
-                                onChange={(e) => this.changeSurfaceType(e.target.value as OpenMCSurfaceType)}
+                                options={[...SURFACE_TEMPLATES.map((t) => ({ value: t.type, label: t.name }))]}
+                                onChange={(value: string) => this.changeSurfaceType(value as OpenMCSurfaceType)}
                                 disabled={isEditing}
-                            >
-                                {SURFACE_TEMPLATES.map((t) => (
-                                    <option key={t.type} value={t.type}>
-                                        {t.name}
-                                    </option>
-                                ))}
-                            </select>
+                                ariaLabel="Surface type"
+                            />
                             {isEditing && <span className="form-hint">Type cannot be changed when editing</span>}
                         </div>
                         <div className="form-group">
@@ -784,19 +781,15 @@ export class CSGBuilderWidget extends ReactWidget {
                         </div>
                         <div className="form-group">
                             <label>Boundary Condition</label>
-                            <select
+                            <NukeSelect
                                 value={this.surfaceFormBoundary}
-                                onChange={(e) => {
-                                    this.surfaceFormBoundary = e.target.value as OpenMCBoundaryCondition;
+                                options={[...BOUNDARY_CONDITIONS.map((bc) => ({ value: bc.value, label: bc.label }))]}
+                                onChange={(value: string) => {
+                                    this.surfaceFormBoundary = value as OpenMCBoundaryCondition;
                                     this.update();
                                 }}
-                            >
-                                {BOUNDARY_CONDITIONS.map((bc) => (
-                                    <option key={bc.value} value={bc.value}>
-                                        {bc.label}
-                                    </option>
-                                ))}
-                            </select>
+                                ariaLabel="Boundary condition"
+                            />
                         </div>
                     </div>
 
@@ -1112,20 +1105,18 @@ export class CSGBuilderWidget extends ReactWidget {
                         <div className="form-group">
                             <label>Material</label>
                             <div className="select-with-browse">
-                                <select
-                                    value={this.cellFormFillId}
-                                    onChange={(e) => {
-                                        this.cellFormFillId = parseInt(e.target.value);
+                                <NukeSelect
+                                    value={String(this.cellFormFillId)}
+                                    options={[
+                                        { value: '0', label: 'Select Material...' },
+                                        ...state.materials.map((m) => ({ value: String(m.id), label: `#${m.id}: ${m.name}` }))
+                                    ]}
+                                    onChange={(value: string) => {
+                                        this.cellFormFillId = parseInt(value);
                                         this.update();
                                     }}
-                                >
-                                    <option value={0}>Select Material...</option>
-                                    {state.materials.map((m) => (
-                                        <option key={m.id} value={m.id}>
-                                            #{m.id}: {m.name}
-                                        </option>
-                                    ))}
-                                </select>
+                                    ariaLabel="Material"
+                                />
                                 <Tooltip content="Import materials from XML" position="top">
                                     <button
                                         className="theia-button secondary small browse-btn"
@@ -1148,22 +1139,20 @@ export class CSGBuilderWidget extends ReactWidget {
                         <div className="form-group">
                             <label>Universe</label>
                             <div className="select-with-browse">
-                                <select
-                                    value={this.cellFormFillId}
-                                    onChange={(e) => {
-                                        this.cellFormFillId = parseInt(e.target.value);
+                                <NukeSelect
+                                    value={String(this.cellFormFillId)}
+                                    options={[
+                                        { value: '0', label: 'Select Universe...' },
+                                        ...state.geometry.universes
+                                            .filter((u) => u.id !== 0)
+                                            .map((u) => ({ value: String(u.id), label: `#${u.id}: ${u.name || `Universe ${u.id}`}` }))
+                                    ]}
+                                    onChange={(value: string) => {
+                                        this.cellFormFillId = parseInt(value);
                                         this.update();
                                     }}
-                                >
-                                    <option value={0}>Select Universe...</option>
-                                    {state.geometry.universes
-                                        .filter((u) => u.id !== 0)
-                                        .map((u) => (
-                                            <option key={u.id} value={u.id}>
-                                                #{u.id}: {u.name || `Universe ${u.id}`}
-                                            </option>
-                                        ))}
-                                </select>
+                                    ariaLabel="Universe"
+                                />
                                 <Tooltip content="Go to Universes tab" position="top">
                                     <button
                                         className="theia-button secondary small browse-btn"
@@ -1443,22 +1432,23 @@ export class CSGBuilderWidget extends ReactWidget {
                             {unassignedCells.map((cell) => (
                                 <span key={cell.id} className="cell-tag unassigned">
                                     #{cell.id} {cell.name || ''}
-                                    <select
-                                        className="universe-select"
+                                    <NukeSelect
                                         value=""
-                                        onChange={(e) => {
-                                            if (e.target.value) {
-                                                this.assignCellToUniverse(cell.id, parseInt(e.target.value));
+                                        options={[
+                                            { value: '', label: 'Assign to...' },
+                                            ...state.geometry.universes.map((u) => ({
+                                                value: String(u.id),
+                                                label: `Universe #${u.id} ${u.name || ''}`
+                                            }))
+                                        ]}
+                                        onChange={(value: string) => {
+                                            if (value) {
+                                                this.assignCellToUniverse(cell.id, parseInt(value));
                                             }
                                         }}
-                                    >
-                                        <option value="">Assign to...</option>
-                                        {state.geometry.universes.map((u) => (
-                                            <option key={u.id} value={u.id}>
-                                                Universe #{u.id} {u.name || ''}
-                                            </option>
-                                        ))}
-                                    </select>
+                                        className="universe-select"
+                                        ariaLabel="Assign cell to universe"
+                                    />
                                 </span>
                             ))}
                         </div>
@@ -1515,21 +1505,22 @@ export class CSGBuilderWidget extends ReactWidget {
                                 {/* Add cells to this universe */}
                                 {unassignedCells.length > 0 && (
                                     <div className="add-cells-to-universe">
-                                        <select
+                                        <NukeSelect
                                             value=""
-                                            onChange={(e) => {
-                                                if (e.target.value) {
-                                                    this.assignCellToUniverse(parseInt(e.target.value), universe.id);
+                                            options={[
+                                                { value: '', label: '+ Add cell to this universe...' },
+                                                ...unassignedCells.map((cell) => ({
+                                                    value: String(cell.id),
+                                                    label: `#${cell.id}: ${cell.name || `Cell ${cell.id}`}`
+                                                }))
+                                            ]}
+                                            onChange={(value: string) => {
+                                                if (value) {
+                                                    this.assignCellToUniverse(parseInt(value), universe.id);
                                                 }
                                             }}
-                                        >
-                                            <option value="">+ Add cell to this universe...</option>
-                                            {unassignedCells.map((cell) => (
-                                                <option key={cell.id} value={cell.id}>
-                                                    #{cell.id}: {cell.name || `Cell ${cell.id}`}
-                                                </option>
-                                            ))}
-                                        </select>
+                                            ariaLabel="Add cell to universe"
+                                        />
                                     </div>
                                 )}
                             </div>

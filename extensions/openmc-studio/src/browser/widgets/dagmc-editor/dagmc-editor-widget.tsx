@@ -50,7 +50,7 @@ import { OpenMCStateManager } from '../../openmc-state-manager';
 import { OpenMCStudioService } from '../../openmc-studio-service';
 import { OpenMCXMLGenerationService } from '../../xml-generator/xml-generation-service';
 import { NukeCoreService, NukeCoreStatusBarVisibility, NukeCoreStatusBarVisibilityService } from 'nuke-core/lib/common';
-import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
+import { Tooltip, NukeSelect } from 'nuke-essentials/lib/theme/browser/components';
 import { PreferenceService } from '@theia/core/lib/common/preferences';
 import { DAGMCInfo, DAGMCVolume } from '../../../common/openmc-state-schema';
 import { OpenMCStudioBackendService, CADImportResult } from '../../../common/openmc-studio-protocol';
@@ -1191,37 +1191,33 @@ export class DAGMCEditorWidget extends ReactWidget {
                     <div className="form-row">
                         <div className="form-group">
                             <label>From Material (in file)</label>
-                            <select
+                            <NukeSelect
                                 value={this.overrideOldMaterial}
-                                onChange={(e) => {
-                                    this.overrideOldMaterial = e.target.value;
+                                options={[
+                                    { value: '', label: 'Select...' },
+                                    ...modelMaterialNames.map((name) => ({ value: name, label: name }))
+                                ]}
+                                onChange={(value: string) => {
+                                    this.overrideOldMaterial = value;
                                     this.update();
                                 }}
-                            >
-                                <option value="">Select...</option>
-                                {modelMaterialNames.map((name) => (
-                                    <option key={name} value={name}>
-                                        {name}
-                                    </option>
-                                ))}
-                            </select>
+                                ariaLabel="From material (in file)"
+                            />
                         </div>
                         <div className="form-group">
                             <label>To Material (project)</label>
-                            <select
+                            <NukeSelect
                                 value={this.overrideNewMaterial}
-                                onChange={(e) => {
-                                    this.overrideNewMaterial = e.target.value;
+                                options={[
+                                    { value: '', label: 'Select...' },
+                                    ...projectMaterials.map((mat) => ({ value: mat.name, label: mat.name }))
+                                ]}
+                                onChange={(value: string) => {
+                                    this.overrideNewMaterial = value;
                                     this.update();
                                 }}
-                            >
-                                <option value="">Select...</option>
-                                {projectMaterials.map((mat) => (
-                                    <option key={mat.id} value={mat.name}>
-                                        {mat.name}
-                                    </option>
-                                ))}
-                            </select>
+                                ariaLabel="To material (project)"
+                            />
                         </div>
                         <div className="form-group">
                             <label>&nbsp;</label>
@@ -1255,22 +1251,20 @@ export class DAGMCEditorWidget extends ReactWidget {
                                     <td>#{volume.id}</td>
                                     <td>{volume.material || <em>unassigned</em>}</td>
                                     <td>
-                                        <select
+                                        <NukeSelect
                                             value="__keep__"
-                                            onChange={(e) => {
-                                                if (e.target.value !== '__keep__') {
-                                                    this.assignMaterial(volume.id, e.target.value);
+                                            options={[
+                                                { value: '__keep__', label: 'Change...' },
+                                                ...projectMaterials.map((mat) => ({ value: mat.name, label: mat.name })),
+                                                { value: '', label: '(remove assignment)' }
+                                            ]}
+                                            onChange={(value: string) => {
+                                                if (value !== '__keep__') {
+                                                    this.assignMaterial(volume.id, value);
                                                 }
                                             }}
-                                        >
-                                            <option value="__keep__">Change...</option>
-                                            {projectMaterials.map((mat) => (
-                                                <option key={mat.id} value={mat.name}>
-                                                    {mat.name}
-                                                </option>
-                                            ))}
-                                            <option value="">(remove assignment)</option>
-                                        </select>
+                                            ariaLabel="Override material"
+                                        />
                                     </td>
                                 </tr>
                             ))}

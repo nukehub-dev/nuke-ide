@@ -34,6 +34,7 @@ import { NativeVtkViewerWidget } from '../native-vtk-viewer-widget';
 import { parseNativeVtkXml, readVtkText } from '../native-vtk/native-vtk-data';
 import { detectMissingDependencies } from '../dependency-hints';
 import { startSplitDrag } from '../drag-split';
+import { NukeSelect } from 'nuke-essentials/lib/theme/browser/components';
 
 /** Particle filter options offered by the tracks viewer */
 const PARTICLE_OPTIONS = ['', 'neutron', 'photon', 'electron', 'positron'] as const;
@@ -211,16 +212,16 @@ export class OpenMCTracksViewerWidget extends NativeVtkViewerWidget {
     protected renderFilterBar(): React.ReactNode {
         return (
             <div className="openmc-output-viewer-header">
-                <label className="openmc-output-viewer-control">
+                <div className="openmc-output-viewer-control">
                     Particle
-                    <select value={this.particle} onChange={(e) => this.setParticle(e.target.value)} disabled={this.isLoading}>
-                        {PARTICLE_OPTIONS.map((p) => (
-                            <option key={p} value={p}>
-                                {p === '' ? 'All' : p}
-                            </option>
-                        ))}
-                    </select>
-                </label>
+                    <NukeSelect
+                        ariaLabel="Particle type filter"
+                        value={this.particle}
+                        options={PARTICLE_OPTIONS.map((p) => ({ value: p, label: p === '' ? 'All' : p }))}
+                        onChange={(value) => this.setParticle(value)}
+                        disabled={this.isLoading}
+                    />
+                </div>
                 <label className="openmc-output-viewer-control">
                     Max tracks
                     <input

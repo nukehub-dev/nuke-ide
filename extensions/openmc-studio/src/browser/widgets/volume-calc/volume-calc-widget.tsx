@@ -30,7 +30,7 @@ import { injectable, inject, postConstruct } from '@theia/core/shared/inversify'
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { MessageService } from '@theia/core/lib/common/message-service';
 import { FileDialogService, OpenFileDialogProps } from '@theia/filesystem/lib/browser';
-import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
+import { Tooltip, NukeSelect } from 'nuke-essentials/lib/theme/browser/components';
 
 import { OpenMCStateManager } from '../../openmc-state-manager';
 import { OpenMCXMLGenerationService } from '../../xml-generator/xml-generation-service';
@@ -312,18 +312,20 @@ export class VolumeCalcWidget extends ReactWidget {
                         <div className="form-row">
                             <div className="form-group">
                                 <label>Domain Type</label>
-                                <select
+                                <NukeSelect
                                     value={this.domainType}
-                                    onChange={(e) => {
-                                        this.domainType = e.target.value as 'cell' | 'material' | 'universe';
+                                    options={[
+                                        { value: 'cell', label: 'Cells' },
+                                        { value: 'material', label: 'Materials' },
+                                        { value: 'universe', label: 'Universes' }
+                                    ]}
+                                    onChange={(value: string) => {
+                                        this.domainType = value as 'cell' | 'material' | 'universe';
                                         this.selectedIds.clear();
                                         this.update();
                                     }}
-                                >
-                                    <option value="cell">Cells</option>
-                                    <option value="material">Materials</option>
-                                    <option value="universe">Universes</option>
-                                </select>
+                                    ariaLabel="Domain type"
+                                />
                             </div>
                             <div className="form-group">
                                 <label>Samples</label>
@@ -402,18 +404,20 @@ export class VolumeCalcWidget extends ReactWidget {
                         <div className="form-row">
                             <div className="form-group">
                                 <label>Trigger Type</label>
-                                <select
+                                <NukeSelect
                                     value={this.triggerType}
-                                    onChange={(e) => {
-                                        this.triggerType = e.target.value as 'none' | 'std_dev' | 'variance' | 'rel_err';
+                                    options={[
+                                        { value: 'none', label: 'None (fixed samples)' },
+                                        { value: 'std_dev', label: 'Standard Deviation' },
+                                        { value: 'variance', label: 'Variance' },
+                                        { value: 'rel_err', label: 'Relative Error' }
+                                    ]}
+                                    onChange={(value: string) => {
+                                        this.triggerType = value as 'none' | 'std_dev' | 'variance' | 'rel_err';
                                         this.update();
                                     }}
-                                >
-                                    <option value="none">None (fixed samples)</option>
-                                    <option value="std_dev">Standard Deviation</option>
-                                    <option value="variance">Variance</option>
-                                    <option value="rel_err">Relative Error</option>
-                                </select>
+                                    ariaLabel="Trigger type"
+                                />
                             </div>
                             {this.triggerType !== 'none' && (
                                 <div className="form-group">

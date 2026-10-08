@@ -874,24 +874,11 @@
     gap: 4px;
 }
 
-.csg-builder .cell-tag .universe-select,
-.csg-builder .add-cells-to-universe select {
-    font-size: 11px;
-    padding: 2px 6px;
-    border: 1px solid var(--theia-panel-border);
-    border-radius: 4px;
-    background: var(--theia-input-background);
-    color: var(--theia-input-foreground);
-    cursor: pointer;
-}
-
 .csg-builder .add-cells-to-universe {
     margin-top: 12px;
 }
 
-.csg-builder .add-cells-to-universe select {
-    padding: 6px 10px;
-    font-size: 12px;
+.csg-builder .add-cells-to-universe .nuke-select {
     width: 100%;
     max-width: 250px;
 }
@@ -1252,7 +1239,7 @@
     align-items: center;
 }
 
-.csg-builder .select-with-browse select {
+.csg-builder .select-with-browse .nuke-select {
     flex: 1;
 }
 
@@ -1503,8 +1490,7 @@
 }
 
 .csg-builder .form-group input[type='text'],
-.csg-builder .form-group input[type='number'],
-.csg-builder .form-group select {
+.csg-builder .form-group input[type='number'] {
     padding: 8px 10px;
     border: 1px solid var(--theia-input-border);
     border-radius: 6px;
@@ -1514,8 +1500,7 @@
     transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.csg-builder .form-group input:focus,
-.csg-builder .form-group select:focus {
+.csg-builder .form-group input:focus {
     outline: none;
     border-color: var(--theia-focusBorder);
     box-shadow: 0 0 0 2px rgba(243, 117, 36, 0.2);

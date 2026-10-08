@@ -553,8 +553,7 @@
 }
 
 .tally-configurator-container .form-group input[type='text'],
-.tally-configurator-container .form-group input[type='number'],
-.tally-configurator-container .form-group select {
+.tally-configurator-container .form-group input[type='number'] {
     padding: 8px 10px;
     border: 1px solid var(--theia-input-border);
     border-radius: 6px;
@@ -564,8 +563,7 @@
     transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.tally-configurator-container .form-group input:focus,
-.tally-configurator-container .form-group select:focus {
+.tally-configurator-container .form-group input:focus {
     outline: none;
     border-color: var(--theia-focusBorder);
     box-shadow: 0 0 0 3px rgba(243, 117, 36, 0.15);

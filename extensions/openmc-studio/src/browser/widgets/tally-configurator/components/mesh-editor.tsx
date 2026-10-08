@@ -26,7 +26,7 @@
 // *****************************************************************************
 
 import * as React from 'react';
-import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
+import { Tooltip, NukeSelect } from 'nuke-essentials/lib/theme/browser/components';
 import {
     OpenMCMesh,
     OpenMCRegularMesh,
@@ -56,8 +56,8 @@ interface MeshEditorProps {
  */
 export const MeshEditor: React.FC<MeshEditorProps> = ({ mesh, dagmcBoundingBox, onUpdate }) => {
     /** Handle switching the mesh coordinate system type. */
-    const handleTypeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-        const newType = e.target.value as OpenMCMeshType;
+    const handleTypeChange = (value: string) => {
+        const newType = value as OpenMCMeshType;
         if (newType === mesh.type) return;
 
         // Reset mesh properties when type changes
@@ -105,11 +105,16 @@ export const MeshEditor: React.FC<MeshEditorProps> = ({ mesh, dagmcBoundingBox, 
                         <Tooltip content="Coordinate system for spatial discretization" position="top">
                             <label>Type</label>
                         </Tooltip>
-                        <select value={mesh.type} onChange={handleTypeChange}>
-                            <option value="regular">Regular (Cartesian)</option>
-                            <option value="cylindrical">Cylindrical</option>
-                            <option value="spherical">Spherical</option>
-                        </select>
+                        <NukeSelect
+                            value={mesh.type}
+                            options={[
+                                { value: 'regular', label: 'Regular (Cartesian)' },
+                                { value: 'cylindrical', label: 'Cylindrical' },
+                                { value: 'spherical', label: 'Spherical' }
+                            ]}
+                            onChange={handleTypeChange}
+                            ariaLabel="Mesh type"
+                        />
                         <p className="form-hint">Coordinate system for mesh grid: Cartesian, cylindrical, or spherical</p>
                     </div>
                 </div>

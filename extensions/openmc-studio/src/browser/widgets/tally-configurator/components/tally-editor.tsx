@@ -26,7 +26,7 @@
 // *****************************************************************************
 
 import * as React from 'react';
-import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
+import { Tooltip, NukeSelect } from 'nuke-essentials/lib/theme/browser/components';
 import { OpenMCTally, OpenMCMaterial, OpenMCMesh, OpenMCTallyScore } from '../../../../common/openmc-state-schema';
 import { ScoreSelector } from './score-selector';
 import { FilterBuilder } from './filter-builder';
@@ -107,11 +107,16 @@ export const TallyEditor: React.FC<TallyEditorProps> = ({ tally, meshes, materia
                         <Tooltip content="Method for estimating particle contributions to tallies" position="top">
                             <label>Estimator</label>
                         </Tooltip>
-                        <select value={tally.estimator || 'tracklength'} onChange={(e) => onUpdate({ estimator: e.target.value as any })}>
-                            <option value="tracklength">Tracklength (default)</option>
-                            <option value="analog">Analog</option>
-                            <option value="collision">Collision</option>
-                        </select>
+                        <NukeSelect
+                            value={tally.estimator || 'tracklength'}
+                            options={[
+                                { value: 'tracklength', label: 'Tracklength (default)' },
+                                { value: 'analog', label: 'Analog' },
+                                { value: 'collision', label: 'Collision' }
+                            ]}
+                            onChange={(value: string) => onUpdate({ estimator: value as any })}
+                            ariaLabel="Estimator"
+                        />
                         <p className="form-hint">Determines how scores are calculated</p>
                         {showTrackLengthWarning && (
                             <p className="validation-warning">

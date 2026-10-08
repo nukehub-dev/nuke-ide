@@ -26,6 +26,7 @@
 // *****************************************************************************
 
 import * as React from 'react';
+import { NukeSelect } from 'nuke-essentials/lib/theme/browser/components';
 import { OpenMCMaterial, OpenMCTallyDerivative } from '../../../../common/openmc-state-schema';
 
 /**
@@ -76,39 +77,38 @@ export const DerivativeEditor: React.FC<DerivativeEditorProps> = ({ derivative, 
             <div className="form-row">
                 <div className="form-group">
                     <label>Variable</label>
-                    <select
+                    <NukeSelect
                         value={derivative.variable}
-                        onChange={(e) => update({ variable: e.target.value as OpenMCTallyDerivative['variable'], nuclide: undefined })}
-                    >
-                        <option value="density">Density</option>
-                        <option value="nuclide_density">Nuclide Density</option>
-                        <option value="temperature">Temperature</option>
-                    </select>
+                        options={[
+                            { value: 'density', label: 'Density' },
+                            { value: 'nuclide_density', label: 'Nuclide Density' },
+                            { value: 'temperature', label: 'Temperature' }
+                        ]}
+                        onChange={(value: string) => update({ variable: value as OpenMCTallyDerivative['variable'], nuclide: undefined })}
+                        ariaLabel="Derivative variable"
+                    />
                 </div>
                 <div className="form-group">
                     <label>Perturbed Material</label>
-                    <select
-                        value={derivative.materialId}
-                        onChange={(e) => update({ materialId: parseInt(e.target.value), nuclide: undefined })}
-                    >
-                        {materials.map((mat) => (
-                            <option key={mat.id} value={mat.id}>
-                                {mat.name || `Material ${mat.id}`}
-                            </option>
-                        ))}
-                    </select>
+                    <NukeSelect
+                        value={String(derivative.materialId)}
+                        options={[...materials.map((mat) => ({ value: String(mat.id), label: mat.name || `Material ${mat.id}` }))]}
+                        onChange={(value: string) => update({ materialId: parseInt(value), nuclide: undefined })}
+                        ariaLabel="Perturbed material"
+                    />
                 </div>
                 {derivative.variable === 'nuclide_density' && (
                     <div className="form-group">
                         <label>Perturbed Nuclide</label>
-                        <select value={derivative.nuclide ?? ''} onChange={(e) => update({ nuclide: e.target.value || undefined })}>
-                            <option value="">-- Select nuclide --</option>
-                            {(domainMaterial?.nuclides ?? []).map((nuc) => (
-                                <option key={nuc.name} value={nuc.name}>
-                                    {nuc.name}
-                                </option>
-                            ))}
-                        </select>
+                        <NukeSelect
+                            value={derivative.nuclide ?? ''}
+                            options={[
+                                { value: '', label: '-- Select nuclide --' },
+                                ...(domainMaterial?.nuclides ?? []).map((nuc) => ({ value: nuc.name, label: nuc.name }))
+                            ]}
+                            onChange={(value: string) => update({ nuclide: value || undefined })}
+                            ariaLabel="Perturbed nuclide"
+                        />
                     </div>
                 )}
                 <div className="form-group">

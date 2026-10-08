@@ -80,7 +80,7 @@ import {
     type DrawingViewOutput
 } from '../../../common/cad-drawing';
 import { CadDocumentStore } from '../../document/cad-document-store';
-import { NukeEmptyState, NukeToolbar, NukeToolbarGroup } from 'nuke-essentials/lib/theme/browser/components';
+import { NukeEmptyState, NukeSelect, NukeToolbar, NukeToolbarGroup } from 'nuke-essentials/lib/theme/browser/components';
 import './drawing-sheet.css';
 
 type DrawingTool = 'select' | 'dimension';
@@ -513,19 +513,21 @@ export class DrawingSheetWidget extends ReactWidget {
                 <div className="nuke-cad-drawing-empty">
                     <NukeEmptyState title="No drawing sheets" message="Create a sheet with a base view to start the drawing.">
                         <div className="nuke-cad-drawing-new-row">
-                            <label>
+                            <div>
                                 Size
-                                <select
+                                <NukeSelect
+                                    ariaLabel="Size"
                                     value={this.newSheetSize}
-                                    onChange={(e) => {
-                                        this.newSheetSize = e.target.value as DrawingSheetSize;
+                                    options={[
+                                        { value: 'A4', label: 'A4 landscape' },
+                                        { value: 'A3', label: 'A3 landscape' }
+                                    ]}
+                                    onChange={(value) => {
+                                        this.newSheetSize = value as DrawingSheetSize;
                                         this.update();
                                     }}
-                                >
-                                    <option value="A4">A4 landscape</option>
-                                    <option value="A3">A3 landscape</option>
-                                </select>
-                            </label>
+                                />
+                            </div>
                             {BASE_ORIENTATIONS.map((orientation) => (
                                 <button
                                     key={orientation}
@@ -545,11 +547,12 @@ export class DrawingSheetWidget extends ReactWidget {
             <div className="nuke-cad-drawing-root">
                 <NukeToolbar>
                     <NukeToolbarGroup label="Sheet">
-                        <select
-                            aria-label="Drawing sheet"
+                        <NukeSelect
+                            ariaLabel="Drawing sheet"
                             value={sheet.id}
-                            onChange={(e) => {
-                                this.activeSheetId = e.target.value;
+                            options={drawings.map((s) => ({ value: s.id, label: `${s.name} (${s.size})` }))}
+                            onChange={(value) => {
+                                this.activeSheetId = value;
                                 this.selectedViewId = undefined;
                                 this.pendingTargets = [];
                                 this.pendingViewId = undefined;
@@ -558,13 +561,7 @@ export class DrawingSheetWidget extends ReactWidget {
                                 cancelDrawingDimensionPick();
                                 this.update();
                             }}
-                        >
-                            {drawings.map((s) => (
-                                <option key={s.id} value={s.id}>
-                                    {s.name} ({s.size})
-                                </option>
-                            ))}
-                        </select>
+                        />
                         <button
                             className="theia-button secondary"
                             title="Add a new sheet with a front base view"
@@ -598,21 +595,22 @@ export class DrawingSheetWidget extends ReactWidget {
                         >
                             Dimension
                         </button>
-                        <select
-                            aria-label="Dimension kind"
+                        <NukeSelect
+                            ariaLabel="Dimension kind"
                             value={this.dimensionKind}
-                            onChange={(e) => {
-                                this.dimensionKind = e.target.value as DrawingDimensionKind;
+                            options={[
+                                { value: 'distance', label: 'distance' },
+                                { value: 'radius', label: 'radius' },
+                                { value: 'diameter', label: 'diameter' }
+                            ]}
+                            onChange={(value) => {
+                                this.dimensionKind = value as DrawingDimensionKind;
                                 // A new kind needs a new target count: restart any in-progress viewport pick.
                                 cancelDrawingDimensionPick();
                                 this.pendingTargets = [];
                                 this.update();
                             }}
-                        >
-                            <option value="distance">distance</option>
-                            <option value="radius">radius</option>
-                            <option value="diameter">diameter</option>
-                        </select>
+                        />
                         {this.tool === 'dimension' && (
                             <button
                                 className="theia-button secondary"

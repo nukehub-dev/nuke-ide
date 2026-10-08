@@ -26,6 +26,7 @@
 // *****************************************************************************
 
 import * as React from '@theia/core/shared/react';
+import { NukeSelect } from 'nuke-essentials/lib/theme/browser/components';
 import { OpenMCState } from '../../../../../common/openmc-state-schema';
 import type { SimulationDashboardWidget } from '../../simulation-dashboard-widget';
 
@@ -57,13 +58,15 @@ export function renderPhysicsSection(host: SimulationDashboardWidget, state: Ope
                     <div className="form-row">
                         <div className="form-group">
                             <label>Electron Treatment</label>
-                            <select
+                            <NukeSelect
                                 value={settings.electronTreatment ?? 'led'}
-                                onChange={(e) => host.updateSetting('electronTreatment', e.target.value as 'led' | 'ttb')}
-                            >
-                                <option value="led">LED (Local Energy Deposition)</option>
-                                <option value="ttb">TTB (Thick-Target Bremsstrahlung)</option>
-                            </select>
+                                options={[
+                                    { value: 'led', label: 'LED (Local Energy Deposition)' },
+                                    { value: 'ttb', label: 'TTB (Thick-Target Bremsstrahlung)' }
+                                ]}
+                                onChange={(value: string) => host.updateSetting('electronTreatment', value as 'led' | 'ttb')}
+                                ariaLabel="Electron treatment"
+                            />
                             <span className="form-hint">How energy from photon-produced electrons is treated</span>
                         </div>
                         <div className="form-group checkbox stacked">

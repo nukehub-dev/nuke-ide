@@ -51,6 +51,7 @@ import {
     FemStepSettings
 } from '../../../common/nuke-cad-protocol';
 import { NukeCadStateManager } from '../../state/nuke-cad-state-manager';
+import { NukeSelect } from 'nuke-essentials/lib/theme/browser/components';
 import './fem-panel.css';
 
 interface FemPanelState {
@@ -392,14 +393,16 @@ function FemPanelComponent(props: FemPanelComponentProps): React.ReactElement {
                     <div className="fem-section-title">Analysis Type</div>
                     <div className="form-row">
                         <div className="form-group">
-                            <select
+                            <NukeSelect
+                                ariaLabel="Analysis type"
                                 value={props.state.analysisType}
-                                onChange={(e) => props.onAnalysisTypeChange(e.target.value as 'static' | 'heatTransfer' | 'frequency')}
-                            >
-                                <option value="static">Static Structural</option>
-                                <option value="heatTransfer">Steady-State Thermal</option>
-                                <option value="frequency">Frequency</option>
-                            </select>
+                                options={[
+                                    { value: 'static', label: 'Static Structural' },
+                                    { value: 'heatTransfer', label: 'Steady-State Thermal' },
+                                    { value: 'frequency', label: 'Frequency' }
+                                ]}
+                                onChange={(value) => props.onAnalysisTypeChange(value as 'static' | 'heatTransfer' | 'frequency')}
+                            />
                         </div>
                         <div className="form-group">
                             <label>Step Time</label>
@@ -453,16 +456,15 @@ function FemPanelComponent(props: FemPanelComponentProps): React.ReactElement {
                         <div className="form-row" key={block}>
                             <div className="form-group">
                                 <label>{block}</label>
-                                <select
+                                <NukeSelect
+                                    ariaLabel={block}
                                     value={props.state.materials[block] ?? 'structural_steel'}
-                                    onChange={(e) => props.onMaterialChange(block, e.target.value)}
-                                >
-                                    {materialOptions.map((name) => (
-                                        <option value={name.toLowerCase().replace(/\s+/g, '_')} key={name}>
-                                            {name}
-                                        </option>
-                                    ))}
-                                </select>
+                                    options={materialOptions.map((name) => ({
+                                        value: name.toLowerCase().replace(/\s+/g, '_'),
+                                        label: name
+                                    }))}
+                                    onChange={(value) => props.onMaterialChange(block, value)}
+                                />
                             </div>
                         </div>
                     ))}
@@ -473,24 +475,30 @@ function FemPanelComponent(props: FemPanelComponentProps): React.ReactElement {
                     <div className="form-row">
                         <div className="form-group">
                             <label>Type</label>
-                            <select value={newBcType} onChange={(e) => setNewBcType(e.target.value as FemBoundaryCondition['type'])}>
-                                <option value="fixed">Fixed (ENCASTRE)</option>
-                                <option value="displacement">Displacement</option>
-                                <option value="pressure">Pressure</option>
-                                <option value="temperature">Temperature</option>
-                                <option value="heatFlux">Heat Flux</option>
-                            </select>
+                            <NukeSelect
+                                ariaLabel="Type"
+                                value={newBcType}
+                                options={[
+                                    { value: 'fixed', label: 'Fixed (ENCASTRE)' },
+                                    { value: 'displacement', label: 'Displacement' },
+                                    { value: 'pressure', label: 'Pressure' },
+                                    { value: 'temperature', label: 'Temperature' },
+                                    { value: 'heatFlux', label: 'Heat Flux' }
+                                ]}
+                                onChange={(value) => setNewBcType(value as FemBoundaryCondition['type'])}
+                            />
                         </div>
                         <div className="form-group">
                             <label>Surface</label>
-                            <select value={newBcSurface} onChange={(e) => setNewBcSurface(e.target.value)}>
-                                <option value="">Select surface...</option>
-                                {props.surfaces.map((s) => (
-                                    <option value={s} key={s}>
-                                        {s}
-                                    </option>
-                                ))}
-                            </select>
+                            <NukeSelect
+                                ariaLabel="Surface"
+                                value={newBcSurface}
+                                options={[
+                                    { value: '', label: 'Select surface...' },
+                                    ...props.surfaces.map((s) => ({ value: s, label: s }))
+                                ]}
+                                onChange={(value) => setNewBcSurface(value)}
+                            />
                         </div>
                         {newBcType === 'temperature' ? (
                             <div className="form-group">

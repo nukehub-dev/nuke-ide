@@ -34,7 +34,7 @@ import { codicon } from '@theia/core/lib/browser/widgets/widget';
 import URI from '@theia/core/lib/common/uri';
 import { MessageService } from '@theia/core/lib/common';
 import { FileService } from '@theia/filesystem/lib/browser/file-service';
-import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
+import { NukeSelect, Tooltip } from 'nuke-essentials/lib/theme/browser/components';
 import {
     anyClipEnabled,
     CLIP_AXES,
@@ -477,24 +477,25 @@ export class GeometryNativeViewerWidget extends ReactWidget implements ViewerSet
                         onChange={(e) => this.applyProps({ opacity: parseFloat(e.target.value) })}
                     />
                 </label>
-                <label title="Cell visibility by material">
+                <div title="Cell visibility by material">
                     Materials
-                    <select
+                    <NukeSelect
+                        ariaLabel="Toggle material visibility"
                         value=""
-                        onChange={(e) => {
-                            if (e.target.value !== '') {
-                                this.toggleMaterial(e.target.value);
+                        options={[
+                            { value: '', label: 'Toggle material…' },
+                            ...materials.map((material) => ({
+                                value: material,
+                                label: `${this.hiddenMaterials.includes(material) ? '○' : '●'} ${material}`
+                            }))
+                        ]}
+                        onChange={(value) => {
+                            if (value !== '') {
+                                this.toggleMaterial(value);
                             }
                         }}
-                    >
-                        <option value="">Toggle material…</option>
-                        {materials.map((material) => (
-                            <option key={material} value={material}>
-                                {`${this.hiddenMaterials.includes(material) ? '○' : '●'} ${material}`}
-                            </option>
-                        ))}
-                    </select>
-                </label>
+                    />
+                </div>
                 <label
                     style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
                     title="Clip planes: master toggle (enabled planes apply together)"

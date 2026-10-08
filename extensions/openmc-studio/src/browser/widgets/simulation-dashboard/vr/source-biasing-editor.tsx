@@ -31,7 +31,7 @@
 
 import * as React from '@theia/core/shared/react';
 import { OpenMCSourceBiasing, OpenMCSourceEnergy, OpenMCSourceSpatial } from '../../../../common/openmc-state-schema';
-import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
+import { Tooltip, NukeSelect } from 'nuke-essentials/lib/theme/browser/components';
 
 /** Props for the {@link SourceBiasingEditor} component. */
 export interface SourceBiasingEditorProps {
@@ -135,10 +135,17 @@ export const SourceBiasingEditor: React.FC<SourceBiasingEditorProps> = ({ source
 
                         <div className="form-group">
                             <label>Bias Type</label>
-                            <select
+                            <NukeSelect
                                 value={sb.energyBias?.type || 'none'}
-                                onChange={(e) => {
-                                    const type = e.target.value as OpenMCSourceEnergy['type'] | 'none';
+                                options={[
+                                    { value: 'none', label: 'No Energy Bias' },
+                                    { value: 'discrete', label: 'Discrete' },
+                                    { value: 'uniform', label: 'Uniform' },
+                                    { value: 'maxwell', label: 'Maxwell' },
+                                    { value: 'watt', label: 'Watt' }
+                                ]}
+                                onChange={(value: string) => {
+                                    const type = value as OpenMCSourceEnergy['type'] | 'none';
                                     if (type === 'none') {
                                         onChange({ ...sb, energyBias: undefined });
                                     } else {
@@ -162,13 +169,8 @@ export const SourceBiasingEditor: React.FC<SourceBiasingEditorProps> = ({ source
                                         onChange({ ...sb, energyBias });
                                     }
                                 }}
-                            >
-                                <option value="none">No Energy Bias</option>
-                                <option value="discrete">Discrete</option>
-                                <option value="uniform">Uniform</option>
-                                <option value="maxwell">Maxwell</option>
-                                <option value="watt">Watt</option>
-                            </select>
+                                ariaLabel="Energy bias type"
+                            />
                         </div>
 
                         {sb.energyBias?.type === 'discrete' && (
@@ -281,10 +283,16 @@ export const SourceBiasingEditor: React.FC<SourceBiasingEditorProps> = ({ source
 
                         <div className="form-group">
                             <label>Bias Type</label>
-                            <select
+                            <NukeSelect
                                 value={sb.spatialBias?.type || 'none'}
-                                onChange={(e) => {
-                                    const type = e.target.value as OpenMCSourceSpatial['type'] | 'none';
+                                options={[
+                                    { value: 'none', label: 'No Spatial Bias' },
+                                    { value: 'point', label: 'Point' },
+                                    { value: 'box', label: 'Box' },
+                                    { value: 'sphere', label: 'Sphere' }
+                                ]}
+                                onChange={(value: string) => {
+                                    const type = value as OpenMCSourceSpatial['type'] | 'none';
                                     if (type === 'none') {
                                         onChange({ ...sb, spatialBias: undefined });
                                     } else {
@@ -305,12 +313,8 @@ export const SourceBiasingEditor: React.FC<SourceBiasingEditorProps> = ({ source
                                         onChange({ ...sb, spatialBias });
                                     }
                                 }}
-                            >
-                                <option value="none">No Spatial Bias</option>
-                                <option value="point">Point</option>
-                                <option value="box">Box</option>
-                                <option value="sphere">Sphere</option>
-                            </select>
+                                ariaLabel="Spatial bias type"
+                            />
                         </div>
 
                         {sb.spatialBias?.type === 'point' && (

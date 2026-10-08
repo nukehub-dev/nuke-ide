@@ -31,7 +31,7 @@
 
 import * as React from '@theia/core/shared/react';
 import { OpenMCWeightWindows, OpenMCMesh } from '../../../../common/openmc-state-schema';
-import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
+import { Tooltip, NukeSelect } from 'nuke-essentials/lib/theme/browser/components';
 
 /** Props for the {@link WeightWindowEditor} component. */
 export interface WeightWindowEditorProps {
@@ -163,17 +163,18 @@ export const WeightWindowEditor: React.FC<WeightWindowEditorProps> = ({
                             <>
                                 <div className="form-group">
                                     <label>Select Mesh</label>
-                                    <select
-                                        value={ww.meshId || ''}
-                                        onChange={(e) => onChange({ ...ww, meshId: parseInt(e.target.value) || 0 })}
-                                    >
-                                        <option value="">Select a mesh...</option>
-                                        {meshes.map((mesh) => (
-                                            <option key={mesh.id} value={mesh.id}>
-                                                {mesh.name || `Mesh ${mesh.id}`} ({mesh.type})
-                                            </option>
-                                        ))}
-                                    </select>
+                                    <NukeSelect
+                                        value={String(ww.meshId || '')}
+                                        options={[
+                                            { value: '', label: 'Select a mesh...' },
+                                            ...meshes.map((mesh) => ({
+                                                value: String(mesh.id),
+                                                label: `${mesh.name || `Mesh ${mesh.id}`} (${mesh.type})`
+                                            }))
+                                        ]}
+                                        onChange={(value: string) => onChange({ ...ww, meshId: parseInt(value) || 0 })}
+                                        ariaLabel="Weight window mesh"
+                                    />
                                 </div>
 
                                 {selectedMesh && (
@@ -289,13 +290,15 @@ export const WeightWindowEditor: React.FC<WeightWindowEditorProps> = ({
 
                         <div className="form-group">
                             <label>Particle Type</label>
-                            <select
+                            <NukeSelect
                                 value={ww.particleType || 'neutron'}
-                                onChange={(e) => onChange({ ...ww, particleType: e.target.value as 'neutron' | 'photon' })}
-                            >
-                                <option value="neutron">Neutron</option>
-                                <option value="photon">Photon</option>
-                            </select>
+                                options={[
+                                    { value: 'neutron', label: 'Neutron' },
+                                    { value: 'photon', label: 'Photon' }
+                                ]}
+                                onChange={(value: string) => onChange({ ...ww, particleType: value as 'neutron' | 'photon' })}
+                                ariaLabel="Particle type"
+                            />
                         </div>
                     </div>
 

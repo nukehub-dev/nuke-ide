@@ -32,7 +32,7 @@ import { MessageService } from '@theia/core/lib/common/message-service';
 import { FileDialogService, OpenFileDialogProps } from '@theia/filesystem/lib/browser';
 import { OpenerService } from '@theia/core/lib/browser/opener-service';
 import URI from '@theia/core/lib/common/uri';
-import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
+import { Tooltip, NukeSelect } from 'nuke-essentials/lib/theme/browser/components';
 
 import { OpenMCStateManager } from '../../openmc-state-manager';
 import { OpenMCXMLGenerationService } from '../../xml-generator/xml-generation-service';
@@ -407,13 +407,15 @@ export class NativePlottingWidget extends ReactWidget {
                     </div>
                     <div className="form-group">
                         <label>Color By</label>
-                        <select
+                        <NukeSelect
                             value={plot.colorBy}
-                            onChange={(e) => this.updateSelectedPlot({ colorBy: e.target.value as OpenMCPlotConfig['colorBy'] })}
-                        >
-                            <option value="cell">Cell</option>
-                            <option value="material">Material</option>
-                        </select>
+                            options={[
+                                { value: 'cell', label: 'Cell' },
+                                { value: 'material', label: 'Material' }
+                            ]}
+                            onChange={(value: string) => this.updateSelectedPlot({ colorBy: value as OpenMCPlotConfig['colorBy'] })}
+                            ariaLabel="Color by"
+                        />
                     </div>
                 </div>
 
@@ -422,14 +424,16 @@ export class NativePlottingWidget extends ReactWidget {
                         <div className="form-row">
                             <div className="form-group">
                                 <label>Basis</label>
-                                <select
+                                <NukeSelect
                                     value={plot.basis}
-                                    onChange={(e) => this.updateSelectedPlot({ basis: e.target.value as 'xy' | 'xz' | 'yz' })}
-                                >
-                                    <option value="xy">XY</option>
-                                    <option value="xz">XZ</option>
-                                    <option value="yz">YZ</option>
-                                </select>
+                                    options={[
+                                        { value: 'xy', label: 'XY' },
+                                        { value: 'xz', label: 'XZ' },
+                                        { value: 'yz', label: 'YZ' }
+                                    ]}
+                                    onChange={(value: string) => this.updateSelectedPlot({ basis: value as 'xy' | 'xz' | 'yz' })}
+                                    ariaLabel="Basis"
+                                />
                             </div>
                             <div className="form-group">
                                 <label>Width</label>

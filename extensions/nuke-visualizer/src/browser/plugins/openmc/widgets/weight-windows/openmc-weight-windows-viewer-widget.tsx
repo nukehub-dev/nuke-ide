@@ -34,6 +34,7 @@ import { NativeVtkViewerWidget } from '../native-vtk-viewer-widget';
 import { readVtkText } from '../native-vtk/native-vtk-data';
 import { detectMissingDependencies } from '../dependency-hints';
 import { startSplitDrag } from '../drag-split';
+import { NukeSelect } from 'nuke-essentials/lib/theme/browser/components';
 
 /**
  * Viewer for OpenMC weight window files (`weight_windows.h5`). Converts the
@@ -311,21 +312,21 @@ export class OpenMCWeightWindowsViewerWidget extends NativeVtkViewerWidget {
                 {meshIds.length > 1 && (
                     <div className="openmc-output-viewer-card">
                         <div className="openmc-output-viewer-card-title">Mesh to display</div>
-                        <select
-                            value={this.selectedMeshId ?? meshIds[0]}
-                            onChange={(e) => {
-                                this.selectedMeshId = parseInt(e.target.value);
+                        <NukeSelect
+                            ariaLabel="Mesh to display"
+                            value={String(this.selectedMeshId ?? meshIds[0])}
+                            options={meshIds.map((id) => ({
+                                value: String(id),
+                                label:
+                                    `Mesh ${id} (${this.data!.weightWindows.filter((w) => w.meshId === id).length} window` +
+                                    `${this.data!.weightWindows.filter((w) => w.meshId === id).length === 1 ? '' : 's'})`
+                            }))}
+                            onChange={(value) => {
+                                this.selectedMeshId = parseInt(value);
                                 this.update();
                                 void this.reload();
                             }}
-                        >
-                            {meshIds.map((id) => (
-                                <option key={id} value={id}>
-                                    Mesh {id} ({this.data!.weightWindows.filter((w) => w.meshId === id).length} window
-                                    {this.data!.weightWindows.filter((w) => w.meshId === id).length === 1 ? '' : 's'})
-                                </option>
-                            ))}
-                        </select>
+                        />
                     </div>
                 )}
                 {this.data.meshes.map((mesh) => (

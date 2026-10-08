@@ -40,6 +40,7 @@ import {
     DepletionNuclidePreset
 } from '../../../../../common/openmc-protocol';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
+import { NukeSelect } from 'nuke-essentials/lib/theme/browser/components';
 import { PlotlyComponent } from '../../../../plotly/plotly-component';
 import { OpenMCService } from '../../openmc-service';
 import URI from '@theia/core/lib/common/uri';
@@ -262,30 +263,21 @@ export class OpenMCDepletionWidget extends ReactWidget {
                     <label style={{ fontSize: '12px', color: textColor, fontWeight: 'bold', display: 'block', marginBottom: '8px' }}>
                         Material
                     </label>
-                    <select
-                        value={this.selectedMaterialIndex >= 0 ? this.selectedMaterialIndex : ''}
-                        onChange={(e) => {
-                            this.selectedMaterialIndex = parseInt(e.target.value);
+                    <NukeSelect
+                        ariaLabel="Material"
+                        value={this.selectedMaterialIndex >= 0 ? String(this.selectedMaterialIndex) : ''}
+                        options={
+                            this.materials.length === 0
+                                ? [{ value: '', label: 'Loading...' }]
+                                : this.materials.map((mat) => ({ value: String(mat.index), label: `${mat.name} (Mat ${mat.index})` }))
+                        }
+                        onChange={(value) => {
+                            this.selectedMaterialIndex = parseInt(value);
                             this.loadMaterialData(this.selectedMaterialIndex);
                         }}
                         disabled={this.isLoading}
-                        style={{
-                            width: '100%',
-                            padding: '6px',
-                            fontSize: '12px',
-                            borderRadius: '4px',
-                            border: `1px solid ${borderColor}`,
-                            backgroundColor: 'var(--theia-input-background)',
-                            color: textColor
-                        }}
-                    >
-                        {this.materials.length === 0 && <option value="">Loading...</option>}
-                        {this.materials.map((mat) => (
-                            <option key={mat.index} value={mat.index}>
-                                {mat.name} (Mat {mat.index})
-                            </option>
-                        ))}
-                    </select>
+                        style={{ width: '100%' }}
+                    />
                 </div>
 
                 {/* Plot Settings */}
@@ -293,61 +285,45 @@ export class OpenMCDepletionWidget extends ReactWidget {
                     <label style={{ fontSize: '12px', color: textColor, fontWeight: 'bold', display: 'block', marginBottom: '8px' }}>
                         Plot Type
                     </label>
-                    <select
+                    <NukeSelect
+                        ariaLabel="Plot type"
                         value={this.plotType}
-                        onChange={(e) => {
-                            this.plotType = e.target.value as DepletionPlotType;
+                        options={[
+                            { value: 'concentration', label: 'Concentration (atoms/b-cm)' },
+                            { value: 'mass', label: 'Mass (grams)' },
+                            { value: 'normalized', label: 'Normalized (% of initial)' },
+                            { value: 'stacked', label: 'Stacked Composition (%)' },
+                            { value: 'activity', label: 'Activity (Ci)', disabled: !this.activityData },
+                            { value: 'decay_heat', label: 'Decay Heat (Watts)', disabled: !this.activityData }
+                        ]}
+                        onChange={(value) => {
+                            this.plotType = value as DepletionPlotType;
                             this.update();
                         }}
-                        style={{
-                            width: '100%',
-                            padding: '6px',
-                            fontSize: '12px',
-                            borderRadius: '4px',
-                            border: `1px solid ${borderColor}`,
-                            backgroundColor: 'var(--theia-input-background)',
-                            color: textColor,
-                            marginBottom: '10px'
-                        }}
-                    >
-                        <option value="concentration">Concentration (atoms/b-cm)</option>
-                        <option value="mass">Mass (grams)</option>
-                        <option value="normalized">Normalized (% of initial)</option>
-                        <option value="stacked">Stacked Composition (%)</option>
-                        <option value="activity" disabled={!this.activityData}>
-                            Activity (Ci)
-                        </option>
-                        <option value="decay_heat" disabled={!this.activityData}>
-                            Decay Heat (Watts)
-                        </option>
-                    </select>
+                        style={{ width: '100%', marginBottom: '10px' }}
+                    />
 
                     <label style={{ fontSize: '12px', color: textColor, fontWeight: 'bold', display: 'block', marginBottom: '8px' }}>
                         X-Axis
                     </label>
-                    <select
+                    <NukeSelect
+                        ariaLabel="X axis"
                         value={this.xAxisType}
-                        onChange={(e) => {
-                            this.xAxisType = e.target.value as DepletionXAxis;
+                        options={[
+                            {
+                                value: 'burnup',
+                                label: `Burnup (MWd/kg) ${this.summary?.burnup ? '' : '(N/A)'}`,
+                                disabled: !this.summary?.burnup
+                            },
+                            { value: 'time', label: 'Time (days)' },
+                            { value: 'step', label: 'Time Step' }
+                        ]}
+                        onChange={(value) => {
+                            this.xAxisType = value as DepletionXAxis;
                             this.update();
                         }}
-                        style={{
-                            width: '100%',
-                            padding: '6px',
-                            fontSize: '12px',
-                            borderRadius: '4px',
-                            border: `1px solid ${borderColor}`,
-                            backgroundColor: 'var(--theia-input-background)',
-                            color: textColor,
-                            marginBottom: '5px'
-                        }}
-                    >
-                        <option value="burnup" disabled={!this.summary?.burnup}>
-                            Burnup (MWd/kg) {this.summary?.burnup ? '' : '(N/A)'}
-                        </option>
-                        <option value="time">Time (days)</option>
-                        <option value="step">Time Step</option>
-                    </select>
+                        style={{ width: '100%', marginBottom: '5px' }}
+                    />
                     {!this.summary?.burnup && this.xAxisType === 'burnup' && (
                         <div style={{ fontSize: '10px', color: 'var(--theia-warningForeground)', marginBottom: '10px' }}>
                             ⚠️ No burnup data - showing Time instead

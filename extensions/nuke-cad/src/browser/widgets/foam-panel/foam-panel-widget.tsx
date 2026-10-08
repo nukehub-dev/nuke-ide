@@ -48,6 +48,7 @@ import {
     FoamStlExportResult
 } from '../../../common/nuke-cad-protocol';
 import { NukeCadStateManager } from '../../state/nuke-cad-state-manager';
+import { NukeSelect } from 'nuke-essentials/lib/theme/browser/components';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
 import './foam-panel.css';
 
@@ -257,20 +258,16 @@ export class FoamPanelWidget extends ReactWidget {
                 <div className="foam-section">
                     <div className="foam-row">
                         <label>Solver</label>
-                        <select
+                        <NukeSelect
+                            ariaLabel="Solver"
                             value={this.state.solver}
-                            onChange={(e) => {
-                                this.state.solver = e.target.value;
+                            options={this.state.solvers.map((solver) => ({ value: solver, label: solver }))}
+                            disabled={this.state.isScaffolding || this.state.isExporting}
+                            onChange={(value) => {
+                                this.state.solver = value;
                                 this.update();
                             }}
-                            disabled={this.state.isScaffolding || this.state.isExporting}
-                        >
-                            {this.state.solvers.map((solver) => (
-                                <option key={solver} value={solver}>
-                                    {solver}
-                                </option>
-                            ))}
-                        </select>
+                        />
                     </div>
 
                     <div className="foam-row">
@@ -316,17 +313,19 @@ export class FoamPanelWidget extends ReactWidget {
                                 placeholder="patch name"
                                 disabled={this.state.isScaffolding || this.state.isExporting}
                             />
-                            <select
+                            <NukeSelect
+                                ariaLabel="Boundary type"
                                 value={boundary.type}
-                                onChange={(e) => this.updateBoundary(index, { type: e.target.value })}
+                                options={[
+                                    { value: 'wall', label: 'wall' },
+                                    { value: 'inlet', label: 'inlet' },
+                                    { value: 'outlet', label: 'outlet' },
+                                    { value: 'symmetry', label: 'symmetry' },
+                                    { value: 'patch', label: 'patch' }
+                                ]}
                                 disabled={this.state.isScaffolding || this.state.isExporting}
-                            >
-                                <option value="wall">wall</option>
-                                <option value="inlet">inlet</option>
-                                <option value="outlet">outlet</option>
-                                <option value="symmetry">symmetry</option>
-                                <option value="patch">patch</option>
-                            </select>
+                                onChange={(value) => this.updateBoundary(index, { type: value })}
+                            />
                             <input
                                 type="text"
                                 value={boundary.value ?? ''}

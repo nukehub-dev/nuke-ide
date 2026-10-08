@@ -31,7 +31,7 @@ import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { ApplicationShell, Widget } from '@theia/core/lib/browser';
 import { Message } from '@theia/core/lib/browser';
 import { codicon } from '@theia/core/lib/browser/widgets/widget';
-import { ColorPicker, Tooltip } from 'nuke-essentials/lib/theme/browser/components';
+import { ColorPicker, NukeSelect, Tooltip } from 'nuke-essentials/lib/theme/browser/components';
 import { NativeVtkViewerWidget } from '../plugins/openmc/widgets/native-vtk-viewer-widget';
 import { DagmcViewerWidget } from '../plugins/openmc/widgets/dagmc/dagmc-viewer-widget';
 import { GeometryNativeViewerWidget } from '../plugins/openmc/widgets/geometry-native/geometry-native-viewer-widget';
@@ -328,20 +328,16 @@ export class ViewerSettingsWidget extends ReactWidget {
             return undefined;
         }
         return (
-            <label className="viewer-settings-row" key="color-by">
+            <div className="viewer-settings-row" key="color-by">
                 {this.renderRowLabel('symbol-color', 'Color by', 'Color-by array (applies instantly, no viewer restart)')}
-                <select
+                <NukeSelect
                     className="viewer-settings-color-by"
+                    ariaLabel="Color-by array"
                     value={colorBy.value}
-                    onChange={(e) => this.applyPatch(host, { colorBy: e.target.value })}
-                >
-                    {colorBy.options.map((option) => (
-                        <option key={option.value} value={option.value}>
-                            {option.label}
-                        </option>
-                    ))}
-                </select>
-            </label>
+                    options={colorBy.options}
+                    onChange={(value) => this.applyPatch(host, { colorBy: value })}
+                />
+            </div>
         );
     }
 
@@ -351,20 +347,16 @@ export class ViewerSettingsWidget extends ReactWidget {
             return undefined;
         }
         return (
-            <label className="viewer-settings-row" key="component">
+            <div className="viewer-settings-row" key="component">
                 {this.renderRowLabel('symbol-numeric', 'Component', 'Vector component of the color-by array (Magnitude is the L2 norm)')}
-                <select
+                <NukeSelect
                     className="viewer-settings-component"
-                    value={component.value}
-                    onChange={(e) => this.applyPatch(host, { component: parseInt(e.target.value, 10) })}
-                >
-                    {component.options.map((option) => (
-                        <option key={option.value} value={option.value}>
-                            {option.label}
-                        </option>
-                    ))}
-                </select>
-            </label>
+                    ariaLabel="Vector component"
+                    value={String(component.value)}
+                    options={component.options.map((option) => ({ value: String(option.value), label: option.label }))}
+                    onChange={(value) => this.applyPatch(host, { component: parseInt(value, 10) })}
+                />
+            </div>
         );
     }
 
@@ -380,18 +372,14 @@ export class ViewerSettingsWidget extends ReactWidget {
                     'Map',
                     colormap.disabled ? 'Colormap (select a data array in Color by first)' : 'Colormap (applies instantly)'
                 )}
-                <select
+                <NukeSelect
                     className="viewer-settings-colormap"
+                    ariaLabel="Colormap"
                     value={colormap.value}
+                    options={colormap.options.map((name) => ({ value: name, label: name }))}
                     disabled={colormap.disabled}
-                    onChange={(e) => this.applyPatch(host, { colormap: e.target.value })}
-                >
-                    {colormap.options.map((name) => (
-                        <option key={name} value={name}>
-                            {name}
-                        </option>
-                    ))}
-                </select>
+                    onChange={(value) => this.applyPatch(host, { colormap: value })}
+                />
                 <Tooltip content="Sample the colormap in reverse (legend gradient honors it)" position="top">
                     <button
                         className={`theia-button secondary viewer-settings-map-toggle${colormap.invert ? ' active' : ''}`}
@@ -541,24 +529,20 @@ export class ViewerSettingsWidget extends ReactWidget {
             return undefined;
         }
         return (
-            <label className="viewer-settings-row" key="shading">
+            <div className="viewer-settings-row" key="shading">
                 {this.renderRowLabel('layers', 'Shading', 'Shading mode (applies instantly)')}
-                <select
+                <NukeSelect
                     className="viewer-settings-shading"
+                    ariaLabel="Shading mode"
                     value={shading.value}
-                    onChange={(e) => {
-                        if (isViewerShadingMode(e.target.value)) {
-                            this.applyPatch(host, { shading: e.target.value });
+                    options={VIEWER_SHADING_MODES.map((mode) => ({ value: mode.id, label: mode.label }))}
+                    onChange={(value) => {
+                        if (isViewerShadingMode(value)) {
+                            this.applyPatch(host, { shading: value });
                         }
                     }}
-                >
-                    {VIEWER_SHADING_MODES.map((mode) => (
-                        <option key={mode.id} value={mode.id}>
-                            {mode.label}
-                        </option>
-                    ))}
-                </select>
-            </label>
+                />
+            </div>
         );
     }
 

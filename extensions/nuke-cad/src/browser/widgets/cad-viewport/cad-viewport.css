@@ -1062,7 +1062,8 @@
 
 .cad-feature-dialog-row input[type='text'],
 .cad-feature-dialog-row input[type='number'],
-.cad-feature-dialog-row select {
+.cad-feature-dialog-row select,
+.cad-feature-dialog-row .nuke-select {
     width: 100%;
     min-width: 0;
 }

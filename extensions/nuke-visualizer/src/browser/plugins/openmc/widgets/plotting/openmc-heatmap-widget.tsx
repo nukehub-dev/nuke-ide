@@ -35,7 +35,7 @@ import { PlotlyComponent } from '../../../../plotly/plotly-component';
 import { OpenMCService } from '../../openmc-service';
 import URI from '@theia/core/lib/common/uri';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
-import 'nuke-essentials/lib/theme/browser/components/tooltip.css';
+import { NukeSelect } from 'nuke-essentials/lib/theme/browser/components';
 import './openmc-heatmap-widget.css';
 import { LoadingAnimations, FancyLoadingSpinner } from 'nuke-essentials/lib/theme/browser/components/loading-spinner';
 import { WIDGET_IDS } from '../widget-ids';
@@ -431,31 +431,33 @@ export class OpenMCHeatmapWidget extends ReactWidget {
                 {/* Colormap Selector */}
                 <div className="openmc-heatmap-select-group">
                     <span className="openmc-heatmap-select-label">Colormap:</span>
-                    <select
+                    <NukeSelect
+                        className="openmc-heatmap-select"
+                        ariaLabel="Colormap"
                         value={this.colormap}
-                        onChange={(e) => {
-                            this.colormap = e.target.value;
+                        options={[
+                            'Jet',
+                            'Viridis',
+                            'Plasma',
+                            'Inferno',
+                            'Magma',
+                            'Cividis',
+                            'Hot',
+                            'Cool',
+                            'Rainbow',
+                            'RdYlBu',
+                            'RdBu',
+                            'Spectral',
+                            'Blues',
+                            'Greens',
+                            'Greys'
+                        ].map((name) => ({ value: name, label: name }))}
+                        onChange={(value) => {
+                            this.colormap = value;
                             this.update();
                         }}
                         disabled={this.isLoading}
-                        className="openmc-heatmap-select"
-                    >
-                        <option value="Jet">Jet</option>
-                        <option value="Viridis">Viridis</option>
-                        <option value="Plasma">Plasma</option>
-                        <option value="Inferno">Inferno</option>
-                        <option value="Magma">Magma</option>
-                        <option value="Cividis">Cividis</option>
-                        <option value="Hot">Hot</option>
-                        <option value="Cool">Cool</option>
-                        <option value="Rainbow">Rainbow</option>
-                        <option value="RdYlBu">RdYlBu</option>
-                        <option value="RdBu">RdBu</option>
-                        <option value="Spectral">Spectral</option>
-                        <option value="Blues">Blues</option>
-                        <option value="Greens">Greens</option>
-                        <option value="Greys">Greys</option>
-                    </select>
+                    />
                 </div>
 
                 {/* Log Scale Toggle */}
@@ -487,18 +489,17 @@ export class OpenMCHeatmapWidget extends ReactWidget {
                         {this.isDifferenceMode && (
                             <>
                                 <span className="openmc-heatmap-select-label">Ref:</span>
-                                <select
-                                    value={this.referenceSliceIndex}
-                                    onChange={(e) => this.handleReferenceSliceChange(parseInt(e.target.value))}
-                                    disabled={this.isAutoPlaying}
+                                <NukeSelect
                                     className="openmc-heatmap-select"
-                                >
-                                    {Array.from({ length: this.data?.total_slices || 0 }, (_, i) => (
-                                        <option key={i} value={i}>
-                                            Slice {i + 1}
-                                        </option>
-                                    ))}
-                                </select>
+                                    ariaLabel="Reference slice"
+                                    value={String(this.referenceSliceIndex)}
+                                    options={Array.from({ length: this.data?.total_slices || 0 }, (_, i) => ({
+                                        value: String(i),
+                                        label: `Slice ${i + 1}`
+                                    }))}
+                                    onChange={(value) => this.handleReferenceSliceChange(parseInt(value))}
+                                    disabled={this.isAutoPlaying}
+                                />
                             </>
                         )}
                     </div>
@@ -550,19 +551,21 @@ export class OpenMCHeatmapWidget extends ReactWidget {
                             >
                                 {this.isAutoPlaying ? 'Stop' : 'Play'}
                             </button>
-                            <select
-                                value={this.autoPlaySpeed}
-                                onChange={(e) => {
-                                    this.autoPlaySpeed = parseInt(e.target.value);
+                            <NukeSelect
+                                className="openmc-heatmap-select"
+                                ariaLabel="Auto-play speed"
+                                value={String(this.autoPlaySpeed)}
+                                options={[
+                                    { value: '1000', label: 'Slow (1s)' },
+                                    { value: '500', label: 'Normal (0.5s)' },
+                                    { value: '200', label: 'Fast (0.2s)' }
+                                ]}
+                                onChange={(value) => {
+                                    this.autoPlaySpeed = parseInt(value);
                                     this.update();
                                 }}
                                 disabled={this.isAutoPlaying}
-                                className="openmc-heatmap-select"
-                            >
-                                <option value="1000">Slow (1s)</option>
-                                <option value="500">Normal (0.5s)</option>
-                                <option value="200">Fast (0.2s)</option>
-                            </select>
+                            />
                         </>
                     )}
                 </div>
