@@ -383,6 +383,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `<select multiple>` (CAD boolean tool bodies) stays native — `NukeSelect`
   is single-value. `tooltip.css` also loads centrally now instead of via a
   one-off widget import.
+- nuke-essentials + nuke-visualizer: **form controls join the shared
+  library (`NukeCheckbox`/`NukeSlider`/`NukeSearchInput`/`NukeSwitch`/
+  `NukeBadge`)** — same docs-kit behavior ported dependency-free (themed
+  checkbox, fill-track slider, search with clear, switch for panel-level
+  show/enable, count pill). Viewer Settings sliders/switches, the clip-card
+  offset slider, and the DAGMC outline search/checkboxes/switches use
+  them; the UI smoke specs drive the new controls. Research lives in
+  `.research/nuke-essentials/ui-ports-plan.md`.
 - nuke-visualizer: **DAGMC viewer stuck in Shaded + Edges** — the edge
   overlay showed in both `Shaded` and `Shaded + Edges` modes (the widget
   keyed its visibility off the material flags instead of the mode, unlike

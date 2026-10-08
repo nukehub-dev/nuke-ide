@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, Page, Locator } from '@playwright/test';
 import { collectErrors, waitForWorkbench, openFileByQuickOpen, closeAllEditors, runCommand } from './helpers';
 
 /**
@@ -57,6 +57,15 @@ async function openViewerSettings(page: Parameters<typeof openFileByQuickOpen>[0
     return panel;
 }
 
+/**
+ * Pick a NukeSelect option: the dropdown portals to document.body, so the
+ * option is located from the page root, not the settings panel.
+ */
+async function selectNukeOption(page: Page, scope: Locator, hookClass: string, optionName: string) {
+    await scope.locator(`.${hookClass} .nuke-select-trigger`).click();
+    await page.locator('.nuke-select-list').getByRole('option', { name: optionName }).click();
+}
+
 test('native polydata (.vtp) renders with canvas and instant color-by', async ({ page }) => {
     const errors = collectErrors(page);
     await page.goto('/');
@@ -70,19 +79,18 @@ test('native polydata (.vtp) renders with canvas and instant color-by', async ({
     // Instant color-by switch (no server restart): point energy -> cell id.
     // Display controls live in the Viewer Settings sidebar, not the header.
     const settings = await openViewerSettings(page);
-    const colorBy = settings.locator('select.viewer-settings-color-by');
-    await expect(colorBy).toBeVisible();
-    await colorBy.selectOption('Cell: cell_id');
+    const colorByTrigger = settings.locator('.viewer-settings-color-by .nuke-select-trigger');
+    await expect(colorByTrigger).toBeVisible();
+    await selectNukeOption(page, settings, 'viewer-settings-color-by', 'Cell: cell_id');
     await expect(container.locator('.openmc-output-viewer-status.error')).toHaveCount(0);
     await expect(canvas).toBeVisible();
 
     // Shading + clip controls (CAD parity): wireframe mode and an enabled
     // clip plane must apply instantly without errors.
-    const shading = settings.locator('select.viewer-settings-shading');
-    await shading.selectOption('Wireframe');
+    await selectNukeOption(page, settings, 'viewer-settings-shading', 'Wireframe');
     await expect(container.locator('.openmc-output-viewer-status.error')).toHaveCount(0);
-    const clipToggle = settings.locator('input.viewer-settings-clip-master');
-    await clipToggle.check();
+    const clipToggle = settings.locator('.viewer-settings-clip-master');
+    await clipToggle.click();
     await expect(container.locator('.openmc-output-viewer-status.error')).toHaveCount(0);
     await expect(canvas).toBeVisible();
 
@@ -133,18 +141,20 @@ test('viewer settings sidebar shows values and drives shading', async ({ page })
     // CAD panel chrome: collapsible count-badge sections with live status dots.
     await expect(settings.locator('.viewer-settings-category-header').first()).toBeVisible();
     await expect(settings.locator('.viewer-settings-state-dot').first()).toBeVisible();
-    const colorBy = settings.locator('select.viewer-settings-color-by');
-    await expect(colorBy).toBeVisible();
-    expect(await colorBy.locator('option').count()).toBeGreaterThan(1);
-    expect((await colorBy.inputValue()).length).toBeGreaterThan(0);
-    const shading = settings.locator('select.viewer-settings-shading');
-    await expect(shading).toHaveValue('shaded');
+    const colorByTrigger = settings.locator('.viewer-settings-color-by .nuke-select-trigger');
+    await expect(colorByTrigger).toBeVisible();
+    await expect(colorByTrigger).not.toHaveText('Select an option');
+    await colorByTrigger.click();
+    expect(await page.locator('.nuke-select-list [role="option"]').count()).toBeGreaterThan(1);
+    await page.keyboard.press('Escape');
+    const shadingTrigger = settings.locator('.viewer-settings-shading .nuke-select-trigger');
+    await expect(shadingTrigger).toHaveText('Shaded');
 
     // A sidebar shading change applies to the canvas instantly.
-    await shading.selectOption('X-Ray');
+    await selectNukeOption(page, settings, 'viewer-settings-shading', 'X-Ray');
     await expect(container.locator('.openmc-output-viewer-status.error')).toHaveCount(0);
     await expect(canvas).toBeVisible();
-    await expect(settings.locator('select.viewer-settings-shading')).toHaveValue('xray');
+    await expect(settings.locator('.viewer-settings-shading .nuke-select-trigger')).toHaveText('X-Ray');
 
     // The axis snap group drives the orbit handle without errors.
     await settings.locator('button.viewer-settings-snap-iso').click();
@@ -328,7 +338,7 @@ test('DAGMC outline sidebar lists volumes and toggles visibility', async ({ page
     await expect(panel.locator('.dagmc-outline-banner')).toContainText('Material and group info need model info');
 
     // Uncheck one volume: the canvas status line drops to 1 of 2.
-    await boxes.nth(0).uncheck();
+    await boxes.nth(0).click();
     await expect(container.getByText('1 of 2 volumes').first()).toBeVisible({ timeout: 30_000 });
     await expect(panel.locator('.dagmc-outline-volume-row.dagmc-outline-row-hidden')).toHaveCount(1);
     await expect(canvas).toBeVisible();
@@ -472,7 +482,10 @@ test('nav-bar clip popover drives the X plane and shading popover applies X-Ray'
     // step — the slider implies the cut, like the geometry header).
     const offset = clipPopover.locator('input.viewer-nav-clip-offset');
     await offset.evaluate((element: HTMLInputElement, value: string) => {
-        element.value = value;
+        // Native setter: a plain assignment is swallowed by React's value
+        // tracker, so the controlled onChange would never fire.
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+        setter?.call(element, value);
         element.dispatchEvent(new Event('input', { bubbles: true }));
         element.dispatchEvent(new Event('change', { bubbles: true }));
     }, '80');
@@ -507,7 +520,7 @@ test('nav-bar clip popover drives the X plane and shading popover applies X-Ray'
     await expect(canvas).toBeVisible();
     await expect(container.locator('.openmc-output-viewer-status.error')).toHaveCount(0);
     const settings = await openViewerSettings(page);
-    await expect(settings.locator('select.viewer-settings-shading')).toHaveValue('xray');
+    await expect(settings.locator('.viewer-settings-shading .nuke-select-trigger')).toHaveText('X-Ray');
 
     const bad = severe(errors);
     expect(bad, `unexpected severe errors:\n${bad.join('\n')}`).toEqual([]);

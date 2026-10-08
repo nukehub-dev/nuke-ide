@@ -31,7 +31,7 @@ import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { ApplicationShell, Widget } from '@theia/core/lib/browser';
 import { Message } from '@theia/core/lib/browser';
 import { codicon } from '@theia/core/lib/browser/widgets/widget';
-import { ColorPicker, NukeSelect, Tooltip } from 'nuke-essentials/lib/theme/browser/components';
+import { ColorPicker, NukeSelect, NukeSlider, NukeSwitch, Tooltip } from 'nuke-essentials/lib/theme/browser/components';
 import { NativeVtkViewerWidget } from '../plugins/openmc/widgets/native-vtk-viewer-widget';
 import { DagmcViewerWidget } from '../plugins/openmc/widgets/dagmc/dagmc-viewer-widget';
 import { GeometryNativeViewerWidget } from '../plugins/openmc/widgets/geometry-native/geometry-native-viewer-widget';
@@ -477,19 +477,15 @@ export class ViewerSettingsWidget extends ReactWidget {
             return undefined;
         }
         return (
-            <label className="viewer-settings-row" key="scalar-bar">
-                <Tooltip content="Show the color legend for the active colormap" position="right">
-                    <span className="viewer-settings-row-label">
-                        <input
-                            type="checkbox"
-                            className="viewer-settings-scalar-bar"
-                            checked={scalarBar.visible}
-                            onChange={() => this.applyPatch(host, { scalarBarVisible: !scalarBar.visible })}
-                        />
-                        Color legend
-                    </span>
-                </Tooltip>
-            </label>
+            <div className="viewer-settings-row" key="scalar-bar">
+                {this.renderRowLabel('symbol-color', 'Color legend', 'Show the color legend for the active colormap')}
+                <NukeSwitch
+                    className="viewer-settings-scalar-bar"
+                    ariaLabel="Color legend"
+                    checked={scalarBar.visible}
+                    onChange={() => this.applyPatch(host, { scalarBarVisible: !scalarBar.visible })}
+                />
+            </div>
         );
     }
 
@@ -554,19 +550,17 @@ export class ViewerSettingsWidget extends ReactWidget {
         const tab = clip.state[clip.tab];
         return (
             <div className="viewer-settings-group">
-                <label className="viewer-settings-row">
+                <div className="viewer-settings-row">
                     <Tooltip content="Clip planes: enabled planes apply together (box-section view)" position="right">
-                        <span className="viewer-settings-row-label">
-                            <input
-                                type="checkbox"
-                                className="viewer-settings-clip-master"
-                                checked={anyClipEnabled(clip.state)}
-                                onChange={(e) => this.applyPatch(host, { clip: setAllClipEnabled(clip.state, e.target.checked) })}
-                            />
-                            Clip
-                        </span>
+                        <span className="viewer-settings-row-label">Clip</span>
                     </Tooltip>
-                </label>
+                    <NukeSwitch
+                        className="viewer-settings-clip-master"
+                        ariaLabel="Clip planes"
+                        checked={anyClipEnabled(clip.state)}
+                        onChange={(checked) => this.applyPatch(host, { clip: setAllClipEnabled(clip.state, checked) })}
+                    />
+                </div>
                 <div className="viewer-settings-row viewer-settings-clip-tabs">
                     {CLIP_AXES.map((axis) => (
                         <Tooltip key={axis} content={`Clip ${axis} plane settings`} position="top">
@@ -593,19 +587,16 @@ export class ViewerSettingsWidget extends ReactWidget {
                 </div>
                 <div className="viewer-settings-tip-fill">
                     <Tooltip content={`Clip ${clip.tab} position (percent across the dataset; enables the plane)`} position="top">
-                        <input
-                            type="range"
+                        <NukeSlider
                             className="viewer-settings-clip-position"
+                            ariaLabel={`Clip ${clip.tab} position`}
                             min={0}
                             max={100}
                             step={1}
                             value={Math.round(tab.fraction * 100)}
-                            onChange={(e) =>
+                            onChange={(value) =>
                                 this.applyPatch(host, {
-                                    clip: updateAxisClip(clip.state, clip.tab, {
-                                        enabled: true,
-                                        fraction: parseFloat(e.target.value) / 100
-                                    })
+                                    clip: updateAxisClip(clip.state, clip.tab, { enabled: true, fraction: value / 100 })
                                 })
                             }
                         />
@@ -621,22 +612,22 @@ export class ViewerSettingsWidget extends ReactWidget {
             return undefined;
         }
         return (
-            <label className="viewer-settings-row" key="opacity">
+            <div className="viewer-settings-row" key="opacity">
                 {this.renderRowLabel('circle-outline', 'Opacity', 'Material opacity')}
                 <div className="viewer-settings-tip-fill">
                     <Tooltip content="Material opacity" position="top">
-                        <input
-                            type="range"
+                        <NukeSlider
                             className="viewer-settings-opacity"
+                            ariaLabel="Material opacity"
                             min={opacity.min}
                             max={opacity.max}
                             step={opacity.step}
                             value={opacity.value}
-                            onChange={(e) => this.applyPatch(host, { opacity: parseFloat(e.target.value) })}
+                            onChange={(value) => this.applyPatch(host, { opacity: value })}
                         />
                     </Tooltip>
                 </div>
-            </label>
+            </div>
         );
     }
 
@@ -646,22 +637,22 @@ export class ViewerSettingsWidget extends ReactWidget {
             return undefined;
         }
         return (
-            <label className="viewer-settings-row" key="point-size">
+            <div className="viewer-settings-row" key="point-size">
                 {this.renderRowLabel('circle-small', 'Point size', 'Render point size')}
                 <div className="viewer-settings-tip-fill">
                     <Tooltip content="Render point size" position="top">
-                        <input
-                            type="range"
+                        <NukeSlider
                             className="viewer-settings-point-size"
+                            ariaLabel="Render point size"
                             min={pointSize.min}
                             max={pointSize.max}
                             step={pointSize.step}
                             value={pointSize.value}
-                            onChange={(e) => this.applyPatch(host, { pointSize: parseFloat(e.target.value) })}
+                            onChange={(value) => this.applyPatch(host, { pointSize: value })}
                         />
                     </Tooltip>
                 </div>
-            </label>
+            </div>
         );
     }
 
@@ -671,22 +662,22 @@ export class ViewerSettingsWidget extends ReactWidget {
             return undefined;
         }
         return (
-            <label className="viewer-settings-row" key="line-width">
+            <div className="viewer-settings-row" key="line-width">
                 {this.renderRowLabel('horizontal-rule', 'Line width', 'Render line width')}
                 <div className="viewer-settings-tip-fill">
                     <Tooltip content="Render line width" position="top">
-                        <input
-                            type="range"
+                        <NukeSlider
                             className="viewer-settings-line-width"
+                            ariaLabel="Render line width"
                             min={lineWidth.min}
                             max={lineWidth.max}
                             step={lineWidth.step}
                             value={lineWidth.value}
-                            onChange={(e) => this.applyPatch(host, { lineWidth: parseFloat(e.target.value) })}
+                            onChange={(value) => this.applyPatch(host, { lineWidth: value })}
                         />
                     </Tooltip>
                 </div>
-            </label>
+            </div>
         );
     }
 
@@ -696,22 +687,22 @@ export class ViewerSettingsWidget extends ReactWidget {
             return undefined;
         }
         return (
-            <label className="viewer-settings-row" key="step">
+            <div className="viewer-settings-row" key="step">
                 {this.renderRowLabel('play', `Step ${step.label}`, 'Exodus time step')}
                 <div className="viewer-settings-tip-fill">
                     <Tooltip content="Exodus time step" position="top">
-                        <input
-                            type="range"
+                        <NukeSlider
                             className="viewer-settings-step"
+                            ariaLabel="Exodus time step"
                             min={0}
                             max={step.count - 1}
                             step={1}
                             value={step.index}
-                            onChange={(e) => this.applyPatch(host, { stepIndex: parseInt(e.target.value, 10) })}
+                            onChange={(value) => this.applyPatch(host, { stepIndex: Math.round(value) })}
                         />
                     </Tooltip>
                 </div>
-            </label>
+            </div>
         );
     }
 

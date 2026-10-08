@@ -210,8 +210,8 @@
     cursor: default;
 }
 
-.viewer-nav-clip-slider-row input[type='range'] {
-    flex: 1;
+.viewer-nav-clip-slider-row .nuke-slider {
+    flex: 1 1 auto;
     min-width: 80px;
 }
 

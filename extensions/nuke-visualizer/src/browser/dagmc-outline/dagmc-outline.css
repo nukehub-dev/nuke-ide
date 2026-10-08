@@ -83,24 +83,17 @@
     gap: 6px;
 }
 
-.dagmc-outline-search-icon {
-    color: var(--theia-focusBorder);
-    flex-shrink: 0;
-}
-
 .dagmc-outline-search-tip > span {
     flex: 1 1 auto !important;
     width: auto !important;
     max-width: 100% !important;
 }
 
+/* Shared NukeSearchInput (replaces the filter input): layout hook only —
+   the field paints its own input chrome from Theia tokens. */
 .dagmc-outline-search {
     flex: 1 1 auto;
     min-width: 0;
-    background: var(--theia-input-background);
-    color: var(--theia-input-foreground);
-    border: 1px solid var(--theia-input-border);
-    padding: 2px 6px;
 }
 
 .dagmc-outline-group {

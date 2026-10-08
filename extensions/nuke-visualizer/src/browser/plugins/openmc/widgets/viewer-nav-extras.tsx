@@ -26,7 +26,7 @@
 // *****************************************************************************
 
 import * as React from 'react';
-import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
+import { NukeSlider, Tooltip } from 'nuke-essentials/lib/theme/browser/components';
 import { VIEWER_SHADING_MODES, type ViewerShadingMode } from '../../../viewer-core/shading-mode';
 import { VIEWER_SHADING_MENU_ICONS } from '../../../viewer-core/viewer-context-menu';
 import { CLIP_AXES, type AxisClipState, type ClipAxis, type ClipPlanesState } from '../../../viewer-core/clip-plane';
@@ -201,20 +201,20 @@ export const ViewerClipPopover: React.FC<ViewerClipPopoverProps> = ({ clip, tab,
                     </button>
                 </Tooltip>
             </div>
-            <label className="viewer-nav-clip-slider-row">
+            <div className="viewer-nav-clip-slider-row">
                 Offset
-                <input
+                <NukeSlider
                     className="viewer-nav-clip-offset"
-                    type="range"
+                    ariaLabel="Clip offset"
                     min={0}
                     max={100}
                     step={1}
                     value={Math.round(entry.fraction * 100)}
                     disabled={disabled}
-                    onChange={(event) => onAxisChange(tab, { enabled: true, fraction: Number(event.target.value) / 100 })}
+                    onChange={(value) => onAxisChange(tab, { enabled: true, fraction: value / 100 })}
                 />
                 <span>{Math.round(entry.fraction * 100)}%</span>
-            </label>
+            </div>
         </div>
     );
 };

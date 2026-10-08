@@ -32,7 +32,7 @@ import { ApplicationShell, Widget } from '@theia/core/lib/browser';
 import { Message } from '@theia/core/lib/browser';
 import { Disposable } from '@theia/core/lib/common/disposable';
 import { codicon } from '@theia/core/lib/browser/widgets/widget';
-import { NukeEmptyState, Tooltip } from 'nuke-essentials/lib/theme/browser/components';
+import { NukeCheckbox, NukeEmptyState, NukeSearchInput, NukeSwitch, Tooltip } from 'nuke-essentials/lib/theme/browser/components';
 import { DagmcViewerWidget } from '../plugins/openmc/widgets/dagmc/dagmc-viewer-widget';
 import { isGraveyardMaterial } from '../plugins/openmc/widgets/dagmc/dagmc-toggle-model';
 import {
@@ -340,16 +340,14 @@ export class DagmcOutlineWidget extends ReactWidget {
     protected renderSearch(): React.ReactNode {
         return (
             <div className="dagmc-outline-search-tip">
-                <i className={`${codicon('search')} dagmc-outline-search-icon`}></i>
                 <Tooltip content="Filter volumes by id, material, or group" position="bottom">
-                    <input
-                        type="search"
+                    <NukeSearchInput
                         className="dagmc-outline-search"
                         placeholder="Filter volumes…"
-                        aria-label="Filter volumes by id, material, or group"
+                        ariaLabel="Filter volumes by id, material, or group"
                         value={this.filter}
-                        onChange={(e) => {
-                            this.filter = e.target.value;
+                        onChange={(value) => {
+                            this.filter = value;
                             this.update();
                         }}
                     />
@@ -360,19 +358,19 @@ export class DagmcOutlineWidget extends ReactWidget {
 
     protected renderGraveyard(host: DagmcOutlineHost, snapshot: DagmcOutlineSnapshot): React.ReactNode {
         return (
-            <label className="dagmc-outline-row dagmc-outline-graveyard-row">
+            <div className="dagmc-outline-row dagmc-outline-graveyard-row">
                 {this.renderStateDot(snapshot.showGraveyard)}
-                <input
-                    type="checkbox"
+                <NukeSwitch
                     className="dagmc-outline-graveyard"
+                    ariaLabel="Show graveyard termination volumes"
                     checked={snapshot.showGraveyard}
-                    onChange={(e) => this.applyPatch(host, { showGraveyard: e.target.checked })}
+                    onChange={(checked) => this.applyPatch(host, { showGraveyard: checked })}
                 />
                 <i className={`${codicon('trash')} dagmc-outline-row-icon`}></i>
                 <Tooltip content="Show graveyard termination volumes" position="right">
                     <span className="dagmc-outline-row-label">Graveyard</span>
                 </Tooltip>
-            </label>
+            </div>
         );
     }
 
@@ -418,12 +416,10 @@ export class DagmcOutlineWidget extends ReactWidget {
                             }}
                         >
                             {this.renderStateDot(entry.visible)}
-                            <input
-                                type="checkbox"
+                            <NukeCheckbox
                                 className="dagmc-outline-volume-checkbox"
                                 checked={entry.visible}
-                                aria-label={`Toggle ${entry.label} visibility`}
-                                onClick={(e) => e.stopPropagation()}
+                                ariaLabel={`Toggle ${entry.label} visibility`}
                                 onChange={() => this.applyPatch(host, { toggleVolume: entry.id })}
                             />
                             <i className={`${codicon('database')} dagmc-outline-row-icon`}></i>
@@ -465,12 +461,10 @@ export class DagmcOutlineWidget extends ReactWidget {
                     }}
                 >
                     {this.renderStateDot(entry.visible)}
-                    <input
-                        type="checkbox"
+                    <NukeCheckbox
                         className="dagmc-outline-material-checkbox"
                         checked={entry.visible}
-                        aria-label={`Toggle material ${entry.name} visibility`}
-                        onClick={(e) => e.stopPropagation()}
+                        ariaLabel={`Toggle material ${entry.name} visibility`}
                         onChange={() => this.applyPatch(host, { toggleMaterial: entry.name })}
                     />
                     <i className={`${codicon('symbol-color')} dagmc-outline-row-icon`}></i>
@@ -508,12 +502,10 @@ export class DagmcOutlineWidget extends ReactWidget {
                     }}
                 >
                     {this.renderStateDot(entry.visible)}
-                    <input
-                        type="checkbox"
+                    <NukeCheckbox
                         className="dagmc-outline-group-checkbox"
                         checked={entry.visible}
-                        aria-label={`Toggle group ${entry.name} visibility`}
-                        onClick={(e) => e.stopPropagation()}
+                        ariaLabel={`Toggle group ${entry.name} visibility`}
                         onChange={() => this.applyPatch(host, { toggleGroup: entry.name })}
                     />
                     <i className={`${codicon('folder')} dagmc-outline-row-icon`}></i>

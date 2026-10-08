@@ -1,0 +1,16 @@
+/* ============================================================================
+   NukeIDE Badge (section count pills on Theia badge tokens)
+   ============================================================================ */
+
+.nuke-badge {
+    display: inline-flex;
+    align-items: center;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 0 6px;
+    border-radius: 8px;
+    background: var(--theia-badge-background);
+    color: var(--theia-badge-foreground);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
