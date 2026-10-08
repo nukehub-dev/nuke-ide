@@ -399,6 +399,70 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   took DOM focus on activation while the shell's active/current tracking
   (which both sidebars bind off) only updates on real focus events, so both
   viewers now focus their node on `onActivateRequest` (statepoint parity).
+- nuke-visualizer: **tally overlay/slice failed to parse (`neither a valid
+byte position nor a base64 character position`)** — vtk 9 writers emit
+  base64 _character_ offsets into appended payloads (byte math overshoots by
+  4/3), which the parser already converted, except zero-cell sections
+  (every overlay's empty Lines/Strips/Polys): their empty blocks carry
+  `nBlocks: 0`, which the strict validator rejected. Empty sections now
+  skip decoding from their piece counts (unknown counts decode as before),
+  so corrupt offsets in zero-cell sections can never fabricate cells while
+  corrupt offsets in real sections still throw. Covered by a synthetic
+  compressed-appended regression test and verified against real
+  `statepoint.1000.h5` overlay output.
+- nuke-visualizer: **legacy `STRUCTURED_GRID` `.vtk` files preview** —
+  regular-grid legacy files (e.g. OpenMC mesh exports) no longer fail with
+  `Unsupported legacy VTK dataset`; corners average to cell centers like
+  the `.vts` path, with voxel axes (and block rendering) on axis-aligned
+  lattices and a center-point fallback otherwise.
+- nuke-visualizer: **Full overlay without DAGMC opens the voxel mesh** —
+  instead of a cell-center cloud, the full mesh renders as clip-cuttable
+  voxel blocks, so interiors are explorable with the Clip planes.
+- nuke-visualizer: **weight-window/voxel grids render as voxel blocks**
+  — rectilinear and image grids were decimated cell-center point clouds,
+  so dense regular meshes moiréd into starbursts over flat data. Grids
+  with axis info now render instanced boxes (uniformly thinned past a
+  100k-instance budget, per-cell colors, clip/shading-aware) with the
+  point cloud kept for Points mode; curvilinear grids stay clouds.
+  Zero-valued cells collapse to invisible (void never washes out
+  geometry), ghosted boxes skip depth writes so interiors stay visible,
+  and the drape view loads the tally mesh the same way. The tally volume
+  now also syncs material props on load (it kept build-time translucency
+  and ghosted at full opacity), and a skipped drape color-by warns with
+  the cause instead of failing silently.
+- nuke-visualizer: **tally slices render as smooth shaded surfaces** —
+  slice views were bare vertex clouds, so dense grids moiréd (diagonal
+  banding over flat data) and Shaded mode changed nothing. The slice
+  writer now emits the quad grid as Polys, the XML parser fan-triangulates
+  them (legacy-path parity, edges kept for Shaded + Edges), and wide grids
+  decimate by whole grid steps at the source (capped, coverage always
+  complete — decimating triangle lists instead would punch holes). Points
+  stay full-resolution; verts-only legacy slices still open as points.
+- nuke-visualizer: **round soft points in every native point cloud** —
+  tally overlays/slices, collision tracks, sources, and DAGMC/exodus
+  points rendered as square pixels (the dated look next to shaded
+  surfaces). A shared radial-disc sprite texture
+  (`viewer-core/point-sprite.ts`, graceful no-canvas fallback) backs every
+  `PointsMaterial`, so points render round with anti-aliased rims.
+- nuke-visualizer: **true Full 3D tally-on-geometry overlay** — the mode
+  previously wrote mesh cell centers as a point cloud despite promising
+  mapped geometry cells. With a DAGMC `.h5m` geometry the mesh tally is now
+  sampled at every volume-triangle centroid (nearest cell, x-major order
+  matching the slice resampler) into a painted multiblock (new
+  `openmc.overlay-geometry-vtk`, manifest cached), opened in the native
+  DAGMC viewer with volume/material/group isolation, instant tally
+  color-by, and the outline sidebar; other geometries keep the cloud.
+  The drape opens pre-colored by the tally array (`runConversion` now
+  hoists `arrayName` onto the result instead of burying it in stats).
+  The tally mesh volume also loads as voxel blocks inside the drape scene
+  (Viewer Settings → Tally volume toggle, same color mapping and clip
+  planes), so clipping shows the hot interior instead of hollow shells.
+  The base converter's progress prints are redirected to stderr so the
+  strict stdout-JSON contract holds (covered by a stdout-purity test).
+- nuke-visualizer: **mesh `.vti` exports had silently rescaled geometry**
+  — `write_mesh_vti` passed spacing where upper corners were expected,
+  so every mesh view rendered squashed (e.g. 63.3 cm cells written as
+  33.8). Spacing/origin now round-trip exactly (regression test).
 - nuke-visualizer: **DAGMC viewer stuck in Shaded + Edges** — the edge
   overlay showed in both `Shaded` and `Shaded + Edges` modes (the widget
   keyed its visibility off the material flags instead of the mode, unlike

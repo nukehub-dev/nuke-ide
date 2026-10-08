@@ -51,6 +51,9 @@ import {
     strideForBudget
 } from './native-vtk/native-vtk-data';
 import { COLORMAP_NAMES, getColormap, isColormapName, type ColormapName } from '../../../viewer-core/colormaps';
+import { getPointSpriteTexture } from '../../../viewer-core/point-sprite';
+import { buildVoxelMesh, updateVoxelInstances, voxelInstanceLayout } from '../../../viewer-core/voxel-blocks';
+import type { VoxelInstanceLayout } from '../../../viewer-core/voxel-blocks';
 import {
     componentOptions,
     formatRangeValue,
@@ -167,8 +170,9 @@ export interface NativeVtkViewerProps {
  * `FileService` (works for workspace files and backend-converted temp files
  * alike), parsed client-side by `native-vtk-data.ts`, and colored per-vertex
  * from the selected array, so color-by/colormap switches only rewrite a color
- * buffer. Grids render as decimated cell-center point clouds inside their
- * bounding box (full voxel-block volume rendering is a later phase).
+ * buffer. Axis-aligned grids render as instanced voxel blocks (uniformly
+ * thinned past the voxel budget) with a cell-center point cloud kept for
+ * `points` shading mode; curvilinear grids stay point clouds.
  *
  * This widget is intentionally NOT wired into any contribution yet: the
  * parent phase replaces the `output-viewer-widget.tsx` subclasses'
@@ -188,6 +192,8 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
     protected fileUri: URI | undefined;
     protected model: NativeVtkModel | undefined;
     protected classified: ClassifiedNativeVtkArrays | undefined;
+    /** Flat grid cells behind the rendered voxel instances (recolor mapping). */
+    protected voxelLayout: VoxelInstanceLayout | undefined;
     protected colorBy: string = SOLID_COLOR;
     protected colormap: ColormapName = DEFAULT_COLORMAP;
     protected solidColor = '#d4d4d4';
@@ -1205,6 +1211,9 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
                     child.geometry.dispose();
                     const material = child.material as THREE.Material;
                     material.dispose();
+                    if (child instanceof THREE.InstancedMesh) {
+                        child.dispose();
+                    }
                 }
             });
             this.dataGroup = undefined;
@@ -1215,9 +1224,13 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         this.clearMeasureSceneObjects();
         this.measureMarkerSize = this.measurePickTolerance();
         this.dataGroup = new THREE.Group();
+        this.voxelLayout = undefined;
         if (model.triangles && model.triangles.length > 0) {
             // Surface datasets render filled triangles (lit, DoubleSide for
             // open shells); outlines/points come from the shading mode.
+            // NOTE: never stride the triangle list itself — dropping whole
+            // triangles punches holes (half of every quad). Density is
+            // capped at the source (slice writer decimates its grid).
             const positions = this.triangleVertexPositions(model);
             const mesh = this.buildTriangleMesh(positions);
             this.dataGroup.add(mesh);
@@ -1230,7 +1243,18 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
             const positions = this.lineVertexPositions(model);
             this.dataGroup.add(this.buildLineSegments(positions));
             this.dataGroup.add(this.buildLinePoints(positions));
+        } else if (model.gridAxes && model.gridDimensions) {
+            // Axis-aligned grids render instanced voxel blocks (uniformly
+            // thinned past the budget); the point cloud stays for `points`
+            // shading mode. Curvilinear grids (no axes) keep clouds only.
+            const voxels = this.buildModelVoxelMesh(model);
+            this.voxelLayout = voxels.layout;
+            this.dataGroup.add(voxels.mesh);
+            const points = this.buildPoints(model);
+            points.geometry.userData = { ...(points.geometry.userData ?? {}), role: 'grid-points' };
+            this.dataGroup.add(points);
         } else {
+            this.voxelLayout = undefined;
             this.dataGroup.add(this.buildPoints(model));
         }
         if (model.family !== 'polydata') {
@@ -1294,7 +1318,8 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
             transparent: true,
             opacity: this.opacity,
             sizeAttenuation: false,
-            depthWrite: false
+            depthWrite: false,
+            map: getPointSpriteTexture() ?? null
         });
         return new THREE.Points(geometry, material);
     }
@@ -1332,9 +1357,22 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
             transparent: true,
             opacity: this.opacity,
             sizeAttenuation: false,
-            depthWrite: false
+            depthWrite: false,
+            map: getPointSpriteTexture() ?? null
         });
         return new THREE.Points(geometry, material);
+    }
+
+    /**
+     * Instanced voxel blocks for axis-aligned grids (uniformly thinned past
+     * the voxel budget); the grid-point cloud covers `points` shading mode.
+     */
+    private buildModelVoxelMesh(model: NativeVtkModel): { mesh: THREE.InstancedMesh; layout: VoxelInstanceLayout } {
+        const dims = model.gridDimensions ?? [0, 0, 0];
+        const axes = model.gridAxes ?? [new Float64Array(0), new Float64Array(0), new Float64Array(0)];
+        const layout = voxelInstanceLayout(dims, axes);
+        const mesh = buildVoxelMesh(layout, this.opacity);
+        return { mesh, layout };
     }
 
     private buildPoints(model: NativeVtkModel): THREE.Points {
@@ -1348,7 +1386,8 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
             transparent: true,
             opacity: this.opacity,
             sizeAttenuation: false,
-            depthWrite: false
+            depthWrite: false,
+            map: getPointSpriteTexture() ?? null
         });
         return new THREE.Points(geometry, material);
     }
@@ -1420,7 +1459,9 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         const paintAllSolid = (): void => {
             const solidAt = (): [number, number, number] => [solid.r, solid.g, solid.b];
             this.dataGroup?.children.forEach((child) => {
-                if (child instanceof THREE.Points || child instanceof THREE.LineSegments || child instanceof THREE.Mesh) {
+                if (child instanceof THREE.InstancedMesh && this.voxelLayout) {
+                    updateVoxelInstances(child, this.voxelLayout, solidAt, () => false);
+                } else if (child instanceof THREE.Points || child instanceof THREE.LineSegments || child instanceof THREE.Mesh) {
                     paint(child.geometry, solidAt);
                 }
             });
@@ -1451,6 +1492,28 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
                 const tupleOfVertex = this.lineTupleIndex(model, array, segments);
                 paint(child.geometry, (vertex) =>
                     mapAt(tupleScalar(array.values, array.components, tupleOfVertex(vertex), mapping.component))
+                );
+            } else if (child instanceof THREE.InstancedMesh && this.voxelLayout) {
+                // Voxel blocks carry per-instance colors (no color attribute);
+                // raw-zero cells collapse so void never washes out geometry.
+                const layout = this.voxelLayout;
+                const tupleCount = Math.floor(array.values.length / Math.max(1, array.components));
+                const tupleOfInstance = (instance: number): number => {
+                    if (array.association !== 'cell') {
+                        return -1;
+                    }
+                    const tuple = layout.cells[instance] ?? -1;
+                    return tuple >= 0 && tuple < tupleCount ? tuple : -1;
+                };
+                const isEmpty = (instance: number): boolean => {
+                    const tuple = tupleOfInstance(instance);
+                    return tuple >= 0 && array.values[tuple] === 0;
+                };
+                updateVoxelInstances(
+                    child,
+                    layout,
+                    (instance) => mapAt(tupleScalar(array.values, array.components, tupleOfInstance(instance), mapping.component)),
+                    isEmpty
                 );
             } else if (child instanceof THREE.Mesh) {
                 const triangles = model.triangles ?? new Uint32Array(0);
@@ -1534,7 +1597,17 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
             if (child instanceof THREE.Box3Helper) {
                 return;
             }
-            if (child instanceof THREE.Points) {
+            if (child instanceof THREE.InstancedMesh) {
+                const material = child.material as THREE.MeshLambertMaterial;
+                material.opacity = flags.opacity;
+                material.transparent = flags.transparent;
+                // Ghosted voxels must not depth-reject their interior:
+                // without this the inside stays invisible behind
+                // translucent fronts (unsorted blending stays approximate).
+                material.depthWrite = !flags.transparent;
+                material.wireframe = flags.wireframe;
+                material.needsUpdate = true;
+            } else if (child instanceof THREE.Points) {
                 const material = child.material as THREE.PointsMaterial;
                 material.size = this.pointSize;
                 material.opacity = flags.opacity;
@@ -1590,7 +1663,7 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
                 child.visible = true;
             } else if (child instanceof THREE.Points) {
                 const role = child.geometry.userData?.['role'];
-                child.visible = role === 'line-points' || role === 'mesh-points' ? flags.pointsOnly : true;
+                child.visible = role === 'line-points' || role === 'mesh-points' || role === 'grid-points' ? flags.pointsOnly : true;
             } else if (child instanceof THREE.LineSegments) {
                 const role = child.geometry.userData?.['role'];
                 child.visible = role === 'edges' ? this.shading === 'edges' && !flags.pointsOnly : !flags.pointsOnly;
@@ -1667,7 +1740,8 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         }
         const [nx, ny, nz] = model.gridDimensions ?? [0, 0, 0];
         const kind = model.family === 'rectilinear' ? 'RectilinearGrid' : 'ImageData';
-        return `${kind} — ${model.nPoints.toLocaleString()} cells (${nx} × ${ny} × ${nz}, cell-center preview)`;
+        const shape = model.gridAxes ? 'voxel blocks' : 'cell-center preview';
+        return `${kind} — ${model.nPoints.toLocaleString()} cells (${nx} × ${ny} × ${nz}, ${shape})`;
     }
 
     // ------------------------------------------------------------------

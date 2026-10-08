@@ -56,7 +56,8 @@ import {
     EndfDetailResult,
     OpenMCTallyMeshVtkOptions,
     OpenMCSourceVtkOptions,
-    OpenMCOverlayVtkOptions
+    OpenMCOverlayVtkOptions,
+    OpenMCOverlayGeometryVtkOptions
 } from '../../../../common/openmc-protocol';
 import { PythonCommandHelper } from '../../../services/python-command-helper';
 
@@ -251,6 +252,27 @@ export class OpenMCOutputService {
         return this.runConversion(args, 120000);
     }
 
+    async convertOverlayGeometryToVtk(
+        statepointPath: string,
+        h5mPath: string,
+        options?: OpenMCOverlayGeometryVtkOptions
+    ): Promise<OpenMCVtkConversionResult> {
+        const args = ['openmc.overlay-geometry-vtk', statepointPath, '--h5m', h5mPath];
+        if (options?.tallyId !== undefined) {
+            args.push('--tally-id', String(options.tallyId));
+        }
+        if (options?.score) {
+            args.push('--score', options.score);
+        }
+        if (options?.nuclide) {
+            args.push('--nuclide', options.nuclide);
+        }
+        if (options?.includeGraveyard) {
+            args.push('--include-graveyard');
+        }
+        return this.runConversion(args, 600000);
+    }
+
     async convertOverlayToVtk(statepointPath: string, options?: OpenMCOverlayVtkOptions): Promise<OpenMCVtkConversionResult> {
         const args = ['openmc.overlay-vtk', statepointPath];
         if (options?.tallyId !== undefined) {
@@ -333,8 +355,15 @@ export class OpenMCOutputService {
             if (typeof raw.error === 'string') {
                 return { success: false, error: raw.error };
             }
-            const { vtkPath, ...stats } = raw;
-            return { success: true, vtkPath: vtkPath as string, stats };
+            // `arrayName` is a first-class field (overlay-geometry drape
+            // defaults color-by to it); everything else rides in stats.
+            const { vtkPath, arrayName, ...stats } = raw;
+            return {
+                success: true,
+                vtkPath: vtkPath as string,
+                arrayName: typeof arrayName === 'string' ? arrayName : undefined,
+                stats
+            };
         } catch (error) {
             return { success: false, error: error instanceof Error ? error.message : String(error) };
         }

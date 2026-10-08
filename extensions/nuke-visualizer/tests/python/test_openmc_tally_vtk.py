@@ -334,6 +334,21 @@ def test_tally_mesh_to_vtk_xml(tmp_path):
     assert "<VTKFile" in text and "ImageData" in text and "flux-mean" in text
 
 
+def test_write_mesh_vti_preserves_geometry(tmp_path):
+    vtk = pytest.importorskip("vtk")
+    assert vtk is not None
+    import re
+
+    geometry = tally_vtk.build_mesh_image([2, 2, 2], [-1.0, -2.0, -3.0], [1.0, 2.0, 3.0], list(range(8)))
+    out = tmp_path / "mesh.vti"
+    tally_vtk.write_mesh_vti(geometry, "flux", str(out))
+    text = out.read_text()
+    spacing = [float(v) for v in re.search(r'Spacing="([^"]*)"', text).group(1).split()]
+    origin = [float(v) for v in re.search(r'Origin="([^"]*)"', text).group(1).split()]
+    assert spacing == pytest.approx([1.0, 2.0, 3.0])
+    assert origin == pytest.approx([-1.0, -2.0, -3.0])
+
+
 def test_source_to_vtk_xml(tmp_path):
     vtk = pytest.importorskip("vtk")
     assert vtk is not None
@@ -375,7 +390,10 @@ def test_overlay_slice_to_vtk_xml(tmp_path):
     )
     assert result["mode"] == "slice"
     assert result["nPoints"] == 25
-    assert "<VTKFile" in out.read_text()
+    text = out.read_text()
+    assert "<VTKFile" in text
+    assert 'NumberOfPolys="16"' in text
+    assert "flux-mean" in text
 
 
 def test_overlay_full_to_vtk_xml(tmp_path):
@@ -389,3 +407,176 @@ def test_overlay_full_to_vtk_xml(tmp_path):
     assert result["mode"] == "full"
     assert result["nPoints"] == 8
     assert result["dataRange"] == [0.0, 7.0]
+
+
+def test_slice_surface_quads_cover_lattice():
+    small = tally_vtk.slice_surface_quads(4)
+    assert small.shape == (16, 4)
+    big = tally_vtk.slice_surface_quads(800)
+    assert big.shape == (267 * 267, 4)
+    assert big.min() >= 0 and big.max() < 801 * 801
+    with pytest.raises(output_readers.OutputReaderError):
+        tally_vtk.slice_surface_quads(0)
+
+
+def test_overlay_quad_grid_rejected(tmp_path):
+    pts = np.zeros((4, 3))
+    vals = np.zeros(4)
+    out = tmp_path / "overlay.vtp"
+    with pytest.raises(output_readers.OutputReaderError):
+        tally_vtk.write_overlay_vtp(pts, vals, "flux", str(out), quads=np.zeros((1, 3), dtype=int))
+    with pytest.raises(output_readers.OutputReaderError):
+        tally_vtk.write_overlay_vtp(pts, vals, "flux", str(out), quads=np.array([[0, 1, 2, 9]]))
+    with pytest.raises(output_readers.OutputReaderError):
+        tally_vtk.write_overlay_vtp(pts, vals, "flux", str(out), quads=np.zeros((0, 4), dtype=int))
+
+
+def _overlay_geometry_grid(values=None):
+    """Canned mesh-tally dict: 2x2x2 grid over [-1,1]x[-2,2]x[-3,3]."""
+    return {
+        "tallyName": "Tally 4",
+        "score": "flux",
+        "nuclide": "total",
+        "arrayName": "flux-mean",
+        "dimension": [2, 2, 2],
+        "lowerLeft": [-1.0, -2.0, -3.0],
+        "upperRight": [1.0, 2.0, 3.0],
+        "values": np.arange(8, dtype=float) if values is None else values,
+        "dataRange": [0.0, 7.0],
+    }
+
+
+def _install_overlay_geometry_fakes(monkeypatch, tmp_path, captured):
+    """Fake tally read + multiblock convert; captures the cell sampler."""
+
+    def fake_read(statepoint_path, tally_id, score=None, nuclide=None):
+        assert tally_id == 4
+        return dict(_overlay_geometry_grid())
+
+    def fake_convert(h5m_path, output_dir=None, include_graveyard=False, cell_sampler=None):
+        captured["sampler"] = cell_sampler
+        captured["graveyard"] = include_graveyard
+        out = tmp_path / "overlay_volumes.vtm"
+        out.write_text("<VTKFile />")
+        return {
+            "vtm_path": str(out),
+            "volume_info": [{"id": 1}],
+            "materials": {},
+            "groups": {},
+            "sampledArray": "flux-mean",
+        }
+
+    monkeypatch.setattr(tally_vtk, "read_mesh_tally", fake_read)
+    import plugins.base.lib.dagmc as dagmc_lib
+
+    monkeypatch.setattr(dagmc_lib, "convert_h5m_to_multiblock_vtk", fake_convert)
+
+
+def test_overlay_geometry_samples_centroids_x_major(tmp_path, monkeypatch):
+    captured = {}
+    _install_overlay_geometry_fakes(monkeypatch, tmp_path, captured)
+    h5m = tmp_path / "geom.h5m"
+    h5m.write_bytes(b"fake h5m content")
+    result = tally_vtk.overlay_geometry_to_vtk(
+        str(tmp_path / "sp.h5"), str(h5m), 4, use_cache=False, output_dir=str(tmp_path)
+    )
+    assert result["mode"] == "geometry"
+    assert result["arrayName"] == "flux-mean"
+    assert result["nVolumes"] == 1
+    assert result["fromCache"] is False
+    assert captured["graveyard"] is False
+    # F-order lookup: cell (1,0,1) -> flat 1 + 2*(0 + 2*1) = 5;
+    # cell (0,1,0) -> flat 0 + 2*(1 + 2*0) = 2.
+    name, values = captured["sampler"](9, "fuel", np.array([[0.5, -1.5, 1.5], [-0.5, 1.5, -1.5]]))
+    assert name == "flux-mean"
+    assert list(values) == [5.0, 2.0]
+
+
+def test_overlay_geometry_missing_h5m(tmp_path, monkeypatch):
+    captured = {}
+    _install_overlay_geometry_fakes(monkeypatch, tmp_path, captured)
+    with pytest.raises(output_readers.OutputReaderError):
+        tally_vtk.overlay_geometry_to_vtk(
+            str(tmp_path / "sp.h5"),
+            str(tmp_path / "no.h5m"),
+            4,
+            use_cache=False,
+            output_dir=str(tmp_path),
+        )
+
+
+def test_overlay_geometry_rejects_nonfinite_values(tmp_path, monkeypatch):
+    captured = {}
+    _install_overlay_geometry_fakes(monkeypatch, tmp_path, captured)
+    bad = _overlay_geometry_grid(values=np.array([np.nan] + [0.0] * 7))
+    monkeypatch.setattr(tally_vtk, "read_mesh_tally", lambda *a, **k: dict(bad))
+    h5m = tmp_path / "geom.h5m"
+    h5m.write_bytes(b"fake h5m content")
+    with pytest.raises(output_readers.OutputReaderError):
+        tally_vtk.overlay_geometry_to_vtk(
+            str(tmp_path / "sp.h5"), str(h5m), 4, use_cache=False, output_dir=str(tmp_path)
+        )
+
+
+def test_overlay_geometry_command_missing_h5m(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(tally_vtk, "read_mesh_tally", lambda *a, **k: _overlay_geometry_grid())
+    parser = argparse.ArgumentParser()
+    setup_parser_for_handler(tally_vtk_cmds.cmd_overlay_geometry_vtk, parser)
+    args = parser.parse_args(["sp.h5", "--h5m", str(tmp_path / "no.h5m"), "--tally-id", "4"])
+    assert tally_vtk_cmds.cmd_overlay_geometry_vtk(args) == 1
+    assert json.loads(capsys.readouterr().out)["error"]
+
+
+def test_overlay_geometry_command_stdout_stays_json(tmp_path, monkeypatch, capsys):
+    """Base-converter progress prints must not pollute the strict stdout JSON."""
+
+    def chatty_convert(h5m_path, output_dir=None, include_graveyard=False, cell_sampler=None):
+        print("[DAGMC] Processing volume 1 (chatty progress)")
+        out = tmp_path / "overlay_volumes.vtm"
+        out.write_text("<VTKFile />")
+        return {"vtm_path": str(out), "volume_info": [], "sampledArray": "flux-mean"}
+
+    monkeypatch.setattr(tally_vtk, "read_mesh_tally", lambda *a, **k: _overlay_geometry_grid())
+    import plugins.base.lib.dagmc as dagmc_lib
+
+    monkeypatch.setattr(dagmc_lib, "convert_h5m_to_multiblock_vtk", chatty_convert)
+    h5m = tmp_path / "geom.h5m"
+    h5m.write_bytes(b"fake h5m content")
+    sp = tmp_path / "sp.h5"
+    sp.write_bytes(b"fake statepoint content")
+    parser = argparse.ArgumentParser()
+    setup_parser_for_handler(tally_vtk_cmds.cmd_overlay_geometry_vtk, parser)
+    args = parser.parse_args([str(sp), "--h5m", str(h5m), "--tally-id", "4"])
+    assert tally_vtk_cmds.cmd_overlay_geometry_vtk(args) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["mode"] == "geometry" and result["arrayName"] == "flux-mean"
+
+
+def test_overlay_geometry_cache_hit(tmp_path, monkeypatch):
+    import os
+    import tempfile
+
+    monkeypatch.setattr(tempfile, "gettempdir", lambda: str(tmp_path))
+    monkeypatch.setattr(tally_vtk, "read_mesh_tally", lambda *a, **k: _overlay_geometry_grid())
+    calls = []
+
+    def fake_convert(h5m_path, output_dir=None, include_graveyard=False, cell_sampler=None):
+        calls.append(output_dir)
+        manifest = os.path.join(str(output_dir), "geom_volumes.vtm")
+        with open(manifest, "w") as handle:
+            handle.write('<VTKFile><DataSet /><DataSet /></VTKFile>')
+        return {"vtm_path": manifest, "volume_info": [], "sampledArray": "flux-mean"}
+
+    import plugins.base.lib.dagmc as dagmc_lib
+
+    monkeypatch.setattr(dagmc_lib, "convert_h5m_to_multiblock_vtk", fake_convert)
+    h5m = tmp_path / "geom.h5m"
+    h5m.write_bytes(b"fake h5m content")
+    sp = tmp_path / "sp.h5"
+    sp.write_bytes(b"fake statepoint content")
+    first = tally_vtk.overlay_geometry_to_vtk(str(sp), str(h5m), 4)
+    second = tally_vtk.overlay_geometry_to_vtk(str(sp), str(h5m), 4)
+    assert first["fromCache"] is False and len(calls) == 1
+    assert second["fromCache"] is True and len(calls) == 1
+    assert second["nVolumes"] == 2
+    assert second["arrayName"] == "flux-mean"

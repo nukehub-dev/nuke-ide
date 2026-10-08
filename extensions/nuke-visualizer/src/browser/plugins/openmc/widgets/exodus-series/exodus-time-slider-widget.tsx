@@ -36,6 +36,7 @@ import { MessageService } from '@theia/core/lib/common';
 import { FileService } from '@theia/filesystem/lib/browser/file-service';
 import { NukeSelect, Tooltip } from 'nuke-essentials/lib/theme/browser/components';
 import { COLORMAP_NAMES, ColormapName, getColormap, isColormapName } from '../../../../viewer-core/colormaps';
+import { getPointSpriteTexture } from '../../../../viewer-core/point-sprite';
 import {
     formatRangeValue,
     logScaleAvailable,
@@ -711,7 +712,13 @@ export class ExodusTimeSliderWidget extends ReactWidget implements ViewerSetting
         const geometry = new THREE.BufferGeometry();
         geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
         geometry.setAttribute('color', new THREE.BufferAttribute(this.vertexColors(series, positions.length / 3), 3));
-        const material = new THREE.PointsMaterial({ size: 3, vertexColors: true, sizeAttenuation: false });
+        const material = new THREE.PointsMaterial({
+            size: 3,
+            vertexColors: true,
+            transparent: true,
+            sizeAttenuation: false,
+            map: getPointSpriteTexture() ?? null
+        });
         this.points = new THREE.Points(geometry, material);
         this.scene.add(this.points);
         if (this.renderedStep === -1) {

@@ -55,7 +55,8 @@ import {
     parseUnstructuredGridXml,
     sniffVtkDatasetType,
     SOLID_COLOR,
-    strideForBudget
+    strideForBudget,
+    voxelInstanceLayout
 } from './native-vtk-data';
 
 function array(name: string, association: 'point' | 'cell' = 'point'): OpenMCVtkArrayInfo {
@@ -329,6 +330,11 @@ describe('parseNativeVtkXml ascii', () => {
         expect([...model.positions]).toEqual([0.5, 2.5, 5, 1.5, 2.5, 5]);
         expect(model.cellArrays.map((a) => a.name)).toEqual(['lower_g0', 'upper_g0']);
         expect(model.cellArrays[0].range).toEqual([1, 2]);
+        expect(model.gridAxes?.map((axis) => [...axis])).toEqual([
+            [0, 1, 2],
+            [0, 5],
+            [0, 10]
+        ]);
     });
 
     it('parses a voxel-style .vti image grid', async () => {
@@ -524,6 +530,194 @@ const VTS_SHARED_FIXTURE = `<VTKFile type="StructuredGrid" version="0.1" byte_or
 </Piece>
 </StructuredGrid>
 </VTKFile>`;
+
+describe('parseNativeVtkXml appended vtk writer quirks', () => {
+    /**
+     * vtk 9 writers (observed 9.3 multiblock, 9.6 overlay) emit base64
+     * CHARACTER offsets into the appended payload instead of decoded-byte
+     * offsets, flush each block as an independently padded chunk, and still
+     * write (empty) blocks for zero-cell sections. Build such a payload the
+     * way the writer does and expect the vertex cloud plus its point array.
+     */
+    const compressedBlock = (raw: Uint8Array): Uint8Array => {
+        const compressed = deflateSync(raw);
+        const block = new Uint8Array(4 * 4 + compressed.length);
+        const view = new DataView(block.buffer);
+        view.setUint32(0, 1, true);
+        view.setUint32(4, raw.length, true);
+        view.setUint32(8, 0, true);
+        view.setUint32(12, compressed.length, true);
+        block.set(compressed, 16);
+        return block;
+    };
+    const emptyCompressedBlock = (): Uint8Array => {
+        const block = new Uint8Array(3 * 4);
+        new DataView(block.buffer).setUint32(0, 0, true);
+        return block;
+    };
+    const int32Bytes = (values: number[]): Uint8Array => {
+        const out = new Uint8Array(values.length * 4);
+        const view = new DataView(out.buffer);
+        values.forEach((v, i) => view.setInt32(i * 4, v, true));
+        return out;
+    };
+
+    it('parses char offsets with an empty Lines section', async () => {
+        const blocks = [
+            compressedBlock(new Uint8Array(new Float32Array([0, 0, 0, 3, 0, 4]).buffer)),
+            compressedBlock(new Uint8Array(new Float64Array([10, 20]).buffer)),
+            compressedBlock(int32Bytes([0, 1])),
+            compressedBlock(int32Bytes([1, 2])),
+            emptyCompressedBlock(),
+            emptyCompressedBlock()
+        ];
+        const chunks = blocks.map((block) => Buffer.from(block).toString('base64'));
+        const charOffsets: number[] = [];
+        let cursor = 0;
+        for (const chunk of chunks) {
+            charOffsets.push(cursor);
+            cursor += chunk.length;
+        }
+        const sections = [
+            `<PointData>\n<DataArray type="Float64" Name="flux" format="appended" offset="${charOffsets[1]}" />\n</PointData>`,
+            `<Points>\n<DataArray type="Float32" NumberOfComponents="3" format="appended" offset="${charOffsets[0]}" />\n</Points>`,
+            `<Verts>\n<DataArray type="Int32" Name="connectivity" format="appended" offset="${charOffsets[2]}" />\n<DataArray type="Int32" Name="offsets" format="appended" offset="${charOffsets[3]}" />\n</Verts>`,
+            `<Lines>\n<DataArray type="Int32" Name="connectivity" format="appended" offset="${charOffsets[4]}" />\n<DataArray type="Int32" Name="offsets" format="appended" offset="${charOffsets[5]}" />\n</Lines>`
+        ];
+        const text =
+            `<VTKFile type="PolyData" version="0.1" byte_order="LittleEndian" header_type="UInt32" compressor="vtkZLibDataCompressor">\n` +
+            `<PolyData>\n<Piece NumberOfPoints="2" NumberOfVerts="2" NumberOfLines="0" NumberOfStrips="0" NumberOfPolys="0">\n` +
+            `${sections.join('\n')}\n</Piece>\n</PolyData>\n<AppendedData encoding="base64">\n_${chunks.join('')}\n</AppendedData>\n</VTKFile>`;
+        const model = await parseNativeVtkXml(text);
+        expect(model.family).toBe('polydata');
+        expect(model.nPoints).toBe(2);
+        expect([...model.positions]).toEqual([0, 0, 0, 3, 0, 4]);
+        expect(model.vertices ? [...model.vertices] : []).toEqual([0, 1]);
+        expect(model.segments).toBeUndefined();
+        expect(model.pointArrays.map((array) => array.name)).toEqual(['flux']);
+        expect([...model.pointArrays[0].values]).toEqual([10, 20]);
+    });
+
+    it('fan-triangulates polys into surfaces with outline edges', async () => {
+        const square = new Float32Array([0, 0, 0, 3, 0, 0, 3, 3, 0, 0, 3, 0]);
+        const blocks = [
+            compressedBlock(new Uint8Array(square.buffer)),
+            compressedBlock(new Uint8Array(new Float64Array([1, 2, 3, 4]).buffer)),
+            compressedBlock(int32Bytes([0, 1, 2, 3])),
+            compressedBlock(int32Bytes([4]))
+        ];
+        const chunks = blocks.map((block) => Buffer.from(block).toString('base64'));
+        const charOffsets: number[] = [];
+        let cursor = 0;
+        for (const chunk of chunks) {
+            charOffsets.push(cursor);
+            cursor += chunk.length;
+        }
+        const text =
+            `<VTKFile type="PolyData" version="0.1" byte_order="LittleEndian" header_type="UInt32" compressor="vtkZLibDataCompressor">\n` +
+            `<PolyData>\n<Piece NumberOfPoints="4" NumberOfVerts="0" NumberOfLines="0" NumberOfStrips="0" NumberOfPolys="1">\n` +
+            `<PointData>\n<DataArray type="Float64" Name="flux" format="appended" offset="${charOffsets[1]}" />\n</PointData>\n` +
+            `<Points>\n<DataArray type="Float32" NumberOfComponents="3" format="appended" offset="${charOffsets[0]}" />\n</Points>\n` +
+            `<Polys>\n<DataArray type="Int32" Name="connectivity" format="appended" offset="${charOffsets[2]}" />\n` +
+            `<DataArray type="Int32" Name="offsets" format="appended" offset="${charOffsets[3]}" />\n</Polys>\n` +
+            `</Piece>\n</PolyData>\n<AppendedData encoding="base64">\n_${chunks.join('')}\n</AppendedData>\n</VTKFile>`;
+        const model = await parseNativeVtkXml(text);
+        expect(model.family).toBe('polydata');
+        expect(model.triangles ? [...model.triangles] : []).toEqual([0, 1, 2, 0, 2, 3]);
+        expect(model.triangleCells ? [...model.triangleCells] : []).toEqual([0, 0]);
+        expect(model.segments ? [...model.segments] : []).toEqual([0, 1, 1, 2, 2, 0, 0, 2, 2, 3, 3, 0]);
+        expect([...model.pointArrays[0].values]).toEqual([1, 2, 3, 4]);
+    });
+});
+
+describe('voxelInstanceLayout', () => {
+    const axes = (nx: number, ny: number, nz: number): [Float64Array, Float64Array, Float64Array] => [
+        Float64Array.from({ length: nx + 1 }, (_, i) => i * 2),
+        Float64Array.from({ length: ny + 1 }, (_, i) => i * 3),
+        Float64Array.from({ length: nz + 1 }, (_, i) => i * 5)
+    ];
+
+    it('lays out full boxes over a small grid', () => {
+        const layout = voxelInstanceLayout([2, 1, 1], axes(2, 1, 1));
+        expect([...layout.cells]).toEqual([0, 1]);
+        expect([...layout.centers]).toEqual([1, 1.5, 2.5, 3, 1.5, 2.5]);
+        expect([...layout.sizes]).toEqual([2, 3, 5, 2, 3, 5]);
+    });
+
+    it('thins uniformly past the budget with complete coverage', () => {
+        const layout = voxelInstanceLayout([10, 10, 10], axes(10, 10, 10), 100);
+        // cbrt(1000/100) -> step 3 -> 4^3 kept cells, all inside the grid.
+        expect(layout.cells.length).toBe(64);
+        expect(Math.max(...layout.cells)).toBeLessThan(1000);
+        const maxCorner = Math.max(...layout.centers.map((c, i) => c + layout.sizes[i] / 2));
+        expect(maxCorner).toBeLessThanOrEqual(50);
+    });
+});
+
+describe('parseLegacyVtkAscii STRUCTURED_GRID', () => {
+    const structuredGrid = (points: number[]): string =>
+        `# vtk DataFile Version 5.1
+vtk output
+ASCII
+DATASET STRUCTURED_GRID
+DIMENSIONS 2 2 2
+POINTS 8 float
+${points.join(' ')}
+CELL_DATA 1
+SCALARS flux float
+LOOKUP_TABLE default
+7
+`;
+
+    it('averages corners into centers with voxel axes on aligned lattices', async () => {
+        const corners: number[] = [];
+        for (let k = 0; k < 2; k++) {
+            for (let j = 0; j < 2; j++) {
+                for (let i = 0; i < 2; i++) {
+                    corners.push(i, j * 2, k * 4);
+                }
+            }
+        }
+        const model = await parseNativeVtk(structuredGrid(corners), '.vtk');
+        expect(model.family).toBe('rectilinear');
+        expect(model.gridDimensions).toEqual([1, 1, 1]);
+        expect([...model.positions]).toEqual([0.5, 1, 2]);
+        expect(model.gridAxes?.map((axis) => [...axis])).toEqual([
+            [0, 1],
+            [0, 2],
+            [0, 4]
+        ]);
+        expect(model.cellArrays.map((array) => array.name)).toEqual(['flux']);
+        expect([...model.cellArrays[0].values]).toEqual([7]);
+    });
+
+    it('falls back to center points on curvilinear lattices', async () => {
+        const corners: number[] = [];
+        for (let k = 0; k < 2; k++) {
+            for (let j = 0; j < 2; j++) {
+                for (let i = 0; i < 2; i++) {
+                    corners.push(i + (j === 1 && k === 1 ? 0.5 : 0), j * 2, k * 4);
+                }
+            }
+        }
+        const model = await parseNativeVtk(structuredGrid(corners), '.vtk');
+        expect(model.family).toBe('rectilinear');
+        expect(model.gridAxes).toBeUndefined();
+        expect([...model.positions]).toEqual([0.625, 1, 2]);
+    });
+
+    it('rejects grids without dimensions or cells', async () => {
+        await expect(parseNativeVtk('POINTS 1 float\n0 0 0\n', '.vtk')).rejects.toThrow();
+        const noDims = `# vtk DataFile Version 5.1
+vtk output
+ASCII
+DATASET STRUCTURED_GRID
+POINTS 8 float
+0 0 0 1 0 0 0 1 0 1 1 0 0 0 1 1 0 1 0 1 1 1 1 1
+`;
+        await expect(parseNativeVtk(noDims, '.vtk')).rejects.toThrow(/DIMENSIONS/);
+    });
+});
 
 describe('parseUnstructuredGridXml (shared .vtu decoder)', () => {
     it('decodes ascii triangles into a polydata model', async () => {

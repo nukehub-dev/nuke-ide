@@ -414,6 +414,13 @@ export interface OpenMCBackendService {
 
     /** Convert a mesh tally to an overlay/slice VTK cloud (`.vtp`, no server) for the native tally viewer */
     convertOverlayToVtk(statepointPath: string, options?: OpenMCOverlayVtkOptions): Promise<OpenMCVtkConversionResult>;
+
+    /** Map a mesh tally onto DAGMC geometry volumes (multiblock `.vtm`, no server) for the native DAGMC viewer */
+    convertOverlayGeometryToVtk(
+        statepointPath: string,
+        h5mPath: string,
+        options?: OpenMCOverlayGeometryVtkOptions
+    ): Promise<OpenMCVtkConversionResult>;
 }
 
 // === Cross-Section (XS) Plotting Types ===
@@ -1695,6 +1702,8 @@ export interface OpenMCVtkConversionResult {
     error?: string;
     /** Conversion stats (keys vary per command, e.g. nLines, nPoints, arrays) */
     stats?: Record<string, unknown>;
+    /** Sampled data-array name (overlay-geometry drape) */
+    arrayName?: string;
 }
 
 // ============================================================================
@@ -2061,4 +2070,13 @@ export interface OpenMCOverlayVtkOptions {
     position?: number;
     /** Slice points per in-plane axis (1-1024, default 200) */
     resolution?: number;
+}
+
+/** Options for `openmc.overlay-geometry-vtk` (true 3D tally-on-geometry drape) */
+export interface OpenMCOverlayGeometryVtkOptions {
+    tallyId: number;
+    score?: string;
+    nuclide?: string;
+    /** Keep the Graveyard termination volume (default false) */
+    includeGraveyard?: boolean;
 }

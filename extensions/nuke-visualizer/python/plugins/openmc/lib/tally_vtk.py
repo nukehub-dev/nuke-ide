@@ -24,7 +24,9 @@ message on failure; command wrappers convert these to the single-JSON-object
 contract.
 """
 
+import contextlib
 import os
+import sys
 import tempfile
 
 import numpy as np
@@ -245,17 +247,19 @@ def write_mesh_vti(geometry, array_name, output_path):
     name = _require_array_name(array_name)
     if not isinstance(geometry, dict) or "flat" not in geometry:
         raise OutputReaderError("geometry must be a build_mesh_image dict")
-    dims, origin, spacing = validate_mesh_grid(
-        geometry.get("dims"), geometry.get("origin"), geometry.get("spacing")
-    )
-    # Re-validate the value payload against the geometry.
-    image = build_mesh_image(
-        dims,
-        origin,
-        [o + s * n for o, s, n in zip(origin, spacing, dims, strict=True)],
-        geometry["flat"],
-    )
+    # Re-validate the value payload against the geometry. NOTE: the dict
+    # carries spacing (not corners) — reconstruct the upper corner for the
+    # validator; passing spacing as upper_right silently rescales the mesh.
+    try:
+        upper = [
+            float(o) + float(s) * int(n)
+            for o, s, n in zip(geometry.get("origin"), geometry.get("spacing"), geometry.get("dims"), strict=True)
+        ]
+    except (TypeError, ValueError):
+        raise OutputReaderError("geometry dims/origin/spacing must hold numbers") from None
+    image = build_mesh_image(geometry.get("dims"), geometry.get("origin"), upper, geometry["flat"])
     vtk, _ = _load_vtk()
+    dims = image["dims"]
 
     grid = vtk.vtkImageData()
     grid.SetDimensions(dims[0] + 1, dims[1] + 1, dims[2] + 1)
@@ -733,14 +737,50 @@ def sample_regular_slice(
     }
 
 
-def write_overlay_vtp(points, values, array_name, output_path):
+#: Quads per slice-grid side cap: the surface stays fully covered (whole
+#: quads are kept or dropped on a grid lattice — never a triangle subset,
+#: which would punch holes) while the triangle soup stays interactive.
+SLICE_SURFACE_MAX_SIDE = 320
+
+
+def slice_surface_quads(resolution):
+    """Quad ids over a slice sample lattice, decimated for display.
+
+    Inputs: ``resolution`` (sample points per in-plane axis; the lattice
+    holds ``(resolution+1)^2`` row-major points). Output: ``(M, 4)`` int
+    array of point ids, one quad per kept grid cell. Lattices wider than
+    ``SLICE_SURFACE_MAX_SIDE`` cells decimate by whole grid steps so
+    coverage stays complete; small lattices keep every cell. Pure numpy.
+    """
+    side = int(resolution) + 1
+    if side < 2:
+        raise OutputReaderError(f"slice resolution must be positive, got {resolution!r}")
+    step = max(1, -(-(side - 1) // SLICE_SURFACE_MAX_SIDE))
+    iu0, iv0 = np.meshgrid(np.arange(0, side - 1, step), np.arange(0, side - 1, step))
+    iu1 = np.minimum(iu0 + step, side - 1)
+    iv1 = np.minimum(iv0 + step, side - 1)
+    return np.stack(
+        [
+            (iu0 + side * iv0).ravel(),
+            (iu1 + side * iv0).ravel(),
+            (iu1 + side * iv1).ravel(),
+            (iu0 + side * iv1).ravel(),
+        ],
+        axis=1,
+    )
+
+
+def write_overlay_vtp(points, values, array_name, output_path, quads=None):
     """Write overlay/slice samples as a .vtp vertex cloud (lazy vtk).
 
     Inputs: ``points`` ((N, 3) array), ``values`` ((N,) array),
     ``array_name`` (point-data array name), ``output_path`` (.vtp
-    destination). Output: the path string. Raises
-    :class:`OutputReaderError` on bad input, length mismatches, or missing
-    vtk. Validators run before the vtk gate.
+    destination), optional ``quads`` ((M, 4) int array of point ids — one
+    quad per grid cell, turning the cloud into a shadeable surface while
+    keeping per-point values for smooth interpolation). Output: the path
+    string. Raises :class:`OutputReaderError` on bad input, length
+    mismatches, out-of-range quad ids, or missing vtk. Validators run
+    before the vtk gate.
     """
     try:
         pts = np.asarray(points, dtype=float)
@@ -762,16 +802,35 @@ def write_overlay_vtp(points, values, array_name, output_path):
     if not np.all(np.isfinite(vals)):
         raise OutputReaderError("values must all be finite")
 
+    quad_ids = None
+    if quads is not None:
+        try:
+            quad_ids = np.asarray(quads, dtype=np.int64).reshape(-1, 4)
+        except (TypeError, ValueError):
+            raise OutputReaderError("quads must hold (M, 4) point ids") from None
+        if quad_ids.shape[0] == 0:
+            raise OutputReaderError("quads must hold at least one quad")
+        if quad_ids.min() < 0 or quad_ids.max() >= pts.shape[0]:
+            raise OutputReaderError(f"quad ids must lie in [0, {pts.shape[0] - 1}]")
+
     vtk, numpy_support = _load_vtk()
     vtk_points = vtk.vtkPoints()
     vtk_points.SetData(numpy_support.numpy_to_vtk(np.ascontiguousarray(pts), deep=True))
-    verts = vtk.vtkCellArray()
-    for i in range(pts.shape[0]):
-        verts.InsertNextCell(1)
-        verts.InsertCellPoint(int(i))
     polydata = vtk.vtkPolyData()
     polydata.SetPoints(vtk_points)
-    polydata.SetVerts(verts)
+    if quad_ids is None:
+        verts = vtk.vtkCellArray()
+        for i in range(pts.shape[0]):
+            verts.InsertNextCell(1)
+            verts.InsertCellPoint(int(i))
+        polydata.SetVerts(verts)
+    else:
+        polys = vtk.vtkCellArray()
+        for quad in quad_ids:
+            polys.InsertNextCell(4)
+            for point_id in quad:
+                polys.InsertCellPoint(int(point_id))
+        polydata.SetPolys(polys)
     _set_point_array(polydata, vals, name)
 
     writer = vtk.vtkXMLPolyDataWriter()
@@ -812,9 +871,8 @@ def overlay_to_vtk(
     ``score``/``nuclide``, ``mode`` (``"slice"`` resamples the tally on a
     plane; ``"full"`` writes mesh cell centers), ``plane``/``position``/
     ``resolution`` (slice mode), optional ``output_path`` (.vtp destination,
-    default: temp file). Full-3D geometry draping needs DAGMC and stays in
-    the trame ``visualize-overlay`` server; this static extract carries the
-    same tally values. Output: JSON-safe dict with the output path
+    default: temp file). This static extract carries the same tally values
+    and renders natively as a round-point cloud. Output: JSON-safe dict with the output path
     (``vtkPath``), mode/plane/position, ``arrayName``, ``nPoints`` and
     ``dataRange``. Raises :class:`OutputReaderError` on bad input, missing
     files/dependencies, or non-mesh tallies.
@@ -852,7 +910,8 @@ def overlay_to_vtk(
 
     if output_path is None:
         output_path = _default_output_path(statepoint_path, ".vtp")
-    write_overlay_vtp(points, values, data["arrayName"], output_path)
+    quads = slice_surface_quads(sampled["resolution"]) if mode == "slice" else None
+    write_overlay_vtp(points, values, data["arrayName"], output_path, quads=quads)
     return {
         "vtkPath": output_path,
         "sourceFile": statepoint_path,
@@ -865,4 +924,132 @@ def overlay_to_vtk(
         "arrayName": data["arrayName"],
         "nPoints": int(values.shape[0]),
         "dataRange": [float(np.min(values)), float(np.max(values))],
+    }
+
+
+def _overlay_geometry_cache_dir(h5m_path, statepoint_path, tally_id, score, nuclide, graveyard):
+    """Manifest cache entry for one draped overlay conversion.
+
+    Inputs: same selector set as :func:`overlay_geometry_to_vtk`. Output:
+    ``(manifest_path, hit)`` inside the temp-dir ``nuke-visualizer``
+    ``dagmc-overlay`` cache; the hash folds the geometry + statepoint
+    identity (name, size, mtime) plus the tally selectors, so stale
+    manifests are never reused.
+    """
+    import hashlib
+    import tempfile
+    from pathlib import Path
+
+    cache_dir = Path(tempfile.gettempdir()) / "nuke-visualizer" / "dagmc-overlay"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    h5m_stat = Path(h5m_path).stat()
+    sp_stat = Path(statepoint_path).stat()
+    hash_input = (
+        f"{Path(h5m_path).name}:{h5m_stat.st_size}:{h5m_stat.st_mtime}:"
+        f"{Path(statepoint_path).name}:{sp_stat.st_size}:{sp_stat.st_mtime}:"
+        f"{tally_id}:{score}:{nuclide}:{'graveyard' if graveyard else 'nograveyard'}"
+    )
+    file_hash = hashlib.md5(hash_input.encode()).hexdigest()[:12]
+    manifest_dir = cache_dir / f"{Path(h5m_path).stem}_{file_hash}_overlay"
+    manifest_dir.mkdir(parents=True, exist_ok=True)
+    # The converter names the manifest `<stem>_volumes.vtm` inside the
+    # output dir; expect exactly that so hits are found.
+    manifest_path = manifest_dir / f"{Path(h5m_path).stem}_volumes.vtm"
+    return str(manifest_path), manifest_path.is_file()
+
+
+def overlay_geometry_to_vtk(
+    statepoint_path,
+    h5m_path,
+    tally_id,
+    score=None,
+    nuclide=None,
+    include_graveyard=False,
+    output_dir=None,
+    use_cache=True,
+):
+    """Map a mesh tally onto DAGMC geometry volumes (true 3D overlay).
+
+    Each DAGMC volume keeps its triangulated surface; every triangle is
+    colored by sampling the regular tally mesh at the triangle centroid
+    (nearest cell, OpenMC x-major order — the same lookup the slice
+    resampler uses). The result is a multiblock ``.vtm`` the native DAGMC
+    viewer renders with volume isolation and instant color-by on the tally
+    array. Centroids outside the tally mesh clamp to the nearest edge cell.
+
+    Inputs: ``statepoint_path`` (.h5 file), ``h5m_path`` (DAGMC geometry),
+    ``tally_id`` (positive int), optional ``score``/``nuclide`` (default:
+    first of each), ``include_graveyard`` (keep the termination volume,
+    default False), optional ``output_dir`` (manifest destination; default:
+    a hash-keyed entry in the temp-dir overlay cache, reused when
+    ``use_cache`` and still valid), ``use_cache`` (default True).
+    Output: JSON-safe dict with the output path (``vtkPath``), ``mode``
+    ``"geometry"``, ``arrayName``, ``nVolumes`` and ``dataRange``. Raises
+    :class:`OutputReaderError` for bad inputs, missing files/dependencies,
+    non-mesh tallies, or non-finite values.
+    """
+    import os
+
+    data = read_mesh_tally(statepoint_path, tally_id, score=score, nuclide=nuclide)
+    if not os.path.isfile(h5m_path):
+        raise OutputReaderError(f"DAGMC file not found: {h5m_path}")
+    grid = build_mesh_image(
+        data["dimension"], data["lowerLeft"], data["upperRight"], data["values"]
+    )
+    dims, origin, spacing = grid["dims"], np.asarray(grid["origin"]), np.asarray(grid["spacing"])
+    flat = grid["flat"]
+    array_name = data["arrayName"]
+
+    def sampler(volume_id, material, centroids):
+        over = (np.asarray(centroids, dtype=float) - origin) / spacing
+        idx = np.clip(np.floor(over).astype(int), 0, np.array(dims) - 1)
+        flat_idx = idx[:, 0] + dims[0] * (idx[:, 1] + dims[1] * idx[:, 2])
+        return array_name, flat[flat_idx]
+
+    from plugins.base.lib.dagmc import convert_h5m_to_multiblock_vtk
+
+    if output_dir is None and use_cache:
+        manifest_path, hit = _overlay_geometry_cache_dir(
+            h5m_path, statepoint_path, tally_id, data["score"], data["nuclide"], include_graveyard
+        )
+        if hit:
+            import re
+
+            with open(manifest_path, encoding="utf-8", errors="replace") as handle:
+                cached_volumes = len(re.findall(r"<DataSet\b", handle.read()))
+            return {
+                "vtkPath": manifest_path,
+                "sourceFile": statepoint_path,
+                "geometryFile": str(h5m_path),
+                "tallyId": _require_tally_id(tally_id),
+                "tallyName": data["tallyName"],
+                "mode": "geometry",
+                "arrayName": array_name,
+                "nVolumes": cached_volumes,
+                "fromCache": True,
+                "dataRange": data["dataRange"],
+            }
+        output_dir = os.path.dirname(manifest_path)
+
+    # The openmc stdout-JSON contract is strict (the whole stdout must
+    # parse): the base converter's progress prints go to stderr here so the
+    # command stdout carries only the final JSON object.
+    with contextlib.redirect_stdout(sys.stderr):
+        result = convert_h5m_to_multiblock_vtk(
+            str(h5m_path),
+            output_dir=output_dir,
+            include_graveyard=include_graveyard,
+            cell_sampler=sampler,
+        )
+    return {
+        "vtkPath": result["vtm_path"],
+        "sourceFile": statepoint_path,
+        "geometryFile": str(h5m_path),
+        "tallyId": _require_tally_id(tally_id),
+        "tallyName": data["tallyName"],
+        "mode": "geometry",
+        "arrayName": result["sampledArray"] or array_name,
+        "nVolumes": len(result["volume_info"]),
+        "fromCache": False,
+        "dataRange": data["dataRange"],
     }

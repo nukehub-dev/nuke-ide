@@ -60,6 +60,11 @@ Best for: Seeing tally results directly on your CAD/DAGMC geometry.
 
 Best for: Inspecting a specific cross-section of your geometry.
 
+The slice renders as a smooth shaded surface (per-point values
+interpolate across a triangulated grid), so Shaded/Wireframe/Points/Edges
+all apply. Wide grids decimate by whole grid steps (capped) to stay
+interactive with complete coverage; points stay full-resolution.
+
 **Options:**
 
 - **Plane** — X, Y, or Z cross-section
@@ -70,6 +75,18 @@ Best for: Inspecting a specific cross-section of your geometry.
 ### Full 3D Overlay Mode
 
 Best for: Full spatial context of tally results on the complete geometry.
+
+With a DAGMC (`.h5m`) geometry, every volume surface is painted with the
+mesh tally sampled at each triangle centroid (nearest mesh cell, clamped
+at the mesh bounds) and opened in the native DAGMC viewer — volume,
+material, and group isolation, instant color-by on the tally array, clip
+planes, and the color legend all keep working. The tally mesh itself also
+loads as voxel blocks inside the same scene (Viewer Settings → Tally
+volume), so clipping reveals the hot interior instead of hollow shells.
+Void (exact-zero) cells collapse away rather than fogging the geometry;
+lowering Opacity ghosts the rest with interiors kept visible. Any other
+geometry opens the full mesh itself as voxel blocks, which the per-axis
+clip planes cut through for interior exploration.
 
 **Options:**
 

@@ -43,8 +43,11 @@ import {
     colorByValue,
     defaultNativeColorBy,
     NativeVtkDataArray,
+    parseNativeVtkXml,
     readVtkText
 } from '../native-vtk/native-vtk-data';
+import { buildVoxelMesh, updateVoxelInstances, voxelInstanceLayout } from '../../../../viewer-core/voxel-blocks';
+import type { VoxelInstanceLayout } from '../../../../viewer-core/voxel-blocks';
 import { COLORMAP_NAMES, ColormapName, getColormap, isColormapName } from '../../../../viewer-core/colormaps';
 import {
     ColorRangeMode,
@@ -100,6 +103,7 @@ import {
     isViewerShadingMode,
     resolveViewerShadingFlags
 } from '../../../../viewer-core/shading-mode';
+import { getPointSpriteTexture } from '../../../../viewer-core/point-sprite';
 import { nextNavPopover, type ViewerNavPopoverKind } from '../../../../viewer-core/viewer-nav-popover';
 import {
     ViewerSettingsHost,
@@ -260,6 +264,16 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
     h5mSourcePath: string | undefined;
     /** Outline↔canvas selection: the widget owns it, the panel mirrors it. */
     protected selectedVolumeId: number | null = null;
+    /**
+     * Tally mesh volume (drape interior): instanced voxel blocks over the
+     * mesh `.vti`, painted with the same color-by mapping as the surfaces
+     * so clip planes cut both together. Independent of volume visibility.
+     */
+    protected tallyVolumeUri: URI | undefined;
+    protected tallyVolumeMesh: THREE.InstancedMesh | undefined;
+    protected tallyVolumeLayout: VoxelInstanceLayout | undefined;
+    protected tallyVolumeArrays: NativeVtkDataArray[] = [];
+    protected tallyVolumeVisible = true;
     /** One-shot generic-viewer fallback offered by the opener on conversion failure (cleared on load). */
     protected genericFallback: (() => void) | undefined;
     /**
@@ -511,6 +525,7 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
                     ? { mode: this.rangeMode, min: range[0], max: range[1], dataMin: dataRange[0], dataMax: dataRange[1] }
                     : undefined,
             scalarBar: { visible: this.scalarBarVisible },
+            tallyVolume: this.tallyVolumeMesh ? { visible: this.tallyVolumeVisible } : undefined,
             solidColor: solid ? { value: this.solidColor } : undefined,
             background: { value: this.background },
             shading: { value: this.shading },
@@ -524,6 +539,9 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
 
     /** Apply a sidebar edit through the existing prop setters. */
     applyViewerSettings(patch: ViewerSettingsPatch): void {
+        if (patch.tallyVolumeVisible !== undefined) {
+            this.setTallyVolumeVisible(patch.tallyVolumeVisible);
+        }
         if (patch.clipTab !== undefined && patch.clipTab !== this.clipTab) {
             this.clipTab = patch.clipTab;
             this.update();
@@ -740,6 +758,7 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
      */
     beginPendingLoad(label: string, statusMessage: string, sourcePath?: string): void {
         this.vtmUri = undefined;
+        this.clearTallyVolume();
         this.blocks = [];
         this.modelInfo = undefined;
         this.classified = undefined;
@@ -774,6 +793,7 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
     /** Load a `.vtm` manifest through Theia's FileService (no HTTP fetch). */
     async setVtmFile(uri: URI): Promise<void> {
         this.vtmUri = uri;
+        this.clearTallyVolume();
         this.id = `${DagmcViewerWidget.ID}:${uri.path.toString()}`;
         this.title.label = `${DagmcViewerWidget.LABEL}: ${uri.path.base}`;
         this.title.caption = `${DagmcViewerWidget.LABEL}: ${uri.path.toString()}`;
@@ -862,6 +882,65 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
         this.modelInfo = parseDagmcModelInfo(value);
         this.buildScene();
         this.fireOutlineChanged();
+        this.update();
+    }
+
+    /**
+     * Load a tally mesh volume (`.vti`/`.vtr` image grid) as instanced voxel
+     * blocks inside the geometry scene: the drape interior the hollow
+     * volume shells cannot show, cut by the same clip planes. Requires an
+     * axis-aligned grid (no voxel axes = friendly error, surfaces stay).
+     */
+    async setTallyVolumeFile(uri: URI): Promise<void> {
+        this.clearTallyVolume();
+        this.tallyVolumeUri = uri;
+        const text = await readVtkText(this.fileService, uri);
+        const model = await parseNativeVtkXml(text);
+        if ((model.family !== 'rectilinear' && model.family !== 'image') || !model.gridAxes || !model.gridDimensions) {
+            throw new Error(`Tally volume '${uri.path.base}' is not an axis-aligned grid (no voxel axes to render)`);
+        }
+        const layout = voxelInstanceLayout(model.gridDimensions, model.gridAxes);
+        const mesh = buildVoxelMesh(layout, this.opacity);
+        mesh.name = 'tally-volume';
+        this.tallyVolumeMesh = mesh;
+        this.tallyVolumeLayout = layout;
+        this.tallyVolumeArrays = [...model.cellArrays, ...model.pointArrays];
+        if (this.dataGroup) {
+            this.dataGroup.add(mesh);
+            this.applyClip();
+            this.applyShadingVisibility();
+            // Sync first: without it the voxels keep build-time
+            // `transparent: true` and render ghostly even at full opacity.
+            this.syncMaterialProps();
+            this.recolor();
+            this.renderScene();
+        }
+        this.update();
+    }
+
+    /** Drop the tally volume (new manifest load); the visibility flag is kept. */
+    protected clearTallyVolume(): void {
+        const mesh = this.tallyVolumeMesh;
+        if (mesh) {
+            mesh.parent?.remove(mesh);
+            mesh.geometry.dispose();
+            (mesh.material as THREE.Material).dispose();
+            mesh.dispose();
+        }
+        this.tallyVolumeUri = undefined;
+        this.tallyVolumeMesh = undefined;
+        this.tallyVolumeLayout = undefined;
+        this.tallyVolumeArrays = [];
+    }
+
+    /** Show or hide the tally volume (Viewer Settings toggle). */
+    setTallyVolumeVisible(visible: boolean): void {
+        if (visible === this.tallyVolumeVisible) {
+            return;
+        }
+        this.tallyVolumeVisible = visible;
+        this.applyShadingVisibility();
+        this.renderScene();
         this.update();
     }
 
@@ -1530,6 +1609,9 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
                 child.geometry.dispose();
                 const material = child.material as THREE.Material;
                 material.dispose();
+                if (child instanceof THREE.InstancedMesh) {
+                    child.dispose();
+                }
             }
         });
     }
@@ -1541,6 +1623,11 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
         }
         if (this.dataGroup) {
             this.scene.remove(this.dataGroup);
+            // The tally volume survives rebuilds (visibility toggles stay
+            // snappy): detach it before the disposal sweep, re-attach below.
+            if (this.tallyVolumeMesh) {
+                this.dataGroup.remove(this.tallyVolumeMesh);
+            }
             this.disposeGroup(this.dataGroup);
             this.dataGroup = undefined;
         }
@@ -1557,6 +1644,9 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
                 group.add(object);
             }
             this.dataGroup.add(group);
+        }
+        if (this.tallyVolumeMesh) {
+            this.dataGroup.add(this.tallyVolumeMesh);
         }
         this.scene.add(this.dataGroup);
         this.fitView();
@@ -1627,7 +1717,8 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
             transparent: true,
             opacity: this.opacity,
             sizeAttenuation: false,
-            depthWrite: false
+            depthWrite: false,
+            map: getPointSpriteTexture() ?? null
         });
         return new THREE.Points(geometry, material);
     }
@@ -1691,7 +1782,8 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
             transparent: true,
             opacity: this.opacity,
             sizeAttenuation: false,
-            depthWrite: false
+            depthWrite: false,
+            map: getPointSpriteTexture() ?? null
         });
         return new THREE.Points(geometry, material);
     }
@@ -1759,7 +1851,51 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
         const selection = parseColorBy(this.colorBy);
         const solid = new THREE.Color(this.solidColor);
         const mapping = this.scalarMapping();
+        const solidAt = (): [number, number, number] => [solid.r, solid.g, solid.b];
+        const mapAt = (value: number): [number, number, number] => {
+            const mapped = value !== undefined && mapping ? mapScalar(value, mapping) : undefined;
+            return mapped ? [mapped[0], mapped[1], mapped[2]] : solidAt();
+        };
         this.dataGroup.children.forEach((group) => {
+            // Tally voxel volume: same color-by mapping as the surfaces,
+            // matched by array name (volume-only arrays stay solid).
+            if (group instanceof THREE.InstancedMesh && this.tallyVolumeLayout) {
+                const layout = this.tallyVolumeLayout;
+                const voxelArray =
+                    selection.kind !== 'solid' && selection.arrayName !== null
+                        ? this.tallyVolumeArrays.find((entry) => entry.name === selection.arrayName)
+                        : undefined;
+                const tupleCount = voxelArray ? Math.floor(voxelArray.values.length / Math.max(1, voxelArray.components)) : 0;
+                const tupleOfInstance = (instance: number): number => {
+                    if (!voxelArray) {
+                        return -1;
+                    }
+                    const tuple = layout.cells[instance] ?? -1;
+                    return tuple >= 0 && tuple < tupleCount ? tuple : -1;
+                };
+                const isEmpty = (instance: number): boolean => {
+                    if (!voxelArray) {
+                        return false;
+                    }
+                    const tuple = tupleOfInstance(instance);
+                    return tuple >= 0 && voxelArray.values[tuple] === 0;
+                };
+                updateVoxelInstances(
+                    group,
+                    layout,
+                    (instance) =>
+                        mapAt(
+                            tupleScalar(
+                                voxelArray?.values ?? new Float64Array(0),
+                                voxelArray?.components ?? 1,
+                                tupleOfInstance(instance),
+                                this.component
+                            )
+                        ),
+                    isEmpty
+                );
+                return;
+            }
             const block = this.blocks.find((entry) => `block:${entry.blockIndex}` === group.name);
             if (!block) {
                 return;
@@ -1852,7 +1988,15 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
     private syncMaterialProps(): void {
         const flags = resolveViewerShadingFlags(this.shading, this.opacity);
         this.dataGroup?.traverse((child) => {
-            if (child instanceof THREE.Points) {
+            if (child instanceof THREE.InstancedMesh) {
+                const material = child.material as THREE.MeshLambertMaterial;
+                material.opacity = flags.opacity;
+                material.transparent = flags.transparent;
+                // Ghosted voxels must not depth-reject their interior (see
+                // the native viewer): unsorted blending stays approximate.
+                material.depthWrite = !flags.transparent;
+                material.wireframe = flags.wireframe;
+            } else if (child instanceof THREE.Points) {
                 const material = child.material as THREE.PointsMaterial;
                 material.size = this.pointSize;
                 material.opacity = flags.opacity;
@@ -1880,6 +2024,12 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
         }
         const flags = resolveViewerShadingFlags(this.shading, this.opacity);
         this.dataGroup.children.forEach((group) => {
+            // Tally voxel volume: visibility follows its own toggle (never
+            // the per-volume sets), hidden in `points` mode like the meshes.
+            if (group instanceof THREE.InstancedMesh) {
+                group.visible = this.tallyVolumeVisible && !flags.pointsOnly;
+                return;
+            }
             group.children.forEach((child) => {
                 if (!(child instanceof THREE.Mesh || child instanceof THREE.Points || child instanceof THREE.LineSegments)) {
                     return;

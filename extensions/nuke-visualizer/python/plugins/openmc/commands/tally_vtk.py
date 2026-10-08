@@ -60,6 +60,44 @@ def cmd_source_vtk(args):
 
 
 @command(
+    "openmc.overlay-geometry-vtk",
+    help="Map a mesh tally onto DAGMC geometry volumes (multiblock .vtm, no server)",
+)
+@arg("file", help="Path to statepoint .h5 file")
+@arg("--h5m", required=True, help="Path to the DAGMC .h5m geometry file")
+@arg("--tally-id", type=int, required=True, help="Tally ID to convert")
+@arg("--score", help="Score to convert (default: first score)")
+@arg("--nuclide", help="Nuclide to convert (default: first nuclide)")
+@arg(
+    "--include-graveyard",
+    action="store_true",
+    help="Keep the Graveyard termination volume",
+)
+@arg("--output-dir", help="Manifest output directory (default: hash-keyed cache)")
+@arg("--no-cache", action="store_true", help="Skip the manifest cache")
+def cmd_overlay_geometry_vtk(args):
+    """Map a mesh tally onto DAGMC volumes (true 3D overlay)."""
+    from plugins.openmc.lib import tally_vtk
+
+    try:
+        result = tally_vtk.overlay_geometry_to_vtk(
+            args.file,
+            args.h5m,
+            args.tally_id,
+            score=args.score,
+            nuclide=args.nuclide,
+            include_graveyard=args.include_graveyard,
+            output_dir=args.output_dir,
+            use_cache=not args.no_cache,
+        )
+        print(json.dumps(result))
+        return 0
+    except Exception as e:
+        print(json.dumps({"error": str(e)}))
+        return 1
+
+
+@command(
     "openmc.overlay-vtk",
     help="Convert a mesh tally to an overlay/slice VTK cloud (.vtp, no server)",
 )

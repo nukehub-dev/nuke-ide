@@ -274,6 +274,7 @@ export class ViewerSettingsWidget extends ReactWidget {
             snapshot.colormap && this.renderColormap(host, snapshot),
             snapshot.range && this.renderRange(host, snapshot),
             snapshot.scalarBar && this.renderScalarBar(host, snapshot),
+            snapshot.tallyVolume && this.renderTallyVolume(host, snapshot),
             snapshot.solidColor && this.renderSolidColor(host, snapshot),
             snapshot.background && this.renderBackground(host, snapshot),
             snapshot.shading && this.renderShading(host, snapshot),
@@ -484,6 +485,24 @@ export class ViewerSettingsWidget extends ReactWidget {
                     ariaLabel="Color legend"
                     checked={scalarBar.visible}
                     onChange={() => this.applyPatch(host, { scalarBarVisible: !scalarBar.visible })}
+                />
+            </div>
+        );
+    }
+
+    protected renderTallyVolume(host: ViewerSettingsHost, snapshot: ViewerSettingsSnapshot): React.ReactNode {
+        const tallyVolume = snapshot.tallyVolume;
+        if (!tallyVolume) {
+            return undefined;
+        }
+        return (
+            <div className="viewer-settings-row" key="tally-volume">
+                {this.renderRowLabel('graph-scatter', 'Tally volume', 'Show the tally mesh volume inside the geometry (drape interior)')}
+                <NukeSwitch
+                    className="viewer-settings-tally-volume"
+                    ariaLabel="Tally volume"
+                    checked={tallyVolume.visible}
+                    onChange={() => this.applyPatch(host, { tallyVolumeVisible: !tallyVolume.visible })}
                 />
             </div>
         );

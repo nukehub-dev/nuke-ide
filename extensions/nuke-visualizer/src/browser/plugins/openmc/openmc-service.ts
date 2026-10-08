@@ -54,6 +54,9 @@ import { OpenMCFileDiscoveryService } from './services/openmc-file-discovery';
 import { GeometryNativeViewerWidget } from './widgets/geometry-native/geometry-native-viewer-widget';
 import { TallyNativeViewerWidget } from './widgets/tally-native/tally-native-viewer-widget';
 import { TallyOverlayKind } from './widgets/tally-native/tally-overlay-model';
+import { DagmcViewerWidget } from './widgets/dagmc/dagmc-viewer-widget';
+import { DagmcOutlineWidget } from '../../dagmc-outline/dagmc-outline-widget';
+import { VisualizerBackendService } from '../../../common/base-visualizer-protocol';
 import { parseNativeVtkXml, readVtkText } from './widgets/native-vtk/native-vtk-data';
 
 export interface OpenMCFileSet {
@@ -98,6 +101,9 @@ export class OpenMCService {
 
     @inject(OpenMCBackendService)
     protected readonly openmcBackend: OpenMCBackendService;
+
+    @inject(VisualizerBackendService)
+    protected readonly visualizerBackend: VisualizerBackendService;
 
     @inject(VisualizerPreferences)
     protected readonly preferences: VisualizerPreferences;
@@ -456,13 +462,17 @@ export class OpenMCService {
     }
 
     /**
-     * Overlay tally results on geometry.
+     * Overlay tally results on geometry: with a DAGMC `.h5m` geometry the
+     * tally mesh is draped onto the geometry volumes (multiblock `.vtm`
+     * painted per-triangle) and opened in the native DAGMC viewer with
+     * volume isolation and instant color-by on the tally array; any other
+     * geometry falls back to the static overlay point cloud.
      */
     async visualizeTallyOnGeometry(
         geometryUri: URI,
         statepointUri: URI,
         options: TallyVisualizationOptions
-    ): Promise<VisualizerWidget | TallyNativeViewerWidget | null> {
+    ): Promise<VisualizerWidget | TallyNativeViewerWidget | DagmcViewerWidget | null> {
         const available = await this.checkAvailability();
         if (!available) {
             return null;
@@ -475,21 +485,26 @@ export class OpenMCService {
             }
             label += ' on Geometry';
 
-            // Native-only: static overlay cloud without a server; any
-            // conversion/parse failure surfaces an error naming the cause
-            // instead of starting a server.
+            if (geometryUri.path.toString().toLowerCase().endsWith('.h5m')) {
+                return await this.visualizeTallyDrapedOnDagmc(geometryUri, statepointUri, options, label);
+            }
+
+            // Without a DAGMC geometry there is nothing to drape onto: open
+            // the full mesh itself (.vti voxel blocks, clip-explorable)
+            // instead of a cell-center cloud. Conversion/parse failure
+            // surfaces an error naming the cause instead of starting a
+            // server.
             try {
-                const conversion = await this.openmcBackend.convertOverlayToVtk(statepointUri.path.toString(), {
+                const conversion = await this.openmcBackend.convertTallyMeshToVtk(statepointUri.path.toString(), {
                     tallyId: options.tallyId,
                     score: options.score,
-                    nuclide: options.nuclide,
-                    mode: 'full'
+                    nuclide: options.nuclide
                 });
                 if (!conversion.success || !conversion.vtkPath) {
                     throw new Error(conversion.error || 'Overlay conversion failed');
                 }
-                const nativeWidget = await this.openTallyNativeWidget(conversion.vtkPath, 'overlay', label);
-                this.messageService.info('Loaded tally overlay on geometry natively');
+                const nativeWidget = await this.openTallyNativeWidget(conversion.vtkPath, 'mesh', label);
+                this.messageService.info('Loaded tally mesh on geometry natively');
                 return nativeWidget;
             } catch (error) {
                 const message = error instanceof Error ? error.message : String(error);
@@ -499,6 +514,97 @@ export class OpenMCService {
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
             this.messageService.error(`Failed to overlay tally: ${msg}`);
+            return null;
+        }
+    }
+
+    /**
+     * True 3D tally-on-DAGMC drape: convert the mesh tally onto the `.h5m`
+     * volumes and open the painted manifest in the native DAGMC viewer
+     * (volume/material/group toggles via `dagmc.info`, tally color-by by
+     * default). The outline sidebar reveals without stealing focus.
+     */
+    protected async visualizeTallyDrapedOnDagmc(
+        geometryUri: URI,
+        statepointUri: URI,
+        options: TallyVisualizationOptions,
+        label: string
+    ): Promise<DagmcViewerWidget | null> {
+        try {
+            const h5mPath = geometryUri.path.toString();
+            const conversion = await this.openmcBackend.convertOverlayGeometryToVtk(statepointUri.path.toString(), h5mPath, {
+                tallyId: options.tallyId,
+                score: options.score,
+                nuclide: options.nuclide,
+                includeGraveyard: options.filterGraveyard === false
+            });
+            if (!conversion.success || !conversion.vtkPath) {
+                throw new Error(conversion.error || 'Overlay conversion failed');
+            }
+            const widget = await this.widgetManager.getOrCreateWidget<DagmcViewerWidget>(DagmcViewerWidget.ID, {
+                id: `${DagmcViewerWidget.ID}:${conversion.vtkPath}`
+            });
+            if (!widget.isAttached) {
+                this.shell.addWidget(widget, { area: 'main' });
+            }
+            widget.h5mSourcePath = h5mPath;
+            await widget.setVtmFile(new URI(conversion.vtkPath));
+            try {
+                widget.setModelInfo(await this.visualizerBackend.getDagmcInfo(h5mPath));
+            } catch (error) {
+                console.warn(
+                    `[openmc-service] dagmc.info failed for ${h5mPath} — volume toggles unavailable:`,
+                    error instanceof Error ? error.message : error
+                );
+            }
+            // Tally mesh interior (hollow shells clip to empty space without
+            // it); a mesh failure only drops the volume, never the drape.
+            try {
+                const meshConversion = await this.openmcBackend.convertTallyMeshToVtk(statepointUri.path.toString(), {
+                    tallyId: options.tallyId,
+                    score: options.score,
+                    nuclide: options.nuclide
+                });
+                if (meshConversion.success && meshConversion.vtkPath) {
+                    await widget.setTallyVolumeFile(new URI(meshConversion.vtkPath));
+                }
+            } catch (error) {
+                console.warn(
+                    '[openmc-service] tally mesh volume failed — drape surfaces only:',
+                    error instanceof Error ? error.message : error
+                );
+            }
+            if (conversion.arrayName) {
+                const colorBy = `Cell: ${conversion.arrayName}`;
+                if (widget.colorByOptions().some((option) => option.value === colorBy)) {
+                    widget.applyProps({ colorBy });
+                } else {
+                    // Never silent: a missing option means the backend sent
+                    // an array the viewer cannot see (stale backend build is
+                    // the usual cause — it lacks the hoisted arrayName).
+                    console.warn(
+                        `[openmc-service] drape array '${conversion.arrayName}' not in color-by options ` +
+                            `(${widget
+                                .colorByOptions()
+                                .map((option) => option.value)
+                                .join(', ')})`
+                    );
+                }
+            } else {
+                console.warn('[openmc-service] drape conversion returned no arrayName — check the backend build');
+            }
+            widget.title.label = label;
+            const outline = await this.widgetManager.getOrCreateWidget(DagmcOutlineWidget.ID);
+            if (!outline.isAttached) {
+                await this.shell.addWidget(outline, { area: 'right' });
+            }
+            await this.shell.revealWidget(outline.id);
+            await this.shell.activateWidget(widget.id);
+            this.messageService.info('Loaded tally overlay on DAGMC geometry natively');
+            return widget;
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            this.messageService.error(`Failed to overlay tally: ${message}`);
             return null;
         }
     }

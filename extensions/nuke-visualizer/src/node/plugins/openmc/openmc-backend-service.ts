@@ -66,7 +66,8 @@ import {
     EndfDetailResult,
     OpenMCTallyMeshVtkOptions,
     OpenMCSourceVtkOptions,
-    OpenMCOverlayVtkOptions
+    OpenMCOverlayVtkOptions,
+    OpenMCOverlayGeometryVtkOptions
 } from '../../../common/openmc-protocol';
 import { NukeCoreBackendService, NukeCoreBackendServiceInterface } from 'nuke-core/lib/common';
 import { PythonCommandHelper } from '../../services/python-command-helper';
@@ -466,5 +467,13 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
 
     async convertOverlayToVtk(statepointPath: string, options?: OpenMCOverlayVtkOptions): Promise<OpenMCVtkConversionResult> {
         return this.outputService.convertOverlayToVtk(statepointPath, options);
+    }
+
+    async convertOverlayGeometryToVtk(
+        statepointPath: string,
+        h5mPath: string,
+        options?: OpenMCOverlayGeometryVtkOptions
+    ): Promise<OpenMCVtkConversionResult> {
+        return this.outputService.convertOverlayGeometryToVtk(statepointPath, h5mPath, options);
     }
 }

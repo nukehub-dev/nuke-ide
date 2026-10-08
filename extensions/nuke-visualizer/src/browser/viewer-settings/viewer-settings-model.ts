@@ -118,6 +118,11 @@ export interface ViewerMeasureSettings {
     readonly active: boolean;
 }
 
+/** Tally-volume section (DAGMC drape interior); absent without a loaded tally volume. */
+export interface ViewerTallyVolumeSettings {
+    readonly visible: boolean;
+}
+
 /** Generic slider section of a settings snapshot (opacity, point size, line width). */
 export interface ViewerSliderSettings {
     readonly value: number;
@@ -150,6 +155,7 @@ export interface ViewerSettingsSnapshot {
     readonly component?: ViewerComponentSettings;
     readonly range?: ViewerRangeSettings;
     readonly scalarBar?: ViewerScalarBarSettings;
+    readonly tallyVolume?: ViewerTallyVolumeSettings;
     readonly solidColor?: ViewerColorSettings;
     readonly background?: ViewerColorSettings;
     readonly shading?: ViewerShadingSettings;
@@ -177,6 +183,7 @@ export interface ViewerSettingsPatch {
     readonly invert?: boolean;
     readonly logScale?: boolean;
     readonly scalarBarVisible?: boolean;
+    readonly tallyVolumeVisible?: boolean;
     readonly solidColor?: string;
     readonly background?: string;
     readonly shading?: ViewerShadingMode;

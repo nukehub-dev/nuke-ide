@@ -46,18 +46,18 @@ Once the file loads, the visualization panel shows an interactive 3D view with a
 
 ### Appearance
 
-| Control        | What It Does                                                                 |
-| -------------- | ---------------------------------------------------------------------------- |
-| **Opacity**    | Slider from 0 (invisible) to 1 (fully opaque)                                |
-| **Shading**    | Shaded / Shaded + Edges / Wireframe / Points / X-Ray                         |
-| **Color By**   | Choose a data array (e.g., temperature, flux) or "Solid Color"               |
-| **Component**  | For multi-component arrays: Magnitude or a single component (X / Y / Z)      |
-| **Color Map**  | Full ParaView preset list (34 maps — Viridis, Cool to Warm, Jet, RdBu, …)    |
-| **Invert/Log** | Reverse the colormap, or map values log-scaled (needs a positive range)      |
-| **Range**      | Auto (data range) or a custom min/max the colormap clamps to                 |
-| **Scalar Bar** | Toggle the floating color-legend card (array name, gradient, min/max) on/off |
-| **Colors**     | Solid-color and background pickers                                           |
-| **Sizes**      | Point size and line width sliders (line width is driver-dependent)           |
+| Control        | What It Does                                                                                            |
+| -------------- | ------------------------------------------------------------------------------------------------------- |
+| **Opacity**    | Slider from 0 (invisible) to 1 (fully opaque)                                                           |
+| **Shading**    | Shaded / Shaded + Edges / Wireframe / Points / X-Ray                                                    |
+| **Color By**   | Choose a data array (e.g., temperature, flux) or "Solid Color"                                          |
+| **Component**  | For multi-component arrays: Magnitude or a single component (X / Y / Z)                                 |
+| **Color Map**  | Full ParaView preset list (34 maps — Viridis, Cool to Warm, Jet, RdBu, …)                               |
+| **Invert/Log** | Reverse the colormap, or map values log-scaled (needs a positive range)                                 |
+| **Range**      | Auto (data range) or a custom min/max the colormap clamps to                                            |
+| **Scalar Bar** | Toggle the floating color-legend card (array name, gradient, min/max) on/off                            |
+| **Colors**     | Solid-color and background pickers                                                                      |
+| **Sizes**      | Point size and line width sliders (line width is driver-dependent); points render as round soft sprites |
 
 ### Clipping
 

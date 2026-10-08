@@ -213,23 +213,20 @@ def convert_h5m_to_vtk(
     return str(output_path)
 
 
-def _volume_to_grid_numpy(volume, model, types, group_map):
-    """Convert a single pydagmc volume to a VTK unstructured grid.
+def _volume_triangle_topology(volume, model, types):
+    """Deduplicated triangle topology of one pydagmc volume (numpy only).
 
     Bulk MOAB queries plus numpy vectorized deduplication are used instead
     of per-triangle Python loops.
 
     Inputs: ``volume`` (pydagmc volume), ``model`` (pydagmc model, for
     ``model.mb`` MOAB access), ``types`` (pymoab types module, for
-    ``MBTRI``), ``group_map`` (group name -> list of volume ids).
-    Output: ``(vtkUnstructuredGrid, num_unique_vertices, num_triangles)``
-    or ``None`` when the volume holds no triangles. Cell-data arrays are
-    ``volume_id`` (int per cell), ``material`` and ``groups`` (strings).
-    Raises :class:`DagmcError` when vtk is not installed.
+    ``MBTRI``).
+    Output: ``(unique_coords, tri_indices)`` with ``unique_coords`` shaped
+    ``(N, 3)`` and ``tri_indices`` shaped ``(n_tris, 3)``, or ``None`` when
+    the volume holds no triangles.
     """
     import numpy as np
-
-    vtk, numpy_support = _load_vtk()
 
     # Collect all triangle handles for this volume
     all_tris = []
@@ -254,6 +251,45 @@ def _volume_to_grid_numpy(volume, model, types, group_map):
 
     unique_coords = coords_flat[unique_idx]
     tri_indices = inverse.reshape(n_tris, 3)
+    return unique_coords, tri_indices
+
+
+def _volume_triangle_centroids(volume, model, types):
+    """Centroid per triangle of one pydagmc volume, shape ``(n_tris, 3)``.
+
+    Inputs: same as :func:`_volume_triangle_topology`. Output: ``None``
+    when the volume holds no triangles.
+    """
+    topology = _volume_triangle_topology(volume, model, types)
+    if topology is None:
+        return None
+    unique_coords, tri_indices = topology
+    return unique_coords[tri_indices].mean(axis=1)
+
+
+def _volume_to_grid_numpy(volume, model, types, group_map):
+    """Convert a single pydagmc volume to a VTK unstructured grid.
+
+    Bulk MOAB queries plus numpy vectorized deduplication are used instead
+    of per-triangle Python loops.
+
+    Inputs: ``volume`` (pydagmc volume), ``model`` (pydagmc model, for
+    ``model.mb`` MOAB access), ``types`` (pymoab types module, for
+    ``MBTRI``), ``group_map`` (group name -> list of volume ids).
+    Output: ``(vtkUnstructuredGrid, num_unique_vertices, num_triangles)``
+    or ``None`` when the volume holds no triangles. Cell-data arrays are
+    ``volume_id`` (int per cell), ``material`` and ``groups`` (strings).
+    Raises :class:`DagmcError` when vtk is not installed.
+    """
+    import numpy as np
+
+    vtk, numpy_support = _load_vtk()
+
+    topology = _volume_triangle_topology(volume, model, types)
+    if topology is None:
+        return None
+    unique_coords, tri_indices = topology
+    n_tris = tri_indices.shape[0]
 
     # Build VTK points array from numpy (zero-copy where possible)
     points = vtk.vtkPoints()
@@ -368,7 +404,10 @@ def convert_h5m_volume_to_vtk(h5m_path: str, volume_id: int, output_path: str = 
 
 
 def convert_h5m_to_multiblock_vtk(
-    h5m_path: str, output_dir: str = None, include_graveyard: bool = False
+    h5m_path: str,
+    output_dir: str = None,
+    include_graveyard: bool = False,
+    cell_sampler=None,
 ) -> dict[str, Any]:
     """Convert a DAGMC .h5m file to a VTK multi-block ``.vtm`` via pydagmc.
 
@@ -379,13 +418,17 @@ def convert_h5m_to_multiblock_vtk(
     Inputs: ``h5m_path`` (path to the ``.h5m`` file), optional
     ``output_dir`` (destination directory, default: the temp-dir
     ``nuke-visualizer/dagmc`` cache), ``include_graveyard`` (keep the
-    ``material='Graveyard'`` volume, default False).
+    ``material='Graveyard'`` volume, default False), optional
+    ``cell_sampler`` (``(volume_id, material, centroids) -> (name, values)
+    | None`` painting one extra Float64 cell-data array per volume from its
+    ``(n_tris, 3)`` triangle centroids — the tally-overlay drape path).
     Output: dict with ``vtm_path``, ``volume_info`` (one entry per block:
     ``id``, ``material``, ``numTriangles``, ``numVertices``, ``groups``,
     ``blockIndex``, ``selector``), ``materials`` (material name -> volume
-    id list) and ``groups`` (group name -> volume id list).
-    Raises :class:`DagmcError` for a bad path, a missing file, or missing
-    pydagmc/vtk.
+    id list), ``groups`` (group name -> volume id list) and
+    ``sampledArray`` (the sampler's array name, or ``None``).
+    Raises :class:`DagmcError` for a bad path, a missing file, missing
+    pydagmc/vtk, or a sampler result whose length mismatches the volume.
     """
     h5m_path = _require_h5m_path(h5m_path)
     dagmc, types = _load_pydagmc()
@@ -411,6 +454,11 @@ def convert_h5m_to_multiblock_vtk(
     volume_info = []
     material_map = {}  # material_name -> list of volume ids
     block_index = 0
+    sampled_array_name = None
+    if cell_sampler is not None:
+        import numpy as np
+
+        _, numpy_support = _load_vtk()
 
     # Sort volumes by ID for consistent ordering
     sorted_volumes = sorted(model.volumes, key=lambda v: int(v.id))
@@ -432,6 +480,25 @@ def convert_h5m_to_multiblock_vtk(
             continue
 
         grid, n_verts, n_tris = result
+
+        if cell_sampler is not None:
+            centroids = _volume_triangle_centroids(volume, model, types)
+            if centroids is None or len(centroids) != n_tris:  # pragma: no cover - walk parity
+                raise DagmcError(f"Volume {vol_id} centroid walk mismatches its grid ({n_tris})")
+            sampled = cell_sampler(vol_id, material, centroids)
+            if sampled is not None:
+                sampled_name, sampled_values = sampled
+                sampled_flat = np.asarray(sampled_values, dtype=float).ravel()
+                if sampled_flat.shape[0] != n_tris:
+                    got = sampled_flat.shape[0]
+                    raise DagmcError(f"Sampler for volume {vol_id} returned {got}, want {n_tris}")
+                if not np.all(np.isfinite(sampled_flat)):
+                    raise DagmcError(f"Sampler for volume {vol_id} returned non-finite values")
+                sampled_array = numpy_support.numpy_to_vtk(sampled_flat, deep=False)
+                sampled_array.SetName(str(sampled_name))
+                grid.GetCellData().AddArray(sampled_array)
+                if sampled_array_name is None:
+                    sampled_array_name = str(sampled_name)
 
         # Add to multi-block
         multi_block.SetBlock(block_index, grid)
@@ -473,6 +540,7 @@ def convert_h5m_to_multiblock_vtk(
         "volume_info": volume_info,
         "materials": material_map,
         "groups": group_map,
+        "sampledArray": sampled_array_name,
     }
 
 

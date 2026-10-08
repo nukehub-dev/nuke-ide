@@ -314,6 +314,16 @@ export const DEFAULT_COLORMAP: ColormapName = 'Cool to Warm';
 /** Default cap for natively rendered points (CAD 2M-triangle budget thinking). */
 export const NATIVE_VTK_POINT_BUDGET = 200000;
 
+// Voxel layout + instancing live in viewer-core (shared with the DAGMC
+// drape interior); re-exported here so existing imports keep working.
+export {
+    buildVoxelMesh,
+    NATIVE_VTK_VOXEL_BUDGET,
+    updateVoxelInstances,
+    voxelInstanceLayout
+} from '../../../../viewer-core/voxel-blocks';
+export type { VoxelInstanceLayout } from '../../../../viewer-core/voxel-blocks';
+
 /** Stride (>= 1) keeping `count` items within `budget` by even decimation. */
 export function strideForBudget(count: number, budget: number = NATIVE_VTK_POINT_BUDGET): number {
     if (count <= 0 || budget <= 0) {
@@ -355,6 +365,12 @@ export interface NativeVtkModel {
     vertices?: Uint32Array;
     /** Grid dimensions in cells [nx, ny, nz] (rectilinear/image only). */
     gridDimensions?: [number, number, number];
+    /**
+     * Cell-boundary axes [x, y, z] (rectilinear/image XML only; absent for
+     * `.vts`, whose grid is not axis-aligned). Present exactly when the
+     * viewer can render voxel blocks instead of a cell-center preview.
+     */
+    gridAxes?: [Float64Array, Float64Array, Float64Array];
     pointArrays: NativeVtkDataArray[];
     cellArrays: NativeVtkDataArray[];
     /**
@@ -811,8 +827,18 @@ export async function parseNativeVtkXml(text: string): Promise<NativeVtkModel> {
         // `offsets` arrays (offsets[i] = end of cell i in connectivity);
         // unnamed inline `[n, id...]` arrays are also accepted for compat.
         // Cells are numbered verts-first, then lines, then polys (VTK order).
-        const readCells = async (tag: string): Promise<number[][]> => {
+        // Empty sections (e.g. the empty Lines/Strips/Polys of a vertex
+        // cloud) are skipped without touching their arrays: writers still
+        // emit (empty) blocks for them, and decoding is pointless — worse,
+        // a corrupt offset in a zero-cell section must never fabricate
+        // cells, while a corrupt offset in a non-empty section must still
+        // throw via the strict appended validator below. Sections without
+        // a count attribute decode as before (unknown, not provably empty).
+        const readCells = async (tag: string, expectedCells?: number): Promise<number[][]> => {
             const cells: number[][] = [];
+            if (expectedCells === 0) {
+                return cells;
+            }
             const walkInline = (values: Float64Array): void => {
                 let cursor = 0;
                 while (cursor < values.length) {
@@ -867,12 +893,16 @@ export async function parseNativeVtkXml(text: string): Promise<NativeVtkModel> {
             }
             return cells;
         };
-        const vertCells = await readCells('Verts');
-        const lineCells = await readCells('Lines');
-        const polyCells = await readCells('Polys');
+        const sectionCellCount = (key: string): number | undefined =>
+            pieceAttrs[key] !== undefined ? Math.max(0, parseInt(pieceAttrs[key], 10)) : undefined;
+        const vertCells = await readCells('Verts', sectionCellCount('NumberOfVerts'));
+        const lineCells = await readCells('Lines', sectionCellCount('NumberOfLines'));
+        const polyCells = await readCells('Polys', sectionCellCount('NumberOfPolys'));
         const segments: number[] = [];
         const segmentCells: number[] = [];
         const vertices: number[] = [];
+        const triangles: number[] = [];
+        const triangleCells: number[] = [];
         for (const ids of vertCells) {
             vertices.push(...ids);
         }
@@ -883,9 +913,21 @@ export async function parseNativeVtkXml(text: string): Promise<NativeVtkModel> {
             }
         });
         polyCells.forEach((ids, polyIndex) => {
-            for (let k = 0; k < ids.length; k++) {
-                segments.push(ids[k], ids[(k + 1) % ids.length]);
-                segmentCells.push(vertCells.length + lineCells.length + polyIndex);
+            const cell = vertCells.length + lineCells.length + polyIndex;
+            if (ids.length >= 3) {
+                // Filled surface (legacy-path parity): fan-triangulate and
+                // keep the outline edges for the `edges` shading mode.
+                for (let k = 1; k + 1 < ids.length; k++) {
+                    triangles.push(ids[0], ids[k], ids[k + 1]);
+                    triangleCells.push(cell);
+                    segments.push(ids[0], ids[k], ids[k], ids[k + 1], ids[k + 1], ids[0]);
+                    segmentCells.push(cell, cell, cell);
+                }
+            } else if (ids.length === 2) {
+                segments.push(ids[0], ids[1]);
+                segmentCells.push(cell);
+            } else {
+                vertices.push(...ids);
             }
         });
         return {
@@ -896,7 +938,9 @@ export async function parseNativeVtkXml(text: string): Promise<NativeVtkModel> {
             segmentCells: segmentCells.length > 0 ? new Uint32Array(segmentCells) : undefined,
             vertices: vertices.length > 0 ? new Uint32Array(vertices) : undefined,
             pointArrays,
-            cellArrays
+            cellArrays,
+            triangles: triangles.length > 0 ? new Uint32Array(triangles) : undefined,
+            triangleCells: triangleCells.length > 0 ? new Uint32Array(triangleCells) : undefined
         };
     }
 
@@ -977,7 +1021,15 @@ export async function parseNativeVtkXml(text: string): Promise<NativeVtkModel> {
                 }
             }
         }
-        return { family, nPoints: nCells, positions: centers, gridDimensions: [nx, ny, nz], pointArrays, cellArrays };
+        return {
+            family,
+            nPoints: nCells,
+            positions: centers,
+            gridDimensions: [nx, ny, nz],
+            gridAxes: [xAxis, yAxis, zAxis],
+            pointArrays,
+            cellArrays
+        };
     }
 
     if (fileType === 'UnstructuredGrid') {
@@ -1486,12 +1538,15 @@ function makeLegacyArray(name: string, association: 'point' | 'cell', components
 
 /**
  * Parse a legacy VTK ASCII file (`.vtk` as emitted by gmsh `step.py`,
- * MOAB `dagmc.py`, and nuke-cad `fem_service.py`): `DATASET POLYDATA`
- * (`POINTS` plus `VERTICES`/`LINES`/`POLYGONS`/`TRIANGLE_STRIPS`) or
- * `DATASET UNSTRUCTURED_GRID` (`POINTS` plus `CELLS`/`CELL_TYPES`), with
- * `POINT_DATA`/`CELL_DATA` carrying `SCALARS`/`VECTORS`/`FIELD` (plus
- * `NORMALS`/`TENSORS`). Produces the same `NativeVtkModel` shape the
- * classifier consumes. Binary files are rejected with an ASCII-only error.
+ * MOAB `dagmc.py`, nuke-cad `fem_service.py`, and OpenMC mesh exports):
+ * `DATASET POLYDATA` (`POINTS` plus `VERTICES`/`LINES`/`POLYGONS`/
+ * `TRIANGLE_STRIPS`), `DATASET UNSTRUCTURED_GRID` (`POINTS` plus `CELLS`/
+ * `CELL_TYPES`), or `DATASET STRUCTURED_GRID` (`DIMENSIONS` plus `POINTS`,
+ * averaged to cell centers like the `.vts` path, with voxel axes when the
+ * lattice is axis-aligned), with `POINT_DATA`/`CELL_DATA` carrying
+ * `SCALARS`/`VECTORS`/`FIELD` (plus `NORMALS`/`TENSORS`). Produces the same
+ * `NativeVtkModel` shape the classifier consumes. Binary files are
+ * rejected with an ASCII-only error.
  */
 export function parseLegacyVtkAscii(text: string): NativeVtkModel {
     const lines = text.split(/\r?\n/);
@@ -1521,8 +1576,8 @@ export function parseLegacyVtkAscii(text: string): NativeVtkModel {
     if (!dataset) {
         throw new Error('Legacy VTK file has no DATASET section');
     }
-    if (dataset !== 'POLYDATA' && dataset !== 'UNSTRUCTURED_GRID') {
-        throw new Error(`Unsupported legacy VTK dataset '${dataset}' (expected POLYDATA or UNSTRUCTURED_GRID)`);
+    if (dataset !== 'POLYDATA' && dataset !== 'UNSTRUCTURED_GRID' && dataset !== 'STRUCTURED_GRID') {
+        throw new Error(`Unsupported legacy VTK dataset '${dataset}' (expected POLYDATA, UNSTRUCTURED_GRID, or STRUCTURED_GRID)`);
     }
 
     // Token cursor over the remaining lines (values flow across line breaks).
@@ -1560,6 +1615,7 @@ export function parseLegacyVtkAscii(text: string): NativeVtkModel {
     };
     const KEYWORDS = new Set([
         'POINTS',
+        'DIMENSIONS',
         'VERTICES',
         'LINES',
         'POLYGONS',
@@ -1581,6 +1637,7 @@ export function parseLegacyVtkAscii(text: string): NativeVtkModel {
     let positions = new Float32Array(0);
     let nPoints = 0;
     let pointsSeen = false;
+    let gridDims: [number, number, number] | undefined;
     const vertCells: number[][] = [];
     const lineCells: number[][] = [];
     const polyCells: number[][] = [];
@@ -1619,7 +1676,14 @@ export function parseLegacyVtkAscii(text: string): NativeVtkModel {
 
     while (cursor < tokens.length) {
         const keyword = peek()?.toUpperCase();
-        if (keyword === 'POINTS') {
+        if (keyword === 'DIMENSIONS') {
+            next();
+            const dims = [nextInt('DIMENSIONS nx'), nextInt('DIMENSIONS ny'), nextInt('DIMENSIONS nz')];
+            if (dims.some((d) => d < 1)) {
+                throw new Error('Malformed legacy VTK file: DIMENSIONS values must be positive');
+            }
+            gridDims = [dims[0], dims[1], dims[2]];
+        } else if (keyword === 'POINTS') {
             next();
             const count = nextInt('POINTS count');
             next(); // data type (float/double/...)
@@ -1818,6 +1882,99 @@ export function parseLegacyVtkAscii(text: string): NativeVtkModel {
         segments.push(tri[0], tri[1], tri[1], tri[2], tri[2], tri[0]);
         segmentCells.push(cell, cell, cell);
     };
+
+    if (dataset === 'STRUCTURED_GRID') {
+        // Regular-grid datasets (OpenMC mesh exports): average the 8
+        // corners into cell centers like the `.vts` path. Axis-aligned
+        // lattices additionally carry voxel axes (possibly non-uniform);
+        // anything else stays a cell-center preview.
+        if (!gridDims) {
+            throw new Error('Legacy VTK STRUCTURED_GRID file has no DIMENSIONS section');
+        }
+        const [snx, sny, snz] = gridDims;
+        const cellDims: [number, number, number] = [snx - 1, sny - 1, snz - 1];
+        if (cellDims.some((d) => d < 1)) {
+            throw new Error('Legacy VTK STRUCTURED_GRID file has an empty grid (DIMENSIONS must exceed 1 per axis)');
+        }
+        if (nPoints !== snx * sny * snz) {
+            throw new Error(`Legacy VTK STRUCTURED_GRID has ${nPoints} points for a ${snx}x${sny}x${snz} grid`);
+        }
+        const structuredCells = cellDims[0] * cellDims[1] * cellDims[2];
+        if (cellDataCount >= 0 && cellDataCount !== structuredCells) {
+            throw new Error(`Legacy VTK CELL_DATA (${cellDataCount}) does not match the cell count (${structuredCells})`);
+        }
+        if (pointDataCount >= 0 && pointDataCount !== nPoints) {
+            throw new Error(`Legacy VTK POINT_DATA (${pointDataCount}) does not match the point count (${nPoints})`);
+        }
+        const cornerAt = (i: number, j: number, k: number): number => (i + snx * (j + sny * k)) * 3;
+        const centers = new Float32Array(structuredCells * 3);
+        let centerAt = 0;
+        for (let k = 0; k < cellDims[2]; k++) {
+            for (let j = 0; j < cellDims[1]; j++) {
+                for (let i = 0; i < cellDims[0]; i++) {
+                    for (let d = 0; d < 3; d++) {
+                        centers[centerAt + d] =
+                            (positions[cornerAt(i, j, k) + d] +
+                                positions[cornerAt(i + 1, j, k) + d] +
+                                positions[cornerAt(i, j + 1, k) + d] +
+                                positions[cornerAt(i + 1, j + 1, k) + d] +
+                                positions[cornerAt(i, j, k + 1) + d] +
+                                positions[cornerAt(i + 1, j, k + 1) + d] +
+                                positions[cornerAt(i, j + 1, k + 1) + d] +
+                                positions[cornerAt(i + 1, j + 1, k + 1) + d]) /
+                            8;
+                    }
+                    centerAt += 3;
+                }
+            }
+        }
+        // Axis alignment (exact match: generated lattices repeat decimals):
+        // x varies only with i, y only with j, z only with k, strictly
+        // increasing so voxel boxes keep positive sizes.
+        const axisOf = (axis: 0 | 1 | 2): Float64Array | undefined => {
+            const count = [snx, sny, snz][axis];
+            const values = new Float64Array(count);
+            for (let n = 0; n < count; n++) {
+                const probe = axis === 0 ? cornerAt(n, 0, 0) + axis : axis === 1 ? cornerAt(0, n, 0) + axis : cornerAt(0, 0, n) + axis;
+                values[n] = positions[probe] ?? Number.NaN;
+            }
+            for (let n = 1; n < count; n++) {
+                if (!(values[n] > values[n - 1])) {
+                    return undefined;
+                }
+            }
+            return values;
+        };
+        const matchesAxis = (axis: 0 | 1 | 2, reference: Float64Array): boolean => {
+            for (let k = 0; k < snz; k++) {
+                for (let j = 0; j < sny; j++) {
+                    for (let i = 0; i < snx; i++) {
+                        const probe = axis === 0 ? i : axis === 1 ? j : k;
+                        if (positions[cornerAt(i, j, k) + axis] !== reference[probe]) {
+                            return false;
+                        }
+                    }
+                }
+            }
+            return true;
+        };
+        const xAxis = axisOf(0);
+        const yAxis = axisOf(1);
+        const zAxis = axisOf(2);
+        const gridAxes: [Float64Array, Float64Array, Float64Array] | undefined =
+            xAxis && yAxis && zAxis && matchesAxis(0, xAxis) && matchesAxis(1, yAxis) && matchesAxis(2, zAxis)
+                ? [xAxis, yAxis, zAxis]
+                : undefined;
+        return {
+            family: 'rectilinear',
+            nPoints: structuredCells,
+            positions: centers,
+            gridDimensions: cellDims,
+            gridAxes,
+            pointArrays,
+            cellArrays
+        };
+    }
 
     if (dataset === 'POLYDATA') {
         for (const ids of vertCells) {
