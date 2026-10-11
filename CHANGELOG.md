@@ -287,6 +287,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Tally colors (voxel boxes and the smooth raycast, which already used the
   raw opacity) now stay at slider strength while geometry ghosts; lower the
   Opacity slider itself to fade everything together.
+- openmc-studio: **CSG void cells rejected by openmc** — the XML generator
+  emitted void cells with no `material` attribute at all, which this openmc
+  refuses ("Neither material nor fill was specified"). Void cells now emit
+  the standard `material="void"` (matching `openmc.Cell` and the existing
+  import path), with round-trip coverage.
 - nuke-visualizer: **tally overlay with source shows the source again** —
   the native-only migration had reduced "+ Source" to a bare tally cloud
   with no source particles at all. It now opens the standard drape overlay

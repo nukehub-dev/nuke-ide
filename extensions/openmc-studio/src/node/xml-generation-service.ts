@@ -620,12 +620,16 @@ export class XMLGenerationService {
         let fillAttr = '';
         if (cell.fillType === 'material' && cell.fillId !== undefined) {
             fillAttr = ` material="${cell.fillId}"`;
+        } else if (cell.fillType === 'void') {
+            // Void cells carry the literal material="void" (openmc.Cell
+            // contract): omitting the attribute makes this openmc reject the
+            // file ("Neither material nor fill was specified").
+            fillAttr = ' material="void"';
         } else if (cell.fillType === 'universe' && cell.fillId !== undefined) {
             fillAttr = ` fill="${cell.fillId}"`;
         } else if (cell.fillType === 'lattice' && cell.fillId !== undefined) {
             fillAttr = ` fill="${cell.fillId}"`;
         }
-        // Note: void cells don't need a material attribute (empty cell)
 
         // Build region attribute
         let regionAttr = '';

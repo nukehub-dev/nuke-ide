@@ -1801,3 +1801,53 @@ describe('settings.xml round-trip', () => {
         expect(xml).not.toContain('<constraints>');
     });
 });
+
+describe('void cells', () => {
+    let tempDir: string;
+
+    beforeAll(() => {
+        tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openmc-void-'));
+    });
+
+    afterAll(() => {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    it('emits material="void" so this openmc accepts the file', async () => {
+        const state = buildTestState();
+        state.geometry.cells = [
+            { id: 1, name: 'water', fillType: 'material', fillId: 1, regionString: '-1' },
+            { id: 2, name: 'void', fillType: 'void', regionString: '1' }
+        ];
+        state.geometry.universes = [{ id: 0, name: 'root', cellIds: [1, 2], isRoot: true }];
+        const service = new XMLGenerationService();
+        const result = await service.generateXML({
+            state,
+            outputDirectory: tempDir,
+            files: { materials: true, geometry: true, settings: false, tallies: false, plots: false }
+        });
+        expect(result.success).toBe(true);
+        const xml = fs.readFileSync(path.join(tempDir, 'geometry.xml'), 'utf-8');
+        expect(xml).toContain('<cell id="2" name="void" material="void" region="1"/>');
+    });
+
+    it('round-trips fillType void through importXML', async () => {
+        const state = buildTestState();
+        state.geometry.cells = [
+            { id: 1, name: 'water', fillType: 'material', fillId: 1, regionString: '-1' },
+            { id: 2, name: 'void', fillType: 'void', regionString: '1' }
+        ];
+        state.geometry.universes = [{ id: 0, name: 'root', cellIds: [1, 2], isRoot: true }];
+        const generator = new XMLGenerationService();
+        await generator.generateXML({
+            state,
+            outputDirectory: tempDir,
+            files: { materials: true, geometry: true, settings: false, tallies: false, plots: false }
+        });
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const imported = await backend.importXML({ directory: tempDir });
+        expect(imported.success).toBe(true);
+        const voidCell = imported.state!.geometry.cells.find((cell) => cell.id === 2);
+        expect(voidCell?.fillType).toBe('void');
+    });
+});
