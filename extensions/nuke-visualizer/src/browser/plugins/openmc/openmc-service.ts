@@ -53,11 +53,12 @@ import { HealthCheckFramework } from '../../services/health-check-framework';
 import { OpenMCFileDiscoveryService } from './services/openmc-file-discovery';
 import { GeometryNativeViewerWidget } from './widgets/geometry-native/geometry-native-viewer-widget';
 import { TallyNativeViewerWidget } from './widgets/tally-native/tally-native-viewer-widget';
-import { TallyOverlayKind } from './widgets/tally-native/tally-overlay-model';
+import { TallyOverlayKind, csgUnderlayCells } from './widgets/tally-native/tally-overlay-model';
 import { DagmcViewerWidget } from './widgets/dagmc/dagmc-viewer-widget';
 import { DagmcOutlineWidget } from '../../dagmc-outline/dagmc-outline-widget';
 import { VisualizerBackendService } from '../../../common/base-visualizer-protocol';
 import { parseNativeVtkXml, readVtkText } from './widgets/native-vtk/native-vtk-data';
+import { parseGeometryNativeModel } from './widgets/geometry-native/geometry-native-model';
 
 export interface OpenMCFileSet {
     /** Geometry file (DAGMC .h5m or VTK) */
@@ -466,7 +467,8 @@ export class OpenMCService {
      * tally mesh is draped onto the geometry volumes (multiblock `.vtm`
      * painted per-triangle) and opened in the native DAGMC viewer with
      * volume isolation and instant color-by on the tally array; any other
-     * geometry falls back to the static overlay point cloud.
+     * geometry opens the full tally mesh itself (.vti voxel blocks,
+     * clip-explorable) with the ghosted CSG cells underlaid for context.
      */
     async visualizeTallyOnGeometry(
         geometryUri: URI,
@@ -504,7 +506,7 @@ export class OpenMCService {
                     throw new Error(conversion.error || 'Overlay conversion failed');
                 }
                 const nativeWidget = await this.openTallyNativeWidget(conversion.vtkPath, 'mesh', label);
-                this.messageService.info('Loaded tally mesh on geometry natively');
+                await this.attachCsgUnderlay(nativeWidget, geometryUri);
                 return nativeWidget;
             } catch (error) {
                 const message = error instanceof Error ? error.message : String(error);
@@ -515,6 +517,30 @@ export class OpenMCService {
             const msg = error instanceof Error ? error.message : String(error);
             this.messageService.error(`Failed to overlay tally: ${msg}`);
             return null;
+        }
+    }
+
+    /**
+     * Ghost the CSG cells under an overlay tally (non-DAGMC path): extract
+     * the geometry mesh and hand the cells to the tally widget's underlay.
+     * Best-effort — extraction failure leaves the tally up with a message
+     * naming the cause instead of failing the overlay.
+     */
+    protected async attachCsgUnderlay(widget: TallyNativeViewerWidget, geometryUri: URI): Promise<void> {
+        try {
+            const mesh = await this.openmcBackend.extractGeometryMesh(geometryUri.path.toString());
+            if (!mesh.success || !mesh.meshPath) {
+                throw new Error(mesh.error || 'Mesh extraction failed');
+            }
+            const text = await readVtkText(this.fileService, new URI(mesh.meshPath));
+            const model = parseGeometryNativeModel(JSON.parse(text));
+            const underlaid = csgUnderlayCells(model.cells);
+            widget.setGeometryUnderlayCells(underlaid);
+            this.messageService.info(`Loaded tally mesh on geometry natively (${underlaid.length} CSG cells underlaid)`);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            console.warn('[OpenMCService] CSG underlay unavailable:', message);
+            this.messageService.info(`Loaded tally mesh on geometry natively (geometry underlay unavailable: ${message})`);
         }
     }
 
@@ -780,7 +806,7 @@ export class OpenMCService {
             const pixelChoice = await this.quickInput.showQuickPick(
                 [
                     { value: 'smooth', label: '$(color-mode) Smooth Interpolation', description: 'Interpolated values between mesh cells' },
-                    { value: 'pixelated', label: '$(symbol-block) Pixelated (Blocky)', description: 'Show actual mesh cell values' }
+                    { value: 'pixelated', label: '$(symbol-array) Pixelated (Blocky)', description: 'Show actual mesh cell values' }
                 ],
                 {
                     title: 'Rendering Style',
@@ -807,7 +833,7 @@ export class OpenMCService {
         const pixelChoice = await this.quickInput.showQuickPick(
             [
                 { value: 'smooth', label: '$(color-mode) Smooth Interpolation', description: 'Interpolated values between mesh cells' },
-                { value: 'pixelated', label: '$(symbol-block) Pixelated (Blocky)', description: 'Show actual mesh cell values' }
+                { value: 'pixelated', label: '$(symbol-array) Pixelated (Blocky)', description: 'Show actual mesh cell values' }
             ],
             {
                 title: 'Rendering Style',

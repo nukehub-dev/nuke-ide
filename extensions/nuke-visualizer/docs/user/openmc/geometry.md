@@ -64,9 +64,29 @@ Click **"View 3D"** on any universe or cell to launch the 3D viewer.
 
 ### What You See
 
-- A voxel or surface-based rendering of the geometry.
-- Cells colored by material (or by cell ID if no materials are defined).
-- Navigation: rotate, pan, zoom with mouse.
+- A surface-based rendering of the geometry (one box per cell).
+- Cells colored by material from a theme-aware palette (vivid on dark
+  themes, deepened on light ones), with matching edge lines.
+- Navigation: rotate, pan, zoom with mouse; orientation cube and
+  ISO/top/front/right bar over the canvas.
+
+### CSG Outline
+
+Opening a geometry view also reveals the **CSG Outline** sidebar:
+per-cell visibility checkboxes with hover isolate buttons, a material
+tree, a **Void** switch for unfilled cells, **Show all** reset, and a
+search filter. Row clicks sync with canvas selection both ways. Display
+settings (clip, opacity, background) live in Viewer Settings. Tally
+overlay tabs bind the same panel for their CSG underlay (visibility
+plus row-click ghost highlight; selection sync is panel→canvas only).
+
+Hiding is exact: per-cell checkboxes, material toggles, and the Void
+switch all remove the box from the canvas through one shared rule. The
+void material row reads hidden while the Void switch is off (matching
+the DAGMC Graveyard row). Note cells render as nested bounding boxes, so hiding an outer cell (e.g.
+moderator) reveals the cells inside rather than empty space. Right-click
+the canvas for Fit / Screenshot / Clip plus Hide / Isolate selected cell
+and Show all.
 
 ### Highlighting
 

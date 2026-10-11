@@ -8,7 +8,6 @@ entry already claims the selector.
 """
 
 import pytest
-
 from region_manifest import CURRENT_VERSION, RegionManifest, document_material_volumes
 
 
@@ -124,9 +123,12 @@ def test_non_dict_bodies_and_empty_tags_skipped() -> None:
 def _tagged_pad_document(material="UO2"):
     """Minimal valid v3 document: one labeled body, one square pad."""
     points = [(0, 0), (5, 0), (5, 5), (0, 5)]
-    primitives = [{"id": f"p{i}", "type": "point", "x": x, "y": y} for i, (x, y) in enumerate(points)]
+    primitives = [
+        {"id": f"p{i}", "type": "point", "x": x, "y": y} for i, (x, y) in enumerate(points)
+    ]
     primitives += [
-        {"id": f"l{i}", "type": "line", "p1_id": f"p{i}", "p2_id": f"p{(i + 1) % 4}"} for i in range(4)
+        {"id": f"l{i}", "type": "line", "p1_id": f"p{i}", "p2_id": f"p{(i + 1) % 4}"}
+        for i in range(4)
     ]
     body = {"id": "b1", "label": "fuel"}
     if material is not None:
@@ -157,7 +159,9 @@ def test_build_document_writes_merged_sidecar() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         doc_path = Path(tmp) / "tagged.nuke-cad"
         doc_path.write_text(json.dumps(_tagged_pad_document()), encoding="utf-8")
-        result = build_document(str(doc_path), output_dir=tmp, export_dagmc=False, export_mesh=False)
+        result = build_document(
+            str(doc_path), output_dir=tmp, export_dagmc=False, export_mesh=False
+        )
         assert result.get("success"), result.get("error")
         sidecar = Path(tmp) / "tagged.regions.json"
         assert sidecar.exists(), "tagged build must write the regions sidecar"
@@ -178,6 +182,8 @@ def test_build_document_untagged_writes_no_sidecar() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         doc_path = Path(tmp) / "plain.nuke-cad"
         doc_path.write_text(json.dumps(_tagged_pad_document(material=None)), encoding="utf-8")
-        result = build_document(str(doc_path), output_dir=tmp, export_dagmc=False, export_mesh=False)
+        result = build_document(
+            str(doc_path), output_dir=tmp, export_dagmc=False, export_mesh=False
+        )
         assert result.get("success"), result.get("error")
         assert not (Path(tmp) / "plain.regions.json").exists()

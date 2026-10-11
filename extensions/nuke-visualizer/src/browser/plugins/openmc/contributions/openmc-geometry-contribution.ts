@@ -34,6 +34,7 @@ import { OpenMCService } from '../openmc-service';
 import { OpenMCBackendService } from '../../../../common/openmc-protocol';
 import { OpenMCGeometryTreeWidget, GeometryView3DRequest, GeometryLoadedEvent } from '../widgets/geometry/openmc-geometry-tree';
 import { GeometryNativeViewerWidget } from '../widgets/geometry-native/geometry-native-viewer-widget';
+import { CsgOutlineWidget } from '../../../csg-outline/csg-outline-widget';
 import { OpenMCMaterialExplorerWidget } from '../widgets/materials/openmc-material-explorer';
 import { OpenMCOverlapWidget } from '../widgets/geometry/openmc-overlap-widget';
 
@@ -150,6 +151,12 @@ export class OpenMCGeometryContribution {
             }
             await this.shell.activateWidget(nativeWidget.id);
             await nativeWidget.setModelFile(new URI(mesh.meshPath));
+            const outline = await this.widgetManager.getOrCreateWidget(CsgOutlineWidget.ID);
+            if (!outline.isAttached) {
+                await this.shell.addWidget(outline, { area: 'right' });
+            }
+            await this.shell.revealWidget(outline.id);
+            await this.shell.activateWidget(nativeWidget.id);
             if (request.highlightCellId !== undefined) {
                 nativeWidget.selectCell(request.highlightCellId);
             }

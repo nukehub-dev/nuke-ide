@@ -31,21 +31,32 @@ import { injectable, inject, postConstruct } from '@theia/core/shared/inversify'
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { Message, Widget } from '@theia/core/lib/browser';
 import { codicon } from '@theia/core/lib/browser/widgets/widget';
+import { ThemeService } from '@theia/core/lib/browser/theming';
+import { getThemeMode } from '@theia/core/lib/common/theme';
+import { Emitter, Event } from '@theia/core/lib/common/event';
 import URI from '@theia/core/lib/common/uri';
 import { MessageService } from '@theia/core/lib/common';
+import { Disposable } from '@theia/core/lib/common/disposable';
 import { FileService } from '@theia/filesystem/lib/browser/file-service';
-import { NukeSelect, Tooltip } from 'nuke-essentials/lib/theme/browser/components';
+import { ViewBadge, ViewerNavBar } from 'nuke-essentials/lib/theme/browser/components';
+import type { ViewerNavAction, ViewCubeHandle } from 'nuke-essentials/lib/theme/browser/components';
+import { ViewCube } from 'nuke-essentials/lib/theme/browser/components';
+import { ViewerFileActions } from '../viewer-nav-extras';
 import {
-    anyClipEnabled,
-    CLIP_AXES,
     ClipAxis,
     ClipPlanesState,
+    anyClipEnabled,
     createClipPlanesState,
     setAllClipEnabled,
-    toThreePlaneParamsArray,
-    updateAxisClip
+    toThreePlaneParamsArray
 } from '../../../../viewer-core/clip-plane';
-import { createOrbitControls, type BoundsCorner, type OrbitControlsHandle } from '../../../../viewer-core/orbit-controls';
+import { isViewerContextMenuClick, openViewerContextMenu } from '../../../../viewer-core/viewer-context-menu';
+import {
+    createOrbitControls,
+    standardViewDirection,
+    type BoundsCorner,
+    type OrbitControlsHandle
+} from '../../../../viewer-core/orbit-controls';
 import { clampSliderValue, DEFAULT_VIEWER_TOOLBAR_STATE, OPACITY_SPEC } from '../../../../viewer-core/viewer-toolbar-model';
 import {
     ViewerSettingsHost,
@@ -54,18 +65,23 @@ import {
     viewerSnapDirection
 } from '../../../../viewer-settings/viewer-settings-model';
 import {
+    buildGeometryContextMenuItems,
     cellDisplayName,
+    cellEdgeColor,
     cellIdFromMeshName,
-    colorForCell,
-    filterGeometryCells,
+    colorForCellOnTheme,
     geometryBounds,
     GeometryNativeCell,
     isDegenerateCell,
+    isGeometryCellVisible,
+    isGeometryMaterialVisible,
+    isVoidMaterial,
     materialNamesInOrder,
     meshNameForCell,
     parseGeometryNativeJson,
     parseGeometryNativeModel
 } from './geometry-native-model';
+import { CsgOutlineHost, CsgOutlinePatch, CsgOutlineSnapshot } from '../../../../csg-outline/csg-outline-model';
 import { readVtkText } from '../native-vtk/native-vtk-data';
 import '../output-viewer.css';
 
@@ -105,7 +121,7 @@ const DEFAULT_VIEWER_BACKGROUND = '#1e1e1e';
  * and forwards tree selections from `openmc-geometry-tree.tsx`.
  */
 @injectable()
-export class GeometryNativeViewerWidget extends ReactWidget implements ViewerSettingsHost {
+export class GeometryNativeViewerWidget extends ReactWidget implements ViewerSettingsHost, CsgOutlineHost {
     static readonly ID: string = 'geometry-native-viewer-widget';
     static readonly LABEL: string = 'Native Geometry Viewer';
 
@@ -115,13 +131,19 @@ export class GeometryNativeViewerWidget extends ReactWidget implements ViewerSet
     @inject(MessageService)
     protected readonly messageService!: MessageService;
 
+    @inject(ThemeService)
+    protected readonly themeService!: ThemeService;
+
     protected modelUri: URI | undefined;
     protected cells: GeometryNativeCell[] = [];
     protected surfaceCount = 0;
     protected skippedDegenerate = 0;
     protected selectedCellId: number | null = null;
-    protected filterText = '';
     protected hiddenMaterials: string[] = [];
+    /** Per-cell hidden set (outline eye buttons); void toggle is separate. */
+    protected hiddenCellIds: number[] = [];
+    /** Void cells stay visible by default (they are modeled parts, unlike the DAGMC graveyard). */
+    protected showVoid = true;
     protected opacity = DEFAULT_VIEWER_TOOLBAR_STATE.opacity;
     protected background = DEFAULT_VIEWER_BACKGROUND;
     protected clip: ClipPlanesState = createClipPlanesState();
@@ -139,6 +161,10 @@ export class GeometryNativeViewerWidget extends ReactWidget implements ViewerSet
     private dataGroup: THREE.Group | undefined;
     private orbitControls: OrbitControlsHandle | undefined;
     private resizeObserver: ResizeObserver | undefined;
+    private gizmo: ViewCubeHandle | null = null;
+    private contextMenuClose: (() => void) | undefined;
+    private readonly outlineChanged = new Emitter<void>();
+    readonly onDidChangeCsgOutline: Event<void> = this.outlineChanged.event;
 
     @postConstruct()
     protected init(): void {
@@ -147,6 +173,34 @@ export class GeometryNativeViewerWidget extends ReactWidget implements ViewerSet
         this.title.iconClass = codicon('globe');
         this.title.closable = true;
         this.node.tabIndex = 0;
+        this.toDispose.push(this.themeService.onDidColorThemeChange(() => this.onColorThemeChanged()));
+        this.toDispose.push(Disposable.create(() => this.outlineChanged.dispose()));
+    }
+
+    /** Rebuild on theme switch (cell/edge colors bake at build time) and refresh the outline. */
+    protected onColorThemeChanged(): void {
+        if (this.isDisposed) {
+            return;
+        }
+        if (this.cells.length > 0) {
+            this.buildScene();
+        }
+        this.fireCsgOutlineChanged();
+        this.update();
+    }
+
+    /** Dark treatment unless the active theme is explicitly light. */
+    protected isDarkTheme(): boolean {
+        try {
+            return getThemeMode(this.themeService.getCurrentTheme().type) !== 'light';
+        } catch {
+            return true;
+        }
+    }
+
+    /** Notify the bound outline panel to re-read the snapshot. */
+    protected fireCsgOutlineChanged(): void {
+        this.outlineChanged.fire(undefined);
     }
 
     // ------------------------------------------------------------------
@@ -249,6 +303,58 @@ export class GeometryNativeViewerWidget extends ReactWidget implements ViewerSet
     /** Tree-side selection entry point: highlight the mesh for a cell id. */
     selectCell(id: number | null): void {
         this.applyProps({ selectedCellId: id });
+        this.fireCsgOutlineChanged();
+    }
+
+    /** Read the current outline for the CSG Outline panel. */
+    getCsgOutlineSnapshot(): CsgOutlineSnapshot | undefined {
+        const materials = materialNamesInOrder(this.cells).map((name) => ({
+            name,
+            cellCount: this.cells.filter((cell) => cell.material === name).length,
+            // The void switch is an extra override on top of the material
+            // hidden-set (DAGMC graveyard parity): while it is off, the
+            // void material reads hidden even though it is not in the set.
+            visible: isGeometryMaterialVisible(name, this.hiddenMaterials, this.showVoid)
+        }));
+        return {
+            widgetId: this.id,
+            title: this.title.label,
+            hasDataset: this.cells.length > 0,
+            cells: this.cells.map((cell) => ({
+                id: cell.id,
+                label: cellDisplayName(cell),
+                material: cell.material,
+                visible: isGeometryCellVisible(cell, this.hiddenMaterials, this.hiddenCellIds, this.showVoid),
+                selected: this.selectedCellId === cell.id
+            })),
+            materials,
+            showVoid: this.showVoid,
+            visibleCount: this.visibleCells().length,
+            totalCount: this.cells.length,
+            selectedCellId: this.selectedCellId
+        };
+    }
+
+    /** Apply an outline edit through the existing visibility setters. */
+    applyCsgOutline(patch: CsgOutlinePatch): void {
+        if (patch.toggleCell !== undefined) {
+            this.toggleCell(patch.toggleCell);
+        }
+        if (patch.toggleMaterial !== undefined) {
+            this.toggleMaterial(patch.toggleMaterial);
+        }
+        if (patch.showVoid !== undefined && patch.showVoid !== this.showVoid) {
+            this.showVoid = patch.showVoid;
+            this.buildScene();
+            this.fireCsgOutlineChanged();
+            this.update();
+        }
+        if (patch.showAll === true) {
+            this.showAllCells();
+        }
+        if (patch.selectCell !== undefined) {
+            this.selectCell(patch.selectCell);
+        }
     }
 
     /** Store a validated extractor payload (unknown fields ignored). */
@@ -257,9 +363,11 @@ export class GeometryNativeViewerWidget extends ReactWidget implements ViewerSet
         this.cells = model.cells;
         this.surfaceCount = model.surfaces.length;
         this.selectedCellId = null;
+        this.hiddenCellIds = [];
         this.isLoading = false;
         this.error = undefined;
         this.buildScene();
+        this.fireCsgOutlineChanged();
         this.update();
     }
 
@@ -318,7 +426,7 @@ export class GeometryNativeViewerWidget extends ReactWidget implements ViewerSet
     // ------------------------------------------------------------------
 
     protected visibleCells(): GeometryNativeCell[] {
-        return this.cells.filter((cell) => !this.hiddenMaterials.includes(cell.material) && !isDegenerateCell(cell));
+        return this.cells.filter((cell) => isGeometryCellVisible(cell, this.hiddenMaterials, this.hiddenCellIds, this.showVoid));
     }
 
     protected toggleMaterial(material: string): void {
@@ -326,6 +434,42 @@ export class GeometryNativeViewerWidget extends ReactWidget implements ViewerSet
             ? this.hiddenMaterials.filter((entry) => entry !== material)
             : [...this.hiddenMaterials, material];
         this.buildScene();
+        this.fireCsgOutlineChanged();
+        this.update();
+    }
+
+    /** Toggle one cell row (outline eye button). */
+    protected toggleCell(id: number): void {
+        this.hiddenCellIds = this.hiddenCellIds.includes(id)
+            ? this.hiddenCellIds.filter((entry) => entry !== id)
+            : [...this.hiddenCellIds, id];
+        this.buildScene();
+        this.fireCsgOutlineChanged();
+        this.update();
+    }
+
+    /** Show everything (hidden cells + materials); the void switch is kept, mirroring the DAGMC graveyard rule. */
+    protected showAllCells(): void {
+        this.hiddenCellIds = [];
+        this.hiddenMaterials = [];
+        this.buildScene();
+        this.fireCsgOutlineChanged();
+        this.update();
+    }
+
+    /** Isolate one cell: show everything, then hide every other visible cell. */
+    protected isolateCell(id: number): void {
+        const entry = this.cells.find((cell) => cell.id === id);
+        this.hiddenCellIds = [];
+        this.hiddenMaterials = [];
+        if (entry && isVoidMaterial(entry.material) && !this.showVoid) {
+            this.showVoid = true;
+        }
+        const visible = new Set(this.visibleCells().map((cell) => cell.id));
+        visible.delete(id);
+        this.hiddenCellIds = [...visible];
+        this.buildScene();
+        this.fireCsgOutlineChanged();
         this.update();
     }
 
@@ -334,51 +478,7 @@ export class GeometryNativeViewerWidget extends ReactWidget implements ViewerSet
     // ------------------------------------------------------------------
 
     protected render(): React.ReactNode {
-        return (
-            <div className="openmc-output-viewer-container">
-                {this.renderHeader()}
-                {this.error ? this.renderError() : this.renderContent()}
-            </div>
-        );
-    }
-
-    protected renderHeader(): React.ReactNode {
-        const fileName = this.modelUri?.path.base ?? 'No model loaded';
-        return (
-            <div className="openmc-output-viewer-header">
-                <span className="openmc-output-viewer-file">
-                    <i className={codicon('globe')}></i>
-                    {fileName}
-                </span>
-                <Tooltip content="Fit view to visible cells" position="bottom">
-                    <button
-                        className="theia-button secondary"
-                        onClick={() => this.fitView()}
-                        disabled={this.isLoading || this.cells.length === 0}
-                    >
-                        <i className={codicon('screen-full')}></i>
-                    </button>
-                </Tooltip>
-                <Tooltip content="Download PNG screenshot" position="bottom">
-                    <button
-                        className="theia-button secondary"
-                        onClick={() => this.saveScreenshot()}
-                        disabled={this.isLoading || this.cells.length === 0}
-                    >
-                        <i className={codicon('device-camera')}></i>
-                    </button>
-                </Tooltip>
-                <Tooltip content="Reload model file" position="bottom">
-                    <button
-                        className="theia-button secondary"
-                        onClick={() => this.modelUri && this.setModelFile(this.modelUri)}
-                        disabled={this.isLoading || !this.modelUri}
-                    >
-                        <i className={codicon('refresh')}></i>
-                    </button>
-                </Tooltip>
-            </div>
-        );
+        return <div className="openmc-output-viewer-container">{this.error ? this.renderError() : this.renderContent()}</div>;
     }
 
     protected renderContent(): React.ReactNode {
@@ -390,166 +490,61 @@ export class GeometryNativeViewerWidget extends ReactWidget implements ViewerSet
                 </div>
             );
         }
-        const filtered = filterGeometryCells(this.cells, this.filterText);
+        const disabled = this.isLoading || this.cells.length === 0;
         return (
-            <>
-                <div className="openmc-output-viewer-viewarea" style={{ flexDirection: 'row' }}>
-                    <div
-                        style={{ width: '240px', minWidth: '180px', overflow: 'auto', borderRight: '1px solid var(--theia-panel-border)' }}
-                    >
-                        <div style={{ padding: '4px 8px' }}>
-                            <input
-                                type="text"
-                                placeholder="Filter cells, materials…"
-                                value={this.filterText}
-                                onChange={(e) => {
-                                    this.filterText = e.target.value;
-                                    this.update();
-                                }}
-                                style={{ width: '100%' }}
-                            />
-                        </div>
-                        {filtered.map((cell) => (
-                            <div
-                                key={cell.id}
-                                onClick={() => this.selectCell(cell.id === this.selectedCellId ? null : cell.id)}
-                                title={`${cellDisplayName(cell)} — ${cell.material}`}
-                                style={{
-                                    padding: '2px 8px',
-                                    fontSize: '12px',
-                                    cursor: 'pointer',
-                                    background: cell.id === this.selectedCellId ? 'var(--theia-list-activeSelectionBackground)' : undefined,
-                                    color: cell.id === this.selectedCellId ? 'var(--theia-list-activeSelectionForeground)' : undefined,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '6px'
-                                }}
-                            >
-                                <span
-                                    style={{
-                                        width: '10px',
-                                        height: '10px',
-                                        flexShrink: 0,
-                                        background: colorForCell(cell),
-                                        border: '1px solid var(--theia-panel-border)'
-                                    }}
-                                />
-                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                    {cellDisplayName(cell)}
-                                </span>
-                            </div>
-                        ))}
-                    </div>
-                    <div style={{ flex: '1', minWidth: '0', display: 'flex', flexDirection: 'column' }}>
-                        <div className="openmc-output-viewer-hint nuke-viewer-status-line">
-                            {this.describeModel()} Drag to orbit, wheel to zoom, right-drag to pan, click a box to select.
-                        </div>
-                        <div ref={this.attachHost} style={{ flex: '1', minHeight: '0', position: 'relative' }} />
-                    </div>
+            <div className="openmc-output-viewer-viewarea">
+                <div className="openmc-output-viewer-hint nuke-viewer-status-line">
+                    {this.describeModel()} Drag to orbit, wheel to zoom, right-drag to pan, click a box to select.
                 </div>
-                {this.renderSidePanel()}
-            </>
+                <div style={{ flex: '1', minHeight: '0', position: 'relative', display: 'flex' }}>
+                    <div ref={this.attachHost} style={{ flex: '1', minHeight: '0', position: 'relative' }} />
+                    {this.cells.length > 0 && <ViewBadge text={this.modelUri?.path.base ?? 'CSG cells'} />}
+                    <ViewerNavBar disabled={disabled} onAction={(action) => this.handleNavAction(action)}>
+                        <ViewerFileActions
+                            disabled={disabled}
+                            onScreenshot={() => this.saveScreenshot()}
+                            onReload={() => this.modelUri && this.setModelFile(this.modelUri)}
+                        />
+                    </ViewerNavBar>
+                    {this.cells.length > 0 && (
+                        <ViewCube
+                            ref={(handle) => {
+                                this.gizmo = handle;
+                            }}
+                            onSnap={(direction) => this.orbitControls?.setViewDirection(direction)}
+                        />
+                    )}
+                </div>
+            </div>
         );
     }
 
-    protected renderSidePanel(): React.ReactNode {
-        if (this.cells.length === 0) {
-            return undefined;
+    /** Route bottom-bar actions onto the orbit handle (fit/zoom/views). */
+    private handleNavAction(action: ViewerNavAction): void {
+        if (action === 'fit') {
+            this.fitView();
+            return;
         }
-        const materials = materialNamesInOrder(this.cells);
-        const visible = this.visibleCells().length;
-        const bounds = geometryBounds(this.visibleCells());
-        const tab = this.clip[this.clipTab];
-        return (
-            <div style={{ display: 'flex', gap: '16px', padding: '4px 8px', flexWrap: 'wrap', fontSize: '11px', alignItems: 'center' }}>
-                <span title="Visible cells">
-                    {visible} of {this.cells.length} cells{this.surfaceCount > 0 ? `, ${this.surfaceCount} surfaces` : ''}
-                    {this.skippedDegenerate > 0 ? ` (${this.skippedDegenerate} degenerate hidden)` : ''}
-                </span>
-                <label title="Material opacity">
-                    Opacity
-                    <input
-                        type="range"
-                        min={OPACITY_SPEC.min}
-                        max={OPACITY_SPEC.max}
-                        step={OPACITY_SPEC.step}
-                        value={this.opacity}
-                        onChange={(e) => this.applyProps({ opacity: parseFloat(e.target.value) })}
-                    />
-                </label>
-                <div title="Cell visibility by material">
-                    Materials
-                    <NukeSelect
-                        ariaLabel="Toggle material visibility"
-                        value=""
-                        options={[
-                            { value: '', label: 'Toggle material…' },
-                            ...materials.map((material) => ({
-                                value: material,
-                                label: `${this.hiddenMaterials.includes(material) ? '○' : '●'} ${material}`
-                            }))
-                        ]}
-                        onChange={(value) => {
-                            if (value !== '') {
-                                this.toggleMaterial(value);
-                            }
-                        }}
-                    />
-                </div>
-                <label
-                    style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
-                    title="Clip planes: master toggle (enabled planes apply together)"
-                >
-                    <input
-                        type="checkbox"
-                        checked={anyClipEnabled(this.clip)}
-                        onChange={(e) => this.applyProps({ clip: setAllClipEnabled(this.clip, e.target.checked) })}
-                    />
-                    Clip
-                </label>
-                {CLIP_AXES.map((axis) => (
-                    <button
-                        key={axis}
-                        className={`theia-button${this.clipTab === axis ? '' : ' secondary'}`}
-                        title={`Clip ${axis} plane settings`}
-                        onClick={() => {
-                            this.clipTab = axis;
-                            this.update();
-                        }}
-                    >
-                        {axis}
-                    </button>
-                ))}
-                <button
-                    className="theia-button secondary"
-                    title={`Flip kept ${this.clipTab} half-space (enables the plane)`}
-                    onClick={() =>
-                        this.applyProps({
-                            clip: updateAxisClip(this.clip, this.clipTab, { enabled: true, invert: !tab.invert })
-                        })
-                    }
-                >
-                    {tab.invert ? 'Unflip' : 'Flip'}
-                </button>
-                <input
-                    type="range"
-                    min={0}
-                    max={100}
-                    step={1}
-                    value={Math.round(tab.fraction * 100)}
-                    disabled={!bounds}
-                    title={`Clip ${this.clipTab} position in percent across the dataset (enables the plane)`}
-                    onChange={(e) =>
-                        this.applyProps({
-                            clip: updateAxisClip(this.clip, this.clipTab, {
-                                enabled: true,
-                                fraction: parseFloat(e.target.value) / 100
-                            })
-                        })
-                    }
-                />
-            </div>
-        );
+        if (action === 'zoom-in') {
+            this.orbitControls?.zoomBy(0.8);
+            return;
+        }
+        if (action === 'zoom-out') {
+            this.orbitControls?.zoomBy(1.25);
+            return;
+        }
+        this.orbitControls?.setViewDirection(standardViewDirection(action));
+    }
+
+    /** Re-project the cube axes for the current camera (direct DOM writes, never React state). */
+    private updateGizmo(): void {
+        const gizmo = this.gizmo;
+        const camera = this.camera;
+        if (!gizmo || !camera || this.cells.length === 0) {
+            return;
+        }
+        const quaternion = camera.quaternion;
+        gizmo.update({ quaternion: [quaternion.x, quaternion.y, quaternion.z, quaternion.w] });
     }
 
     protected renderError(): React.ReactNode {
@@ -625,6 +620,7 @@ export class GeometryNativeViewerWidget extends ReactWidget implements ViewerSet
         this.camera = new THREE.PerspectiveCamera(45, 1, 0.01, 1e9);
         this.attachOrbitControls();
         this.attachPickHandlers(this.renderer.domElement);
+        this.attachContextMenu(this.renderer.domElement);
         this.resizeObserver = new ResizeObserver(() => this.resizeRenderer());
         if (this.host) {
             this.resizeObserver.observe(this.host);
@@ -642,6 +638,8 @@ export class GeometryNativeViewerWidget extends ReactWidget implements ViewerSet
         this.resizeObserver = undefined;
         this.orbitControls?.dispose();
         this.orbitControls = undefined;
+        this.contextMenuClose?.();
+        this.contextMenuClose = undefined;
         if (this.renderer) {
             this.renderer.dispose();
             this.renderer.domElement.remove();
@@ -668,6 +666,7 @@ export class GeometryNativeViewerWidget extends ReactWidget implements ViewerSet
         if (this.renderer && this.scene && this.camera) {
             this.renderer.render(this.scene, this.camera);
         }
+        this.updateGizmo();
     }
 
     private disposeGroup(group: THREE.Group): void {
@@ -693,11 +692,10 @@ export class GeometryNativeViewerWidget extends ReactWidget implements ViewerSet
         this.dataGroup = new THREE.Group();
         this.skippedDegenerate = 0;
         for (const cell of this.cells) {
-            if (this.hiddenMaterials.includes(cell.material)) {
-                continue;
-            }
-            if (isDegenerateCell(cell)) {
-                this.skippedDegenerate++;
+            if (!isGeometryCellVisible(cell, this.hiddenMaterials, this.hiddenCellIds, this.showVoid)) {
+                if (isDegenerateCell(cell)) {
+                    this.skippedDegenerate++;
+                }
                 continue;
             }
             this.dataGroup.add(this.buildCellMesh(cell));
@@ -720,7 +718,7 @@ export class GeometryNativeViewerWidget extends ReactWidget implements ViewerSet
         const maxY = Math.max(cell.bbox.min[1], cell.bbox.max[1]);
         const maxZ = Math.max(cell.bbox.min[2], cell.bbox.max[2]);
         const geometry = new THREE.BoxGeometry(maxX - minX, maxY - minY, maxZ - minZ);
-        const color = new THREE.Color(colorForCell(cell));
+        const color = new THREE.Color(colorForCellOnTheme(cell, this.isDarkTheme()));
         const mesh = new THREE.Mesh(
             geometry,
             new THREE.MeshLambertMaterial({ color, transparent: true, opacity: this.opacity, side: THREE.DoubleSide })
@@ -731,7 +729,7 @@ export class GeometryNativeViewerWidget extends ReactWidget implements ViewerSet
         group.add(mesh);
         const edges = new THREE.LineSegments(
             new THREE.EdgesGeometry(geometry),
-            new THREE.LineBasicMaterial({ color: 0x222222, transparent: true, opacity: 0.6 })
+            new THREE.LineBasicMaterial({ color: cellEdgeColor(this.isDarkTheme()), transparent: true, opacity: 0.6 })
         );
         edges.position.copy(mesh.position);
         edges.name = `${meshNameForCell(cell.id)}:edges`;
@@ -834,6 +832,74 @@ export class GeometryNativeViewerWidget extends ReactWidget implements ViewerSet
                 this.pickCell(e.clientX, e.clientY);
             }
         });
+    }
+
+    /**
+     * Right-click view menu (DAGMC/native-VTK parity): Fit, Screenshot,
+     * clip toggle, plus Hide / Isolate for the selected cell and Show all.
+     * The native browser menu is already suppressed by the shared
+     * orbit-controls helper; a right-drag pan never opens the menu.
+     */
+    private attachContextMenu(canvas: HTMLCanvasElement): void {
+        let downX = 0;
+        let downY = 0;
+        let downButton = -1;
+        canvas.addEventListener('pointerdown', (event) => {
+            if (event.button === 2) {
+                downX = event.clientX;
+                downY = event.clientY;
+                downButton = 2;
+            }
+        });
+        canvas.addEventListener('pointerup', (event) => {
+            if (event.button === 2 && downButton === 2) {
+                downButton = -1;
+                if (isViewerContextMenuClick(downX, downY, event.clientX, event.clientY)) {
+                    this.openContextMenu(event.clientX, event.clientY);
+                }
+            }
+        });
+    }
+
+    /** Open the canvas menu for the current selection (no-op before a model loads). */
+    private openContextMenu(clientX: number, clientY: number): void {
+        if (this.cells.length === 0) {
+            return;
+        }
+        this.contextMenuClose?.();
+        this.contextMenuClose = openViewerContextMenu(
+            { x: clientX, y: clientY },
+            buildGeometryContextMenuItems({
+                clipChecked: anyClipEnabled(this.clip),
+                selectedCellId: this.selectedCellId,
+                hasHidden: this.hiddenCellIds.length > 0 || this.hiddenMaterials.length > 0
+            }),
+            (id) => this.handleContextMenuAction(id)
+        );
+    }
+
+    /** Route a canvas-menu pick onto the existing setters (same calls the outline panel makes). */
+    private handleContextMenuAction(id: string): void {
+        if (id === 'fit') {
+            this.fitView();
+        } else if (id === 'screenshot') {
+            this.saveScreenshot();
+        } else if (id === 'clip') {
+            this.applyProps({ clip: setAllClipEnabled(this.clip, !anyClipEnabled(this.clip)) });
+        } else if (id === 'hide-selected') {
+            if (this.selectedCellId !== null) {
+                this.applyCsgOutline({ toggleCell: this.selectedCellId });
+            }
+        } else if (id === 'isolate-selected') {
+            if (this.selectedCellId !== null) {
+                this.isolateCell(this.selectedCellId);
+                this.fireCsgOutlineChanged();
+                this.update();
+            }
+        } else if (id === 'show-all') {
+            this.applyCsgOutline({ showAll: true });
+        }
+        this.update();
     }
 
     /**

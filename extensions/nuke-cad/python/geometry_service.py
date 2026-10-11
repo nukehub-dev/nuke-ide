@@ -51,7 +51,11 @@ from ocp_compat import (  # noqa: E402
     topods_face,
     topods_solid,
 )
-from region_manifest import ManifestValidationError, RegionManifest, document_material_volumes  # noqa: E402
+from region_manifest import (  # noqa: E402
+    ManifestValidationError,
+    RegionManifest,
+    document_material_volumes,
+)
 
 # Document builder modules are optional; they guard their own build123d imports.
 try:

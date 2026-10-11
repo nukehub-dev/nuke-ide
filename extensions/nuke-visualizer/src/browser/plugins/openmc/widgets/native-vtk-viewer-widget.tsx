@@ -83,7 +83,21 @@ import {
     type MeasurePoint3D,
     type MeasureState
 } from '../../../viewer-core/measure-model';
-import { buildViewerContextMenuItems, isViewerContextMenuClick, openViewerContextMenu } from '../../../viewer-core/viewer-context-menu';
+import {
+    ViewerContextMenuItem,
+    buildViewerContextMenuItems,
+    isViewerContextMenuClick,
+    openViewerContextMenu
+} from '../../../viewer-core/viewer-context-menu';
+import {
+    TallyVolumeMode,
+    VolumeGrid,
+    VolumeRaycastHandle,
+    buildVolumeLut,
+    clipVolumeBox,
+    createVolumeRaycastMesh,
+    packVolumeScalars
+} from '../../../viewer-core/volume-raycast';
 import {
     anyClipEnabled,
     boundingBoxFromPositions,
@@ -122,6 +136,9 @@ import './output-viewer.css';
 
 /** Scratch view-projection matrix for the measure-label projection (module scope so the camera loop never allocates). */
 const scratchViewProjection = new THREE.Matrix4();
+
+/** Data-group child name of the scene underlay holder (subclass ghost content lives one level down). */
+const UNDERLAY_GROUP_NAME = 'underlay';
 
 /**
  * Props driving the native VTK viewer. Every field applies instantly to the
@@ -243,6 +260,16 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
     /** World-size endpoint marker radius, derived from the dataset bounds at build time. */
     private measureMarkerSize = 0.01;
     private measureKeysAttached = false;
+    /** Smooth-raycast representation of the volume grid (Viewer Settings smooth toggle); boxes stay the default. */
+    private volumeMode: TallyVolumeMode = 'boxes';
+    /** Master visibility for the volume (boxes, smooth mesh, and grid points). */
+    private volumeVisible = true;
+    /** Live smooth raycast handle (owned here; textures release on dispose). */
+    private volumeSmooth: VolumeRaycastHandle | undefined;
+    /** Packed-texture identity (array + mapping + range): repack only on change. */
+    private volumePackedKey: string | undefined;
+    /** Data range behind the packed texture (lookup refresh without re-upload). */
+    private volumePackedRange: [number, number] | undefined;
 
     @postConstruct()
     protected init(): void {
@@ -473,6 +500,9 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
                   }
                 : {}),
             scalarBar: { visible: this.scalarBarVisible },
+            ...(this.volumeSmoothGrid() !== undefined
+                ? { tallyVolume: { visible: this.volumeVisible, smooth: this.volumeMode === 'smooth' } }
+                : {}),
             ...(solid ? { solidColor: { value: this.solidColor } } : {}),
             background: { value: this.resolveBackground() },
             shading: { value: this.shading },
@@ -495,6 +525,12 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         }
         if (patch.snap !== undefined) {
             this.snapViewerTo(viewerSnapDirection(patch.snap));
+        }
+        if (patch.tallyVolumeVisible !== undefined) {
+            this.setVolumeVisible(patch.tallyVolumeVisible);
+        }
+        if (patch.tallyVolumeSmooth !== undefined) {
+            this.setVolumeSmooth(patch.tallyVolumeSmooth);
         }
         let nextRangeMode: ColorRangeMode | undefined;
         let nextCustomRange: [number, number] | undefined;
@@ -523,6 +559,189 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
             shading: patch.shading,
             clip: patch.clip
         });
+    }
+
+    // ------------------------------------------------------------------
+    // Smooth raycast volume (maximum-intensity projection over true 3D
+    // grids; Viewer Settings tally-volume rows). Subclasses expose a grid
+    // through volumeSmoothGrid(); without one the rows stay hidden and
+    // every method below is a safe no-op.
+    // ------------------------------------------------------------------
+
+    /**
+     * Grid behind the smooth raycast volume in world coordinates (true 3D
+     * datasets only). The default (no grid) disables the tally-volume
+     * rows and every method below short-circuits.
+     */
+    protected volumeSmoothGrid(): VolumeGrid | undefined {
+        return undefined;
+    }
+
+    /** Show or hide the volume (Viewer Settings toggle): boxes, smooth mesh, and grid points. */
+    setVolumeVisible(visible: boolean): void {
+        if (visible === this.volumeVisible) {
+            return;
+        }
+        this.volumeVisible = visible;
+        this.applyShadingVisibility();
+        this.renderScene();
+        this.update();
+    }
+
+    /** Switch the volume representation (Viewer Settings smooth toggle). */
+    setVolumeSmooth(smooth: boolean): void {
+        const mode: TallyVolumeMode = smooth ? 'smooth' : 'boxes';
+        if (mode === this.volumeMode) {
+            return;
+        }
+        this.volumeMode = mode;
+        if (smooth && !this.volumeVisible) {
+            // Same rule as the DAGMC drape: smooth selects a
+            // representation, not visibility — otherwise enabling it while
+            // hidden shows nothing.
+            this.volumeVisible = true;
+        }
+        this.refreshVolumeSmooth();
+        this.applyShadingVisibility();
+        this.renderScene();
+        this.update();
+    }
+
+    /** True while the smooth mesh should draw (mode on, grid present). */
+    private isVolumeSmoothActive(): boolean {
+        return this.volumeMode === 'smooth' && this.volumeSmoothGrid() !== undefined;
+    }
+
+    /**
+     * Reconcile the smooth raycast mesh with the current mode and color-by
+     * array: builds it on first switch (falling back to boxes when the grid
+     * is missing or WebGL2 3D textures fail), repacks the volume texture on
+     * array/component switches, and refreshes the lookup otherwise. Smooth
+     * renders mapped cell data only — Solid Color mode and non-cell arrays
+     * revert to boxes so the volume never shows stale data.
+     */
+    protected refreshVolumeSmooth(): void {
+        const smooth = this.volumeSmooth;
+        const grid = this.volumeSmoothGrid();
+        if (this.volumeMode !== 'smooth' || !grid || !this.dataGroup) {
+            if (smooth) {
+                smooth.mesh.visible = false;
+            }
+            return;
+        }
+        const selection = parseColorBy(this.colorBy);
+        const voxelArray = selection && selection.kind !== 'solid' ? this.findArray(selection.kind, selection.name) : undefined;
+        const mapping = voxelArray ? this.scalarMappingFor(voxelArray) : undefined;
+        const tupleCount = voxelArray ? Math.floor(voxelArray.values.length / Math.max(1, voxelArray.components)) : 0;
+        const nCells = grid.dims[0] * grid.dims[1] * grid.dims[2];
+        if (!voxelArray || !mapping || voxelArray.association !== 'cell' || tupleCount !== nCells) {
+            console.warn('[native-vtk-viewer] smooth volume needs a mapped cell array — falling back to voxel boxes');
+            this.volumeMode = 'boxes';
+            if (smooth) {
+                smooth.mesh.visible = false;
+            }
+            this.applyShadingVisibility();
+            this.update();
+            return;
+        }
+        const resolved = new Float64Array(tupleCount);
+        let dataMin = Infinity;
+        let dataMax = -Infinity;
+        for (let t = 0; t < tupleCount; t++) {
+            const v = tupleScalar(voxelArray.values, voxelArray.components, t, mapping.component);
+            resolved[t] = v;
+            if (v < dataMin) {
+                dataMin = v;
+            }
+            if (v > dataMax) {
+                dataMax = v;
+            }
+        }
+        if (!Number.isFinite(dataMin) || !Number.isFinite(dataMax)) {
+            dataMin = 0;
+            dataMax = 0;
+        }
+        const key = `${voxelArray.name}:${voxelArray.components}:${mapping.component}:${voxelArray.values.length}:${dataMin}:${dataMax}`;
+        // A live handle whose mesh lost its group (dataset rebuild swaps
+        // the data group out from under it) must recreate, not just
+        // relut: updating a detached mesh leaves smooth mode blank.
+        if (!smooth || smooth.mesh.parent !== this.dataGroup || this.volumePackedKey !== key) {
+            const scalars = packVolumeScalars(resolved, grid.dims, [dataMin, dataMax]);
+            const lut = buildVolumeLut(mapping, [dataMin, dataMax], this.opacity);
+            try {
+                if (smooth) {
+                    smooth.mesh.parent?.remove(smooth.mesh);
+                    smooth.dispose();
+                    this.volumeSmooth = undefined;
+                }
+                this.volumePackedRange = [dataMin, dataMax];
+                this.volumeSmooth = createVolumeRaycastMesh({
+                    grid: {
+                        dims: [...grid.dims] as [number, number, number],
+                        min: [...grid.min] as [number, number, number],
+                        max: [...grid.max] as [number, number, number]
+                    },
+                    scalars,
+                    lut
+                });
+                this.volumePackedKey = key;
+                // Drawn after translucent shells so the interior stays
+                // readable (DAGMC drape precedent).
+                this.volumeSmooth.mesh.renderOrder = 10;
+                if (!this.volumeSmooth.mesh.parent) {
+                    this.dataGroup.add(this.volumeSmooth.mesh);
+                }
+            } catch (error) {
+                console.warn(
+                    '[native-vtk-viewer] smooth volume failed, falling back to voxel boxes:',
+                    error instanceof Error ? error.message : error
+                );
+                this.volumeMode = 'boxes';
+                this.applyShadingVisibility();
+                this.update();
+                return;
+            }
+        } else {
+            smooth.updateLut(buildVolumeLut(mapping, this.volumePackedRange ?? [0, 0], this.opacity));
+        }
+        this.applyVolumeClipBox();
+        this.updateVolumeVisibility();
+    }
+
+    /** Show the smooth mesh exactly when its mode is active (boxes follow the shading flags). */
+    private updateVolumeVisibility(): void {
+        if (!this.dataGroup) {
+            return;
+        }
+        const flags = resolveViewerShadingFlags(this.shading, this.opacity);
+        if (this.volumeSmooth) {
+            this.volumeSmooth.mesh.visible = this.volumeVisible && this.volumeMode === 'smooth' && !flags.pointsOnly;
+        }
+    }
+
+    /** CPU box-section clip for the smooth mesh (the raycast shader has no clipping chunks). */
+    private applyVolumeClipBox(): void {
+        const smooth = this.volumeSmooth;
+        const grid = this.volumeSmoothGrid();
+        if (!smooth || !grid || !this.model) {
+            return;
+        }
+        const bounds = boundingBoxFromPositions(this.model.positions);
+        if (!bounds) {
+            return;
+        }
+        const placement = clipVolumeBox(
+            this.clip,
+            [bounds.min[0], bounds.min[1], bounds.min[2]],
+            [bounds.max[0], bounds.max[1], bounds.max[2]],
+            grid.min,
+            grid.max
+        );
+        if (!placement) {
+            smooth.mesh.visible = false;
+            return;
+        }
+        smooth.setBox(placement.center, placement.size);
     }
 
     /** Load a VTK file from disk through Theia's FileService (no HTTP fetch). */
@@ -614,6 +833,13 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         const box = new THREE.Box3();
         for (let i = 0; i < positions.length; i += 3) {
             box.expandByPoint(new THREE.Vector3(positions[i], positions[i + 1], positions[i + 2]));
+        }
+        // Widen by the underlay holder when present (overlay mode frames
+        // tally voxels and ghost geometry together); empty holders expand
+        // to nothing.
+        const underlay = this.dataGroup?.getObjectByName(UNDERLAY_GROUP_NAME);
+        if (underlay) {
+            box.expandByObject(underlay);
         }
         this.orbitControls.fitBounds([box.min.x, box.min.y, box.min.z], [box.max.x, box.max.y, box.max.z]);
     }
@@ -1206,16 +1432,7 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         }
         if (this.dataGroup) {
             this.scene.remove(this.dataGroup);
-            this.dataGroup.traverse((child) => {
-                if (child instanceof THREE.Points || child instanceof THREE.LineSegments || child instanceof THREE.Mesh) {
-                    child.geometry.dispose();
-                    const material = child.material as THREE.Material;
-                    material.dispose();
-                    if (child instanceof THREE.InstancedMesh) {
-                        child.dispose();
-                    }
-                }
-            });
+            this.disposeObject(this.dataGroup);
             this.dataGroup = undefined;
         }
         // Rebuild clears the measure session (viewport state, never document
@@ -1257,6 +1474,7 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
             this.voxelLayout = undefined;
             this.dataGroup.add(this.buildPoints(model));
         }
+        this.dataGroup.add(this.createUnderlayGroup());
         if (model.family !== 'polydata') {
             const box = new THREE.Box3().setFromBufferAttribute(new THREE.BufferAttribute(this.decimatedPositions(model), 3));
             this.dataGroup.add(new THREE.Box3Helper(box, 0x888888));
@@ -1264,6 +1482,58 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         this.scene.add(this.dataGroup);
         this.fitView();
         this.recolor();
+    }
+
+    /**
+     * Optional scene underlay (e.g. ghosted CSG boxes behind tally voxels):
+     * subclasses return fresh objects per call and the base owns them once
+     * added (deep-disposed on rebuild, clipped with the dataset). The
+     * objects nest in a named holder group so the flat recolor / material /
+     * shading passes (direct children only) never restyle underlay content.
+     */
+    protected buildUnderlayObjects(): THREE.Object3D[] {
+        return [];
+    }
+
+    /** Fresh holder filled through the subclass hook (empty by default). */
+    private createUnderlayGroup(): THREE.Group {
+        const holder = new THREE.Group();
+        holder.name = UNDERLAY_GROUP_NAME;
+        for (const object of this.buildUnderlayObjects()) {
+            holder.add(object);
+        }
+        return holder;
+    }
+
+    /**
+     * Rebuild only the underlay holder (new cells, theme switch): dataset
+     * meshes are untouched, clip re-applies, and the canvas repaints.
+     */
+    protected rebuildUnderlay(): void {
+        if (!this.scene || !this.dataGroup) {
+            return;
+        }
+        const previous = this.dataGroup.getObjectByName(UNDERLAY_GROUP_NAME);
+        if (previous) {
+            this.dataGroup.remove(previous);
+            this.disposeObject(previous);
+        }
+        this.dataGroup.add(this.createUnderlayGroup());
+        this.applyClip();
+        this.renderScene();
+    }
+
+    /** Deep-dispose a detached subtree (geometries + materials + instanced buffers). */
+    private disposeObject(root: THREE.Object3D): void {
+        root.traverse((child) => {
+            if (child instanceof THREE.Points || child instanceof THREE.LineSegments || child instanceof THREE.Mesh) {
+                child.geometry.dispose();
+                (child.material as THREE.Material).dispose();
+                if (child instanceof THREE.InstancedMesh) {
+                    child.dispose();
+                }
+            }
+        });
     }
 
     /** Expanded per-corner positions for triangle datasets (non-indexed soup). */
@@ -1440,6 +1710,10 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         if (!model || !this.dataGroup) {
             return;
         }
+        // Keep the smooth volume in step with the new mapping (no-op
+        // without a volume grid); the lookup refreshes even when only the
+        // range or colormap changed.
+        this.refreshVolumeSmooth();
         this.note = '';
         const selection = parseColorBy(this.colorBy);
         const solid = new THREE.Color(this.solidColor);
@@ -1621,6 +1895,12 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
                 material.linewidth = this.lineWidth;
                 material.needsUpdate = true;
             } else if (child instanceof THREE.Mesh) {
+                // The smooth raycast mesh owns its appearance (RGBA lookup +
+                // custom shader): opacity/wireframe live there, not in
+                // built-in material flags.
+                if ((child as THREE.Mesh).userData?.['tallyVolumeSmooth'] === true) {
+                    return;
+                }
                 // Lambert supports wireframe/opacity/depthWrite; emissive stays untouched.
                 const material = child.material as THREE.MeshLambertMaterial;
                 material.opacity = flags.opacity;
@@ -1652,26 +1932,38 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         this.syncMaterialProps();
         this.applyShadingVisibility();
         this.applyClip();
+        this.refreshVolumeSmooth();
         this.renderScene();
     }
 
-    /** Toggle line/point visibility for `points` mode; the bounds helper stays visible. */
+    /** Toggle volume/box/line/point visibility for shading modes and the tally-volume rows. */
     private applyShadingVisibility(): void {
         if (!this.dataGroup) {
             return;
         }
         const flags = resolveViewerShadingFlags(this.shading, this.opacity);
+        const smoothActive = this.isVolumeSmoothActive();
         this.dataGroup.children.forEach((child) => {
             if (child instanceof THREE.Box3Helper) {
                 child.visible = true;
             } else if (child instanceof THREE.Points) {
                 const role = child.geometry.userData?.['role'];
-                child.visible = role === 'line-points' || role === 'mesh-points' || role === 'grid-points' ? flags.pointsOnly : true;
+                if (role === 'grid-points') {
+                    child.visible = this.volumeVisible && flags.pointsOnly;
+                } else {
+                    child.visible = role === 'line-points' || role === 'mesh-points' ? flags.pointsOnly : true;
+                }
             } else if (child instanceof THREE.LineSegments) {
                 const role = child.geometry.userData?.['role'];
                 child.visible = role === 'edges' ? this.shading === 'edges' && !flags.pointsOnly : !flags.pointsOnly;
             } else if (child instanceof THREE.Mesh) {
-                child.visible = !flags.pointsOnly;
+                if ((child as THREE.Mesh).userData?.['tallyVolumeSmooth'] === true) {
+                    child.visible = this.volumeVisible && this.volumeMode === 'smooth' && !flags.pointsOnly;
+                } else if (child instanceof THREE.InstancedMesh && this.voxelLayout) {
+                    child.visible = this.volumeVisible && !smoothActive && !flags.pointsOnly;
+                } else {
+                    child.visible = !flags.pointsOnly;
+                }
             }
         });
     }
@@ -1682,11 +1974,16 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
             return;
         }
         const planes = this.toThreePlanes();
-        this.dataGroup.children.forEach((child) => {
+        // Traverse (not direct children): the named underlay holder nests
+        // ghost meshes one level down and clip must cut those too. The
+        // smooth raycast material ignores plane chunks (no-op there); its
+        // CPU box-section follows through applyVolumeClipBox.
+        this.dataGroup.traverse((child) => {
             if (child instanceof THREE.Points || child instanceof THREE.LineSegments || child instanceof THREE.Mesh) {
                 (child.material as THREE.Material).clippingPlanes = planes;
             }
         });
+        this.applyVolumeClipBox();
     }
 
     private toThreePlanes(): THREE.Plane[] {
@@ -1778,17 +2075,20 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         });
     }
 
-    /** View-action menu: fit, screenshot, clip toggle, per-mode shading. */
+    /** View-action menu: fit, screenshot, clip toggle, per-mode shading (plus subclass extras). */
     private openContextMenu(clientX: number, clientY: number): void {
         if (!this.model) {
             return;
         }
         this.contextMenuClose?.();
-        this.contextMenuClose = openViewerContextMenu(
-            { x: clientX, y: clientY },
-            buildViewerContextMenuItems({ shading: this.shading, clipChecked: anyClipEnabled(this.clip) }),
-            (id) => this.handleContextMenuAction(id)
+        this.contextMenuClose = openViewerContextMenu({ x: clientX, y: clientY }, this.buildContextMenuItems(), (id) =>
+            this.handleContextMenuAction(id)
         );
+    }
+
+    /** Standard menu contents; subclasses append their own rows (e.g. the tally underlay toggle). */
+    protected buildContextMenuItems(): ViewerContextMenuItem[] {
+        return buildViewerContextMenuItems({ shading: this.shading, clipChecked: anyClipEnabled(this.clip) });
     }
 
     private handleContextMenuAction(id: string): void {
@@ -1803,8 +2103,15 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
             if (isViewerShadingMode(mode)) {
                 this.applyProps({ shading: mode });
             }
+        } else {
+            this.handleExtraContextMenuAction(id);
         }
         this.update();
+    }
+
+    /** Subclass menu rows not covered above (no-op here so unknown ids stay ignored). */
+    protected handleExtraContextMenuAction(id: string): void {
+        void id;
     }
 
     /**

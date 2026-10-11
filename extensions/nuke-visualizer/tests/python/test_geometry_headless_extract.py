@@ -77,7 +77,7 @@ _GEOM_XML = """<geometry>
   <surface id="2" type="x-plane" coeffs="5.0" boundary="transmission" />
   <surface id="3" type="z-cylinder" coeffs="0.0 0.0 2.0" boundary="transmission" />
   <surface id="4" type="sphere" coeffs="0.0 0.0 0.0 3.0" boundary="vacuum" />
-  <cell id="1" region="-1 2" material="1" universe="0" name="box" />
+  <cell id="1" region="1 -2" material="1" universe="0" name="box" />
   <cell id="2" region="-3" material="2" />
   <cell id="3" region="-4" material="void" />
 </geometry>
@@ -187,6 +187,39 @@ def test_extract_csg_mesh_unmeshed_falls_back_to_bbox(tmp_path):
     assert mesh["cells"][0]["mesh"] is None
     assert mesh["cells"][0]["bbox"]["zmax"] == pytest.approx(10.0)
     assert mesh["stats"]["nMeshed"] == 0
+
+
+def test_extract_csg_mesh_pincell_halfspaces(tmp_path):
+    """Positive-plane tokens floor the lower bound, negative ones cap the
+    upper bound, and outside-cylinder tokens must not shrink the box to the
+    inner surface (regression: pincell moderator/clad boxes collapsed to
+    the global bounds or the fuel box, dwarfing tally overlays)."""
+    text = """<geometry>
+      <surface id="1" type="z-cylinder" coeffs="0 0 0.4" />
+      <surface id="2" type="z-cylinder" coeffs="0 0 0.5" />
+      <surface id="3" type="x-plane" coeffs="-0.63" />
+      <surface id="4" type="x-plane" coeffs="0.63" />
+      <surface id="5" type="y-plane" coeffs="-0.63" />
+      <surface id="6" type="y-plane" coeffs="0.63" />
+      <surface id="7" type="z-plane" coeffs="-0.5" />
+      <surface id="8" type="z-plane" coeffs="0.5" />
+      <cell id="1" region="-1 7 -8" material="1" name="fuel" />
+      <cell id="2" region="1 -2 7 -8" material="2" name="clad" />
+      <cell id="3" region="2 3 -4 5 -6 7 -8" material="3" name="moderator" />
+    </geometry>
+    """
+    mesh = geometry_viz.extract_csg_mesh(_write_geom(tmp_path, text), segments=4)
+    boxes = {cell["name"]: cell["bbox"] for cell in mesh["cells"]}
+
+    assert boxes["fuel"]["min"] == pytest.approx([-0.4, -0.4, -0.5])
+    assert boxes["fuel"]["max"] == pytest.approx([0.4, 0.4, 0.5])
+    # Outside the fuel cylinder: the clad keeps the outer cylinder extent,
+    # not the inner hole.
+    assert boxes["clad"]["min"] == pytest.approx([-0.5, -0.5, -0.5])
+    assert boxes["clad"]["max"] == pytest.approx([0.5, 0.5, 0.5])
+    # Outside both cylinders: the inner pin box, not the global bounds.
+    assert boxes["moderator"]["min"] == pytest.approx([-0.63, -0.63, -0.5])
+    assert boxes["moderator"]["max"] == pytest.approx([0.63, 0.63, 0.5])
 
 
 def test_extract_csg_mesh_missing_file(tmp_path):

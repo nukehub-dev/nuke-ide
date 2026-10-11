@@ -352,7 +352,9 @@ def test_write_mesh_vti_preserves_geometry(tmp_path):
     assert vtk is not None
     import re
 
-    geometry = tally_vtk.build_mesh_image([2, 2, 2], [-1.0, -2.0, -3.0], [1.0, 2.0, 3.0], list(range(8)))
+    geometry = tally_vtk.build_mesh_image(
+        [2, 2, 2], [-1.0, -2.0, -3.0], [1.0, 2.0, 3.0], list(range(8))
+    )
     out = tmp_path / "mesh.vti"
     tally_vtk.write_mesh_vti(geometry, "flux", str(out))
     text = out.read_text()
@@ -585,7 +587,7 @@ def test_overlay_geometry_cache_hit(tmp_path, monkeypatch):
         calls.append(output_dir)
         manifest = os.path.join(str(output_dir), "geom_volumes.vtm")
         with open(manifest, "w") as handle:
-            handle.write('<VTKFile><DataSet /><DataSet /></VTKFile>')
+            handle.write("<VTKFile><DataSet /><DataSet /></VTKFile>")
         return {"vtm_path": manifest, "volume_info": [], "sampledArray": "flux-mean"}
 
     import plugins.base.lib.dagmc as dagmc_lib

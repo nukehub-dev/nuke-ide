@@ -36,7 +36,9 @@ import { describe, expect, it } from 'vitest';
 import type { OpenMCVtkArrayInfo } from '../../../../../common/openmc-protocol';
 import { SOLID_COLOR } from '../native-vtk/native-vtk-data';
 import {
+    buildTallyUnderlayMenuItem,
     classifyTallyOverlayDataset,
+    csgUnderlayCells,
     defaultOverlayColorBy,
     describeTallyOverlayDataset,
     detectSliceAxis,
@@ -44,9 +46,11 @@ import {
     hasMeshArrays,
     hasSourceArrays,
     isTallyOverlayKind,
-    pointSizeForKind
+    pointSizeForKind,
+    smoothableGridDims
 } from './tally-overlay-model';
 import { classifyNativeVtkArrays } from '../native-vtk/native-vtk-data';
+import { parseGeometryNativeModel } from '../geometry-native/geometry-native-model';
 
 function array(name: string, association: 'point' | 'cell' = 'point'): OpenMCVtkArrayInfo {
     return { name, association, components: 1, range: [0, 1] };
@@ -147,5 +151,36 @@ describe('describeTallyOverlayDataset', () => {
         expect(describeTallyOverlayDataset({ kind: 'overlay', family: 'rectilinear', nPoints: 512, colorBy: SOLID_COLOR })).toContain(
             'Tally overlay'
         );
+    });
+});
+
+describe('csgUnderlayCells', () => {
+    it('keeps drawable cells including void shells and drops degenerate bboxes', () => {
+        const cells = parseGeometryNativeModel({
+            cells: [
+                { id: 1, material: 'uo2', bbox: { min: [0, 0, 0], max: [1, 1, 1] } },
+                { id: 2, material: 'void', bbox: { min: [0, 0, 0], max: [2, 2, 2] } },
+                { id: 3, material: 'water', bbox: { min: [0, 0, 0], max: [1, 1, 0] } }
+            ]
+        }).cells;
+        expect(csgUnderlayCells(cells).map((cell) => cell.id)).toEqual([1, 2]);
+        expect(csgUnderlayCells([])).toEqual([]);
+    });
+});
+
+describe('buildTallyUnderlayMenuItem', () => {
+    it('toggles with visibility and disables before cells load', () => {
+        expect(buildTallyUnderlayMenuItem(true, true)).toMatchObject({ id: 'underlay', checked: true, disabled: false });
+        expect(buildTallyUnderlayMenuItem(true, false)).toMatchObject({ id: 'underlay', checked: false, disabled: false });
+        expect(buildTallyUnderlayMenuItem(false, false)).toMatchObject({ id: 'underlay', checked: false, disabled: true });
+    });
+});
+
+describe('smoothableGridDims', () => {
+    it('admits true 3D grids and rejects slices, lines, and missing dims', () => {
+        expect(smoothableGridDims([20, 20, 10])).toBe(true);
+        expect(smoothableGridDims([16, 16, 1])).toBe(false);
+        expect(smoothableGridDims([8, 1, 1])).toBe(false);
+        expect(smoothableGridDims(undefined)).toBe(false);
     });
 });

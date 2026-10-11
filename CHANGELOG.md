@@ -287,6 +287,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Tally colors (voxel boxes and the smooth raycast, which already used the
   raw opacity) now stay at slider strength while geometry ghosts; lower the
   Opacity slider itself to fade everything together.
+- nuke-visualizer: **CSG Outline panel for geometry models** — the native
+  geometry viewer gains DAGMC-Outline parity: per-cell visibility
+  checkboxes with hover isolate, a material tree, a Void switch for
+  unfilled cells, show-all reset, search filter, and two-way canvas
+  selection sync, all bound to the active viewer tab without stealing
+  focus. The viewer's legacy in-widget tree and footer controls move out
+  (opacity/clip already live in Viewer Settings).
+- nuke-visualizer: **geometry viewer respects themes** — cell fills come
+  from a theme-aware palette (same material hues on both themes, deepened
+  on light backgrounds) with matching edge lines, rebuilt live on theme
+  switch; the canvas adopts the converged chrome (file badge, ISO bar with
+  screenshot/reload, orientation cube, muted status line).
 - openmc-studio: **CSG void cells rejected by openmc** — the XML generator
   emitted void cells with no `material` attribute at all, which this openmc
   refuses ("Neither material nor fill was specified"). Void cells now emit
@@ -551,7 +563,7 @@ byte position nor a base64 character position`)** — vtk 9 writers emit
   target check; the canvas is now focusable and focuses on pointerdown.
 - nuke-visualizer: **DAGMC status line lost the visible-volume count without
   model info** — `2 volumes (no model info)` reads `2 of 2 volumes (no model
-  info)` again, matching the documented `N of M` contract (outline toggles
+info)` again, matching the documented `N of M` contract (outline toggles
   apply with or without `dagmc.info`).
 - nuke-visualizer: **smooth damped orbiting on large models** — the shared
   orbit helper now pumps `controls.update()` on a drive loop from gesture
@@ -671,6 +683,51 @@ byte position nor a base64 character position`)** — vtk 9 writers emit
   mesh cells, cached separately), while Pixelated keeps nearest-cell
   values (cell data, `Cell: <array>`); slices gain the matching
   nearest-cell mode (`--pixelated`). Covered by sampler unit tests.
+- nuke-visualizer: **CSG overlay tabs now show the geometry too** — Full 3D
+  overlay on a non-DAGMC geometry opened only the tally voxel blocks, so
+  the tab gave no spatial context and the CSG Outline (bound to geometry
+  viewer tabs) sat empty. The tally widget now ghosts the extracted CSG
+  cells under the voxels (solid fills plus edge-only void shells at a
+  fixed ghost strength, no depth writes, clip-cut with the tally, raycast-transparent to measure
+  picks; header chip reads `mesh + N CSG`), loaded best-effort after the
+  tally with a message naming the cause when extraction fails. The native
+  VTK base gains the protected underlay hook behind it (plus underlay-only
+  rebuild and traverse-wide clip). Also fixed: the Rendering Style
+  quick-pick's Pixelated row carried a nonexistent `$(symbol-block)`
+  codicon and rendered iconless; it now uses the grid-like
+  `$(symbol-array)`.
+- nuke-visualizer: **smooth raycast volume on tally mesh tabs** — the
+  Viewer Settings Tally volume + Smooth volume rows were DAGMC-drape
+  only, so mesh overlay tabs had boxes or nothing. The native VTK base
+  now owns the smooth machinery (grid hook, LUT repack/refresh, CPU
+  box-section clip, per-mode visibility) and tally meshes feed it their
+  grid: true 3D datasets gain both rows (Solid Color and non-cell arrays
+  fall back to boxes; slices and clouds stay boxed). Enabling smooth
+  while hidden also enables visibility, mirroring the drape rule.
+- nuke-visualizer: **CSG cell boxes had inverted plane halfspaces** — the
+  headless extractor capped the wrong bound per plane token (`+N` shrank
+  the upper bound, `-N` the lower), so any `+low -high` cell (pincell
+  moderator, fuel/clad z) degenerated to the global bounds and outside-
+  cylinder tokens shrank shells to the inner hole (clad rendered as the
+  fuel box). Tallies overlaid exactly (mesh bounds were always right) but
+  looked tiny inside giant ghosts. Tokens now follow OpenMC senses
+  (positive floors, negative caps, curved extents inside-only) with a
+  pincell regression test; the old `-low +high` fixture is corrected to
+  `1 -2`.
+- nuke-visualizer: **CSG Outline binds tally overlay tabs** — the panel
+  sat empty on overlay tabs by widget-id design. Tally widgets now host
+  the outline for their underlay (per-cell/material hide, Void switch,
+  show-all, row-click ghost highlight; panel→canvas only), void shells
+  render edge-only so fills can't wash the tally, and the header chip
+  hides with the menu master switch.
+- nuke-visualizer: **CSG Outline hide did nothing on the canvas** — the
+  outline snapshot and status counts honored per-cell checkboxes and the
+  Void switch, but the three.js rebuild only consulted material toggles,
+  so hidden cells (e.g. moderator) stayed drawn. All three paths now share
+  one `isGeometryCellVisible` rule, the void material row reads hidden
+  while the Void switch is off (DAGMC graveyard parity), and the canvas
+  gains a right-click menu (Fit / Screenshot / Clip toggle plus Hide /
+  Isolate selected cell and Show all) for canvas-side verification.
 
 ### Added
 

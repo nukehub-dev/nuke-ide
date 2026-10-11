@@ -33,14 +33,20 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+    buildGeometryContextMenuItems,
     cellDisplayName,
+    cellEdgeColor,
     cellIdFromMeshName,
     cellIndexById,
     colorForCell,
+    colorForCellOnTheme,
     filterGeometryCells,
     geometryBounds,
     GeometryNativeModelError,
     isDegenerateCell,
+    isGeometryCellVisible,
+    isGeometryMaterialVisible,
+    isVoidMaterial,
     materialNamesInOrder,
     meshNameForCell,
     meshNameToSelection,
@@ -170,5 +176,68 @@ describe('filtering, groups, bounds', () => {
         const b = parseGeometryNativeModel({ cells: [{ id: 2, material: 'uo2', bbox: { min: [0, 0, 0], max: [2, 2, 2] } }] }).cells[0];
         expect(colorForCell(a)).toBe(colorForCell(b));
         expect(colorForCell(a)).toMatch(/^#[0-9a-f]{6}$/);
+    });
+
+    it('keeps material hues across themes with light variants deepened', () => {
+        const cell = parseGeometryNativeModel({ cells: [{ id: 1, material: 'uo2', bbox: { min: [0, 0, 0], max: [1, 1, 1] } }] }).cells[0];
+        expect(colorForCell(cell)).toBe(colorForCellOnTheme(cell, true));
+        expect(colorForCellOnTheme(cell, false)).toMatch(/^#[0-9a-f]{6}$/);
+        expect(colorForCellOnTheme(cell, false)).not.toBe(colorForCellOnTheme(cell, true));
+        const explicit = parseGeometryNativeModel({
+            cells: [{ id: 1, material: 'uo2', bbox: { min: [0, 0, 0], max: [1, 1, 1] }, color: '#123456' }]
+        }).cells[0];
+        expect(colorForCellOnTheme(explicit, false)).toBe('#123456');
+    });
+
+    it('detects void materials case-insensitively', () => {
+        expect(isVoidMaterial('void')).toBe(true);
+        expect(isVoidMaterial('Void')).toBe(true);
+        expect(isVoidMaterial(' VOID ')).toBe(true);
+        expect(isVoidMaterial('fuel')).toBe(false);
+        expect(isVoidMaterial('')).toBe(false);
+    });
+
+    it('picks edge colors per theme', () => {
+        expect(cellEdgeColor(true)).toMatch(/^#[0-9a-f]{6}$/);
+        expect(cellEdgeColor(false)).toMatch(/^#[0-9a-f]{6}$/);
+        expect(cellEdgeColor(true)).not.toBe(cellEdgeColor(false));
+    });
+
+    it('shares one visibility rule across outline and canvas', () => {
+        const cells = parseGeometryNativeModel({
+            cells: [
+                { id: 1, material: 'uo2', bbox: { min: [0, 0, 0], max: [1, 1, 1] } },
+                { id: 2, material: 'void', bbox: { min: [0, 0, 0], max: [1, 1, 1] } },
+                { id: 3, material: 'water', bbox: { min: [0, 0, 0], max: [1, 1, 0] } }
+            ]
+        }).cells;
+        expect(isGeometryCellVisible(cells[0], [], [], true)).toBe(true);
+        expect(isGeometryCellVisible(cells[0], ['uo2'], [], true)).toBe(false);
+        expect(isGeometryCellVisible(cells[0], [], [1], true)).toBe(false);
+        expect(isGeometryCellVisible(cells[1], [], [], true)).toBe(true);
+        expect(isGeometryCellVisible(cells[1], [], [], false)).toBe(false);
+        expect(isGeometryCellVisible(cells[2], [], [], true)).toBe(false);
+    });
+
+    it('builds the canvas menu with selection-aware rows', () => {
+        const items = buildGeometryContextMenuItems({ clipChecked: false, selectedCellId: 2, hasHidden: false });
+        expect(items.map((entry) => entry.id)).toEqual(['fit', 'screenshot', 'clip', 'hide-selected', 'isolate-selected', 'show-all']);
+        expect(items[2].checked).toBe(false);
+        expect(items[3].disabled).toBe(false);
+        expect(items[3].label).toContain('Cell 2');
+        expect(items[5].disabled).toBe(true);
+        const empty = buildGeometryContextMenuItems({ clipChecked: true, selectedCellId: null, hasHidden: true });
+        expect(empty[2].checked).toBe(true);
+        expect(empty[3].disabled).toBe(true);
+        expect(empty[4].disabled).toBe(true);
+        expect(empty[5].disabled).toBe(false);
+    });
+
+    it('reads the void material hidden while the void switch is off', () => {
+        expect(isGeometryMaterialVisible('void', [], true)).toBe(true);
+        expect(isGeometryMaterialVisible('void', [], false)).toBe(false);
+        expect(isGeometryMaterialVisible('void', ['void'], true)).toBe(false);
+        expect(isGeometryMaterialVisible('uo2', [], false)).toBe(true);
+        expect(isGeometryMaterialVisible('uo2', ['uo2'], true)).toBe(false);
     });
 });

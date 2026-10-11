@@ -99,11 +99,26 @@ isolate volumes in the DAGMC Outline or cut a clip plane instead.
 Void (exact-zero) cells collapse away rather than fogging the geometry;
 lowering Opacity ghosts the rest with interiors kept visible. Any other
 geometry opens the full mesh itself as voxel blocks, which the per-axis
-clip planes cut through for interior exploration.
+clip planes cut through for interior exploration — with the ghosted CSG
+cells underlaid for context (solid fills plus edge-only void shells, so
+the big bounding boxes can't wash out the tally; theme-aware,
+clip-cut with the tally; the header chip reads `mesh + N CSG`).
+Right-click the canvas for a CSG Underlay toggle, and the CSG Outline
+binds the overlay tab too: per-cell/material visibility, the Void
+switch, show-all, and row-click highlight of the ghost (selection sync
+is panel→canvas only — the tally canvas has no CSG picking).
 
 **Options:**
 
 - **Rendering Style** — Smooth interpolation or pixelated (blocky) mesh cells
+
+On true 3D tally meshes the Viewer Settings sidebar gains the DAGMC
+drape's **Tally volume** rows: a visibility master switch (hide the
+voxels to inspect the CSG underlay alone) and **Smooth volume**, which
+renders the same mesh as a trilinear raycast volume instead of
+per-cell boxes (same colors, exact-zero cells stay invisible, clip
+planes cut it identically). Solid Color mode and non-cell arrays fall
+back to boxes. Slices and source clouds keep boxes only.
 
 The graveyard termination volume always converts with the rest and stays
 hidden by default; re-show it anytime with the DAGMC Outline's Graveyard

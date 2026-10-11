@@ -388,9 +388,15 @@ def _cell_box(cell: Cell, surfaces: dict[int, Surface], bounds: dict) -> dict:
     """Compute a per-cell axis-aligned bounding box with numpy only.
 
     Starts from the global ``bounds`` and tightens with the cell's plane
-    half-spaces plus cylinder/sphere extents. Output: the 6-float bounds
-    dict plus ``min``/``max`` 3-lists (the ``geometry-native`` frontend
-    consumes ``bbox.min``/``bbox.max``).
+    half-spaces plus cylinder/sphere extents. Region tokens follow the
+    :meth:`OpenMCGeometryVisualizer._parse_region` convention (``-N`` is
+    the negative halfspace / inside, ``+N``/``N`` the positive halfspace /
+    outside): a negative plane halfspace caps the upper bound, a positive
+    one floors the lower bound, and curved extents only tighten inside
+    cells (an AABB cannot carve the hole an outside-cylinder cell needs,
+    so those are skipped). Output: the 6-float bounds dict plus
+    ``min``/``max`` 3-lists (the ``geometry-native`` frontend consumes
+    ``bbox.min``/``bbox.max``).
     """
     box = dict(bounds)
     for surf_id, is_comp in cell.surfaces.items():
@@ -401,40 +407,48 @@ def _cell_box(cell: Cell, surfaces: dict[int, Surface], bounds: dict) -> dict:
         if surf.type == "x-plane":
             x = float(coeffs[0])
             if is_comp:
-                box["xmin"] = max(box["xmin"], x)
-            else:
                 box["xmax"] = min(box["xmax"], x)
+            else:
+                box["xmin"] = max(box["xmin"], x)
         elif surf.type == "y-plane":
             y = float(coeffs[0])
             if is_comp:
-                box["ymin"] = max(box["ymin"], y)
-            else:
                 box["ymax"] = min(box["ymax"], y)
+            else:
+                box["ymin"] = max(box["ymin"], y)
         elif surf.type == "z-plane":
             z = float(coeffs[0])
             if is_comp:
-                box["zmin"] = max(box["zmin"], z)
-            else:
                 box["zmax"] = min(box["zmax"], z)
+            else:
+                box["zmin"] = max(box["zmin"], z)
         elif surf.type in ("z-cylinder", "cylinder") and len(coeffs) >= 3:
+            if not is_comp:
+                continue
             cx, cy, r = float(coeffs[0]), float(coeffs[1]), float(coeffs[2])
             box["xmin"] = max(box["xmin"], cx - r)
             box["xmax"] = min(box["xmax"], cx + r)
             box["ymin"] = max(box["ymin"], cy - r)
             box["ymax"] = min(box["ymax"], cy + r)
         elif surf.type == "x-cylinder" and len(coeffs) >= 3:
+            if not is_comp:
+                continue
             cy, cz, r = float(coeffs[0]), float(coeffs[1]), float(coeffs[2])
             box["ymin"] = max(box["ymin"], cy - r)
             box["ymax"] = min(box["ymax"], cy + r)
             box["zmin"] = max(box["zmin"], cz - r)
             box["zmax"] = min(box["zmax"], cz + r)
         elif surf.type == "y-cylinder" and len(coeffs) >= 3:
+            if not is_comp:
+                continue
             cx, cz, r = float(coeffs[0]), float(coeffs[1]), float(coeffs[2])
             box["xmin"] = max(box["xmin"], cx - r)
             box["xmax"] = min(box["xmax"], cx + r)
             box["zmin"] = max(box["zmin"], cz - r)
             box["zmax"] = min(box["zmax"], cz + r)
         elif surf.type == "sphere" and len(coeffs) >= 4:
+            if not is_comp:
+                continue
             cx, cy, cz, r = (float(coeffs[0]), float(coeffs[1]), float(coeffs[2]), float(coeffs[3]))
             box["xmin"] = max(box["xmin"], cx - r)
             box["xmax"] = min(box["xmax"], cx + r)

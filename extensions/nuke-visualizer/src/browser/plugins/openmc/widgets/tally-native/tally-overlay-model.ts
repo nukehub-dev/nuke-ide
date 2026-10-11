@@ -41,6 +41,9 @@
  */
 
 import type { OpenMCVtkArrayInfo } from '../../../../../common/openmc-protocol';
+import type { GeometryNativeCell } from '../geometry-native/geometry-native-model';
+import { isDegenerateCell } from '../geometry-native/geometry-native-model';
+import type { ViewerContextMenuItem } from '../../../../viewer-core/viewer-context-menu';
 import {
     ClassifiedNativeVtkArrays,
     classifyNativeVtkArrays,
@@ -62,6 +65,15 @@ export type SliceAxis = 'x' | 'y' | 'z';
 /** Runtime guard for dataset kinds. */
 export function isTallyOverlayKind(value: string): value is TallyOverlayKind {
     return (TALLY_OVERLAY_KINDS as readonly string[]).includes(value);
+}
+
+/**
+ * True for true 3D grids (every axis deeper than one cell): the smooth
+ * raycast volume needs a real volume, so slices and clouds stay on voxel
+ * boxes and the tally-volume rows stay hidden for them.
+ */
+export function smoothableGridDims(dims: readonly [number, number, number] | undefined): dims is [number, number, number] {
+    return dims !== undefined && dims[0] > 1 && dims[1] > 1 && dims[2] > 1;
 }
 
 /** Array names that mark a source-distribution point cloud (lowercased). */
@@ -200,4 +212,33 @@ export function classifyTallyOverlayDataset(
     const kind = detectTallyOverlayKind({ family, gridDimensions, arrayNames: names });
     const sliceAxis = kind === 'slice' && gridDimensions ? detectSliceAxis(gridDimensions) : undefined;
     return { classified, kind, colorBy: defaultOverlayColorBy(kind, classified, family), sliceAxis };
+}
+
+/**
+ * Cells eligible for the overlay geometry underlay: degenerate bboxes
+ * (zero volume) cannot render as boxes and are dropped (the geometry
+ * viewer lists, not draws, them). Void cells stay — they render as
+ * edge-only shells (no fill), so the big bounding void boxes give context
+ * without stacking translucency over the tally.
+ */
+export function csgUnderlayCells(cells: readonly GeometryNativeCell[]): GeometryNativeCell[] {
+    return cells.filter((cell) => !isDegenerateCell(cell));
+}
+
+/** Stable id of the tally canvas menu's underlay toggle. */
+export const TALLY_UNDERLAY_MENU_ID = 'underlay';
+
+/**
+ * Canvas-menu toggle for the CSG underlay (checked while visible,
+ * disabled before any cells load). Pure.
+ */
+export function buildTallyUnderlayMenuItem(hasCells: boolean, visible: boolean): ViewerContextMenuItem {
+    return {
+        id: TALLY_UNDERLAY_MENU_ID,
+        label: hasCells ? 'CSG Underlay' : 'CSG Underlay (none loaded)',
+        icon: 'codicon-symbol-struct',
+        checked: hasCells && visible,
+        separatorAbove: true,
+        disabled: !hasCells
+    };
 }

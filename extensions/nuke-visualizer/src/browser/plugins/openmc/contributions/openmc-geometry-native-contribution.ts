@@ -33,6 +33,7 @@ import { OutputViewerContribution } from '../../../output-viewer/output-viewer-r
 import { OpenMCBackendService } from '../../../../common/openmc-protocol';
 import { OpenMCGeometryContribution } from './openmc-geometry-contribution';
 import { GeometryNativeViewerWidget } from '../widgets/geometry-native/geometry-native-viewer-widget';
+import { CsgOutlineWidget } from '../../../csg-outline/csg-outline-widget';
 
 /**
  * Routes OpenMC `geometry.xml` files to the geometry hierarchy tree plus the
@@ -98,5 +99,11 @@ export class OpenMCGeometryNativeViewerContribution implements OutputViewerContr
         }
         this.shell.activateWidget(widget.id);
         await widget.setModelFile(new URI(mesh.meshPath));
+        const outline = await this.widgetManager.getOrCreateWidget(CsgOutlineWidget.ID);
+        if (!outline.isAttached) {
+            await this.shell.addWidget(outline, { area: 'right' });
+        }
+        await this.shell.revealWidget(outline.id);
+        await this.shell.activateWidget(widget.id);
     }
 }

@@ -264,8 +264,51 @@ export function isDegenerateCell(cell: GeometryNativeCell): boolean {
     return !(maxX > minX && maxY > minY && maxZ > minZ);
 }
 
-/** Small deterministic palette for cells without an explicit color. */
-const CELL_PALETTE = ['#4da3ff', '#ffb84d', '#5fd68a', '#e06ba8', '#9a7bff', '#ffd24d', '#4dd6d6', '#ff7a5c'];
+/** Void-cell material marker (CSG counterpart of the DAGMC graveyard switch). */
+export function isVoidMaterial(material: string): boolean {
+    return material.trim().toLowerCase() === 'void';
+}
+
+/**
+ * Single visibility rule for a CSG cell: material toggles, per-cell
+ * toggles, the void switch, and degenerate bboxes (never drawn) all
+ * apply. Snapshot rows, `visibleCells()`, and the three.js `buildScene`
+ * must all route through here so the outline checkbox and the canvas can
+ * never disagree again.
+ */
+export function isGeometryCellVisible(
+    cell: GeometryNativeCell,
+    hiddenMaterials: readonly string[],
+    hiddenCellIds: readonly number[],
+    showVoid: boolean
+): boolean {
+    if (hiddenMaterials.includes(cell.material) || hiddenCellIds.includes(cell.id)) {
+        return false;
+    }
+    if (!showVoid && isVoidMaterial(cell.material)) {
+        return false;
+    }
+    return !isDegenerateCell(cell);
+}
+
+/**
+ * Material-row visibility: the material hidden-set plus the void-switch
+ * override (DAGMC graveyard parity) — while the switch is off, the void
+ * material reads hidden even though it is not in the set.
+ */
+export function isGeometryMaterialVisible(material: string, hiddenMaterials: readonly string[], showVoid: boolean): boolean {
+    return !hiddenMaterials.includes(material) && (showVoid || !isVoidMaterial(material));
+}
+
+/** Small deterministic palette for cells without an explicit color (dark themes). */
+const CELL_PALETTE_DARK = ['#4da3ff', '#ffb84d', '#5fd68a', '#e06ba8', '#9a7bff', '#ffd24d', '#4dd6d6', '#ff7a5c'];
+
+/**
+ * Light-theme counterpart: the same eight hues, deepened for contrast on
+ * light editor backgrounds (a light theme's near-black foreground would
+ * silhouette vivid fills, mirroring the CAD viewport convention).
+ */
+const CELL_PALETTE_LIGHT = ['#1f6fd6', '#b25e00', '#1f8a4c', '#b03070', '#5b3fd6', '#8a6d00', '#0f766e', '#c2431f'];
 
 function hashMaterial(material: string): number {
     let hash = 0;
@@ -275,10 +318,78 @@ function hashMaterial(material: string): number {
     return Math.abs(hash);
 }
 
-/** Effective CSS color for a cell: explicit color wins, else palette by material. */
-export function colorForCell(cell: GeometryNativeCell): string {
+/** Effective CSS color for a cell: explicit color wins, else palette by material for the active theme. */
+export function colorForCellOnTheme(cell: GeometryNativeCell, dark: boolean): string {
     if (cell.color) {
         return cell.color;
     }
-    return CELL_PALETTE[hashMaterial(cell.material) % CELL_PALETTE.length];
+    const palette = dark ? CELL_PALETTE_DARK : CELL_PALETTE_LIGHT;
+    return palette[hashMaterial(cell.material) % palette.length];
+}
+
+/** Effective CSS color for a cell on dark themes (historical palette). */
+export function colorForCell(cell: GeometryNativeCell): string {
+    return colorForCellOnTheme(cell, true);
+}
+
+/** Edge-line color for cell boxes (light grid on dark themes, dark slate on light ones). */
+export function cellEdgeColor(dark: boolean): string {
+    return dark ? '#e8e8e8' : '#33393f';
+}
+
+/** State behind the geometry canvas context menu (view actions + selection hide/isolate). */
+export interface GeometryContextMenuState {
+    readonly clipChecked: boolean;
+    readonly selectedCellId: number | null;
+    readonly hasHidden: boolean;
+}
+
+/** One canvas context-menu row (mirrors the viewer-core menu item shape without importing DOM code). */
+export interface GeometryContextMenuItem {
+    readonly id: string;
+    readonly label: string;
+    readonly icon?: string;
+    readonly checked?: boolean;
+    readonly separatorAbove?: boolean;
+    readonly disabled?: boolean;
+}
+
+/**
+ * Canvas context-menu contents for the geometry viewer: Fit / Screenshot,
+ * then the clip toggle, then selection actions (Hide / Isolate the
+ * selected cell, Show all while anything is hidden). Pure.
+ */
+export function buildGeometryContextMenuItems(state: GeometryContextMenuState): GeometryContextMenuItem[] {
+    const hasSelection = state.selectedCellId !== null;
+    const selectedLabel = hasSelection ? `Cell ${state.selectedCellId}` : 'selected cell';
+    return [
+        { id: 'fit', label: 'Fit to View', icon: 'codicon-zoom-in' },
+        { id: 'screenshot', label: 'Save Screenshot (PNG)', icon: 'codicon-device-camera' },
+        {
+            id: 'clip',
+            label: 'Clip Planes',
+            icon: 'codicon-layers',
+            checked: state.clipChecked,
+            separatorAbove: true
+        },
+        {
+            id: 'hide-selected',
+            label: `Hide ${selectedLabel}`,
+            icon: 'codicon-eye-closed',
+            separatorAbove: true,
+            disabled: !hasSelection
+        },
+        {
+            id: 'isolate-selected',
+            label: `Isolate ${selectedLabel}`,
+            icon: 'codicon-eye',
+            disabled: !hasSelection
+        },
+        {
+            id: 'show-all',
+            label: 'Show All Cells',
+            icon: 'codicon-eye-watch',
+            disabled: !state.hasHidden
+        }
+    ];
 }

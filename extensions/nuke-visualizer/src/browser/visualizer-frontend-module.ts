@@ -98,6 +98,8 @@ import { ViewerSettingsWidget } from './viewer-settings/viewer-settings-widget';
 import { ViewerSettingsContribution } from './viewer-settings/viewer-settings-contribution';
 import { DagmcOutlineWidget } from './dagmc-outline/dagmc-outline-widget';
 import { DagmcOutlineContribution } from './dagmc-outline/dagmc-outline-contribution';
+import { CsgOutlineWidget } from './csg-outline/csg-outline-widget';
+import { CsgOutlineContribution } from './csg-outline/csg-outline-contribution';
 
 export default new ContainerModule((bind: interfaces.Bind) => {
     // Bind Plotly service
@@ -591,4 +593,16 @@ export default new ContainerModule((bind: interfaces.Bind) => {
     bind(DagmcOutlineWidget).toSelf();
     bind(DagmcOutlineContribution).toSelf().inSingletonScope();
     bind(CommandContribution).toService(DagmcOutlineContribution);
+
+    // CSG Outline sidebar (right area): cell/material visibility for the
+    // active native geometry viewer through the CsgOutlineHost surface
+    bind(WidgetFactory)
+        .toDynamicValue((context) => ({
+            id: CsgOutlineWidget.ID,
+            createWidget: () => context.container.get<CsgOutlineWidget>(CsgOutlineWidget)
+        }))
+        .inSingletonScope();
+    bind(CsgOutlineWidget).toSelf();
+    bind(CsgOutlineContribution).toSelf().inSingletonScope();
+    bind(CommandContribution).toService(CsgOutlineContribution);
 });

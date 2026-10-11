@@ -253,7 +253,9 @@ def write_mesh_vti(geometry, array_name, output_path):
     try:
         upper = [
             float(o) + float(s) * int(n)
-            for o, s, n in zip(geometry.get("origin"), geometry.get("spacing"), geometry.get("dims"), strict=True)
+            for o, s, n in zip(
+                geometry.get("origin"), geometry.get("spacing"), geometry.get("dims"), strict=True
+            )
         ]
     except (TypeError, ValueError):
         raise OutputReaderError("geometry dims/origin/spacing must hold numbers") from None
@@ -933,9 +935,7 @@ def mesh_cell_centers(dimension, lower_left, upper_right):
     xx, yy, zz = np.meshgrid(axes[0], axes[1], axes[2], indexing="ij")
     # Fortran (first-index-fastest) ravel matches the x-major flat tally
     # order; C-order ravel would transpose x/y (and x/z on cubic meshes).
-    return np.column_stack(
-        [xx.ravel(order="F"), yy.ravel(order="F"), zz.ravel(order="F")]
-    )
+    return np.column_stack([xx.ravel(order="F"), yy.ravel(order="F"), zz.ravel(order="F")])
 
 
 def overlay_to_vtk(

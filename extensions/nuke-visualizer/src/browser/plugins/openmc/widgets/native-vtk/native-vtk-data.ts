@@ -316,12 +316,7 @@ export const NATIVE_VTK_POINT_BUDGET = 200000;
 
 // Voxel layout + instancing live in viewer-core (shared with the DAGMC
 // drape interior); re-exported here so existing imports keep working.
-export {
-    buildVoxelMesh,
-    NATIVE_VTK_VOXEL_BUDGET,
-    updateVoxelInstances,
-    voxelInstanceLayout
-} from '../../../../viewer-core/voxel-blocks';
+export { buildVoxelMesh, NATIVE_VTK_VOXEL_BUDGET, updateVoxelInstances, voxelInstanceLayout } from '../../../../viewer-core/voxel-blocks';
 export type { VoxelInstanceLayout } from '../../../../viewer-core/voxel-blocks';
 
 /** Stride (>= 1) keeping `count` items within `budget` by even decimation. */
