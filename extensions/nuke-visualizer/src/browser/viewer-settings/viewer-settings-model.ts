@@ -121,6 +121,8 @@ export interface ViewerMeasureSettings {
 /** Tally-volume section (DAGMC drape interior); absent without a loaded tally volume. */
 export interface ViewerTallyVolumeSettings {
     readonly visible: boolean;
+    /** Smooth trilinear raycast instead of per-cell voxel boxes. */
+    readonly smooth: boolean;
 }
 
 /** Generic slider section of a settings snapshot (opacity, point size, line width). */
@@ -184,6 +186,7 @@ export interface ViewerSettingsPatch {
     readonly logScale?: boolean;
     readonly scalarBarVisible?: boolean;
     readonly tallyVolumeVisible?: boolean;
+    readonly tallyVolumeSmooth?: boolean;
     readonly solidColor?: string;
     readonly background?: string;
     readonly shading?: ViewerShadingMode;

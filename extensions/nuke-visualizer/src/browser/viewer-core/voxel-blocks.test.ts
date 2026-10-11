@@ -27,7 +27,7 @@
 
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
-import { buildVoxelMesh, updateVoxelInstances, voxelInstanceLayout } from './voxel-blocks';
+import { buildVoxelMesh, tallyVolumePoints, updateVoxelInstances, voxelInstanceLayout } from './voxel-blocks';
 
 function unitGrid(): { layout: ReturnType<typeof voxelInstanceLayout> } {
     const axes: [Float64Array, Float64Array, Float64Array] = [
@@ -67,5 +67,39 @@ describe('updateVoxelInstances', () => {
         mesh.geometry.dispose();
         (mesh.material as THREE.Material).dispose();
         mesh.dispose();
+    });
+});
+
+describe('tallyVolumePoints', () => {
+    it('emits one point per non-empty cell center with matching colors', () => {
+        const axes: [Float64Array, Float64Array, Float64Array] = [
+            Float64Array.from([0, 1, 2]),
+            Float64Array.from([0, 1]),
+            Float64Array.from([0, 1])
+        ];
+        const layout = voxelInstanceLayout([2, 1, 1], axes);
+        const payload = tallyVolumePoints(
+            layout,
+            (instance) => instance === 1,
+            (instance) => (instance === 0 ? [1, 0, 0] : [0, 0, 1])
+        );
+        expect([...payload.positions]).toEqual([0.5, 0.5, 0.5]);
+        expect([...payload.colors]).toEqual([1, 0, 0]);
+    });
+
+    it('emits nothing when every cell is empty', () => {
+        const axes: [Float64Array, Float64Array, Float64Array] = [
+            Float64Array.from([0, 1]),
+            Float64Array.from([0, 1]),
+            Float64Array.from([0, 1])
+        ];
+        const layout = voxelInstanceLayout([1, 1, 1], axes);
+        const payload = tallyVolumePoints(
+            layout,
+            () => true,
+            () => [1, 1, 1]
+        );
+        expect(payload.positions.length).toBe(0);
+        expect(payload.colors.length).toBe(0);
     });
 });

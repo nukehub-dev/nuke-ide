@@ -39,12 +39,14 @@ import {
     charOffsetToByteOffset,
     classifyNativeVtkArrays,
     colorByValue,
+    decodeAppendedBlock,
     decodeBase64,
     DEFAULT_COLORMAP,
     defaultNativeColorBy,
     detectNativeVtkFamily,
     fluxGroupIndex,
     formatColorBy,
+    isValidAppendedOffset,
     NATIVE_PROBE_EXTENSIONS,
     NATIVE_VTK_COLORMAPS,
     parseColorBy,
@@ -1088,5 +1090,161 @@ _${pText}${eText}
         const model = await parseNativeVtkXml(xml);
         expect([...model.positions]).toEqual([0, 0, 0, 1, 0, 0]);
         expect(model.pointArrays[0].values).toEqual(new Float64Array([5, 6]));
+    });
+
+    it('rejects a byte offset landing inside another block (chunk walk)', () => {
+        // A bare header shape (nblocks + fit) is not enough: the chunk table
+        // must walk inside the blob too. Here nblocks reads 2 with room for
+        // the header, but the second chunk overruns the blob.
+        const blob = new Uint8Array([2, 0, 0, 0, 8, 0, 0, 0, 8, 0, 0, 0, 4, 0, 0, 0, 90, 0, 0, 0]);
+        expect(isValidAppendedOffset(blob, 0, 4, true)).toBe(false);
+        expect(isValidAppendedOffset(blob, 99, 4, true)).toBe(false);
+        expect(isValidAppendedOffset(blob, 0, 4, false)).toBe(true);
+    });
+
+    it('resolves an ambiguous char offset to the true block (drape regression)', async () => {
+        // Minimal .vtu mirroring the failing tokamak drape blocks: one
+        // triangle, CellData volume_id then flux-mean, every block padded
+        // separately exactly like vtk 9.3 multiblock output, so every XML
+        // offset is a base64 CHARACTER position. The flux char offset
+        // happens to satisfy the loose byte-position header shape (it lands
+        // on the flux header's own csize field), which used to send the
+        // parser down the byte path into undecodable garbage
+        // ("Cannot decompress VTK block ... invalid zlib data").
+        const le32 = (v: number): Uint8Array => {
+            const b = new Uint8Array(4);
+            new DataView(b.buffer).setUint32(0, v, true);
+            return b;
+        };
+        const le64 = (v: number): Uint8Array => {
+            const b = new Uint8Array(8);
+            new DataView(b.buffer).setBigUint64(0, BigInt(v), true);
+            return b;
+        };
+        const f64 = (v: number[]): Uint8Array => {
+            const b = new Uint8Array(8 * v.length);
+            const view = new DataView(b.buffer);
+            v.forEach((x, i) => view.setFloat64(i * 8, x, true));
+            return b;
+        };
+        const concat = (...parts: Uint8Array[]): Uint8Array => {
+            const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+            let at = 0;
+            for (const p of parts) {
+                out.set(p, at);
+                at += p.length;
+            }
+            return out;
+        };
+        const zblock = (raw: Uint8Array): Uint8Array => {
+            const compressed = deflateSync(raw);
+            return concat(le32(1), le32(raw.length), le32(0), le32(compressed.length), compressed);
+        };
+        const enc = (b: Uint8Array): string => Buffer.from(b).toString('base64');
+        const volBlock = zblock(le32(11));
+        const fluxBlock = zblock(f64([42.5]));
+        const pointsBlock = zblock(f64([0, 0, 0, 1, 0, 0, 0, 1, 0]));
+        const connBlock = zblock(concat(le64(0), le64(1), le64(2)));
+        const offsBlock = zblock(le64(3));
+        const typesBlock = zblock(new Uint8Array([5]));
+        const blocks: Array<[string, Uint8Array]> = [
+            ['volume_id', volBlock],
+            ['flux-mean', fluxBlock],
+            ['Points', pointsBlock],
+            ['connectivity', connBlock],
+            ['offsets', offsBlock],
+            ['types', typesBlock]
+        ];
+        let payload = '';
+        const charOffsets = new Map<string, number>();
+        for (const [name, block] of blocks) {
+            charOffsets.set(name, payload.length);
+            payload += enc(block);
+        }
+        const blob = decodeBase64(payload);
+        const fluxChar = charOffsets.get('flux-mean')!;
+        const fluxByte = volBlock.length;
+        // Pin the ambiguity this test guards: as raw bytes, the flux char
+        // offset satisfies the loose header shape (the old validator took
+        // the byte path and died in zlib), while the strengthened chunk
+        // walk rejects it and the char conversion lands on the true header.
+        // (If zlib ever changes its tiny-input encoding these fail loudly
+        // instead of silently weakening the test.)
+        expect(fluxChar + 4 <= blob.length).toBe(true);
+        const loose = new DataView(blob.buffer).getUint32(fluxChar, true);
+        expect(loose).toBeGreaterThanOrEqual(1);
+        expect(loose).toBeLessThanOrEqual(4096);
+        expect(fluxChar + (loose + 3) * 4 <= blob.length).toBe(true);
+        expect(isValidAppendedOffset(blob, fluxChar, 4, true)).toBe(false);
+        expect(charOffsetToByteOffset(payload, fluxChar)).toBe(fluxByte);
+        const at = (name: string): number => charOffsets.get(name)!;
+        const xml = `<VTKFile type="UnstructuredGrid" version="0.1" byte_order="LittleEndian" compressor="vtkZLibDataCompressor">
+<UnstructuredGrid>
+<Piece NumberOfPoints="3" NumberOfCells="1">
+<PointData>
+</PointData>
+<CellData>
+<DataArray type="Int32" Name="volume_id" format="appended" offset="${at('volume_id')}" />
+<DataArray type="Float64" Name="flux-mean" format="appended" offset="${at('flux-mean')}" />
+</CellData>
+<Points>
+<DataArray type="Float64" Name="Points" NumberOfComponents="3" format="appended" offset="${at('Points')}" />
+</Points>
+<Cells>
+<DataArray type="Int64" Name="connectivity" format="appended" offset="${at('connectivity')}" />
+<DataArray type="Int64" Name="offsets" format="appended" offset="${at('offsets')}" />
+<DataArray type="UInt8" Name="types" format="appended" offset="${at('types')}" />
+</Cells>
+</Piece>
+</UnstructuredGrid>
+<AppendedData encoding="base64">
+_${payload}
+</AppendedData>
+</VTKFile>`;
+        const model = await parseUnstructuredGridXml(xml);
+        expect([...model.positions]).toEqual([0, 0, 0, 1, 0, 0, 0, 1, 0]);
+        expect(model.triangles && [...model.triangles]).toEqual([0, 1, 2]);
+        const byName = new Map(model.cellArrays.map((a) => [a.name, a]));
+        expect([...byName.get('flux-mean')!.values]).toEqual([42.5]);
+        expect([...byName.get('volume_id')!.values]).toEqual([11]);
+    });
+
+    it('falls back to the character offset when the byte offset fails to decode', async () => {
+        // Fully hand-built blob (no writer involved): F filler bytes, then
+        // the true block (zlib-compressed Float64 [7.5]), then a decoy block
+        // whose header is structurally perfect (nblocks = 1, one 8-byte
+        // chunk inside the blob) but whose chunk is zero bytes — invalid
+        // zlib in both raw and wrapped form. The payload is cut after F
+        // bytes, so XML offset 4F/3 lands exactly on the decoy while
+        // converting back to the true header at F.
+        const real = deflateSync(new Uint8Array(new Float64Array([7.5]).buffer));
+        const fillerLen = 48 + 3 * real.length;
+        const trueAt = fillerLen;
+        const decoyAt = fillerLen + 16 + real.length;
+        const blob = new Uint8Array(decoyAt + 24);
+        const view = new DataView(blob.buffer);
+        view.setUint32(trueAt, 1, true);
+        view.setUint32(trueAt + 4, 8, true);
+        view.setUint32(trueAt + 8, 8, true);
+        view.setUint32(trueAt + 12, real.length, true);
+        blob.set(real, trueAt + 16);
+        view.setUint32(decoyAt, 1, true);
+        view.setUint32(decoyAt + 4, 8, true);
+        view.setUint32(decoyAt + 8, 8, true);
+        view.setUint32(decoyAt + 12, 8, true);
+        // Zero chunk stays zero (Uint8Array initializes to 0).
+        const payload =
+            Buffer.from(blob.subarray(0, fillerLen)).toString('base64') + Buffer.from(blob.subarray(fillerLen)).toString('base64');
+        const xmlOffset = (4 * fillerLen) / 3;
+        expect(charOffsetToByteOffset(payload, xmlOffset)).toBe(trueAt);
+        // The decoy fully validates yet cannot decode: this is the case the
+        // chunk-walk alone cannot save.
+        expect(isValidAppendedOffset(blob, decoyAt, 4, true)).toBe(true);
+        expect(xmlOffset).toBe(decoyAt);
+        const values = await decodeAppendedBlock(blob, xmlOffset, 4, true, 'Float64', payload);
+        expect([...values]).toEqual([7.5]);
+        // Without the payload there is no conversion to fall back to: the
+        // original decode error surfaces.
+        await expect(decodeAppendedBlock(blob, xmlOffset, 4, true, 'Float64')).rejects.toThrow('Cannot decompress');
     });
 });

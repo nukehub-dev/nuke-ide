@@ -75,6 +75,11 @@ def cmd_source_vtk(args):
 )
 @arg("--output-dir", help="Manifest output directory (default: hash-keyed cache)")
 @arg("--no-cache", action="store_true", help="Skip the manifest cache")
+@arg(
+    "--smooth",
+    action="store_true",
+    help="Trilinearly interpolate tally values at surface vertices (point data)",
+)
 def cmd_overlay_geometry_vtk(args):
     """Map a mesh tally onto DAGMC volumes (true 3D overlay)."""
     from plugins.openmc.lib import tally_vtk
@@ -89,6 +94,7 @@ def cmd_overlay_geometry_vtk(args):
             include_graveyard=args.include_graveyard,
             output_dir=args.output_dir,
             use_cache=not args.no_cache,
+            smooth=args.smooth,
         )
         print(json.dumps(result))
         return 0
@@ -115,6 +121,11 @@ def cmd_overlay_geometry_vtk(args):
 @arg("--position", type=float, help="Slice position in cm (default: grid center)")
 @arg("--resolution", type=int, default=200, help="Slice points per in-plane axis (1-1024)")
 @arg("--output", help="Output .vtp path (default: temp file)")
+@arg(
+    "--pixelated",
+    action="store_true",
+    help="Nearest-cell slice values (actual mesh cells) instead of trilinear interpolation",
+)
 def cmd_overlay_vtk(args):
     """Convert a mesh tally to a static overlay/slice point cloud."""
     from plugins.openmc.lib import tally_vtk
@@ -130,6 +141,7 @@ def cmd_overlay_vtk(args):
             position=args.position,
             resolution=args.resolution,
             output_path=args.output,
+            pixelated=args.pixelated,
         )
         print(json.dumps(result))
         return 0

@@ -77,12 +77,25 @@ interactive with complete coverage; points stay full-resolution.
 Best for: Full spatial context of tally results on the complete geometry.
 
 With a DAGMC (`.h5m`) geometry, every volume surface is painted with the
-mesh tally sampled at each triangle centroid (nearest mesh cell, clamped
-at the mesh bounds) and opened in the native DAGMC viewer — volume,
+mesh tally — Pixelated samples each triangle centroid (nearest mesh
+cell, clamped at the mesh bounds, flat per-triangle color), while Smooth
+Interpolation trilinearly interpolates at the surface vertices (blended
+between mesh cells) — and opened in the native DAGMC viewer — volume,
 material, and group isolation, instant color-by on the tally array, clip
 planes, and the color legend all keep working. The tally mesh itself also
 loads as voxel blocks inside the same scene (Viewer Settings → Tally
 volume), so clipping reveals the hot interior instead of hollow shells.
+The **Smooth volume** switch renders the same mesh as a trilinear
+raycast volume instead of per-cell boxes (same colors, exact-zero cells
+stay invisible, clip planes cut it identically) — turn Tally volume off
+entirely to judge the surface drape alone. In Points shading mode the
+volume renders as colored points over non-empty cell centers (void stays
+empty), since surface-only point clouds cannot show the interior. Tally
+objects draw after the ghosted shells so the interior stays readable
+under transparency instead of drowning in it. X-Ray ghosts the geometry but
+keeps tally colors (boxes and smooth volume) at full strength so the
+hot interior stays readable; to inspect it without any transparency,
+isolate volumes in the DAGMC Outline or cut a clip plane instead.
 Void (exact-zero) cells collapse away rather than fogging the geometry;
 lowering Opacity ghosts the rest with interiors kept visible. Any other
 geometry opens the full mesh itself as voxel blocks, which the per-axis
@@ -90,8 +103,11 @@ clip planes cut through for interior exploration.
 
 **Options:**
 
-- **Graveyard Filtering** — Hide large graveyard surfaces (DAGMC only)
 - **Rendering Style** — Smooth interpolation or pixelated (blocky) mesh cells
+
+The graveyard termination volume always converts with the rest and stays
+hidden by default; re-show it anytime with the DAGMC Outline's Graveyard
+switch.
 
 ### What You See
 
@@ -119,19 +135,12 @@ Or use the menu: `Tools → Visualizer → OpenMC → Tally → Overlay Tally on
 
 ### What You See
 
-- Your DAGMC or CSG geometry rendered in 3D, colored by the tally value.
-- Source particles from the statepoint overlaid as points on top of the geometry.
-- Source particles are colored by **energy** (default) or **weight**.
-
-### Controls
-
-In addition to the standard geometry overlay controls, the sidebar includes a **Source Particles** section:
-
-| Control             | Description                                             |
-| ------------------- | ------------------------------------------------------- |
-| **Point Size**      | Size of source particle points                          |
-| **Source Opacity**  | Transparency of source particles                        |
-| **Source Color By** | Color particles by `energy`, `weight`, or `Solid Color` |
+On a DAGMC (`.h5m`) geometry: the draped tally overlay, plus source
+particles from the statepoint overlaid as points throughout the scene.
+Source particles are colored by **energy** (weight fallback) through the
+current colormap with their own data range, and follow the shared Point
+size / Opacity sliders and clip planes. On any other geometry the tally
+mesh itself opens as voxel blocks (no separate source layer).
 
 > If the statepoint has no source bank, the visualization falls back to a standard geometry overlay.
 

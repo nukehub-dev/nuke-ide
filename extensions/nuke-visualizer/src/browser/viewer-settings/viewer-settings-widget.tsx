@@ -275,6 +275,7 @@ export class ViewerSettingsWidget extends ReactWidget {
             snapshot.range && this.renderRange(host, snapshot),
             snapshot.scalarBar && this.renderScalarBar(host, snapshot),
             snapshot.tallyVolume && this.renderTallyVolume(host, snapshot),
+            snapshot.tallyVolume && this.renderTallyVolumeSmooth(host, snapshot),
             snapshot.solidColor && this.renderSolidColor(host, snapshot),
             snapshot.background && this.renderBackground(host, snapshot),
             snapshot.shading && this.renderShading(host, snapshot),
@@ -503,6 +504,28 @@ export class ViewerSettingsWidget extends ReactWidget {
                     ariaLabel="Tally volume"
                     checked={tallyVolume.visible}
                     onChange={() => this.applyPatch(host, { tallyVolumeVisible: !tallyVolume.visible })}
+                />
+            </div>
+        );
+    }
+
+    protected renderTallyVolumeSmooth(host: ViewerSettingsHost, snapshot: ViewerSettingsSnapshot): React.ReactNode {
+        const tallyVolume = snapshot.tallyVolume;
+        if (!tallyVolume) {
+            return undefined;
+        }
+        return (
+            <div className="viewer-settings-row" key="tally-volume-smooth">
+                {this.renderRowLabel(
+                    'symbol-method',
+                    'Smooth volume',
+                    'Trilinear raycast volume instead of per-cell voxel boxes (same colors, WebGL2)'
+                )}
+                <NukeSwitch
+                    className="viewer-settings-tally-volume-smooth"
+                    ariaLabel="Smooth volume"
+                    checked={tallyVolume.smooth}
+                    onChange={() => this.applyPatch(host, { tallyVolumeSmooth: !tallyVolume.smooth })}
                 />
             </div>
         );

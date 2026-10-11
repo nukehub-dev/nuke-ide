@@ -541,11 +541,12 @@ async function inflateBlock(block: Uint8Array, label = 'block'): Promise<Uint8Ar
  *
  * Offsets are normally byte positions into the decoded blob, but some
  * writers (observed in vtk 9.3 multiblock output) emit base64 CHARACTER
- * offsets instead. When the byte position fails structural validation and
- * `payloadText` (the exact string that produced the blob) is available, a
- * character-offset conversion is tried before giving up.
+ * offsets instead. The byte position is tried first; when it fails
+ * structural validation — or validates ambiguously yet fails to decode —
+ * and `payloadText` (the exact string that produced the blob) is available,
+ * the character-offset conversion is tried before giving up.
  */
-async function decodeAppendedBlock(
+export async function decodeAppendedBlock(
     blob: Uint8Array,
     offset: number,
     headerBytes: number,
@@ -554,17 +555,34 @@ async function decodeAppendedBlock(
     payloadText?: string,
     label?: string
 ): Promise<Float64Array> {
-    let at = offset;
-    if (!isValidAppendedOffset(blob, at, headerBytes, compressed)) {
-        const converted = payloadText !== undefined ? charOffsetToByteOffset(payloadText, offset) : undefined;
-        if (converted !== undefined && isValidAppendedOffset(blob, converted, headerBytes, compressed)) {
-            at = converted;
-        } else {
-            throw new Error(
-                `VTK appended offset ${offset} is neither a valid byte position nor a base64 character position into the payload`
-            );
+    const byteValid = isValidAppendedOffset(blob, offset, headerBytes, compressed);
+    const converted = payloadText !== undefined ? charOffsetToByteOffset(payloadText, offset) : undefined;
+    const charValid = converted !== undefined && converted !== offset && isValidAppendedOffset(blob, converted, headerBytes, compressed);
+    if (!byteValid && !charValid) {
+        throw new Error(`VTK appended offset ${offset} is neither a valid byte position nor a base64 character position into the payload`);
+    }
+    if (byteValid) {
+        try {
+            return await decodeAppendedBlockAt(blob, offset, headerBytes, compressed, type);
+        } catch (error) {
+            if (!charValid || converted === undefined) {
+                throw error;
+            }
+            // Structurally plausible but undecodable (e.g. a char offset
+            // landing inside another block's header) — fall through to the
+            // character-offset conversion below.
         }
     }
+    return decodeAppendedBlockAt(blob, converted as number, headerBytes, compressed, type);
+}
+
+async function decodeAppendedBlockAt(
+    blob: Uint8Array,
+    at: number,
+    headerBytes: number,
+    compressed: boolean,
+    type: string
+): Promise<Float64Array> {
     const view = new DataView(blob.buffer, blob.byteOffset + at);
     const readToken = (pos: number): number => {
         let v = 0;
@@ -598,7 +616,7 @@ async function decodeAppendedBlock(
 }
 
 /** Structural check for an appended-block header (no decompression). */
-function isValidAppendedOffset(blob: Uint8Array, at: number, headerBytes: number, compressed: boolean): boolean {
+export function isValidAppendedOffset(blob: Uint8Array, at: number, headerBytes: number, compressed: boolean): boolean {
     if (!Number.isInteger(at) || at < 0 || at + headerBytes > blob.length) {
         return false;
     }
@@ -616,7 +634,27 @@ function isValidAppendedOffset(blob: Uint8Array, at: number, headerBytes: number
     if (nBlocks < 1 || nBlocks > 4096) {
         return false;
     }
-    return at + (nBlocks + 3) * headerBytes <= blob.length;
+    if (at + (nBlocks + 3) * headerBytes > blob.length) {
+        return false;
+    }
+    // Every chunk must lie inside the blob: a byte offset into the middle
+    // of another block can accidentally satisfy the header shape above (a
+    // base64 char offset landing on a real header's csize field reads it as
+    // nblocks), so the chunk table is walked before trusting the position.
+    // All reads stay inside the already-validated header (`at +
+    // (nBlocks + 3) * headerBytes <= blob.length`).
+    let cursor = at + (nBlocks + 3) * headerBytes;
+    for (let b = 0; b < nBlocks; b++) {
+        let cSize = 0;
+        for (let i = 0; i < headerBytes; i++) {
+            cSize |= blob[at + (3 + b) * headerBytes + i] << (8 * i);
+        }
+        if (cSize < 0 || cursor + cSize > blob.length) {
+            return false;
+        }
+        cursor += cSize;
+    }
+    return true;
 }
 
 /**

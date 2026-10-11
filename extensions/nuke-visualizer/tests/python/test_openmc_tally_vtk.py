@@ -81,6 +81,19 @@ def test_mesh_cell_centers_x_major():
     assert centers.tolist() == [[0.5, 0.5, 0.5], [1.5, 0.5, 0.5]]
 
 
+def test_mesh_cell_centers_multiaxis_ordering():
+    # Flat tally values are x-major (ix + iy*nx + iz*nx*ny): row r of the
+    # centers must be the center of the cell holding values[r]. C-order
+    # ravel transposes x/y here (and x/z on cubic meshes).
+    centers = tally_vtk.mesh_cell_centers([2, 2, 1], [0, 0, 0], [2, 2, 1])
+    assert centers.tolist() == [
+        [0.5, 0.5, 0.5],
+        [1.5, 0.5, 0.5],
+        [0.5, 1.5, 0.5],
+        [1.5, 1.5, 0.5],
+    ]
+
+
 def test_require_tally_id_rejects_bad_values():
     for bad in (0, -3, "abc", None, True):
         with pytest.raises(output_readers.OutputReaderError):
@@ -453,8 +466,11 @@ def _install_overlay_geometry_fakes(monkeypatch, tmp_path, captured):
         assert tally_id == 4
         return dict(_overlay_geometry_grid())
 
-    def fake_convert(h5m_path, output_dir=None, include_graveyard=False, cell_sampler=None):
+    def fake_convert(
+        h5m_path, output_dir=None, include_graveyard=False, cell_sampler=None, point_sampler=None
+    ):
         captured["sampler"] = cell_sampler
+        captured["point_sampler"] = point_sampler
         captured["graveyard"] = include_graveyard
         out = tmp_path / "overlay_volumes.vtm"
         out.write_text("<VTKFile />")
@@ -464,6 +480,7 @@ def _install_overlay_geometry_fakes(monkeypatch, tmp_path, captured):
             "materials": {},
             "groups": {},
             "sampledArray": "flux-mean",
+            "sampledAssociation": "point" if point_sampler is not None else "cell",
         }
 
     monkeypatch.setattr(tally_vtk, "read_mesh_tally", fake_read)
@@ -530,7 +547,9 @@ def test_overlay_geometry_command_missing_h5m(tmp_path, monkeypatch, capsys):
 def test_overlay_geometry_command_stdout_stays_json(tmp_path, monkeypatch, capsys):
     """Base-converter progress prints must not pollute the strict stdout JSON."""
 
-    def chatty_convert(h5m_path, output_dir=None, include_graveyard=False, cell_sampler=None):
+    def chatty_convert(
+        h5m_path, output_dir=None, include_graveyard=False, cell_sampler=None, point_sampler=None
+    ):
         print("[DAGMC] Processing volume 1 (chatty progress)")
         out = tmp_path / "overlay_volumes.vtm"
         out.write_text("<VTKFile />")
@@ -560,7 +579,9 @@ def test_overlay_geometry_cache_hit(tmp_path, monkeypatch):
     monkeypatch.setattr(tally_vtk, "read_mesh_tally", lambda *a, **k: _overlay_geometry_grid())
     calls = []
 
-    def fake_convert(h5m_path, output_dir=None, include_graveyard=False, cell_sampler=None):
+    def fake_convert(
+        h5m_path, output_dir=None, include_graveyard=False, cell_sampler=None, point_sampler=None
+    ):
         calls.append(output_dir)
         manifest = os.path.join(str(output_dir), "geom_volumes.vtm")
         with open(manifest, "w") as handle:
@@ -580,3 +601,72 @@ def test_overlay_geometry_cache_hit(tmp_path, monkeypatch):
     assert second["fromCache"] is True and len(calls) == 1
     assert second["nVolumes"] == 2
     assert second["arrayName"] == "flux-mean"
+
+
+def test_sample_trilinear_values_midpoint():
+    # 2x1x1 grid (0, 10): sampling the inter-cell boundary interpolates.
+    values = np.zeros((2, 1, 1))
+    values[0, 0, 0] = 0.0
+    values[1, 0, 0] = 10.0
+    assert tally_vtk.sample_trilinear_values(
+        values, [0, 0, 0], [2, 1, 1], [[1.0, 0.5, 0.5]]
+    ).tolist() == pytest.approx([5.0])
+    # Cell centers recover exact cell values.
+    assert tally_vtk.sample_trilinear_values(
+        values, [0, 0, 0], [2, 1, 1], [[0.5, 0.5, 0.5], [1.5, 0.5, 0.5]]
+    ).tolist() == pytest.approx([0.0, 10.0])
+
+
+def test_sample_nearest_values_cell_centers():
+    values = np.zeros((2, 1, 1))
+    values[0, 0, 0] = 0.0
+    values[1, 0, 0] = 10.0
+    # Just left of the boundary stays in cell 0; just right jumps to cell 1.
+    assert tally_vtk.sample_nearest_values(
+        values, [0, 0, 0], [2, 1, 1], [[0.99, 0.5, 0.5], [1.01, 0.5, 0.5]]
+    ).tolist() == [0.0, 10.0]
+
+
+def test_sample_regular_slice_pixelated_shows_cells():
+    # 2x1x1 grid (0, 10) sliced at the boundary: smooth blends, pixelated snaps.
+    values = np.zeros((2, 1, 1))
+    values[0, 0, 0] = 0.0
+    values[1, 0, 0] = 10.0
+    smooth = tally_vtk.sample_regular_slice(
+        values, [0, 0, 0], [2, 1, 1], plane="x", position=1.0, resolution=1
+    )
+    assert smooth["values"].tolist() == pytest.approx([5.0, 5.0, 5.0, 5.0])
+    blocky = tally_vtk.sample_regular_slice(
+        values, [0, 0, 0], [2, 1, 1], plane="x", position=1.0, resolution=1, pixelated=True
+    )
+    assert set(blocky["values"].tolist()) <= {0.0, 10.0}
+
+
+def test_overlay_geometry_smooth_uses_point_sampler(tmp_path, monkeypatch):
+    captured = {}
+    _install_overlay_geometry_fakes(monkeypatch, tmp_path, captured)
+    h5m = tmp_path / "geom.h5m"
+    h5m.write_bytes(b"fake h5m content")
+    result = tally_vtk.overlay_geometry_to_vtk(
+        str(tmp_path / "sp.h5"), str(h5m), 4, use_cache=False, output_dir=str(tmp_path), smooth=True
+    )
+    assert result["arrayAssociation"] == "point"
+    assert captured["sampler"] is None
+    assert captured["point_sampler"] is not None
+    # 2x2x2 grid values 0..7: vertex at the domain center blends all 8 cells.
+    name, values = captured["point_sampler"](9, "fuel", np.array([[0.0, 0.0, 0.0]]))
+    assert name == "flux-mean"
+    assert values.tolist() == pytest.approx([3.5])
+
+
+def test_overlay_geometry_pixelated_stays_cell(tmp_path, monkeypatch):
+    captured = {}
+    _install_overlay_geometry_fakes(monkeypatch, tmp_path, captured)
+    h5m = tmp_path / "geom.h5m"
+    h5m.write_bytes(b"fake h5m content")
+    result = tally_vtk.overlay_geometry_to_vtk(
+        str(tmp_path / "sp.h5"), str(h5m), 4, use_cache=False, output_dir=str(tmp_path)
+    )
+    assert result["arrayAssociation"] == "cell"
+    assert captured["sampler"] is not None
+    assert captured["point_sampler"] is None

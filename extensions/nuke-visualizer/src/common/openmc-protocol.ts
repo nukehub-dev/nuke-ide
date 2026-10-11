@@ -1704,6 +1704,8 @@ export interface OpenMCVtkConversionResult {
     stats?: Record<string, unknown>;
     /** Sampled data-array name (overlay-geometry drape) */
     arrayName?: string;
+    /** Sampled data-array association (`point` when smooth, `cell` when pixelated) */
+    arrayAssociation?: 'point' | 'cell';
 }
 
 // ============================================================================
@@ -2070,6 +2072,8 @@ export interface OpenMCOverlayVtkOptions {
     position?: number;
     /** Slice points per in-plane axis (1-1024, default 200) */
     resolution?: number;
+    /** Nearest-cell slice values (actual mesh cells) instead of trilinear interpolation */
+    pixelated?: boolean;
 }
 
 /** Options for `openmc.overlay-geometry-vtk` (true 3D tally-on-geometry drape) */
@@ -2079,4 +2083,6 @@ export interface OpenMCOverlayGeometryVtkOptions {
     nuclide?: string;
     /** Keep the Graveyard termination volume (default false) */
     includeGraveyard?: boolean;
+    /** Trilinearly interpolate tally values at surface vertices (point data) instead of nearest-cell centroids */
+    smooth?: boolean;
 }

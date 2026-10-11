@@ -46,8 +46,17 @@ import {
     parseNativeVtkXml,
     readVtkText
 } from '../native-vtk/native-vtk-data';
-import { buildVoxelMesh, updateVoxelInstances, voxelInstanceLayout } from '../../../../viewer-core/voxel-blocks';
+import { buildVoxelMesh, tallyVolumePoints, updateVoxelInstances, voxelInstanceLayout } from '../../../../viewer-core/voxel-blocks';
 import type { VoxelInstanceLayout } from '../../../../viewer-core/voxel-blocks';
+import {
+    buildVolumeLut,
+    clipVolumeBox,
+    createVolumeRaycastMesh,
+    packVolumeScalars,
+    type TallyVolumeMode,
+    type VolumeGrid,
+    type VolumeRaycastHandle
+} from '../../../../viewer-core/volume-raycast';
 import { COLORMAP_NAMES, ColormapName, getColormap, isColormapName } from '../../../../viewer-core/colormaps';
 import {
     ColorRangeMode,
@@ -274,6 +283,35 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
     protected tallyVolumeLayout: VoxelInstanceLayout | undefined;
     protected tallyVolumeArrays: NativeVtkDataArray[] = [];
     protected tallyVolumeVisible = true;
+    /**
+     * Smooth tally-volume rendering (hardware trilinear raycast over the
+     * same mesh the voxel boxes show). Boxes stay the default; `smooth` is
+     * the opt-in Viewer Settings mode. The packed-texture cache key tracks
+     * the color-by array, component, and value count so recolor only
+     * re-uploads on array switches and rebuilds the LUT otherwise.
+     */
+    protected tallyVolumeMode: TallyVolumeMode = 'boxes';
+    protected tallyVolumeSmooth: VolumeRaycastHandle | undefined;
+    protected tallyVolumeGrid: VolumeGrid | undefined;
+    protected tallyVolumePackedKey: string | undefined;
+    protected tallyVolumePackedRange: [number, number] | undefined;
+    /**
+     * Tally-volume point cloud for `points` shading mode (mesh blocks only
+     * carry surface vertices, so the drape interior would otherwise vanish;
+     * exact-zero cells are skipped like the collapsed boxes). Preallocated
+     * at full instance count, repacked every recolor with a draw range over
+     * the non-empty prefix.
+     */
+    protected tallyVolumePoints: THREE.Points | undefined;
+    /**
+     * Statepoint source-bank overlay for the "+ Source" flow: positions plus
+     * the energy/weight point arrays of the converted `.vtp` cloud. Colored
+     * by energy (weight fallback) through the current colormap with its own
+     * data range; independent of the tally volume toggle.
+     */
+    protected tallySourcePoints: THREE.Points | undefined;
+    protected tallySourceValues: Float64Array | undefined;
+    protected tallySourceRange: [number, number] | undefined;
     /** One-shot generic-viewer fallback offered by the opener on conversion failure (cleared on load). */
     protected genericFallback: (() => void) | undefined;
     /**
@@ -525,7 +563,10 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
                     ? { mode: this.rangeMode, min: range[0], max: range[1], dataMin: dataRange[0], dataMax: dataRange[1] }
                     : undefined,
             scalarBar: { visible: this.scalarBarVisible },
-            tallyVolume: this.tallyVolumeMesh ? { visible: this.tallyVolumeVisible } : undefined,
+            tallyVolume:
+                this.tallyVolumeMesh || this.tallyVolumeGrid
+                    ? { visible: this.tallyVolumeVisible, smooth: this.tallyVolumeMode === 'smooth' }
+                    : undefined,
             solidColor: solid ? { value: this.solidColor } : undefined,
             background: { value: this.background },
             shading: { value: this.shading },
@@ -541,6 +582,9 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
     applyViewerSettings(patch: ViewerSettingsPatch): void {
         if (patch.tallyVolumeVisible !== undefined) {
             this.setTallyVolumeVisible(patch.tallyVolumeVisible);
+        }
+        if (patch.tallyVolumeSmooth !== undefined) {
+            this.setTallyVolumeSmooth(patch.tallyVolumeSmooth);
         }
         if (patch.clipTab !== undefined && patch.clipTab !== this.clipTab) {
             this.clipTab = patch.clipTab;
@@ -902,16 +946,30 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
         const layout = voxelInstanceLayout(model.gridDimensions, model.gridAxes);
         const mesh = buildVoxelMesh(layout, this.opacity);
         mesh.name = 'tally-volume';
+        // Tally objects render after the ghosted shells so the interior
+        // stays readable instead of drowning in stacked transparency.
+        mesh.renderOrder = 10;
         this.tallyVolumeMesh = mesh;
         this.tallyVolumeLayout = layout;
         this.tallyVolumeArrays = [...model.cellArrays, ...model.pointArrays];
+        const [xAxis, yAxis, zAxis] = model.gridAxes;
+        this.tallyVolumeGrid = {
+            dims: [...model.gridDimensions] as [number, number, number],
+            min: [xAxis[0], yAxis[0], zAxis[0]],
+            max: [xAxis[xAxis.length - 1], yAxis[yAxis.length - 1], zAxis[zAxis.length - 1]]
+        };
+        this.tallyVolumePackedKey = undefined;
+        this.tallyVolumePackedRange = undefined;
+        this.tallyVolumePoints = this.buildTallyVolumePoints(layout);
         if (this.dataGroup) {
             this.dataGroup.add(mesh);
+            this.dataGroup.add(this.tallyVolumePoints);
             this.applyClip();
             this.applyShadingVisibility();
             // Sync first: without it the voxels keep build-time
             // `transparent: true` and render ghostly even at full opacity.
             this.syncMaterialProps();
+            this.syncTallyVolumeMode();
             this.recolor();
             this.renderScene();
         }
@@ -927,10 +985,120 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
             (mesh.material as THREE.Material).dispose();
             mesh.dispose();
         }
+        if (this.tallyVolumeSmooth) {
+            this.tallyVolumeSmooth.mesh.parent?.remove(this.tallyVolumeSmooth.mesh);
+            this.tallyVolumeSmooth.dispose();
+            this.tallyVolumeSmooth = undefined;
+        }
+        if (this.tallyVolumePoints) {
+            this.tallyVolumePoints.parent?.remove(this.tallyVolumePoints);
+            this.tallyVolumePoints.geometry.dispose();
+            (this.tallyVolumePoints.material as THREE.Material).dispose();
+            this.tallyVolumePoints = undefined;
+        }
         this.tallyVolumeUri = undefined;
         this.tallyVolumeMesh = undefined;
         this.tallyVolumeLayout = undefined;
         this.tallyVolumeArrays = [];
+        this.tallyVolumeGrid = undefined;
+        this.tallyVolumePackedKey = undefined;
+        this.tallyVolumePackedRange = undefined;
+        this.clearTallySource();
+    }
+
+    /** Drop the source-bank overlay (new manifest load); the drape stays. */
+    protected clearTallySource(): void {
+        if (this.tallySourcePoints) {
+            this.tallySourcePoints.parent?.remove(this.tallySourcePoints);
+            this.tallySourcePoints.geometry.dispose();
+            (this.tallySourcePoints.material as THREE.Material).dispose();
+            this.tallySourcePoints = undefined;
+        }
+        this.tallySourceValues = undefined;
+        this.tallySourceRange = undefined;
+    }
+
+    /**
+     * Layer a converted source-bank `.vtp` cloud over the drape scene (the
+     * "+ Source" flow): one round point per particle, colored by energy
+     * (weight fallback) through the current colormap with its own data
+     * range. Throws when the file is not a point cloud.
+     */
+    async setSourceFile(uri: URI): Promise<void> {
+        this.clearTallySource();
+        const text = await readVtkText(this.fileService, uri);
+        const model = await parseNativeVtkXml(text);
+        if (model.family !== 'polydata' || model.positions.length === 0) {
+            throw new Error(`Source file '${uri.path.base}' holds no point cloud to overlay`);
+        }
+        const sourceArray =
+            model.pointArrays.find((entry) => entry.name === 'energy') ?? model.pointArrays.find((entry) => entry.name === 'weight');
+        const count = Math.floor(model.positions.length / 3);
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.BufferAttribute(model.positions.slice(), 3));
+        geometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(count * 3), 3));
+        const material = new THREE.PointsMaterial({
+            size: this.pointSize,
+            vertexColors: true,
+            transparent: true,
+            opacity: this.opacity,
+            sizeAttenuation: false,
+            depthWrite: false,
+            map: getPointSpriteTexture() ?? null
+        });
+        const points = new THREE.Points(geometry, material);
+        points.name = 'tally-source';
+        points.frustumCulled = false;
+        points.renderOrder = 10;
+        this.tallySourcePoints = points;
+        if (sourceArray) {
+            this.tallySourceValues = sourceArray.values.slice() as Float64Array;
+            this.tallySourceRange = [...sourceArray.range] as [number, number];
+        }
+        if (this.dataGroup) {
+            this.dataGroup.add(points);
+            this.applyClip();
+            this.syncMaterialProps();
+            this.recolor();
+            this.renderScene();
+        }
+        this.update();
+    }
+
+    /**
+     * Recolor the source overlay from its energy values (weight fallback,
+     * solid when neither exists) through the current colormap with the
+     * energy data range — independent of the tally color-by array.
+     */
+    protected refreshTallySourceColors(): void {
+        const points = this.tallySourcePoints;
+        if (!points) {
+            return;
+        }
+        const geometry = points.geometry as THREE.BufferGeometry;
+        const colors = geometry.getAttribute('color') as THREE.BufferAttribute;
+        const solid = new THREE.Color(this.solidColor);
+        const values = this.tallySourceValues;
+        if (!values || !this.tallySourceRange) {
+            for (let i = 0; i < colors.count; i++) {
+                colors.setXYZ(i, solid.r, solid.g, solid.b);
+            }
+            colors.needsUpdate = true;
+            return;
+        }
+        const definition = getColormap(this.colormap);
+        const mapping: ScalarMapping | undefined = definition
+            ? { definition, range: this.tallySourceRange, logScale: this.logScale, invert: this.invert, component: MAGNITUDE_COMPONENT }
+            : undefined;
+        for (let i = 0; i < colors.count && i < values.length; i++) {
+            const mapped = mapping ? mapScalar(values[i], mapping) : undefined;
+            if (mapped) {
+                colors.setXYZ(i, mapped[0], mapped[1], mapped[2]);
+            } else {
+                colors.setXYZ(i, solid.r, solid.g, solid.b);
+            }
+        }
+        colors.needsUpdate = true;
     }
 
     /** Show or hide the tally volume (Viewer Settings toggle). */
@@ -942,6 +1110,246 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
         this.applyShadingVisibility();
         this.renderScene();
         this.update();
+    }
+
+    /** Switch the tally-volume representation (Viewer Settings smooth toggle). */
+    setTallyVolumeSmooth(smooth: boolean): void {
+        const mode: TallyVolumeMode = smooth ? 'smooth' : 'boxes';
+        if (mode === this.tallyVolumeMode) {
+            return;
+        }
+        this.tallyVolumeMode = mode;
+        if (smooth && !this.tallyVolumeVisible) {
+            // The smooth switch selects a representation, not visibility:
+            // without this, enabling it while the master tally toggle is
+            // off shows nothing (boxes hide for the wrong mode, raycast for
+            // the master flag) and clip reveals hollow shells.
+            this.tallyVolumeVisible = true;
+        }
+        this.syncTallyVolumeMode();
+        this.applyShadingVisibility();
+        this.renderScene();
+        this.update();
+    }
+
+    /**
+     * Reconcile the smooth raycast mesh with the current mode and color-by
+     * array: builds it on first switch (falling back to boxes when the grid
+     * is missing or WebGL2 3D textures fail), repacks the volume texture on
+     * array/component switches, and refreshes the lookup otherwise. Smooth
+     * renders mapped cell data only — Solid Color mode and non-cell arrays
+     * revert to boxes so the volume never shows stale data.
+     */
+    protected syncTallyVolumeMode(): void {
+        const smooth = this.tallyVolumeSmooth;
+        if (this.tallyVolumeMode !== 'smooth' || !this.tallyVolumeGrid || !this.dataGroup) {
+            if (smooth) {
+                smooth.mesh.visible = false;
+            }
+            return;
+        }
+        const grid = this.tallyVolumeGrid;
+        const selection = parseColorBy(this.colorBy);
+        const mapping = this.scalarMapping();
+        const voxelArray =
+            selection.kind !== 'solid' && selection.arrayName !== null
+                ? this.tallyVolumeArrays.find((entry) => entry.name === selection.arrayName)
+                : undefined;
+        const tupleCount = voxelArray ? Math.floor(voxelArray.values.length / Math.max(1, voxelArray.components)) : 0;
+        const nCells = grid.dims[0] * grid.dims[1] * grid.dims[2];
+        if (!voxelArray || !mapping || voxelArray.association !== 'cell' || tupleCount !== nCells) {
+            console.warn('[dagmc-viewer] smooth tally volume needs a mapped cell array — falling back to voxel boxes');
+            this.tallyVolumeMode = 'boxes';
+            if (smooth) {
+                smooth.mesh.visible = false;
+            }
+            this.update();
+            return;
+        }
+        const key = `${voxelArray.name}:${voxelArray.components}:${this.component}:${voxelArray.values.length}`;
+        if (!smooth || this.tallyVolumePackedKey !== key) {
+            const resolved = new Float64Array(tupleCount);
+            let dataMin = Infinity;
+            let dataMax = -Infinity;
+            for (let t = 0; t < tupleCount; t++) {
+                const v = tupleScalar(voxelArray.values, voxelArray.components, t, this.component);
+                resolved[t] = v;
+                if (v < dataMin) {
+                    dataMin = v;
+                }
+                if (v > dataMax) {
+                    dataMax = v;
+                }
+            }
+            if (!Number.isFinite(dataMin) || !Number.isFinite(dataMax)) {
+                dataMin = 0;
+                dataMax = 0;
+            }
+            this.tallyVolumePackedRange = [dataMin, dataMax];
+            const scalars = packVolumeScalars(resolved, grid.dims, [dataMin, dataMax]);
+            const lut = buildVolumeLut(mapping, [dataMin, dataMax], this.opacity);
+            try {
+                if (smooth) {
+                    smooth.mesh.parent?.remove(smooth.mesh);
+                    smooth.dispose();
+                    this.tallyVolumeSmooth = undefined;
+                }
+                this.tallyVolumeSmooth = createVolumeRaycastMesh({
+                    grid: {
+                        dims: [...grid.dims] as [number, number, number],
+                        min: [...grid.min] as [number, number, number],
+                        max: [...grid.max] as [number, number, number]
+                    },
+                    scalars,
+                    lut
+                });
+                this.tallyVolumePackedKey = key;
+                // Drawn after the ghosted shells like the voxel boxes, so the
+                // interior stays readable instead of drowning in transparency.
+                this.tallyVolumeSmooth.mesh.renderOrder = 10;
+                if (!this.tallyVolumeSmooth.mesh.parent) {
+                    this.dataGroup.add(this.tallyVolumeSmooth.mesh);
+                }
+            } catch (error) {
+                console.warn(
+                    '[dagmc-viewer] smooth tally volume failed, falling back to voxel boxes:',
+                    error instanceof Error ? error.message : error
+                );
+                this.tallyVolumeMode = 'boxes';
+                this.update();
+                return;
+            }
+        } else {
+            smooth.updateLut(buildVolumeLut(mapping, this.tallyVolumePackedRange ?? [0, 0], this.opacity));
+        }
+        this.applyVolumeClipBox();
+        this.updateTallyVolumeVisibility();
+    }
+
+    /** Show the smooth mesh exactly when its mode is active (boxes are handled by the shading flags). */
+    protected updateTallyVolumeVisibility(): void {
+        if (!this.dataGroup) {
+            return;
+        }
+        const flags = resolveViewerShadingFlags(this.shading, this.opacity);
+        if (this.tallyVolumeSmooth) {
+            this.tallyVolumeSmooth.mesh.visible = this.tallyVolumeVisible && this.tallyVolumeMode === 'smooth' && !flags.pointsOnly;
+        }
+        if (this.tallyVolumePoints) {
+            this.tallyVolumePoints.visible = this.tallyVolumeVisible && flags.pointsOnly;
+        }
+    }
+
+    /**
+     * Point cloud over the tally volume for `points` shading mode (mesh
+     * blocks only carry surface vertices). Preallocated at full instance
+     * count; `refreshTallyVolumePoints` repacks the non-empty prefix.
+     */
+    protected buildTallyVolumePoints(layout: VoxelInstanceLayout): THREE.Points {
+        const count = layout.cells.length;
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(count * 3), 3));
+        geometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(count * 3), 3));
+        geometry.setDrawRange(0, 0);
+        const material = new THREE.PointsMaterial({
+            size: this.pointSize,
+            vertexColors: true,
+            transparent: true,
+            opacity: this.opacity,
+            sizeAttenuation: false,
+            depthWrite: false,
+            map: getPointSpriteTexture() ?? null
+        });
+        const points = new THREE.Points(geometry, material);
+        points.name = 'tally-volume-points';
+        points.frustumCulled = false;
+        points.renderOrder = 10;
+        points.visible = false;
+        return points;
+    }
+
+    /**
+     * Repack the tally-volume point cloud from the current color-by array
+     * (same matching, component pick, and empty rule as the voxel boxes).
+     */
+    protected refreshTallyVolumePoints(): void {
+        const points = this.tallyVolumePoints;
+        const layout = this.tallyVolumeLayout;
+        if (!points || !layout) {
+            return;
+        }
+        const selection = parseColorBy(this.colorBy);
+        const mapping = this.scalarMapping();
+        const solid = new THREE.Color(this.solidColor);
+        const voxelArray =
+            selection.kind !== 'solid' && selection.arrayName !== null
+                ? this.tallyVolumeArrays.find((entry) => entry.name === selection.arrayName)
+                : undefined;
+        const tupleCount = voxelArray ? Math.floor(voxelArray.values.length / Math.max(1, voxelArray.components)) : 0;
+        const tupleOfInstance = (instance: number): number => {
+            if (!voxelArray) {
+                return -1;
+            }
+            const tuple = layout.cells[instance] ?? -1;
+            return tuple >= 0 && tuple < tupleCount ? tuple : -1;
+        };
+        const isEmpty = (instance: number): boolean => {
+            if (!voxelArray) {
+                return false;
+            }
+            const tuple = tupleOfInstance(instance);
+            return tuple >= 0 && voxelArray.values[tuple] === 0;
+        };
+        const mapAt = (value: number): [number, number, number] => {
+            const mapped = value !== undefined && mapping ? mapScalar(value, mapping) : undefined;
+            return mapped ? [mapped[0], mapped[1], mapped[2]] : [solid.r, solid.g, solid.b];
+        };
+        const payload = tallyVolumePoints(layout, isEmpty, (instance) =>
+            mapAt(
+                tupleScalar(
+                    voxelArray?.values ?? new Float64Array(0),
+                    voxelArray?.components ?? 1,
+                    tupleOfInstance(instance),
+                    this.component
+                )
+            )
+        );
+        const positions = points.geometry.getAttribute('position') as THREE.BufferAttribute;
+        const colors = points.geometry.getAttribute('color') as THREE.BufferAttribute;
+        (positions.array as Float32Array).set(payload.positions);
+        (colors.array as Float32Array).set(payload.colors);
+        points.geometry.setDrawRange(0, payload.positions.length / 3);
+        positions.needsUpdate = true;
+        colors.needsUpdate = true;
+    }
+
+    /**
+     * Shrink the raycast box to the clip-kept region (CPU-side box section,
+     * same kept-side contract as the three.js clip planes); without clip the
+     * mesh covers the full grid bounds again. A fully clipped volume hides.
+     */
+    protected applyVolumeClipBox(): void {
+        const smooth = this.tallyVolumeSmooth;
+        const grid = this.tallyVolumeGrid;
+        if (!smooth || !grid) {
+            return;
+        }
+        const merged = mergeDagmcBounds(this.visibleBlocks());
+        if (!merged) {
+            smooth.setBox(
+                [(grid.min[0] + grid.max[0]) / 2, (grid.min[1] + grid.max[1]) / 2, (grid.min[2] + grid.max[2]) / 2],
+                [grid.max[0] - grid.min[0], grid.max[1] - grid.min[1], grid.max[2] - grid.min[2]]
+            );
+            smooth.mesh.visible = this.tallyVolumeVisible && this.tallyVolumeMode === 'smooth';
+            return;
+        }
+        const placement = clipVolumeBox(this.clip, merged.min, merged.max, grid.min, grid.max);
+        if (!placement) {
+            smooth.mesh.visible = false;
+            return;
+        }
+        smooth.setBox(placement.center, placement.size);
+        this.updateTallyVolumeVisibility();
     }
 
     /** Download a PNG screenshot of the current canvas. */
@@ -1628,6 +2036,15 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
             if (this.tallyVolumeMesh) {
                 this.dataGroup.remove(this.tallyVolumeMesh);
             }
+            if (this.tallyVolumeSmooth) {
+                this.dataGroup.remove(this.tallyVolumeSmooth.mesh);
+            }
+            if (this.tallyVolumePoints) {
+                this.dataGroup.remove(this.tallyVolumePoints);
+            }
+            if (this.tallySourcePoints) {
+                this.dataGroup.remove(this.tallySourcePoints);
+            }
             this.disposeGroup(this.dataGroup);
             this.dataGroup = undefined;
         }
@@ -1647,6 +2064,15 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
         }
         if (this.tallyVolumeMesh) {
             this.dataGroup.add(this.tallyVolumeMesh);
+        }
+        if (this.tallyVolumeSmooth) {
+            this.dataGroup.add(this.tallyVolumeSmooth.mesh);
+        }
+        if (this.tallyVolumePoints) {
+            this.dataGroup.add(this.tallyVolumePoints);
+        }
+        if (this.tallySourcePoints) {
+            this.dataGroup.add(this.tallySourcePoints);
         }
         this.scene.add(this.dataGroup);
         this.fitView();
@@ -1930,6 +2356,9 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
                 colors.needsUpdate = true;
             });
         });
+        this.syncTallyVolumeMode();
+        this.refreshTallyVolumePoints();
+        this.refreshTallySourceColors();
     }
 
     /**
@@ -1973,6 +2402,7 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
                 (child.material as THREE.Material).clippingPlanes = planes;
             }
         });
+        this.applyVolumeClipBox();
     }
 
     private toThreePlanes(): THREE.Plane[] {
@@ -1990,7 +2420,11 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
         this.dataGroup?.traverse((child) => {
             if (child instanceof THREE.InstancedMesh) {
                 const material = child.material as THREE.MeshLambertMaterial;
-                material.opacity = flags.opacity;
+                // Tally voxels keep the raw slider opacity: x-ray ghosts
+                // geometry so the interior reads, but ghosting the data too
+                // washed the tally out (the smooth raycast already folds the
+                // raw opacity into its lookup for the same reason).
+                material.opacity = this.opacity;
                 material.transparent = flags.transparent;
                 // Ghosted voxels must not depth-reject their interior (see
                 // the native viewer): unsorted blending stays approximate.
@@ -2008,11 +2442,20 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
                 material.depthWrite = flags.depthWrite;
                 material.linewidth = this.lineWidth;
             } else if (child instanceof THREE.Mesh) {
+                // The smooth raycast mesh manages its own opacity through
+                // the RGBA lookup (widget opacity folds into LUT alpha);
+                // built-in material flags do not apply to its shader.
+                if ((child as THREE.Mesh).userData['tallyVolumeSmooth']) {
+                    return;
+                }
                 const material = child.material as THREE.MeshLambertMaterial;
                 material.wireframe = flags.wireframe;
                 material.opacity = flags.opacity;
                 material.transparent = flags.transparent;
-                material.depthWrite = flags.depthWrite;
+                // Ghosted surfaces must not write depth: depth ties across
+                // nested DoubleSide shells (plus imprint-coincident faces)
+                // flip winners per frame and blink while orbiting.
+                material.depthWrite = !flags.transparent;
             }
         });
     }
@@ -2026,8 +2469,10 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
         this.dataGroup.children.forEach((group) => {
             // Tally voxel volume: visibility follows its own toggle (never
             // the per-volume sets), hidden in `points` mode like the meshes.
+            // Boxes show unless smooth mode is active (the raycast mesh
+            // below takes over); smooth has no boxes to show.
             if (group instanceof THREE.InstancedMesh) {
-                group.visible = this.tallyVolumeVisible && !flags.pointsOnly;
+                group.visible = this.tallyVolumeVisible && this.tallyVolumeMode === 'boxes' && !flags.pointsOnly;
                 return;
             }
             group.children.forEach((child) => {
@@ -2052,6 +2497,7 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
                 }
             });
         });
+        this.updateTallyVolumeVisibility();
     }
 
     private findArrayInBlock(block: DagmcBlockModel, kind: 'point' | 'cell', name: string): NativeVtkDataArray | undefined {

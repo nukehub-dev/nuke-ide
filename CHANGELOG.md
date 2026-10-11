@@ -281,6 +281,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   backdrop is now choosable: `theme` (default, follows the active Theia
   theme as before), `dark`, `light`, or `gradient` (a dark gradient backdrop
   behind a transparent renderer).
+- nuke-visualizer: **x-ray washed out the tally volume** — the x-ray
+  ghost scale applied to every material including the tally voxels, so the
+  hot interior faded with the container it was meant to be seen through.
+  Tally colors (voxel boxes and the smooth raycast, which already used the
+  raw opacity) now stay at slider strength while geometry ghosts; lower the
+  Opacity slider itself to fade everything together.
+- nuke-visualizer: **tally overlay with source shows the source again** —
+  the native-only migration had reduced "+ Source" to a bare tally cloud
+  with no source particles at all. It now opens the standard drape overlay
+  and layers the statepoint source bank over it as energy-colored points
+  (own data range, shared colormap/sliders/clip); a missing bank still
+  falls back to the plain overlay. Also fixed along the way: full-overlay
+  clouds paired every value with the wrong cell on non-degenerate meshes
+  (y-major centers against x-major values).
+- nuke-visualizer: **overlay drops the graveyard prompt** — the full-3D
+  tally overlay no longer asks about graveyard filtering: the block always
+  converts (hidden by default like before) and the DAGMC Outline's
+  Graveyard switch toggles it post-load, so a filtered-out volume can now
+  be brought back without reconverting.
+- nuke-visualizer: **tally volume renders in points mode and over ghosts**
+  — mesh blocks only carry surface vertices, so Points mode showed no
+  interior tally at all; the volume now renders as colored points over
+  non-empty cell centers (void stays empty, same mapping). Tally objects
+  (boxes, raycast, points) also draw after the ghosted shells, so the
+  interior no longer drowns in stacked transparency at some orbit angles.
+- nuke-visualizer: **smooth trilinear volume rendering for tally meshes** —
+  the DAGMC drape scene's tally volume (previously per-cell voxel boxes
+  only) gains a Viewer Settings "Smooth volume" switch rendering the same
+  mesh as a hardware-trilinear raycast volume (R8 3D texture, CPU-built
+  RGBA lookup from the shared color pipeline so colors match the boxes,
+  exact-zero cells stay invisible, clip planes cut it identically, boxes
+  on any failure). Boxes stay the default; the switch is sticky per viewer.
 
 ### Changed
 
@@ -426,7 +458,10 @@ byte position nor a base64 character position`)** — vtk 9 writers emit
   point cloud kept for Points mode; curvilinear grids stay clouds.
   Zero-valued cells collapse to invisible (void never washes out
   geometry), ghosted boxes skip depth writes so interiors stay visible,
-  and the drape view loads the tally mesh the same way. The tally volume
+  and the drape view loads the tally mesh the same way. Ghosted surfaces
+  likewise skip depth writes (opaque rendering unchanged): depth ties
+  across nested DoubleSide shells and imprint-coincident faces flipped
+  winners per frame and blinked while orbiting. The tally volume
   now also syncs material props on load (it kept build-time translucency
   and ghosted at full opacity), and a skipped drape color-by warns with
   the cause instead of failing silently.
@@ -612,6 +647,25 @@ byte position nor a base64 character position`)** — vtk 9 writers emit
   through ring-sampled station wires, circular sections through analytic
   circle stations), giving a STEP-durable solid; open-spine behavior is
   unchanged.
+- nuke-visualizer: **DAGMC drape blocks failed with `Cannot decompress` errors** — vtk 9.3
+  multiblock output emits base64 CHARACTER offsets, and one such offset happened to satisfy the loose
+  appended-header check (it landed on the block's own csize field, reading
+  it as nblocks), so the parser trusted the byte position and died in zlib
+  instead of using the character conversion. The validator now walks the
+  whole chunk table before trusting a position, and a position that
+  validates yet fails to decode falls back to the character conversion
+  before throwing. Covered by an ambiguous-offset regression test plus a
+  direct fallback unit test; the previously-failing cached tokamak drape
+  blocks now parse.
+- nuke-visualizer: **tally overlay "Smooth Interpolation" had no effect**
+  — the rendering-style pick was collected but never reached the
+  converter: the DAGMC drape always sampled nearest-cell centroids (flat
+  per-triangle color) and the slice path always ran trilinear. Smooth now
+  trilinearly interpolates the tally mesh at the surface vertices into
+  point data (`--smooth`, `Point: <array>` color-by, GPU-blended between
+  mesh cells, cached separately), while Pixelated keeps nearest-cell
+  values (cell data, `Cell: <array>`); slices gain the matching
+  nearest-cell mode (`--pixelated`). Covered by sampler unit tests.
 
 ### Added
 

@@ -656,17 +656,119 @@ def source_to_vtk(path, output_path=None, limit=None):
 # ---------------------------------------------------------------------------
 
 
+def sample_trilinear_values(values_3d, lower_left, upper_right, points):
+    """Trilinear-sample a cell-centered regular grid at arbitrary points.
+
+    Same cell-centered lattice math as :func:`sample_regular_slice`:
+    cell centers are the sample lattice, out-of-grid coordinates clamp to
+    the edge cells. Inputs: ``values_3d`` ((nx, ny, nz) cell means),
+    ``lower_left``/``upper_right`` (grid corners in cm), ``points``
+    ((N, 3) sample coordinates). Output: ``(N,)`` float array. Raises
+    :class:`OutputReaderError` on bad input. Pure numpy.
+    """
+    try:
+        grid = np.asarray(values_3d, dtype=float)
+    except (TypeError, ValueError):
+        raise OutputReaderError("values_3d must be a numeric 3D array") from None
+    if grid.ndim != 3 or min(grid.shape) < 1:
+        raise OutputReaderError(f"values_3d must have shape (nx, ny, nz), got {grid.shape}")
+    try:
+        lo = np.asarray(lower_left, dtype=float).reshape(3)
+        hi = np.asarray(upper_right, dtype=float).reshape(3)
+    except (TypeError, ValueError):
+        raise OutputReaderError("lower_left/upper_right must each hold 3 numbers") from None
+    if np.any(~np.isfinite(lo)) or np.any(~np.isfinite(hi)) or np.any(hi <= lo):
+        raise OutputReaderError("lower_left/upper_right must be finite with lower < upper")
+    try:
+        pts = np.asarray(points, dtype=float).reshape(-1, 3)
+    except (TypeError, ValueError):
+        raise OutputReaderError("points must be numeric with shape (N, 3)") from None
+    if pts.shape[0] == 0:
+        raise OutputReaderError("points must hold at least one point")
+    if not np.all(np.isfinite(pts)):
+        raise OutputReaderError("points must all be finite")
+
+    nx, ny, nz = grid.shape
+    spacing = (hi - lo) / np.array([nx, ny, nz], dtype=float)
+    frac = (pts - lo) / spacing - 0.5
+    for d, count in enumerate((nx, ny, nz)):
+        frac[:, d] = np.clip(frac[:, d], 0.0, count - 1.0)
+    i0 = np.floor(frac).astype(np.int64)
+    i1 = np.minimum(i0 + 1, np.array([nx - 1, ny - 1, nz - 1]))
+    t = frac - i0
+    c000 = grid[i0[:, 0], i0[:, 1], i0[:, 2]]
+    c001 = grid[i0[:, 0], i0[:, 1], i1[:, 2]]
+    c010 = grid[i0[:, 0], i1[:, 1], i0[:, 2]]
+    c011 = grid[i0[:, 0], i1[:, 1], i1[:, 2]]
+    c100 = grid[i1[:, 0], i0[:, 1], i0[:, 2]]
+    c101 = grid[i1[:, 0], i0[:, 1], i1[:, 2]]
+    c110 = grid[i1[:, 0], i1[:, 1], i0[:, 2]]
+    c111 = grid[i1[:, 0], i1[:, 1], i1[:, 2]]
+    tx, ty, tz = t[:, 0], t[:, 1], t[:, 2]
+    return np.ascontiguousarray(
+        c000 * (1 - tx) * (1 - ty) * (1 - tz)
+        + c001 * (1 - tx) * (1 - ty) * tz
+        + c010 * (1 - tx) * ty * (1 - tz)
+        + c011 * (1 - tx) * ty * tz
+        + c100 * tx * (1 - ty) * (1 - tz)
+        + c101 * tx * (1 - ty) * tz
+        + c110 * tx * ty * (1 - tz)
+        + c111 * tx * ty * tz,
+        dtype=float,
+    )
+
+
+def sample_nearest_values(values_3d, lower_left, upper_right, points):
+    """Nearest-cell sample a cell-centered regular grid at arbitrary points.
+
+    Same lattice as :func:`sample_trilinear_values` but without blending:
+    each point takes the value of the cell whose center is closest
+    (out-of-grid coordinates clamp to the edge cells). Inputs/outputs mirror
+    :func:`sample_trilinear_values`. Pure numpy.
+    """
+    try:
+        grid = np.asarray(values_3d, dtype=float)
+    except (TypeError, ValueError):
+        raise OutputReaderError("values_3d must be a numeric 3D array") from None
+    if grid.ndim != 3 or min(grid.shape) < 1:
+        raise OutputReaderError(f"values_3d must have shape (nx, ny, nz), got {grid.shape}")
+    try:
+        lo = np.asarray(lower_left, dtype=float).reshape(3)
+        hi = np.asarray(upper_right, dtype=float).reshape(3)
+    except (TypeError, ValueError):
+        raise OutputReaderError("lower_left/upper_right must each hold 3 numbers") from None
+    if np.any(~np.isfinite(lo)) or np.any(~np.isfinite(hi)) or np.any(hi <= lo):
+        raise OutputReaderError("lower_left/upper_right must be finite with lower < upper")
+    try:
+        pts = np.asarray(points, dtype=float).reshape(-1, 3)
+    except (TypeError, ValueError):
+        raise OutputReaderError("points must be numeric with shape (N, 3)") from None
+    if pts.shape[0] == 0:
+        raise OutputReaderError("points must hold at least one point")
+    if not np.all(np.isfinite(pts)):
+        raise OutputReaderError("points must all be finite")
+
+    nx, ny, nz = grid.shape
+    spacing = (hi - lo) / np.array([nx, ny, nz], dtype=float)
+    idx = np.clip(
+        np.floor((pts - lo) / spacing).astype(np.int64), 0, np.array([nx - 1, ny - 1, nz - 1])
+    )
+    return np.ascontiguousarray(grid[idx[:, 0], idx[:, 1], idx[:, 2]], dtype=float)
+
+
 def sample_regular_slice(
-    values_3d, lower_left, upper_right, plane="z", position=None, resolution=200
+    values_3d, lower_left, upper_right, plane="z", position=None, resolution=200, pixelated=False
 ):
-    """Trilinear-sample a cell-centered regular grid on a slice plane.
+    """Sample a cell-centered regular grid on a slice plane.
 
     Same sampling math as ``slice_viz.sample_structured_values``: cell
     centers are the sample lattice, out-of-grid coordinates clamp to the
     edge cells. Inputs: ``values_3d`` ((nx, ny, nz) cell means),
     ``lower_left``/``upper_right`` (grid corners in cm), ``plane``
     (``"x"``/``"y"``/``"z"``), ``position`` (plane offset in cm, default:
-    grid center), ``resolution`` (points per in-plane axis). Output: dict
+    grid center), ``resolution`` (points per in-plane axis),
+    ``pixelated`` (nearest-cell values showing actual mesh cells instead
+    of trilinear interpolation, default False). Output: dict
     with ``plane``, ``position``, ``resolution``, ``points`` ((M, 3) float
     array, row-major over the (u, v) grid) and ``values`` ((M,) float
     array). Raises :class:`OutputReaderError` on bad input. Pure numpy.
@@ -702,32 +804,10 @@ def sample_regular_slice(
     points[:, in_plane[0]] = uu.ravel()
     points[:, in_plane[1]] = vv.ravel()
 
-    spacing = (hi - lo) / np.array([nx, ny, nz], dtype=float)
-    frac = (points - lo) / spacing - 0.5
-    for d, count in enumerate((nx, ny, nz)):
-        frac[:, d] = np.clip(frac[:, d], 0.0, count - 1.0)
-    i0 = np.floor(frac).astype(np.int64)
-    i1 = np.minimum(i0 + 1, np.array([nx - 1, ny - 1, nz - 1]))
-    t = frac - i0
-    c000 = grid[i0[:, 0], i0[:, 1], i0[:, 2]]
-    c001 = grid[i0[:, 0], i0[:, 1], i1[:, 2]]
-    c010 = grid[i0[:, 0], i1[:, 1], i0[:, 2]]
-    c011 = grid[i0[:, 0], i1[:, 1], i1[:, 2]]
-    c100 = grid[i1[:, 0], i0[:, 1], i0[:, 2]]
-    c101 = grid[i1[:, 0], i0[:, 1], i1[:, 2]]
-    c110 = grid[i1[:, 0], i1[:, 1], i0[:, 2]]
-    c111 = grid[i1[:, 0], i1[:, 1], i1[:, 2]]
-    tx, ty, tz = t[:, 0], t[:, 1], t[:, 2]
-    values = (
-        c000 * (1 - tx) * (1 - ty) * (1 - tz)
-        + c001 * (1 - tx) * (1 - ty) * tz
-        + c010 * (1 - tx) * ty * (1 - tz)
-        + c011 * (1 - tx) * ty * tz
-        + c100 * tx * (1 - ty) * (1 - tz)
-        + c101 * tx * (1 - ty) * tz
-        + c110 * tx * ty * (1 - tz)
-        + c111 * tx * ty * tz
-    )
+    if pixelated:
+        values = sample_nearest_values(grid, lo, hi, points)
+    else:
+        values = sample_trilinear_values(grid, lo, hi, points)
     return {
         "plane": plane,
         "position": position,
@@ -851,7 +931,11 @@ def mesh_cell_centers(dimension, lower_left, upper_right):
     dims, origin, spacing = validate_mesh_grid(dimension, lower_left, upper_right)
     axes = [np.asarray(origin[d]) + (np.arange(dims[d]) + 0.5) * spacing[d] for d in range(3)]
     xx, yy, zz = np.meshgrid(axes[0], axes[1], axes[2], indexing="ij")
-    return np.column_stack([xx.ravel(order="C"), yy.ravel(order="C"), zz.ravel(order="C")])
+    # Fortran (first-index-fastest) ravel matches the x-major flat tally
+    # order; C-order ravel would transpose x/y (and x/z on cubic meshes).
+    return np.column_stack(
+        [xx.ravel(order="F"), yy.ravel(order="F"), zz.ravel(order="F")]
+    )
 
 
 def overlay_to_vtk(
@@ -864,6 +948,7 @@ def overlay_to_vtk(
     position=None,
     resolution=200,
     output_path=None,
+    pixelated=False,
 ):
     """Convert a mesh tally to an overlay/slice .vtp file (no server).
 
@@ -871,7 +956,9 @@ def overlay_to_vtk(
     ``score``/``nuclide``, ``mode`` (``"slice"`` resamples the tally on a
     plane; ``"full"`` writes mesh cell centers), ``plane``/``position``/
     ``resolution`` (slice mode), optional ``output_path`` (.vtp destination,
-    default: temp file). This static extract carries the same tally values
+    default: temp file), ``pixelated`` (nearest-cell slice values showing
+    actual mesh cells instead of trilinear interpolation, default False).
+    This static extract carries the same tally values
     and renders natively as a round-point cloud. Output: JSON-safe dict with the output path
     (``vtkPath``), mode/plane/position, ``arrayName``, ``nPoints`` and
     ``dataRange``. Raises :class:`OutputReaderError` on bad input, missing
@@ -888,7 +975,7 @@ def overlay_to_vtk(
     if mode == "slice":
         grid = np.asarray(data["values"], dtype=float).reshape(dims, order="F")
         sampled = sample_regular_slice(
-            grid, lo, hi, plane=plane, position=position, resolution=resolution
+            grid, lo, hi, plane=plane, position=position, resolution=resolution, pixelated=pixelated
         )
         points, values = sampled["points"], sampled["values"]
         meta = {
@@ -927,14 +1014,17 @@ def overlay_to_vtk(
     }
 
 
-def _overlay_geometry_cache_dir(h5m_path, statepoint_path, tally_id, score, nuclide, graveyard):
+def _overlay_geometry_cache_dir(
+    h5m_path, statepoint_path, tally_id, score, nuclide, graveyard, smooth=False
+):
     """Manifest cache entry for one draped overlay conversion.
 
-    Inputs: same selector set as :func:`overlay_geometry_to_vtk`. Output:
+    Inputs: same selector set as :func:`overlay_geometry_to_vtk` (plus the
+    ``smooth`` interpolation flag). Output:
     ``(manifest_path, hit)`` inside the temp-dir ``nuke-visualizer``
     ``dagmc-overlay`` cache; the hash folds the geometry + statepoint
-    identity (name, size, mtime) plus the tally selectors, so stale
-    manifests are never reused.
+    identity (name, size, mtime) plus the tally selectors and the
+    interpolation mode, so stale manifests are never reused.
     """
     import hashlib
     import tempfile
@@ -947,7 +1037,8 @@ def _overlay_geometry_cache_dir(h5m_path, statepoint_path, tally_id, score, nucl
     hash_input = (
         f"{Path(h5m_path).name}:{h5m_stat.st_size}:{h5m_stat.st_mtime}:"
         f"{Path(statepoint_path).name}:{sp_stat.st_size}:{sp_stat.st_mtime}:"
-        f"{tally_id}:{score}:{nuclide}:{'graveyard' if graveyard else 'nograveyard'}"
+        f"{tally_id}:{score}:{nuclide}:{'graveyard' if graveyard else 'nograveyard'}:"
+        f"{'smooth' if smooth else 'pixelated'}"
     )
     file_hash = hashlib.md5(hash_input.encode()).hexdigest()[:12]
     manifest_dir = cache_dir / f"{Path(h5m_path).stem}_{file_hash}_overlay"
@@ -967,24 +1058,32 @@ def overlay_geometry_to_vtk(
     include_graveyard=False,
     output_dir=None,
     use_cache=True,
+    smooth=False,
 ):
     """Map a mesh tally onto DAGMC geometry volumes (true 3D overlay).
 
-    Each DAGMC volume keeps its triangulated surface; every triangle is
-    colored by sampling the regular tally mesh at the triangle centroid
-    (nearest cell, OpenMC x-major order — the same lookup the slice
-    resampler uses). The result is a multiblock ``.vtm`` the native DAGMC
+    Each DAGMC volume keeps its triangulated surface. In ``pixelated``
+    mode (``smooth=False``, the default) every triangle is colored by
+    sampling the regular tally mesh at the triangle centroid (nearest
+    cell, OpenMC x-major order — the same lookup the slice resampler
+    uses), so the drape shows actual mesh-cell values. In ``smooth`` mode
+    the tally mesh is trilinearly interpolated at the surface vertices
+    and stored as point data, so the client GPU blends values between
+    mesh cells. The result is a multiblock ``.vtm`` the native DAGMC
     viewer renders with volume isolation and instant color-by on the tally
-    array. Centroids outside the tally mesh clamp to the nearest edge cell.
+    array (``Point: <array>`` when smooth, ``Cell: <array>`` when
+    pixelated). Out-of-mesh samples clamp to the nearest edge cell.
 
     Inputs: ``statepoint_path`` (.h5 file), ``h5m_path`` (DAGMC geometry),
     ``tally_id`` (positive int), optional ``score``/``nuclide`` (default:
     first of each), ``include_graveyard`` (keep the termination volume,
     default False), optional ``output_dir`` (manifest destination; default:
     a hash-keyed entry in the temp-dir overlay cache, reused when
-    ``use_cache`` and still valid), ``use_cache`` (default True).
+    ``use_cache`` and still valid), ``use_cache`` (default True),
+    ``smooth`` (trilinear vertex interpolation, default False).
     Output: JSON-safe dict with the output path (``vtkPath``), ``mode``
-    ``"geometry"``, ``arrayName``, ``nVolumes`` and ``dataRange``. Raises
+    ``"geometry"``, ``arrayName``, ``arrayAssociation`` (``"point"`` when
+    smooth, ``"cell"`` otherwise), ``nVolumes`` and ``dataRange``. Raises
     :class:`OutputReaderError` for bad inputs, missing files/dependencies,
     non-mesh tallies, or non-finite values.
     """
@@ -998,19 +1097,37 @@ def overlay_geometry_to_vtk(
     )
     dims, origin, spacing = grid["dims"], np.asarray(grid["origin"]), np.asarray(grid["spacing"])
     flat = grid["flat"]
+    values_3d = np.asarray(data["values"], dtype=float).reshape(dims, order="F")
+    lo = np.asarray(data["lowerLeft"], dtype=float)
+    hi = np.asarray(data["upperRight"], dtype=float)
     array_name = data["arrayName"]
 
-    def sampler(volume_id, material, centroids):
-        over = (np.asarray(centroids, dtype=float) - origin) / spacing
-        idx = np.clip(np.floor(over).astype(int), 0, np.array(dims) - 1)
-        flat_idx = idx[:, 0] + dims[0] * (idx[:, 1] + dims[1] * idx[:, 2])
-        return array_name, flat[flat_idx]
+    cell_sampler = None
+    point_sampler = None
+    if smooth:
+
+        def point_sampler(volume_id, material, vertices):
+            return array_name, sample_trilinear_values(values_3d, lo, hi, vertices)
+
+    else:
+
+        def cell_sampler(volume_id, material, centroids):
+            over = (np.asarray(centroids, dtype=float) - origin) / spacing
+            idx = np.clip(np.floor(over).astype(int), 0, np.array(dims) - 1)
+            flat_idx = idx[:, 0] + dims[0] * (idx[:, 1] + dims[1] * idx[:, 2])
+            return array_name, flat[flat_idx]
 
     from plugins.base.lib.dagmc import convert_h5m_to_multiblock_vtk
 
     if output_dir is None and use_cache:
         manifest_path, hit = _overlay_geometry_cache_dir(
-            h5m_path, statepoint_path, tally_id, data["score"], data["nuclide"], include_graveyard
+            h5m_path,
+            statepoint_path,
+            tally_id,
+            data["score"],
+            data["nuclide"],
+            include_graveyard,
+            smooth,
         )
         if hit:
             import re
@@ -1025,6 +1142,7 @@ def overlay_geometry_to_vtk(
                 "tallyName": data["tallyName"],
                 "mode": "geometry",
                 "arrayName": array_name,
+                "arrayAssociation": "point" if smooth else "cell",
                 "nVolumes": cached_volumes,
                 "fromCache": True,
                 "dataRange": data["dataRange"],
@@ -1039,8 +1157,10 @@ def overlay_geometry_to_vtk(
             str(h5m_path),
             output_dir=output_dir,
             include_graveyard=include_graveyard,
-            cell_sampler=sampler,
+            cell_sampler=cell_sampler,
+            point_sampler=point_sampler,
         )
+    association = result.get("sampledAssociation") or ("point" if smooth else "cell")
     return {
         "vtkPath": result["vtm_path"],
         "sourceFile": statepoint_path,
@@ -1049,6 +1169,7 @@ def overlay_geometry_to_vtk(
         "tallyName": data["tallyName"],
         "mode": "geometry",
         "arrayName": result["sampledArray"] or array_name,
+        "arrayAssociation": association,
         "nVolumes": len(result["volume_info"]),
         "fromCache": False,
         "dataRange": data["dataRange"],

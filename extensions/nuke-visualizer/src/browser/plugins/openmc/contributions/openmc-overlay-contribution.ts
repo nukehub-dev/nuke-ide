@@ -160,8 +160,7 @@ export class OpenMCOverlayContribution {
             statepointUri,
             overlayOptions.mode,
             overlayOptions.sliceOptions,
-            overlayOptions.options.pixelated,
-            overlayOptions.options.filterGraveyard
+            overlayOptions.options.pixelated
         );
     }
 
@@ -170,8 +169,7 @@ export class OpenMCOverlayContribution {
         statepointUri: URI,
         mode: 'slice' | 'full' = 'slice',
         sliceOptions?: OpenMCSliceOptions,
-        pixelated?: boolean,
-        filterGraveyard?: boolean
+        pixelated?: boolean
     ): Promise<void> {
         // Load tallies from statepoint
         console.log(`[OpenMC] Loading tallies from: ${statepointUri.toString()}`);
@@ -215,7 +213,6 @@ export class OpenMCOverlayContribution {
                 await this.openmcService.visualizeTallySlice(geometryUri, statepointUri, options, sliceOptions);
             } else {
                 options.pixelated = pixelated !== false;
-                options.filterGraveyard = filterGraveyard !== false;
                 await this.openmcService.visualizeTallyOnGeometry(geometryUri, statepointUri, options);
             }
         }
@@ -284,8 +281,7 @@ export class OpenMCOverlayContribution {
             const baseOptions: TallyVisualizationOptions = {
                 tallyId: selection.tallyId,
                 score: selection.score,
-                nuclide: selection.nuclide,
-                filterGraveyard: true
+                nuclide: selection.nuclide
             };
             try {
                 await this.openmcService.visualizeTallyAndSourceOnGeometry(geometryUri, statepointUri, baseOptions);

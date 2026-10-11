@@ -270,6 +270,9 @@ export class OpenMCOutputService {
         if (options?.includeGraveyard) {
             args.push('--include-graveyard');
         }
+        if (options?.smooth) {
+            args.push('--smooth');
+        }
         return this.runConversion(args, 600000);
     }
 
@@ -295,6 +298,9 @@ export class OpenMCOutputService {
         }
         if (options?.resolution !== undefined) {
             args.push('--resolution', String(options.resolution));
+        }
+        if (options?.pixelated) {
+            args.push('--pixelated');
         }
         return this.runConversion(args, 120000);
     }
@@ -355,13 +361,15 @@ export class OpenMCOutputService {
             if (typeof raw.error === 'string') {
                 return { success: false, error: raw.error };
             }
-            // `arrayName` is a first-class field (overlay-geometry drape
-            // defaults color-by to it); everything else rides in stats.
-            const { vtkPath, arrayName, ...stats } = raw;
+            // `arrayName`/`arrayAssociation` are first-class fields
+            // (overlay-geometry drape defaults color-by to them); everything
+            // else rides in stats.
+            const { vtkPath, arrayName, arrayAssociation, ...stats } = raw;
             return {
                 success: true,
                 vtkPath: vtkPath as string,
                 arrayName: typeof arrayName === 'string' ? arrayName : undefined,
+                arrayAssociation: arrayAssociation === 'point' || arrayAssociation === 'cell' ? arrayAssociation : undefined,
                 stats
             };
         } catch (error) {

@@ -79,7 +79,7 @@ export interface TallyVisualizationOptions {
     normalize?: boolean;
     /** Color map to use */
     colorMap?: string;
-    /** Whether to filter out graveyard surfaces (default: true) */
+    /** Exclude the graveyard block from conversion when true (default false: always converted, toggled post-load in the DAGMC Outline) */
     filterGraveyard?: boolean;
     /** Whether to use pixelated (blocky) rendering (default: true) */
     pixelated?: boolean;
@@ -532,11 +532,15 @@ export class OpenMCService {
     ): Promise<DagmcViewerWidget | null> {
         try {
             const h5mPath = geometryUri.path.toString();
+            const smooth = options.pixelated === false;
             const conversion = await this.openmcBackend.convertOverlayGeometryToVtk(statepointUri.path.toString(), h5mPath, {
                 tallyId: options.tallyId,
                 score: options.score,
                 nuclide: options.nuclide,
-                includeGraveyard: options.filterGraveyard === false
+                // Graveyard always converts (Outline toggles it post-load);
+                // only an explicit filter opt-out excludes it.
+                includeGraveyard: options.filterGraveyard !== true,
+                smooth
             });
             if (!conversion.success || !conversion.vtkPath) {
                 throw new Error(conversion.error || 'Overlay conversion failed');
@@ -575,8 +579,18 @@ export class OpenMCService {
                 );
             }
             if (conversion.arrayName) {
-                const colorBy = `Cell: ${conversion.arrayName}`;
-                if (widget.colorByOptions().some((option) => option.value === colorBy)) {
+                // Smooth drapes store the tally as point data (GPU-blended
+                // vertices); pixelated drapes store it as cell data (flat
+                // per-triangle). Prefer the backend-reported association,
+                // falling back to the requested rendering style.
+                const association = conversion.arrayAssociation ?? (options.pixelated === false ? 'point' : 'cell');
+                const candidates =
+                    association === 'point'
+                        ? [`Point: ${conversion.arrayName}`, `Cell: ${conversion.arrayName}`]
+                        : [`Cell: ${conversion.arrayName}`, `Point: ${conversion.arrayName}`];
+                const available = widget.colorByOptions().map((option) => option.value);
+                const colorBy = candidates.find((candidate) => available.some((option) => option === candidate));
+                if (colorBy) {
                     widget.applyProps({ colorBy });
                 } else {
                     // Never silent: a missing option means the backend sent
@@ -641,7 +655,8 @@ export class OpenMCService {
                     mode: 'slice',
                     plane: sliceOptions.plane,
                     position: sliceOptions.position,
-                    resolution: sliceOptions.resolution
+                    resolution: sliceOptions.resolution,
+                    pixelated: sliceOptions.pixelated
                 });
                 if (!conversion.success || !conversion.vtkPath) {
                     throw new Error(conversion.error || 'Slice conversion failed');
@@ -676,7 +691,9 @@ export class OpenMCService {
     }
 
     /**
-     * Prompt user for overlay visualization options (mode, slice options, graveyard, pixelated).
+     * Prompt user for overlay visualization options (mode, slice options, pixelated).
+     * The graveyard block is always converted and toggled post-load in the
+     * DAGMC Outline (hidden by default), so no graveyard prompt is needed.
      * Returns the selected options or undefined if cancelled.
      */
     async promptOverlayOptions(
@@ -685,7 +702,7 @@ export class OpenMCService {
     ): Promise<
         | {
               mode: 'slice' | 'full';
-              options: Pick<TallyVisualizationOptions, 'filterGraveyard' | 'pixelated'>;
+              options: Pick<TallyVisualizationOptions, 'pixelated'>;
               sliceOptions?: OpenMCSliceOptions;
           }
         | undefined
@@ -785,24 +802,8 @@ export class OpenMCService {
             };
         }
 
-        // 3. Full 3D mode
-        const isH5m = geometryUri.path.toString().endsWith('.h5m');
-        let filterGraveyard = false;
-        if (isH5m) {
-            const filterChoice = await this.quickInput.showQuickPick(
-                [
-                    { value: 'filter', label: '$(eye-closed) Filter Graveyard', description: 'Hide large graveyard surfaces' },
-                    { value: 'nofilter', label: '$(eye) Show Full Geometry', description: 'Include all surfaces' }
-                ],
-                {
-                    title: 'Graveyard Surface Filtering',
-                    placeholder: 'Select visualization mode'
-                }
-            );
-            if (!filterChoice) return undefined;
-            filterGraveyard = filterChoice.value === 'filter';
-        }
-
+        // 3. Full 3D mode: the graveyard block always converts (Outline
+        // toggles it post-load), so only the rendering style is asked here.
         const pixelChoice = await this.quickInput.showQuickPick(
             [
                 { value: 'smooth', label: '$(color-mode) Smooth Interpolation', description: 'Interpolated values between mesh cells' },
@@ -818,7 +819,6 @@ export class OpenMCService {
         return {
             mode,
             options: {
-                filterGraveyard,
                 pixelated: pixelChoice.value === 'pixelated'
             } as TallyVisualizationOptions
         };
@@ -831,40 +831,37 @@ export class OpenMCService {
         geometryUri: URI,
         statepointUri: URI,
         options: TallyVisualizationOptions
-    ): Promise<VisualizerWidget | TallyNativeViewerWidget | null> {
+    ): Promise<VisualizerWidget | TallyNativeViewerWidget | DagmcViewerWidget | null> {
         const available = await this.checkAvailability();
         if (!available) {
             return null;
         }
 
         try {
-            let label = `Tally ${options.tallyId}`;
-            if (options.score) {
-                label += ` (${options.score})`;
-            }
-            label += ' + Source';
-
-            // Native-only: static overlay cloud without a server; any
-            // conversion/parse failure surfaces an error naming the cause
-            // instead of starting a server.
-            try {
-                const conversion = await this.openmcBackend.convertOverlayToVtk(statepointUri.path.toString(), {
-                    tallyId: options.tallyId,
-                    score: options.score,
-                    nuclide: options.nuclide,
-                    mode: 'full'
-                });
-                if (!conversion.success || !conversion.vtkPath) {
-                    throw new Error(conversion.error || 'Overlay conversion failed');
-                }
-                const nativeWidget = await this.openTallyNativeWidget(conversion.vtkPath, 'overlay', label);
-                this.messageService.info('Loaded tally overlay with source particles natively');
-                return nativeWidget;
-            } catch (error) {
-                const message = error instanceof Error ? error.message : String(error);
-                this.messageService.error(`Failed to overlay tally with source: ${message}`);
+            // Route through the standard overlay (DAGMC drape for `.h5m`
+            // geometries, mesh voxels otherwise), then layer the statepoint
+            // source bank over it. Without a source bank the overlay alone
+            // opens, matching the documented fallback.
+            const widget = await this.visualizeTallyOnGeometry(geometryUri, statepointUri, options);
+            if (!widget) {
                 return null;
             }
+            if (widget instanceof DagmcViewerWidget) {
+                try {
+                    const conversion = await this.openmcBackend.convertSourceToVtk(statepointUri.path.toString(), {});
+                    if (!conversion.success || !conversion.vtkPath) {
+                        throw new Error(conversion.error || 'Source conversion failed');
+                    }
+                    await widget.setSourceFile(new URI(conversion.vtkPath));
+                    this.messageService.info('Loaded tally overlay with source particles natively');
+                } catch (error) {
+                    const message = error instanceof Error ? error.message : String(error);
+                    console.warn(`[openmc-service] source overlay skipped: ${message}`);
+                    this.messageService.info('Loaded tally overlay natively (no source bank found)');
+                }
+                widget.title.label += ' + Source';
+            }
+            return widget;
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
             this.messageService.error(`Failed to overlay tally with source: ${msg}`);

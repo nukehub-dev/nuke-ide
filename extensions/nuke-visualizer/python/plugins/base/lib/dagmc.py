@@ -408,6 +408,7 @@ def convert_h5m_to_multiblock_vtk(
     output_dir: str = None,
     include_graveyard: bool = False,
     cell_sampler=None,
+    point_sampler=None,
 ) -> dict[str, Any]:
     """Convert a DAGMC .h5m file to a VTK multi-block ``.vtm`` via pydagmc.
 
@@ -421,7 +422,12 @@ def convert_h5m_to_multiblock_vtk(
     ``material='Graveyard'`` volume, default False), optional
     ``cell_sampler`` (``(volume_id, material, centroids) -> (name, values)
     | None`` painting one extra Float64 cell-data array per volume from its
-    ``(n_tris, 3)`` triangle centroids — the tally-overlay drape path).
+    ``(n_tris, 3)`` triangle centroids — the pixelated tally-overlay drape
+    path), optional ``point_sampler`` (``(volume_id, material, vertices) ->
+    (name, values) | None`` painting one extra Float64 point-data array per
+    volume from its ``(n_points, 3)`` vertices — the smooth (trilinear)
+    tally-overlay drape path; per-vertex values let the client GPU
+    interpolate across triangles).
     Output: dict with ``vtm_path``, ``volume_info`` (one entry per block:
     ``id``, ``material``, ``numTriangles``, ``numVertices``, ``groups``,
     ``blockIndex``, ``selector``), ``materials`` (material name -> volume
@@ -455,7 +461,8 @@ def convert_h5m_to_multiblock_vtk(
     material_map = {}  # material_name -> list of volume ids
     block_index = 0
     sampled_array_name = None
-    if cell_sampler is not None:
+    sampled_association = None
+    if cell_sampler is not None or point_sampler is not None:
         import numpy as np
 
         _, numpy_support = _load_vtk()
@@ -499,6 +506,30 @@ def convert_h5m_to_multiblock_vtk(
                 grid.GetCellData().AddArray(sampled_array)
                 if sampled_array_name is None:
                     sampled_array_name = str(sampled_name)
+                    sampled_association = "cell"
+
+        if point_sampler is not None:
+            vertices = numpy_support.vtk_to_numpy(grid.GetPoints().GetData()).reshape(-1, 3)
+            sampled = point_sampler(vol_id, material, np.asarray(vertices, dtype=float))
+            if sampled is not None:
+                sampled_name, sampled_values = sampled
+                sampled_flat = np.asarray(sampled_values, dtype=float).ravel()
+                if sampled_flat.shape[0] != vertices.shape[0]:
+                    got = sampled_flat.shape[0]
+                    raise DagmcError(
+                        f"Point sampler for volume {vol_id} returned {got},"
+                        f" want {vertices.shape[0]}"
+                    )
+                if not np.all(np.isfinite(sampled_flat)):
+                    raise DagmcError(
+                        f"Point sampler for volume {vol_id} returned non-finite values"
+                    )
+                sampled_array = numpy_support.numpy_to_vtk(sampled_flat, deep=False)
+                sampled_array.SetName(str(sampled_name))
+                grid.GetPointData().AddArray(sampled_array)
+                if sampled_array_name is None:
+                    sampled_array_name = str(sampled_name)
+                    sampled_association = "point"
 
         # Add to multi-block
         multi_block.SetBlock(block_index, grid)
@@ -541,6 +572,7 @@ def convert_h5m_to_multiblock_vtk(
         "materials": material_map,
         "groups": group_map,
         "sampledArray": sampled_array_name,
+        "sampledAssociation": sampled_association,
     }
 
 

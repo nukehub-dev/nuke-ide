@@ -1625,7 +1625,10 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
                 const material = child.material as THREE.MeshLambertMaterial;
                 material.opacity = flags.opacity;
                 material.transparent = flags.transparent;
-                material.depthWrite = flags.depthWrite;
+                // Ghosted surfaces must not write depth: depth ties across
+                // nested DoubleSide shells (plus imprint-coincident faces)
+                // flip winners per frame and blink while orbiting.
+                material.depthWrite = !flags.transparent;
                 material.wireframe = flags.wireframe;
                 material.needsUpdate = true;
             }

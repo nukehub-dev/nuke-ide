@@ -145,3 +145,29 @@ export function buildVoxelMesh(layout: VoxelInstanceLayout, opacity: number): TH
     mesh.instanceMatrix.needsUpdate = true;
     return mesh;
 }
+
+/**
+ * Point-cloud payload for the tally volume in `points` shading mode. Mesh
+ * blocks only carry surface vertices, so without this the drape interior
+ * (and its colors) vanishes in points mode. One point per non-empty cell
+ * center — exact-zero cells are skipped exactly like the collapsed voxel
+ * boxes, so void stays empty. Positions and colors share one order: color
+ * entry `k` belongs to position entry `k`.
+ */
+export function tallyVolumePoints(
+    layout: VoxelInstanceLayout,
+    isEmpty: (instance: number) => boolean,
+    colorAt: (instance: number) => [number, number, number]
+): { positions: Float32Array; colors: Float32Array } {
+    const positions: number[] = [];
+    const colors: number[] = [];
+    for (let r = 0; r < layout.cells.length; r++) {
+        if (isEmpty(r)) {
+            continue;
+        }
+        positions.push(layout.centers[r * 3], layout.centers[r * 3 + 1], layout.centers[r * 3 + 2]);
+        const [cr, cg, cb] = colorAt(r);
+        colors.push(cr, cg, cb);
+    }
+    return { positions: new Float32Array(positions), colors: new Float32Array(colors) };
+}
