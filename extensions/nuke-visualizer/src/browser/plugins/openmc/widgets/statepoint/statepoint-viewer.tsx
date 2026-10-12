@@ -35,6 +35,7 @@ import { Emitter, Event } from '@theia/core';
 import { FileDialogService } from '@theia/filesystem/lib/browser/file-dialog';
 import { QuickInputService, WidgetManager, ApplicationShell } from '@theia/core/lib/browser';
 import { OpenMCService } from '../../openmc-service';
+import { OpenMCFileDiscovery } from '../../contributions/openmc-file-discovery';
 import {
     OpenMCStatepointFullInfo,
     OpenMCTallyInfo,
@@ -66,6 +67,9 @@ export class OpenMCStatepointViewerWidget extends ReactWidget {
 
     @inject(FileDialogService)
     protected readonly fileDialogService!: FileDialogService;
+
+    @inject(OpenMCFileDiscovery)
+    protected readonly fileDiscovery!: OpenMCFileDiscovery;
 
     @inject(QuickInputService)
     protected readonly quickInput!: QuickInputService;
@@ -129,6 +133,37 @@ export class OpenMCStatepointViewerWidget extends ReactWidget {
         if (this.onViewSourceHandler) {
             this.onViewSourceHandler();
         }
+    }
+
+    /**
+     * Resolve the geometry for a tally overlay: auto-detect first (well-known
+     * names, parent walk, owning `.nuke-openmc` pin), falling back to the
+     * manual file dialog only when detection finds nothing unambiguous.
+     * Returns undefined when the user cancels the dialog.
+     */
+    protected async resolveOverlayGeometry(statepointUri: URI): Promise<URI | undefined> {
+        const detected = await this.fileDiscovery.autoDetectGeometry(statepointUri.parent);
+        if (detected) {
+            console.log('[StatepointViewer] Auto-detected overlay geometry:', detected.toString());
+            return detected;
+        }
+        const fileUri = await this.fileDialogService.showOpenDialog({
+            title: 'Select Geometry File',
+            openLabel: 'Select',
+            canSelectFiles: true,
+            canSelectFolders: false,
+            canSelectMany: false,
+            filters: GEOMETRY_FILE_FILTER
+        });
+        if (!fileUri) {
+            return undefined;
+        }
+        const geometryUri = Array.isArray(fileUri) ? fileUri[0] : fileUri;
+        if (!geometryUri || !geometryUri.path.toString() || geometryUri.path.toString() === '/') {
+            console.error('[StatepointViewer] Invalid geometry URI:', geometryUri);
+            return undefined;
+        }
+        return geometryUri;
     }
 
     getStatepointUri(): URI | null {
@@ -248,73 +283,51 @@ export class OpenMCStatepointViewerWidget extends ReactWidget {
                         if (selection.action === 'view-3d') {
                             await this.openmcService.visualizeMeshTally(statepointUri, options);
                         } else if (selection.action === 'overlay-geometry') {
-                            // Show file dialog for user to select geometry file (DAGMC or XML)
-                            const fileUri = await this.fileDialogService.showOpenDialog({
-                                title: 'Select Geometry File',
-                                openLabel: 'Select',
-                                canSelectFiles: true,
-                                canSelectFolders: false,
-                                canSelectMany: false,
-                                filters: GEOMETRY_FILE_FILTER
-                            });
+                            // Auto-detect first (project folder, owning
+                            // .nuke-openmc); the file dialog is only the
+                            // fallback for ambiguous layouts.
+                            const geometryUri = await this.resolveOverlayGeometry(statepointUri);
+                            if (!geometryUri) {
+                                return;
+                            }
 
-                            if (fileUri) {
-                                const geometryUri = Array.isArray(fileUri) ? fileUri[0] : fileUri;
-                                // Validate the URI has a valid path
-                                if (!geometryUri || !geometryUri.path.toString() || geometryUri.path.toString() === '/') {
-                                    console.error('[StatepointViewer] Invalid geometry URI:', geometryUri);
-                                    return;
-                                }
+                            // Use shared prompt for overlay options
+                            const overlayOptions = await this.openmcService.promptOverlayOptions(geometryUri);
+                            if (!overlayOptions) return;
 
-                                // Use shared prompt for overlay options
-                                const overlayOptions = await this.openmcService.promptOverlayOptions(geometryUri);
-                                if (!overlayOptions) return;
+                            const baseOptions: any = {
+                                ...overlayOptions.options,
+                                tallyId: selection.tallyId,
+                                score: selection.score || 'total',
+                                nuclide: selection.nuclide || 'total'
+                            };
 
-                                const baseOptions: any = {
-                                    ...overlayOptions.options,
-                                    tallyId: selection.tallyId,
-                                    score: selection.score || 'total',
-                                    nuclide: selection.nuclide || 'total'
-                                };
-
-                                if (overlayOptions.mode === 'slice') {
-                                    await this.openmcService.visualizeTallySlice(
-                                        geometryUri,
-                                        statepointUri,
-                                        baseOptions,
-                                        overlayOptions.sliceOptions!
-                                    );
-                                } else {
-                                    await this.openmcService.visualizeTallyOnGeometry(geometryUri, statepointUri, baseOptions);
-                                }
+                            if (overlayOptions.mode === 'slice') {
+                                await this.openmcService.visualizeTallySlice(
+                                    geometryUri,
+                                    statepointUri,
+                                    baseOptions,
+                                    overlayOptions.sliceOptions!
+                                );
+                            } else {
+                                await this.openmcService.visualizeTallyOnGeometry(geometryUri, statepointUri, baseOptions);
                             }
                         } else if (selection.action === 'overlay-source') {
-                            const fileUri = await this.fileDialogService.showOpenDialog({
-                                title: 'Select Geometry File',
-                                openLabel: 'Select',
-                                canSelectFiles: true,
-                                canSelectFolders: false,
-                                canSelectMany: false,
-                                filters: GEOMETRY_FILE_FILTER
-                            });
-
-                            if (fileUri) {
-                                const geometryUri = Array.isArray(fileUri) ? fileUri[0] : fileUri;
-                                if (!geometryUri || !geometryUri.path.toString() || geometryUri.path.toString() === '/') {
-                                    console.error('[StatepointViewer] Invalid geometry URI:', geometryUri);
-                                    return;
-                                }
-
-                                // Source overlay uses defaults directly, no prompts needed
-                                const baseOptions: any = {
-                                    tallyId: selection.tallyId,
-                                    score: selection.score || 'total',
-                                    nuclide: selection.nuclide || 'total',
-                                    filterGraveyard: true
-                                };
-
-                                await this.openmcService.visualizeTallyAndSourceOnGeometry(geometryUri, statepointUri, baseOptions);
+                            // Auto-detect first, same as overlay-geometry above.
+                            const geometryUri = await this.resolveOverlayGeometry(statepointUri);
+                            if (!geometryUri) {
+                                return;
                             }
+
+                            // Source overlay uses defaults directly, no prompts needed
+                            const baseOptions: any = {
+                                tallyId: selection.tallyId,
+                                score: selection.score || 'total',
+                                nuclide: selection.nuclide || 'total',
+                                filterGraveyard: true
+                            };
+
+                            await this.openmcService.visualizeTallyAndSourceOnGeometry(geometryUri, statepointUri, baseOptions);
                         } else if (selection.action === 'heatmap') {
                             const tallyInfo = this.openmcService.getCurrentTallies().find((t) => t.id === selection.tallyId);
                             if (tallyInfo) {

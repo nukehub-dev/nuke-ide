@@ -701,6 +701,17 @@ info)` again, matching the documented `N of M` contract (outline toggles
   `openmc.geometry-mesh` before the tab appeared. Both openers now show
   the tab immediately with a spinner (`beginPendingLoad`, DAGMC parity)
   and land extraction failures in-tab instead of toast-only.
+- nuke-visualizer: **overlay finds its geometry without the picker** —
+  auto-detection only tried three hardcoded names beside the statepoint,
+  so project layouts (model up a folder, outputs below) always fell
+  through to the manual list. It now walks up toward the workspace root,
+  pins the exact file through the owning `.nuke-openmc` project's
+  the exact file through the owning `.nuke-openmc` project's
+  `dagmcFile`, and takes a lone `*.h5m` as a last resort (backups only
+  when alone); ambiguity still opens the picker. The statepoint viewer's
+  own overlay buttons now auto-detect too (they always opened the dialog),
+  and the `.nuke-openmc` pin outranks a co-located `geometry.xml` so a
+  DAGMC project's stray CSG file no longer routes the overlay to voxels.
 - nuke-visualizer: **Range row grows resets, a slider, loses spinners**
   — per-side reset buttons restore the data min/max independently, a
   dual-thumb slider drags the custom range live (inputs stay for exact
