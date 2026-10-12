@@ -51,7 +51,8 @@ import {
     describeTallyOverlayDataset,
     isTallyOverlayKind,
     pointSizeForKind,
-    smoothableGridDims
+    smoothableGridDims,
+    underlayGhostStrength
 } from './tally-overlay-model';
 import {
     GeometryNativeCell,
@@ -62,12 +63,6 @@ import {
     isVoidMaterial,
     materialNamesInOrder
 } from '../geometry-native/geometry-native-model';
-
-/** Ghost fill strength for CSG underlay boxes (the tally opacity slider stays authoritative over tally data only). */
-const CSG_UNDERLAY_FILL_OPACITY = 0.1;
-
-/** Edge strength for CSG underlay boxes. */
-const CSG_UNDERLAY_EDGE_OPACITY = 0.35;
 
 /**
  * Native tally mesh/overlay/source viewer widget (P3-D2): renders the three
@@ -97,6 +92,8 @@ export class TallyNativeViewerWidget extends NativeVtkViewerWidget implements Cs
     protected underlayCells: GeometryNativeCell[] = [];
     /** Canvas-menu visibility switch for the underlay (independent of the loaded cells). */
     protected underlayVisible = true;
+    /** Ghost strength follows the smooth raycast (dimmed while it draws); rebuilt only on change. */
+    protected underlayDimmed = false;
     /** Per-cell hidden set for the underlay (outline eye buttons). */
     protected hiddenUnderlayCells: number[] = [];
     /** Per-material hidden set for the underlay (outline material rows). */
@@ -363,6 +360,19 @@ export class TallyNativeViewerWidget extends NativeVtkViewerWidget implements Cs
     }
 
     /**
+     * Follow the smooth raycast: dim the ghosts while it draws so stacked
+     * shells cannot veil the projection, back to full context otherwise.
+     * Runs on every volume reconcile; rebuilds only on change.
+     */
+    protected override syncUnderlayDimming(): void {
+        const dimmed = this.isVolumeSmoothActive();
+        if (dimmed !== this.underlayDimmed) {
+            this.underlayDimmed = dimmed;
+            this.rebuildUnderlay();
+        }
+    }
+
+    /**
      * One ghosted CSG box: theme-aware fill (geometry-viewer palette) at a
      * fixed ghost strength with no depth writes, so tally voxels inside stay
      * readable (DAGMC ghost precedent). Void cells render as edge-only
@@ -382,6 +392,7 @@ export class TallyNativeViewerWidget extends NativeVtkViewerWidget implements Cs
         const maxY = Math.max(cell.bbox.min[1], cell.bbox.max[1]);
         const maxZ = Math.max(cell.bbox.min[2], cell.bbox.max[2]);
         const geometry = new THREE.BoxGeometry(maxX - minX, maxY - minY, maxZ - minZ);
+        const strength = underlayGhostStrength(this.underlayDimmed);
         const position: [number, number, number] = [(minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2];
         if (!isVoidMaterial(cell.material)) {
             const color = new THREE.Color(colorForCellOnTheme(cell, this.isDarkTheme()));
@@ -390,7 +401,7 @@ export class TallyNativeViewerWidget extends NativeVtkViewerWidget implements Cs
                 new THREE.MeshLambertMaterial({
                     color,
                     transparent: true,
-                    opacity: CSG_UNDERLAY_FILL_OPACITY,
+                    opacity: strength.fill,
                     depthWrite: false,
                     side: THREE.FrontSide,
                     emissive: new THREE.Color(selected ? 0x664400 : 0x000000)
@@ -406,7 +417,7 @@ export class TallyNativeViewerWidget extends NativeVtkViewerWidget implements Cs
             new THREE.LineBasicMaterial({
                 color: cellEdgeColor(this.isDarkTheme()),
                 transparent: true,
-                opacity: selected ? 1 : CSG_UNDERLAY_EDGE_OPACITY,
+                opacity: selected ? 1 : strength.edge,
                 depthWrite: false
             })
         );

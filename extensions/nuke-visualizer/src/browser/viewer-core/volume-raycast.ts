@@ -201,14 +201,20 @@ const VOLUME_FRAGMENT_SHADER = `uniform highp sampler3D volumeMap;
 uniform highp sampler2D lutMap;
 uniform vec3 boxMin;
 uniform vec3 boxMax;
+// March window (clip section): the analytic box hit runs against these
+// while texture sampling stays mapped to the full-grid boxMin/boxMax
+// above — remapping UVs to the clipped box instead would stretch the
+// whole dataset into the cut region rather than cutting it.
+uniform vec3 clipMin;
+uniform vec3 clipMax;
 in vec3 vWorldPos;
 layout(location = 0) out highp vec4 pc_fragColor;
 #define gl_FragColor pc_fragColor
 #define MARCH_STEPS ${VOLUME_MARCH_STEPS}
 vec2 boxHit(vec3 ro, vec3 rd) {
     vec3 inv = 1.0 / rd;
-    vec3 t0 = (boxMin - ro) * inv;
-    vec3 t1 = (boxMax - ro) * inv;
+    vec3 t0 = (clipMin - ro) * inv;
+    vec3 t1 = (clipMax - ro) * inv;
     vec3 tmin = min(t0, t1);
     vec3 tmax = max(t0, t1);
     return vec2(max(max(tmin.x, tmin.y), tmin.z), min(min(tmax.x, tmax.y), tmax.z));
@@ -292,7 +298,9 @@ export function createVolumeRaycastMesh(options: {
             volumeMap: { value: volumeTexture },
             lutMap: { value: lutTexture },
             boxMin: { value: new THREE.Vector3(...grid.min) },
-            boxMax: { value: new THREE.Vector3(...grid.max) }
+            boxMax: { value: new THREE.Vector3(...grid.max) },
+            clipMin: { value: new THREE.Vector3(...grid.min) },
+            clipMax: { value: new THREE.Vector3(...grid.max) }
         },
         vertexShader: VOLUME_VERTEX_SHADER,
         fragmentShader: VOLUME_FRAGMENT_SHADER,
@@ -320,12 +328,14 @@ export function createVolumeRaycastMesh(options: {
         setBox(center: readonly [number, number, number], boxSize: readonly [number, number, number]): void {
             mesh.position.set(center[0], center[1], center[2]);
             mesh.scale.set(boxSize[0], boxSize[1], boxSize[2]);
-            (material.uniforms['boxMin'] as THREE.IUniform).value.set(
+            // March window only: boxMin/boxMax keep the full-grid UV
+            // mapping so the cut reveals data instead of stretching it.
+            (material.uniforms['clipMin'] as THREE.IUniform).value.set(
                 center[0] - boxSize[0] / 2,
                 center[1] - boxSize[1] / 2,
                 center[2] - boxSize[2] / 2
             );
-            (material.uniforms['boxMax'] as THREE.IUniform).value.set(
+            (material.uniforms['clipMax'] as THREE.IUniform).value.set(
                 center[0] + boxSize[0] / 2,
                 center[1] + boxSize[1] / 2,
                 center[2] + boxSize[2] / 2

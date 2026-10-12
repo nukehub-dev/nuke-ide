@@ -76,6 +76,21 @@ export function smoothableGridDims(dims: readonly [number, number, number] | und
     return dims !== undefined && dims[0] > 1 && dims[1] > 1 && dims[2] > 1;
 }
 
+/** Ghost strengths for the CSG underlay: full context normally, faint while the smooth MIP is showing. */
+export interface UnderlayGhostStrength {
+    readonly fill: number;
+    readonly edge: number;
+}
+
+/**
+ * Ghost strength for the CSG underlay: full while voxel boxes draw, dimmed
+ * while the smooth raycast is active so stacked shells cannot veil the
+ * maximum-intensity projection. Pure.
+ */
+export function underlayGhostStrength(smoothActive: boolean): UnderlayGhostStrength {
+    return smoothActive ? { fill: 0.03, edge: 0.12 } : { fill: 0.1, edge: 0.35 };
+}
+
 /** Array names that mark a source-distribution point cloud (lowercased). */
 const SOURCE_ARRAY_NAMES = new Set(['source', 'sources', 'birth_position', 'positions', 'strength', 'particle_source']);
 

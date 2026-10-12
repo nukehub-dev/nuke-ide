@@ -702,6 +702,12 @@ info)` again, matching the documented `N of M` contract (outline toggles
   layer (energy-preferred point cloud with its own range, slider/clip
   aware, repaint-safe) and the flow layers it on tally tabs too, with
   the same no-bank fallback message.
+- nuke-visualizer: **smooth volume clip stretched instead of cutting**
+  — the clip section moved the raycast box but remapped the full-grid
+  texture over it, smearing the whole dataset into the cut region
+  (tallies and the DAGMC drape alike). The shader now marches a
+  separate clip window while sampling stays mapped to the full grid, so
+  cuts reveal data; the `setBox` contract test pins the split.
 - nuke-visualizer: **smooth raycast volume on tally mesh tabs** — the
   Viewer Settings Tally volume + Smooth volume rows were DAGMC-drape
   only, so mesh overlay tabs had boxes or nothing. The native VTK base
@@ -709,7 +715,9 @@ info)` again, matching the documented `N of M` contract (outline toggles
   box-section clip, per-mode visibility) and tally meshes feed it their
   grid: true 3D datasets gain both rows (Solid Color and non-cell arrays
   fall back to boxes; slices and clouds stay boxed). Enabling smooth
-  while hidden also enables visibility, mirroring the drape rule.
+  while hidden also enables visibility, mirroring the drape rule. While
+  smooth draws, the CSG underlay ghosts auto-dim to faint context (full
+  strength on boxes) so stacked shells cannot veil the projection.
 - nuke-visualizer: **CSG cell boxes had inverted plane halfspaces** — the
   headless extractor capped the wrong bound per plane token (`+N` shrank
   the upper bound, `-N` the lower), so any `+low -high` cell (pincell

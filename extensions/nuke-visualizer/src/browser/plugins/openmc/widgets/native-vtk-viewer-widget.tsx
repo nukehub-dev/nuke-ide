@@ -616,9 +616,15 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
     }
 
     /** True while the smooth mesh should draw (mode on, grid present). */
-    private isVolumeSmoothActive(): boolean {
+    protected isVolumeSmoothActive(): boolean {
         return this.volumeMode === 'smooth' && this.volumeSmoothGrid() !== undefined;
     }
+
+    /**
+     * Follow-up for volume reconciles (underlay dimming and friends);
+     * subclasses override, the default is a no-op.
+     */
+    protected syncUnderlayDimming(): void {}
 
     /**
      * Reconcile the smooth raycast mesh with the current mode and color-by
@@ -635,6 +641,7 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
             if (smooth) {
                 smooth.mesh.visible = false;
             }
+            this.syncUnderlayDimming();
             return;
         }
         const selection = parseColorBy(this.colorBy);
@@ -649,6 +656,7 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
                 smooth.mesh.visible = false;
             }
             this.applyShadingVisibility();
+            this.syncUnderlayDimming();
             this.update();
             return;
         }
@@ -706,6 +714,7 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
                 );
                 this.volumeMode = 'boxes';
                 this.applyShadingVisibility();
+                this.syncUnderlayDimming();
                 this.update();
                 return;
             }
@@ -714,6 +723,7 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         }
         this.applyVolumeClipBox();
         this.updateVolumeVisibility();
+        this.syncUnderlayDimming();
     }
 
     /** Show the smooth mesh exactly when its mode is active (boxes follow the shading flags). */

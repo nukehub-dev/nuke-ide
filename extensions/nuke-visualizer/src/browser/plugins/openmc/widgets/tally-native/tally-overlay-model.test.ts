@@ -47,7 +47,8 @@ import {
     hasSourceArrays,
     isTallyOverlayKind,
     pointSizeForKind,
-    smoothableGridDims
+    smoothableGridDims,
+    underlayGhostStrength
 } from './tally-overlay-model';
 import { classifyNativeVtkArrays } from '../native-vtk/native-vtk-data';
 import { parseGeometryNativeModel } from '../geometry-native/geometry-native-model';
@@ -182,5 +183,15 @@ describe('smoothableGridDims', () => {
         expect(smoothableGridDims([16, 16, 1])).toBe(false);
         expect(smoothableGridDims([8, 1, 1])).toBe(false);
         expect(smoothableGridDims(undefined)).toBe(false);
+    });
+});
+
+describe('underlayGhostStrength', () => {
+    it('dims fills and edges while smooth draws, full otherwise', () => {
+        expect(underlayGhostStrength(false)).toEqual({ fill: 0.1, edge: 0.35 });
+        const dimmed = underlayGhostStrength(true);
+        expect(dimmed.fill).toBeLessThan(underlayGhostStrength(false).fill);
+        expect(dimmed.edge).toBeLessThan(underlayGhostStrength(false).edge);
+        expect(dimmed.fill).toBeGreaterThan(0);
     });
 });

@@ -163,13 +163,19 @@ describe('createVolumeRaycastMesh', () => {
         const uniforms = (handle.mesh.material as THREE.ShaderMaterial).uniforms;
         expect(uniforms['boxMin'].value.toArray()).toEqual([0, 0, 0]);
         expect(uniforms['boxMax'].value.toArray()).toEqual([2, 1, 1]);
-        expect(Object.keys(uniforms).sort()).toEqual(['boxMax', 'boxMin', 'lutMap', 'volumeMap']);
+        expect(Object.keys(uniforms).sort()).toEqual(['boxMax', 'boxMin', 'clipMax', 'clipMin', 'lutMap', 'volumeMap']);
         const volume = uniforms['volumeMap'].value as THREE.Data3DTexture;
         expect([volume.image.width, volume.image.height, volume.image.depth]).toEqual([2, 1, 1]);
         handle.updateLut(buildVolumeLut(mapping, [0, 10], 0.5));
         handle.setBox([0, 0, 0], [1, 1, 1]);
         expect(handle.mesh.position.toArray()).toEqual([0, 0, 0]);
-        expect(uniforms['boxMax'].value.toArray()).toEqual([0.5, 0.5, 0.5]);
+        // The march window follows the cut, but the UV mapping stays on
+        // the full grid — otherwise clipping stretches data instead of
+        // cutting it.
+        expect(uniforms['clipMin'].value.toArray()).toEqual([-0.5, -0.5, -0.5]);
+        expect(uniforms['clipMax'].value.toArray()).toEqual([0.5, 0.5, 0.5]);
+        expect(uniforms['boxMin'].value.toArray()).toEqual([0, 0, 0]);
+        expect(uniforms['boxMax'].value.toArray()).toEqual([2, 1, 1]);
         handle.dispose();
     });
 

@@ -117,8 +117,11 @@ drape's **Tally volume** rows: a visibility master switch (hide the
 voxels to inspect the CSG underlay alone) and **Smooth volume**, which
 renders the same mesh as a trilinear raycast volume instead of
 per-cell boxes (same colors, exact-zero cells stay invisible, clip
-planes cut it identically). Solid Color mode and non-cell arrays fall
-back to boxes. Slices and source clouds keep boxes only.
+planes cut it identically). While smooth draws, the CSG ghosts
+auto-dim to faint context so stacked shells cannot veil the
+projection; they return to full strength on boxes. Solid Color mode
+and non-cell arrays fall back to boxes. Slices and source clouds keep
+boxes only.
 
 The graveyard termination volume always converts with the rest and stays
 hidden by default; re-show it anytime with the DAGMC Outline's Graveyard
