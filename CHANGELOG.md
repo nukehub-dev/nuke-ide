@@ -706,12 +706,18 @@ info)` again, matching the documented `N of M` contract (outline toggles
   so project layouts (model up a folder, outputs below) always fell
   through to the manual list. It now walks up toward the workspace root,
   pins the exact file through the owning `.nuke-openmc` project's
-  the exact file through the owning `.nuke-openmc` project's
   `dagmcFile`, and takes a lone `*.h5m` as a last resort (backups only
   when alone); ambiguity still opens the picker. The statepoint viewer's
   own overlay buttons now auto-detect too (they always opened the dialog),
   and the `.nuke-openmc` pin outranks a co-located `geometry.xml` so a
   DAGMC project's stray CSG file no longer routes the overlay to voxels.
+- nuke-visualizer: **smooth tally volume stays inside the model** — the
+  DAGMC drape's smooth raycast rendered the whole regular-mesh box as an
+  unmasked maximum-intensity projection, so interior hotspots (and the far
+  side of the ring) showed through the ghosted shells and projected outside
+  the model's outline. The viewer now fills a stencil buffer with the
+  geometry's screen footprint and stencil-tests the volume against it, so
+  the volumetric tally only appears where the model actually is.
 - nuke-visualizer: **Range row grows resets, a slider, loses spinners**
   — per-side reset buttons restore the data min/max independently, a
   dual-thumb slider drags the custom range live (inputs stay for exact

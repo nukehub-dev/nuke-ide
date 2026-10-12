@@ -328,6 +328,14 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
     private scene: THREE.Scene | undefined;
     private camera: THREE.PerspectiveCamera | undefined;
     private dataGroup: THREE.Group | undefined;
+    /**
+     * Color/depth-silent stencil writer used by the smooth tally volume's
+     * silhouette pass: the geometry blocks fill the stencil buffer, then the
+     * raycast box is stencil-tested against it, so the volumetric tally only
+     * shows where the model actually is on screen (no interior hotspots
+     * floating in the void through the ghosted shells).
+     */
+    private stencilWriteMaterial: THREE.MeshBasicMaterial | undefined;
     private orbitControls: OrbitControlsHandle | undefined;
     private resizeObserver: ResizeObserver | undefined;
     private contextMenuClose: (() => void) | undefined;
@@ -1204,6 +1212,16 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
                     lut
                 });
                 this.tallyVolumePackedKey = key;
+                // Clip the volume to the geometry's screen footprint (see
+                // renderScene): keep every fragment where pass 1 marked the
+                // model, drop the rest. KEEP ops leave the stencil untouched.
+                const volumeMaterial = this.tallyVolumeSmooth.mesh.material as THREE.ShaderMaterial;
+                volumeMaterial.stencilWrite = true;
+                volumeMaterial.stencilRef = 1;
+                volumeMaterial.stencilFunc = THREE.EqualStencilFunc;
+                volumeMaterial.stencilFail = THREE.KeepStencilOp;
+                volumeMaterial.stencilZFail = THREE.KeepStencilOp;
+                volumeMaterial.stencilZPass = THREE.KeepStencilOp;
                 // Drawn after the ghosted shells like the voxel boxes, so the
                 // interior stays readable instead of drowning in transparency.
                 this.tallyVolumeSmooth.mesh.renderOrder = 10;
@@ -1939,6 +1957,19 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
         this.renderer.domElement.addEventListener('pointerdown', () => this.renderer?.domElement.focus());
         this.renderer.localClippingEnabled = true;
         this.host.appendChild(this.renderer.domElement);
+        // Silhouette-pass material: nothing but a stencil ref, drawn with the
+        // depth test off so every geometry fragment (front and back) marks the
+        // model's screen footprint. KEEP ops mean it never dirties depth/color.
+        this.stencilWriteMaterial = new THREE.MeshBasicMaterial({
+            colorWrite: false,
+            depthWrite: false,
+            depthTest: false,
+            side: THREE.DoubleSide
+        });
+        this.stencilWriteMaterial.stencilWrite = true;
+        this.stencilWriteMaterial.stencilRef = 1;
+        this.stencilWriteMaterial.stencilFunc = THREE.AlwaysStencilFunc;
+        this.stencilWriteMaterial.stencilZPass = THREE.ReplaceStencilOp;
         this.scene = new THREE.Scene();
         this.scene.background = new THREE.Color(this.background);
         this.scene.add(new THREE.AmbientLight(0xffffff, 0.9));
@@ -1974,6 +2005,8 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
             this.renderer.domElement.remove();
             this.renderer = undefined;
         }
+        this.stencilWriteMaterial?.dispose();
+        this.stencilWriteMaterial = undefined;
         this.scene = undefined;
         this.camera = undefined;
         this.dataGroup = undefined;
@@ -1993,11 +2026,77 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
     }
 
     private renderScene(): void {
-        if (this.renderer && this.scene && this.camera) {
-            this.renderer.render(this.scene, this.camera);
+        const renderer = this.renderer;
+        const scene = this.scene;
+        const camera = this.camera;
+        if (renderer && scene && camera) {
+            const smooth = this.tallyVolumeSmooth;
+            if (smooth && smooth.mesh.visible && this.stencilWriteMaterial) {
+                this.renderSceneWithVolumeSilhouette(renderer, scene, camera, smooth.mesh);
+            } else {
+                renderer.render(scene, camera);
+            }
         }
         this.updateGizmo();
         this.updateMeasureLabel();
+    }
+
+    /**
+     * Two-pass render for the smooth tally volume: pass 1 fills the stencil
+     * buffer with the geometry blocks' screen footprint (color/depth silent),
+     * pass 2 draws the scene normally with the raycast box stencil-tested
+     * against it. Without this the volumetric MIP lets interior hotspots —
+     * and the far side of the ring — show through the ghosted shells and
+     * project outside the model's outline.
+     */
+    private renderSceneWithVolumeSilhouette(
+        renderer: THREE.WebGLRenderer,
+        scene: THREE.Scene,
+        camera: THREE.PerspectiveCamera,
+        volumeMesh: THREE.Object3D
+    ): void {
+        const stencil = this.stencilWriteMaterial!;
+        stencil.clippingPlanes = this.toThreePlanes();
+        const stashed: THREE.Object3D[] = [];
+        const stash = (object: THREE.Object3D | undefined): void => {
+            if (object && object.visible) {
+                object.visible = false;
+                stashed.push(object);
+            }
+        };
+        // Everything that must not contribute to the footprint: the volume
+        // itself, the source cloud, measure annotations, and every point/line
+        // primitive (points would render as quads under the mesh override).
+        stash(volumeMesh);
+        stash(this.tallyVolumeMesh);
+        stash(this.tallyVolumePoints);
+        stash(this.tallySourcePoints);
+        stash(this.measureGroup);
+        scene.traverse((object) => {
+            if (object instanceof THREE.Points || object instanceof THREE.LineSegments) {
+                stash(object);
+            }
+        });
+        // A color background makes three.js force-clear the stencil buffer on
+        // every render, so drop it for both passes and paint the clear color
+        // (the widget background) by hand instead.
+        const background = scene.background;
+        scene.background = null;
+        const autoClear = renderer.autoClear;
+        renderer.autoClear = false;
+        renderer.setClearColor(new THREE.Color(this.background), 1);
+        renderer.clear(true, true, true);
+        scene.overrideMaterial = stencil;
+        renderer.render(scene, camera);
+        scene.overrideMaterial = null;
+        for (const object of stashed) {
+            object.visible = true;
+        }
+        // Color + depth only: the stencil silhouette from pass 1 must survive.
+        renderer.clear(true, true, false);
+        renderer.render(scene, camera);
+        renderer.autoClear = autoClear;
+        scene.background = background;
     }
 
     /** Re-project the cube axes for the current camera (direct DOM writes, never React state). */
