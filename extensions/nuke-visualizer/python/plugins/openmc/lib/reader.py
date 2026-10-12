@@ -512,9 +512,20 @@ class OpenMCReader:
                             mesh_info = minfo
 
             # Get results robustly (using Ellipsis allows correct indexing on both 3D or 4D results)
+            # Statepoint 'results' hold [sum, sum_sq] moments (openmc tally.py),
+            # not [mean, std]: divide by n_realizations (output_readers parity).
             results = tally["results"][...]
-            mean = results[..., 0]  # Mean values
-            std_dev = results[..., 1]  # Standard deviations
+            n_realizations = int(tally["n_realizations"][()]) if "n_realizations" in tally else 1
+            n_realizations = max(1, n_realizations)
+            sum_vals = results[..., 0]
+            sum_sq_vals = results[..., 1] if results.shape[-1] > 1 else np.zeros_like(sum_vals)
+            mean = sum_vals / n_realizations
+            if n_realizations > 1:
+                with np.errstate(invalid="ignore", divide="ignore"):
+                    variance = sum_sq_vals / n_realizations - mean**2
+                std_dev = np.sqrt(np.maximum(variance, 0.0) / (n_realizations - 1))
+            else:
+                std_dev = np.zeros_like(mean)
 
             return OpenMCTally(
                 id=tally_id,
@@ -1708,10 +1719,20 @@ class OpenMCPlotter:
             # Get energy bins
             bins = energy_filter["bins"][...]
 
-            # Get results
+            # Get results ([sum, sum_sq] moments, not [mean, std] — divide
+            # by n_realizations like output_readers._tally_score_moments).
             results = tally["results"][...]
-            mean = results[..., 0]
-            std_dev = results[..., 1]
+            n_realizations = int(tally["n_realizations"][()]) if "n_realizations" in tally else 1
+            n_realizations = max(1, n_realizations)
+            sum_vals = results[..., 0]
+            sum_sq_vals = results[..., 1] if results.shape[-1] > 1 else np.zeros_like(sum_vals)
+            mean = sum_vals / n_realizations
+            if n_realizations > 1:
+                with np.errstate(invalid="ignore", divide="ignore"):
+                    variance = sum_sq_vals / n_realizations - mean**2
+                std_dev = np.sqrt(np.maximum(variance, 0.0) / (n_realizations - 1))
+            else:
+                std_dev = np.zeros_like(mean)
 
             # The mean array has shape (filter1_bins, filter2_bins, ..., n_scores, n_nuclides)
             # We need to isolate the energy filter axis and the requested score/nuclide

@@ -712,6 +712,13 @@ info)` again, matching the documented `N of M` contract (outline toggles
   layer (energy-preferred point cloud with its own range, slider/clip
   aware, repaint-safe) and the flow layers it on tally tabs too, with
   the same no-bank fallback message.
+- nuke-visualizer: **every native tally number read N× high** — the
+  statepoint readers took `results[..., 0]` as the mean, but openmc
+  stores [sum, sum_sq] moments: mesh tallies, drapes, slices, tally
+  tables, and spectra were all inflated by n_realizations (10× on a
+  10-batch run). Readers now divide by `n_realizations` (openmc
+  `tally.py` parity, with proper std), and the drape-manifest cache key
+  folds a converter version so inflated manifests are never reused.
 - nuke-visualizer: **smooth volume clip stretched instead of cutting**
   — the clip section moved the raycast box but remapped the full-grid
   texture over it, smearing the whole dataset into the cut region

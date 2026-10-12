@@ -57,6 +57,12 @@ def _load_vtk():
     return vtk, numpy_support
 
 
+#: Drape-manifest cache revision (folded into the cache key): bump whenever
+#: the painted values change shape or scale. v2: values are true means
+#: (divided by n_realizations) instead of raw sums.
+_OVERLAY_GEOMETRY_CACHE_VERSION = 2
+
+
 def _load_h5py():
     """Lazily import ``h5py``.
 
@@ -395,7 +401,11 @@ def read_mesh_tally(statepoint_path, tally_id, score=None, nuclide=None):
 
         if "results" not in tally:
             raise OutputReaderError(f"Tally {tally_id} has no results dataset")
-        mean = np.asarray(tally["results"][..., 0], dtype=float)
+        # Statepoint 'results' hold [sum, sum_sq] moments (openmc tally.py),
+        # not means: divide the sum column by n_realizations (missing only
+        # in synthetic fixtures, where 1 keeps values verbatim).
+        n_realizations = int(tally["n_realizations"][()]) if "n_realizations" in tally else 1
+        mean = np.asarray(tally["results"][..., 0], dtype=float) / max(1, n_realizations)
         n_bins = dimension[0] * dimension[1] * dimension[2]
         # Results layout: (filter bins, scores, nuclides) with the mesh
         # filter outermost; see openmc_vtk.get_cell_tally_data.
@@ -1023,8 +1033,9 @@ def _overlay_geometry_cache_dir(
     ``smooth`` interpolation flag). Output:
     ``(manifest_path, hit)`` inside the temp-dir ``nuke-visualizer``
     ``dagmc-overlay`` cache; the hash folds the geometry + statepoint
-    identity (name, size, mtime) plus the tally selectors and the
-    interpolation mode, so stale manifests are never reused.
+    identity (name, size, mtime) plus the tally selectors, the
+    interpolation mode, and the converter version, so stale manifests are
+    never reused.
     """
     import hashlib
     import tempfile
@@ -1038,7 +1049,8 @@ def _overlay_geometry_cache_dir(
         f"{Path(h5m_path).name}:{h5m_stat.st_size}:{h5m_stat.st_mtime}:"
         f"{Path(statepoint_path).name}:{sp_stat.st_size}:{sp_stat.st_mtime}:"
         f"{tally_id}:{score}:{nuclide}:{'graveyard' if graveyard else 'nograveyard'}:"
-        f"{'smooth' if smooth else 'pixelated'}"
+        f"{'smooth' if smooth else 'pixelated'}:"
+        f"v{_OVERLAY_GEOMETRY_CACHE_VERSION}"
     )
     file_hash = hashlib.md5(hash_input.encode()).hexdigest()[:12]
     manifest_dir = cache_dir / f"{Path(h5m_path).stem}_{file_hash}_overlay"

@@ -317,6 +317,21 @@ def test_read_mesh_tally_fixture(tmp_path):
     assert data["dataRange"] == [0.0, 7.0]
 
 
+def test_read_mesh_tally_divides_moments(tmp_path):
+    """Statepoint results hold [sum, sum_sq], not means: values divide by
+    n_realizations (regression: every native tally view read 10x high)."""
+    pytest.importorskip("h5py")
+    sp = tmp_path / "statepoint.10.h5"
+    _write_statepoint_fixture(str(sp))
+    import h5py as h5
+
+    with h5.File(str(sp), "r+") as f:
+        f["tallies"]["tally 1"].create_dataset("n_realizations", data=10)
+    data = tally_vtk.read_mesh_tally(str(sp), 1)
+    assert data["values"].tolist() == [v / 10 for v in range(8)]
+    assert data["dataRange"] == [0.0, 0.7]
+
+
 def test_read_mesh_tally_unknown_tally(tmp_path):
     pytest.importorskip("h5py")
     sp = tmp_path / "statepoint.1.h5"
@@ -603,6 +618,25 @@ def test_overlay_geometry_cache_hit(tmp_path, monkeypatch):
     assert second["fromCache"] is True and len(calls) == 1
     assert second["nVolumes"] == 2
     assert second["arrayName"] == "flux-mean"
+
+
+def test_overlay_geometry_cache_key_folds_converter_version(tmp_path, monkeypatch):
+    """The drape cache key must change when painted values change shape or
+    scale (regression: the n_realizations fix would otherwise keep serving
+    sum-inflated manifests)."""
+    import tempfile
+
+    monkeypatch.setattr(tempfile, "gettempdir", lambda: str(tmp_path))
+    h5m = tmp_path / "geom.h5m"
+    h5m.write_bytes(b"fake h5m content")
+    sp = tmp_path / "sp.h5"
+    sp.write_bytes(b"fake statepoint content")
+    first, _ = tally_vtk._overlay_geometry_cache_dir(str(h5m), str(sp), 4, "flux", "total", False)
+    monkeypatch.setattr(
+        tally_vtk, "_OVERLAY_GEOMETRY_CACHE_VERSION", tally_vtk._OVERLAY_GEOMETRY_CACHE_VERSION + 1
+    )
+    second, _ = tally_vtk._overlay_geometry_cache_dir(str(h5m), str(sp), 4, "flux", "total", False)
+    assert first != second
 
 
 def test_sample_trilinear_values_midpoint():
