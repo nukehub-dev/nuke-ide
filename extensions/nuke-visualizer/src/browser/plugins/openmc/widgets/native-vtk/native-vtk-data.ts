@@ -146,6 +146,14 @@ export function colorByValue(array: OpenMCVtkArrayInfo): string {
     return formatColorBy(array.association, array.name);
 }
 
+/**
+ * Source-bank color array preference (DAGMC "+ Source" parity): energy
+ * wins, weight is the fallback, anything else means solid color. Pure.
+ */
+export function selectSourceColorArray(names: readonly string[]): string | undefined {
+    return names.find((name) => name.toLowerCase() === 'energy') ?? names.find((name) => name.toLowerCase() === 'weight');
+}
+
 // ============================================================================
 // Array classification (quick-select groups for the four P1 dataset kinds)
 // ============================================================================

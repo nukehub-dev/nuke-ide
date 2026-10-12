@@ -55,6 +55,7 @@ import {
     parseNativeVtkXml,
     parseStructuredGridXml,
     parseUnstructuredGridXml,
+    selectSourceColorArray,
     sniffVtkDatasetType,
     SOLID_COLOR,
     strideForBudget,
@@ -113,6 +114,13 @@ describe('parseColorBy / formatColorBy / colorByValue', () => {
         expect(colorByValue(array('energy'))).toBe('Point: energy');
         expect(colorByValue(array('id', 'cell'))).toBe('Cell: id');
         expect(SOLID_COLOR).toBe('Solid Color');
+    });
+
+    it('prefers energy, falls back to weight, else solid', () => {
+        expect(selectSourceColorArray(['weight', 'energy'])).toBe('energy');
+        expect(selectSourceColorArray(['Weight'])).toBe('Weight');
+        expect(selectSourceColorArray(['id', 'batch'])).toBeUndefined();
+        expect(selectSourceColorArray([])).toBeUndefined();
     });
 });
 

@@ -155,7 +155,8 @@ particles from the statepoint overlaid as points throughout the scene.
 Source particles are colored by **energy** (weight fallback) through the
 current colormap with their own data range, and follow the shared Point
 size / Opacity sliders and clip planes. On any other geometry the tally
-mesh itself opens as voxel blocks (no separate source layer).
+mesh itself opens as voxel blocks with the same source layer (tab title
+gains `+ Source`; without a source bank the tally opens alone).
 
 > If the statepoint has no source bank, the visualization falls back to a standard geometry overlay.
 

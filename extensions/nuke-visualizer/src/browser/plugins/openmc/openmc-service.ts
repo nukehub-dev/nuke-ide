@@ -872,7 +872,7 @@ export class OpenMCService {
             if (!widget) {
                 return null;
             }
-            if (widget instanceof DagmcViewerWidget) {
+            if (widget instanceof DagmcViewerWidget || widget instanceof TallyNativeViewerWidget) {
                 try {
                     const conversion = await this.openmcBackend.convertSourceToVtk(statepointUri.path.toString(), {});
                     if (!conversion.success || !conversion.vtkPath) {

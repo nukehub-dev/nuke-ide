@@ -46,7 +46,9 @@ import {
     NativeVtkModel,
     parseColorBy,
     parseNativeVtk,
+    parseNativeVtkXml,
     readVtkText,
+    selectSourceColorArray,
     SOLID_COLOR,
     strideForBudget
 } from './native-vtk/native-vtk-data';
@@ -270,6 +272,12 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
     private volumePackedKey: string | undefined;
     /** Data range behind the packed texture (lookup refresh without re-upload). */
     private volumePackedRange: [number, number] | undefined;
+    /** Layered source-bank point cloud ("+ Source" flow); independent color mapping from the dataset. */
+    private tallySourcePoints: THREE.Points | undefined;
+    /** Per-particle source values (energy, weight fallback) in point order. */
+    private tallySourceValues: Float64Array | undefined;
+    /** Data range behind the source colors (own domain, not the tally color-by range). */
+    private tallySourceRange: [number, number] | undefined;
 
     @postConstruct()
     protected init(): void {
@@ -742,6 +750,108 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
             return;
         }
         smooth.setBox(placement.center, placement.size);
+    }
+
+    // ------------------------------------------------------------------
+    // Source-bank point layer ("+ Source" flow): one round point per
+    // particle over the dataset, colored by energy (weight fallback)
+    // through the current colormap with its own data range — independent
+    // of the dataset color-by array. Follows the point-size/opacity
+    // sliders and clip planes like any other points.
+    // ------------------------------------------------------------------
+
+    /** Drop the source-bank overlay (new dataset load); visibility state is not kept. */
+    protected clearTallySource(): void {
+        if (this.tallySourcePoints) {
+            this.tallySourcePoints.parent?.remove(this.tallySourcePoints);
+            this.tallySourcePoints.geometry.dispose();
+            (this.tallySourcePoints.material as THREE.Material).dispose();
+            this.tallySourcePoints = undefined;
+        }
+        this.tallySourceValues = undefined;
+        this.tallySourceRange = undefined;
+    }
+
+    /**
+     * Layer a converted source-bank `.vtp` cloud over the scene: one round
+     * point per particle. Throws when the file is not a point cloud.
+     */
+    async setSourceFile(uri: URI): Promise<void> {
+        this.clearTallySource();
+        const text = await readVtkText(this.fileService, uri);
+        const model = await parseNativeVtkXml(text);
+        if (model.family !== 'polydata' || model.positions.length === 0) {
+            throw new Error(`Source file '${uri.path.base}' holds no point cloud to overlay`);
+        }
+        const picked = selectSourceColorArray(model.pointArrays.map((entry) => entry.name));
+        const sourceArray = picked !== undefined ? model.pointArrays.find((entry) => entry.name === picked) : undefined;
+        const count = Math.floor(model.positions.length / 3);
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.BufferAttribute(model.positions.slice(), 3));
+        geometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(count * 3), 3));
+        geometry.userData = { role: 'tally-source' };
+        const material = new THREE.PointsMaterial({
+            size: this.pointSize,
+            vertexColors: true,
+            transparent: true,
+            opacity: this.opacity,
+            sizeAttenuation: false,
+            depthWrite: false,
+            map: getPointSpriteTexture() ?? null
+        });
+        const points = new THREE.Points(geometry, material);
+        points.name = 'tally-source';
+        points.frustumCulled = false;
+        points.renderOrder = 10;
+        this.tallySourcePoints = points;
+        if (sourceArray) {
+            this.tallySourceValues = sourceArray.values.slice() as Float64Array;
+            this.tallySourceRange = [...sourceArray.range] as [number, number];
+        }
+        if (this.dataGroup) {
+            this.dataGroup.add(points);
+            this.applyClip();
+            this.syncMaterialProps();
+            this.refreshTallySourceColors();
+            this.renderScene();
+        }
+        this.update();
+    }
+
+    /**
+     * Recolor the source overlay from its energy values (weight fallback,
+     * solid when neither exists) through the current colormap with the
+     * energy data range — independent of the dataset color-by array.
+     */
+    protected refreshTallySourceColors(): void {
+        const points = this.tallySourcePoints;
+        if (!points) {
+            return;
+        }
+        const geometry = points.geometry as THREE.BufferGeometry;
+        const colors = geometry.getAttribute('color') as THREE.BufferAttribute;
+        const solid = new THREE.Color(this.solidColor);
+        const values = this.tallySourceValues;
+        if (!values || !this.tallySourceRange) {
+            for (let i = 0; i < colors.count; i++) {
+                colors.setXYZ(i, solid.r, solid.g, solid.b);
+            }
+            colors.needsUpdate = true;
+            return;
+        }
+        const definition = getColormap(this.colormap);
+        const mapping: ScalarMapping | undefined = definition
+            ? { definition, range: this.tallySourceRange, logScale: this.logScale, invert: this.invert, component: MAGNITUDE_COMPONENT }
+            : undefined;
+        for (let i = 0; i < colors.count && i < values.length; i++) {
+            const mapped = mapping ? mapScalar(values[i], mapping) : undefined;
+            if (mapped) {
+                colors.setXYZ(i, mapped[0], mapped[1], mapped[2]);
+            } else {
+                colors.setXYZ(i, solid.r, solid.g, solid.b);
+            }
+        }
+        colors.needsUpdate = true;
     }
 
     /** Load a VTK file from disk through Theia's FileService (no HTTP fetch). */
@@ -1440,6 +1550,9 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         this.measure = resetMeasureState();
         this.clearMeasureSceneObjects();
         this.measureMarkerSize = this.measurePickTolerance();
+        // A fresh dataset drops a stale source layer (callers re-layer it
+        // explicitly, DAGMC manifest parity).
+        this.clearTallySource();
         this.dataGroup = new THREE.Group();
         this.voxelLayout = undefined;
         if (model.triangles && model.triangles.length > 0) {
@@ -1712,13 +1825,20 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         }
         // Keep the smooth volume in step with the new mapping (no-op
         // without a volume grid); the lookup refreshes even when only the
-        // range or colormap changed.
+        // range or colormap changed. The source layer repaints from its own
+        // energy domain right after (its colors never enter the paint
+        // passes below).
         this.refreshVolumeSmooth();
+        this.refreshTallySourceColors();
         this.note = '';
         const selection = parseColorBy(this.colorBy);
         const solid = new THREE.Color(this.solidColor);
         const paint = (geometry: THREE.BufferGeometry, colorAt: (vertex: number) => [number, number, number]): void => {
             // Box3Helper (grid bounds) and the edges overlay carry no color attribute — leave them.
+            // The source layer paints itself from its own energy domain — leave it too.
+            if ((geometry.userData?.['role'] as string | undefined) === 'tally-source') {
+                return;
+            }
             const colors = geometry.getAttribute('color') as THREE.BufferAttribute | undefined;
             if (!colors) {
                 return;

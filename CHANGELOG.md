@@ -696,6 +696,12 @@ info)` again, matching the documented `N of M` contract (outline toggles
   quick-pick's Pixelated row carried a nonexistent `$(symbol-block)`
   codicon and rendered iconless; it now uses the grid-like
   `$(symbol-array)`.
+- nuke-visualizer: **tally+source overlay skipped source on CSG** — the
+  source-bank layer only ran for DAGMC drape tabs, so CSG overlays
+  silently opened tally-only. The native VTK base now owns the source
+  layer (energy-preferred point cloud with its own range, slider/clip
+  aware, repaint-safe) and the flow layers it on tally tabs too, with
+  the same no-bank fallback message.
 - nuke-visualizer: **smooth raycast volume on tally mesh tabs** — the
   Viewer Settings Tally volume + Smooth volume rows were DAGMC-drape
   only, so mesh overlay tabs had boxes or nothing. The native VTK base
