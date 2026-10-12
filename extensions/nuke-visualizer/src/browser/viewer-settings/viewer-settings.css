@@ -272,7 +272,9 @@
 }
 
 /* Narrow numeric range inputs sitting with the Auto toggle in the Range row
-   (same input chrome as the row selects). */
+   (same input chrome as the row selects). Spinner arrows are suppressed:
+   they step by whole units, which is useless at data scales like 0.001 —
+   exact values come from typing, coarse moves from the dual slider below. */
 .viewer-settings-range-input {
     width: 7ch;
     flex-shrink: 0;
@@ -280,6 +282,99 @@
     color: var(--theia-input-foreground);
     border: 1px solid var(--theia-input-border);
     padding: 2px 4px;
+    appearance: textfield;
+    -moz-appearance: textfield;
+}
+
+.viewer-settings-range-input::-webkit-outer-spin-button,
+.viewer-settings-range-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+/* Per-side range reset (ghost icon buttons beside each input). */
+.viewer-settings-range-reset {
+    flex-shrink: 0;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    color: var(--theia-foreground);
+    opacity: 0.6;
+    cursor: pointer;
+}
+
+.viewer-settings-range-reset:hover {
+    opacity: 1;
+}
+
+/* Dual-thumb custom range slider: two overlapping native range inputs
+   (transparent tracks, pointer events only on the thumbs) over a shared
+   track + accent fill. Chromium is the only target (IDE + headless
+   tests); Firefox thumbs ride along via the -moz rules. */
+.viewer-settings-range-slider {
+    position: relative;
+    height: 18px;
+    margin-top: 2px;
+}
+
+.viewer-settings-range-track {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 8px;
+    height: 2px;
+    background: var(--theia-input-border);
+}
+
+.viewer-settings-range-fill {
+    position: absolute;
+    top: 8px;
+    height: 2px;
+    background: var(--theia-focusBorder);
+}
+
+.viewer-settings-range-thumb {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 18px;
+    margin: 0;
+    background: transparent;
+    -webkit-appearance: none;
+    appearance: none;
+    pointer-events: none;
+}
+
+.viewer-settings-range-thumb::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    pointer-events: auto;
+    width: 10px;
+    height: 14px;
+    border-radius: 2px;
+    background: var(--theia-focusBorder);
+    border: 1px solid var(--theia-foreground);
+    cursor: ew-resize;
+}
+
+.viewer-settings-range-thumb::-moz-range-thumb {
+    pointer-events: auto;
+    width: 10px;
+    height: 14px;
+    border-radius: 2px;
+    background: var(--theia-focusBorder);
+    border: 1px solid var(--theia-foreground);
+    cursor: ew-resize;
+}
+
+.viewer-settings-range-thumb::-moz-range-track {
+    background: transparent;
 }
 
 .viewer-settings-measure.active,

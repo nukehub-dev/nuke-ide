@@ -75,22 +75,8 @@ export class OpenMCGeometryNativeViewerContribution implements OutputViewerContr
         // Existing behavior first: hierarchy tree (and its trame-3D view).
         await this.geometry.openGeometryHierarchy(uri);
 
-        let mesh;
-        try {
-            mesh = await this.openmcBackend.extractGeometryMesh(uri.path.toString());
-        } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            console.warn(`[geometry-native] openmc.geometry-mesh failed for ${uri.path.toString()}: ${message}`);
-            this.messageService.error(`Native geometry view failed: ${message}.`);
-            return;
-        }
-        if (!mesh.success || !mesh.meshPath) {
-            const message = mesh.error || 'Mesh extraction failed';
-            console.warn(`[geometry-native] openmc.geometry-mesh failed for ${uri.path.toString()}: ${message}`);
-            this.messageService.error(`Native geometry view failed: ${message}.`);
-            return;
-        }
-
+        // Open the tab before the conversion runs, so it appears instantly
+        // with a loading spinner instead of popping open when done.
         const widget = await this.widgetManager.getOrCreateWidget<GeometryNativeViewerWidget>(GeometryNativeViewerWidget.ID, {
             id: `${GeometryNativeViewerWidget.ID}:${uri.path.toString()}`
         });
@@ -98,6 +84,26 @@ export class OpenMCGeometryNativeViewerContribution implements OutputViewerContr
             this.shell.addWidget(widget, { area: 'main' });
         }
         this.shell.activateWidget(widget.id);
+        widget.beginPendingLoad(uri.path.base, `Extracting ${uri.path.base} mesh…`);
+
+        let mesh;
+        try {
+            mesh = await this.openmcBackend.extractGeometryMesh(uri.path.toString());
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            console.warn(`[geometry-native] openmc.geometry-mesh failed for ${uri.path.toString()}: ${message}`);
+            widget.failPendingLoad(`Native geometry view failed: ${message}.`);
+            this.messageService.error(`Native geometry view failed: ${message}.`);
+            return;
+        }
+        if (!mesh.success || !mesh.meshPath) {
+            const message = mesh.error || 'Mesh extraction failed';
+            console.warn(`[geometry-native] openmc.geometry-mesh failed for ${uri.path.toString()}: ${message}`);
+            widget.failPendingLoad(`Native geometry view failed: ${message}.`);
+            this.messageService.error(`Native geometry view failed: ${message}.`);
+            return;
+        }
+
         await widget.setModelFile(new URI(mesh.meshPath));
         const outline = await this.widgetManager.getOrCreateWidget(CsgOutlineWidget.ID);
         if (!outline.isAttached) {

@@ -696,6 +696,16 @@ info)` again, matching the documented `N of M` contract (outline toggles
   quick-pick's Pixelated row carried a nonexistent `$(symbol-block)`
   codicon and rendered iconless; it now uses the grid-like
   `$(symbol-array)`.
+- nuke-visualizer: **geometry views open instantly with loading** —
+  clicking a `geometry.xml` or tree View 3D waited on
+  `openmc.geometry-mesh` before the tab appeared. Both openers now show
+  the tab immediately with a spinner (`beginPendingLoad`, DAGMC parity)
+  and land extraction failures in-tab instead of toast-only.
+- nuke-visualizer: **Range row grows resets, a slider, loses spinners**
+  — per-side reset buttons restore the data min/max independently, a
+  dual-thumb slider drags the custom range live (inputs stay for exact
+  values), and the number-spinner arrows are gone (they stepped whole
+  units on milli-scale data).
 - nuke-visualizer: **tally+source overlay skipped source on CSG** — the
   source-bank layer only ran for DAGMC drape tabs, so CSG overlays
   silently opened tally-only. The native VTK base now owns the source

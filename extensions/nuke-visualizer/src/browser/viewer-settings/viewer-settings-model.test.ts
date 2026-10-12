@@ -27,9 +27,12 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+    RANGE_SLIDER_STEPS,
     VIEWER_SETTINGS_WIDGET_IDS,
     VIEWER_SNAP_ACTIONS,
     isViewerSettingsWidgetId,
+    rangeSliderToValue,
+    rangeValueToSlider,
     resolveViewerSettingsTargetId,
     ViewerSettingsPatch,
     ViewerSettingsSnapshot,
@@ -209,5 +212,21 @@ describe('viewer-settings-model display contract', () => {
         expect(snapshot.background).toBeUndefined();
         expect(snapshot.pointSize).toBeUndefined();
         expect(snapshot.lineWidth).toBeUndefined();
+    });
+});
+
+describe('viewer-settings-model range slider', () => {
+    it('round-trips thumbs and values over the data span', () => {
+        expect(rangeSliderToValue(0, 2, 10)).toBe(2);
+        expect(rangeSliderToValue(RANGE_SLIDER_STEPS, 2, 10)).toBe(10);
+        expect(rangeSliderToValue(RANGE_SLIDER_STEPS / 2, 0, 100)).toBe(50);
+        expect(rangeSliderToValue(-5, 2, 10)).toBe(2);
+        expect(rangeSliderToValue(RANGE_SLIDER_STEPS + 9, 2, 10)).toBe(10);
+        expect(rangeValueToSlider(2, 2, 10)).toBe(0);
+        expect(rangeValueToSlider(10, 2, 10)).toBe(RANGE_SLIDER_STEPS);
+        expect(rangeValueToSlider(6, 2, 10)).toBe(RANGE_SLIDER_STEPS / 2);
+        expect(rangeValueToSlider(-99, 2, 10)).toBe(0);
+        expect(rangeValueToSlider(99, 2, 10)).toBe(RANGE_SLIDER_STEPS);
+        expect(rangeValueToSlider(5, 5, 5)).toBe(0);
     });
 });

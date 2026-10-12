@@ -39,6 +39,9 @@ import { ExodusTimeSliderWidget } from '../plugins/openmc/widgets/exodus-series/
 import { anyClipEnabled, CLIP_AXES, setAllClipEnabled, updateAxisClip } from '../viewer-core/clip-plane';
 import { isViewerShadingMode, VIEWER_SHADING_MODES } from '../viewer-core/shading-mode';
 import {
+    RANGE_SLIDER_STEPS,
+    rangeSliderToValue,
+    rangeValueToSlider,
     resolveViewerSettingsTargetId,
     VIEWER_SNAP_ACTIONS,
     ViewerSettingsHost,
@@ -423,52 +426,112 @@ export class ViewerSettingsWidget extends ReactWidget {
             }
             this.applyPatch(host, { range: isMin ? [value, range.max] : [range.min, value] });
         };
+        const minThumb = rangeValueToSlider(range.min, range.dataMin, range.dataMax);
+        const maxThumb = rangeValueToSlider(range.max, range.dataMin, range.dataMax);
+        const dragMin = (thumb: number): void => {
+            this.applyPatch(host, { range: [rangeSliderToValue(Math.min(thumb, maxThumb), range.dataMin, range.dataMax), range.max] });
+        };
+        const dragMax = (thumb: number): void => {
+            this.applyPatch(host, { range: [range.min, rangeSliderToValue(Math.max(thumb, minThumb), range.dataMin, range.dataMax)] });
+        };
         return (
-            <div className="viewer-settings-row" key="range">
-                {this.renderRowLabel(
-                    'graph',
-                    'Range',
-                    `Custom range clamps the colormap to [min, max]; Auto restores the data range (${range.dataMin} to ${range.dataMax})`
-                )}
-                <Tooltip content={`Restore the data range (${range.dataMin} to ${range.dataMax})`} position="top">
-                    <button
-                        className={`theia-button secondary viewer-settings-range-auto${range.mode === 'auto' ? ' active' : ''}`}
-                        aria-pressed={range.mode === 'auto'}
-                        onClick={() => this.applyPatch(host, { range: 'auto' })}
-                    >
-                        Auto
-                    </button>
-                </Tooltip>
-                <Tooltip content={`Custom range minimum (data min ${range.dataMin})`} position="top">
-                    <input
-                        type="number"
-                        className="viewer-settings-range-input"
-                        key={`min-${range.min}`}
-                        defaultValue={range.min}
-                        step="any"
-                        onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                                commit(e.currentTarget, true);
-                            }
+            <div className="viewer-settings-range-wrap" key="range">
+                <div className="viewer-settings-row">
+                    {this.renderRowLabel(
+                        'graph',
+                        'Range',
+                        `Custom range clamps the colormap to [min, max]; Auto restores the data range (${range.dataMin} to ${range.dataMax})`
+                    )}
+                    <Tooltip content={`Restore the data range (${range.dataMin} to ${range.dataMax})`} position="top">
+                        <button
+                            className={`theia-button secondary viewer-settings-range-auto${range.mode === 'auto' ? ' active' : ''}`}
+                            aria-pressed={range.mode === 'auto'}
+                            onClick={() => this.applyPatch(host, { range: 'auto' })}
+                        >
+                            Auto
+                        </button>
+                    </Tooltip>
+                    <Tooltip content={`Custom range minimum (data min ${range.dataMin})`} position="top">
+                        <input
+                            type="number"
+                            className="viewer-settings-range-input"
+                            key={`min-${range.min}`}
+                            defaultValue={range.min}
+                            step="any"
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                    commit(e.currentTarget, true);
+                                }
+                            }}
+                            onBlur={(e) => commit(e.currentTarget, true)}
+                        />
+                    </Tooltip>
+                    <Tooltip content={`Reset minimum to the data min (${range.dataMin})`} position="top">
+                        <button
+                            type="button"
+                            className="viewer-settings-range-reset"
+                            aria-label="Reset range minimum to data min"
+                            onClick={() => this.applyPatch(host, { range: [range.dataMin, range.max] })}
+                        >
+                            <i className={codicon('refresh')}></i>
+                        </button>
+                    </Tooltip>
+                    <Tooltip content={`Custom range maximum (data max ${range.dataMax})`} position="top">
+                        <input
+                            type="number"
+                            className="viewer-settings-range-input"
+                            key={`max-${range.max}`}
+                            defaultValue={range.max}
+                            step="any"
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                    commit(e.currentTarget, false);
+                                }
+                            }}
+                            onBlur={(e) => commit(e.currentTarget, false)}
+                        />
+                    </Tooltip>
+                    <Tooltip content={`Reset maximum to the data max (${range.dataMax})`} position="top">
+                        <button
+                            type="button"
+                            className="viewer-settings-range-reset"
+                            aria-label="Reset range maximum to data max"
+                            onClick={() => this.applyPatch(host, { range: [range.min, range.dataMax] })}
+                        >
+                            <i className={codicon('refresh')}></i>
+                        </button>
+                    </Tooltip>
+                </div>
+                <div className="viewer-settings-range-slider" role="group" aria-label="Custom color range slider">
+                    <div className="viewer-settings-range-track"></div>
+                    <div
+                        className="viewer-settings-range-fill"
+                        style={{
+                            left: `${(minThumb / RANGE_SLIDER_STEPS) * 100}%`,
+                            width: `${((maxThumb - minThumb) / RANGE_SLIDER_STEPS) * 100}%`
                         }}
-                        onBlur={(e) => commit(e.currentTarget, true)}
-                    />
-                </Tooltip>
-                <Tooltip content={`Custom range maximum (data max ${range.dataMax})`} position="top">
+                    ></div>
                     <input
-                        type="number"
-                        className="viewer-settings-range-input"
-                        key={`max-${range.max}`}
-                        defaultValue={range.max}
-                        step="any"
-                        onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                                commit(e.currentTarget, false);
-                            }
-                        }}
-                        onBlur={(e) => commit(e.currentTarget, false)}
+                        type="range"
+                        className="viewer-settings-range-thumb"
+                        aria-label={`Custom range minimum slider (currently ${range.min})`}
+                        min={0}
+                        max={RANGE_SLIDER_STEPS}
+                        step={1}
+                        value={minThumb}
+                        onChange={(e) => dragMin(Number(e.currentTarget.value))}
                     />
-                </Tooltip>
+                    <input
+                        type="range"
+                        className="viewer-settings-range-thumb"
+                        aria-label={`Custom range maximum slider (currently ${range.max})`}
+                        min={0}
+                        max={RANGE_SLIDER_STEPS}
+                        step={1}
+                        value={maxThumb}
+                        onChange={(e) => dragMax(Number(e.currentTarget.value))}
+                    />
+                </div>
             </div>
         );
     }

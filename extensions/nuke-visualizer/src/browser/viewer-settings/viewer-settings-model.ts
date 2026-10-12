@@ -97,6 +97,23 @@ export interface ViewerRangeSettings {
     readonly dataMax: number;
 }
 
+/** Dual-slider resolution for the custom range control (per-mille of the data span). */
+export const RANGE_SLIDER_STEPS = 1000;
+
+/** Map a dual-slider thumb (0..RANGE_SLIDER_STEPS) onto the data span. Pure. */
+export function rangeSliderToValue(thumb: number, dataMin: number, dataMax: number): number {
+    const clamped = Math.min(RANGE_SLIDER_STEPS, Math.max(0, thumb));
+    return dataMin + (clamped / RANGE_SLIDER_STEPS) * (dataMax - dataMin);
+}
+
+/** Map a range value onto a dual-slider thumb (0..RANGE_SLIDER_STEPS). Pure. */
+export function rangeValueToSlider(value: number, dataMin: number, dataMax: number): number {
+    if (!(dataMax > dataMin)) {
+        return 0;
+    }
+    return Math.min(RANGE_SLIDER_STEPS, Math.max(0, Math.round(((value - dataMin) / (dataMax - dataMin)) * RANGE_SLIDER_STEPS)));
+}
+
 /** Hex color section (solid color, background) of a settings snapshot. */
 export interface ViewerColorSettings {
     readonly value: string;

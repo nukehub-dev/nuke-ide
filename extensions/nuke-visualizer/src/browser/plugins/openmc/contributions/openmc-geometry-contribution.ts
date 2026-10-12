@@ -131,6 +131,7 @@ export class OpenMCGeometryContribution {
      * failure surfaces an error naming the cause.
      */
     private async showGeometry3D(request: GeometryView3DRequest): Promise<void> {
+        let nativeWidget: GeometryNativeViewerWidget | undefined;
         try {
             const treeWidget = await this.getOrCreateGeometryTreeWidget();
             const currentGeometryUri = treeWidget.getCurrentGeometryUri();
@@ -139,17 +140,21 @@ export class OpenMCGeometryContribution {
                 throw new Error('No geometry cells to render natively');
             }
             const geometryUri = currentGeometryUri || request.fileUri;
-            const mesh = await this.openmcBackend.extractGeometryMesh(geometryUri.path.toString());
-            if (!mesh.success || !mesh.meshPath) {
-                throw new Error(mesh.error || 'Mesh extraction failed');
-            }
-            const nativeWidget = await this.widgetManager.getOrCreateWidget<GeometryNativeViewerWidget>(GeometryNativeViewerWidget.ID, {
+            // Open the tab before the conversion runs, so it appears
+            // instantly with a loading spinner instead of popping open
+            // when done (geometry.xml-claim parity).
+            nativeWidget = await this.widgetManager.getOrCreateWidget<GeometryNativeViewerWidget>(GeometryNativeViewerWidget.ID, {
                 id: `${GeometryNativeViewerWidget.ID}:${geometryUri.toString()}`
             } as any);
             if (!nativeWidget.isAttached) {
                 await this.shell.addWidget(nativeWidget, { area: 'main' });
             }
             await this.shell.activateWidget(nativeWidget.id);
+            nativeWidget.beginPendingLoad(geometryUri.path.base, `Extracting ${geometryUri.path.base} mesh…`);
+            const mesh = await this.openmcBackend.extractGeometryMesh(geometryUri.path.toString());
+            if (!mesh.success || !mesh.meshPath) {
+                throw new Error(mesh.error || 'Mesh extraction failed');
+            }
             await nativeWidget.setModelFile(new URI(mesh.meshPath));
             const outline = await this.widgetManager.getOrCreateWidget(CsgOutlineWidget.ID);
             if (!outline.isAttached) {
@@ -163,6 +168,10 @@ export class OpenMCGeometryContribution {
             return;
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
+            // Land extraction failures in the open tab instead of leaving
+            // its spinner hanging (tree-state failures throw before any
+            // tab exists, so the widget stays undefined there).
+            nativeWidget?.failPendingLoad(`Native geometry view failed: ${message}`);
             this.messageService.error(`Native geometry view failed: ${message}`);
         }
     }

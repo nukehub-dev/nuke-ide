@@ -371,6 +371,38 @@ export class GeometryNativeViewerWidget extends ReactWidget implements ViewerSet
         this.update();
     }
 
+    /**
+     * Instant-open entry: show the viewer tab with a loading spinner while
+     * `openmc.geometry-mesh` extracts, so the tab appears immediately
+     * instead of waiting on the conversion (DAGMC `beginPendingLoad`
+     * parity). The later `setModelFile` replaces the title/caption.
+     */
+    beginPendingLoad(label: string, statusMessage: string): void {
+        this.modelUri = undefined;
+        this.cells = [];
+        this.surfaceCount = 0;
+        this.skippedDegenerate = 0;
+        this.selectedCellId = null;
+        this.hiddenCellIds = [];
+        this.hiddenMaterials = [];
+        this.showVoid = true;
+        this.title.label = `${GeometryNativeViewerWidget.LABEL}: ${label}`;
+        this.title.caption = `${GeometryNativeViewerWidget.LABEL}: ${label}`;
+        this.isLoading = true;
+        this.error = undefined;
+        this.statusMessage = statusMessage;
+        this.fireCsgOutlineChanged();
+        this.update();
+    }
+
+    /** Fail the pending load in-tab (extraction failure shows the error panel, not a toast-only dead end). */
+    failPendingLoad(message: string): void {
+        this.isLoading = false;
+        this.error = message;
+        this.fireCsgOutlineChanged();
+        this.update();
+    }
+
     /** Load a P3-D1 extractor JSON file through Theia's FileService (no HTTP fetch). */
     async setModelFile(uri: URI): Promise<void> {
         this.modelUri = uri;
