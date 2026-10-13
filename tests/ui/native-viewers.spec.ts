@@ -534,8 +534,11 @@ test('geometry.xml renders cells in the native geometry viewer', async ({ page }
     const container = await openViewer(page, 'geometry.xml');
     await expect(container.locator('.openmc-output-viewer-status.error')).toHaveCount(0);
     await expect(container.locator('.openmc-output-viewer-viewarea canvas')).toBeVisible({ timeout: 60_000 });
-    // Cell list from the extractor payload.
-    await expect(container.getByText('fuel (1)').first()).toBeVisible({ timeout: 30_000 });
+    // Cell list from the extractor payload: the CSG Outline sidebar binds to
+    // the active geometry viewer (outline sidebar pattern — the list lives
+    // outside the viewer tab, like the DAGMC outline).
+    const outline = page.locator('.csg-outline-panel').first();
+    await expect(outline.getByText('fuel (1)').first()).toBeVisible({ timeout: 30_000 });
 
     const bad = severe(errors);
     expect(bad, `unexpected severe errors:\n${bad.join('\n')}`).toEqual([]);

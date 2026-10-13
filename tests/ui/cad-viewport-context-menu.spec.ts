@@ -43,8 +43,9 @@ test('right-click context menu and draggable feature dialog', async ({ page }) =
     const canvas = viewport.locator('canvas').first();
     const errorBanner = viewport.locator('.cad-viewport-error-banner');
     // The canvas element exists before the build finishes; wait for the model
-    // (navigation cluster) or the build-failure banner.
-    const navCluster = viewport.locator('.cad-viewport-nav');
+    // (explode slider, which renders with the tessellation) or the
+    // build-failure banner.
+    const navCluster = viewport.locator('.cad-viewport-explode input[type=range]');
     await expect(navCluster.or(errorBanner).first()).toBeVisible({ timeout: 120_000 });
     if (await errorBanner.isVisible()) {
         test.skip(true, `CAD backend unavailable: ${(await errorBanner.textContent()) ?? 'build failed'}`);

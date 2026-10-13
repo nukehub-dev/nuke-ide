@@ -3,8 +3,10 @@
 The new extractors in ``plugins.openmc.lib.geometry_viz`` (CSG->mesh JSON
 for a three.js client) and ``plugins.openmc.lib.slice_viz`` (static .vtp
 slices without a server) build geometry with numpy only. These tests need
-only pytest + numpy: ``vtk`` is stubbed at import time (``slice_viz``
-imports it at module level for DAGMC grid building), ``openmc`` absence is
+only pytest + numpy: ``vtk`` is stubbed for the module imports below only
+(``slice_viz`` imports it at module level for DAGMC grid building) and
+removed from ``sys.modules`` immediately after so the stub cannot leak
+suite-wide, ``openmc`` absence is
 forced via ``sys.modules``, and VTK writes are exercised with recording
 fake ``vtk`` modules. New ``openmc.geometry-mesh`` /
 ``openmc.geometry-slice-vtk`` command handlers report errors as JSON on
@@ -12,6 +14,7 @@ stdout with exit code 1 (openmc-plugin contract).
 """
 
 import argparse
+import importlib.util
 import json
 import sys
 from types import ModuleType, SimpleNamespace
@@ -21,9 +24,23 @@ import pytest
 np = pytest.importorskip("numpy")
 
 
-def _ensure_vtk_import_stub():
-    """Install a bare vtk stub so the lib modules import without vtk."""
-    if sys.modules.get("vtk") is None:
+def _install_vtk_import_stub():
+    """Install a bare vtk stub so the lib modules import without vtk.
+
+    Only installs when real ``vtk`` is unavailable, and returns the names
+    installed so the caller can remove them right after the imports below.
+    The stub must not leak into ``sys.modules``: a leftover entry makes
+    ``pytest.importorskip("vtk")`` succeed suite-wide (turning correct
+    skips into failures in the minimal profile) and shadows the real
+    ``vtk`` for lazy ``import vtk`` gates in the full profile.
+    """
+    try:
+        if importlib.util.find_spec("vtk") is not None:
+            return []
+    except Exception:
+        return []
+    installed = []
+    if "vtk" not in sys.modules:
         vtk_stub = ModuleType("vtk")
 
         def _stub_getattr(name):
@@ -33,15 +50,19 @@ def _ensure_vtk_import_stub():
 
         vtk_stub.__getattr__ = _stub_getattr
         sys.modules["vtk"] = vtk_stub
+        installed.append("vtk")
+    if "vtk.util" not in sys.modules:
         util_mod = ModuleType("vtk.util")
         numpy_support_mod = ModuleType("vtk.util.numpy_support")
         numpy_support_mod.vtk_to_numpy = lambda arr: np.asarray(arr)
         util_mod.numpy_support = numpy_support_mod
         sys.modules["vtk.util"] = util_mod
         sys.modules["vtk.util.numpy_support"] = numpy_support_mod
+        installed.extend(["vtk.util", "vtk.util.numpy_support"])
+    return installed
 
 
-_ensure_vtk_import_stub()
+_STUBBED_VTK_MODULES = _install_vtk_import_stub()
 
 from nuke_viz.plugin import setup_parser_for_handler  # noqa: E402
 from plugins.openmc.commands import geometry as geometry_cmds  # noqa: E402
@@ -49,6 +70,10 @@ from plugins.openmc.lib import (
     geometry_viz,  # noqa: E402
     slice_viz,  # noqa: E402
 )
+
+while _STUBBED_VTK_MODULES:
+    sys.modules.pop(_STUBBED_VTK_MODULES.pop(), None)
+del _STUBBED_VTK_MODULES
 
 
 def _parse(handler, argv):

@@ -87,8 +87,12 @@ test('document-mode header toolbar renders with grouped actions and hides welcom
 
     // The redesigned header toolbar should render with the document title on the
     // left and grouped action buttons on the right.
+    // The overlay chrome (toolbar, shortcut bar, datum picker) mounts only
+    // after the viewport controller initializes, which awaits a cold dynamic
+    // import of the OrbitControls chunk (~20 s on a fresh page load — file
+    // flows mask this behind backend-build waits, new-document flows do not).
     const toolbar = page.locator('.cad-document-toolbar').first();
-    await expect(toolbar).toBeVisible({ timeout: 10_000 });
+    await expect(toolbar).toBeVisible({ timeout: 60_000 });
     await expect(toolbar.locator('.cad-document-toolbar-name')).toContainText('Untitled');
     await expect(toolbar.locator('.nuke-toolbar-group')).toHaveCount(7);
     await expect(toolbar.locator('[role="group"][aria-label="Document"]')).toBeVisible();
@@ -128,6 +132,9 @@ test('Q shortcut bar opens in document mode and closes on Escape', async ({ page
     await expect(templatePicker).toBeVisible({ timeout: 10_000 });
     await templatePicker.locator('button', { hasText: 'Empty document' }).first().click();
     await expect(viewport.locator('.cad-viewport-document-hint')).toBeVisible({ timeout: 10_000 });
+    // Overlay chrome mounts only after the controller's cold dynamic import
+    // (~20 s fresh); wait for the toolbar before driving overlay UI.
+    await expect(viewport.locator('.cad-document-toolbar').first()).toBeVisible({ timeout: 60_000 });
 
     // Focus the viewport container so the container-scoped Q handler fires.
     await viewport
@@ -168,6 +175,9 @@ test('Q shortcut bar opens in sketch mode and closes on Escape', async ({ page }
     await expect(templatePicker).toBeVisible({ timeout: 10_000 });
     await templatePicker.locator('button', { hasText: 'Empty document' }).first().click();
     await expect(viewport.locator('.cad-viewport-document-hint')).toBeVisible({ timeout: 10_000 });
+    // Overlay chrome mounts only after the controller's cold dynamic import
+    // (~20 s fresh); wait for the toolbar before driving overlay UI.
+    await expect(viewport.locator('.cad-document-toolbar').first()).toBeVisible({ timeout: 60_000 });
 
     // Start a new sketch on the XY plane.
     await runCommand(page, 'New Sketch');
