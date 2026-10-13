@@ -31,7 +31,15 @@ import { codicon } from '@theia/core/lib/browser/widgets/widget';
 import URI from '@theia/core/lib/common/uri';
 import { OpenMCBackendService, OpenMCWeightWindowsData } from '../../../../../common/openmc-protocol';
 import { NativeVtkViewerWidget } from '../native-vtk-viewer-widget';
-import { readVtkText } from '../native-vtk/native-vtk-data';
+import { NativeVtkDataArray, SOLID_COLOR, classifyNativeVtkArrays, formatColorBy, readVtkText } from '../native-vtk/native-vtk-data';
+import { DerivedFieldPanel, resolveHistogramSource } from '../derived-field-panel';
+import {
+    DEFAULT_HISTOGRAM_BINS,
+    DerivedFieldSourceArray,
+    derivedFieldName,
+    evaluateDerivedField,
+    parseDerivedField
+} from '../../../../viewer-core/derived-fields';
 import { detectMissingDependencies } from '../dependency-hints';
 import { startSplitDrag } from '../drag-split';
 import { NukeSelect } from 'nuke-essentials/lib/theme/browser/components';
@@ -68,6 +76,15 @@ export class OpenMCWeightWindowsViewerWidget extends NativeVtkViewerWidget {
     protected data: OpenMCWeightWindowsData | undefined;
     /** Mesh ID the conversion is anchored to (undefined = first window's mesh). */
     protected selectedMeshId?: number;
+    /** Calculator input text (uncommitted). */
+    protected derivedExpression = '';
+    /** Normalized committed expression (undefined = no derived field). */
+    protected derivedApplied: string | undefined;
+    protected derivedAssociation: 'point' | 'cell' | undefined;
+    /** Last rejected expression message (panel error, never committed). */
+    protected derivedError: string | undefined;
+    protected histogramBinCount = DEFAULT_HISTOGRAM_BINS;
+    protected histogramLogY = false;
     /** Panel height in px once the user drags the split (undefined = CSS default 40%). */
     protected panelHeight?: number;
     private reloadToken = 0;
@@ -150,6 +167,9 @@ export class OpenMCWeightWindowsViewerWidget extends NativeVtkViewerWidget {
             if (token !== this.reloadToken) {
                 return;
             }
+            if (!this.error) {
+                this.reapplyDerivedField();
+            }
             if (this.error) {
                 this.error =
                     `Weight windows file not supported by the native viewer: ${this.error}. ` +
@@ -171,6 +191,143 @@ export class OpenMCWeightWindowsViewerWidget extends NativeVtkViewerWidget {
             this.error = error instanceof Error ? error.message : String(error);
             this.update();
         }
+    }
+
+    /** Dataset arrays available to the calculator grammar. */
+    protected availableDerivedArrays(): DerivedFieldSourceArray[] {
+        const model = this.model;
+        if (!model) {
+            return [];
+        }
+        return [...model.pointArrays, ...model.cellArrays].map((array) => ({
+            name: array.name,
+            association: array.association,
+            components: array.components,
+            values: array.values
+        }));
+    }
+
+    /**
+     * Apply the calculator expression: invalid input is a panel error (never
+     * committed); a valid expression materializes a transient single-component
+     * array the color-by pipeline consumes identically to a parsed array
+     * (divide-by-zero NaNs route through the preset `nanColor` path).
+     */
+    protected applyDerivedField(): void {
+        const model = this.model;
+        if (!model) {
+            return;
+        }
+        const sources = this.availableDerivedArrays();
+        try {
+            const parsed = parseDerivedField(
+                this.derivedExpression,
+                sources.map((source) => source.name)
+            );
+            const result = evaluateDerivedField(parsed, sources);
+            this.removeDerivedArray();
+            const entry: NativeVtkDataArray = {
+                name: result.name,
+                association: result.association,
+                components: 1,
+                values: result.values,
+                range: result.range
+            };
+            if (result.association === 'point') {
+                model.pointArrays.push(entry);
+            } else {
+                model.cellArrays.push(entry);
+            }
+            this.classified = classifyNativeVtkArrays([...model.pointArrays, ...model.cellArrays]);
+            this.derivedApplied = parsed.expression;
+            this.derivedAssociation = result.association;
+            this.derivedError = undefined;
+            this.applyProps({ colorBy: formatColorBy(result.association, result.name) });
+        } catch (error) {
+            this.derivedError = error instanceof Error ? error.message : String(error);
+            this.update();
+        }
+    }
+
+    /** Drop the transient array (restoring Solid Color when it was the color-by). */
+    protected clearDerivedField(): void {
+        if (!this.derivedApplied || !this.derivedAssociation) {
+            this.derivedError = undefined;
+            this.update();
+            return;
+        }
+        const active = formatColorBy(this.derivedAssociation, derivedFieldName(this.derivedApplied));
+        this.removeDerivedArray();
+        this.derivedApplied = undefined;
+        this.derivedAssociation = undefined;
+        this.derivedError = undefined;
+        if (this.colorBy === active) {
+            this.applyProps({ colorBy: SOLID_COLOR });
+        } else {
+            this.update();
+        }
+    }
+
+    /** Remove the transient array from the model (no-op when none is active). */
+    protected removeDerivedArray(): void {
+        const model = this.model;
+        if (!model || !this.derivedApplied || !this.derivedAssociation) {
+            return;
+        }
+        const name = derivedFieldName(this.derivedApplied);
+        if (this.derivedAssociation === 'point') {
+            model.pointArrays = model.pointArrays.filter((array) => array.name !== name);
+        } else {
+            model.cellArrays = model.cellArrays.filter((array) => array.name !== name);
+        }
+        this.classified = classifyNativeVtkArrays([...model.pointArrays, ...model.cellArrays]);
+    }
+
+    /** Re-apply the committed expression after a reload (fresh dataset, same arrays). */
+    protected reapplyDerivedField(): void {
+        if (!this.derivedApplied) {
+            return;
+        }
+        const expression = this.derivedApplied;
+        this.derivedApplied = undefined;
+        this.derivedAssociation = undefined;
+        this.derivedExpression = expression;
+        this.applyDerivedField();
+    }
+
+    protected setHistogramBinCount(value: number): void {
+        if (Number.isFinite(value)) {
+            this.histogramBinCount = value;
+        }
+        this.update();
+    }
+
+    /** Calculator + histogram section above the mesh/window cards. */
+    protected renderDerivedFieldPanel(): React.ReactNode {
+        return (
+            <DerivedFieldPanel
+                expression={this.derivedExpression}
+                onExpressionChange={(value) => {
+                    this.derivedExpression = value;
+                    this.update();
+                }}
+                onApply={() => this.applyDerivedField()}
+                onClear={() => this.clearDerivedField()}
+                canApply={this.model !== undefined}
+                appliedExpression={this.derivedApplied}
+                derivedActive={this.derivedApplied !== undefined}
+                error={this.derivedError}
+                availableNames={this.availableDerivedArrays().map((array) => array.name)}
+                histogram={resolveHistogramSource(this.model, this.colorBy, this.component)}
+                binCount={this.histogramBinCount}
+                onBinCountChange={(value) => this.setHistogramBinCount(value)}
+                logY={this.histogramLogY}
+                onLogYChange={(value) => {
+                    this.histogramLogY = value;
+                    this.update();
+                }}
+            />
+        );
     }
 
     protected override renderContent(): React.ReactNode {
@@ -308,6 +465,7 @@ export class OpenMCWeightWindowsViewerWidget extends NativeVtkViewerWidget {
         const meshIds = [...new Set(this.data.weightWindows.map((w) => w.meshId))].sort((a, b) => a - b);
         return (
             <div className="openmc-output-viewer-panel">
+                {this.renderDerivedFieldPanel()}
                 <h4>Weight Windows</h4>
                 {meshIds.length > 1 && (
                     <div className="openmc-output-viewer-card">

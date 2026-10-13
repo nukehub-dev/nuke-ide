@@ -117,12 +117,33 @@ import {
     isViewerShadingMode,
     resolveViewerShadingFlags
 } from '../../../viewer-core/shading-mode';
+import {
+    DEFAULT_WARP_SCALE_MODE,
+    WARP_EXAGGERATION_SPEC,
+    applyWarp,
+    autoWarpScale,
+    isWarpScaleMode,
+    resolveWarpScale,
+    type WarpScaleMode
+} from '../../../viewer-core/warp-vectors';
+import {
+    collapsePointSoup,
+    collapseSegmentSoup,
+    collapseTriangleSoup,
+    countThresholdVisible,
+    hiddenPoints,
+    hiddenSegments,
+    hiddenTriangles,
+    normalizeThresholdRange,
+    thresholdTupleVisible
+} from '../../../viewer-core/threshold-filter';
 import { nextNavPopover, type ViewerNavPopoverKind } from '../../../viewer-core/viewer-nav-popover';
 import { OpenMCVtkArrayInfo } from '../../../../common/openmc-protocol';
 import {
     ViewerSettingsHost,
     ViewerSettingsPatch,
     ViewerSettingsSnapshot,
+    ViewerThresholdSettings,
     viewerSnapDirection
 } from '../../../viewer-settings/viewer-settings-model';
 import { ViewerMeasureLabel, type ViewerMeasureHandle } from './viewer-measure';
@@ -179,6 +200,18 @@ export interface NativeVtkViewerProps {
     shading?: ViewerShadingMode;
     /** Per-axis clip state; each enabled axis plane applies (box-section view). */
     clip?: ClipPlanesState;
+    /** Warp-by-vector switch (FEM magnified deformation along a 3-component point array). */
+    warpEnabled?: boolean;
+    /** Warp vector array (`Point: <name>` with three components). */
+    warpArray?: string;
+    /** Warp scale mode (`true` | `auto` | `capped`). */
+    warpScaleMode?: WarpScaleMode;
+    /** User warp exaggeration (live in `capped` mode, capped at the slider maximum). */
+    warpScale?: number;
+    /** Threshold switch (hide cells whose active-array value falls outside the window). */
+    thresholdEnabled?: boolean;
+    /** Custom threshold window; `'data'` clears it back to the active array's data range. */
+    thresholdRange?: 'data' | readonly [number, number];
 }
 
 /**
@@ -231,6 +264,18 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
     protected clip: ClipPlanesState = createClipPlanesState();
     /** Active X/Y/Z tab of the header clip control (per-axis settings persist). */
     protected clipTab: ClipAxis = 'X';
+    /** Warp-by-vector switch (Viewer Settings row; needs a 3-component point array). */
+    protected warpEnabled = false;
+    /** Warp vector array value (`Point: <name>`); defaults to the first vector array on load. */
+    protected warpArray = '';
+    /** Warp scale mode (`true` displacement, `auto` 10%-of-size, `capped` user exaggeration). */
+    protected warpScaleMode: WarpScaleMode = DEFAULT_WARP_SCALE_MODE;
+    /** User warp exaggeration (slider value; live in `capped` mode). */
+    protected warpScale = 1;
+    /** Threshold switch (Viewer Settings row beside Range; hides cells outside the window). */
+    protected thresholdEnabled = false;
+    /** Custom threshold window (undefined follows the active array's data range, hiding nothing). */
+    protected thresholdCustom: [number, number] | undefined;
     /**
      * Open bottom-bar popover (single slot, CAD `openPopover` parity — never
      * both cards). The widget owns the slot; every card control routes onto
@@ -323,7 +368,13 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
                 X: { ...this.clip.X },
                 Y: { ...this.clip.Y },
                 Z: { ...this.clip.Z }
-            }
+            },
+            warpEnabled: this.warpEnabled,
+            warpArray: this.warpArray,
+            warpScaleMode: this.warpScaleMode,
+            warpScale: this.warpScale,
+            thresholdEnabled: this.thresholdEnabled,
+            thresholdRange: this.thresholdCustom ? [this.thresholdCustom[0], this.thresholdCustom[1]] : 'data'
         };
     }
 
@@ -396,15 +447,79 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
             this.clip = props.clip;
             clipChanged = true;
         }
+        let warpChanged = false;
+        if (props.warpEnabled !== undefined && props.warpEnabled !== this.warpEnabled) {
+            this.warpEnabled = props.warpEnabled;
+            warpChanged = true;
+        }
+        if (props.warpArray !== undefined && props.warpArray !== this.warpArray) {
+            this.warpArray = props.warpArray;
+            warpChanged = true;
+        }
+        if (props.warpScaleMode !== undefined && isWarpScaleMode(props.warpScaleMode) && props.warpScaleMode !== this.warpScaleMode) {
+            this.warpScaleMode = props.warpScaleMode;
+            warpChanged = true;
+        }
+        if (
+            props.warpScale !== undefined &&
+            Number.isFinite(props.warpScale) &&
+            props.warpScale >= 0 &&
+            props.warpScale !== this.warpScale
+        ) {
+            this.warpScale = props.warpScale;
+            warpChanged = true;
+        }
+        if (warpChanged) {
+            // Enabling warp with nothing valid selected falls back to the
+            // first vector array (same default the loader applies), so the
+            // switch takes effect immediately instead of idling on no array.
+            if (this.warpEnabled && !this.warpOptions().some((option) => option.value === this.warpArray)) {
+                const first = this.warpOptions()[0];
+                if (first) {
+                    this.warpArray = first.value;
+                }
+            }
+            this.applyWarp();
+        }
+        let thresholdChanged = false;
+        if (props.thresholdEnabled !== undefined && props.thresholdEnabled !== this.thresholdEnabled) {
+            this.thresholdEnabled = props.thresholdEnabled;
+            thresholdChanged = true;
+        }
+        if (props.thresholdRange !== undefined) {
+            if (props.thresholdRange === 'data') {
+                if (this.thresholdCustom !== undefined) {
+                    this.thresholdCustom = undefined;
+                    thresholdChanged = true;
+                }
+            } else if (
+                Number.isFinite(props.thresholdRange[0]) &&
+                Number.isFinite(props.thresholdRange[1]) &&
+                (this.thresholdCustom === undefined ||
+                    this.thresholdCustom[0] !== props.thresholdRange[0] ||
+                    this.thresholdCustom[1] !== props.thresholdRange[1])
+            ) {
+                // Inverted inputs normalize on read (Range-slider parity);
+                // non-finite inputs never commit.
+                this.thresholdCustom = [props.thresholdRange[0], props.thresholdRange[1]];
+                thresholdChanged = true;
+            }
+        }
+        if (thresholdChanged) {
+            // Same funnels warp uses (positions) plus the recolor pass
+            // (voxel instances): warp positions first, then hide cells.
+            this.rewriteWarpPositions();
+            this.recolor();
+        }
         if (colorsChanged) {
             this.recolor();
         } else if (displayChanged) {
             this.applyDisplayProps();
-        } else if (clipChanged) {
+        } else if (clipChanged && !warpChanged) {
             this.applyClip();
             this.renderScene();
         }
-        if (colorsChanged || displayChanged || clipChanged || chromeChanged) {
+        if (colorsChanged || displayChanged || clipChanged || chromeChanged || warpChanged || thresholdChanged) {
             this.update();
         }
     }
@@ -419,6 +534,10 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         this.component = MAGNITUDE_COMPONENT;
         this.rangeMode = 'auto';
         this.logScale = false;
+        // A new array brings a new value domain, so a stale custom window
+        // could blank the scene — it clears (Range-reset parity) while the
+        // enable switch persists.
+        this.thresholdCustom = undefined;
     }
 
     // ------------------------------------------------------------------
@@ -481,6 +600,8 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         const selection = parseColorBy(this.colorBy);
         const array = selection && selection.kind !== 'solid' ? this.findArray(selection.kind, selection.name) : undefined;
         const effectiveRange = array ? resolveEffectiveRange(this.rangeMode, array.range, this.customRange) : undefined;
+        const warpOptions = this.warpOptions();
+        const warpArray = this.resolvedWarpArray();
         return {
             widgetId: this.id,
             title: this.title.label,
@@ -511,6 +632,20 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
             ...(this.volumeSmoothGrid() !== undefined
                 ? { tallyVolume: { visible: this.volumeVisible, smooth: this.volumeMode === 'smooth' } }
                 : {}),
+            ...(warpOptions.length > 0 && warpArray !== undefined
+                ? {
+                      warp: {
+                          enabled: this.warpEnabled,
+                          array: warpArray,
+                          options: warpOptions,
+                          scaleMode: this.warpScaleMode,
+                          scale: this.warpScale,
+                          autoScale: this.warpAutoScale(),
+                          effectiveScale: this.warpEffectiveScale()
+                      }
+                  }
+                : {}),
+            ...(array ? { threshold: this.thresholdSnapshotFor(array) } : {}),
             ...(solid ? { solidColor: { value: this.solidColor } } : {}),
             background: { value: this.resolveBackground() },
             shading: { value: this.shading },
@@ -565,7 +700,13 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
             pointSize: patch.pointSize,
             lineWidth: patch.lineWidth,
             shading: patch.shading,
-            clip: patch.clip
+            clip: patch.clip,
+            warpEnabled: patch.warpEnabled,
+            warpArray: patch.warpArray,
+            warpScaleMode: patch.warpScaleMode,
+            warpScale: patch.warpScale,
+            thresholdEnabled: patch.thresholdEnabled,
+            thresholdRange: patch.thresholdRange
         });
     }
 
@@ -911,6 +1052,13 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
             if (parseColorBy(this.colorBy) === undefined || !this.hasArray(this.colorBy)) {
                 this.setColorBy(fallback ?? SOLID_COLOR);
             }
+            // A new dataset keeps the warp switch but re-defaults the array
+            // (the previous DISP may not exist here); warp stays a no-op
+            // until a 3-component point array is present.
+            const warpFallback = this.warpOptions()[0];
+            if (warpFallback && !this.warpOptions().some((option) => option.value === this.warpArray)) {
+                this.warpArray = warpFallback.value;
+            }
             this.note = '';
             this.isLoading = false;
             this.statusMessage = '';
@@ -946,7 +1094,9 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         if (!model || !this.camera || !this.orbitControls) {
             return;
         }
-        const positions = model.positions;
+        // Frame the rendered scene (warped when warp is active), not the
+        // base positions, so magnified deformation never orbits out of view.
+        const positions = this.scenePositions();
         if (positions.length === 0) {
             return;
         }
@@ -1603,6 +1753,10 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
             this.dataGroup.add(new THREE.Box3Helper(box, 0x888888));
         }
         this.scene.add(this.dataGroup);
+        // Warp rewrites the fresh buffers before framing, so fit and the
+        // following recolor both see the deformed scene (same funnel as
+        // shading: every rebuild re-applies warp).
+        this.rewriteWarpPositions();
         this.fitView();
         this.recolor();
     }
@@ -1659,15 +1813,15 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         });
     }
 
-    /** Expanded per-corner positions for triangle datasets (non-indexed soup). */
-    private triangleVertexPositions(model: NativeVtkModel): Float32Array {
+    /** Expanded per-corner positions for triangle datasets (non-indexed soup; `source` is warped when warp is active). */
+    private triangleVertexPositions(model: NativeVtkModel, source: ArrayLike<number> = model.positions): Float32Array {
         const triangles = model.triangles ?? new Uint32Array(0);
         const positions = new Float32Array(triangles.length * 3);
         for (let i = 0; i < triangles.length; i++) {
             const point = triangles[i] * 3;
-            positions[i * 3] = model.positions[point] ?? Number.NaN;
-            positions[i * 3 + 1] = model.positions[point + 1] ?? Number.NaN;
-            positions[i * 3 + 2] = model.positions[point + 2] ?? Number.NaN;
+            positions[i * 3] = source[point] ?? Number.NaN;
+            positions[i * 3 + 1] = source[point + 1] ?? Number.NaN;
+            positions[i * 3 + 2] = source[point + 2] ?? Number.NaN;
         }
         return positions;
     }
@@ -1717,15 +1871,15 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         return new THREE.Points(geometry, material);
     }
 
-    /** Expanded per-vertex positions for line-segment datasets. */
-    private lineVertexPositions(model: NativeVtkModel): Float32Array {
+    /** Expanded per-vertex positions for line-segment datasets (`source` is warped when warp is active). */
+    private lineVertexPositions(model: NativeVtkModel, source: ArrayLike<number> = model.positions): Float32Array {
         const segments = model.segments ?? new Uint32Array(0);
         const positions = new Float32Array(segments.length * 3);
         for (let i = 0; i < segments.length; i++) {
             const point = segments[i] * 3;
-            positions[i * 3] = model.positions[point];
-            positions[i * 3 + 1] = model.positions[point + 1];
-            positions[i * 3 + 2] = model.positions[point + 2];
+            positions[i * 3] = source[point];
+            positions[i * 3 + 1] = source[point + 1];
+            positions[i * 3 + 2] = source[point + 2];
         }
         return positions;
     }
@@ -1785,19 +1939,19 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         return new THREE.Points(geometry, material);
     }
 
-    /** Evenly decimated positions for point clouds and grid centers. */
-    private decimatedPositions(model: NativeVtkModel): Float32Array {
-        const count = model.positions.length / 3;
+    /** Evenly decimated positions for point clouds and grid centers (`source` is warped when warp is active). */
+    private decimatedPositions(model: NativeVtkModel, source: ArrayLike<number> = model.positions): Float32Array {
+        const count = source.length / 3;
         const stride = strideForBudget(count);
         if (stride <= 1) {
-            return model.positions;
+            return source instanceof Float32Array ? source : Float32Array.from(source);
         }
         const kept = Math.ceil(count / stride);
         const out = new Float32Array(kept * 3);
         for (let i = 0; i < kept; i++) {
-            out[i * 3] = model.positions[i * stride * 3];
-            out[i * 3 + 1] = model.positions[i * stride * 3 + 1];
-            out[i * 3 + 2] = model.positions[i * stride * 3 + 2];
+            out[i * 3] = source[i * stride * 3];
+            out[i * 3 + 1] = source[i * stride * 3 + 1];
+            out[i * 3 + 2] = source[i * stride * 3 + 2];
         }
         return out;
     }
@@ -1862,9 +2016,10 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         };
         const paintAllSolid = (): void => {
             const solidAt = (): [number, number, number] => [solid.r, solid.g, solid.b];
+            const thresholdHidden = this.thresholdHidesVoxelInstance();
             this.dataGroup?.children.forEach((child) => {
                 if (child instanceof THREE.InstancedMesh && this.voxelLayout) {
-                    updateVoxelInstances(child, this.voxelLayout, solidAt, () => false);
+                    updateVoxelInstances(child, this.voxelLayout, solidAt, thresholdHidden);
                 } else if (child instanceof THREE.Points || child instanceof THREE.LineSegments || child instanceof THREE.Mesh) {
                     paint(child.geometry, solidAt);
                 }
@@ -1901,6 +2056,7 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
                 // Voxel blocks carry per-instance colors (no color attribute);
                 // raw-zero cells collapse so void never washes out geometry.
                 const layout = this.voxelLayout;
+                const thresholdHidden = this.thresholdHidesVoxelInstance();
                 const tupleCount = Math.floor(array.values.length / Math.max(1, array.components));
                 const tupleOfInstance = (instance: number): number => {
                     if (array.association !== 'cell') {
@@ -1910,6 +2066,9 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
                     return tuple >= 0 && tuple < tupleCount ? tuple : -1;
                 };
                 const isEmpty = (instance: number): boolean => {
+                    if (thresholdHidden(instance)) {
+                        return true;
+                    }
                     const tuple = tupleOfInstance(instance);
                     return tuple >= 0 && array.values[tuple] === 0;
                 };
@@ -2120,7 +2279,8 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         if (!this.model) {
             return [];
         }
-        const bounds = boundingBoxFromPositions(this.model.positions);
+        // Clip follows the rendered scene (warped when warp is active).
+        const bounds = boundingBoxFromPositions(this.scenePositions());
         if (!bounds) {
             return [];
         }
@@ -2147,10 +2307,375 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         return !selection || selection.kind === 'solid' || this.findArray(selection.kind, selection.name) !== undefined;
     }
 
+    // ------------------------------------------------------------------
+    // Warp-by-vector (FEM magnified deformation): position-buffer rewrite
+    // along a 3-component point array, normals recomputed. The base
+    // positions are never mutated — disabling warp rewrites the same
+    // buffers from `model.positions`, so no warped copy is ever stored.
+    // Subclasses (tally, tracks, generic, ...) inherit the hook with no
+    // overrides; voxel grids keep their layout (their positions are cell
+    // centers, not displaceable nodes).
+    // ------------------------------------------------------------------
+
+    /** 3-component point arrays eligible as warp vectors (cell arrays cannot displace vertices 1:1). */
+    warpOptions(): { value: string; label: string }[] {
+        if (!this.model) {
+            return [];
+        }
+        const options: { value: string; label: string }[] = [];
+        for (const array of this.model.pointArrays) {
+            if (array.components === 3) {
+                options.push({ value: colorByValue(array), label: `Point: ${array.name}` });
+            }
+        }
+        return options;
+    }
+
+    /** Selected warp vector array when it still exists (otherwise the first option, otherwise none). */
+    private resolvedWarpArray(): string | undefined {
+        const options = this.warpOptions();
+        if (options.length === 0) {
+            return undefined;
+        }
+        if (options.some((option) => option.value === this.warpArray)) {
+            return this.warpArray;
+        }
+        return options[0].value;
+    }
+
+    /**
+     * Warp vector values for the resolved array: point data, three
+     * components, one tuple per mesh point. Undefined when the array is
+     * missing or cannot displace the positions 1:1.
+     */
+    private warpVectorValues(): Float64Array | undefined {
+        const model = this.model;
+        const resolved = this.resolvedWarpArray();
+        if (!model || resolved === undefined) {
+            return undefined;
+        }
+        const selection = parseColorBy(resolved);
+        if (!selection || selection.kind !== 'point') {
+            return undefined;
+        }
+        const array = model.pointArrays.find((entry) => entry.name === selection.name);
+        if (!array || array.components !== 3) {
+            return undefined;
+        }
+        if (Math.floor(array.values.length / 3) !== Math.floor(model.positions.length / 3)) {
+            return undefined;
+        }
+        return array.values;
+    }
+
+    /** 10%-of-size auto scale for the resolved warp array (0 without vectors — the degenerate guard). */
+    private warpAutoScale(): number {
+        if (!this.model) {
+            return 0;
+        }
+        const vectors = this.warpVectorValues();
+        if (!vectors) {
+            return 0;
+        }
+        return autoWarpScale(this.model.positions, vectors);
+    }
+
+    /** Effective warp scale actually applied (0 when warp is off or has no vectors). */
+    warpEffectiveScale(): number {
+        if (!this.warpEnabled || !this.model) {
+            return 0;
+        }
+        const vectors = this.warpVectorValues();
+        if (!vectors) {
+            return 0;
+        }
+        return resolveWarpScale(
+            this.warpScaleMode,
+            this.warpScale,
+            autoWarpScale(this.model.positions, vectors),
+            WARP_EXAGGERATION_SPEC.max
+        );
+    }
+
+    /** Warped model positions, or undefined when warp is off (callers fall back to the base positions). */
+    private warpedPositions(): Float32Array | undefined {
+        if (!this.model || !this.warpEnabled) {
+            return undefined;
+        }
+        const vectors = this.warpVectorValues();
+        if (!vectors) {
+            return undefined;
+        }
+        const scale = this.warpEffectiveScale();
+        if (!(scale > 0)) {
+            return undefined;
+        }
+        return applyWarp(this.model.positions, vectors, scale);
+    }
+
+    /** Positions the scene currently renders (warped when warp is active, base otherwise). */
+    private scenePositions(): ArrayLike<number> {
+        return this.warpedPositions() ?? this.model?.positions ?? new Float32Array(0);
+    }
+
+    /**
+     * Rewrite every point-mapped position buffer from the scene positions
+     * and recompute mesh normals (plus bounding spheres, so culling and the
+     * measure raycast follow the warp). Runs after every build and after
+     * every warp settings change — the same funnel as shading — so
+     * rebuild/re-color paths re-apply warp. Voxel instances, grid-point
+     * clouds, and the underlay holder keep their layout.
+     */
+    private rewriteWarpPositions(): void {
+        const model = this.model;
+        const group = this.dataGroup;
+        if (!model || !group) {
+            return;
+        }
+        const warped = this.warpedPositions();
+        const positions = warped ?? model.positions;
+        let warpedMesh: THREE.BufferGeometry | undefined;
+        group.children.forEach((child) => {
+            if (child instanceof THREE.InstancedMesh) {
+                return;
+            }
+            if (child instanceof THREE.Mesh) {
+                if ((child as THREE.Mesh).userData?.['tallyVolumeSmooth'] === true) {
+                    return;
+                }
+                if (child.geometry.userData?.['role'] !== 'mesh') {
+                    return;
+                }
+                const soup = this.triangleVertexPositions(model, positions);
+                // Threshold collapses after warp displaces (order: positions
+                // first, then hide cells), so the edges rebuild below sees
+                // the hidden triangles as zero-area.
+                this.collapseHiddenTriangles(soup);
+                const attribute = child.geometry.getAttribute('position') as THREE.BufferAttribute;
+                attribute.array.set(soup);
+                attribute.needsUpdate = true;
+                child.geometry.computeVertexNormals();
+                child.geometry.computeBoundingSphere();
+                warpedMesh = child.geometry;
+            } else if (child instanceof THREE.LineSegments) {
+                if (child.geometry.userData?.['role'] === 'edges') {
+                    return;
+                }
+                const soup = this.lineVertexPositions(model, positions);
+                this.collapseHiddenSegments(soup);
+                const attribute = child.geometry.getAttribute('position') as THREE.BufferAttribute;
+                attribute.array.set(soup);
+                attribute.needsUpdate = true;
+                child.geometry.computeBoundingSphere();
+            } else if (child instanceof THREE.Points) {
+                const role = child.geometry.userData?.['role'];
+                if (role === 'tally-source' || role === 'grid-points') {
+                    return;
+                }
+                const soup =
+                    role === 'mesh-points' && model.triangles
+                        ? this.triangleVertexPositions(model, positions)
+                        : role === 'line-points' && model.segments
+                          ? this.lineVertexPositions(model, positions)
+                          : // Fresh copy: decimatedPositions may alias the
+                            // source buffer, and the threshold collapse below
+                            // writes NaN into hidden vertices in place.
+                            Float32Array.from(this.decimatedPositions(model, positions));
+                // Mesh/line point clouds collapse exactly like their parent
+                // geometry; generic clouds drop hidden vertices to NaN (and
+                // skip frustum culling while any hide, so a NaN-poisoned
+                // bounding sphere can never cull the cloud).
+                child.frustumCulled = !this.collapseHiddenPointSoup(role, soup);
+                const attribute = child.geometry.getAttribute('position') as THREE.BufferAttribute;
+                attribute.array.set(soup);
+                attribute.needsUpdate = true;
+                child.geometry.computeBoundingSphere();
+            }
+        });
+        if (warpedMesh) {
+            // The edges overlay derives from the mesh geometry — rebuild it
+            // from the warped corners so edges track the deformation.
+            const previous = group.children.find(
+                (child): child is THREE.LineSegments => child instanceof THREE.LineSegments && child.geometry.userData?.['role'] === 'edges'
+            );
+            if (previous) {
+                group.remove(previous);
+                previous.geometry.dispose();
+                (previous.material as THREE.Material).dispose();
+            }
+            group.add(this.buildEdgeOverlay(warpedMesh));
+        }
+    }
+
+    /** Rewrite warp positions, re-apply clip (bounds may have moved), and repaint. */
+    private applyWarp(): void {
+        this.rewriteWarpPositions();
+        this.applyClip();
+        this.renderScene();
+    }
+
+    // ------------------------------------------------------------------
+    // Threshold (hide cells outside the active-array window): per-cell
+    // visibility over the active color-by array (parsed or a transient
+    // derived field), applied in the same funnels as warp — position
+    // collapse inside rewriteWarpPositions (warp displaces first, then
+    // cells hide) plus voxel-instance collapse in the recolor pass — so
+    // rebuild/re-color paths re-apply it with no duplicated state.
+    // Grid-point clouds and the underlay holder keep their layout (warp
+    // parity); the smooth raycast volume ignores the window (documented
+    // limitation). The panel reads the snapshot and patches through
+    // applyProps; the widget owns every value.
+    // ------------------------------------------------------------------
+
+    /** Active threshold window over the active color-by array, or undefined when off/inapplicable. */
+    private activeThreshold(): { array: NativeVtkDataArray; min: number; max: number } | undefined {
+        if (!this.thresholdEnabled || !this.model) {
+            return undefined;
+        }
+        const selection = parseColorBy(this.colorBy);
+        if (!selection || selection.kind === 'solid') {
+            return undefined;
+        }
+        const array = this.findArray(selection.kind, selection.name);
+        if (!array) {
+            return undefined;
+        }
+        // No custom window follows the data range (enabling then hides
+        // nothing); inverted inputs normalize on read (Range parity).
+        const custom = this.thresholdCustom ? normalizeThresholdRange(this.thresholdCustom[0], this.thresholdCustom[1]) : undefined;
+        const min = custom ? custom[0] : array.range[0];
+        const max = custom ? custom[1] : array.range[1];
+        if (!Number.isFinite(min) || !Number.isFinite(max)) {
+            return undefined;
+        }
+        return { array, min, max };
+    }
+
+    /** Snapshot section for the active array (the panel's Threshold row reads this). */
+    private thresholdSnapshotFor(array: NativeVtkDataArray): ViewerThresholdSettings {
+        const active = this.activeThreshold();
+        const min = active ? active.min : array.range[0];
+        const max = active ? active.max : array.range[1];
+        const coverage = countThresholdVisible(array.values, array.components, this.component, min, max);
+        return {
+            enabled: this.thresholdEnabled,
+            min,
+            max,
+            dataMin: array.range[0],
+            dataMax: array.range[1],
+            visible: active ? coverage.visible : coverage.total,
+            total: coverage.total
+        };
+    }
+
+    /** Collapse hidden triangles in a corner soup (no-op without an active window). */
+    private collapseHiddenTriangles(soup: Float32Array): void {
+        const model = this.model;
+        const active = this.activeThreshold();
+        const triangles = model?.triangles;
+        if (!model || !active || !triangles || soup.length !== triangles.length * 3) {
+            return;
+        }
+        const { array, min, max } = active;
+        const component = this.component;
+        const tupleOfVertex = this.meshTupleIndex(model, array, triangles);
+        collapseTriangleSoup(
+            soup,
+            hiddenTriangles(triangles.length / 3, tupleOfVertex, (tuple) =>
+                thresholdTupleVisible(array.values, array.components, tuple, component, min, max)
+            )
+        );
+    }
+
+    /** Collapse hidden segments in an expanded vertex-pair soup (no-op without an active window). */
+    private collapseHiddenSegments(soup: Float32Array): void {
+        const model = this.model;
+        const active = this.activeThreshold();
+        const segments = model?.segments;
+        if (!model || !active || !segments || soup.length !== segments.length * 3) {
+            return;
+        }
+        const { array, min, max } = active;
+        const component = this.component;
+        const tupleOfVertex = this.lineTupleIndex(model, array, segments);
+        collapseSegmentSoup(
+            soup,
+            hiddenSegments(segments.length / 2, tupleOfVertex, (tuple) =>
+                thresholdTupleVisible(array.values, array.components, tuple, component, min, max)
+            )
+        );
+    }
+
+    /**
+     * Collapse hidden vertices in a point soup (role-aware: mesh/line
+     * clouds fold exactly like their parent geometry, generic clouds drop
+     * hidden vertices to NaN). Returns true when any vertex hid, so the
+     * caller can disable frustum culling while NaN poisons the bounds.
+     */
+    private collapseHiddenPointSoup(role: unknown, soup: Float32Array): boolean {
+        const model = this.model;
+        const active = this.activeThreshold();
+        if (!model || !active) {
+            return false;
+        }
+        const { array, min, max } = active;
+        const component = this.component;
+        const tupleVisible = (tuple: number): boolean => thresholdTupleVisible(array.values, array.components, tuple, component, min, max);
+        if (role === 'mesh-points' && model.triangles && soup.length === model.triangles.length * 3) {
+            collapseTriangleSoup(
+                soup,
+                hiddenTriangles(model.triangles.length / 3, this.meshTupleIndex(model, array, model.triangles), tupleVisible)
+            );
+            return false;
+        }
+        if (role === 'line-points' && model.segments && soup.length === model.segments.length * 3) {
+            collapseSegmentSoup(
+                soup,
+                hiddenSegments(model.segments.length / 2, this.lineTupleIndex(model, array, model.segments), tupleVisible)
+            );
+            return false;
+        }
+        if (role === 'mesh-points' || role === 'line-points') {
+            return false;
+        }
+        return collapsePointSoup(soup, hiddenPoints(soup.length / 3, this.pointTupleIndex(model, array), tupleVisible)) > 0;
+    }
+
+    /**
+     * Extra voxel-instance hide from the threshold (identity when the
+     * window cannot apply): cell arrays test their flat cell tuple; point
+     * arrays never map to instances (recolor paints those tuples as
+     * unmapped, so they stay visible here too).
+     */
+    private thresholdHidesVoxelInstance(): (instance: number) => boolean {
+        const active = this.activeThreshold();
+        const layout = this.voxelLayout;
+        if (!active || !layout || active.array.association !== 'cell') {
+            return () => false;
+        }
+        const { array, min, max } = active;
+        const component = this.component;
+        return (instance) => !thresholdTupleVisible(array.values, array.components, layout.cells[instance] ?? -1, component, min, max);
+    }
+
     private describeModel(): string {
         const model = this.model;
         if (!model) {
             return this.isLoading ? this.statusMessage : 'No dataset loaded';
+        }
+        const warpScale = this.warpEffectiveScale();
+        const warpSuffix = warpScale > 0 ? ` — warped x${Number(warpScale.toPrecision(3))}` : '';
+        const threshold = this.activeThreshold();
+        let thresholdSuffix = '';
+        if (threshold) {
+            const coverage = countThresholdVisible(
+                threshold.array.values,
+                threshold.array.components,
+                this.component,
+                threshold.min,
+                threshold.max
+            );
+            thresholdSuffix = ` — threshold ${coverage.visible.toLocaleString()} of ${coverage.total.toLocaleString()} shown`;
         }
         if (model.family === 'polydata') {
             const parts: string[] = [];
@@ -2166,12 +2691,12 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
             if (parts.length === 0) {
                 parts.push(`${model.nPoints.toLocaleString()} points`);
             }
-            return `PolyData — ${parts.join(' + ')}`;
+            return `PolyData — ${parts.join(' + ')}${warpSuffix}${thresholdSuffix}`;
         }
         const [nx, ny, nz] = model.gridDimensions ?? [0, 0, 0];
         const kind = model.family === 'rectilinear' ? 'RectilinearGrid' : 'ImageData';
         const shape = model.gridAxes ? 'voxel blocks' : 'cell-center preview';
-        return `${kind} — ${model.nPoints.toLocaleString()} cells (${nx} × ${ny} × ${nz}, ${shape})`;
+        return `${kind} — ${model.nPoints.toLocaleString()} cells (${nx} × ${ny} × ${nz}, ${shape})${warpSuffix}${thresholdSuffix}`;
     }
 
     // ------------------------------------------------------------------

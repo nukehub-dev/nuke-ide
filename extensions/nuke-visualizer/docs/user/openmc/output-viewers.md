@@ -27,6 +27,13 @@ Weight window bounds on a regular mesh (from the weight window generator or FW-C
 - **Multi-mesh files:** when a file contains windows on more than one mesh, a **Mesh to display** selector appears in the panel ("Mesh N (M windows)"); switching meshes re-runs the conversion anchored to that mesh. Windows on other meshes are skipped and reported.
 - **Panel:** summary cards per mesh/window (dimensions, energy groups, survival ratio).
 
+## Derived Fields (Calculator) + Histogram
+
+The tracks, collision-track, and weight-windows data panels open with a **Derived field (Calculator)** card plus a **Histogram** card.
+
+- **Calculator:** type an expression over the dataset's array names and press **Apply**. The grammar is deliberately small (not a general parser): `a/b`, `a-b`, `mag(v)`, `log10(a)`, where `a`, `b`, `v` are array names shown under the input (for example `upper_g1/lower_g1` on a weight-windows mesh). Applying computes a transient array and colors the 3D view by it, exactly like picking a parsed array in Color By. Divide-by-zero yields NaN, which renders in each colormap's NaN color; `log10` of a zero or negative value is NaN for the same reason. A rejected expression shows a panel error and changes nothing — **Clear** drops the transient field and returns to Solid Color.
+- **Histogram:** an SVG stats readout (min/max/mean/std, value counts) plus a bar chart over the **active** color-by array — derived or parsed — with a bin-count input and a **Log y** toggle for skewed tally distributions. It follows the Viewer Settings → Color by selection, so switching arrays re-bins instantly.
+
 ## Particle Restart (`particle_restart.h5`, `particle_<batch>_<id>.h5`)
 
 A single particle's recorded state, written when a particle is lost with restart enabled. This viewer is a React summary — no 3D conversion: batch, generation, particle type, energy, position/direction, and weight.

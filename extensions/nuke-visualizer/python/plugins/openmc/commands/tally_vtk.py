@@ -148,3 +148,72 @@ def cmd_overlay_vtk(args):
     except Exception as e:
         print(json.dumps({"error": str(e)}))
         return 1
+
+
+@command(
+    "openmc.tally-line-probe",
+    help="Sample a mesh tally along a line segment (flux profile probe)",
+)
+@arg("file", help="Path to statepoint .h5 file")
+@arg("--tally-id", type=int, required=True, help="Tally ID to probe")
+@arg("--score", help="Score to probe (default: first score)")
+@arg("--nuclide", help="Nuclide to probe (default: first nuclide)")
+@arg(
+    "--p0",
+    nargs=3,
+    type=float,
+    required=True,
+    metavar=("X0", "Y0", "Z0"),
+    help="Probe start point in cm (x y z)",
+)
+@arg(
+    "--p1",
+    nargs=3,
+    type=float,
+    required=True,
+    metavar=("X1", "Y1", "Z1"),
+    help="Probe end point in cm (x y z)",
+)
+@arg("--npoints", type=int, default=100, help="Samples along the segment (2-100000, default 100)")
+@arg(
+    "--smooth",
+    action="store_true",
+    help="Trilinear interpolation between mesh cells (the default)",
+)
+@arg(
+    "--pixelated",
+    action="store_true",
+    help="Nearest-cell values (actual mesh cells) instead of trilinear interpolation",
+)
+@arg("--output", help="Output .vtp path for the probe-path polyline (default: series only)")
+@arg(
+    "--write-vtp",
+    action="store_true",
+    help="Write the probe-path polyline to a default temp path",
+)
+def cmd_tally_line_probe(args):
+    """Sample a mesh tally along a line segment."""
+    from plugins.openmc.lib import tally_vtk
+
+    try:
+        if args.smooth and args.pixelated:
+            raise ValueError("--smooth and --pixelated are mutually exclusive")
+        result = tally_vtk.line_probe(
+            args.file,
+            args.tally_id,
+            args.p0,
+            args.p1,
+            npoints=args.npoints,
+            score=args.score,
+            nuclide=args.nuclide,
+            smooth=not args.pixelated,
+            output_path=args.output,
+            write_vtp=args.write_vtp,
+        )
+        from plugins.openmc.lib.output_readers import json_default
+
+        print(json.dumps(result, default=json_default))
+        return 0
+    except Exception as e:
+        print(json.dumps({"error": str(e)}))
+        return 1

@@ -3,6 +3,10 @@
 The handlers in plugins.base.commands do their heavy imports lazily,
 so a missing dependency (pymoab, gmsh, pydagmc, vtk) must surface as a
 JSON error object on stderr with exit code 1 — never a traceback.
+
+OpenMC-plugin handlers follow the same lazy pattern but emit the JSON
+error object on stdout (the node side is stdout-first); the
+openmc.tally-line-probe section pins that contract.
 """
 
 import argparse
@@ -14,6 +18,7 @@ import pytest
 from nuke_viz.plugin import setup_parser_for_handler
 from plugins.base.commands import convert as convert_cmds
 from plugins.base.commands import dagmc as dagmc_cmds
+from plugins.openmc.commands import tally_vtk as tally_vtk_cmds
 
 
 @pytest.fixture
@@ -159,3 +164,84 @@ def test_convert_step_mesh_size_default_and_override():
 
     args = _parse(convert_cmds.cmd_convert_step, ["--file", "a.step", "--mesh-size", "2.5"])
     assert args.mesh_size == pytest.approx(2.5)
+
+
+# ---------------------------------------------------------------------------
+# openmc.tally-line-probe (stdout-JSON contract, exit 1)
+# ---------------------------------------------------------------------------
+
+
+def _probe_argv(*extra):
+    """Base probe argv: tally 1 along the unit diagonal of a missing file."""
+    return [
+        "--tally-id",
+        "1",
+        "--p0",
+        "0",
+        "0",
+        "0",
+        "--p1",
+        "1",
+        "1",
+        "1",
+        *extra,
+        "/no/such/statepoint.h5",
+    ]
+
+
+def _stdout_error_line(capsys):
+    """Extract and JSON-decode the single {"error": ...} stdout line."""
+    out = capsys.readouterr().out.strip()
+    assert out.startswith('{"error"'), f"expected JSON error on stdout, got: {out!r}"
+    return json.loads(out)["error"]
+
+
+def test_line_probe_missing_file(capsys):
+    """A nonexistent statepoint fails with a stdout JSON error and exit 1."""
+    args = _parse(tally_vtk_cmds.cmd_tally_line_probe, _probe_argv())
+
+    rc = tally_vtk_cmds.cmd_tally_line_probe(args)
+
+    assert rc == 1
+    assert "File not found" in _stdout_error_line(capsys)
+
+
+def test_line_probe_exclusive_interpolation_flags(capsys):
+    """--smooth + --pixelated together fail before any file access."""
+    args = _parse(tally_vtk_cmds.cmd_tally_line_probe, _probe_argv("--smooth", "--pixelated"))
+
+    rc = tally_vtk_cmds.cmd_tally_line_probe(args)
+
+    assert rc == 1
+    assert "mutually exclusive" in _stdout_error_line(capsys)
+
+
+def test_line_probe_bad_npoints(capsys):
+    """An out-of-range --npoints fails with a stdout JSON error."""
+    args = _parse(tally_vtk_cmds.cmd_tally_line_probe, _probe_argv("--npoints", "1"))
+
+    rc = tally_vtk_cmds.cmd_tally_line_probe(args)
+
+    assert rc == 1
+    assert "npoints" in _stdout_error_line(capsys)
+
+
+def test_line_probe_endpoints_required():
+    """--p0/--p1 are required; argparse aborts with SystemExit when missing."""
+    parser = argparse.ArgumentParser()
+    setup_parser_for_handler(tally_vtk_cmds.cmd_tally_line_probe, parser)
+
+    with pytest.raises(SystemExit) as excinfo:
+        parser.parse_args(["--tally-id", "1", "sp.h5"])
+    assert excinfo.value.code == 2
+
+
+def test_line_probe_npoints_default_and_parsing():
+    """--npoints defaults to 100 and parses as an int."""
+    args = _parse(tally_vtk_cmds.cmd_tally_line_probe, _probe_argv())
+    assert args.npoints == 100
+    assert args.p0 == [0.0, 0.0, 0.0]
+    assert args.p1 == [1.0, 1.0, 1.0]
+
+    args = _parse(tally_vtk_cmds.cmd_tally_line_probe, _probe_argv("--npoints", "25"))
+    assert args.npoints == 25

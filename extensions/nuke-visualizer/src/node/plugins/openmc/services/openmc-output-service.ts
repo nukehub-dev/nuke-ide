@@ -57,7 +57,9 @@ import {
     OpenMCTallyMeshVtkOptions,
     OpenMCSourceVtkOptions,
     OpenMCOverlayVtkOptions,
-    OpenMCOverlayGeometryVtkOptions
+    OpenMCOverlayGeometryVtkOptions,
+    OpenMCTallyLineProbeOptions,
+    OpenMCTallyLineProbeResult
 } from '../../../../common/openmc-protocol';
 import { PythonCommandHelper } from '../../../services/python-command-helper';
 
@@ -303,6 +305,31 @@ export class OpenMCOutputService {
             args.push('--pixelated');
         }
         return this.runConversion(args, 120000);
+    }
+
+    async getTallyLineProbe(statepointPath: string, options: OpenMCTallyLineProbeOptions): Promise<OpenMCTallyLineProbeResult> {
+        const args = ['openmc.tally-line-probe', statepointPath];
+        args.push('--tally-id', String(options.tallyId));
+        if (options?.score) {
+            args.push('--score', options.score);
+        }
+        if (options?.nuclide) {
+            args.push('--nuclide', options.nuclide);
+        }
+        args.push('--p0', ...options.p0.map(String));
+        args.push('--p1', ...options.p1.map(String));
+        if (options?.npoints !== undefined) {
+            args.push('--npoints', String(options.npoints));
+        }
+        if (options?.smooth === false) {
+            args.push('--pixelated');
+        } else if (options?.smooth === true) {
+            args.push('--smooth');
+        }
+        if (options?.writeVtp) {
+            args.push('--write-vtp');
+        }
+        return this.executeCommandJson<OpenMCTallyLineProbeResult>(args, 120000);
     }
 
     /**

@@ -38,6 +38,7 @@ import { GeometryNativeViewerWidget } from '../plugins/openmc/widgets/geometry-n
 import { ExodusTimeSliderWidget } from '../plugins/openmc/widgets/exodus-series/exodus-time-slider-widget';
 import { anyClipEnabled, CLIP_AXES, setAllClipEnabled, updateAxisClip } from '../viewer-core/clip-plane';
 import { isViewerShadingMode, VIEWER_SHADING_MODES } from '../viewer-core/shading-mode';
+import { isWarpScaleMode, WARP_EXAGGERATION_SPEC, WARP_SCALE_MODES } from '../viewer-core/warp-vectors';
 import {
     RANGE_SLIDER_STEPS,
     rangeSliderToValue,
@@ -52,9 +53,9 @@ import './viewer-settings.css';
 
 /**
  * Viewer Settings sidebar panel: display settings for the active native 3D
- * viewer (color-by array/component, colormap, range, legend, solid color,
- * background, shading, point/line size, opacity, clip, measure, axis snaps)
- * in one Theia/React view, following the Model Outline active-widget pattern.
+ * viewer (color-by array/component, colormap, range, legend, warp-by-vector,
+ * solid color, background, shading, point/line size, opacity, clip, measure,
+ * axis snaps) in one Theia/React view, following the Model Outline active-widget pattern.
  *
  * The panel binds once — every native viewer (native-VTK and its tally /
  * output subclasses, DAGMC, geometry-native, Exodus) exposes the same
@@ -276,9 +277,12 @@ export class ViewerSettingsWidget extends ReactWidget {
             snapshot.component && this.renderComponent(host, snapshot),
             snapshot.colormap && this.renderColormap(host, snapshot),
             snapshot.range && this.renderRange(host, snapshot),
+            snapshot.threshold && this.renderThreshold(host, snapshot),
             snapshot.scalarBar && this.renderScalarBar(host, snapshot),
             snapshot.tallyVolume && this.renderTallyVolume(host, snapshot),
             snapshot.tallyVolume && this.renderTallyVolumeSmooth(host, snapshot),
+            snapshot.warp && this.renderWarp(host, snapshot),
+            snapshot.warp && this.renderWarpScale(host, snapshot),
             snapshot.solidColor && this.renderSolidColor(host, snapshot),
             snapshot.background && this.renderBackground(host, snapshot),
             snapshot.shading && this.renderShading(host, snapshot),
@@ -536,6 +540,139 @@ export class ViewerSettingsWidget extends ReactWidget {
         );
     }
 
+    protected renderThreshold(host: ViewerSettingsHost, snapshot: ViewerSettingsSnapshot): React.ReactNode {
+        const threshold = snapshot.threshold;
+        if (!threshold) {
+            return undefined;
+        }
+        const commit = (input: HTMLInputElement, isMin: boolean): void => {
+            const value = parseFloat(input.value);
+            if (Number.isNaN(value)) {
+                return;
+            }
+            this.applyPatch(host, { thresholdRange: isMin ? [value, threshold.max] : [threshold.min, value] });
+        };
+        const minThumb = rangeValueToSlider(threshold.min, threshold.dataMin, threshold.dataMax);
+        const maxThumb = rangeValueToSlider(threshold.max, threshold.dataMin, threshold.dataMax);
+        const dragMin = (thumb: number): void => {
+            this.applyPatch(host, {
+                thresholdRange: [rangeSliderToValue(Math.min(thumb, maxThumb), threshold.dataMin, threshold.dataMax), threshold.max]
+            });
+        };
+        const dragMax = (thumb: number): void => {
+            this.applyPatch(host, {
+                thresholdRange: [threshold.min, rangeSliderToValue(Math.max(thumb, minThumb), threshold.dataMin, threshold.dataMax)]
+            });
+        };
+        return (
+            <div className="viewer-settings-range-wrap" key="threshold">
+                <div className="viewer-settings-row">
+                    {this.renderRowLabel(
+                        'filter',
+                        'Threshold',
+                        `Hide cells whose active-array value falls outside [min, max] (${threshold.visible} of ${threshold.total} shown; ` +
+                            `non-finite values stay visible; enabling with the data range hides nothing)`
+                    )}
+                    <NukeSwitch
+                        className="viewer-settings-threshold"
+                        ariaLabel="Threshold cells outside the range"
+                        checked={threshold.enabled}
+                        onChange={() => this.applyPatch(host, { thresholdEnabled: !threshold.enabled })}
+                    />
+                    <Tooltip content={`Restore the full data range (${threshold.dataMin} to ${threshold.dataMax})`} position="top">
+                        <button
+                            className="theia-button secondary viewer-settings-range-reset"
+                            aria-label="Reset threshold to the data range"
+                            onClick={() => this.applyPatch(host, { thresholdRange: 'data' })}
+                        >
+                            <i className={codicon('refresh')}></i>
+                        </button>
+                    </Tooltip>
+                    <Tooltip content={`Threshold minimum (data min ${threshold.dataMin})`} position="top">
+                        <input
+                            type="number"
+                            className="viewer-settings-range-input"
+                            key={`threshold-min-${threshold.min}`}
+                            defaultValue={threshold.min}
+                            step="any"
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                    commit(e.currentTarget, true);
+                                }
+                            }}
+                            onBlur={(e) => commit(e.currentTarget, true)}
+                        />
+                    </Tooltip>
+                    <Tooltip content={`Reset threshold minimum to the data min (${threshold.dataMin})`} position="top">
+                        <button
+                            type="button"
+                            className="viewer-settings-range-reset"
+                            aria-label="Reset threshold minimum to data min"
+                            onClick={() => this.applyPatch(host, { thresholdRange: [threshold.dataMin, threshold.max] })}
+                        >
+                            <i className={codicon('refresh')}></i>
+                        </button>
+                    </Tooltip>
+                    <Tooltip content={`Threshold maximum (data max ${threshold.dataMax})`} position="top">
+                        <input
+                            type="number"
+                            className="viewer-settings-range-input"
+                            key={`threshold-max-${threshold.max}`}
+                            defaultValue={threshold.max}
+                            step="any"
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                    commit(e.currentTarget, false);
+                                }
+                            }}
+                            onBlur={(e) => commit(e.currentTarget, false)}
+                        />
+                    </Tooltip>
+                    <Tooltip content={`Reset threshold maximum to the data max (${threshold.dataMax})`} position="top">
+                        <button
+                            type="button"
+                            className="viewer-settings-range-reset"
+                            aria-label="Reset threshold maximum to data max"
+                            onClick={() => this.applyPatch(host, { thresholdRange: [threshold.min, threshold.dataMax] })}
+                        >
+                            <i className={codicon('refresh')}></i>
+                        </button>
+                    </Tooltip>
+                </div>
+                <div className="viewer-settings-range-slider" role="group" aria-label="Threshold window slider">
+                    <div className="viewer-settings-range-track"></div>
+                    <div
+                        className="viewer-settings-range-fill"
+                        style={{
+                            left: `${(minThumb / RANGE_SLIDER_STEPS) * 100}%`,
+                            width: `${((maxThumb - minThumb) / RANGE_SLIDER_STEPS) * 100}%`
+                        }}
+                    ></div>
+                    <input
+                        type="range"
+                        className="viewer-settings-range-thumb"
+                        aria-label={`Threshold minimum slider (currently ${threshold.min})`}
+                        min={0}
+                        max={RANGE_SLIDER_STEPS}
+                        step={1}
+                        value={minThumb}
+                        onChange={(e) => dragMin(Number(e.currentTarget.value))}
+                    />
+                    <input
+                        type="range"
+                        className="viewer-settings-range-thumb"
+                        aria-label={`Threshold maximum slider (currently ${threshold.max})`}
+                        min={0}
+                        max={RANGE_SLIDER_STEPS}
+                        step={1}
+                        value={maxThumb}
+                        onChange={(e) => dragMax(Number(e.currentTarget.value))}
+                    />
+                </div>
+            </div>
+        );
+    }
+
     protected renderScalarBar(host: ViewerSettingsHost, snapshot: ViewerSettingsSnapshot): React.ReactNode {
         const scalarBar = snapshot.scalarBar;
         if (!scalarBar) {
@@ -590,6 +727,119 @@ export class ViewerSettingsWidget extends ReactWidget {
                     checked={tallyVolume.smooth}
                     onChange={() => this.applyPatch(host, { tallyVolumeSmooth: !tallyVolume.smooth })}
                 />
+            </div>
+        );
+    }
+
+    protected renderWarp(host: ViewerSettingsHost, snapshot: ViewerSettingsSnapshot): React.ReactNode {
+        const warp = snapshot.warp;
+        if (!warp) {
+            return undefined;
+        }
+        return (
+            <div className="viewer-settings-row" key="warp">
+                {this.renderRowLabel(
+                    'move',
+                    'Warp',
+                    'Displace the mesh along a 3-component vector array (FEM deformation, magnified; applies instantly)'
+                )}
+                <NukeSwitch
+                    className="viewer-settings-warp"
+                    ariaLabel="Warp by vector"
+                    checked={warp.enabled}
+                    onChange={() => this.applyPatch(host, { warpEnabled: !warp.enabled })}
+                />
+                <NukeSelect
+                    className="viewer-settings-warp-array"
+                    ariaLabel="Warp vector array"
+                    value={warp.array}
+                    options={warp.options}
+                    disabled={!warp.enabled}
+                    onChange={(value) => this.applyPatch(host, { warpArray: value })}
+                />
+            </div>
+        );
+    }
+
+    protected renderWarpScale(host: ViewerSettingsHost, snapshot: ViewerSettingsSnapshot): React.ReactNode {
+        const warp = snapshot.warp;
+        if (!warp) {
+            return undefined;
+        }
+        // Editing the value implies a capped exaggeration (Range-pattern:
+        // edits leave Auto for custom), clamped to the slider maximum.
+        const commit = (input: HTMLInputElement): void => {
+            const value = parseFloat(input.value);
+            if (Number.isNaN(value)) {
+                return;
+            }
+            this.applyPatch(host, { warpScaleMode: 'capped', warpScale: value });
+        };
+        return (
+            <div className="viewer-settings-range-wrap" key="warp-scale">
+                <div className="viewer-settings-row">
+                    {this.renderRowLabel(
+                        'graph',
+                        'Exaggeration',
+                        `Warp exaggeration (True applies x1 displacement, Auto applies x${warp.autoScale} = 10% of the model size, ` +
+                            `Capped clamps the slider to x${WARP_EXAGGERATION_SPEC.max}; currently applying x${warp.effectiveScale})`
+                    )}
+                    <NukeSelect
+                        className="viewer-settings-warp-mode"
+                        ariaLabel="Warp scale mode"
+                        value={warp.scaleMode}
+                        options={WARP_SCALE_MODES.map((mode) => ({ value: mode.id, label: mode.label }))}
+                        disabled={!warp.enabled}
+                        onChange={(value) => {
+                            if (isWarpScaleMode(value)) {
+                                this.applyPatch(host, { warpScaleMode: value });
+                            }
+                        }}
+                    />
+                    <Tooltip content={`Custom exaggeration (currently applying x${warp.effectiveScale})`} position="top">
+                        <input
+                            type="number"
+                            className="viewer-settings-range-input"
+                            key={`warp-${warp.scale}`}
+                            defaultValue={warp.scale}
+                            step="any"
+                            disabled={!warp.enabled}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                    commit(e.currentTarget);
+                                }
+                            }}
+                            onBlur={(e) => commit(e.currentTarget)}
+                        />
+                    </Tooltip>
+                    <Tooltip content={`Reset exaggeration to the auto scale (x${warp.autoScale})`} position="top">
+                        <button
+                            type="button"
+                            className="viewer-settings-range-reset"
+                            aria-label="Reset warp exaggeration to the auto scale"
+                            disabled={!warp.enabled}
+                            onClick={() => this.applyPatch(host, { warpScaleMode: 'capped', warpScale: warp.autoScale })}
+                        >
+                            <i className={codicon('refresh')}></i>
+                        </button>
+                    </Tooltip>
+                </div>
+                <div className="viewer-settings-row">
+                    <div className="viewer-settings-tip-fill">
+                        <Tooltip content="Warp exaggeration slider (editing switches to Capped mode)" position="top">
+                            <NukeSlider
+                                className="viewer-settings-warp-scale"
+                                ariaLabel={`Warp exaggeration (currently ${warp.scale})`}
+                                min={WARP_EXAGGERATION_SPEC.min}
+                                max={WARP_EXAGGERATION_SPEC.max}
+                                step={WARP_EXAGGERATION_SPEC.step}
+                                value={warp.scale}
+                                disabled={!warp.enabled}
+                                onChange={(value) => this.applyPatch(host, { warpScaleMode: 'capped', warpScale: value })}
+                            />
+                        </Tooltip>
+                    </div>
+                </div>
             </div>
         );
     }

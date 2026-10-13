@@ -39,7 +39,19 @@ import { VolumeGrid } from '../../../../viewer-core/volume-raycast';
 import { ViewerContextMenuItem } from '../../../../viewer-core/viewer-context-menu';
 import { CsgOutlineHost, CsgOutlinePatch, CsgOutlineSnapshot } from '../../../../csg-outline/csg-outline-model';
 import { NativeVtkViewerWidget } from '../native-vtk-viewer-widget';
-import { OpenMCVtkArrayInfo } from '../../../../../common/openmc-protocol';
+import { OpenMCBackendService, OpenMCVtkArrayInfo } from '../../../../../common/openmc-protocol';
+import type { OpenMCTallyLineProbeResult } from '../../../../../common/openmc-protocol';
+import {
+    LINE_PROBE_DEFAULT_NPOINTS,
+    LINE_PROBE_TABLE_ROW_CAP,
+    clampProbeNpoints,
+    defaultProbeEndpoints,
+    describeLineProbeSeries,
+    formatProbePoint,
+    lineProbeToCsv,
+    parseProbePoint
+} from './tally-probe';
+import type { LineProbeContext, ProbePoint3D } from './tally-probe';
 import {
     SliceAxis,
     TallyOverlayKind,
@@ -107,6 +119,27 @@ export class TallyNativeViewerWidget extends NativeVtkViewerWidget implements Cs
 
     @inject(ThemeService)
     protected readonly themeService!: ThemeService;
+
+    @inject(OpenMCBackendService)
+    protected readonly openmcBackend!: OpenMCBackendService;
+
+    /** Probe source context for this tab (set by the opener when known; manual entry otherwise). */
+    protected probeContext: LineProbeContext | undefined;
+    /** Bottom data-half panel visibility (toggled from the header). */
+    protected probeOpen = false;
+    protected probeStatepointPath = '';
+    protected probeTallyId = '';
+    protected probeScore = '';
+    protected probeNuclide = '';
+    protected probeP0 = '';
+    protected probeP1 = '';
+    protected probeNpoints = String(LINE_PROBE_DEFAULT_NPOINTS);
+    /** True = trilinear smooth (overlay slice default); false = nearest-cell pixelated. */
+    protected probeSmooth = true;
+    protected probeLoading = false;
+    protected probeError: string | undefined;
+    protected probeResult: OpenMCTallyLineProbeResult | undefined;
+    private probeToken = 0;
 
     @postConstruct()
     protected override init(): void {
@@ -194,6 +227,126 @@ export class TallyNativeViewerWidget extends NativeVtkViewerWidget implements Cs
 
     protected override volumeSmoothGrid(): VolumeGrid | undefined {
         return this.smoothVolumeGrid;
+    }
+
+    /**
+     * Probe source context for this tab: pre-fills the probe builder so a
+     * run needs no typing. The panel keeps manual entry working when no
+     * opener passes a context (statepoint path + tally id + score).
+     */
+    setProbeContext(context: LineProbeContext): void {
+        this.probeContext = context;
+        this.probeStatepointPath = context.statepointPath;
+        this.probeTallyId = String(context.tallyId);
+        if (context.score !== undefined) {
+            this.probeScore = context.score;
+        }
+        if (context.nuclide !== undefined) {
+            this.probeNuclide = context.nuclide;
+        }
+        this.update();
+    }
+
+    /** Toggle the bottom probe panel, seeding endpoints from the dataset bounds on first open. */
+    protected toggleProbePanel(): void {
+        this.probeOpen = !this.probeOpen;
+        if (this.probeOpen && (this.probeP0 === '' || this.probeP1 === '') && this.model) {
+            const bounds = boundingBoxFromPositions(this.model.positions);
+            const { p0, p1 } = defaultProbeEndpoints(
+                bounds
+                    ? {
+                          min: [bounds.min[0], bounds.min[1], bounds.min[2]] as ProbePoint3D,
+                          max: [bounds.max[0], bounds.max[1], bounds.max[2]] as ProbePoint3D
+                      }
+                    : undefined
+            );
+            if (this.probeP0 === '') {
+                this.probeP0 = formatProbePoint(p0);
+            }
+            if (this.probeP1 === '') {
+                this.probeP1 = formatProbePoint(p1);
+            }
+        }
+        this.update();
+    }
+
+    /** Run `openmc.tally-line-probe` for the builder inputs; validation errors stay inline, never thrown. */
+    protected async runLineProbe(): Promise<void> {
+        const token = ++this.probeToken;
+        const statepointPath = this.probeStatepointPath.trim();
+        const tallyId = Number(this.probeTallyId);
+        const p0 = parseProbePoint(this.probeP0);
+        const p1 = parseProbePoint(this.probeP1);
+        const npoints = clampProbeNpoints(Number(this.probeNpoints));
+        this.probeNpoints = String(npoints);
+        const score = this.probeScore.trim() || undefined;
+        const nuclide = this.probeNuclide.trim() || undefined;
+        if (!statepointPath) {
+            this.probeError = 'Enter a statepoint file path.';
+            this.update();
+            return;
+        }
+        if (!Number.isInteger(tallyId) || tallyId <= 0) {
+            this.probeError = 'Enter a positive tally id.';
+            this.update();
+            return;
+        }
+        if (!p0 || !p1) {
+            this.probeError = 'Enter endpoints as "x, y, z" in cm.';
+            this.update();
+            return;
+        }
+        if (p0[0] === p1[0] && p0[1] === p1[1] && p0[2] === p1[2]) {
+            this.probeError = 'Probe endpoints must differ.';
+            this.update();
+            return;
+        }
+        this.probeLoading = true;
+        this.probeError = undefined;
+        this.update();
+        try {
+            const result = await this.openmcBackend.getTallyLineProbe(statepointPath, {
+                tallyId,
+                score,
+                nuclide,
+                p0,
+                p1,
+                npoints,
+                smooth: this.probeSmooth
+            });
+            if (token !== this.probeToken) {
+                return;
+            }
+            if (result && typeof (result as OpenMCTallyLineProbeResult).error === 'string') {
+                throw new Error((result as OpenMCTallyLineProbeResult).error);
+            }
+            this.probeResult = result;
+        } catch (error) {
+            if (token !== this.probeToken) {
+                return;
+            }
+            this.probeError = error instanceof Error ? error.message : String(error);
+        } finally {
+            if (token === this.probeToken) {
+                this.probeLoading = false;
+                this.update();
+            }
+        }
+    }
+
+    /** Export the loaded probe series as a CSV download (kinetics-tab precedent). */
+    protected exportProbeCsv(): void {
+        if (!this.probeResult || (this.probeResult.series?.length ?? 0) === 0) {
+            return;
+        }
+        const csv = lineProbeToCsv(this.probeResult);
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = `tally-${this.probeResult.tallyId ?? 'probe'}-line-probe.csv`;
+        anchor.click();
+        URL.revokeObjectURL(url);
     }
 
     /** World-space grid backing the smooth volume (true 3D datasets only; slices and clouds stay boxed). */
@@ -428,6 +581,16 @@ export class TallyNativeViewerWidget extends NativeVtkViewerWidget implements Cs
         return group;
     }
 
+    protected override render(): React.ReactNode {
+        return (
+            <div className="openmc-output-viewer-container">
+                {this.renderHeader()}
+                {this.error ? this.renderError() : this.renderContent()}
+                {this.renderProbePanel()}
+            </div>
+        );
+    }
+
     protected override renderHeader(): React.ReactNode {
         return (
             <div className="openmc-output-viewer-header">
@@ -439,6 +602,196 @@ export class TallyNativeViewerWidget extends NativeVtkViewerWidget implements Cs
                         {this.underlayVisible && this.underlayCells.length > 0 ? ` + ${this.underlayCells.length} CSG` : ''}
                     </span>
                 </Tooltip>
+                <Tooltip content="Sample the mesh tally along a line segment (flux profile)" position="bottom">
+                    <button
+                        className="theia-button tally-line-probe-toggle"
+                        style={{ padding: '2px 8px', fontSize: '12px', minWidth: '0' }}
+                        onClick={() => this.toggleProbePanel()}
+                    >
+                        <i className={codicon('graph-line')}></i> Line probe
+                    </button>
+                </Tooltip>
+            </div>
+        );
+    }
+
+    /**
+     * Bottom data-half panel: probe builder (numeric endpoints in cm — the
+     * measure tool keeps owning canvas picking, its raycast handles are
+     * private to the shared viewer base) plus the series table with CSV
+     * export. Collapsed unless toggled in the header.
+     */
+    protected renderProbePanel(): React.ReactNode {
+        if (!this.probeOpen) {
+            return undefined;
+        }
+        const series = this.probeResult?.series ?? [];
+        const visible = series.slice(0, LINE_PROBE_TABLE_ROW_CAP);
+        return (
+            <div className="openmc-output-viewer-panel-host tally-line-probe-panel">
+                <div className="openmc-output-viewer-panel">
+                    <h4>Line probe — flux profile along a segment</h4>
+                    <div className="openmc-output-viewer-control" style={{ flexWrap: 'wrap', rowGap: '6px' }}>
+                        <label>
+                            Statepoint
+                            <input
+                                type="text"
+                                style={{ width: '220px', marginLeft: '4px' }}
+                                placeholder="/path/to/statepoint.10.h5"
+                                value={this.probeStatepointPath}
+                                onChange={(event) => {
+                                    this.probeStatepointPath = event.target.value;
+                                    this.update();
+                                }}
+                            />
+                        </label>
+                        <label>
+                            Tally
+                            <input
+                                type="number"
+                                style={{ marginLeft: '4px' }}
+                                placeholder="4"
+                                value={this.probeTallyId}
+                                onChange={(event) => {
+                                    this.probeTallyId = event.target.value;
+                                    this.update();
+                                }}
+                            />
+                        </label>
+                        <label>
+                            Score
+                            <input
+                                type="text"
+                                style={{ width: '90px', marginLeft: '4px' }}
+                                placeholder="flux"
+                                value={this.probeScore}
+                                onChange={(event) => {
+                                    this.probeScore = event.target.value;
+                                    this.update();
+                                }}
+                            />
+                        </label>
+                        <label>
+                            Nuclides
+                            <input
+                                type="text"
+                                style={{ width: '90px', marginLeft: '4px' }}
+                                placeholder="total"
+                                value={this.probeNuclide}
+                                onChange={(event) => {
+                                    this.probeNuclide = event.target.value;
+                                    this.update();
+                                }}
+                            />
+                        </label>
+                    </div>
+                    <div className="openmc-output-viewer-control" style={{ flexWrap: 'wrap', rowGap: '6px', marginTop: '6px' }}>
+                        <label>
+                            P0 (cm)
+                            <input
+                                type="text"
+                                style={{ width: '150px', marginLeft: '4px' }}
+                                placeholder="x, y, z"
+                                value={this.probeP0}
+                                onChange={(event) => {
+                                    this.probeP0 = event.target.value;
+                                    this.update();
+                                }}
+                            />
+                        </label>
+                        <label>
+                            P1 (cm)
+                            <input
+                                type="text"
+                                style={{ width: '150px', marginLeft: '4px' }}
+                                placeholder="x, y, z"
+                                value={this.probeP1}
+                                onChange={(event) => {
+                                    this.probeP1 = event.target.value;
+                                    this.update();
+                                }}
+                            />
+                        </label>
+                        <label>
+                            Points
+                            <input
+                                type="number"
+                                style={{ marginLeft: '4px' }}
+                                value={this.probeNpoints}
+                                onChange={(event) => {
+                                    this.probeNpoints = event.target.value;
+                                    this.update();
+                                }}
+                            />
+                        </label>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <input
+                                type="checkbox"
+                                checked={this.probeSmooth}
+                                onChange={(event) => {
+                                    this.probeSmooth = event.target.checked;
+                                    this.update();
+                                }}
+                            />
+                            Smooth (trilinear; off = pixelated cells)
+                        </label>
+                        <button
+                            className="theia-button tally-line-probe-run"
+                            style={{ padding: '2px 10px', fontSize: '12px', minWidth: '0' }}
+                            disabled={this.probeLoading}
+                            onClick={() => this.runLineProbe()}
+                        >
+                            {this.probeLoading ? 'Probing…' : 'Run probe'}
+                        </button>
+                    </div>
+                    {this.probeError && (
+                        <div className="tally-line-probe-error" style={{ color: 'var(--theia-errorForeground)', marginTop: '6px' }}>
+                            {this.probeError}
+                        </div>
+                    )}
+                    {this.probeResult && !this.probeError && (
+                        <div style={{ marginTop: '8px' }}>
+                            <div className="openmc-output-viewer-control" style={{ marginBottom: '4px' }}>
+                                <span className="nuke-viewer-status-line">{describeLineProbeSeries(this.probeResult)}</span>
+                                <button
+                                    className="theia-button tally-line-probe-export"
+                                    style={{ padding: '2px 10px', fontSize: '12px', minWidth: '0', marginLeft: '8px' }}
+                                    disabled={series.length === 0}
+                                    onClick={() => this.exportProbeCsv()}
+                                >
+                                    Export CSV
+                                </button>
+                            </div>
+                            <table className="openmc-output-viewer-table tally-line-probe-table">
+                                <thead>
+                                    <tr>
+                                        <th>Distance (cm)</th>
+                                        <th>X (cm)</th>
+                                        <th>Y (cm)</th>
+                                        <th>Z (cm)</th>
+                                        <th>Value</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {visible.map((point, index) => (
+                                        <tr key={index}>
+                                            <td>{point.distance}</td>
+                                            <td>{point.position[0]}</td>
+                                            <td>{point.position[1]}</td>
+                                            <td>{point.position[2]}</td>
+                                            <td>{point.value}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                            {series.length > visible.length && (
+                                <div className="nuke-viewer-status-line" style={{ marginTop: '4px' }}>
+                                    Showing {visible.length} of {series.length} rows — Export CSV downloads the full series.
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
             </div>
         );
     }

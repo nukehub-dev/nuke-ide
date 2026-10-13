@@ -215,6 +215,87 @@ describe('viewer-settings-model display contract', () => {
     });
 });
 
+describe('viewer-settings-model warp contract', () => {
+    it('composes a patch with every warp field', () => {
+        const patch: ViewerSettingsPatch = {
+            warpEnabled: true,
+            warpArray: 'Point: DISP',
+            warpScaleMode: 'capped',
+            warpScale: 12.5
+        };
+        expect(patch.warpArray).toBe('Point: DISP');
+        expect(patch.warpScaleMode).toBe('capped');
+        expect(patch.warpScale).toBe(12.5);
+    });
+
+    it('carries the warp section on a dataset with a vector array', () => {
+        const snapshot: ViewerSettingsSnapshot = {
+            widgetId: 'native-vtk-viewer-widget:/tmp/fem.vtu',
+            title: 'fem.vtu',
+            hasDataset: true,
+            warp: {
+                enabled: true,
+                array: 'Point: DISP',
+                options: [{ value: 'Point: DISP', label: 'Point: DISP' }],
+                scaleMode: 'auto',
+                scale: 1,
+                autoScale: 23.5,
+                effectiveScale: 23.5
+            }
+        };
+        expect(snapshot.warp?.enabled).toBe(true);
+        expect(snapshot.warp?.array).toBe('Point: DISP');
+        expect(snapshot.warp?.effectiveScale).toBe(23.5);
+    });
+
+    it('leaves the warp section absent without a 3-component vector array', () => {
+        const snapshot: ViewerSettingsSnapshot = {
+            widgetId: 'native-vtk-viewer-widget:/tmp/flux.vti',
+            title: 'flux.vti',
+            hasDataset: true
+        };
+        expect(snapshot.warp).toBeUndefined();
+    });
+});
+
+describe('viewer-settings-model threshold contract', () => {
+    it('composes a patch with every threshold field', () => {
+        const enable: ViewerSettingsPatch = { thresholdEnabled: true };
+        const window: ViewerSettingsPatch = { thresholdRange: [1e5, 1e6] };
+        const reset: ViewerSettingsPatch = { thresholdRange: 'data' };
+        expect(enable.thresholdEnabled).toBe(true);
+        expect(window.thresholdRange).toEqual([1e5, 1e6]);
+        expect(reset.thresholdRange).toBe('data');
+    });
+
+    it('carries the threshold section beside the range on a dataset with a color-by array', () => {
+        const snapshot: ViewerSettingsSnapshot = {
+            widgetId: 'tally-native-viewer-widget:/tmp/tally.vti',
+            title: 'tally.vti',
+            hasDataset: true,
+            colorBy: {
+                value: 'Cell: flux',
+                options: [{ value: 'Solid Color', label: 'Solid Color' }]
+            },
+            range: { mode: 'custom', min: 0, max: 2.5, dataMin: -0.5, dataMax: 4 },
+            threshold: { enabled: true, min: 1, max: 2, dataMin: -0.5, dataMax: 4, visible: 60, total: 100 }
+        };
+        expect(snapshot.threshold?.enabled).toBe(true);
+        expect(snapshot.threshold?.min).toBe(1);
+        expect(snapshot.threshold?.visible).toBe(60);
+        expect(snapshot.threshold?.total).toBe(100);
+    });
+
+    it('leaves the threshold section absent in Solid Color mode (no array to test)', () => {
+        const snapshot: ViewerSettingsSnapshot = {
+            widgetId: 'native-vtk-viewer-widget:/tmp/mesh.vtu',
+            title: 'mesh.vtu',
+            hasDataset: true
+        };
+        expect(snapshot.threshold).toBeUndefined();
+    });
+});
+
 describe('viewer-settings-model range slider', () => {
     it('round-trips thumbs and values over the data span', () => {
         expect(rangeSliderToValue(0, 2, 10)).toBe(2);

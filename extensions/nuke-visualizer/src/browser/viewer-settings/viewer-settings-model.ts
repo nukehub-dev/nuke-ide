@@ -28,6 +28,7 @@
 import type { ClipAxis, ClipPlanesState } from '../viewer-core/clip-plane';
 import type { BoundsCorner } from '../viewer-core/orbit-controls';
 import type { ViewerShadingMode } from '../viewer-core/shading-mode';
+import type { WarpScaleMode } from '../viewer-core/warp-vectors';
 
 /**
  * Shared settings contract between the native 3D viewer widgets and the
@@ -100,6 +101,25 @@ export interface ViewerRangeSettings {
 /** Dual-slider resolution for the custom range control (per-mille of the data span). */
 export const RANGE_SLIDER_STEPS = 1000;
 
+/**
+ * Threshold (hide-cells-outside-a-range) section of a settings snapshot.
+ * Present whenever a data array is the active color-by (parsed or a
+ * transient derived field); absent in Solid Color mode (no array to test).
+ * `min`/`max` is the effective window (the custom window, or the data
+ * range before the user edits one); `dataMin`/`dataMax` is the reset
+ * target. `visible`/`total` counts the active-array tuples inside the
+ * window (non-finite tuples count as visible — the `nanColor` rule).
+ */
+export interface ViewerThresholdSettings {
+    readonly enabled: boolean;
+    readonly min: number;
+    readonly max: number;
+    readonly dataMin: number;
+    readonly dataMax: number;
+    readonly visible: number;
+    readonly total: number;
+}
+
 /** Map a dual-slider thumb (0..RANGE_SLIDER_STEPS) onto the data span. Pure. */
 export function rangeSliderToValue(thumb: number, dataMin: number, dataMax: number): number {
     const clamped = Math.min(RANGE_SLIDER_STEPS, Math.max(0, thumb));
@@ -142,6 +162,26 @@ export interface ViewerTallyVolumeSettings {
     readonly smooth: boolean;
 }
 
+/**
+ * Warp-by-vector section (FEM magnified deformation); absent unless the
+ * dataset carries a 3-component point array (nodal DISP today). The viewer
+ * displaces its position buffers along the chosen array and recomputes mesh
+ * normals; `effectiveScale` is the scale actually applied (`true` = 1,
+ * `auto` = `autoScale`, `capped` = `scale` clamped to the slider maximum).
+ */
+export interface ViewerWarpSettings {
+    readonly enabled: boolean;
+    readonly array: string;
+    readonly options: readonly ViewerColorByOption[];
+    readonly scaleMode: WarpScaleMode;
+    /** User exaggeration (slider/numeric value; live in `capped` mode). */
+    readonly scale: number;
+    /** Data-reset target: the 10%-of-size auto scale for the current array. */
+    readonly autoScale: number;
+    /** Effective scale applied to the position buffers (0 when warp is off). */
+    readonly effectiveScale: number;
+}
+
 /** Generic slider section of a settings snapshot (opacity, point size, line width). */
 export interface ViewerSliderSettings {
     readonly value: number;
@@ -173,8 +213,10 @@ export interface ViewerSettingsSnapshot {
     readonly colormap?: ViewerColormapSettings;
     readonly component?: ViewerComponentSettings;
     readonly range?: ViewerRangeSettings;
+    readonly threshold?: ViewerThresholdSettings;
     readonly scalarBar?: ViewerScalarBarSettings;
     readonly tallyVolume?: ViewerTallyVolumeSettings;
+    readonly warp?: ViewerWarpSettings;
     readonly solidColor?: ViewerColorSettings;
     readonly background?: ViewerColorSettings;
     readonly shading?: ViewerShadingSettings;
@@ -199,11 +241,18 @@ export interface ViewerSettingsPatch {
     readonly colormap?: string;
     readonly component?: number;
     readonly range?: 'auto' | readonly [number, number];
+    readonly thresholdEnabled?: boolean;
+    /** Custom threshold window; `'data'` clears it back to the data range (Range `auto` parity). */
+    readonly thresholdRange?: 'data' | readonly [number, number];
     readonly invert?: boolean;
     readonly logScale?: boolean;
     readonly scalarBarVisible?: boolean;
     readonly tallyVolumeVisible?: boolean;
     readonly tallyVolumeSmooth?: boolean;
+    readonly warpEnabled?: boolean;
+    readonly warpArray?: string;
+    readonly warpScaleMode?: WarpScaleMode;
+    readonly warpScale?: number;
     readonly solidColor?: string;
     readonly background?: string;
     readonly shading?: ViewerShadingMode;

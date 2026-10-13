@@ -421,6 +421,9 @@ export interface OpenMCBackendService {
         h5mPath: string,
         options?: OpenMCOverlayGeometryVtkOptions
     ): Promise<OpenMCVtkConversionResult>;
+
+    /** Sample a mesh tally along a line segment (flux profile probe series) */
+    getTallyLineProbe(statepointPath: string, options: OpenMCTallyLineProbeOptions): Promise<OpenMCTallyLineProbeResult>;
 }
 
 // === Cross-Section (XS) Plotting Types ===
@@ -2085,4 +2088,55 @@ export interface OpenMCOverlayGeometryVtkOptions {
     includeGraveyard?: boolean;
     /** Trilinearly interpolate tally values at surface vertices (point data) instead of nearest-cell centroids */
     smooth?: boolean;
+}
+
+/** Options for `openmc.tally-line-probe` (flux profile along a segment) */
+export interface OpenMCTallyLineProbeOptions {
+    tallyId: number;
+    score?: string;
+    nuclide?: string;
+    /** Probe start point in cm */
+    p0: [number, number, number];
+    /** Probe end point in cm */
+    p1: [number, number, number];
+    /** Samples along the segment (default 100) */
+    npoints?: number;
+    /** Trilinear interpolation (default true; false = nearest-cell/pixelated) */
+    smooth?: boolean;
+    /** Write the probe-path polyline (.vtp) to a default temp path */
+    writeVtp?: boolean;
+}
+
+/** One sample of an `openmc.tally-line-probe` series */
+export interface OpenMCTallyLineProbePoint {
+    /** Distance from p0 in cm */
+    distance: number;
+    /** Sample position in cm */
+    position: [number, number, number];
+    /** Sampled tally value */
+    value: number;
+}
+
+/** Line-probe series from `openmc.tally-line-probe` */
+export interface OpenMCTallyLineProbeResult {
+    /** Statepoint file the probe sampled */
+    sourceFile?: string;
+    tallyId?: number;
+    tallyName?: string;
+    score?: string;
+    nuclide?: string;
+    arrayName?: string;
+    p0?: [number, number, number];
+    p1?: [number, number, number];
+    npoints?: number;
+    smooth?: boolean;
+    /** Segment length in cm */
+    length?: number;
+    /** Sampled series (distance/position/value per point) */
+    series?: OpenMCTallyLineProbePoint[];
+    /** [min, max] over the series values */
+    dataRange?: [number, number];
+    /** Probe-path polyline (.vtp) when requested via writeVtp */
+    vtkPath?: string | null;
+    error?: string;
 }

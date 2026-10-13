@@ -330,6 +330,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   RGBA lookup from the shared color pipeline so colors match the boxes,
   exact-zero cells stay invisible, clip planes cut it identically, boxes
   on any failure). Boxes stay the default; the switch is sticky per viewer.
+- nuke-visualizer: **derived fields (Calculator) + histogram in the output
+  viewers** — the tracks, collision-track, and weight-windows data panels
+  gain a Calculator input over dataset arrays with a small closed grammar
+  (`a/b`, `a-b`, `mag(v)`, `log10(a)` — invalid input is a panel error,
+  never committed). Applying materializes a transient array the color-by
+  pipeline consumes like any parsed array (divide-by-zero yields NaN and
+  routes through each preset's NaN color), and a lightweight SVG histogram
+  (min/max/mean/std, bin count, log-y toggle) covers the active color-by
+  array.
+- nuke-visualizer: **warp-by-vector for FEM displacement** — meshes carrying
+  a 3-component point array (nodal DISP from FEM exports) gain a Viewer
+  Settings Warp row (enable switch plus vector-array pick, shown only when
+  such an array exists) with an exaggeration slider: True scale (x1),
+  Auto (magnified so the largest displacement spans 10% of the model size),
+  or a Capped custom value with one-click reset to the auto scale. Warp
+  rewrites the scene positions client-side with recomputed normals (fit,
+  clip, and the measure raycast follow it); rebuilds and recolors re-apply
+  it, and the status line reports the applied factor.
+- nuke-visualizer: **line probes for tally flux profiles** — the native
+  tally viewer gains a Line probe panel (header toggle): enter a statepoint,
+  tally, score, and two endpoints in cm (defaults span the dataset X axis),
+  pick smooth trilinear or pixelated nearest-cell sampling plus the sample
+  count, and run `openmc.tally-line-probe` to sample the mesh tally along
+  the segment. The series renders in a data-half table (distance/position/
+  value, capped at 1000 rows for interactivity) with full-series CSV export
+  following the kinetics-tab pattern; `--output`/`--write-vtp` also emit
+  the probe-path polyline (`.vtp`) for in-scene display.
+- nuke-visualizer: **threshold on tally meshes** — the Viewer Settings
+  sidebar gains a Threshold row beside Range (enable switch plus a min/max
+  window following the Range dual-control pattern: numeric inputs with
+  per-side data resets, a full-range reset, and a dual-thumb slider). It
+  hides cells whose active color-by value falls outside the window —
+  voxel boxes collapse, mesh triangles fold away — over parsed and derived
+  arrays alike, and combines with warp (warp displaces first, then cells
+  hide). Switching the color-by array clears a custom window back to the
+  new data range; the status line reports the coverage, and non-finite
+  values stay visible per the NaN-color rule.
 
 ### Changed
 

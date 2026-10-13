@@ -44,6 +44,10 @@ reload()
 
 Color-by is a pure client-side control: `'Solid Color' | 'Point: <array>' | 'Cell: <array>'`, validated against the arrays the parsed dataset actually has. Switching arrays re-colors instantly — no conversion re-run, no restart. Converters decide _which_ arrays exist — e.g. weight windows write one cell-data array per (bound, group) named `lower_g<i>` / `upper_g<i>`, which is what makes Color By act as the group/bound selector.
 
+### Derived Fields (Calculator) + Histogram
+
+The tracks/collision-track/weight-windows panels host a Calculator input plus an SVG histogram (`src/browser/plugins/openmc/widgets/derived-field-panel.tsx`, stateless render over props). The language lives in the pure `src/browser/viewer-core/derived-fields.ts` (vitest-covered): a closed grammar (`a/b`, `a-b`, `mag(v)`, `log10(a)` over dataset array names — no nesting, no literals; invalid input throws `DerivedFieldError`, which the panel shows inline and never commits). Operands resolve per tuple through `scalar-mapping.ts::tupleScalar` (magnitude default), so the transient single-component result (`derived(<expr>)`, finite-only `[min, max]` range) slots into the parsed model arrays and the existing recolor/legend/ Viewer-Settings paths consume it identically — divide-by-zero yields NaN per tuple and lands on the preset `nanColor`, same as `log10` of non-positive values. The host widget injects the array into `model.pointArrays`/`cellArrays`, re-runs `classifyNativeVtkArrays`, and switches color-by via the public `applyProps`; `Clear` removes it (restoring Solid Color when active) and each `reload()` re-applies the committed expression against the fresh dataset. Statistics (`min/max/mean/std`, population std, non-finite counts) and equal-width `histogram(nbins)` are pure helpers in the same module; the histogram always covers the active color-by array resolved with the current vector component (`resolveHistogramSource` in the panel file), with a 1–256 bin clamp and a log-y toggle. No Plotly, no new export machinery.
+
 ### Lifecycle
 
 - `reload()` converts, reads the file text, and re-parses; parameter changes (filters, mesh selection) re-run `reload()` — convert again, re-parse.
@@ -67,12 +71,14 @@ The resizable split between the 3D area and the data panel uses `src/browser/plu
 
 ## Key Files
 
-| Purpose                    | File                                                              |
-| -------------------------- | ----------------------------------------------------------------- |
-| Viewer registry            | `src/browser/output-viewer/output-viewer-registry.ts`             |
-| Filename patterns          | `src/browser/output-viewer/output-file-patterns.ts`               |
-| Viewer base class          | `src/browser/plugins/openmc/widgets/native-vtk-viewer-widget.tsx` |
-| Split-drag helper          | `src/browser/plugins/openmc/widgets/drag-split.ts`                |
-| Backend conversion service | `src/node/plugins/openmc/services/openmc-output-service.ts`       |
-| VTK converters (Python)    | `python/plugins/openmc/lib/output_vtk.py`                         |
-| Summary → XML (Python)     | `python/plugins/openmc/lib/geometry_parser.py`                    |
+| Purpose                    | File                                                               |
+| -------------------------- | ------------------------------------------------------------------ |
+| Viewer registry            | `src/browser/output-viewer/output-viewer-registry.ts`              |
+| Filename patterns          | `src/browser/output-viewer/output-file-patterns.ts`                |
+| Viewer base class          | `src/browser/plugins/openmc/widgets/native-vtk-viewer-widget.tsx`  |
+| Calculator + histogram UI  | `src/browser/plugins/openmc/widgets/derived-field-panel.tsx`       |
+| Derived-field expressions  | `src/browser/viewer-core/derived-fields.ts` (pure, vitest-covered) |
+| Split-drag helper          | `src/browser/plugins/openmc/widgets/drag-split.ts`                 |
+| Backend conversion service | `src/node/plugins/openmc/services/openmc-output-service.ts`        |
+| VTK converters (Python)    | `python/plugins/openmc/lib/output_vtk.py`                          |
+| Summary → XML (Python)     | `python/plugins/openmc/lib/geometry_parser.py`                     |

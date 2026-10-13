@@ -605,3 +605,41 @@
     text-transform: uppercase;
     white-space: nowrap;
 }
+
+/* Derived-field (calculator) + histogram readout */
+
+.openmc-derived-field-note {
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+    margin-bottom: 6px;
+}
+
+.openmc-derived-field-note code {
+    font-family: var(--theia-monospace-font-family, monospace);
+    background: var(--theia-textCodeBlock-background, var(--theia-editorWidget-background));
+    border-radius: 3px;
+    padding: 0 4px;
+}
+
+.openmc-derived-field-error {
+    font-size: 12px;
+    color: var(--theia-errorForeground);
+    margin-top: 6px;
+    word-break: break-word;
+}
+
+.openmc-histogram-svg {
+    width: 100%;
+    height: auto;
+    display: block;
+    margin: 4px 0 6px;
+}
+
+.openmc-histogram-bar {
+    fill: var(--theia-button-background);
+}
+
+.openmc-histogram-axis {
+    font-size: 9px;
+    fill: var(--theia-descriptionForeground);
+}

@@ -46,18 +46,56 @@ Once the file loads, the visualization panel shows an interactive 3D view with a
 
 ### Appearance
 
-| Control        | What It Does                                                                                            |
-| -------------- | ------------------------------------------------------------------------------------------------------- |
-| **Opacity**    | Slider from 0 (invisible) to 1 (fully opaque)                                                           |
-| **Shading**    | Shaded / Shaded + Edges / Wireframe / Points / X-Ray                                                    |
-| **Color By**   | Choose a data array (e.g., temperature, flux) or "Solid Color"                                          |
-| **Component**  | For multi-component arrays: Magnitude or a single component (X / Y / Z)                                 |
-| **Color Map**  | Full ParaView preset list (34 maps — Viridis, Cool to Warm, Jet, RdBu, …)                               |
-| **Invert/Log** | Reverse the colormap, or map values log-scaled (needs a positive range)                                 |
-| **Range**      | Auto (data range) or a custom min/max the colormap clamps to                                            |
-| **Scalar Bar** | Toggle the floating color-legend card (array name, gradient, min/max) on/off                            |
-| **Colors**     | Solid-color and background pickers                                                                      |
-| **Sizes**      | Point size and line width sliders (line width is driver-dependent); points render as round soft sprites |
+| Control        | What It Does                                                                                                     |
+| -------------- | ---------------------------------------------------------------------------------------------------------------- |
+| **Opacity**    | Slider from 0 (invisible) to 1 (fully opaque)                                                                    |
+| **Shading**    | Shaded / Shaded + Edges / Wireframe / Points / X-Ray                                                             |
+| **Color By**   | Choose a data array (e.g., temperature, flux) or "Solid Color"                                                   |
+| **Component**  | For multi-component arrays: Magnitude or a single component (X / Y / Z)                                          |
+| **Color Map**  | Full ParaView preset list (34 maps — Viridis, Cool to Warm, Jet, RdBu, …)                                        |
+| **Invert/Log** | Reverse the colormap, or map values log-scaled (needs a positive range)                                          |
+| **Range**      | Auto (data range) or a custom min/max the colormap clamps to                                                     |
+| **Threshold**  | Hide cells whose active-array value falls outside a min/max window (row appears beside Range)                    |
+| **Scalar Bar** | Toggle the floating color-legend card (array name, gradient, min/max) on/off                                     |
+| **Warp**       | Displace the mesh along a 3-component vector array (FEM deformation; row appears only when such an array exists) |
+| **Colors**     | Solid-color and background pickers                                                                               |
+| **Sizes**      | Point size and line width sliders (line width is driver-dependent); points render as round soft sprites          |
+
+### Warp (FEM Deformation)
+
+Meshes from FEM exports carry a nodal displacement array (typically `DISP`).
+The **Warp** row in Viewer Settings (visible only when the file has a
+3-component point array) deforms the mesh client-side so small strains become
+visible, with mesh normals recomputed so lighting stays correct:
+
+| Control          | What It Does                                                                                                                                                                |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Warp switch**  | Turn the deformation on/off                                                                                                                                                 |
+| **Vector array** | Which 3-component point array displaces the mesh                                                                                                                            |
+| **Scale mode**   | `True scale (x1)` for real displacement, `Auto (10% of size)` to magnify the largest displacement to a tenth of the model size, or `Capped exaggeration` for a custom value |
+| **Exaggeration** | Slider + numeric input for the custom value (editing either switches to Capped); the reset button restores the auto scale                                                   |
+
+Warp applies instantly with no reload: fit, clip planes, and the measure tool
+follow the deformed mesh, and the status line reports the applied factor
+(e.g. `warped x23.5`). Voxel-block grids keep their layout (their positions
+are cell centers, not displaceable nodes).
+
+### Threshold (Hide Cells)
+
+The **Threshold** row in Viewer Settings (beside Range, visible whenever a
+data array is the active color-by) hides cells whose active-array value
+falls outside a min/max window — flux below a cutoff, for example. The
+window follows the Range dual-control pattern: an enable switch, numeric
+min/max inputs with per-side data resets, a full-range reset, and a
+dual-thumb slider over the data range.
+
+Threshold tests the active color-by array, including transient derived
+fields, and combines with warp (warp displaces first, then cells hide).
+Switching the color-by array clears a custom window back to the new data
+range (so a stale window cannot blank the scene) while the switch stays
+on. The status line reports the coverage (e.g. `threshold 8,412 of 10,000
+shown`); non-finite values stay visible, matching the NaN-color rule. The
+smooth raycast volume and the grid cell-center cloud ignore the window.
 
 ### Clipping
 

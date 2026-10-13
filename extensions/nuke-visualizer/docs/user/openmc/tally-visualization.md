@@ -207,6 +207,65 @@ Best for: 1D line plots of tally value along X, Y, or Z.
 
 ---
 
+## Line Probe
+
+Best for: Flux profiles along an arbitrary segment (e.g. across a fuel pin, through a shield wall).
+
+### How to Open
+
+1. Open a mesh tally in the native 3D tally viewer (**"View 3D"**).
+2. Click **"Line probe"** in the viewer header.
+
+### What You See
+
+- A probe builder panel below the 3D view: statepoint path, tally id,
+  score/nuclide, two endpoints **P0/P1** in cm, the sample count, and a
+  **Smooth** switch.
+- Endpoints are entered numerically (endpoints default to the dataset's X
+  axis through its center, so the first run needs no typing). Canvas
+  picking stays in the measure tool.
+- **Smooth** (default) trilinearly interpolates between mesh cells; turning
+  it off samples nearest cells, showing the actual blocky mesh values (the
+  same convention as the overlay Rendering Style).
+- Running the probe samples the tally along the segment and renders the
+  series (distance / position / value) in a table; **Export CSV** downloads
+  the full series.
+
+### Requirements
+
+- The statepoint must contain the probed tally with a regular mesh filter
+  (cylindrical meshes are rejected with a clear error, like the other
+  tally exports).
+- Missing dependencies (`h5py` for reading, `vtk` for the optional
+  `.vtp` probe-path polyline) surface as panel errors naming the package.
+
+---
+
+## Threshold
+
+Best for: Hiding low-flux (or out-of-range) cells to expose the hot region
+of a mesh tally.
+
+### How to Open
+
+1. Open a mesh tally in the native 3D tally viewer (**"View 3D"**).
+2. In the Viewer Settings sidebar, find the **Threshold** row beside Range
+   and flip the switch, then narrow the min/max window.
+
+### What You See
+
+- Cells whose active color-by value falls outside the window disappear
+  (voxel boxes collapse, mesh triangles fold away); the rest keep their
+  colors. The status line reports the coverage (e.g. `threshold 8,412 of 10,000 shown`).
+- The window tests the active array, including a transient derived field
+  from the Calculator, and follows color-by switches (a custom window
+  resets to the new data range so a stale window cannot blank the scene).
+- Non-finite values (NaN from divide-by-zero fields) stay visible, matching
+  the colormap's NaN-color rule. The smooth raycast volume ignores the
+  window — switch back to voxel boxes to see it apply.
+
+---
+
 ## 2D Heatmap Slices
 
 Best for: Inspecting mesh tally slice-by-slice.
@@ -255,6 +314,7 @@ Or: `Tools → Visualizer → OpenMC → Tally → Visualize Source Distribution
 | Overlay on Geometry | Geometry + mesh filter                 | CAD-integrated results (slice or full 3D)   |
 | Energy Spectrum     | Energy filter                          | Spectral analysis, flux shapes              |
 | Spatial Plot        | Mesh filter                            | 1D profiles along an axis                   |
+| Line Probe          | Mesh filter                            | Flux profiles along an arbitrary segment    |
 | 2D Heatmap          | Mesh filter                            | Slice-by-slice inspection                   |
 | Source Distribution | `source.h5` or statepoint with source  | Source convergence checks                   |
 | Overlay + Source    | Geometry + statepoint with source bank | Correlating source birth with tally regions |

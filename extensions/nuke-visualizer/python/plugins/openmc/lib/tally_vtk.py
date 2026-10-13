@@ -1186,3 +1186,220 @@ def overlay_geometry_to_vtk(
         "fromCache": False,
         "dataRange": data["dataRange"],
     }
+
+
+# ---------------------------------------------------------------------------
+# Line probes (flux profiles along a segment)
+# ---------------------------------------------------------------------------
+
+#: Probe sample-count bounds: at least the two endpoints; capped so the JSON
+#: series stays interactive in the data-half table.
+LINE_PROBE_MIN_POINTS = 2
+LINE_PROBE_MAX_POINTS = 100000
+
+
+def _require_probe_point(name, value):
+    """Validate a probe endpoint. Output: ``[x, y, z]`` floats in cm."""
+    try:
+        point = [float(v) for v in value]
+    except (TypeError, ValueError):
+        raise OutputReaderError(f"{name} must hold 3 numbers (x y z in cm)") from None
+    if len(point) != 3:
+        raise OutputReaderError(f"{name} must hold 3 numbers (x y z in cm), got {value!r}")
+    if isinstance(value, bool) or not all(np.isfinite(point)):
+        raise OutputReaderError(f"{name} coordinates must all be finite, got {value!r}")
+    return point
+
+
+def _require_npoints(value):
+    """Validate a probe sample count. Output: the value as an ``int``."""
+    if isinstance(value, bool):
+        raise OutputReaderError(f"npoints must be an integer, got {value!r}")
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        raise OutputReaderError(f"npoints must be an integer, got {value!r}") from None
+    if isinstance(value, float) and value != number:
+        raise OutputReaderError(f"npoints must be an integer, got {value!r}")
+    if number < LINE_PROBE_MIN_POINTS or number > LINE_PROBE_MAX_POINTS:
+        raise OutputReaderError(
+            f"npoints must be between {LINE_PROBE_MIN_POINTS} and {LINE_PROBE_MAX_POINTS}, "
+            f"got {value!r}"
+        )
+    return number
+
+
+def build_line_probe_points(p0, p1, npoints):
+    """Build evenly spaced sample points along a probe segment (numpy only).
+
+    Inputs: ``p0``/``p1`` (segment endpoints in cm), ``npoints`` (sample
+    count, endpoints included). Output: dict with ``p0``, ``p1``,
+    ``npoints``, ``points`` ((N, 3) float array), ``distances`` ((N,) float
+    array from ``p0`` in cm) and ``length`` (segment length in cm). Raises
+    :class:`OutputReaderError` on bad input (a zero-length segment is
+    rejected — a probe needs a direction). Pure numpy — no vtk required.
+    """
+    start = _require_probe_point("p0", p0)
+    end = _require_probe_point("p1", p1)
+    count = _require_npoints(npoints)
+    start_arr = np.asarray(start, dtype=float)
+    end_arr = np.asarray(end, dtype=float)
+    length = float(np.linalg.norm(end_arr - start_arr))
+    if not np.isfinite(length) or length <= 0.0:
+        raise OutputReaderError(
+            f"probe endpoints must differ (zero-length segment {start} -> {end})"
+        )
+    fractions = np.linspace(0.0, 1.0, count)
+    points = start_arr[None, :] + fractions[:, None] * (end_arr - start_arr)[None, :]
+    return {
+        "p0": start,
+        "p1": end,
+        "npoints": count,
+        "points": np.ascontiguousarray(points, dtype=float),
+        "distances": np.ascontiguousarray(fractions * length, dtype=float),
+        "length": length,
+    }
+
+
+def sample_line_probe(values_3d, lower_left, upper_right, p0, p1, npoints, smooth=True):
+    """Sample a cell-centered regular grid along a line segment.
+
+    The probe lattice comes from :func:`build_line_probe_points`; the values
+    reuse the overlay samplers — :func:`sample_trilinear_values` when
+    ``smooth`` (blended between mesh cells, the overlay slice default) or
+    :func:`sample_nearest_values` otherwise (actual mesh-cell values, the
+    overlay ``pixelated`` convention). Output: dict with ``p0``, ``p1``,
+    ``npoints``, ``smooth``, ``points`` ((N, 3) float array), ``distances``
+    ((N,) float array from ``p0`` in cm), ``length`` and ``values`` ((N,)
+    float array). Raises :class:`OutputReaderError` on bad input. Pure
+    numpy.
+    """
+    probe = build_line_probe_points(p0, p1, npoints)
+    sampler = sample_trilinear_values if smooth else sample_nearest_values
+    values = sampler(values_3d, lower_left, upper_right, probe["points"])
+    return {**probe, "smooth": bool(smooth), "values": np.ascontiguousarray(values, dtype=float)}
+
+
+def write_probe_vtp(points, values, array_name, output_path):
+    """Write probe samples as a .vtp polyline path (lazy vtk).
+
+    Inputs: ``points`` ((N, 3) array, N >= 2), ``values`` ((N,) array),
+    ``array_name`` (point-data array name), ``output_path`` (.vtp
+    destination). The points join into one polyline cell so the path draws
+    in-scene with per-point values for coloring. Output: the path string.
+    Raises :class:`OutputReaderError` on bad input, length mismatches, or
+    missing vtk. Validators run before the vtk gate.
+    """
+    try:
+        pts = np.asarray(points, dtype=float)
+    except (TypeError, ValueError):
+        raise OutputReaderError("points must be numeric with shape (N, 3)") from None
+    if pts.ndim != 2 or pts.shape[1] != 3 or pts.shape[0] < LINE_PROBE_MIN_POINTS:
+        raise OutputReaderError(
+            f"points must have shape (N, 3) with N >= {LINE_PROBE_MIN_POINTS}, got {pts.shape}"
+        )
+    if not np.all(np.isfinite(pts)):
+        raise OutputReaderError("points must all be finite")
+    name = _require_array_name(array_name)
+    try:
+        vals = np.asarray(values, dtype=float).ravel()
+    except (TypeError, ValueError):
+        raise OutputReaderError("values must be numeric with one entry per point") from None
+    if vals.shape[0] != pts.shape[0]:
+        raise OutputReaderError(
+            f"values has length {vals.shape[0]}, expected {pts.shape[0]} (one value per point)"
+        )
+    if not np.all(np.isfinite(vals)):
+        raise OutputReaderError("values must all be finite")
+
+    vtk, numpy_support = _load_vtk()
+    vtk_points = vtk.vtkPoints()
+    vtk_points.SetData(numpy_support.numpy_to_vtk(np.ascontiguousarray(pts), deep=True))
+    lines = vtk.vtkCellArray()
+    lines.InsertNextCell(int(pts.shape[0]))
+    for i in range(pts.shape[0]):
+        lines.InsertCellPoint(int(i))
+
+    polydata = vtk.vtkPolyData()
+    polydata.SetPoints(vtk_points)
+    polydata.SetLines(lines)
+    _set_point_array(polydata, vals, name)
+
+    writer = vtk.vtkXMLPolyDataWriter()
+    writer.SetFileName(output_path)
+    writer.SetInputData(polydata)
+    writer.Write()
+    return output_path
+
+
+def line_probe(
+    statepoint_path,
+    tally_id,
+    p0,
+    p1,
+    npoints=100,
+    score=None,
+    nuclide=None,
+    smooth=True,
+    output_path=None,
+    write_vtp=False,
+):
+    """Sample a mesh tally along a line segment (flux profile probe).
+
+    Inputs: ``statepoint_path`` (.h5 file), ``tally_id`` (positive int),
+    ``p0``/``p1`` (segment endpoints in cm), ``npoints`` (sample count),
+    optional ``score``/``nuclide`` (default: first of each), ``smooth``
+    (trilinear interpolation, default True; False samples nearest cells —
+    the overlay ``pixelated`` convention), optional ``output_path`` (.vtp
+    destination for the probe-path polyline) and ``write_vtp`` (write the
+    polyline to a default temp path when no ``output_path`` is given).
+    Output: JSON-safe dict with the tally metadata, the sampled ``series``
+    (``distance``/``position``/``value`` per point), ``dataRange`` and the
+    ``vtkPath`` when a polyline was written. Raises
+    :class:`OutputReaderError` on bad input, missing files/dependencies, or
+    non-mesh tallies.
+    """
+    # Validate the probe geometry before the (expensive) tally read — the
+    # same fail-fast order the overlay converter uses for its mode flag.
+    build_line_probe_points(p0, p1, npoints)
+    data = read_mesh_tally(statepoint_path, tally_id, score=score, nuclide=nuclide)
+    dims = data["dimension"]
+    lo = np.asarray(data["lowerLeft"], dtype=float)
+    hi = np.asarray(data["upperRight"], dtype=float)
+    grid = np.asarray(data["values"], dtype=float).reshape(dims, order="F")
+    sampled = sample_line_probe(grid, lo, hi, p0, p1, npoints, smooth=smooth)
+    points = sampled["points"]
+    distances = sampled["distances"]
+    values = sampled["values"]
+
+    vtk_path = None
+    if output_path is not None or write_vtp:
+        _load_vtk()
+        if output_path is None:
+            output_path = _default_output_path(statepoint_path, ".vtp")
+        write_probe_vtp(points, values, data["arrayName"], output_path)
+        vtk_path = output_path
+
+    return {
+        "sourceFile": statepoint_path,
+        "tallyId": _require_tally_id(tally_id),
+        "tallyName": data["tallyName"],
+        "score": data["score"],
+        "nuclide": data["nuclide"],
+        "arrayName": data["arrayName"],
+        "p0": sampled["p0"],
+        "p1": sampled["p1"],
+        "npoints": sampled["npoints"],
+        "smooth": sampled["smooth"],
+        "length": sampled["length"],
+        "series": [
+            {
+                "distance": float(distances[i]),
+                "position": [float(points[i, 0]), float(points[i, 1]), float(points[i, 2])],
+                "value": float(values[i]),
+            }
+            for i in range(sampled["npoints"])
+        ],
+        "dataRange": [float(np.min(values)), float(np.max(values))],
+        "vtkPath": vtk_path,
+    }
