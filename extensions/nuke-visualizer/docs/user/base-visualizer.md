@@ -6,16 +6,17 @@ The Base Visualizer renders 3D geometry and scientific datasets with **native in
 
 ## Supported File Formats
 
-| Format     | Extension                                        | Notes                                       |
-| ---------- | ------------------------------------------------ | ------------------------------------------- |
-| VTK legacy | `.vtk`                                           | Structured and unstructured grids           |
-| VTK XML    | `.vtu`, `.vtp`, `.vts`, `.vtr`, `.pvtu`, `.pvtp` | Parallel and serial XML formats             |
-| DAGMC      | `.h5m`                                           | Nuclear CAD geometry; auto-converted to VTK |
-| STEP       | `.step`, `.stp`                                  | CAD exchange format; auto-converted to VTK  |
-| BREP       | `.brep`                                          | OpenCASCADE native; auto-converted to VTK   |
-| STL        | `.stl`                                           | Stereolithography meshes                    |
-| PLY        | `.ply`                                           | Polygon file format                         |
-| OBJ        | `.obj`                                           | Wavefront OBJ                               |
+| Format     | Extension                                        | Notes                                        |
+| ---------- | ------------------------------------------------ | -------------------------------------------- |
+| VTK legacy | `.vtk`                                           | Structured and unstructured grids            |
+| VTK XML    | `.vtu`, `.vtp`, `.vts`, `.vtr`, `.pvtu`, `.pvtp` | Parallel and serial XML formats              |
+| DAGMC      | `.h5m`                                           | Nuclear CAD geometry; auto-converted to VTK  |
+| STEP       | `.step`, `.stp`                                  | CAD exchange format; auto-converted to VTK   |
+| BREP       | `.brep`                                          | OpenCASCADE native; auto-converted to VTK    |
+| STL        | `.stl`                                           | Stereolithography meshes                     |
+| PLY        | `.ply`                                           | Polygon file format                          |
+| OBJ        | `.obj`                                           | Wavefront OBJ                                |
+| ExodusII   | `.e`, `.exo*`                                    | Time series; opens in the time-slider viewer |
 
 > **Priority:** `.h5m` files open with the highest priority. If a statepoint exists in the same folder, NukeIDE may offer to overlay tally results instead.
 >
@@ -129,6 +130,32 @@ Click the **Screenshot** button in the control panel to capture the current view
 - **Transparent Background:** Optional
 
 The image is saved to a timestamped file in your workspace or copied to the clipboard.
+
+---
+
+## Exodus Time Series
+
+Opening a `.e` / `.exo*` file loads its steps into the **time-slider
+viewer**: first/prev/slider/next/last stepping plus an instant per-step
+array switch (no reload), with the same Color by / Map / legend /
+background controls as the other viewers and the step in the Viewer
+Settings Playback section. Extraction needs `netCDF4` (or `meshio` for
+the single-step fallback) in the Python environment.
+
+### Animation Export
+
+The header **Export** button records the loaded steps to a `.webm` file
+through the browser-built-in `MediaRecorder` (VP9 preferred — no encoder
+to install). Each step paints at the slider's decimated resolution with
+the current color-by state and stays on screen half a second while a
+header progress row with **Cancel** tracks the capture; the file
+downloads when the last step is recorded and the slider returns to its
+starting step.
+
+- The export is WYSIWYG: colors use the current global range and
+  per-step re-ranging is off, so brightness may flicker between steps.
+- Shells without `MediaRecorder` (headless builds) cannot record — the
+  export reports a clear error instead of silently doing nothing.
 
 ---
 

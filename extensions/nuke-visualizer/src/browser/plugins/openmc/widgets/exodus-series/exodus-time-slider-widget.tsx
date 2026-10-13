@@ -75,6 +75,17 @@ import {
     stepValueRange,
     stepValueSamples
 } from './exodus-series-model';
+import {
+    ANIMATION_EXPORT_BITS_PER_SECOND,
+    ANIMATION_EXPORT_FRAME_RATE,
+    ANIMATION_EXPORT_STEP_MS,
+    AnimationExportController,
+    buildAnimationFilename,
+    canvasStreamAbsentMessage,
+    formatExportProgressLabel,
+    requireAnimationExportSupport,
+    selectAnimationMimeType
+} from './animation-export';
 import { readVtkText } from '../native-vtk/native-vtk-data';
 import { detectMissingDependencies } from '../dependency-hints';
 import '../output-viewer.css';
@@ -113,6 +124,12 @@ export class ExodusTimeSliderWidget extends ReactWidget implements ViewerSetting
     protected logScale = false;
     protected isLoading = false;
     protected error: string | undefined;
+    protected exportPhase: 'idle' | 'confirming' | 'recording' = 'idle';
+    protected exportController: AnimationExportController | undefined;
+    protected exportError: string | undefined;
+    protected exportNotice: string | undefined;
+    private exportToken = 0;
+    private activeRecorder: MediaRecorder | undefined;
     private loadToken = 0;
 
     private host: HTMLElement | undefined;
@@ -330,10 +347,282 @@ export class ExodusTimeSliderWidget extends ReactWidget implements ViewerSetting
         }
     }
 
+    // ------------------------------------------------------------------
+    // Time-series animation export: MediaRecorder on the viewer canvas
+    // stream (VP9/WebM, browser-built-in), stepping through the loaded
+    // steps at the slider's decimated resolution with the current
+    // color-by state (WYSIWYG). Capability failures surface as clear
+    // errors — never a silent no-op.
+    // ------------------------------------------------------------------
+
+    /** Open the inline export dialog (confirm row in the header pattern). */
+    openExportDialog(): void {
+        if (!this.series || this.series.nSteps === 0 || this.exportPhase !== 'idle') {
+            return;
+        }
+        this.exportError = undefined;
+        this.exportNotice = undefined;
+        this.exportPhase = 'confirming';
+        this.update();
+    }
+
+    /** Close the export dialog without recording. */
+    closeExportDialog(): void {
+        if (this.exportPhase === 'confirming') {
+            this.exportPhase = 'idle';
+            this.update();
+        }
+    }
+
+    /**
+     * Cancel an in-flight export: the stepping loop stops at the next
+     * slice, the recorder stops, and no file is saved. Settles the UI
+     * immediately; the loop exits quietly via its token check.
+     */
+    cancelAnimationExport(): void {
+        if (this.exportPhase === 'confirming') {
+            this.closeExportDialog();
+            return;
+        }
+        if (this.exportPhase !== 'recording') {
+            return;
+        }
+        this.exportToken++;
+        this.exportController?.cancel();
+        this.stopActiveRecorder();
+        this.exportPhase = 'idle';
+        this.exportNotice = 'Animation export cancelled — no file was saved.';
+        this.messageService.info('Animation export cancelled.');
+        this.update();
+    }
+
+    /**
+     * Record every loaded step to a downloaded WebM file. Restores the
+     * pre-export step index when done, cancelled, or failed.
+     */
+    async startAnimationExport(): Promise<void> {
+        const series = this.series;
+        if (!series || series.nSteps === 0) {
+            this.messageService.warn('Animation export needs a loaded series with at least one step.');
+            return;
+        }
+        try {
+            requireAnimationExportSupport();
+        } catch (error) {
+            this.failExportStart(error);
+            return;
+        }
+        const canvas = this.renderer?.domElement;
+        if (!canvas || typeof canvas.captureStream !== 'function') {
+            this.failExportStart(new Error(canvasStreamAbsentMessage('no capturable canvas stream')));
+            return;
+        }
+        if (typeof document === 'undefined') {
+            this.failExportStart(new Error(canvasStreamAbsentMessage('no download surface')));
+            return;
+        }
+        const controller = new AnimationExportController(series.nSteps);
+        if (controller.plannedSteps.length === 0) {
+            this.messageService.warn('Animation export needs a loaded series with at least one step.');
+            return;
+        }
+        const token = ++this.exportToken;
+        this.exportController = controller;
+        this.exportError = undefined;
+        this.exportNotice = undefined;
+        this.exportPhase = 'recording';
+        controller.start();
+        this.update();
+
+        const savedStep = this.stepIndex;
+        const chunks: Blob[] = [];
+        let recorder: MediaRecorder;
+        try {
+            const stream = canvas.captureStream(ANIMATION_EXPORT_FRAME_RATE);
+            const recorderCtor = (globalThis as unknown as { MediaRecorder?: typeof MediaRecorder }).MediaRecorder;
+            if (!recorderCtor) {
+                throw new Error(canvasStreamAbsentMessage('recorder vanished'));
+            }
+            const isTypeSupported =
+                typeof recorderCtor.isTypeSupported === 'function'
+                    ? (mimeType: string) => recorderCtor.isTypeSupported(mimeType)
+                    : undefined;
+            const mimeType = selectAnimationMimeType(isTypeSupported);
+            recorder = mimeType
+                ? new recorderCtor(stream, { mimeType, videoBitsPerSecond: ANIMATION_EXPORT_BITS_PER_SECOND })
+                : new recorderCtor(stream, { videoBitsPerSecond: ANIMATION_EXPORT_BITS_PER_SECOND });
+        } catch (error) {
+            this.settleExport(controller, token, savedStep, 'error', error instanceof Error ? error.message : String(error));
+            return;
+        }
+        this.activeRecorder = recorder;
+        let recorderFailed = false;
+        const stopped = new Promise<void>((resolve) => {
+            recorder.onstop = () => resolve();
+            recorder.onerror = () => {
+                recorderFailed = true;
+                resolve();
+            };
+        });
+        recorder.ondataavailable = (event: BlobEvent) => {
+            if (event.data && event.data.size > 0) {
+                chunks.push(event.data);
+            }
+        };
+        try {
+            recorder.start();
+        } catch (error) {
+            this.settleExport(controller, token, savedStep, 'error', error instanceof Error ? error.message : String(error));
+            return;
+        }
+        for (const step of controller.plannedSteps) {
+            if (token !== this.exportToken || !controller.isActive || recorderFailed) {
+                break;
+            }
+            this.setStepIndex(step);
+            const dwelled = await this.sleepExport(ANIMATION_EXPORT_STEP_MS, token);
+            if (!dwelled || token !== this.exportToken || !controller.isActive || recorderFailed) {
+                break;
+            }
+            controller.completeStep(step);
+            this.update();
+        }
+        if (token !== this.exportToken) {
+            // A cancel settled the UI already; exit quietly.
+            return;
+        }
+        if (this.activeRecorder === recorder && recorder.state !== 'inactive') {
+            try {
+                recorder.stop();
+            } catch {
+                // The stop promise still settles via onerror; fall through.
+            }
+        }
+        await stopped;
+        if (token !== this.exportToken) {
+            return;
+        }
+        if (controller.snapshot().status === 'cancelled') {
+            this.settleExport(controller, token, savedStep, 'cancelled');
+            return;
+        }
+        if (recorderFailed) {
+            this.settleExport(controller, token, savedStep, 'error', 'The recorder failed while capturing the canvas.');
+            return;
+        }
+        if (chunks.length === 0) {
+            this.settleExport(controller, token, savedStep, 'error', 'The recorder produced no video data.');
+            return;
+        }
+        controller.finish();
+        const type = recorder.mimeType || 'video/webm';
+        const blob = new Blob(chunks, { type });
+        const filename = buildAnimationFilename(this.exportFilenamePrefix());
+        this.downloadExport(blob, filename);
+        this.settleExport(controller, token, savedStep, 'done', filename);
+    }
+
+    /** Settle the widget after an export attempt (done/cancelled/error). */
+    private settleExport(
+        controller: AnimationExportController,
+        token: number,
+        savedStep: number,
+        outcome: 'done' | 'cancelled' | 'error',
+        detail?: string
+    ): void {
+        this.activeRecorder = undefined;
+        if (token !== this.exportToken || this.isDisposed) {
+            // Superseded by a cancel (which settled the UI) or disposed.
+            return;
+        }
+        if (this.series) {
+            this.setStepIndex(savedStep);
+        }
+        this.exportPhase = 'idle';
+        if (outcome === 'done') {
+            this.exportNotice = `Animation saved as ${detail}.`;
+            this.messageService.info(`Animation export saved as ${detail}.`);
+        } else if (outcome === 'cancelled') {
+            controller.cancel();
+            this.exportNotice = 'Animation export cancelled — no file was saved.';
+            this.messageService.info('Animation export cancelled.');
+        } else {
+            const message = detail ?? 'Unknown export error.';
+            controller.fail(message);
+            this.exportError = message;
+            this.messageService.error(`Animation export failed: ${message}`);
+        }
+        this.update();
+    }
+
+    /** Surface an export entry failure as an inline + message error. */
+    private failExportStart(error: unknown): void {
+        const message = error instanceof Error ? error.message : String(error);
+        this.exportPhase = 'idle';
+        this.exportError = message;
+        this.messageService.error(`Animation export failed: ${message}`);
+        this.update();
+    }
+
+    /** Stop the active recorder without touching export state. */
+    private stopActiveRecorder(): void {
+        const recorder = this.activeRecorder;
+        this.activeRecorder = undefined;
+        if (recorder && recorder.state !== 'inactive') {
+            try {
+                recorder.stop();
+            } catch {
+                // The stepping loop still settles via the stop promise.
+            }
+        }
+    }
+
+    /** Sleep in slices so a cancel lands within ~50 ms. False when superseded. */
+    private sleepExport(ms: number, token: number): Promise<boolean> {
+        return new Promise((resolve) => {
+            const end = Date.now() + ms;
+            const tick = (): void => {
+                if (token !== this.exportToken) {
+                    resolve(false);
+                    return;
+                }
+                if (Date.now() >= end) {
+                    resolve(true);
+                    return;
+                }
+                window.setTimeout(tick, 50);
+            };
+            window.setTimeout(tick, 50);
+        });
+    }
+
+    /** Filename prefix from the series file name, sanitized for downloads. */
+    private exportFilenamePrefix(): string {
+        const raw = this.fileUri?.path.base.replace(/\.[^.]+$/, '') ?? '';
+        const cleaned = raw
+            .replace(/[^\w-]+/g, '-')
+            .replace(/-+/g, '-')
+            .replace(/^-|-$/g, '');
+        return cleaned || 'exodus-animation';
+    }
+
+    /** Save a recorded blob through a download anchor. Requires a DOM. */
+    private downloadExport(blob: Blob, filename: string): void {
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = filename;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        window.setTimeout(() => URL.revokeObjectURL(url), 5000);
+    }
+
     protected render(): React.ReactNode {
         return (
             <div className="openmc-output-viewer-container">
                 {this.renderHeader()}
+                {this.renderExportPanel()}
                 {this.error ? this.renderError() : this.renderContent()}
             </div>
         );
@@ -341,6 +630,7 @@ export class ExodusTimeSliderWidget extends ReactWidget implements ViewerSetting
 
     protected renderHeader(): React.ReactNode {
         const fileName = this.fileUri?.path.base ?? 'No series loaded';
+        const exporting = this.exportPhase === 'recording';
         return (
             <div className="openmc-output-viewer-header">
                 <span className="openmc-output-viewer-file">
@@ -349,17 +639,134 @@ export class ExodusTimeSliderWidget extends ReactWidget implements ViewerSetting
                 </span>
                 {this.renderColorBySelect()}
                 {this.renderColormapSelect()}
+                <Tooltip content="Export the time series as a WebM animation (browser MediaRecorder, no extra tools)" position="bottom">
+                    <button
+                        className="theia-button secondary"
+                        aria-label="Export animation as WebM"
+                        onClick={() => this.openExportDialog()}
+                        disabled={
+                            this.isLoading || exporting || this.exportPhase === 'confirming' || !this.series || this.series.nSteps === 0
+                        }
+                    >
+                        <i className={codicon('record')}></i>
+                    </button>
+                </Tooltip>
                 <Tooltip content="Reload series" position="bottom">
                     <button
                         className="theia-button secondary"
                         onClick={() => this.fileUri && this.setSeriesFile(this.fileUri)}
-                        disabled={this.isLoading || !this.fileUri}
+                        disabled={this.isLoading || exporting || !this.fileUri}
                     >
                         <i className={codicon('refresh')}></i>
                     </button>
                 </Tooltip>
             </div>
         );
+    }
+
+    /**
+     * Export confirm/progress/error rows in the existing header pattern.
+     * The confirm row is the export dialog: scope (step count, WYSIWYG
+     * color-by state) plus the documented auto-range flicker limitation.
+     */
+    protected renderExportPanel(): React.ReactNode {
+        if (this.exportPhase === 'confirming' && this.series) {
+            const total = this.series.nSteps;
+            return (
+                <div className="openmc-output-viewer-header">
+                    <span className="openmc-output-viewer-file">
+                        Export {total} step{total === 1 ? '' : 's'} as WebM — records this canvas at the current color-by state, one step
+                        every {ANIMATION_EXPORT_STEP_MS / 1000} s. Colors use the current global range; per-step re-ranging is off, so
+                        brightness may flicker between steps.
+                    </span>
+                    <Tooltip content="Start recording the animation" position="bottom">
+                        <button
+                            className="theia-button secondary"
+                            aria-label="Start animation export"
+                            onClick={() => this.startAnimationExport()}
+                        >
+                            <i className={codicon('record')}></i>
+                            Export
+                        </button>
+                    </Tooltip>
+                    <Tooltip content="Close the export dialog" position="bottom">
+                        <button
+                            className="theia-button secondary"
+                            aria-label="Close animation export dialog"
+                            onClick={() => this.closeExportDialog()}
+                        >
+                            <i className={codicon('close')}></i>
+                        </button>
+                    </Tooltip>
+                </div>
+            );
+        }
+        if (this.exportPhase === 'recording' && this.exportController) {
+            const snapshot = this.exportController.snapshot();
+            const percent = Math.round(this.exportController.progressFraction() * 100);
+            return (
+                <div className="openmc-output-viewer-header">
+                    <span className="openmc-output-viewer-file">
+                        Exporting {formatExportProgressLabel(snapshot.completedStepCount, snapshot.totalStepCount)} · {percent}%
+                    </span>
+                    <div
+                        role="progressbar"
+                        aria-label="Animation export progress"
+                        aria-valuemin={0}
+                        aria-valuemax={snapshot.totalStepCount}
+                        aria-valuenow={snapshot.completedStepCount}
+                        style={{
+                            flex: '1',
+                            height: '6px',
+                            background: 'var(--theia-editor-background)',
+                            borderRadius: '3px',
+                            overflow: 'hidden'
+                        }}
+                    >
+                        <div style={{ width: `${percent}%`, height: '100%', background: 'var(--theia-progressBar-background)' }} />
+                    </div>
+                    <Tooltip content="Cancel the animation export (no file is saved)" position="bottom">
+                        <button
+                            className="theia-button secondary"
+                            aria-label="Cancel animation export"
+                            onClick={() => this.cancelAnimationExport()}
+                        >
+                            <i className={codicon('close')}></i>
+                            Cancel
+                        </button>
+                    </Tooltip>
+                </div>
+            );
+        }
+        if (this.exportError) {
+            return (
+                <div className="openmc-output-viewer-header">
+                    <span className="openmc-output-viewer-file" role="alert">
+                        Animation export failed: {this.exportError}
+                    </span>
+                    <Tooltip content="Dismiss" position="bottom">
+                        <button
+                            className="theia-button secondary"
+                            aria-label="Dismiss animation export error"
+                            onClick={() => {
+                                this.exportError = undefined;
+                                this.update();
+                            }}
+                        >
+                            <i className={codicon('close')}></i>
+                        </button>
+                    </Tooltip>
+                </div>
+            );
+        }
+        if (this.exportNotice) {
+            return (
+                <div className="openmc-output-viewer-header">
+                    <span className="openmc-output-viewer-file">{this.exportNotice}</span>
+                </div>
+            );
+        }
+        return undefined;
     }
 
     protected renderColorBySelect(): React.ReactNode {
@@ -455,10 +862,12 @@ export class ExodusTimeSliderWidget extends ReactWidget implements ViewerSetting
         if (!series) {
             return undefined;
         }
+        const exporting = this.exportPhase === 'recording';
+        const steppingDisabled = this.isLoading || exporting;
         return (
             <div className="openmc-output-viewer-header">
                 <Tooltip content="First step" position="bottom">
-                    <button className="theia-button secondary" onClick={() => this.setStepIndex(0)} disabled={this.isLoading}>
+                    <button className="theia-button secondary" onClick={() => this.setStepIndex(0)} disabled={steppingDisabled}>
                         <i className={codicon('chevron-left-all')}></i>
                     </button>
                 </Tooltip>
@@ -466,7 +875,7 @@ export class ExodusTimeSliderWidget extends ReactWidget implements ViewerSetting
                     <button
                         className="theia-button secondary"
                         onClick={() => this.setStepIndex(previousStepIndex(this.stepIndex, series.nSteps))}
-                        disabled={this.isLoading}
+                        disabled={steppingDisabled}
                     >
                         <i className={codicon('chevron-left')}></i>
                     </button>
@@ -478,7 +887,7 @@ export class ExodusTimeSliderWidget extends ReactWidget implements ViewerSetting
                     step={1}
                     value={this.stepIndex}
                     onChange={(e) => this.setStepIndex(Number(e.target.value))}
-                    disabled={this.isLoading}
+                    disabled={steppingDisabled}
                     style={{ flex: '1' }}
                     aria-label="Time step"
                 />
@@ -486,7 +895,7 @@ export class ExodusTimeSliderWidget extends ReactWidget implements ViewerSetting
                     <button
                         className="theia-button secondary"
                         onClick={() => this.setStepIndex(nextStepIndex(this.stepIndex, series.nSteps))}
-                        disabled={this.isLoading}
+                        disabled={steppingDisabled}
                     >
                         <i className={codicon('chevron-right')}></i>
                     </button>
@@ -495,7 +904,7 @@ export class ExodusTimeSliderWidget extends ReactWidget implements ViewerSetting
                     <button
                         className="theia-button secondary"
                         onClick={() => this.setStepIndex(series.nSteps - 1)}
-                        disabled={this.isLoading}
+                        disabled={steppingDisabled}
                     >
                         <i className={codicon('chevron-right-all')}></i>
                     </button>
@@ -612,6 +1021,9 @@ export class ExodusTimeSliderWidget extends ReactWidget implements ViewerSetting
 
     override dispose(): void {
         this.loadToken++;
+        this.exportToken++;
+        this.exportController?.cancel();
+        this.stopActiveRecorder();
         this.teardownRenderer();
         super.dispose();
     }

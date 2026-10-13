@@ -217,3 +217,55 @@ def cmd_tally_line_probe(args):
     except Exception as e:
         print(json.dumps({"error": str(e)}))
         return 1
+
+
+@command(
+    "openmc.tally-contour",
+    help="Extract iso-surfaces from a mesh tally (.vtp, no server)",
+)
+@arg("file", help="Path to statepoint .h5 file")
+@arg("--tally-id", type=int, required=True, help="Tally ID to contour")
+@arg("--score", help="Score to contour (default: first score)")
+@arg("--nuclide", help="Nuclide to contour (default: first nuclide)")
+@arg(
+    "--iso",
+    nargs="+",
+    type=float,
+    required=True,
+    metavar="VALUE",
+    help="Iso values in tally units (1-8 per call, every value becomes a surface)",
+)
+@arg(
+    "--smooth",
+    action="store_true",
+    help="Interpolate surface vertices along mesh edges (the default)",
+)
+@arg(
+    "--pixelated",
+    action="store_true",
+    help="Snap surface vertices to edge midpoints (blocky mesh cells) instead of interpolation",
+)
+@arg("--output", help="Output .vtp path (default: temp file)")
+def cmd_tally_contour(args):
+    """Extract iso-surfaces from a mesh tally."""
+    from plugins.openmc.lib import tally_vtk
+
+    try:
+        if args.smooth and args.pixelated:
+            raise ValueError("--smooth and --pixelated are mutually exclusive")
+        result = tally_vtk.tally_contour(
+            args.file,
+            args.tally_id,
+            args.iso,
+            score=args.score,
+            nuclide=args.nuclide,
+            smooth=not args.pixelated,
+            output_path=args.output,
+        )
+        from plugins.openmc.lib.output_readers import json_default
+
+        print(json.dumps(result, default=json_default))
+        return 0
+    except Exception as e:
+        print(json.dumps({"error": str(e)}))
+        return 1

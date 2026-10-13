@@ -48,10 +48,10 @@ import {
  *
  * Every control is props-only: the host widget owns the state and routes
  * callbacks onto its EXISTING setters (`applyProps` clip/shading paths, the
- * DAGMC visibility setters, the widget-owned `clipTab`) — the same calls
- * the Viewer Settings sidebar and the right-click menu make. No new viewer
- * state; the sidebar remains authoritative and these popovers are
- * stateless mirrors of it.
+ * DAGMC visibility setters, the widget-owned `clipTab`, the per-widget
+ * `cameraLinked` flag) — the same calls the Viewer Settings sidebar and the
+ * right-click menu make. No new viewer state; the sidebar remains
+ * authoritative and these popovers are stateless mirrors of it.
  *
  * Dismissal matches CAD: toggle on re-click (host slot), Escape and a
  * pointer-down outside the bar + card close the open card (host window
@@ -270,6 +270,31 @@ export const ViewerShadingPopover: React.FC<ViewerShadingPopoverProps> = ({ shad
             </Tooltip>
         ))}
     </div>
+);
+
+/**
+ * Camera-link toggle (link icon, lit while linked): opt-in camera sync with
+ * other views of the same file. Props-only like every other extra — the host
+ * widget owns the per-widget flag (default off) and the bus publish/apply
+ * wiring; only the camera follows, display settings never sync.
+ */
+export interface LinkCamerasTriggerProps {
+    readonly linked: boolean;
+    readonly disabled?: boolean;
+    readonly onToggle: () => void;
+}
+
+export const LinkCamerasTrigger: React.FC<LinkCamerasTriggerProps> = ({ linked, disabled, onToggle }) => (
+    <Tooltip content={linked ? 'Cameras linked — click to unlink this view' : 'Link cameras with other views of this file'} position="left">
+        <button
+            className={`${navButtonClass(linked)} viewer-nav-link-cameras`}
+            disabled={disabled}
+            onClick={onToggle}
+            aria-pressed={linked}
+        >
+            <span className="codicon codicon-link" />
+        </button>
+    </Tooltip>
 );
 
 /**

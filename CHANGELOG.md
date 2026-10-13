@@ -367,6 +367,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hide). Switching the color-by array clears a custom window back to the
   new data range; the status line reports the coverage, and non-finite
   values stay visible per the NaN-color rule.
+- nuke-visualizer: **contour (iso-surfaces) on tally meshes** — the native
+  tally viewer gains a Contour panel (header toggle): enter a statepoint,
+  tally, score, and up to 8 iso values in tally units, pick smooth
+  interpolated or pixelated midpoint-snapped vertices (the same convention
+  as the overlay Rendering Style), and run `openmc.tally-contour` to
+  extract the surfaces (pure marching-tetrahedra over the regular tally
+  grid, one `.vtp` for all values). The surface opens as a sibling tab next
+  to the tally mesh through the shared tally routing, so warp and threshold
+  keep working on it with no extra wiring; an iso list that misses the data
+  range fails with an error naming the range.
+- nuke-visualizer: **time-series animation export** — the Exodus viewer
+  header gains an Export button recording the loaded steps to a WebM file
+  through the browser-built-in MediaRecorder (VP9 preferred, no encoder
+  dependency): each step paints at the slider's decimated resolution with
+  the current color-by state and stays on screen half a second while a
+  header progress row with Cancel tracks the capture. Where MediaRecorder
+  is unavailable (headless shells) the export fails with a clear error
+  instead of silently doing nothing. The export is WYSIWYG — per-step
+  re-ranging is out, so brightness may flicker between steps when the
+  global range fits steps unevenly.
+- nuke-visualizer: **direction glyphs in the tracks viewer** — the tracks
+  viewer renders decimated direction cones (`THREE.InstancedMesh`) oriented
+  along per-point vectors (polyline tangents derived client-side; the
+  converted `.vtp` carries no explicit direction array), with Viewer
+  Settings Glyphs rows (enable switch, density slider, size slider with
+  defaults reset) beside the Warp rows. Cones sit on the warped scene
+  positions (they follow deformation), skip threshold-hidden points/cells
+  and zero-length vectors, take their colors from the active color-by
+  mapping, and report live coverage in the status line. The collision-track
+  viewer shares the instancing path and shows the same rows once a dataset
+  carries a 3-component point array. Streamlines stay deferred (no
+  integrator ships).
+- nuke-visualizer: **linked cameras across views of the same file** — the
+  viewer nav bar gains a `Link cameras` toggle (per-view state, default
+  off): with it on in two or more tabs showing the same file, orbiting one
+  view swings the others to the same direction and distance through the
+  shared orbit handle, while every view keeps its own target and framing.
+  Camera-only sync — warp, threshold, glyphs, color-by, clip, and shading
+  stay per-view and are never published. Views of different files never
+  link (identity is the file path — tally mesh/slice/overlay/source/contour
+  tabs are keyed by their source statepoint or source file, so tabs derived
+  from one file link together); applying a linked pose never
+  rebroadcasts, and the subscription drops when the tab closes.
 
 ### Changed
 

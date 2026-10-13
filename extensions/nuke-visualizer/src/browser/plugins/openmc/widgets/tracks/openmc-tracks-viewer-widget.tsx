@@ -33,6 +33,7 @@ import { OpenMCBackendService, OpenMCTracksInfo, OpenMCVtkConversionResult } fro
 import { NativeVtkViewerWidget } from '../native-vtk-viewer-widget';
 import {
     NativeVtkDataArray,
+    NativeVtkModel,
     SOLID_COLOR,
     classifyNativeVtkArrays,
     formatColorBy,
@@ -47,6 +48,7 @@ import {
     evaluateDerivedField,
     parseDerivedField
 } from '../../../../viewer-core/derived-fields';
+import { polylineTangents } from '../../../../viewer-core/glyph-layout';
 import { detectMissingDependencies } from '../dependency-hints';
 import { startSplitDrag } from '../drag-split';
 import { NukeSelect } from 'nuke-essentials/lib/theme/browser/components';
@@ -89,6 +91,8 @@ export class OpenMCTracksViewerWidget extends NativeVtkViewerWidget {
     protected derivedError: string | undefined;
     protected histogramBinCount = DEFAULT_HISTOGRAM_BINS;
     protected histogramLogY = false;
+    /** Cached polyline tangents for the current model (glyph direction source; keyed by model). */
+    private glyphTangentCache: { model: NativeVtkModel; tangents: Float32Array } | undefined;
     /** Panel height in px once the user drags the split (undefined = CSS default 40%). */
     protected panelHeight?: number;
     private reloadToken = 0;
@@ -222,6 +226,27 @@ export class OpenMCTracksViewerWidget extends NativeVtkViewerWidget {
     protected setMaxTracks(value: number): void {
         this.maxTracks = Number.isFinite(value) && value > 0 ? value : this.maxTracks;
         this.update();
+    }
+
+    /**
+     * Per-point direction vectors for direction glyphs: polyline tangents
+     * derived from the track segments. The converted `.vtp` carries no
+     * explicit direction array (the HDF5 `u` never reaches the converter),
+     * so tangents are the direction source; without segments the first
+     * 3-component point array applies, if one exists.
+     */
+    protected override glyphVectors(): ArrayLike<number> | undefined {
+        const model = this.model;
+        if (!model) {
+            return undefined;
+        }
+        if (model.segments && model.segments.length >= 2) {
+            if (!this.glyphTangentCache || this.glyphTangentCache.model !== model) {
+                this.glyphTangentCache = { model, tangents: polylineTangents(model.positions, model.segments) };
+            }
+            return this.glyphTangentCache.tangents;
+        }
+        return model.pointArrays.find((array) => array.components === 3)?.values;
     }
 
     /** Dataset arrays available to the calculator grammar. */

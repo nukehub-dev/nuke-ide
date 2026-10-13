@@ -59,7 +59,8 @@ import {
     OpenMCOverlayVtkOptions,
     OpenMCOverlayGeometryVtkOptions,
     OpenMCTallyLineProbeOptions,
-    OpenMCTallyLineProbeResult
+    OpenMCTallyLineProbeResult,
+    OpenMCTallyContourOptions
 } from '../../../../common/openmc-protocol';
 import { PythonCommandHelper } from '../../../services/python-command-helper';
 
@@ -330,6 +331,24 @@ export class OpenMCOutputService {
             args.push('--write-vtp');
         }
         return this.executeCommandJson<OpenMCTallyLineProbeResult>(args, 120000);
+    }
+
+    async convertTallyContourToVtk(statepointPath: string, options: OpenMCTallyContourOptions): Promise<OpenMCVtkConversionResult> {
+        const args = ['openmc.tally-contour', statepointPath];
+        args.push('--tally-id', String(options.tallyId));
+        if (options?.score) {
+            args.push('--score', options.score);
+        }
+        if (options?.nuclide) {
+            args.push('--nuclide', options.nuclide);
+        }
+        args.push('--iso', ...options.isoValues.map(String));
+        if (options?.smooth === false) {
+            args.push('--pixelated');
+        } else if (options?.smooth === true) {
+            args.push('--smooth');
+        }
+        return this.runConversion(args, 120000);
     }
 
     /**

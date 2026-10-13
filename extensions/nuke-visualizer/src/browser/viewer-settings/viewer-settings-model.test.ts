@@ -296,6 +296,40 @@ describe('viewer-settings-model threshold contract', () => {
     });
 });
 
+describe('viewer-settings-model glyph contract', () => {
+    it('composes a patch with every glyph field', () => {
+        const patch: ViewerSettingsPatch = {
+            glyphEnabled: true,
+            glyphDensity: 0.25,
+            glyphScale: 1.5
+        };
+        expect(patch.glyphEnabled).toBe(true);
+        expect(patch.glyphDensity).toBe(0.25);
+        expect(patch.glyphScale).toBe(1.5);
+    });
+
+    it('carries the glyph section on a viewer resolving per-point vectors', () => {
+        const snapshot: ViewerSettingsSnapshot = {
+            widgetId: 'openmc-tracks-viewer-widget:/tmp/tracks.h5',
+            title: 'tracks.h5',
+            hasDataset: true,
+            glyph: { enabled: true, density: 0.1, scale: 1, count: 120, total: 1200 }
+        };
+        expect(snapshot.glyph?.enabled).toBe(true);
+        expect(snapshot.glyph?.count).toBe(120);
+        expect(snapshot.glyph?.total).toBe(1200);
+    });
+
+    it('leaves the glyph section absent without per-point vectors', () => {
+        const snapshot: ViewerSettingsSnapshot = {
+            widgetId: 'tally-native-viewer-widget:/tmp/tally.vti',
+            title: 'tally.vti',
+            hasDataset: true
+        };
+        expect(snapshot.glyph).toBeUndefined();
+    });
+});
+
 describe('viewer-settings-model range slider', () => {
     it('round-trips thumbs and values over the data span', () => {
         expect(rangeSliderToValue(0, 2, 10)).toBe(2);

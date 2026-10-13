@@ -69,7 +69,8 @@ import {
     OpenMCOverlayVtkOptions,
     OpenMCOverlayGeometryVtkOptions,
     OpenMCTallyLineProbeOptions,
-    OpenMCTallyLineProbeResult
+    OpenMCTallyLineProbeResult,
+    OpenMCTallyContourOptions
 } from '../../../common/openmc-protocol';
 import { NukeCoreBackendService, NukeCoreBackendServiceInterface } from 'nuke-core/lib/common';
 import { PythonCommandHelper } from '../../services/python-command-helper';
@@ -481,5 +482,9 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
 
     async getTallyLineProbe(statepointPath: string, options: OpenMCTallyLineProbeOptions): Promise<OpenMCTallyLineProbeResult> {
         return this.outputService.getTallyLineProbe(statepointPath, options);
+    }
+
+    async convertTallyContourToVtk(statepointPath: string, options: OpenMCTallyContourOptions): Promise<OpenMCVtkConversionResult> {
+        return this.outputService.convertTallyContourToVtk(statepointPath, options);
     }
 }

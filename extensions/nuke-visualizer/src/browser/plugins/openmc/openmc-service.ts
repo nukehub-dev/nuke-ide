@@ -315,7 +315,12 @@ export class OpenMCService {
      * Throws on any failure; callers surface the error instead of starting
      * a server.
      */
-    protected async openTallyNativeWidget(vtkPath: string, kind: TallyOverlayKind, label: string): Promise<TallyNativeViewerWidget> {
+    protected async openTallyNativeWidget(
+        vtkPath: string,
+        kind: TallyOverlayKind,
+        label: string,
+        linkKey?: string
+    ): Promise<TallyNativeViewerWidget> {
         const widget = await this.widgetManager.getOrCreateWidget<TallyNativeViewerWidget>(TallyNativeViewerWidget.ID, {
             id: `${TallyNativeViewerWidget.ID}:${kind}:${Date.now()}`
         } as any);
@@ -325,6 +330,18 @@ export class OpenMCService {
         await parseNativeVtkXml(text);
         await widget.setTallyText(text, kind);
         widget.title.label = label;
+        // Camera-link identity: converted text loads carry no file, so key
+        // every tally tab by its source file — mesh/contour/probe tabs of one
+        // statepoint link, other files never do.
+        if (linkKey !== undefined) {
+            widget.setCameraLinkKey(linkKey);
+        }
+        // Every tally tab can spawn contour siblings: the callback routes
+        // through this same funnel, so contour tabs inherit the native-base
+        // warp/threshold funnels with no extra wiring.
+        widget.setContourOpener(async (contourPath: string, contourLabel: string) => {
+            await this.openTallyNativeWidget(contourPath, 'overlay', contourLabel);
+        });
         if (!widget.isAttached) {
             this.shell.addWidget(widget, { area: 'main' });
         }
@@ -389,7 +406,7 @@ export class OpenMCService {
                 if (!conversion.success || !conversion.vtkPath) {
                     throw new Error(conversion.error || 'Tally conversion failed');
                 }
-                const nativeWidget = await this.openTallyNativeWidget(conversion.vtkPath, 'mesh', label);
+                const nativeWidget = await this.openTallyNativeWidget(conversion.vtkPath, 'mesh', label, statepointPath);
                 const tallyInfo = this.currentTallies.find((t) => t.id === options.tallyId);
                 if (tallyInfo) {
                     this._onTallyVisualized.fire(tallyInfo);
@@ -447,7 +464,12 @@ export class OpenMCService {
                 if (!conversion.success || !conversion.vtkPath) {
                     throw new Error(conversion.error || 'Source conversion failed');
                 }
-                const nativeWidget = await this.openTallyNativeWidget(conversion.vtkPath, 'source', 'OpenMC Source Distribution');
+                const nativeWidget = await this.openTallyNativeWidget(
+                    conversion.vtkPath,
+                    'source',
+                    'OpenMC Source Distribution',
+                    sourceUri.path.toString()
+                );
                 this.messageService.info('Loaded source distribution natively');
                 return nativeWidget;
             } catch (error) {
@@ -505,7 +527,7 @@ export class OpenMCService {
                 if (!conversion.success || !conversion.vtkPath) {
                     throw new Error(conversion.error || 'Overlay conversion failed');
                 }
-                const nativeWidget = await this.openTallyNativeWidget(conversion.vtkPath, 'mesh', label);
+                const nativeWidget = await this.openTallyNativeWidget(conversion.vtkPath, 'mesh', label, statepointUri.path.toString());
                 await this.attachCsgUnderlay(nativeWidget, geometryUri);
                 return nativeWidget;
             } catch (error) {
@@ -687,7 +709,7 @@ export class OpenMCService {
                 if (!conversion.success || !conversion.vtkPath) {
                     throw new Error(conversion.error || 'Slice conversion failed');
                 }
-                const nativeWidget = await this.openTallyNativeWidget(conversion.vtkPath, 'slice', label);
+                const nativeWidget = await this.openTallyNativeWidget(conversion.vtkPath, 'slice', label, statepointUri.path.toString());
                 this.messageService.info(`Loaded tally slice on ${sliceOptions.plane.toUpperCase()} plane natively`);
                 return nativeWidget;
             } catch (error) {
@@ -698,6 +720,46 @@ export class OpenMCService {
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
             this.messageService.error(`Failed to overlay tally slice: ${msg}`);
+            return null;
+        }
+    }
+
+    /**
+     * Extract iso-surfaces from a mesh tally and open them as a sibling tab
+     * next to the tally mesh: convert through `openmc.tally-contour`, then
+     * route through the shared `openTallyNativeWidget` funnel (kind
+     * `overlay`), so warp/threshold keep working on the contour through the
+     * inherited native-base funnels. Conversion/parse failure surfaces an
+     * error naming the cause instead of starting a server.
+     */
+    async visualizeTallyContour(
+        statepointPath: string,
+        options: { tallyId: number; score?: string; nuclide?: string; isoValues: number[]; smooth?: boolean }
+    ): Promise<TallyNativeViewerWidget | null> {
+        try {
+            const conversion = await this.openmcBackend.convertTallyContourToVtk(statepointPath, {
+                tallyId: options.tallyId,
+                score: options.score,
+                nuclide: options.nuclide,
+                isoValues: options.isoValues,
+                smooth: options.smooth
+            });
+            if (!conversion.success || !conversion.vtkPath) {
+                throw new Error(conversion.error || 'Contour conversion failed');
+            }
+            const label = `Tally ${options.tallyId} contour (${options.isoValues.join(', ')})`;
+            const nativeWidget = await this.openTallyNativeWidget(conversion.vtkPath, 'overlay', label, statepointPath);
+            nativeWidget.setProbeContext({
+                statepointPath,
+                tallyId: options.tallyId,
+                score: options.score,
+                nuclide: options.nuclide
+            });
+            this.messageService.info(`Loaded tally contour (${options.isoValues.length} iso values) natively`);
+            return nativeWidget;
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            this.messageService.error(`Failed to extract tally contour: ${message}`);
             return null;
         }
     }
@@ -1433,7 +1495,12 @@ export class OpenMCService {
                 if (!conversion.success || !conversion.vtkPath) {
                     throw new Error(conversion.error || 'Source conversion failed');
                 }
-                const nativeWidget = await this.openTallyNativeWidget(conversion.vtkPath, 'source', 'OpenMC Source (from Statepoint)');
+                const nativeWidget = await this.openTallyNativeWidget(
+                    conversion.vtkPath,
+                    'source',
+                    'OpenMC Source (from Statepoint)',
+                    statepointUri.path.toString()
+                );
                 this.messageService.info('Loaded source distribution from statepoint natively');
                 return nativeWidget;
             } catch (error) {

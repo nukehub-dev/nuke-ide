@@ -241,6 +241,67 @@ Best for: Flux profiles along an arbitrary segment (e.g. across a fuel pin, thro
 
 ---
 
+## Contour
+
+Best for: Flux iso-surfaces (e.g. the surface where the flux equals a
+shielding limit, nested shells around a hot spot).
+
+### How to Open
+
+1. Open a mesh tally in the native 3D tally viewer (**"View 3D"**).
+2. Click **"Contour"** in the viewer header.
+
+### What You See
+
+- A contour builder panel below the 3D view: statepoint path, tally id,
+  score/nuclide, up to 8 **Iso values** in tally units (separated by spaces
+  or commas — every value becomes a surface in one call), and a **Smooth**
+  switch.
+- **Smooth** (default) interpolates surface vertices along mesh edges;
+  turning it off snaps vertices to edge midpoints, showing the blocky mesh
+  cells (the same convention as the overlay Rendering Style).
+- Running the contour opens the surfaces as a sibling tab next to the tally
+  mesh, colored by the tally array with one iso value per vertex. The
+  sibling is a full tally tab: Viewer Settings warp and threshold keep
+  working on it with no extra steps.
+
+### Requirements
+
+- The statepoint must contain the contoured tally with a regular mesh
+  filter of at least 2 cells per axis (cylindrical meshes are rejected with
+  a clear error, like the other tally exports).
+- Iso values that all miss the data range fail with an error naming the
+  range; values that hit still extract when mixed with misses.
+- Missing dependencies (`h5py` for reading, `vtk` for the `.vtp` write)
+  surface as panel errors naming the package.
+
+---
+
+## Linked Cameras
+
+Best for: Comparing two views of one file side by side from the same angle.
+
+### How to Use
+
+1. Open the same file in two viewer tabs.
+2. In each tab's bottom nav bar, click the **link** icon (**Link cameras**).
+3. Orbit either view — the linked views follow its direction and distance.
+
+### What Syncs (and What Doesn't)
+
+- Only the camera follows: the orbit direction and distance apply through
+  each view's orbit handle, and every view keeps its own target and framing.
+- Display settings never sync: warp, threshold, glyphs, color-by, clip, and
+  shading stay per-view, so linked tabs can show different fields of the same
+  data from one camera.
+- Identity is the file path: views of different files never link, even with
+  the toggle on. The toggle is per-view and defaults to off.
+- Tally mesh, slice, overlay, source, and contour tabs are keyed by their
+  source statepoint (or source) file, so tabs derived from one file link
+  with each other — and never with tabs from another file.
+
+---
+
 ## Threshold
 
 Best for: Hiding low-flux (or out-of-range) cells to expose the hot region
@@ -315,6 +376,7 @@ Or: `Tools → Visualizer → OpenMC → Tally → Visualize Source Distribution
 | Energy Spectrum     | Energy filter                          | Spectral analysis, flux shapes              |
 | Spatial Plot        | Mesh filter                            | 1D profiles along an axis                   |
 | Line Probe          | Mesh filter                            | Flux profiles along an arbitrary segment    |
+| Contour             | Mesh filter                            | Flux iso-surfaces in a sibling tab          |
 | 2D Heatmap          | Mesh filter                            | Slice-by-slice inspection                   |
 | Source Distribution | `source.h5` or statepoint with source  | Source convergence checks                   |
 | Overlay + Source    | Geometry + statepoint with source bank | Correlating source birth with tally regions |

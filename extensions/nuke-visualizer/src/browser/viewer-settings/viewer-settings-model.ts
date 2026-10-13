@@ -190,6 +190,22 @@ export interface ViewerSliderSettings {
     readonly step: number;
 }
 
+/**
+ * Direction-glyph section (cone instancing along per-point vectors); absent
+ * unless the dataset resolves glyph vectors (track polylines always do via
+ * tangents; other viewers need a 3-component point array). `density` is the
+ * fraction of candidate points carrying a cone, `scale` the size multiplier
+ * over the auto cone height; `count`/`total` are live vs candidate cones
+ * (decimated, zero-vector and threshold-hidden skipped).
+ */
+export interface ViewerGlyphSettings {
+    readonly enabled: boolean;
+    readonly density: number;
+    readonly scale: number;
+    readonly count: number;
+    readonly total: number;
+}
+
 /** Opacity section of a settings snapshot. */
 export type ViewerOpacitySettings = ViewerSliderSettings;
 
@@ -217,6 +233,7 @@ export interface ViewerSettingsSnapshot {
     readonly scalarBar?: ViewerScalarBarSettings;
     readonly tallyVolume?: ViewerTallyVolumeSettings;
     readonly warp?: ViewerWarpSettings;
+    readonly glyph?: ViewerGlyphSettings;
     readonly solidColor?: ViewerColorSettings;
     readonly background?: ViewerColorSettings;
     readonly shading?: ViewerShadingSettings;
@@ -253,6 +270,11 @@ export interface ViewerSettingsPatch {
     readonly warpArray?: string;
     readonly warpScaleMode?: WarpScaleMode;
     readonly warpScale?: number;
+    readonly glyphEnabled?: boolean;
+    /** Fraction of candidate points carrying a cone (slider range). */
+    readonly glyphDensity?: number;
+    /** Cone size multiplier over the auto height (slider range). */
+    readonly glyphScale?: number;
     readonly solidColor?: string;
     readonly background?: string;
     readonly shading?: ViewerShadingMode;

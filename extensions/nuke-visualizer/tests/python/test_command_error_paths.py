@@ -6,7 +6,7 @@ JSON error object on stderr with exit code 1 — never a traceback.
 
 OpenMC-plugin handlers follow the same lazy pattern but emit the JSON
 error object on stdout (the node side is stdout-first); the
-openmc.tally-line-probe section pins that contract.
+openmc.tally-line-probe and openmc.tally-contour sections pin that contract.
 """
 
 import argparse
@@ -245,3 +245,70 @@ def test_line_probe_npoints_default_and_parsing():
 
     args = _parse(tally_vtk_cmds.cmd_tally_line_probe, _probe_argv("--npoints", "25"))
     assert args.npoints == 25
+
+
+# ---------------------------------------------------------------------------
+# openmc.tally-contour (stdout-JSON contract, exit 1)
+# ---------------------------------------------------------------------------
+
+
+def _contour_argv(*extra):
+    """Base contour argv: tally 1 with one iso over a missing file.
+
+    The statepoint positional leads: --iso takes 1+ values and would
+    greedily swallow a trailing positional.
+    """
+    return ["/no/such/statepoint.h5", "--tally-id", "1", "--iso", "5.0", *extra]
+
+
+def test_tally_contour_missing_file(capsys):
+    """A nonexistent statepoint fails with a stdout JSON error and exit 1."""
+    args = _parse(tally_vtk_cmds.cmd_tally_contour, _contour_argv())
+
+    rc = tally_vtk_cmds.cmd_tally_contour(args)
+
+    assert rc == 1
+    assert "File not found" in _stdout_error_line(capsys)
+
+
+def test_tally_contour_exclusive_interpolation_flags(capsys):
+    """--smooth + --pixelated together fail before any file access."""
+    args = _parse(tally_vtk_cmds.cmd_tally_contour, _contour_argv("--smooth", "--pixelated"))
+
+    rc = tally_vtk_cmds.cmd_tally_contour(args)
+
+    assert rc == 1
+    assert "mutually exclusive" in _stdout_error_line(capsys)
+
+
+def test_tally_contour_bad_iso(capsys):
+    """A non-finite --iso fails with a stdout JSON error."""
+    args = _parse(tally_vtk_cmds.cmd_tally_contour, _contour_argv())
+    args.iso = [float("nan")]
+
+    rc = tally_vtk_cmds.cmd_tally_contour(args)
+
+    assert rc == 1
+    assert "iso" in _stdout_error_line(capsys)
+
+
+def test_tally_contour_iso_required():
+    """--iso is required; argparse aborts with SystemExit when missing."""
+    parser = argparse.ArgumentParser()
+    setup_parser_for_handler(tally_vtk_cmds.cmd_tally_contour, parser)
+
+    with pytest.raises(SystemExit) as excinfo:
+        parser.parse_args(["--tally-id", "1", "sp.h5"])
+    assert excinfo.value.code == 2
+
+
+def test_tally_contour_multi_iso_parsing():
+    """--iso takes several values in one call."""
+    args = _parse(tally_vtk_cmds.cmd_tally_contour, _contour_argv())
+    assert args.iso == [5.0]
+
+    args = _parse(
+        tally_vtk_cmds.cmd_tally_contour,
+        ["/no/such/statepoint.h5", "--tally-id", "1", "--iso", "1.0", "2.5", "4.0"],
+    )
+    assert args.iso == [1.0, 2.5, 4.0]

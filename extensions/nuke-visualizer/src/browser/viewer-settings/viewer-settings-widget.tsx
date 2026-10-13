@@ -39,6 +39,7 @@ import { ExodusTimeSliderWidget } from '../plugins/openmc/widgets/exodus-series/
 import { anyClipEnabled, CLIP_AXES, setAllClipEnabled, updateAxisClip } from '../viewer-core/clip-plane';
 import { isViewerShadingMode, VIEWER_SHADING_MODES } from '../viewer-core/shading-mode';
 import { isWarpScaleMode, WARP_EXAGGERATION_SPEC, WARP_SCALE_MODES } from '../viewer-core/warp-vectors';
+import { DEFAULT_GLYPH_DENSITY, DEFAULT_GLYPH_SCALE, GLYPH_DENSITY_SPEC, GLYPH_SCALE_SPEC } from '../viewer-core/glyph-layout';
 import {
     RANGE_SLIDER_STEPS,
     rangeSliderToValue,
@@ -283,6 +284,9 @@ export class ViewerSettingsWidget extends ReactWidget {
             snapshot.tallyVolume && this.renderTallyVolumeSmooth(host, snapshot),
             snapshot.warp && this.renderWarp(host, snapshot),
             snapshot.warp && this.renderWarpScale(host, snapshot),
+            snapshot.glyph && this.renderGlyph(host, snapshot),
+            snapshot.glyph && this.renderGlyphDensity(host, snapshot),
+            snapshot.glyph && this.renderGlyphScale(host, snapshot),
             snapshot.solidColor && this.renderSolidColor(host, snapshot),
             snapshot.background && this.renderBackground(host, snapshot),
             snapshot.shading && this.renderShading(host, snapshot),
@@ -840,6 +844,111 @@ export class ViewerSettingsWidget extends ReactWidget {
                         </Tooltip>
                     </div>
                 </div>
+            </div>
+        );
+    }
+
+    protected renderGlyph(host: ViewerSettingsHost, snapshot: ViewerSettingsSnapshot): React.ReactNode {
+        const glyph = snapshot.glyph;
+        if (!glyph) {
+            return undefined;
+        }
+        return (
+            <div className="viewer-settings-row" key="glyph">
+                {this.renderRowLabel(
+                    'arrow-up',
+                    'Glyphs',
+                    `Direction cones along per-point vectors (tracks: polyline tangents; ${glyph.count} of ${glyph.total} shown; ` +
+                        'zero-length vectors and threshold-hidden points skipped; applies instantly)'
+                )}
+                <NukeSwitch
+                    className="viewer-settings-glyph"
+                    ariaLabel="Direction glyphs"
+                    checked={glyph.enabled}
+                    onChange={() => this.applyPatch(host, { glyphEnabled: !glyph.enabled })}
+                />
+            </div>
+        );
+    }
+
+    protected renderGlyphDensity(host: ViewerSettingsHost, snapshot: ViewerSettingsSnapshot): React.ReactNode {
+        const glyph = snapshot.glyph;
+        if (!glyph) {
+            return undefined;
+        }
+        return (
+            <div className="viewer-settings-row" key="glyph-density">
+                {this.renderRowLabel(
+                    'graph-scatter',
+                    'Density',
+                    `Fraction of candidate points carrying a cone (currently ${glyph.count} of ${glyph.total}; capped for interactivity)`
+                )}
+                <div className="viewer-settings-tip-fill">
+                    <Tooltip content="Glyph density slider (fraction of points shown)" position="top">
+                        <NukeSlider
+                            className="viewer-settings-glyph-density"
+                            ariaLabel={`Glyph density (currently ${glyph.density})`}
+                            min={GLYPH_DENSITY_SPEC.min}
+                            max={GLYPH_DENSITY_SPEC.max}
+                            step={GLYPH_DENSITY_SPEC.step}
+                            value={glyph.density}
+                            disabled={!glyph.enabled}
+                            onChange={(value) => this.applyPatch(host, { glyphDensity: value })}
+                        />
+                    </Tooltip>
+                </div>
+                <Tooltip content={`Reset density to the default (${DEFAULT_GLYPH_DENSITY})`} position="top">
+                    <button
+                        type="button"
+                        className="viewer-settings-range-reset"
+                        aria-label="Reset glyph density to the default"
+                        disabled={!glyph.enabled}
+                        onClick={() => this.applyPatch(host, { glyphDensity: DEFAULT_GLYPH_DENSITY })}
+                    >
+                        <i className={codicon('refresh')}></i>
+                    </button>
+                </Tooltip>
+            </div>
+        );
+    }
+
+    protected renderGlyphScale(host: ViewerSettingsHost, snapshot: ViewerSettingsSnapshot): React.ReactNode {
+        const glyph = snapshot.glyph;
+        if (!glyph) {
+            return undefined;
+        }
+        return (
+            <div className="viewer-settings-row" key="glyph-scale">
+                {this.renderRowLabel(
+                    'symbol-numeric',
+                    'Glyph size',
+                    `Cone size multiplier over the auto height (1 = model diagonal / 40; currently x${glyph.scale})`
+                )}
+                <div className="viewer-settings-tip-fill">
+                    <Tooltip content="Glyph size slider (multiplier over the auto cone height)" position="top">
+                        <NukeSlider
+                            className="viewer-settings-glyph-scale"
+                            ariaLabel={`Glyph size (currently ${glyph.scale})`}
+                            min={GLYPH_SCALE_SPEC.min}
+                            max={GLYPH_SCALE_SPEC.max}
+                            step={GLYPH_SCALE_SPEC.step}
+                            value={glyph.scale}
+                            disabled={!glyph.enabled}
+                            onChange={(value) => this.applyPatch(host, { glyphScale: value })}
+                        />
+                    </Tooltip>
+                </div>
+                <Tooltip content={`Reset glyph size to the default (x${DEFAULT_GLYPH_SCALE})`} position="top">
+                    <button
+                        type="button"
+                        className="viewer-settings-range-reset"
+                        aria-label="Reset glyph size to the default"
+                        disabled={!glyph.enabled}
+                        onClick={() => this.applyPatch(host, { glyphScale: DEFAULT_GLYPH_SCALE })}
+                    >
+                        <i className={codicon('refresh')}></i>
+                    </button>
+                </Tooltip>
             </div>
         );
     }

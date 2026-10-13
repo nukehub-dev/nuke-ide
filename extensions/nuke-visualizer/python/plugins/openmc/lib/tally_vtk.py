@@ -1403,3 +1403,342 @@ def line_probe(
         "dataRange": [float(np.min(values)), float(np.max(values))],
         "vtkPath": vtk_path,
     }
+
+
+# ---------------------------------------------------------------------------
+# Contour / iso-surfaces over the regular tally grid
+# ---------------------------------------------------------------------------
+
+#: Iso-value count cap per contour call: every iso adds a full surface to
+#: one .vtp, so unbounded lists would bloat the viewer tab.
+CONTOUR_MAX_ISO_VALUES = 8
+
+#: Kuhn triangulation of a lattice cube into 6 tetrahedra: each axis
+#: permutation gives one tet (origin + three cumulative axis steps), so
+#: shared cube faces always split along the same diagonal and neighboring
+#: cubes agree on the surface.
+_CONTOUR_TETS = (
+    ((0, 0, 0), (1, 0, 0), (1, 1, 0), (1, 1, 1)),
+    ((0, 0, 0), (1, 0, 0), (1, 0, 1), (1, 1, 1)),
+    ((0, 0, 0), (0, 1, 0), (1, 1, 0), (1, 1, 1)),
+    ((0, 0, 0), (0, 1, 0), (0, 1, 1), (1, 1, 1)),
+    ((0, 0, 0), (0, 0, 1), (1, 0, 1), (1, 1, 1)),
+    ((0, 0, 0), (0, 0, 1), (0, 1, 1), (1, 1, 1)),
+)
+
+#: The six edges of a tetrahedron as corner-index pairs.
+_CONTOUR_TET_EDGES = ((0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3))
+
+
+def _require_iso_value(value):
+    """Validate one iso value. Output: the value as a ``float``."""
+    if isinstance(value, bool):
+        raise OutputReaderError(f"iso values must be numbers, got {value!r}")
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        raise OutputReaderError(f"iso values must be numbers, got {value!r}") from None
+    if not np.isfinite(number):
+        raise OutputReaderError(f"iso values must all be finite, got {value!r}")
+    return number
+
+
+def _require_iso_values(value):
+    """Validate an iso-value list. Output: ``list[float]`` (1..cap entries)."""
+    if value is None or isinstance(value, (bool, str, bytes)):
+        raise OutputReaderError(f"iso values must hold 1-{CONTOUR_MAX_ISO_VALUES} numbers")
+    try:
+        items = list(value)
+    except TypeError:
+        raise OutputReaderError(
+            f"iso values must hold 1-{CONTOUR_MAX_ISO_VALUES} numbers, got {value!r}"
+        ) from None
+    if not items:
+        raise OutputReaderError("at least one iso value is required")
+    if len(items) > CONTOUR_MAX_ISO_VALUES:
+        raise OutputReaderError(
+            f"at most {CONTOUR_MAX_ISO_VALUES} iso values per call, got {len(items)}"
+        )
+    return [_require_iso_value(entry) for entry in items]
+
+
+def _polygonize_tet(corner_values, iso):
+    """Triangulate one tetrahedron at an iso value (numpy-free core).
+
+    Inputs: ``corner_values`` (4 floats), ``iso`` (float). Output: list of
+    triangles, each a triple of tet-edge pairs ``(a, b)`` whose crossing
+    becomes a surface vertex. A corner counts as inside at ``value >= iso``.
+    One corner in (or out) yields one triangle; two in yield a quad split
+    into two triangles; zero/four yield nothing. Pure python.
+    """
+    inside = [value >= iso for value in corner_values]
+    n_inside = sum(inside)
+    if n_inside == 0 or n_inside == 4:
+        return []
+
+    def crossing(a, b):
+        return (a, b) if ((a, b) in _CONTOUR_TET_EDGES) else (b, a)
+
+    if n_inside == 1:
+        (sole,) = [i for i in range(4) if inside[i]]
+        rest = [i for i in range(4) if not inside[i]]
+        return [tuple(crossing(sole, other) for other in rest)]
+    if n_inside == 3:
+        (sole,) = [i for i in range(4) if not inside[i]]
+        rest = [i for i in range(4) if inside[i]]
+        return [tuple(crossing(sole, other) for other in rest)]
+    inner = [i for i in range(4) if inside[i]]
+    outer = [i for i in range(4) if not inside[i]]
+    quad = [crossing(a, b) for a in inner for b in outer]
+    return [(quad[0], quad[1], quad[2]), (quad[0], quad[2], quad[3])]
+
+
+def _require_contour_grid(values_3d, lower_left, upper_right):
+    """Validate the contour lattice. Output: ``(grid, lo, hi)`` arrays."""
+    try:
+        grid = np.asarray(values_3d, dtype=float)
+    except (TypeError, ValueError):
+        raise OutputReaderError("values_3d must be a numeric 3D array") from None
+    if grid.ndim != 3 or min(grid.shape) < 1:
+        raise OutputReaderError(f"values_3d must have shape (nx, ny, nz), got {grid.shape}")
+    if min(grid.shape) < 2:
+        raise OutputReaderError(
+            f"mesh is too coarse for contouring (needs 2+ cells per axis, got {list(grid.shape)})"
+        )
+    if not np.all(np.isfinite(grid)):
+        raise OutputReaderError("tally values must all be finite")
+    try:
+        lo = np.asarray(lower_left, dtype=float).reshape(3)
+        hi = np.asarray(upper_right, dtype=float).reshape(3)
+    except (TypeError, ValueError):
+        raise OutputReaderError("lower_left/upper_right must each hold 3 numbers") from None
+    if np.any(~np.isfinite(lo)) or np.any(~np.isfinite(hi)) or np.any(hi <= lo):
+        raise OutputReaderError("lower_left/upper_right must be finite with lower < upper")
+    return grid, lo, hi
+
+
+def extract_iso_surface(values_3d, lower_left, upper_right, iso, smooth=True):
+    """Extract one iso-surface from a cell-centered regular grid (numpy only).
+
+    The sample lattice is the cell centers (the same lattice the overlay
+    samplers use); each lattice cube splits into 6 tetrahedra
+    (:data:`_CONTOUR_TETS`) whose straddling edges become surface vertices.
+    When ``smooth`` (the overlay slice default) vertices interpolate
+    linearly along the edge; otherwise they snap to the edge midpoint (the
+    overlay ``pixelated`` convention — same topology, blockier positions).
+    Output: dict with ``iso``, ``smooth``, ``points`` ((N, 3) float array)
+    and ``triangles`` ((M, 3) int array; empty when the iso misses the data
+    range). Raises :class:`OutputReaderError` on bad input. Pure numpy
+    apart from the tet loop — no vtk required.
+    """
+    grid, lo, hi = _require_contour_grid(values_3d, lower_left, upper_right)
+    iso = _require_iso_value(iso)
+    nx, ny, nz = (int(v) for v in grid.shape)
+    spacing = (hi - lo) / np.array([nx, ny, nz], dtype=float)
+    axes = [lo[d] + (np.arange(grid.shape[d]) + 0.5) * spacing[d] for d in range(3)]
+
+    points: list = []
+    triangles: list = []
+    edge_verts: dict = {}
+
+    def vertex(corner_a, corner_b, value_a, value_b):
+        """Crossing vertex for one lattice edge (deduplicated by corner pair)."""
+        key = (corner_a, corner_b) if corner_a <= corner_b else (corner_b, corner_a)
+        hit = edge_verts.get(key)
+        if hit is not None:
+            return hit
+        point_a = np.array([axes[0][corner_a[0]], axes[1][corner_a[1]], axes[2][corner_a[2]]])
+        point_b = np.array([axes[0][corner_b[0]], axes[1][corner_b[1]], axes[2][corner_b[2]]])
+        if smooth and value_b != value_a:
+            fraction = (iso - value_a) / (value_b - value_a)
+            vertex_point = point_a + fraction * (point_b - point_a)
+        else:
+            vertex_point = 0.5 * (point_a + point_b)
+        edge_verts[key] = len(points)
+        points.append(vertex_point)
+        return len(points) - 1
+
+    for i in range(nx - 1):
+        for j in range(ny - 1):
+            for k in range(nz - 1):
+                for tet in _CONTOUR_TETS:
+                    corners = [(i + di, j + dj, k + dk) for di, dj, dk in tet]
+                    values = [float(grid[c]) for c in corners]
+                    for tri_edges in _polygonize_tet(values, iso):
+                        triangles.append(
+                            [
+                                vertex(corners[a], corners[b], values[a], values[b])
+                                for a, b in tri_edges
+                            ]
+                        )
+    return {
+        "iso": iso,
+        "smooth": bool(smooth),
+        "points": np.ascontiguousarray(points, dtype=float).reshape(-1, 3),
+        "triangles": np.ascontiguousarray(triangles, dtype=np.int64).reshape(-1, 3),
+    }
+
+
+def extract_iso_surfaces(values_3d, lower_left, upper_right, iso_values, smooth=True):
+    """Extract several iso-surfaces in one call (numpy only).
+
+    Runs :func:`extract_iso_surface` per value over the same lattice and
+    concatenates the results (triangle ids re-based). Output: dict with
+    ``isoValues``, ``smooth``, ``points`` ((N, 3)), ``triangles`` ((M, 3))
+    and ``values`` ((N,) per-point iso values for coloring). Isos that miss
+    the data range contribute nothing — a call whose every iso misses
+    yields zero triangles. Raises :class:`OutputReaderError` on bad input.
+    """
+    isos = _require_iso_values(iso_values)
+    grid, lo, hi = _require_contour_grid(values_3d, lower_left, upper_right)
+    point_blocks = []
+    triangle_blocks = []
+    value_blocks = []
+    base = 0
+    for iso in isos:
+        surface = extract_iso_surface(grid, lo, hi, iso, smooth=smooth)
+        count = surface["points"].shape[0]
+        if count == 0:
+            continue
+        point_blocks.append(surface["points"])
+        triangle_blocks.append(surface["triangles"] + base)
+        value_blocks.append(np.full((count,), iso, dtype=float))
+        base += count
+    if not point_blocks:
+        return {
+            "isoValues": isos,
+            "smooth": bool(smooth),
+            "points": np.zeros((0, 3), dtype=float),
+            "triangles": np.zeros((0, 3), dtype=np.int64),
+            "values": np.zeros((0,), dtype=float),
+        }
+    return {
+        "isoValues": isos,
+        "smooth": bool(smooth),
+        "points": np.ascontiguousarray(np.vstack(point_blocks), dtype=float).reshape(-1, 3),
+        "triangles": np.ascontiguousarray(np.vstack(triangle_blocks), dtype=np.int64).reshape(
+            -1, 3
+        ),
+        "values": np.ascontiguousarray(np.concatenate(value_blocks), dtype=float),
+    }
+
+
+def write_contour_vtp(points, triangles, values, array_name, output_path):
+    """Write iso-surface triangles as a .vtp file (lazy vtk).
+
+    Inputs: ``points`` ((N, 3) array, N > 0), ``triangles`` ((M, 3) int
+    array of point ids, M > 0), ``values`` ((N,) per-point values for
+    coloring), ``array_name`` (point-data array name), ``output_path``
+    (.vtp destination). Output: the path string. Raises
+    :class:`OutputReaderError` on bad input, id mismatches, or missing
+    vtk. Validators run before the vtk gate.
+    """
+    try:
+        pts = np.asarray(points, dtype=float)
+    except (TypeError, ValueError):
+        raise OutputReaderError("points must be numeric with shape (N, 3)") from None
+    if pts.ndim != 2 or pts.shape[1] != 3 or pts.shape[0] == 0:
+        raise OutputReaderError(f"points must have shape (N, 3) with N > 0, got {pts.shape}")
+    if not np.all(np.isfinite(pts)):
+        raise OutputReaderError("points must all be finite")
+    try:
+        tris = np.asarray(triangles, dtype=np.int64).reshape(-1, 3)
+    except (TypeError, ValueError):
+        raise OutputReaderError("triangles must hold (M, 3) point ids") from None
+    if tris.shape[0] == 0:
+        raise OutputReaderError("triangles must hold at least one triangle")
+    if tris.min() < 0 or tris.max() >= pts.shape[0]:
+        raise OutputReaderError(f"triangle ids must lie in [0, {pts.shape[0] - 1}]")
+    name = _require_array_name(array_name)
+    try:
+        vals = np.asarray(values, dtype=float).ravel()
+    except (TypeError, ValueError):
+        raise OutputReaderError("values must be numeric with one entry per point") from None
+    if vals.shape[0] != pts.shape[0]:
+        raise OutputReaderError(
+            f"values has length {vals.shape[0]}, expected {pts.shape[0]} (one value per point)"
+        )
+    if not np.all(np.isfinite(vals)):
+        raise OutputReaderError("values must all be finite")
+
+    vtk, numpy_support = _load_vtk()
+    vtk_points = vtk.vtkPoints()
+    vtk_points.SetData(numpy_support.numpy_to_vtk(np.ascontiguousarray(pts), deep=True))
+    polys = vtk.vtkCellArray()
+    for tri in tris:
+        polys.InsertNextCell(3)
+        for point_id in tri:
+            polys.InsertCellPoint(int(point_id))
+
+    polydata = vtk.vtkPolyData()
+    polydata.SetPoints(vtk_points)
+    polydata.SetPolys(polys)
+    _set_point_array(polydata, vals, name)
+
+    writer = vtk.vtkXMLPolyDataWriter()
+    writer.SetFileName(output_path)
+    writer.SetInputData(polydata)
+    writer.Write()
+    return output_path
+
+
+def tally_contour(
+    statepoint_path,
+    tally_id,
+    iso_values,
+    score=None,
+    nuclide=None,
+    smooth=True,
+    output_path=None,
+):
+    """Extract iso-surfaces from a mesh tally into a .vtp file (no server).
+
+    Inputs: ``statepoint_path`` (.h5 file), ``tally_id`` (positive int),
+    ``iso_values`` (1..8 iso values in tally units), optional
+    ``score``/``nuclide`` (default: first of each), ``smooth``
+    (interpolated edge crossings, default True; False snaps to edge
+    midpoints — the overlay ``pixelated`` convention), optional
+    ``output_path`` (.vtp destination, default: temp file). Output:
+    JSON-safe dict with the output path (``vtkPath``), tally metadata, the
+    ``isoValues``, ``smooth``, ``nPoints``/``nTriangles`` and ``dataRange``
+    (min/max iso). Raises :class:`OutputReaderError` on bad input, missing
+    files/dependencies, non-mesh tallies, or isos that all miss the data.
+    """
+    # Validate the iso list before the (expensive) tally read — the same
+    # fail-fast order the probe uses for its segment geometry.
+    isos = _require_iso_values(iso_values)
+    data = read_mesh_tally(statepoint_path, tally_id, score=score, nuclide=nuclide)
+    dims = data["dimension"]
+    lo = np.asarray(data["lowerLeft"], dtype=float)
+    hi = np.asarray(data["upperRight"], dtype=float)
+    grid = np.asarray(data["values"], dtype=float).reshape(dims, order="F")
+    surfaces = extract_iso_surfaces(grid, lo, hi, isos, smooth=smooth)
+    if surfaces["triangles"].shape[0] == 0:
+        raise OutputReaderError(
+            f"iso values {isos} do not intersect tally {data['tallyName']!r} "
+            f"(data range {data['dataRange']})"
+        )
+    _load_vtk()
+    if output_path is None:
+        output_path = _default_output_path(statepoint_path, ".vtp")
+    write_contour_vtp(
+        surfaces["points"],
+        surfaces["triangles"],
+        surfaces["values"],
+        data["arrayName"],
+        output_path,
+    )
+    return {
+        "vtkPath": output_path,
+        "sourceFile": statepoint_path,
+        "tallyId": _require_tally_id(tally_id),
+        "tallyName": data["tallyName"],
+        "score": data["score"],
+        "nuclide": data["nuclide"],
+        "arrayName": data["arrayName"],
+        "isoValues": surfaces["isoValues"],
+        "smooth": surfaces["smooth"],
+        "nPoints": int(surfaces["points"].shape[0]),
+        "nTriangles": int(surfaces["triangles"].shape[0]),
+        "dataRange": [float(min(isos)), float(max(isos))],
+    }

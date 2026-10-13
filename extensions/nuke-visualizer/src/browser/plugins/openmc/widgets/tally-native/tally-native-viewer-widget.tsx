@@ -41,6 +41,7 @@ import { CsgOutlineHost, CsgOutlinePatch, CsgOutlineSnapshot } from '../../../..
 import { NativeVtkViewerWidget } from '../native-vtk-viewer-widget';
 import { OpenMCBackendService, OpenMCVtkArrayInfo } from '../../../../../common/openmc-protocol';
 import type { OpenMCTallyLineProbeResult } from '../../../../../common/openmc-protocol';
+import { CONTOUR_MAX_ISO_VALUES, describeContourRequest, formatContourIsoValues, parseContourIsoValues } from './tally-contour';
 import {
     LINE_PROBE_DEFAULT_NPOINTS,
     LINE_PROBE_TABLE_ROW_CAP,
@@ -141,6 +142,27 @@ export class TallyNativeViewerWidget extends NativeVtkViewerWidget implements Cs
     protected probeResult: OpenMCTallyLineProbeResult | undefined;
     private probeToken = 0;
 
+    /**
+     * Sibling-tab opener for contour surfaces: set by the frontend service
+     * when it opens this tab (calling back into `openTallyNativeWidget`,
+     * never duplicating its routing). Storing a callback — not injecting
+     * the frontend service — keeps the service→widget import one-way.
+     */
+    protected contourOpener: ((vtkPath: string, label: string) => Promise<unknown>) | undefined;
+    /** Bottom data-half contour panel visibility (toggled from the header). */
+    protected contourOpen = false;
+    protected contourStatepointPath = '';
+    protected contourTallyId = '';
+    protected contourScore = '';
+    protected contourNuclide = '';
+    protected contourIso = '';
+    /** True = interpolated edge crossings; false = midpoint-snapped pixelated cells. */
+    protected contourSmooth = true;
+    protected contourLoading = false;
+    protected contourError: string | undefined;
+    protected contourStatus: string | undefined;
+    private contourToken = 0;
+
     @postConstruct()
     protected override init(): void {
         this.id = TallyNativeViewerWidget.ID;
@@ -237,6 +259,13 @@ export class TallyNativeViewerWidget extends NativeVtkViewerWidget implements Cs
     setProbeContext(context: LineProbeContext): void {
         this.probeContext = context;
         this.probeStatepointPath = context.statepointPath;
+        // Contour tabs arrive through the generic opener funnel without a
+        // link key: the context carries the statepoint path, so key the tab
+        // for camera linking here (mesh tabs are keyed at open time).
+        const linkKey = context.statepointPath.trim();
+        if (linkKey !== '') {
+            this.setCameraLinkKey(linkKey);
+        }
         this.probeTallyId = String(context.tallyId);
         if (context.score !== undefined) {
             this.probeScore = context.score;
@@ -347,6 +376,107 @@ export class TallyNativeViewerWidget extends NativeVtkViewerWidget implements Cs
         anchor.download = `tally-${this.probeResult.tallyId ?? 'probe'}-line-probe.csv`;
         anchor.click();
         URL.revokeObjectURL(url);
+    }
+
+    /**
+     * Sibling-tab opener for contour surfaces (set by the frontend service
+     * that opened this tab; the callback routes through the shared
+     * `openTallyNativeWidget` funnel).
+     */
+    setContourOpener(opener: (vtkPath: string, label: string) => Promise<unknown>): void {
+        this.contourOpener = opener;
+    }
+
+    /** Toggle the bottom contour panel, prefilling the source from the probe builder on first open. */
+    protected toggleContourPanel(): void {
+        this.contourOpen = !this.contourOpen;
+        if (this.contourOpen) {
+            if (this.contourStatepointPath === '' && this.probeStatepointPath !== '') {
+                this.contourStatepointPath = this.probeStatepointPath;
+            }
+            if (this.contourTallyId === '' && this.probeTallyId !== '') {
+                this.contourTallyId = this.probeTallyId;
+            }
+            if (this.contourScore === '' && this.probeScore !== '') {
+                this.contourScore = this.probeScore;
+            }
+            if (this.contourNuclide === '' && this.probeNuclide !== '') {
+                this.contourNuclide = this.probeNuclide;
+            }
+        }
+        this.update();
+    }
+
+    /** Run `openmc.tally-contour` and open the surface as a sibling tab; errors stay inline, never thrown. */
+    protected async runContour(): Promise<void> {
+        const token = ++this.contourToken;
+        const statepointPath = this.contourStatepointPath.trim();
+        const tallyId = Number(this.contourTallyId);
+        const isoValues = parseContourIsoValues(this.contourIso);
+        const score = this.contourScore.trim() || undefined;
+        const nuclide = this.contourNuclide.trim() || undefined;
+        if (!statepointPath) {
+            this.contourError = 'Enter a statepoint file path.';
+            this.update();
+            return;
+        }
+        if (!Number.isInteger(tallyId) || tallyId <= 0) {
+            this.contourError = 'Enter a positive tally id.';
+            this.update();
+            return;
+        }
+        if (!isoValues) {
+            this.contourError = 'Enter iso values as numbers separated by spaces or commas.';
+            this.update();
+            return;
+        }
+        if (isoValues.length > CONTOUR_MAX_ISO_VALUES) {
+            this.contourError = `At most ${CONTOUR_MAX_ISO_VALUES} iso values per call.`;
+            this.update();
+            return;
+        }
+        if (!this.contourOpener) {
+            this.contourError = 'Contour tabs are unavailable from this viewer.';
+            this.update();
+            return;
+        }
+        this.contourLoading = true;
+        this.contourError = undefined;
+        this.contourStatus = undefined;
+        this.update();
+        try {
+            const conversion = await this.openmcBackend.convertTallyContourToVtk(statepointPath, {
+                tallyId,
+                score,
+                nuclide,
+                isoValues,
+                smooth: this.contourSmooth
+            });
+            if (token !== this.contourToken) {
+                return;
+            }
+            if (!conversion.success || !conversion.vtkPath) {
+                throw new Error(conversion.error || 'Contour conversion failed');
+            }
+            const label = `Tally ${tallyId} contour (${formatContourIsoValues(isoValues)})`;
+            await this.contourOpener(conversion.vtkPath, label);
+            if (token !== this.contourToken) {
+                return;
+            }
+            const triangles = (conversion.stats as { nTriangles?: unknown } | undefined)?.nTriangles;
+            const count = typeof triangles === 'number' ? ` · ${triangles.toLocaleString()} triangles` : '';
+            this.contourStatus = `Opened ${describeContourRequest(isoValues, this.contourSmooth, String(tallyId))}${count}`;
+        } catch (error) {
+            if (token !== this.contourToken) {
+                return;
+            }
+            this.contourError = error instanceof Error ? error.message : String(error);
+        } finally {
+            if (token === this.contourToken) {
+                this.contourLoading = false;
+                this.update();
+            }
+        }
     }
 
     /** World-space grid backing the smooth volume (true 3D datasets only; slices and clouds stay boxed). */
@@ -587,6 +717,7 @@ export class TallyNativeViewerWidget extends NativeVtkViewerWidget implements Cs
                 {this.renderHeader()}
                 {this.error ? this.renderError() : this.renderContent()}
                 {this.renderProbePanel()}
+                {this.renderContourPanel()}
             </div>
         );
     }
@@ -611,6 +742,135 @@ export class TallyNativeViewerWidget extends NativeVtkViewerWidget implements Cs
                         <i className={codicon('graph-line')}></i> Line probe
                     </button>
                 </Tooltip>
+                <Tooltip content="Extract flux iso-surfaces into a sibling tab (contour)" position="bottom">
+                    <button
+                        className="theia-button tally-contour-toggle"
+                        style={{ padding: '2px 8px', fontSize: '12px', minWidth: '0' }}
+                        onClick={() => this.toggleContourPanel()}
+                    >
+                        <i className={codicon('layers')}></i> Contour
+                    </button>
+                </Tooltip>
+            </div>
+        );
+    }
+
+    /**
+     * Bottom data-half panel: contour builder (statepoint/tally/score plus
+     * iso values in tally units and the smooth switch — the same
+     * smooth/pixelated convention as the overlay Rendering Style).
+     * Running opens the surface as a sibling tab through the opener the
+     * service set; the sibling inherits warp/threshold funnels untouched.
+     * Collapsed unless toggled in the header.
+     */
+    protected renderContourPanel(): React.ReactNode {
+        if (!this.contourOpen) {
+            return undefined;
+        }
+        return (
+            <div className="openmc-output-viewer-panel-host tally-contour-panel">
+                <div className="openmc-output-viewer-panel">
+                    <h4>Contour — iso-surfaces over the mesh tally</h4>
+                    <div className="openmc-output-viewer-control" style={{ flexWrap: 'wrap', rowGap: '6px' }}>
+                        <label>
+                            Statepoint
+                            <input
+                                type="text"
+                                style={{ width: '220px', marginLeft: '4px' }}
+                                placeholder="/path/to/statepoint.10.h5"
+                                value={this.contourStatepointPath}
+                                onChange={(event) => {
+                                    this.contourStatepointPath = event.target.value;
+                                    this.update();
+                                }}
+                            />
+                        </label>
+                        <label>
+                            Tally
+                            <input
+                                type="number"
+                                style={{ marginLeft: '4px' }}
+                                placeholder="4"
+                                value={this.contourTallyId}
+                                onChange={(event) => {
+                                    this.contourTallyId = event.target.value;
+                                    this.update();
+                                }}
+                            />
+                        </label>
+                        <label>
+                            Score
+                            <input
+                                type="text"
+                                style={{ width: '90px', marginLeft: '4px' }}
+                                placeholder="flux"
+                                value={this.contourScore}
+                                onChange={(event) => {
+                                    this.contourScore = event.target.value;
+                                    this.update();
+                                }}
+                            />
+                        </label>
+                        <label>
+                            Nuclides
+                            <input
+                                type="text"
+                                style={{ width: '90px', marginLeft: '4px' }}
+                                placeholder="total"
+                                value={this.contourNuclide}
+                                onChange={(event) => {
+                                    this.contourNuclide = event.target.value;
+                                    this.update();
+                                }}
+                            />
+                        </label>
+                    </div>
+                    <div className="openmc-output-viewer-control" style={{ flexWrap: 'wrap', rowGap: '6px', marginTop: '6px' }}>
+                        <label>
+                            Iso values
+                            <input
+                                type="text"
+                                className="tally-contour-iso"
+                                style={{ width: '200px', marginLeft: '4px' }}
+                                placeholder="1e12, 5e12"
+                                value={this.contourIso}
+                                onChange={(event) => {
+                                    this.contourIso = event.target.value;
+                                    this.update();
+                                }}
+                            />
+                        </label>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <input
+                                type="checkbox"
+                                checked={this.contourSmooth}
+                                onChange={(event) => {
+                                    this.contourSmooth = event.target.checked;
+                                    this.update();
+                                }}
+                            />
+                            Smooth (interpolated; off = pixelated cells)
+                        </label>
+                        <button
+                            className="theia-button tally-contour-run"
+                            style={{ padding: '2px 10px', fontSize: '12px', minWidth: '0' }}
+                            disabled={this.contourLoading}
+                            onClick={() => this.runContour()}
+                        >
+                            {this.contourLoading ? 'Contouring…' : 'Open contour'}
+                        </button>
+                    </div>
+                    {this.contourError && (
+                        <div className="tally-contour-error" style={{ color: 'var(--theia-errorForeground)', marginTop: '6px' }}>
+                            {this.contourError}
+                        </div>
+                    )}
+                    {this.contourStatus && !this.contourError && (
+                        <div className="nuke-viewer-status-line" style={{ marginTop: '6px' }}>
+                            {this.contourStatus}
+                        </div>
+                    )}
+                </div>
             </div>
         );
     }

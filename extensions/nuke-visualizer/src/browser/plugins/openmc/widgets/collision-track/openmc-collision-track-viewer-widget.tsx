@@ -399,6 +399,19 @@ export class OpenMCCollisionTrackViewerWidget extends NativeVtkViewerWidget {
         this.reload();
     }
 
+    /**
+     * Per-point direction vectors for direction glyphs: the first
+     * 3-component point array when a producer emits one. Collision sites
+     * are an unordered cloud (no segments to derive tangents from) and the
+     * converter carries no direction array today, so the Glyphs row stays
+     * hidden until vectors exist — the instancing path is shared with the
+     * tracks viewer and needs no other wiring.
+     */
+    protected override glyphVectors(): ArrayLike<number> | undefined {
+        const model = this.model;
+        return model?.pointArrays.find((array) => array.components === 3)?.values;
+    }
+
     protected override renderHeader(): React.ReactNode {
         return (
             <>

@@ -424,6 +424,9 @@ export interface OpenMCBackendService {
 
     /** Sample a mesh tally along a line segment (flux profile probe series) */
     getTallyLineProbe(statepointPath: string, options: OpenMCTallyLineProbeOptions): Promise<OpenMCTallyLineProbeResult>;
+
+    /** Extract iso-surfaces from a mesh tally (`.vtp` triangles, no server) for a contour sibling tab */
+    convertTallyContourToVtk(statepointPath: string, options: OpenMCTallyContourOptions): Promise<OpenMCVtkConversionResult>;
 }
 
 // === Cross-Section (XS) Plotting Types ===
@@ -2139,4 +2142,15 @@ export interface OpenMCTallyLineProbeResult {
     /** Probe-path polyline (.vtp) when requested via writeVtp */
     vtkPath?: string | null;
     error?: string;
+}
+
+/** Options for `openmc.tally-contour` (iso-surfaces over the tally mesh) */
+export interface OpenMCTallyContourOptions {
+    tallyId: number;
+    score?: string;
+    nuclide?: string;
+    /** Iso values in tally units (1-8 per call; every value becomes a surface) */
+    isoValues: number[];
+    /** Interpolated edge crossings (default true; false = midpoint-snapped/pixelated) */
+    smooth?: boolean;
 }

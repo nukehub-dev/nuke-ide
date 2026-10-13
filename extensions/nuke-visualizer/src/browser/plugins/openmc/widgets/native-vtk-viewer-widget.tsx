@@ -137,12 +137,22 @@ import {
     normalizeThresholdRange,
     thresholdTupleVisible
 } from '../../../viewer-core/threshold-filter';
+import {
+    autoGlyphSize,
+    clampGlyphDensity,
+    clampGlyphScale,
+    DEFAULT_GLYPH_DENSITY,
+    DEFAULT_GLYPH_SCALE,
+    planGlyphs
+} from '../../../viewer-core/glyph-layout';
 import { nextNavPopover, type ViewerNavPopoverKind } from '../../../viewer-core/viewer-nav-popover';
+import { cameraLinkBus, cameraPoseDirection, type CameraLinkEndpoint, type CameraLinkPose } from '../../../viewer-core/camera-link-bus';
 import { OpenMCVtkArrayInfo } from '../../../../common/openmc-protocol';
 import {
     ViewerSettingsHost,
     ViewerSettingsPatch,
     ViewerSettingsSnapshot,
+    ViewerGlyphSettings,
     ViewerThresholdSettings,
     viewerSnapDirection
 } from '../../../viewer-settings/viewer-settings-model';
@@ -151,6 +161,7 @@ import {
     ViewerClipPopover,
     ViewerClipTrigger,
     ViewerFileActions,
+    LinkCamerasTrigger,
     ViewerNavPopoverShell,
     ViewerShadingPopover,
     ViewerShadingTrigger
@@ -212,6 +223,12 @@ export interface NativeVtkViewerProps {
     thresholdEnabled?: boolean;
     /** Custom threshold window; `'data'` clears it back to the active array's data range. */
     thresholdRange?: 'data' | readonly [number, number];
+    /** Direction-glyph switch (decimated cones along per-point vectors; no vectors, no glyphs). */
+    glyphEnabled?: boolean;
+    /** Fraction of candidate points carrying a cone (slider range). */
+    glyphDensity?: number;
+    /** Cone size multiplier over the auto height (slider range). */
+    glyphScale?: number;
 }
 
 /**
@@ -276,12 +293,43 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
     protected thresholdEnabled = false;
     /** Custom threshold window (undefined follows the active array's data range, hiding nothing). */
     protected thresholdCustom: [number, number] | undefined;
+    /** Direction-glyph switch (Viewer Settings Glyphs row; needs per-point vectors from the subclass hook). */
+    protected glyphEnabled = false;
+    /** Fraction of candidate points carrying a cone (Viewer Settings density slider). */
+    protected glyphDensity = DEFAULT_GLYPH_DENSITY;
+    /** Cone size multiplier over the auto height (Viewer Settings scale slider). */
+    protected glyphScale = DEFAULT_GLYPH_SCALE;
+    /** Live cone instances (owned here; disposed with the data group on rebuild). */
+    private glyphMesh: THREE.InstancedMesh | undefined;
+    /** Point-to-cell map for glyph threshold/color lookups on cell arrays (rebuilt per model + array). */
+    private glyphCellCache: { model: NativeVtkModel; array: NativeVtkDataArray; map: Int32Array } | undefined;
     /**
      * Open bottom-bar popover (single slot, CAD `openPopover` parity — never
      * both cards). The widget owns the slot; every card control routes onto
      * the existing setters, so the sidebar stays authoritative.
      */
     protected openNavPopover: ViewerNavPopoverKind | undefined;
+    /**
+     * Opt-in camera link (nav-bar `Link cameras` toggle, per-widget state,
+     * default off): when on, the orbit `change` hook publishes
+     * `{position, target}` on the same-file bus and linked poses from other
+     * views of the same file apply through the orbit handle. Camera-only
+     * sync — warp, threshold, glyphs, color-by, clip, and shading stay
+     * per-widget and are never published or applied.
+     */
+    protected cameraLinked = false;
+    /**
+     * Explicit link-identity override (tabs that load converted text instead
+     * of a file, e.g. tally mesh/contour siblings, key by their source file
+     * through this once their owner passes it down).
+     */
+    protected cameraLinkSource: string | undefined;
+    private cameraLinkEndpoint: CameraLinkEndpoint | undefined;
+    private cameraLinkSubscribedKey: string | undefined;
+    /** True while a linked pose applies (the resulting orbit change must not rebroadcast — echo suppression). */
+    private applyingLinkedPose = false;
+    /** Mirrored orbit target for link publishes (fit keeps it exact; a local pan re-anchors on the next fit). */
+    private linkTarget: [number, number, number] | undefined;
     /** Bar + card elements behind the outside-click dismissal (trigger clicks are inside the bar). */
     protected navBarElement: HTMLDivElement | null = null;
     protected navPopoverElement: HTMLDivElement | null = null;
@@ -374,7 +422,10 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
             warpScaleMode: this.warpScaleMode,
             warpScale: this.warpScale,
             thresholdEnabled: this.thresholdEnabled,
-            thresholdRange: this.thresholdCustom ? [this.thresholdCustom[0], this.thresholdCustom[1]] : 'data'
+            thresholdRange: this.thresholdCustom ? [this.thresholdCustom[0], this.thresholdCustom[1]] : 'data',
+            glyphEnabled: this.glyphEnabled,
+            glyphDensity: this.glyphDensity,
+            glyphScale: this.glyphScale
         };
     }
 
@@ -510,16 +561,44 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
             // (voxel instances): warp positions first, then hide cells.
             this.rewriteWarpPositions();
             this.recolor();
+            // Glyphs sit after the warp rewrite (warped positions) and skip
+            // threshold-hidden tuples, so they refresh on the same funnel.
+            this.refreshGlyphs();
+        }
+        let glyphChanged = false;
+        if (props.glyphEnabled !== undefined && props.glyphEnabled !== this.glyphEnabled) {
+            this.glyphEnabled = props.glyphEnabled;
+            glyphChanged = true;
+        }
+        if (props.glyphDensity !== undefined && Number.isFinite(props.glyphDensity)) {
+            const next = clampGlyphDensity(props.glyphDensity);
+            if (next !== this.glyphDensity) {
+                this.glyphDensity = next;
+                glyphChanged = true;
+            }
+        }
+        if (props.glyphScale !== undefined && Number.isFinite(props.glyphScale)) {
+            const next = clampGlyphScale(props.glyphScale);
+            if (next !== this.glyphScale) {
+                this.glyphScale = next;
+                glyphChanged = true;
+            }
+        }
+        if (glyphChanged) {
+            this.refreshGlyphs();
         }
         if (colorsChanged) {
             this.recolor();
+            // Glyph instance colors follow the active mapping (same funnel
+            // as the dataset repaint).
+            this.refreshGlyphs();
         } else if (displayChanged) {
             this.applyDisplayProps();
         } else if (clipChanged && !warpChanged) {
             this.applyClip();
             this.renderScene();
         }
-        if (colorsChanged || displayChanged || clipChanged || chromeChanged || warpChanged || thresholdChanged) {
+        if (colorsChanged || displayChanged || clipChanged || chromeChanged || warpChanged || thresholdChanged || glyphChanged) {
             this.update();
         }
     }
@@ -594,6 +673,104 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         this.orbitControls?.setViewDirection(direction);
     }
 
+    /**
+     * Link identity: the viewed file path, so views of different files never
+     * link. Tabs without a file (converted tally text loads) stay unlinked
+     * until their source key arrives through {@link setCameraLinkKey}.
+     */
+    protected cameraLinkKey(): string | undefined {
+        return this.cameraLinkSource ?? this.fileUri?.path.toString();
+    }
+
+    /** Override the link identity (source-file keying for file-less tabs); re-subscribes when it changes. */
+    setCameraLinkKey(key: string | undefined): void {
+        if (key === this.cameraLinkSource) {
+            return;
+        }
+        this.cameraLinkSource = key;
+        this.ensureCameraLinkSubscription();
+        this.update();
+    }
+
+    /** Flip the nav-bar `Link cameras` toggle (per-widget state, default off). */
+    setCameraLinked(linked: boolean): void {
+        if (linked === this.cameraLinked) {
+            return;
+        }
+        this.cameraLinked = linked;
+        this.update();
+    }
+
+    /** (Re)subscribe the link endpoint when the viewed file changes; drops it while there is no linkable file. */
+    private ensureCameraLinkSubscription(): void {
+        const key = this.cameraLinkKey();
+        if (key === this.cameraLinkSubscribedKey) {
+            return;
+        }
+        this.dropCameraLinkSubscription();
+        if (key !== undefined) {
+            this.cameraLinkEndpoint = cameraLinkBus.link(key, (pose) => this.onLinkedPose(pose));
+            this.cameraLinkSubscribedKey = key;
+        }
+    }
+
+    /** Drop the link subscription (detach/dispose path — no leaked bus listeners). */
+    private dropCameraLinkSubscription(): void {
+        this.cameraLinkEndpoint?.dispose();
+        this.cameraLinkEndpoint = undefined;
+        this.cameraLinkSubscribedKey = undefined;
+    }
+
+    /**
+     * Orbit change hook: the existing render-on-demand repaint plus the link
+     * publish when the toggle is on. Applying a linked pose sets
+     * {@link applyingLinkedPose}, so the resulting change never rebroadcasts.
+     */
+    private onOrbitChanged(): void {
+        this.renderScene();
+        if (!this.cameraLinked || this.applyingLinkedPose) {
+            return;
+        }
+        const camera = this.camera;
+        const target = this.linkTarget;
+        const endpoint = this.cameraLinkEndpoint;
+        if (!camera || !target || !endpoint) {
+            return;
+        }
+        const position = camera.position;
+        endpoint.publish({
+            position: [position.x, position.y, position.z],
+            target: [target[0], target[1], target[2]]
+        });
+    }
+
+    /**
+     * Apply a linked pose from another view of the same file: stage the
+     * linked distance on the owned camera, then snap orientation through the
+     * existing `setViewDirection` handle — each view keeps its own target
+     * and framing while the orbit direction and distance follow. Display
+     * settings are never touched: camera-only sync.
+     */
+    private onLinkedPose(pose: CameraLinkPose): void {
+        if (!this.cameraLinked || this.applyingLinkedPose) {
+            return;
+        }
+        const direction = cameraPoseDirection(pose);
+        const camera = this.camera;
+        const controls = this.orbitControls;
+        if (!direction || !camera || !controls) {
+            return;
+        }
+        this.applyingLinkedPose = true;
+        try {
+            camera.position.set(pose.position[0], pose.position[1], pose.position[2]);
+            controls.setViewDirection(direction);
+        } finally {
+            this.applyingLinkedPose = false;
+        }
+        this.renderScene();
+    }
+
     /** Read the current settings for the sidebar panel. */
     getViewerSettingsSnapshot(): ViewerSettingsSnapshot {
         const solid = this.colorBy === SOLID_COLOR;
@@ -602,6 +779,7 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         const effectiveRange = array ? resolveEffectiveRange(this.rangeMode, array.range, this.customRange) : undefined;
         const warpOptions = this.warpOptions();
         const warpArray = this.resolvedWarpArray();
+        const glyph = this.glyphSnapshot();
         return {
             widgetId: this.id,
             title: this.title.label,
@@ -646,6 +824,7 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
                   }
                 : {}),
             ...(array ? { threshold: this.thresholdSnapshotFor(array) } : {}),
+            ...(glyph ? { glyph } : {}),
             ...(solid ? { solidColor: { value: this.solidColor } } : {}),
             background: { value: this.resolveBackground() },
             shading: { value: this.shading },
@@ -706,7 +885,10 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
             warpScaleMode: patch.warpScaleMode,
             warpScale: patch.warpScale,
             thresholdEnabled: patch.thresholdEnabled,
-            thresholdRange: patch.thresholdRange
+            thresholdRange: patch.thresholdRange,
+            glyphEnabled: patch.glyphEnabled,
+            glyphDensity: patch.glyphDensity,
+            glyphScale: patch.glyphScale
         });
     }
 
@@ -1008,6 +1190,7 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
     /** Load a VTK file from disk through Theia's FileService (no HTTP fetch). */
     async setVtkFile(uri: URI): Promise<void> {
         this.fileUri = uri;
+        this.ensureCameraLinkSubscription();
         this.id = `${NativeVtkViewerWidget.ID}:${uri.path.toString()}`;
         this.title.label = `${NativeVtkViewerWidget.LABEL}: ${uri.path.base}`;
         this.title.caption = `${NativeVtkViewerWidget.LABEL}: ${uri.path.toString()}`;
@@ -1035,6 +1218,7 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
 
     /** Load already-read VTK XML text (used after FileService reads and by future contributions). */
     async setVtkText(text: string, token = ++this.loadToken): Promise<void> {
+        this.ensureCameraLinkSubscription();
         this.isLoading = true;
         this.error = undefined;
         this.statusMessage = 'Parsing VTK dataset…';
@@ -1111,7 +1295,11 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         if (underlay) {
             box.expandByObject(underlay);
         }
+        const center: [number, number, number] = [(box.min.x + box.max.x) / 2, (box.min.y + box.max.y) / 2, (box.min.z + box.max.z) / 2];
         this.orbitControls.fitBounds([box.min.x, box.min.y, box.min.z], [box.max.x, box.max.y, box.max.z]);
+        // Mirror the orbit target for link publishes (fit is the only
+        // widget-driven target change; a local pan re-anchors on the next fit).
+        this.linkTarget = center;
     }
 
     // ------------------------------------------------------------------
@@ -1202,6 +1390,11 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
                         open={this.openNavPopover === 'shading'}
                         disabled={disabled}
                         onToggle={() => this.toggleNavPopover('shading')}
+                    />
+                    <LinkCamerasTrigger
+                        linked={this.cameraLinked}
+                        disabled={disabled || this.cameraLinkKey() === undefined}
+                        onToggle={() => this.setCameraLinked(!this.cameraLinked)}
                     />
                     <ViewerFileActions
                         disabled={disabled}
@@ -1562,6 +1755,7 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
     protected onAfterAttach(msg: Message): void {
         super.onAfterAttach(msg);
         this.ensureRenderer();
+        this.ensureCameraLinkSubscription();
         if (!this.measureKeysAttached) {
             window.addEventListener('keydown', this.onWindowKeyDown, true);
             window.addEventListener('pointerdown', this.onWindowPointerDown, true);
@@ -1575,12 +1769,14 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
             window.removeEventListener('pointerdown', this.onWindowPointerDown, true);
             this.measureKeysAttached = false;
         }
+        this.dropCameraLinkSubscription();
         this.teardownRenderer();
         super.onBeforeDetach(msg);
     }
 
     override dispose(): void {
         this.loadToken++;
+        this.dropCameraLinkSubscription();
         this.teardownRenderer();
         super.dispose();
     }
@@ -1705,6 +1901,10 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
             this.disposeObject(this.dataGroup);
             this.dataGroup = undefined;
         }
+        // A fresh dataset drops the glyph mesh with the group (the field
+        // must not dangle at the disposed mesh) and its cell map.
+        this.glyphMesh = undefined;
+        this.glyphCellCache = undefined;
         // Rebuild clears the measure session (viewport state, never document
         // state); the label hides on the next repaint via updateMeasureLabel.
         this.measure = resetMeasureState();
@@ -1755,8 +1955,10 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         this.scene.add(this.dataGroup);
         // Warp rewrites the fresh buffers before framing, so fit and the
         // following recolor both see the deformed scene (same funnel as
-        // shading: every rebuild re-applies warp).
+        // shading: every rebuild re-applies warp). Glyphs refresh after the
+        // rewrite so cones sit on the warped positions.
         this.rewriteWarpPositions();
+        this.refreshGlyphs();
         this.fitView();
         this.recolor();
     }
@@ -2000,7 +2202,11 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         const paint = (geometry: THREE.BufferGeometry, colorAt: (vertex: number) => [number, number, number]): void => {
             // Box3Helper (grid bounds) and the edges overlay carry no color attribute — leave them.
             // The source layer paints itself from its own energy domain — leave it too.
+            // Glyph cones carry per-instance colors (no color attribute) — the glyph refresh paints them.
             if ((geometry.userData?.['role'] as string | undefined) === 'tally-source') {
+                return;
+            }
+            if ((geometry.userData?.['role'] as string | undefined) === 'glyphs') {
                 return;
             }
             const colors = geometry.getAttribute('color') as THREE.BufferAttribute | undefined;
@@ -2510,6 +2716,8 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
     /** Rewrite warp positions, re-apply clip (bounds may have moved), and repaint. */
     private applyWarp(): void {
         this.rewriteWarpPositions();
+        // Cones follow deformation: layout runs on the rewritten positions.
+        this.refreshGlyphs();
         this.applyClip();
         this.renderScene();
     }
@@ -2658,6 +2866,204 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         return (instance) => !thresholdTupleVisible(array.values, array.components, layout.cells[instance] ?? -1, component, min, max);
     }
 
+    // ------------------------------------------------------------------
+    // Direction glyphs (decimated cone instancing along per-point vectors):
+    // one THREE.InstancedMesh over the warped scene positions, planned by
+    // viewer-core/glyph-layout.ts (decimation + orientation, zero-vector
+    // skip) with threshold-hidden tuples dropped. The vector source is the
+    // subclass hook below — the base resolves none, so viewers without a
+    // direction source (tally, weight-windows, generic, ...) show no Glyph
+    // row and every method here short-circuits.
+    // ------------------------------------------------------------------
+
+    /**
+     * Per-point direction vectors (xyz-packed, one tuple per model point)
+     * for glyph orientation, or undefined when this viewer has no direction
+     * source. Tracks override with polyline tangents; collision tracks with
+     * the first 3-component point array. Positions always come from the
+     * warped scene positions at refresh time (glyphs follow warp).
+     */
+    protected glyphVectors(): ArrayLike<number> | undefined {
+        return undefined;
+    }
+
+    /** Snapshot section for the Viewer Settings Glyphs rows (undefined without vectors). */
+    private glyphSnapshot(): ViewerGlyphSettings | undefined {
+        const model = this.model;
+        if (!model) {
+            return undefined;
+        }
+        const vectors = this.glyphVectors();
+        if (!vectors) {
+            return undefined;
+        }
+        const total = Math.floor(model.positions.length / 3);
+        let count = 0;
+        for (const placement of planGlyphs(total, vectors, this.glyphDensity)) {
+            if (this.glyphTupleVisible(placement.index)) {
+                count++;
+            }
+        }
+        return { enabled: this.glyphEnabled, density: this.glyphDensity, scale: this.glyphScale, count, total };
+    }
+
+    /** Whether the glyph at one model point survives the active threshold window. */
+    private glyphTupleVisible(point: number): boolean {
+        const active = this.activeThreshold();
+        if (!active) {
+            return true;
+        }
+        const { array, min, max } = active;
+        if (array.association === 'point') {
+            return thresholdTupleVisible(array.values, array.components, point, this.component, min, max);
+        }
+        // Cell arrays test the first incident segment's cell (the track
+        // polyline form); unmapped points stay visible (the nanColor rule).
+        const tuple = this.glyphCellTuple(point, array);
+        if (tuple === undefined) {
+            return true;
+        }
+        return thresholdTupleVisible(array.values, array.components, tuple, this.component, min, max);
+    }
+
+    /**
+     * Data tuple coloring (and hiding) the glyph at one model point: point
+     * arrays map 1:1, cell arrays resolve through the first incident
+     * segment's cell (undefined when unmapped). The incident map builds once
+     * per model + array (slider drags must not rebuild it per tick).
+     */
+    private glyphCellTuple(point: number, array: NativeVtkDataArray): number | undefined {
+        const model = this.model;
+        if (!model || !model.segments || !model.segmentCells) {
+            return undefined;
+        }
+        let cache = this.glyphCellCache;
+        if (!cache || cache.model !== model || cache.array !== array) {
+            const count = Math.floor(model.positions.length / 3);
+            const map = new Int32Array(count).fill(-1);
+            const segments = model.segments;
+            const cells = model.segmentCells;
+            const pairCount = Math.min(Math.floor(segments.length / 2), cells.length);
+            for (let s = 0; s < pairCount; s++) {
+                const cell = cells[s];
+                const a = segments[s * 2];
+                const b = segments[s * 2 + 1];
+                if (a >= 0 && a < count && map[a] === -1) {
+                    map[a] = cell;
+                }
+                if (b >= 0 && b < count && map[b] === -1) {
+                    map[b] = cell;
+                }
+            }
+            cache = { model, array, map };
+            this.glyphCellCache = cache;
+        }
+        const tuple = cache.map[point] ?? -1;
+        return tuple >= 0 ? tuple : undefined;
+    }
+
+    /** Data tuple painted onto the glyph at one model point (cell arrays resolve like visibility). */
+    private glyphColorTuple(point: number, array: NativeVtkDataArray | undefined): number {
+        if (!array) {
+            return -1;
+        }
+        if (array.association === 'point') {
+            return point;
+        }
+        return this.glyphCellTuple(point, array) ?? -1;
+    }
+
+    /**
+     * Rebuild the cone instances from the current scene positions (warped
+     * when warp is active — always call after the warp rewrite in the
+     * rebuild funnel, same order as the threshold collapse). Drops the mesh
+     * when glyphs are off, vectorless, empty, or degenerately sized; colors
+     * follow the active mapping (solid in Solid Color mode). Render-on-demand:
+     * direct three.js writes plus one repaint, never React state.
+     */
+    private refreshGlyphs(): void {
+        let removed = false;
+        if (this.glyphMesh && this.dataGroup) {
+            this.dataGroup.remove(this.glyphMesh);
+            this.glyphMesh.geometry.dispose();
+            (this.glyphMesh.material as THREE.Material).dispose();
+            this.glyphMesh.dispose();
+            this.glyphMesh = undefined;
+            removed = true;
+        }
+        const model = this.model;
+        if (!model || !this.dataGroup || !this.glyphEnabled) {
+            if (removed) {
+                this.renderScene();
+            }
+            return;
+        }
+        const vectors = this.glyphVectors();
+        if (!vectors) {
+            this.renderScene();
+            return;
+        }
+        const total = Math.floor(model.positions.length / 3);
+        const visible = planGlyphs(total, vectors, this.glyphDensity).filter((placement) => this.glyphTupleVisible(placement.index));
+        if (visible.length === 0) {
+            this.renderScene();
+            return;
+        }
+        // Glyph layout runs on the rendered positions (warped when warp is
+        // active), never the base positions — deformation moves the cones.
+        const positions = this.scenePositions();
+        const size = autoGlyphSize(positions) * this.glyphScale;
+        if (!(size > 0)) {
+            this.renderScene();
+            return;
+        }
+        // Unit cone (apex +Y, base at the origin after the translate) scaled
+        // per instance, so each cone sits on its point along its direction.
+        const geometry = new THREE.ConeGeometry(0.35, 1, 12);
+        geometry.translate(0, 0.5, 0);
+        geometry.userData = { role: 'glyphs' };
+        const material = new THREE.MeshLambertMaterial({ transparent: true, opacity: this.opacity });
+        const mesh = new THREE.InstancedMesh(geometry, material, visible.length);
+        const selection = parseColorBy(this.colorBy);
+        const array = selection && selection.kind !== 'solid' ? this.findArray(selection.kind, selection.name) : undefined;
+        const mapping = array ? this.scalarMappingFor(array) : undefined;
+        const solid = new THREE.Color(this.solidColor);
+        const matrix = new THREE.Matrix4();
+        const quaternion = new THREE.Quaternion();
+        const position = new THREE.Vector3();
+        const scale = new THREE.Vector3(size, size, size);
+        const color = new THREE.Color();
+        visible.forEach((placement, i) => {
+            position.set(positions[placement.index * 3], positions[placement.index * 3 + 1], positions[placement.index * 3 + 2]);
+            quaternion.set(placement.quaternion[0], placement.quaternion[1], placement.quaternion[2], placement.quaternion[3]);
+            matrix.compose(position, quaternion, scale);
+            mesh.setMatrixAt(i, matrix);
+            const tuple = this.glyphColorTuple(placement.index, array);
+            const mapped =
+                array && mapping ? mapScalar(tupleScalar(array.values, array.components, tuple, mapping.component), mapping) : undefined;
+            if (mapped) {
+                color.setRGB(mapped[0], mapped[1], mapped[2]);
+            } else {
+                color.copy(solid);
+            }
+            mesh.setColorAt(i, color);
+        });
+        mesh.instanceMatrix.needsUpdate = true;
+        if (mesh.instanceColor) {
+            mesh.instanceColor.needsUpdate = true;
+        }
+        // Instance transforms span the scene (the base geometry bounds do
+        // not), so frustum culling must stay off — same rule as the source
+        // overlay points.
+        mesh.frustumCulled = false;
+        this.dataGroup.add(mesh);
+        this.glyphMesh = mesh;
+        this.syncMaterialProps();
+        this.applyShadingVisibility();
+        this.applyClip();
+        this.renderScene();
+    }
+
     private describeModel(): string {
         const model = this.model;
         if (!model) {
@@ -2677,6 +3083,9 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
             );
             thresholdSuffix = ` — threshold ${coverage.visible.toLocaleString()} of ${coverage.total.toLocaleString()} shown`;
         }
+        const glyph = this.glyphSnapshot();
+        const glyphSuffix =
+            glyph && glyph.enabled && glyph.total > 0 ? ` — glyphs ${glyph.count.toLocaleString()} of ${glyph.total.toLocaleString()}` : '';
         if (model.family === 'polydata') {
             const parts: string[] = [];
             if (model.triangles) {
@@ -2691,12 +3100,12 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
             if (parts.length === 0) {
                 parts.push(`${model.nPoints.toLocaleString()} points`);
             }
-            return `PolyData — ${parts.join(' + ')}${warpSuffix}${thresholdSuffix}`;
+            return `PolyData — ${parts.join(' + ')}${warpSuffix}${thresholdSuffix}${glyphSuffix}`;
         }
         const [nx, ny, nz] = model.gridDimensions ?? [0, 0, 0];
         const kind = model.family === 'rectilinear' ? 'RectilinearGrid' : 'ImageData';
         const shape = model.gridAxes ? 'voxel blocks' : 'cell-center preview';
-        return `${kind} — ${model.nPoints.toLocaleString()} cells (${nx} × ${ny} × ${nz}, ${shape})${warpSuffix}${thresholdSuffix}`;
+        return `${kind} — ${model.nPoints.toLocaleString()} cells (${nx} × ${ny} × ${nz}, ${shape})${warpSuffix}${thresholdSuffix}${glyphSuffix}`;
     }
 
     // ------------------------------------------------------------------
@@ -2781,7 +3190,7 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         if (!renderer || !camera) {
             return;
         }
-        createOrbitControls(camera, renderer.domElement, { onChange: () => this.renderScene() })
+        createOrbitControls(camera, renderer.domElement, { onChange: () => this.onOrbitChanged() })
             .then((handle) => {
                 if (this.renderer !== renderer) {
                     handle.dispose();
