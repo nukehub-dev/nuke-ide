@@ -469,3 +469,150 @@
     font-size: 12px;
     color: var(--theia-descriptionForeground);
 }
+
+/* Parameters spreadsheet section: sortable name/value/used-by rows with
+ * edit-in-place and an add row. Mirrors the table-view grid above. */
+.param-table {
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 4px;
+    overflow: hidden;
+    font-size: 12px;
+}
+
+.param-table-head,
+.param-table-tr {
+    display: grid;
+    grid-template-columns: minmax(70px, 1.2fr) minmax(70px, 1fr) minmax(56px, 0.8fr) 40px 28px;
+    gap: 8px;
+    align-items: center;
+    padding: 3px 8px;
+}
+
+.param-table-head {
+    background: var(--theia-titleBar-activeBackground);
+    border-bottom: 1px solid var(--theia-panel-border);
+}
+
+.param-table-th {
+    background: transparent;
+    border: none;
+    padding: 0;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    text-align: left;
+    color: var(--theia-descriptionForeground);
+    cursor: pointer;
+}
+
+.param-table-th:hover {
+    color: var(--theia-foreground);
+}
+
+.param-table-th.unit,
+.param-table-cell.unit {
+    cursor: default;
+    text-align: right;
+    color: var(--theia-descriptionForeground);
+}
+
+.param-table-th.actions {
+    cursor: default;
+}
+
+.param-table-th-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.param-table-tr + .param-table-tr {
+    border-top: 1px solid var(--theia-panel-border);
+}
+
+.param-table-tr:hover {
+    background: var(--theia-list-hoverBackground);
+}
+
+.param-table-cell {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.param-table-cell.name {
+    font-weight: 600;
+}
+
+.param-table-cell.value {
+    font-family: var(--theia-code-font-family);
+    font-size: 11px;
+}
+
+.param-table-cell.value.editable {
+    cursor: text;
+}
+
+.param-table-cell.used-by {
+    color: var(--theia-descriptionForeground);
+}
+
+.param-table-cell.actions {
+    display: flex;
+    justify-content: flex-end;
+}
+
+.param-input {
+    width: 100%;
+    box-sizing: border-box;
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    border: 1px solid var(--theia-input-border);
+    border-radius: 2px;
+    padding: 2px 6px;
+    font-family: var(--theia-code-font-family);
+    font-size: 11px;
+}
+
+.param-input:focus {
+    outline: 1px solid var(--theia-focusBorder);
+    outline-offset: -1px;
+}
+
+.param-table-empty {
+    padding: 10px 8px;
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+}
+
+.param-error {
+    padding: 6px 8px;
+    font-size: 12px;
+    color: var(--theia-errorForeground);
+    border-top: 1px solid var(--theia-panel-border);
+}
+
+.param-add-row {
+    display: grid;
+    grid-template-columns: minmax(70px, 1.2fr) minmax(70px, 1fr) auto;
+    gap: 8px;
+    align-items: center;
+    padding: 6px 8px;
+    border-top: 1px solid var(--theia-panel-border);
+}
+
+.param-add-button {
+    white-space: nowrap;
+}
+
+.param-hint {
+    margin: 6px 8px;
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+}

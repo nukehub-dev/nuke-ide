@@ -69,7 +69,12 @@ it opens it in the CAD viewport by default.
   sketch mode always measures distance with the active snap settings.
   Measurements live in a list popover where individual rows can be deleted;
   they are viewport-only annotations (never saved into the document) and are
-  cleared when the model rebuilds.
+  cleared when the model rebuilds. Pinning a row (3D measurements only)
+  saves it into the document's `measurements` block instead: pinned rows
+  survive rebuilds and re-render afterwards, ride snapshot undo/redo like
+  any other edit, and never affect builds, exports, or the exported script.
+  Unpinning keeps the row on screen as an ephemeral measurement; deleting a
+  pinned row removes the saved copy too.
 - **Section plane** (bottom bar): slices the model open along an X,
   Y, or Z plane. A popover offers axis buttons, **Flip**, and a slider that
   slides the plane across the model's bounding box. Sectioning is visual
@@ -735,6 +740,42 @@ reference-dependent items (face datums, external geometry, fillet/chamfer edges,
 draft/shell faces, and hole placement faces) are emitted as clearly marked
 `# TODO(manual):` comments so nothing is silently dropped. The export is not
 round-trippable; it is intended as readable output for downstream editing.
+
+## Parameters spreadsheet
+
+The **Model Outline** panel carries a **Parameters** section for `.nuke-cad`
+documents: a sortable table of `{name, value, unit, used-by}` rows over the
+document parameters. The unit column shows the declared document unit (`—`
+when the document is unit-less); parameters are plain numbers in that unit.
+
+- Click a value to edit it in place. Values accept plain numbers or
+  expressions over the other parameters (`width * 2 + 1`), evaluated with the
+  same expression parser as curve sources — there is no new syntax to learn.
+  Invalid input shows the validator reason inline (unknown name, syntax
+  error, division by zero) and never commits. On documents with a declared
+  unit, unit literals coerce to that unit (`10mm`→10 in a `mm` document);
+  unit-less documents accept plain numbers only.
+- The **Used by** column counts everything a rename-free edit would rebuild:
+  sketches referencing the parameter (driving-dimension bindings and
+  parameter-valued constraints), curve expressions naming it, the features
+  consuming those sketches/curves, and their transitive dependents through
+  the feature graph. Hover a cell for the full referrer list.
+- Add rows with the name/value footer; delete rows with the per-row button.
+  Adding a duplicate name is rejected, and deleting a referenced parameter is
+  rejected with the referrer list — unbind the dimension or rewrite the curve
+  expression first, the same way deleting a referenced sketch works.
+- Edits write through the normal document mutation path: schema validation,
+  snapshot undo/redo, and rebuild scheduling all behave exactly like any
+  other edit (`auto` rebuilds immediately, `manual` marks the model stale
+  until **Rebuild CAD Geometry** runs).
+
+The panel header's **BOM** button exports a bill of materials as CSV
+(`instance/body, label, material, volume`): one row per built solid from the
+per-solid summaries, joined with manifest labels and materials (in-CAD body
+tags fill gaps until the next export picks them up). Assembly documents keep
+their `<instance>/<label>` selector keys in the first column. This is a
+spreadsheet export, not a stored object — the BOM always derives from the
+current build.
 
 ## Assemblies
 

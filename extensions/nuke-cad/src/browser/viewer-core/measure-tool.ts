@@ -37,6 +37,8 @@
  * @module nuke-cad/browser/viewer-core
  */
 
+import type { SavedMeasurement } from '../../common/cad-document';
+
 /** Which capture surface a measurement belongs to. */
 export type MeasureKind = 'model3d' | 'sketch';
 
@@ -243,8 +245,8 @@ export function projectMeasurePoint(
     return { x: ((ndcX + 1) / 2) * width, y: ((1 - ndcY) / 2) * height, visible: true };
 }
 
-/** Popover note: measurements are session state, never stored in the document. */
-export const MEASURE_CLEAR_NOTE = 'Measurements are cleared after rebuild';
+/** Popover note: unpinned measurements are session state; pinned ones persist in the document. */
+export const MEASURE_CLEAR_NOTE = 'Pinned measurements persist in the document; the rest clear after rebuild';
 
 /**
  * A committed label's projected anchor and measured on-screen size. Sizes come
@@ -308,4 +310,100 @@ export function layoutMeasureLabels(
         result.set(label.id, { x, y });
     }
     return result;
+}
+
+// *****************************************************************************
+// Saved measurements: the opt-in persistence layer over the ephemeral overlay.
+// The overlay above stays session state; pinning converts a committed
+// `Measurement` to a `SavedMeasurement` for the document's additive
+// `measurements` block, and rebuilds restore the pinned entries back into
+// overlay form. Saved points are always model-units world points, so restored
+// entries render as `model3d` measurements.
+// *****************************************************************************
+
+function isFinitePoint3(value: unknown): value is MeasurePoint3D {
+    return Array.isArray(value) && value.length === 3 && value.every((v: unknown) => typeof v === 'number' && Number.isFinite(v));
+}
+
+/**
+ * Convert a committed overlay measurement to its storable saved form.
+ *
+ * Distance keeps its endpoints and angle its A/vertex-B/C triple; radius
+ * keeps its center plus a rim point on +X (the radius derives as their
+ * distance on restore). Sketch entries are caller-filtered: only `model3d`
+ * measurements are pinnable. The label defaults to the popover value text
+ * captured now.
+ */
+export function toSavedMeasurement(
+    measurement: Measurement,
+    label: string = formatMeasurementValue(measurement),
+    createdAt: string = new Date().toISOString()
+): SavedMeasurement {
+    if (isMeasureAngle(measurement)) {
+        return { id: measurement.id, kind: 'angle', points: [measurement.a, measurement.b, measurement.c], label, createdAt };
+    }
+    if (isMeasureRadius(measurement)) {
+        const rim: MeasurePoint3D = [measurement.center[0] + measurement.radius, measurement.center[1], measurement.center[2]];
+        return { id: measurement.id, kind: 'radius', points: [measurement.center, rim], label, createdAt };
+    }
+    return { id: measurement.id, kind: 'distance', points: [measurement.a, measurement.b], label, createdAt };
+}
+
+/**
+ * Restore a saved measurement to its overlay form, keeping the saved id so
+ * pin state tracks across rebuilds.
+ *
+ * Returns undefined for malformed entries (wrong point count, non-finite
+ * coordinates) so a corrupt block degrades to "not rendered", never a crash.
+ */
+export function fromSavedMeasurement(saved: SavedMeasurement): Measurement | undefined {
+    if (saved === undefined || saved === null || typeof saved.id !== 'string') {
+        return undefined;
+    }
+    const points = Array.isArray(saved.points) ? saved.points : [];
+    if (!points.every(isFinitePoint3)) {
+        return undefined;
+    }
+    if (saved.kind === 'angle') {
+        if (points.length !== 3) {
+            return undefined;
+        }
+        return createMeasureAngle(saved.id, 'model3d', points[0], points[1], points[2]);
+    }
+    if (saved.kind === 'radius') {
+        if (points.length !== 2) {
+            return undefined;
+        }
+        const radius = measureDistance(points[0], points[1]);
+        if (!Number.isFinite(radius)) {
+            return undefined;
+        }
+        return createMeasureRadius(saved.id, points[0], radius);
+    }
+    if (saved.kind === 'distance') {
+        if (points.length !== 2) {
+            return undefined;
+        }
+        return createMeasureSegment(saved.id, 'model3d', points[0], points[1]);
+    }
+    return undefined;
+}
+
+/**
+ * Restore every well-formed saved measurement to overlay form, in stored
+ * order. Malformed entries are skipped. Absent (undefined) restores to an
+ * empty list — the same convention as the schema's absent-means-none rule.
+ */
+export function restoreSavedMeasurements(saved: readonly SavedMeasurement[] | undefined): Measurement[] {
+    if (saved === undefined) {
+        return [];
+    }
+    const restored: Measurement[] = [];
+    for (const entry of saved) {
+        const measurement = fromSavedMeasurement(entry);
+        if (measurement !== undefined) {
+            restored.push(measurement);
+        }
+    }
+    return restored;
 }

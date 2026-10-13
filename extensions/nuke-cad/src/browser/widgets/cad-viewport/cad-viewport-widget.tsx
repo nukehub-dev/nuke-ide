@@ -157,6 +157,8 @@ import {
     measureDistance,
     nextMeasureId,
     projectMeasurePoint,
+    restoreSavedMeasurements,
+    toSavedMeasurement,
     type Measurement,
     type MeasureAngle,
     type MeasureKind,
@@ -2001,6 +2003,9 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
     const measurePendingRef = React.useRef<MeasurePoint3D | undefined>(undefined);
     const measureVertexRef = React.useRef<MeasurePoint3D | undefined>(undefined);
     const prevMeasureSketchRef = React.useRef(false);
+    /** Read at pin time without becoming a dependency of the pin handler. */
+    const measurementsRef = React.useRef<Measurement[]>([]);
+    measurementsRef.current = measurements;
     /** Read at menu-dispatch time so initViewport never depends on render props. */
     const sectionActiveRef = React.useRef(props.sectionActive);
     sectionActiveRef.current = props.sectionActive;
@@ -2178,13 +2183,59 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
         setMeasureListOpen((prev) => !prev);
     }, []);
 
-    const handleMeasureDelete = React.useCallback((id: string): void => {
-        setMeasurements((prev) => prev.filter((segment) => segment.id !== id));
-    }, []);
+    const handleMeasureDelete = React.useCallback(
+        (id: string): void => {
+            setMeasurements((prev) => prev.filter((segment) => segment.id !== id));
+            // Deleting a pinned row unpins it too, or it would re-render on
+            // the next rebuild. Unpinned ids simply miss in the store.
+            props.documentStore.removeMeasurement(id);
+        },
+        [props.documentStore]
+    );
 
     const handleMeasureClear = React.useCallback((): void => {
         setMeasurements([]);
-    }, []);
+        // Clear All removes the saved block entries as well, or pinned rows
+        // would re-render on the next rebuild.
+        for (const saved of props.documentStore.document?.measurements ?? []) {
+            props.documentStore.removeMeasurement(saved.id);
+        }
+    }, [props.documentStore]);
+
+    /**
+     * Pin a viewport measurement into the document's `measurements` block.
+     *
+     * Only `model3d` entries are pinnable (sketch entries die with the
+     * session). The store mints the saved id and the ephemeral copy is
+     * retagged to it, so pin state tracks by one id across rebuilds. Pinning
+     * rides the normal commit path (undo-covered) but never schedules a
+     * rebuild — measurements are annotations, never build inputs.
+     */
+    const handleMeasurePin = React.useCallback(
+        (id: string): void => {
+            const measurement = measurementsRef.current.find((entry) => entry.id === id);
+            if (measurement === undefined || measurement.kind !== 'model3d') {
+                return;
+            }
+            const draft = toSavedMeasurement(measurement);
+            const points = draft.points.map((p) => [p[0], p[1], p[2]] as MeasurePoint3D);
+            const result = props.documentStore.addMeasurement({ kind: draft.kind, points, label: draft.label });
+            if (!result.success || result.value === undefined) {
+                return;
+            }
+            const savedId = result.value;
+            setMeasurements((prev) => prev.map((entry) => (entry.id === id ? retagMeasurement(entry, savedId) : entry)));
+        },
+        [props.documentStore]
+    );
+
+    /** Unpin a saved measurement; its ephemeral copy stays on screen, unpinned. */
+    const handleMeasureUnpin = React.useCallback(
+        (id: string): void => {
+            props.documentStore.removeMeasurement(id);
+        },
+        [props.documentStore]
+    );
 
     React.useEffect(() => {
         viewportApi.current.updateMeasureState?.({
@@ -2221,12 +2272,17 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
     }, [measureMode, handleMeasureDeactivate]);
 
     React.useEffect(() => {
-        // A rebuild replaces the tessellation; measurements reference the old
-        // surface and are session state only, so they never survive it. The
-        // explode factor moves with the same rebuild, so it resets too.
+        // A rebuild replaces the tessellation: unpinned measurements
+        // reference the old surface and are session state only, so they never
+        // survive it. Pinned measurements restore from the document block and
+        // re-render with their saved ids. The explode factor moves with the
+        // same rebuild, so it resets too.
         clearMeasurePendings();
-        setMeasurements([]);
+        setMeasurements(restoreSavedMeasurements(props.documentStore.document?.measurements));
         setExplodeFactor(0);
+        // The document is read (not subscribed) here: a pin/unpin commit must
+        // not re-run this effect, or it would wipe the unpinned session list.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [props.tessData, clearMeasurePendings]);
 
     const modeMeasurements = measurements.filter((measurement) => measurement.kind === measureMode);
@@ -2775,7 +2831,11 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             measurements={modeMeasurements}
             tool={activeMeasureTool}
             showToolSelector={measureMode === 'model3d'}
+            pinnedIds={new Set((props.documentStore.document?.measurements ?? []).map((saved) => saved.id))}
+            canPin={measureMode === 'model3d' && props.documentStore.hasDocument}
             onToolChange={handleMeasureToolChange}
+            onPin={handleMeasurePin}
+            onUnpin={handleMeasureUnpin}
             onDelete={handleMeasureDelete}
             onClear={handleMeasureClear}
             onClose={() => setMeasureListOpen(false)}
@@ -2917,10 +2977,32 @@ interface MeasureListPopoverProps {
     readonly tool: MeasureToolMode;
     /** Show the mode selector row (model3d popover only). */
     readonly showToolSelector: boolean;
+    /** Saved-measurement ids from the document block; rows in this set render pinned. */
+    readonly pinnedIds: ReadonlySet<string>;
+    /** Pin buttons render only for pinnable rows (model3d documents only). */
+    readonly canPin: boolean;
     readonly onToolChange: (tool: MeasureToolMode) => void;
+    readonly onPin: (id: string) => void;
+    readonly onUnpin: (id: string) => void;
     readonly onDelete: (id: string) => void;
     readonly onClear: () => void;
     readonly onClose: () => void;
+}
+
+/**
+ * Retag an overlay measurement to a new id, preserving its derived fields.
+ *
+ * Pinning mints a store id for the saved entry; the ephemeral copy takes it
+ * so pin state tracks by one id across rebuilds.
+ */
+function retagMeasurement(measurement: Measurement, id: string): Measurement {
+    if (isMeasureAngle(measurement)) {
+        return createMeasureAngle(id, measurement.kind, measurement.a, measurement.b, measurement.c);
+    }
+    if (isMeasureRadius(measurement)) {
+        return createMeasureRadius(id, measurement.center, measurement.radius);
+    }
+    return createMeasureSegment(id, measurement.kind, measurement.a, measurement.b);
 }
 
 const MEASURE_HEADER_TARGET = headerRegionTarget('.cad-measure-header');
@@ -2970,6 +3052,26 @@ function MeasureListPopover(props: MeasureListPopoverProps): React.ReactElement 
                     {props.measurements.map((measurement) => (
                         <div key={measurement.id} className="cad-measure-row">
                             <span className="cad-measure-value">{formatMeasurementValue(measurement)}</span>
+                            {props.canPin &&
+                                (props.pinnedIds.has(measurement.id) ? (
+                                    <Tooltip content="Unpin measurement (stop saving it in the document)" position="left">
+                                        <button
+                                            className="theia-button secondary cad-measure-row-remove"
+                                            onClick={() => props.onUnpin(measurement.id)}
+                                        >
+                                            <span className="codicon codicon-pinned" />
+                                        </button>
+                                    </Tooltip>
+                                ) : (
+                                    <Tooltip content="Pin measurement (save it in the document)" position="left">
+                                        <button
+                                            className="theia-button secondary cad-measure-row-remove"
+                                            onClick={() => props.onPin(measurement.id)}
+                                        >
+                                            <span className="codicon codicon-pin" />
+                                        </button>
+                                    </Tooltip>
+                                ))}
                             <Tooltip content="Delete measurement" position="left">
                                 <button
                                     className="theia-button secondary cad-measure-row-remove"

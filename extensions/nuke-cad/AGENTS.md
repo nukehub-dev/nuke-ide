@@ -337,8 +337,19 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   `renderScene` (with a fresh `cam.updateMatrixWorld()`): render-on-demand has
   no next frame to correct a stale paint, so painting first flashes new
   measure markers at their initial unit scale. Measurements are viewport
-  state (never document state) and
-  clear on rebuild or sketch exit. The **explode view** slider (navigation
+  state by default and clear on rebuild or sketch exit; pinning a 3D
+  measurement in the Measurements popover persists it to the document's
+  additive `measurements: SavedMeasurement[]` block
+  (`{id, kind: distance|angle|radius, points, label, createdAt}`, model
+  units, v3 with no migration — absent = none) via `CadDocumentStore`
+  `addMeasurement`/`removeMeasurement` (normal commit path: validated,
+  undo-covered, dirty-flagged, never rebuild-scheduled) and pinned entries
+  re-render after rebuilds through `toSavedMeasurement` /
+  `fromSavedMeasurement` / `restoreSavedMeasurements` (radius round-trips
+  as center + rim point). The backend never reads the block: codegen and
+  result-cache keys ignore it (asserted in
+  `cad-document-store-measurements.test.ts`), so pinning never affects
+  builds, exports, or codegen. The **explode view** slider (navigation
   cluster) is per-solid viewport-only state: `viewer-core/explode-view.ts` plans
   solidId → offset as `normalize(centroid − bboxCenter) · diagonal · factor ·
  EXPLODE_MAX_SPAN (0.35)` from vertex-averaged per-solid centroids (the cap
@@ -372,8 +383,8 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
 - The Model Outline panel (`src/browser/widgets/outline-panel/`, widget ID
   `nuke-cad-outline-panel-widget`, label "Model Outline") lists the active
   model's manifest volumes and surfaces (plus an ASSEMBLIES section with
-  per-instance rows for assembly documents) and is read-only — no manifest editing
-  UI. Picking syncs both ways through the shared `NukeCadStateManager`: row
+  per-instance rows for assembly documents); the manifest list is read-only
+  — no manifest editing UI. Picking syncs both ways through the shared `NukeCadStateManager`: row
   click highlights the whole solid in the viewport (Ctrl/Cmd-click toggles it
   in a multi-selection, pure helpers in `outline-interactions.ts`); a viewport
   pick selects the row, scrolls it into view, and expands its section. Each
@@ -391,6 +402,17 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   Faces/Tris columns driving the same selection sync, Ctrl/Cmd-click
   multi-select included). Missing data renders
   as em-dashes so payloads from older builds stay readable. The panel's
+  **Parameters** section (`.nuke-cad` documents only) is the document-parameter
+  spreadsheet: sortable `{name, value, unit, used-by}` rows with edit-in-place
+  (numbers or `expression.ts` expressions over the other parameters, validator
+  reasons inline, never commits invalid input), an add row, and a referenced-
+  guard delete; `used-by` resolves through `CadDocumentStore`
+  (`collectParameterUsages`: dimension bindings, parameter-valued constraint
+  fields, curve-expression idents, plus the `planDirtyRebuild` feature closure)
+  and every edit rides the normal store mutation path (validation + undo +
+  rebuild scheduling unchanged). Its header **BOM** button exports
+  `{instance/body, label, material, volume}` CSV from the `SolidSummary` data
+  (pure helpers in `param-table.ts`). The panel's
   **Build warnings** box parses cross-body overlap warnings
   (`parseOverlapWarning`) and, when the model was built from an open
   `.nuke-cad` document containing both bodies, renders a **Fuse** button per
@@ -899,7 +921,10 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   timeout via the `ccxTimeout` request field, output streamed to
   `<stem>.ccx.log` with a 1 MB JSON tail), and converts FRD results to VTK.
   `ccx` is resolved from `NUKE_CCX`, `PATH`, or an explicit request path; it
-  is not a Python package.
+  is not a Python package. Material names resolve manifest-first against the
+  manifest's `materials` block (`materialCards` request field / `run_fem`
+  argument), then the versioned built-in cards in `python/material_data.py`;
+  unknown names fail loudly, never a silent default.
 - The generic job runner (`python/job_service.py`) is the run-layer
   abstraction for solver hooks: declarative working directory, command,
   environment, artifacts, timeout, and log capture (request schema is
@@ -962,7 +987,12 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   `material`/`name`) and a per-body `default` entry with copy propagation
   (`parentId` ← default's `materialId`); openmc-studio's nuke-cad import
   surfaces these as `materialLinks` and stamps them onto placeholder
-  materials as copy provenance. Bodies carry an optional in-CAD material tag
+  materials as copy provenance. A top-level `materials` block maps material
+  names to isotropic `{E, nu, rho, k, cp, alpha}` property cards (plus an
+  optional `yield` strength feeding the FEM safety-factor result; documented
+  SI units, validated, additive, version unchanged; thermal fields reserved
+  for coupled-physics) backing FEM card resolution; `python/material_data.py`
+  holds the versioned built-in cards keyed by the same names. Bodies carry an optional in-CAD material tag
   (`BodyDef.material`, bare name, v3-additive, set from the Feature Tree body
   row, read-only display in the outline, undo-covered, never triggers a
   rebuild): `build_document`/`build_assembly`/`build_document_partial` merge

@@ -590,6 +590,29 @@ export interface NukeCadAssembly {
     groundedInstanceId: string;
 }
 
+/** Which viewport measure tool a saved measurement was captured with. */
+export type SavedMeasurementKind = 'distance' | 'angle' | 'radius';
+
+/**
+ * One pinned viewport measurement persisted in the `.nuke-cad` document
+ * (additive, schema v3 — no migration: absent means no saved measurements,
+ * same convention as `drawings`).
+ *
+ * Points are `[x, y, z]` tuples in model units: distance carries exactly 2
+ * (the measured endpoints), angle exactly 3 (A, vertex B, C), radius exactly
+ * 2 (circle center + a rim point, the radius deriving as their distance).
+ * `label` is the formatted value text captured at pin time; `createdAt` is
+ * an ISO-8601 timestamp. The geometry backend never reads this block — it
+ * must never affect builds, exports, or codegen.
+ */
+export interface SavedMeasurement {
+    id: string;
+    kind: SavedMeasurementKind;
+    points: CurvePoint[];
+    label: string;
+    createdAt: string;
+}
+
 /** Complete `.nuke-cad` document. */
 export interface NukeCadDocument {
     version: number;
@@ -616,6 +639,13 @@ export interface NukeCadDocument {
      * no migration step exists: older documents simply have no `drawings`.
      */
     drawings?: DrawingSheet[];
+    /**
+     * Additive pinned viewport measurements (schema v3). Absent means the
+     * document has no saved measurements. The backend never reads this
+     * block: older documents simply have no `measurements`, and no migration
+     * step exists.
+     */
+    measurements?: SavedMeasurement[];
 }
 
 /** A single validation issue. */
@@ -1613,6 +1643,46 @@ function validateCurve(ctx: MutableValidationContext, curve: CurveDef, index: nu
 }
 
 /**
+ * Expected point counts per saved-measurement kind: distance carries its two
+ * endpoints, angle its A/vertex-B/C triple, radius a center plus a rim point
+ * (the radius derives as their distance).
+ */
+const SAVED_MEASUREMENT_POINT_COUNTS: Record<SavedMeasurementKind, number> = {
+    distance: 2,
+    angle: 3,
+    radius: 2
+};
+
+function validateSavedMeasurement(ctx: MutableValidationContext, measurement: SavedMeasurement, index: number): void {
+    const path = `measurements[${index}]`;
+    requireId(ctx, `${path}.id`, measurement.id);
+    const kinds: SavedMeasurementKind[] = ['distance', 'angle', 'radius'];
+    if (!kinds.includes(measurement.kind)) {
+        issue(ctx, `${path}.kind`, `unknown measurement kind '${measurement.kind}'`);
+        return;
+    }
+    if (!Array.isArray(measurement.points)) {
+        issue(ctx, `${path}.points`, 'points must be an array of [x, y, z] tuples in model units');
+    } else {
+        const expected = SAVED_MEASUREMENT_POINT_COUNTS[measurement.kind];
+        if (measurement.points.length !== expected) {
+            issue(ctx, `${path}.points`, `measurement kind '${measurement.kind}' requires exactly ${expected} point(s)`);
+        }
+        for (const [i, point] of measurement.points.entries()) {
+            if (!isFinitePoint3(point)) {
+                issue(ctx, `${path}.points[${i}]`, 'measurement point must be a [x, y, z] tuple of finite numbers');
+            }
+        }
+    }
+    if (!isString(measurement.label)) {
+        issue(ctx, `${path}.label`, 'label must be a string');
+    }
+    if (!isString(measurement.createdAt) || measurement.createdAt.length === 0) {
+        issue(ctx, `${path}.createdAt`, 'createdAt must be a non-empty timestamp string');
+    }
+}
+
+/**
  * Validate the additive assembly section by delegating to the frozen
  * `validateAssemblyDocument` spec on a synthesized root. Absent assembly is
  * handled by the caller; an empty `groundedInstanceId` means single-part and
@@ -1729,6 +1799,15 @@ export function validateNukeCadDocument(doc: NukeCadDocument): ValidationResult 
                     }
                 };
                 validateDrawingSheet(sheet, `drawings[${i}]`, sink);
+            }
+        }
+    }
+    if (doc.measurements !== undefined) {
+        if (!Array.isArray(doc.measurements)) {
+            issue(ctx, 'measurements', 'measurements must be an array of saved measurements');
+        } else {
+            for (const [i, measurement] of doc.measurements.entries()) {
+                validateSavedMeasurement(ctx, measurement as SavedMeasurement, i);
             }
         }
     }

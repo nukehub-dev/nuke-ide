@@ -26,11 +26,28 @@ optional; older manifests without them stay valid and the version is unchanged):
 * ``parentId`` — UUID (or selector) of the entry this volume was copied from;
   pattern/mirror copies record their source here so downstream tools can trace
   copy provenance.
-* ``default`` — when true, the entry is the per-body default: any selector
-  without its own explicit entry inherits its ``name``/``material``/
-  ``materialId``/``tags`` (the inheriting selector keeps its own selector).
-  Use :meth:`RegionManifest.entry_for` to resolve, and
-  :meth:`RegionManifest.copy_entries` to propagate an entry to pattern copies.
+ * ``default`` — when true, the entry is the per-body default: any selector
+   without its own explicit entry inherits its ``name``/``material``/
+   ``materialId``/``tags`` (the inheriting selector keeps its own selector).
+   Use :meth:`RegionManifest.entry_for` to resolve, and
+   :meth:`RegionManifest.copy_entries` to propagate an entry to pattern copies.
+
+Custom material property cards live in an additive top-level ``materials``
+block (absent = none, version unchanged)::
+
+    {
+      "version": 1,
+      "volumes": [{"selector": "fuel", "material": "my_alloy"}],
+      "materials": {"my_alloy": {"E": 200e9, "nu": 0.3, "rho": 7800.0}}
+    }
+
+Each card maps a material name to any subset of ``{E, nu, rho, k, cp, alpha}``
+(units: Pa, dimensionless, kg/m^3, W/(m*K), J/(kg*K), 1/K — see
+``material_data.MATERIAL_UNITS``). Unknown fields fail validation loudly so
+typos never silently drop a property. The FEM service resolves a volume's
+material name against this block first and falls back to the built-in cards;
+thermal fields (``k``, ``cp``) are additionally stored for future
+coupled-physics (Cardinal) coupling — reserved for coupled-physics.
 
 Selectors are stable script-side identifiers (build123d labels, CadQuery
 names). The geometry service maps selectors to solid/face indices at build
@@ -42,6 +59,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any
+
+from material_data import MATERIAL_FIELDS, MATERIAL_UNITS
 
 CURRENT_VERSION = 1
 
@@ -57,6 +76,7 @@ class RegionManifest:
         self._data = data
         self.volumes: list[dict[str, Any]] = list(data.get("volumes", []))
         self.surfaces: list[dict[str, Any]] = list(data.get("surfaces", []))
+        self.materials: dict[str, dict[str, Any]] = dict(data.get("materials", {}))
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> RegionManifest:
@@ -80,11 +100,16 @@ class RegionManifest:
 
     def to_dict(self) -> dict[str, Any]:
         """Return the normalized manifest dictionary."""
-        return {
+        result: dict[str, Any] = {
             "version": CURRENT_VERSION,
             "volumes": self.volumes,
             "surfaces": self.surfaces,
         }
+        # Additive block: omit when empty so manifests without custom cards
+        # round-trip byte-identically.
+        if self.materials:
+            result["materials"] = self.materials
+        return result
 
     def volume_names(self) -> set[str]:
         """Return the set of declared volume names."""
@@ -112,6 +137,16 @@ class RegionManifest:
     def missing_material_volumes(self) -> list[str]:
         """Return volume selectors whose entries lack a material assignment."""
         return [v.get("selector", "") for v in self.volumes if not v.get("material")]
+
+    def material_card_for(self, name: str) -> dict[str, Any] | None:
+        """Return the custom property card for material ``name``, if one is declared.
+
+        Cards live in the additive top-level ``materials`` block; units are
+        documented in :data:`material_data.MATERIAL_UNITS`. Returns None when
+        no card is declared — callers fall back to the built-in cards.
+        """
+        card = self.materials.get(name)
+        return card if isinstance(card, dict) else None
 
     def default_entry(self) -> dict[str, Any] | None:
         """Return the per-body default volume entry, if one is declared."""
@@ -204,6 +239,36 @@ def _validate(data: Any) -> None:
             raise ManifestValidationError(f"'{key}' must be a list")
         for idx, entry in enumerate(value):
             _validate_entry(key, idx, entry)
+
+    materials = data.get("materials")
+    if materials is None:
+        return
+    if not isinstance(materials, dict):
+        raise ManifestValidationError("'materials' must be an object")
+    for name, card in materials.items():
+        if not isinstance(name, str) or not name:
+            raise ManifestValidationError("materials entry names must be non-empty strings")
+        _validate_material_card(name, card)
+
+
+def _validate_material_card(name: str, card: Any) -> None:
+    """Validate one custom material property card.
+
+    Fields are any subset of ``material_data.MATERIAL_FIELDS`` with numeric
+    values in the documented units (``material_data.MATERIAL_UNITS``);
+    unknown fields fail loudly so typos never silently drop a property.
+    """
+    if not isinstance(card, dict):
+        raise ManifestValidationError(f"materials[{name!r}] must be an object")
+    for field, value in card.items():
+        if field not in MATERIAL_FIELDS:
+            raise ManifestValidationError(
+                f"materials[{name!r}] has unknown field {field!r};"
+                f" expected one of {list(MATERIAL_FIELDS)}"
+            )
+        if not isinstance(value, (int, float)):
+            unit = MATERIAL_UNITS[field]
+            raise ManifestValidationError(f"materials[{name!r}].{field} must be a number ({unit})")
 
 
 def _validate_entry(kind: str, index: int, entry: Any) -> None:

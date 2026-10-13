@@ -129,10 +129,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   manifest volumes on every document build path, persist
   `<stem>.regions.json` beside the document, and reach openmc-studio as
   `materialLinks`. Explicit sidecar entries always win.
+- nuke-cad: **material property cards** — the region manifest gains an
+  additive `materials` block mapping a material name to an isotropic
+  `{E, nu, rho, k, cp, alpha}` card (documented SI units, validated, no
+  migration); the FEM service resolves names manifest-first with the
+  versioned built-in cards as fallback and fails loudly on unknown names.
+  Thermal fields are stored for future coupled-physics coupling. The OpenMC
+  name flow is unchanged.
+- nuke-cad: **FEM breadth (boundary conditions and result pipeline)** —
+  `pressure` conditions now apply uniform normal traction as element-face
+  pressure loads, `temperature` conditions prescribe nodal temperatures,
+  and static/thermal/frequency step selection is covered end to end.
+  Stress runs derive `von_mises` and `max_principal` nodal arrays from the
+  solver stresses, plus a `safety_factor` (`yield` over von Mises) array
+  wherever the material card carries the new optional `yield` strength
+  (Pa); materials without it omit the factor and the run warns which ones
+  were skipped instead of defaulting. All arrays arrive as VTK color-by
+  data with no viewer changes.
 - nuke-cad: **fuse-path overlap check** now exits early (identical verdict,
   ~150 ms saved on ×50-scale checks); profiled W7X walls (sweep-station
   loft, GFOP variance) documented as outside the behavior-preserving
   surface.
+- nuke-cad: **mesh repair for DAGMC prep** — `--repair <op,...>` on the mesh
+  service (`remove_duplicate_facets`, `fill_holes` with a capped, reported
+  loop size, `smooth_laplacian` with boundary preservation and an iteration
+  cap, surface-only `decimate` that refuses volume meshes loudly). Ops run
+  mesh-only after generation and before the quality report, which certifies
+  the repaired mesh with per-op counts under `repairs`; every failure names
+  the op, never a silent skip.
+- nuke-cad: **saved measurements** — the Measurements popover gains
+  pin/unpin per 3D measurement; pinned rows persist into an additive
+  `measurements` block on the `.nuke-cad` document (v3, no migration,
+  absent means none), survive rebuilds and re-render afterwards, and ride
+  snapshot undo/redo like any other edit. Unpinned rows keep the existing
+  ephemeral behavior. Saved measurements are viewport annotations and never
+  affect builds, exports, or the exported script.
 
 - nuke-cad: **undo/redo** — the document store keeps snapshot history (depth 100) over committed mutations, with toolbar buttons and `Ctrl+Z` /
   `Ctrl+Shift+Z` / `Ctrl+Y` following the viewport key scoping rules.
@@ -281,6 +312,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   backdrop is now choosable: `theme` (default, follows the active Theia
   theme as before), `dark`, `light`, or `gradient` (a dark gradient backdrop
   behind a transparent renderer).
+- nuke-cad: **parameter spreadsheet** — the Model Outline panel grows a
+  Parameters section for `.nuke-cad` documents: a sortable
+  `{name, value, unit, used-by}` table with edit-in-place (plain numbers or
+  expressions over the other parameters through the shared expression
+  parser; invalid input shows the validator reason inline and never
+  commits), an add row, guarded delete (referenced parameters are rejected
+  with the referrer list), and used-by resolution through sketches, curve
+  expressions, and the feature-graph rebuild closure. The panel header's
+  **BOM** button exports `{instance/body, label, material, volume}` CSV from
+  the per-solid summaries. Edits use the normal store mutation path
+  (validation, undo, rebuild scheduling unchanged).
 - nuke-visualizer: **x-ray washed out the tally volume** — the x-ray
   ghost scale applied to every material including the tally voxels, so the
   hot interior faded with the container it was meant to be seen through.

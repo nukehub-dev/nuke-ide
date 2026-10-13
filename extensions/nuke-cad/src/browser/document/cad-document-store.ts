@@ -56,6 +56,8 @@ import {
     type DrawingSheet,
     type DrawingSheetSize,
     type DrawingView,
+    type SavedMeasurement,
+    type SavedMeasurementKind,
     NUKE_CAD_SCHEMA_VERSION,
     validateNukeCadDocument,
     migrateNukeCadDocument
@@ -63,6 +65,7 @@ import {
 import { clampSheetPosition, lockProjectedViewPosition, sheetDimensions, snapDrawingPosition } from '../../common/cad-drawing';
 import { applyDocumentTemplate, createEmptyNukeCadDocument } from '../../common/document-templates';
 import {
+    coerceToQuantity,
     convertQuantity,
     evaluateExpression,
     evaluateQuantity,
@@ -266,6 +269,13 @@ function cloneDrawingSheet(sheet: DrawingSheet): DrawingSheet {
     };
 }
 
+function cloneSavedMeasurement(measurement: SavedMeasurement): SavedMeasurement {
+    return {
+        ...measurement,
+        points: measurement.points.map((p) => [p[0], p[1], p[2]] as CurvePoint)
+    };
+}
+
 function cloneDocument(doc: NukeCadDocument): NukeCadDocument {
     const assembly = cloneAssemblySection(getAssemblySection(doc));
     return {
@@ -291,6 +301,7 @@ function cloneDocument(doc: NukeCadDocument): NukeCadDocument {
         features: doc.features.map((f) => ({ ...f, params: { ...f.params }, dependsOn: [...f.dependsOn], body: f.body })),
         curves: doc.curves.map((c) => cloneCurve(c)),
         ...(doc.drawings !== undefined ? { drawings: doc.drawings.map((s) => cloneDrawingSheet(s)) } : {}),
+        ...(doc.measurements !== undefined ? { measurements: doc.measurements.map((m) => cloneSavedMeasurement(m)) } : {}),
         ...(assembly !== undefined ? { assembly } : {})
     };
 }
@@ -608,6 +619,267 @@ function updateTopologyRefByPath(
     }
 
     return { success: false, error: `Unsupported or malformed reference path '${path}'` };
+}
+
+// *****************************************************************************
+// Document-parameter spreadsheet helpers (parameter table + BOM export).
+//
+// Pure functions over the document JSON: name validation, expression-input
+// evaluation through `src/common/expression.ts` (no new parser), and per-name
+// used-by resolution. The Model Outline's Parameters section renders these;
+// `removeParameter` reuses the usage resolver for its referenced-guard.
+// No measurement state lives here (that belongs to a later workstream).
+// *****************************************************************************
+
+/** Human-readable reason when a document-parameter name is unusable, or undefined when valid. */
+export function validateParameterName(name: string): string | undefined {
+    if (typeof name !== 'string' || name.trim().length === 0) {
+        return 'Parameter name must be a non-empty string';
+    }
+    return undefined;
+}
+
+/** One place a document parameter is referenced. */
+export interface ParamReferrer {
+    /** Direct sketch/curve reference, or a feature reached through one. */
+    readonly kind: 'sketch' | 'curve' | 'feature';
+    /** Referencing sketch/curve/feature id. */
+    readonly id: string;
+    /** Human label (sketch/curve/feature name). */
+    readonly label: string;
+    /**
+     * What references it: `dimension '<id>'`, `constraint '<id>'`, `x(t)` /
+     * `y(t)` / `z(t)`, `via sketch '<name>'`, `via curve '<name>'`, or
+     * `dependent` for transitive feature-graph closure.
+     */
+    readonly detail: string;
+}
+
+/** One document-parameter row with its resolved referrers. */
+export interface ParameterUsage {
+    readonly name: string;
+    readonly value: number;
+    readonly usedBy: ParamReferrer[];
+}
+
+/**
+ * Stored constraint fields that carry a scalar value which may be a parameter
+ * name (see `SketchSession.constraintToPg`: distance/difference, radius,
+ * diameter, angle). Other string fields hold ids or types, never values.
+ */
+const CONSTRAINT_PARAM_KEYS: readonly string[] = ['distance', 'radius', 'diameter', 'angle', 'difference'];
+
+/** Identifier names that are never document-parameter references in curve expressions. */
+const CURVE_EXPRESSION_RESERVED: ReadonlySet<string> = new Set(['t', 'pi', 'e']);
+
+/** Identifier references in an expression string (parse failures yield none). */
+function collectExpressionIdents(text: string): string[] {
+    const parsed = parseExpression(text);
+    if (!parsed.ok) {
+        return [];
+    }
+    const names = new Set<string>();
+    const visit = (node: Expr): void => {
+        switch (node.type) {
+            case 'ident':
+                if (!CURVE_EXPRESSION_RESERVED.has(node.name)) {
+                    names.add(node.name);
+                }
+                break;
+            case 'unary':
+                visit(node.operand);
+                break;
+            case 'binary':
+                visit(node.left);
+                visit(node.right);
+                break;
+            case 'call':
+                for (const arg of node.args) {
+                    visit(arg);
+                }
+                break;
+            default:
+                break;
+        }
+    };
+    visit(parsed.ast);
+    return [...names];
+}
+
+/**
+ * Resolve every document parameter to the sketches/curves referencing it and
+ * the features affected through them.
+ *
+ * Direct references: sketch `dimensions[].parameter` bindings, string-valued
+ * scalar fields on stored (planegcs-verbatim) constraints, and identifiers in
+ * parametric curve `x(t)`/`y(t)`/`z(t)` expressions. Features enter through
+ * the existing store/graph path: direct consumers via `featuresConsumingSketch`
+ * / `featuresConsumingCurve`, then the transitive closure via
+ * `planDirtyRebuild` (`FeatureGraph.markDirty` + `recomputePlan`, in build
+ * order). An inconsistent graph (dangling `dependsOn` on an unvalidated
+ * document) falls back to direct consumers only — the panel must never crash.
+ */
+export function collectParameterUsages(doc: NukeCadDocument): ParameterUsage[] {
+    const direct = new Map<string, ParamReferrer[]>();
+    const pushDirect = (name: string, referrer: ParamReferrer): void => {
+        const list = direct.get(name);
+        if (list === undefined) {
+            direct.set(name, [referrer]);
+        } else {
+            list.push(referrer);
+        }
+    };
+    for (const sketch of doc.sketches) {
+        for (const dimension of sketch.dimensions ?? []) {
+            const parameter = (dimension as { parameter?: unknown }).parameter;
+            if (typeof parameter === 'string' && parameter.length > 0) {
+                const dimensionId = typeof dimension.id === 'string' ? dimension.id : '?';
+                pushDirect(parameter, { kind: 'sketch', id: sketch.id, label: sketch.name, detail: `dimension '${dimensionId}'` });
+            }
+        }
+        for (const constraint of sketch.constraints) {
+            if (typeof constraint !== 'object' || constraint === null) {
+                continue;
+            }
+            const record = constraint as Record<string, unknown>;
+            const constraintId = typeof record.id === 'string' ? record.id : '?';
+            for (const key of CONSTRAINT_PARAM_KEYS) {
+                const value = record[key];
+                if (typeof value === 'string' && value.length > 0) {
+                    pushDirect(value, { kind: 'sketch', id: sketch.id, label: sketch.name, detail: `constraint '${constraintId}'` });
+                }
+            }
+        }
+    }
+    for (const curve of doc.curves) {
+        if (curve.source.kind !== 'parametric') {
+            continue;
+        }
+        const expressions: ReadonlyArray<readonly [string, string]> = [
+            ['x(t)', curve.source.x],
+            ['y(t)', curve.source.y],
+            ['z(t)', curve.source.z]
+        ];
+        for (const [detail, text] of expressions) {
+            for (const name of collectExpressionIdents(text)) {
+                pushDirect(name, { kind: 'curve', id: curve.id, label: curve.name, detail });
+            }
+        }
+    }
+
+    const sketchById = new Map(doc.sketches.map((s) => [s.id, s]));
+    const curveById = new Map(doc.curves.map((c) => [c.id, c]));
+    const featureById = new Map(doc.features.map((f) => [f.id, f]));
+    return Object.entries(doc.parameters).map(([name, value]) => {
+        const usedBy: ParamReferrer[] = [...(direct.get(name) ?? [])];
+        const sketchIds = new Set<string>();
+        const curveIds = new Set<string>();
+        for (const referrer of usedBy) {
+            if (referrer.kind === 'sketch') {
+                sketchIds.add(referrer.id);
+            } else if (referrer.kind === 'curve') {
+                curveIds.add(referrer.id);
+            }
+        }
+        const consumers = new Set<string>();
+        for (const sketchId of sketchIds) {
+            for (const featureId of featuresConsumingSketch(doc, sketchId)) {
+                consumers.add(featureId);
+            }
+        }
+        for (const curveId of curveIds) {
+            for (const featureId of featuresConsumingCurve(doc, curveId)) {
+                consumers.add(featureId);
+            }
+        }
+        for (const featureId of consumers) {
+            const feature = featureById.get(featureId);
+            if (feature === undefined) {
+                continue;
+            }
+            let detail = 'dependent';
+            for (const sketchId of sketchIds) {
+                if (featureConsumesSketch(feature, sketchId)) {
+                    detail = `via sketch '${sketchById.get(sketchId)?.name ?? sketchId}'`;
+                    break;
+                }
+            }
+            if (detail === 'dependent') {
+                for (const curveId of curveIds) {
+                    if ((feature.params as Record<string, unknown>).pathCurveId === curveId) {
+                        detail = `via curve '${curveById.get(curveId)?.name ?? curveId}'`;
+                        break;
+                    }
+                }
+            }
+            usedBy.push({ kind: 'feature', id: featureId, label: feature.name, detail });
+        }
+        try {
+            const plan = planDirtyRebuild(doc, [...consumers]);
+            const ordered = [...plan.featureIds, ...plan.stale];
+            for (const featureId of ordered) {
+                if (consumers.has(featureId)) {
+                    continue;
+                }
+                const feature = featureById.get(featureId);
+                if (feature === undefined) {
+                    continue;
+                }
+                consumers.add(featureId);
+                usedBy.push({ kind: 'feature', id: featureId, label: feature.name, detail: 'dependent' });
+            }
+        } catch {
+            // Inconsistent graph on an unvalidated document: direct set stands.
+        }
+        return { name, value, usedBy };
+    });
+}
+
+/** Outcome of {@link evaluateParameterInput}: a committable number or an inline reason. */
+export type ParameterInputResult = { readonly ok: true; readonly value: number } | { readonly ok: false; readonly error: string };
+
+/**
+ * Evaluate spreadsheet input to a committable parameter value.
+ *
+ * Plain numbers and `expression.ts` expressions over the other document
+ * parameters are accepted (`width * 2 + 1`); anything else returns the
+ * validator reason and the caller must never commit. Unit syntax (`10mm`)
+ * needs a declared document unit: on unit-less documents it is rejected
+ * (the legacy sampler path rejects it too), and on declared units plain
+ * numbers — including other parameters — read in that unit, FreeCAD-style.
+ */
+export function evaluateParameterInput(
+    text: string,
+    parameters: Record<string, number>,
+    units?: NukeCadDocument['units']
+): ParameterInputResult {
+    const trimmed = text.trim();
+    if (trimmed.length === 0) {
+        return { ok: false, error: 'Enter a number or expression' };
+    }
+    const parsed = parseExpression(trimmed);
+    if (!parsed.ok) {
+        return { ok: false, error: parsed.error };
+    }
+    try {
+        if (!containsQuantityNode(parsed.ast)) {
+            return { ok: true, value: evaluateExpression(parsed.ast, { ...parameters }) };
+        }
+        if (units === undefined) {
+            return {
+                ok: false,
+                error: 'Expression uses units but the document declares none (pick one in the document toolbar); unit-less values are plain numbers'
+            };
+        }
+        const scope: QuantityScope = {};
+        for (const [name, value] of Object.entries(parameters)) {
+            scope[name] = coerceToQuantity(value, units, name);
+        }
+        const quantity = evaluateQuantity(parsed.ast, scope);
+        return { ok: true, value: convertQuantity(quantity, units, 'parameter') };
+    } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
 }
 
 /**
@@ -1136,10 +1408,14 @@ export class CadDocumentStore {
     /**
      * Set a document-level parameter.
      *
-     * The new value must be finite. Validation catches collisions with
-     * sketch-local parameters that use the same name.
+     * The name must be non-empty and the new value must be finite. Validation
+     * catches collisions with sketch-local parameters that use the same name.
      */
     setParameter(name: string, value: number): DocumentMutationResult {
+        const nameError = validateParameterName(name);
+        if (nameError !== undefined) {
+            return { success: false, error: nameError };
+        }
         const check = this.requireDocument();
         if (!check.success) {
             return { success: false, error: check.error, issues: check.issues };
@@ -1152,11 +1428,64 @@ export class CadDocumentStore {
         return this.commit(doc);
     }
 
-    /** Remove a document-level parameter. */
-    removeParameter(name: string): DocumentMutationResult {
+    /**
+     * Add a new document-level parameter.
+     *
+     * Unlike {@link setParameter} (add-or-replace), this rejects when the name
+     * is already in use so the spreadsheet add-row cannot silently overwrite
+     * an existing parameter. Otherwise identical: finite-value check, schema
+     * validation, undo, and dirty effects all ride the normal commit path.
+     */
+    addParameter(name: string, value: number): DocumentMutationResult {
+        const nameError = validateParameterName(name);
+        if (nameError !== undefined) {
+            return { success: false, error: nameError };
+        }
         const check = this.requireDocument();
         if (!check.success) {
             return { success: false, error: check.error, issues: check.issues };
+        }
+        if (Object.prototype.hasOwnProperty.call(check.value!.parameters, name)) {
+            return { success: false, error: `Parameter '${name}' already exists` };
+        }
+        if (typeof value !== 'number' || !Number.isFinite(value)) {
+            return { success: false, error: `Parameter '${name}' must be a finite number, got ${value}` };
+        }
+        const doc = cloneDocument(check.value!);
+        doc.parameters[name] = value;
+        return this.commit(doc);
+    }
+
+    /**
+     * Remove a document-level parameter.
+     *
+     * Rejects unknown names and — like `deleteSketch`/`deleteFeature` — names
+     * still referenced by sketches, curves, or (transitively) features, listing
+     * the referrers from {@link collectParameterUsages} in the error. Remove
+     * the usages first (unbind the dimension, rewrite the curve expression),
+     * then delete.
+     */
+    removeParameter(name: string): DocumentMutationResult {
+        const nameError = validateParameterName(name);
+        if (nameError !== undefined) {
+            return { success: false, error: nameError };
+        }
+        const check = this.requireDocument();
+        if (!check.success) {
+            return { success: false, error: check.error, issues: check.issues };
+        }
+        if (!Object.prototype.hasOwnProperty.call(check.value!.parameters, name)) {
+            return { success: false, error: `Unknown parameter '${name}'` };
+        }
+        const usage = collectParameterUsages(check.value!).find((entry) => entry.name === name);
+        const referrers = usage?.usedBy ?? [];
+        if (referrers.length > 0) {
+            const shown = referrers.slice(0, 5).map((ref) => `${ref.kind} '${ref.label}' (${ref.detail})`);
+            const tail = referrers.length > 5 ? `, and ${referrers.length - 5} more` : '';
+            return {
+                success: false,
+                error: `Cannot remove parameter '${name}' because it is used by: ${shown.join(', ')}${tail}`
+            };
         }
         const doc = cloneDocument(check.value!);
         delete doc.parameters[name];
@@ -1569,6 +1898,90 @@ export class CadDocumentStore {
         const { width, height } = sheetDimensions(sheet.size);
         view.position = clampSheetPosition(next, width, height);
         return this.commit(doc, { markDrawing: true });
+    }
+
+    // *************************************************************************
+    // Saved-measurement mutations (pinned viewport annotations). Immutable +
+    // validated through the normal commit path (v3 schema, additive
+    // `measurements` block). Pinning never schedules a rebuild: measurements
+    // are viewport annotations promoted to opt-in document state and must
+    // never affect builds, exports, or codegen.
+    // *************************************************************************
+
+    /**
+     * Pin a viewport measurement into the document's `measurements` block.
+     *
+     * The entry rides the normal commit path (schema validation, snapshot
+     * undo/redo, dirty flag, change event) exactly like any other mutation —
+     * but callers must not schedule a rebuild for it: measurements are
+     * annotations, never build inputs. Returns the new measurement id.
+     */
+    addMeasurement(
+        entry: Omit<SavedMeasurement, 'id' | 'createdAt'> & { id?: string; createdAt?: string }
+    ): DocumentMutationResult<string> {
+        const check = this.requireDocument();
+        if (!check.success) {
+            return { success: false, error: check.error, issues: check.issues };
+        }
+        const kinds: SavedMeasurementKind[] = ['distance', 'angle', 'radius'];
+        if (!kinds.includes(entry.kind)) {
+            return { success: false, error: `Unknown measurement kind '${entry.kind}' (expected 'distance', 'angle' or 'radius')` };
+        }
+        const expectedPoints = MEASUREMENT_POINT_COUNTS[entry.kind];
+        if (!Array.isArray(entry.points) || entry.points.length !== expectedPoints) {
+            return {
+                success: false,
+                error: `Measurement kind '${entry.kind}' requires exactly ${expectedPoints} point(s) in model units`
+            };
+        }
+        for (const point of entry.points) {
+            if (!Array.isArray(point) || point.length !== 3 || !point.every((v) => typeof v === 'number' && Number.isFinite(v))) {
+                return { success: false, error: 'Measurement points must be [x, y, z] tuples of finite numbers (model units)' };
+            }
+        }
+        if (typeof entry.label !== 'string') {
+            return { success: false, error: 'Measurement label must be a string' };
+        }
+        const doc = cloneDocument(check.value!);
+        const measurements = doc.measurements ?? [];
+        const id = typeof entry.id === 'string' && entry.id.length > 0 ? entry.id : createMeasurementId();
+        if (measurements.some((m) => m.id === id)) {
+            return { success: false, error: `Measurement id '${id}' is already in use` };
+        }
+        const saved: SavedMeasurement = {
+            id,
+            kind: entry.kind,
+            points: entry.points.map((p) => [p[0], p[1], p[2]] as CurvePoint),
+            label: entry.label,
+            createdAt: typeof entry.createdAt === 'string' && entry.createdAt.length > 0 ? entry.createdAt : new Date().toISOString()
+        };
+        doc.measurements = [...measurements, saved];
+        const result = this.commit(doc);
+        if (!result.success) {
+            return { success: false, error: result.error, issues: result.issues };
+        }
+        return { success: true, value: id };
+    }
+
+    /**
+     * Unpin a saved measurement by id.
+     *
+     * Unknown ids are a structured error (never a silent no-op). Like every
+     * mutation this is undo-covered; the caller's ephemeral overlay copy is
+     * viewport state and is left untouched.
+     */
+    removeMeasurement(id: string): DocumentMutationResult {
+        const check = this.requireDocument();
+        if (!check.success) {
+            return { success: false, error: check.error, issues: check.issues };
+        }
+        const doc = cloneDocument(check.value!);
+        const measurements = doc.measurements ?? [];
+        if (!measurements.some((m) => m.id === id)) {
+            return { success: false, error: `Measurement '${id}' not found` };
+        }
+        doc.measurements = measurements.filter((m) => m.id !== id);
+        return this.commit(doc);
     }
 
     // *************************************************************************
@@ -2092,6 +2505,13 @@ export class CadDocumentStore {
     }
 }
 
+/** Point counts per saved-measurement kind, mirrored from the schema validator for early errors. */
+const MEASUREMENT_POINT_COUNTS: Record<SavedMeasurementKind, number> = {
+    distance: 2,
+    angle: 3,
+    radius: 2
+};
+
 function uniqueAssemblyId(existing: readonly string[], prefix: string): string {
     const taken = new Set(existing);
     let index = existing.length + 1;
@@ -2191,6 +2611,16 @@ export function createViewId(): string {
  */
 export function createDimensionId(): string {
     return nextId('dimension');
+}
+
+/**
+ * Return a new unique id for a saved (pinned) measurement.
+ *
+ * Callers may override the generated id; this helper is provided for
+ * convenience in UI code.
+ */
+export function createMeasurementId(): string {
+    return nextId('measurement');
 }
 
 /**

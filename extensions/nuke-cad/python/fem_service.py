@@ -26,6 +26,8 @@ _SCRIPT_DIR = Path(__file__).parent.resolve()
 if str(_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR))
 
+from material_data import BUILTIN_MATERIAL_CARDS, builtin_card  # noqa: E402
+
 # Optional heavy dependencies. The module must remain importable without them.
 try:
     import numpy as np
@@ -76,73 +78,78 @@ def _require_deps() -> None:
         raise RuntimeError(f"FEM service requires: {', '.join(missing)}")
 
 
-def _builtin_materials() -> dict[str, dict[str, Any]]:
-    """Return a small built-in structural/thermal material database."""
-    return {
-        "structural_steel": {
-            "name": "Structural Steel",
-            "youngsModulus": 210e9,
-            "poissonsRatio": 0.3,
-            "density": 7850.0,
-            "conductivity": 50.0,
-            "expansion": 12e-6,
-        },
-        "aluminum": {
-            "name": "Aluminum",
-            "youngsModulus": 70e9,
-            "poissonsRatio": 0.33,
-            "density": 2700.0,
-            "conductivity": 205.0,
-            "expansion": 23e-6,
-        },
-        "copper": {
-            "name": "Copper",
-            "youngsModulus": 110e9,
-            "poissonsRatio": 0.34,
-            "density": 8960.0,
-            "conductivity": 400.0,
-            "expansion": 17e-6,
-        },
-        "uo2": {
-            "name": "UO2",
-            "youngsModulus": 220e9,
-            "poissonsRatio": 0.316,
-            "density": 10960.0,
-            "conductivity": 3.5,
-            "expansion": 10e-6,
-        },
-        "zircaloy": {
-            "name": "Zircaloy-4",
-            "youngsModulus": 99e9,
-            "poissonsRatio": 0.37,
-            "density": 6550.0,
-            "conductivity": 13.0,
-            "expansion": 6e-6,
-        },
-        "concrete": {
-            "name": "Concrete",
-            "youngsModulus": 30e9,
-            "poissonsRatio": 0.2,
-            "density": 2400.0,
-            "conductivity": 1.5,
-            "expansion": 10e-6,
-        },
-    }
+# Display names for the built-in cards (deck ``*Material`` labels). The
+# numeric payload lives in the versioned ``material_data`` table.
+_BUILTIN_DISPLAY_NAMES: dict[str, str] = {
+    "structural_steel": "Structural Steel",
+    "aluminum": "Aluminum",
+    "copper": "Copper",
+    "uo2": "UO2",
+    "zircaloy": "Zircaloy-4",
+    "concrete": "Concrete",
+}
 
 
-def _resolve_materials(materials_input: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
-    """Resolve a user material map against the built-in database.
+def _card_to_fem_material(material_key: str, card: dict[str, Any]) -> dict[str, Any]:
+    """Convert an ``{E, nu, rho, k, cp, alpha[, yield]}`` card to deck properties.
 
-    ``materials_input`` maps a CalculiX element-set name to either a built-in
-    material key or a complete material property dict.
+    Field units are documented in ``material_data.MATERIAL_UNITS``. Missing
+    fields stay absent (the ``*Material`` writer skips them); ``cp`` is
+    stored on the card for future coupled-physics use and is not emitted.
+    ``yield`` (yield strength) is carried as ``yieldStrength`` for the
+    safety-factor result pipeline; like ``cp`` it is never written to the
+    deck. Cards without ``yield`` simply omit the safety factor downstream
+    (reported, never defaulted).
     """
-    builtins = _builtin_materials()
+    converted = {
+        "name": _BUILTIN_DISPLAY_NAMES.get(material_key, material_key),
+        "youngsModulus": float(card.get("E", 0.0)),
+        "poissonsRatio": float(card.get("nu", 0.0)),
+        "density": float(card.get("rho", 0.0)),
+        "conductivity": float(card.get("k", 0.0)),
+        "specificHeat": float(card.get("cp", 0.0)),
+        "expansion": float(card.get("alpha", 0.0)),
+    }
+    if card.get("yield") is not None:
+        converted["yieldStrength"] = float(card["yield"])
+    return converted
+
+
+def _builtin_materials() -> dict[str, dict[str, Any]]:
+    """Return the built-in materials as deck property dicts.
+
+    Derived from the versioned ``material_data`` table; the key set always
+    matches ``material_data.builtin_material_names()``.
+    """
+    return {key: _card_to_fem_material(key, builtin_card(key)) for key in BUILTIN_MATERIAL_CARDS}
+
+
+def _resolve_materials(
+    materials_input: dict[str, Any] | None,
+    material_cards: dict[str, Any] | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Resolve a user material map against manifest cards and the built-ins.
+
+    ``materials_input`` maps a CalculiX element-set name to either a material
+    name or a complete material property dict. Name references resolve
+    manifest-first: a card in ``material_cards`` (the region manifest's
+    additive ``materials`` block) wins for that name, built-in cards fill the
+    rest. Unknown names raise ``ValueError`` loudly — never a silent default.
+    Complete property dicts pass through unchanged.
+    """
     result: dict[str, dict[str, Any]] = {}
     if materials_input is None:
         return result
+    cards = material_cards or {}
     for block_name, value in materials_input.items():
-        if isinstance(value, str) and value in builtins:
-            result[block_name] = builtins[value]
+        if isinstance(value, str):
+            card = cards.get(value)
+            if isinstance(card, dict):
+                result[block_name] = _card_to_fem_material(value, card)
+            elif value in BUILTIN_MATERIAL_CARDS:
+                result[block_name] = _card_to_fem_material(value, builtin_card(value))
+            else:
+                raise ValueError(f"Unknown material reference for block '{block_name}': {value}")
         elif isinstance(value, dict):
             result[block_name] = value
         else:
@@ -314,6 +321,83 @@ def _surface_area_and_normal(mesh: MeshData, surface_name: str) -> tuple[float, 
     return total_area, avg_normal
 
 
+#: Tetrahedral element face table from the CalculiX manual (``*DLOAD``
+#: page): face number -> corner-node positions (0-based) in deck
+#: connectivity order. Applies to C3D4 and to the corner nodes (the first
+#: four entries) of C3D10. Faces are matched as order-independent node
+#: triples, so surface winding never matters.
+_TET_FACES: tuple[tuple[int, int, int], ...] = (
+    (0, 1, 2),  # face 1
+    (0, 3, 1),  # face 2
+    (1, 3, 2),  # face 3
+    (2, 3, 0),  # face 4
+)
+
+
+def _deck_element_ids(mesh: MeshData) -> dict[int, int]:
+    """Map volume-element list index to the deck element id.
+
+    Mirrors ``_write_element_sections`` exactly (sequential ids across blocks
+    in ``mesh.blocks`` order, empty blocks skipped) so face loads target the
+    same ids CalculiX will read.
+    """
+    ids: dict[int, int] = {}
+    next_id = 1
+    for _block_name, indices in mesh.blocks.items():
+        if len(indices) == 0:
+            continue
+        for idx in indices:
+            ids[int(idx)] = next_id
+            next_id += 1
+    return ids
+
+
+def _pressure_face_loads(mesh: MeshData, surface_name: str) -> tuple[list[tuple[int, int]], int]:
+    """Return ``((deck_element_id, face_number), ...)`` pairs for a surface set.
+
+    Each surface corner triangle is matched (order-independent) against the
+    corner nodes of the volume elements; the face whose corner triple equals
+    the triangle is the loaded face. A triangle on an internal (shared) face
+    loads every adjacent volume face. The second return value counts surface
+    triangles with no containing volume element (non-conforming sets), which
+    the caller reports instead of silently dropping.
+    """
+    surf = mesh.surface_sets.get(surface_name)
+    if surf is None or len(surf["indices"]) == 0:
+        return [], 0
+    deck_ids = _deck_element_ids(mesh)
+    # Node -> volume element indices (corner nodes only) for fast lookup.
+    node_to_elems: dict[int, list[int]] = {}
+    for idx, elem in enumerate(mesh.elements):
+        corners = elem["nodes"][:4] if len(elem["nodes"]) > 4 else elem["nodes"]
+        for n in corners:
+            node_to_elems.setdefault(int(n), []).append(idx)
+    pairs: list[tuple[int, int]] = []
+    seen: set[tuple[int, int]] = set()
+    unmatched = 0
+    for s_idx in surf["indices"]:
+        tri = {int(n) for n in surf["elements"][int(s_idx)]["nodes"][:3]}
+        matched = False
+        for e_idx in node_to_elems.get(next(iter(tri)), []):
+            elem = mesh.elements[e_idx]
+            corners = [
+                int(n) for n in (elem["nodes"][:4] if len(elem["nodes"]) > 4 else elem["nodes"])
+            ]
+            if not tri.issubset(corners):
+                continue
+            for face_no, face in enumerate(_TET_FACES, start=1):
+                if {corners[i] for i in face} == tri:
+                    deck_id = deck_ids.get(e_idx)
+                    if deck_id is not None and (deck_id, face_no) not in seen:
+                        seen.add((deck_id, face_no))
+                        pairs.append((deck_id, face_no))
+                    matched = True
+                    break
+        if not matched:
+            unmatched += 1
+    return pairs, unmatched
+
+
 def _write_node_section(mesh: MeshData, f: Any) -> None:
     """Write the *Node section."""
     f.write("*Node\n")
@@ -390,17 +474,50 @@ def _write_boundary_conditions(
     mesh: MeshData,
     boundary_conditions: list[dict[str, Any]],
     f: Any,
-) -> None:
-    """Write *Boundary, *Cload, and *Cflux cards for boundary conditions."""
+) -> list[str]:
+    """Write *Boundary, *Temperature, *Dload, and *Cflux cards for BCs.
+
+    - ``fixed`` pins translational dofs 1-3 through the surface node set
+      (CalculiX does not accept Abaqus predefined labels like ENCASTRE).
+    - ``displacement`` prescribes dof values per surface node.
+    - ``pressure`` applies a uniform normal traction as element-face
+      ``*DLOAD`` ``P<face>`` loads (positive = compressive pressure,
+      negative = tension, per the CalculiX ``*DLOAD`` convention). Faces
+      are resolved from the surface set's corner triangles against the
+      volume elements, so the load is mesh-independent; unlike the other
+      BCs it needs no node set and ignores any ``vector`` field (traction
+      acts along the face normal).
+    - ``temperature`` prescribes nodal temperatures via ``*TEMPERATURE``
+      (valid in static thermomechanical and heat-transfer steps alike).
+    - ``heatFlux`` distributes a total flux over the surface nodes.
+
+    Returns warnings (unknown surfaces are skipped quietly as before; only
+    non-conforming pressure faces are reported).
+    """
+    warnings: list[str] = []
     fixed_lines: list[str] = []
     disp_lines: list[str] = []
     temp_lines: list[str] = []
-    cload_lines: list[str] = []
+    dload_lines: list[str] = []
     cflux_lines: list[str] = []
 
     for bc in boundary_conditions:
         bc_type = bc.get("type")
         surf = bc.get("surfaceName")
+
+        if bc_type == "pressure":
+            # Element-face loads need no node set; resolve faces directly.
+            magnitude = float(bc.get("magnitude", 0))
+            pairs, unmatched = _pressure_face_loads(mesh, surf)
+            for deck_id, face_no in pairs:
+                dload_lines.append(f"{deck_id}, P{face_no}, {magnitude:.12g}")
+            if unmatched:
+                warnings.append(
+                    f"Pressure on surface '{surf}': {unmatched} triangle(s) "
+                    "match no volume element face and were skipped."
+                )
+            continue
+
         nodes = sorted(_surface_node_set(mesh, surf))
         if not nodes:
             continue
@@ -420,26 +537,7 @@ def _write_boundary_conditions(
         elif bc_type == "temperature":
             temp = float(bc.get("temperature", 0))
             for n in nodes:
-                temp_lines.append(f"{n + 1}, 11, 11, {temp:.12g}")
-        elif bc_type == "pressure":
-            magnitude = float(bc.get("magnitude", 0))
-            vector = bc.get("vector")
-            if vector is None:
-                _, vector = _surface_area_and_normal(mesh, surf)
-            area, _ = _surface_area_and_normal(mesh, surf)
-            if area <= 0:
-                continue
-            n_nodes = len(nodes)
-            fx = magnitude * area * float(vector[0]) / n_nodes
-            fy = magnitude * area * float(vector[1]) / n_nodes
-            fz = magnitude * area * float(vector[2]) / n_nodes
-            for n in nodes:
-                if abs(fx) > 0:
-                    cload_lines.append(f"{n + 1}, 1, {fx:.12g}")
-                if abs(fy) > 0:
-                    cload_lines.append(f"{n + 1}, 2, {fy:.12g}")
-                if abs(fz) > 0:
-                    cload_lines.append(f"{n + 1}, 3, {fz:.12g}")
+                temp_lines.append(f"{n + 1}, {temp:.12g}")
         elif bc_type == "heatFlux":
             magnitude = float(bc.get("magnitude", 0))
             area, _ = _surface_area_and_normal(mesh, surf)
@@ -458,17 +556,18 @@ def _write_boundary_conditions(
         for line in disp_lines:
             f.write(line + "\n")
     if temp_lines:
-        f.write("*Boundary\n")
+        f.write("*Temperature\n")
         for line in temp_lines:
             f.write(line + "\n")
-    if cload_lines:
-        f.write("*Cload\n")
-        for line in cload_lines:
+    if dload_lines:
+        f.write("*Dload\n")
+        for line in dload_lines:
             f.write(line + "\n")
     if cflux_lines:
         f.write("*Cflux\n")
         for line in cflux_lines:
             f.write(line + "\n")
+    return warnings
 
 
 def _write_step(
@@ -476,8 +575,13 @@ def _write_step(
     step: dict[str, Any],
     boundary_conditions: list[dict[str, Any]],
     f: Any,
-) -> None:
-    """Write the *Step block including BCs, loads, and output requests."""
+) -> list[str]:
+    """Write the *Step block including BCs, loads, and output requests.
+
+    ``stepType`` selects ``*Static`` (default — an absent or unknown value
+    stays static), ``*Heat Transfer``, or ``*Frequency``. Returns warnings
+    forwarded from the boundary-condition writer.
+    """
     step_type = step.get("stepType", "static")
     f.write("*Step, name=Step-1, nlgeom=NO\n")
     if step_type == "heatTransfer":
@@ -494,7 +598,7 @@ def _write_step(
         inc = float(step.get("initialTimeIncrement", time))
         f.write(f"{time:.12g}, {inc:.12g}\n")
 
-    _write_boundary_conditions(mesh, boundary_conditions, f)
+    bc_warnings = _write_boundary_conditions(mesh, boundary_conditions, f)
 
     gravity = step.get("gravity")
     if gravity and step_type != "heatTransfer":
@@ -514,6 +618,7 @@ def _write_step(
         f.write("*El File\n")
         f.write("S, E\n")
     f.write("*End Step\n")
+    return bc_warnings
 
 
 def _write_all_elements_nset(mesh: MeshData, f: Any) -> None:
@@ -558,7 +663,7 @@ def write_inp(
         _write_all_elements_nset(mesh, f)
         _write_materials(materials, step.get("stepType", "static"), f)
         _write_sections(mesh, materials, f)
-        _write_step(mesh, step, boundary_conditions, f)
+        warnings.extend(_write_step(mesh, step, boundary_conditions, f))
 
     return warnings
 
@@ -719,7 +824,49 @@ def _parse_frd_results(frd_path: Path) -> dict[str, dict[int, list[float]]]:
     if current_name is not None and current_values:
         results[current_name] = current_values
 
+    results.update(_derive_stress_quantities(results))
+
     return results
+
+
+def _derive_stress_quantities(
+    results: dict[str, dict[int, list[float]]],
+) -> dict[str, dict[int, list[float]]]:
+    """Derive von Mises and max-principal stresses from nodal STRESS.
+
+    Expects the CalculiX six-component order (SXX, SYY, SZZ, SXY, SYZ, SXZ)
+    per node, as written for ``*EL FILE, S`` output. Returns
+    ``{"MISES": ..., "MAXPRIN": ...}`` in the same
+    ``{node_id -> [value]}`` shape as the parsed blocks, so downstream
+    writers treat them like any other scalar result. Nodes whose STRESS
+    entry does not carry exactly six components are skipped. Empty when no
+    six-component STRESS block is present, or when numpy is unavailable
+    (the module stays importable and parsable without it).
+    """
+    derived: dict[str, dict[int, list[float]]] = {}
+    stress = results.get("STRESS")
+    if not stress or np is None:
+        return derived
+    nodes = sorted(n for n, v in stress.items() if len(v) == 6)
+    if not nodes:
+        return derived
+    s = np.array([stress[n] for n in nodes], dtype=np.float64)
+    sxx, syy, szz, sxy, syz, sxz = (s[:, i] for i in range(6))
+    mises = np.sqrt(
+        0.5 * ((sxx - syy) ** 2 + (syy - szz) ** 2 + (szz - sxx) ** 2)
+        + 3.0 * (sxy**2 + syz**2 + sxz**2)
+    )
+    tri = np.empty((len(nodes), 3, 3), dtype=np.float64)
+    tri[:, 0, 0] = sxx
+    tri[:, 1, 1] = syy
+    tri[:, 2, 2] = szz
+    tri[:, 0, 1] = tri[:, 1, 0] = sxy
+    tri[:, 1, 2] = tri[:, 2, 1] = syz
+    tri[:, 0, 2] = tri[:, 2, 0] = sxz
+    pmax = np.linalg.eigvalsh(tri)[:, -1]
+    derived["MISES"] = {n: [float(v)] for n, v in zip(nodes, mises, strict=True)}
+    derived["MAXPRIN"] = {n: [float(v)] for n, v in zip(nodes, pmax, strict=True)}
+    return derived
 
 
 def _vtk_cell_type(num_nodes: int) -> int:
@@ -731,12 +878,52 @@ def _vtk_cell_type(num_nodes: int) -> int:
     raise ValueError(f"Unsupported node count for VTK: {num_nodes}")
 
 
+def _node_yield_map(
+    mesh: MeshData, materials: dict[str, dict[str, Any]]
+) -> tuple[dict[int, float], list[str]]:
+    """Map 1-based node ids to yield strengths from block materials.
+
+    Yield strengths arrive as ``yieldStrength`` on the resolved material
+    dicts (carried from the ``yield`` card field, or set directly on custom
+    property dicts). A node shared by blocks with different yields takes the
+    minimum (conservative for safety factors). The second return value names
+    the mesh blocks whose material carries no ``yieldStrength``, so callers
+    can report the omission instead of silently defaulting it. Pure Python.
+    """
+    node_yield: dict[int, float] = {}
+    missing: set[str] = set()
+    for block_name, indices in mesh.blocks.items():
+        mat = materials.get(block_name) or {}
+        strength = mat.get("yieldStrength")
+        if strength is None:
+            if len(indices) > 0:
+                missing.add(str(mat.get("name") or block_name))
+            continue
+        strength = float(strength)
+        for idx in indices:
+            for n in mesh.elements[int(idx)]["nodes"]:
+                node_id = int(n) + 1
+                prev = node_yield.get(node_id)
+                node_yield[node_id] = strength if prev is None else min(prev, strength)
+    return node_yield, sorted(missing)
+
+
 def _write_vtk_legacy(
     mesh: MeshData,
     frd_results: dict[str, dict[int, list[float]]],
     vtk_path: Path,
+    node_yield: dict[int, float] | None = None,
 ) -> None:
-    """Write a legacy ASCII VTK unstructured grid with optional nodal results."""
+    """Write a legacy ASCII VTK unstructured grid with optional nodal results.
+
+    Besides displacement (``DISP``) and temperature (``NDTEMP``/``TEMP``),
+    the derived ``MISES``/``MAXPRIN`` scalars are emitted as ``von_mises``
+    and ``max_principal`` color-by arrays. When ``node_yield`` maps 1-based
+    node ids to yield strengths (see ``_node_yield_map``), a
+    ``safety_factor`` array (``yield / mises``) is emitted alongside: nodes
+    without a known yield read NaN (omitted, never defaulted) and zero
+    von Mises reads +inf.
+    """
     if np is None:
         raise RuntimeError("numpy is required")
 
@@ -757,6 +944,28 @@ def _write_vtk_legacy(
     if has_temp:
         for i in range(n_points):
             temp[i] = temp_result.get(i + 1, [0.0])[0]
+
+    mises = np.zeros(n_points, dtype=np.float64)
+    has_mises = "MISES" in frd_results
+    if has_mises:
+        for i in range(n_points):
+            mises[i] = frd_results["MISES"].get(i + 1, [0.0])[0]
+
+    pmax = np.zeros(n_points, dtype=np.float64)
+    has_pmax = "MAXPRIN" in frd_results
+    if has_pmax:
+        for i in range(n_points):
+            pmax[i] = frd_results["MAXPRIN"].get(i + 1, [0.0])[0]
+
+    has_safety = has_mises and node_yield is not None
+    safety = np.full(n_points, np.nan, dtype=np.float64)
+    if has_safety:
+        assert node_yield is not None
+        with np.errstate(divide="ignore", invalid="ignore"):
+            for i in range(n_points):
+                strength = node_yield.get(i + 1)
+                if strength is not None:
+                    safety[i] = strength / mises[i]
 
     n_cells = sum(len(v) for v in mesh.blocks.values())
     total_conn = sum(
@@ -799,6 +1008,21 @@ def _write_vtk_legacy(
             f.write("LOOKUP_TABLE default\n")
             for t in temp:
                 f.write(f"{t:.12g}\n")
+        if has_mises:
+            f.write("SCALARS von_mises float 1\n")
+            f.write("LOOKUP_TABLE default\n")
+            for v in mises:
+                f.write(f"{v:.12g}\n")
+        if has_pmax:
+            f.write("SCALARS max_principal float 1\n")
+            f.write("LOOKUP_TABLE default\n")
+            for v in pmax:
+                f.write(f"{v:.12g}\n")
+        if has_safety:
+            f.write("SCALARS safety_factor float 1\n")
+            f.write("LOOKUP_TABLE default\n")
+            for v in safety:
+                f.write(f"{v:.12g}\n")
 
 
 def run_fem(
@@ -806,6 +1030,7 @@ def run_fem(
     output_dir: str | None = None,
     output_stem: str | None = None,
     materials: dict[str, Any] | None = None,
+    material_cards: dict[str, Any] | None = None,
     boundary_conditions: list[dict[str, Any]] | None = None,
     step: dict[str, Any] | None = None,
     run: bool = False,
@@ -814,6 +1039,11 @@ def run_fem(
     ccx_timeout: float | None = None,
 ) -> dict[str, Any]:
     """Generate a CalculiX input deck and optionally run the analysis.
+
+    ``material_cards`` carries the region manifest's additive ``materials``
+    block (pass ``RegionManifest(...).materials``); name references in
+    ``materials`` resolve against it first, then the built-ins. Unknown
+    names fail loudly via the returned error — never a silent default.
 
     Returns the stdout-JSON result dict.
     """
@@ -847,12 +1077,15 @@ def run_fem(
     inp_path = out_dir / f"{stem}.fem.inp"
     vtk_path = out_dir / f"{stem}.fem.vtk"
 
-    resolved_materials = _resolve_materials(materials)
+    resolved_materials: dict[str, dict[str, Any]] = {}
     bcs = boundary_conditions or []
     step_cfg = step or {"stepType": "static"}
     warnings: list[str] = []
 
     try:
+        # Card resolution runs inside the guarded block so an unknown name
+        # surfaces as a structured error, never a traceback.
+        resolved_materials = _resolve_materials(materials, material_cards)
         _print_progress(f"Reading gmsh mesh: {msh_file}")
         mesh = _read_gmsh_mesh(str(msh_file))
 
@@ -890,7 +1123,13 @@ def run_fem(
                 frd_path = Path(ccx_result["frdPath"])
                 _print_progress(f"Converting FRD to VTK: {vtk_path}")
                 frd_results = _parse_frd_results(frd_path)
-                _write_vtk_legacy(mesh, frd_results, vtk_path)
+                yields, missing_yield = _node_yield_map(mesh, resolved_materials)
+                if "MISES" in frd_results and missing_yield:
+                    warnings.append(
+                        "Safety factor omitted for material(s) without "
+                        f"yield strength: {', '.join(missing_yield)}."
+                    )
+                _write_vtk_legacy(mesh, frd_results, vtk_path, node_yield=yields or None)
                 result["vtkPath"] = str(vtk_path)
         else:
             result["success"] = True
@@ -912,6 +1151,11 @@ def main() -> None:
         "--materials",
         default=None,
         help="JSON file mapping block names to materials",
+    )
+    parser.add_argument(
+        "--material-cards",
+        default=None,
+        help="JSON file with the region manifest 'materials' block (custom cards)",
     )
     parser.add_argument(
         "--bcs",
@@ -961,6 +1205,7 @@ def main() -> None:
             output_dir=request.get("outputDir", args.output_dir),
             output_stem=request.get("outputStem", args.output_stem),
             materials=request.get("materials"),
+            material_cards=request.get("materialCards"),
             boundary_conditions=request.get("boundaryConditions"),
             step=request.get("step"),
             run=request.get("run", False),
@@ -978,6 +1223,9 @@ def main() -> None:
     materials = None
     if args.materials:
         materials = json.loads(Path(args.materials).read_text(encoding="utf-8"))
+    material_cards = None
+    if args.material_cards:
+        material_cards = json.loads(Path(args.material_cards).read_text(encoding="utf-8"))
     boundary_conditions = None
     if args.bcs:
         boundary_conditions = json.loads(Path(args.bcs).read_text(encoding="utf-8"))
@@ -990,6 +1238,7 @@ def main() -> None:
         output_dir=args.output_dir,
         output_stem=args.output_stem,
         materials=materials,
+        material_cards=material_cards,
         boundary_conditions=boundary_conditions,
         step=step,
         run=args.run,

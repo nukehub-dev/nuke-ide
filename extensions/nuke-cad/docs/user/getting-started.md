@@ -52,6 +52,34 @@ Assign materials and names by creating a sidecar file named
 The manifest is validated when the geometry rebuilds. Unknown selectors and
 missing materials are reported as warnings.
 
+### Material property cards
+
+A volume's `material` is just a name. The property payload behind the name
+(an isotropic `{E, nu, rho, k, cp, alpha}` card, plus an optional `yield`
+strength) comes from an additive top-level `materials` block:
+
+```json
+{
+  "version": 1,
+  "volumes": [{ "selector": "fuel", "material": "my_alloy" }],
+  "materials": { "my_alloy": { "E": 200e9, "nu": 0.3, "rho": 7800.0, "yield": 250e6 } }
+}
+```
+
+Units are `E` in Pa, `nu` dimensionless, `rho` in kg/m³, `k` in W/(m·K),
+`cp` in J/(kg·K), `alpha` in 1/K, and `yield` (yield strength) in Pa; every
+field is optional and unknown fields are rejected so typos fail loudly.
+`yield` enables the FEM safety-factor result (`yield` over von Mises,
+per node): materials without it simply omit the safety factor for their
+blocks and the run warns about the omission instead of inventing a
+strength. No built-in card sets `yield`. When the FEM service builds a
+deck, a material name resolves manifest-first, then against the built-in
+cards (`structural_steel`, `aluminum`, `copper`, `uo2`, `zircaloy`,
+`concrete`); an unlisted name fails the run with a clear error instead of a
+silent default. The thermal fields (`k`, `cp`) are additionally stored for
+future coupled-physics coupling and are reserved for that use. The OpenMC
+side is untouched: placeholder materials still flow from the name alone.
+
 ## Model Outline panel
 
 The **Model Outline** panel gives a structured tree view of the active model:
@@ -132,6 +160,32 @@ straight-edged geometry). Install netgen via conda (`conda install -c
 conda-forge ngsolve`, preferred) or the `ngsolve` pip wheel; if netgen is not
 installed you get a structured error, not a silent gmsh fallback.
 
+### Mesh repair
+
+A defective surface mesh (duplicate facets, pinholes, rough tessellation)
+can be repaired in place before the quality report is written: pass
+`--repair <op,...>` to the mesh service CLI (or `repairs=[...]` to
+`mesh_step`). The ops run in the listed order after mesh generation, the
+repaired mesh is rewritten to `model.msh`, and per-op counts land in
+`model.mesh.report.json` under `repairs`, so the report certifies the
+repaired mesh.
+
+| Op                        | Effect                                                  |
+| ------------------------- | ------------------------------------------------------- |
+| `remove_duplicate_facets` | Drop exact-duplicate and degenerate (zero-area) facets  |
+| `fill_holes`              | Fan-fill closed boundary loops (hole rims)              |
+| `smooth_laplacian`        | Laplacian smoothing with boundary preservation          |
+| `decimate`                | Reduce the triangle count toward a 50% target reduction |
+
+`fill_holes` only fills closed rims of 32 or fewer edges; larger loops,
+degenerate loops, and open (dangling/non-manifold) chains are left unfilled
+and reported in the result warnings — never silently capped.
+`smooth_laplacian` pins boundary nodes so seals never drift, caps iterations
+at 100, and reports the deviation introduced as `max_deviation`.
+`decimate` is surface-only: on a volume mesh it refuses loudly instead of
+orphaning tetrahedra. Repairs are mesh-only (B-rep and documents are never
+touched), and every op failure names the op instead of skipping silently.
+
 ## Use in OpenMC Studio
 
 The fastest path from a Nuke CAD model to an OpenMC simulation is through the
@@ -162,6 +216,18 @@ DAGMC export:
    and ccx output is streamed to `<stem>.ccx.log` next to the input deck.
 7. Click **Open VTK Result** to visualize displacements or temperatures in
    nuke-visualizer.
+
+Load details: a `pressure` condition applies a uniform normal traction to
+the named surface (element-face pressure loads — positive compresses,
+negative pulls; any direction vector is ignored since traction follows
+the face normal), and a `temperature` condition prescribes nodal
+temperatures on the surface. Static Structural is the default analysis
+type; Steady-State Thermal and Frequency are selected per run.
+Stress runs additionally produce `von_mises` and `max_principal`
+color-by arrays derived from the nodal stresses, plus a `safety_factor`
+array (`yield` over von Mises) wherever the block's material card carries
+a `yield` strength — nodes without one read as missing and the run warns
+which materials were skipped.
 
 CalculiX (`ccx`) must be available on `PATH` or pointed to with the `NUKE_CCX`
 environment variable.

@@ -33,8 +33,15 @@
  * model carries no manifest) and keeps a two-way picking sync with the CAD
  * viewport through the shared {@link NukeCadStateManager}: clicking a row
  * selects the mapped solid(s) in the viewport, and a viewport pick selects
- * the matching row here. The panel is read-only; the only action is opening
- * the manifest sidecar in the editor.
+ * the matching row here. The manifest list itself is read-only; the only
+ * action on it is opening the manifest sidecar in the editor.
+ *
+ * Choice note (parameter spreadsheet): the document-parameter table lives
+ * here as a Parameters section rather than a new right-shell view. The
+ * outline already binds to the active model, closes with the viewport, and
+ * reads the open `.nuke-cad` document for the fuse auto-fix — a section
+ * reuses that lifecycle with no new command, view registration, or icon,
+ * and keeps the spreadsheet next to the summaries it annotates.
  *
  * @module nuke-cad/browser/widgets
  */
@@ -44,14 +51,24 @@ import { injectable, inject, postConstruct } from '@theia/core/shared/inversify'
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { MessageService } from '@theia/core/lib/common/message-service';
 import { CommandService } from '@theia/core/lib/common/command';
+import { Disposable } from '@theia/core/lib/common/disposable';
 import { OpenerService } from '@theia/core/lib/browser/opener-service';
 import { FileService } from '@theia/filesystem/lib/browser/file-service';
+import { FileDialogService } from '@theia/filesystem/lib/browser/file-dialog';
 import { URI } from '@theia/core/lib/common/uri';
 
 import { RegionManifestData } from '../../../common/nuke-cad-protocol';
 import { type NukeCadDocument } from '../../../common/cad-document';
 import { NukeCadStateManager, CadModel, CadSelection, SolidSummary } from '../../state/nuke-cad-state-manager';
-import { CadDocumentStore, createFeatureId, getAssemblySection, type AssemblySection } from '../../document/cad-document-store';
+import {
+    CadDocumentStore,
+    createFeatureId,
+    collectParameterUsages,
+    evaluateParameterInput,
+    getAssemblySection,
+    type AssemblySection,
+    type ParameterUsage
+} from '../../document/cad-document-store';
 import { instanceSolidIds } from '../cad-viewport/assembly-view';
 import { NukeCadCommands } from '../../commands';
 import {
@@ -65,6 +82,7 @@ import {
     SolidTableRow
 } from './solid-summaries';
 import { buildFuseFeature, groupDiagnostics, selectionSolidIds, toggleSolidSelection } from './outline-interactions';
+import { buildBomCsvRows, compareParamRows, describeParamUsage, formatBomCsv, type ParamSortKey } from './param-table';
 import { Tooltip, useTooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
 import './outline-panel.css';
 
@@ -84,6 +102,9 @@ export class CadOutlinePanelWidget extends ReactWidget {
 
     @inject(FileService)
     protected readonly fileService: FileService;
+
+    @inject(FileDialogService)
+    protected readonly fileDialogService: FileDialogService;
 
     @inject(CadDocumentStore)
     protected readonly documentStore: CadDocumentStore;
@@ -109,6 +130,11 @@ export class CadOutlinePanelWidget extends ReactWidget {
         this.summaries = this.stateManager.solidSummaries;
         this.hiddenSolidIds = this.stateManager.hiddenSolidIds;
         this.toDispose.push(this.stateManager.onModelChange(() => this.handleModelChange()));
+        // Parameter edits commit through the document store (validation + undo
+        // + dirty effects unchanged); re-render so the table and used-by column
+        // follow. Rebuild scheduling itself is untouched — the viewport observes
+        // the same store-change signal and rebuilds per `nukeCad.rebuildOnEdit`.
+        this.toDispose.push(Disposable.create(this.documentStore.onChange(() => this.update())));
         this.toDispose.push(
             this.stateManager.onSelectionChange((selection) => {
                 this.selection = selection;
@@ -231,8 +257,86 @@ export class CadOutlinePanelWidget extends ReactWidget {
                 onSetHiddenSolids={(ids) => this.stateManager.setHiddenSolidIds(ids)}
                 onFuseBodies={(bodyA, bodyB) => void this.handleFuseBodies(bodyA, bodyB)}
                 onOpenManifest={() => this.openManifest()}
+                onAddParameter={(name, text) => this.handleAddParameter(name, text)}
+                onSetParameter={(name, text) => this.handleSetParameter(name, text)}
+                onRemoveParameter={(name) => this.handleRemoveParameter(name)}
+                onExportBomCsv={() => void this.handleExportBomCsv()}
             />
         );
+    }
+
+    /**
+     * Spreadsheet edit path: evaluate the input text through `expression.ts`
+     * (validator reasons surface inline, never commit), then write the number
+     * through the normal store mutation. Shared by add and edit.
+     */
+    protected evaluateParamInput(name: string, text: string): { value?: number; error?: string } {
+        const doc = this.documentStore.document;
+        if (doc === undefined) {
+            return { error: 'No CAD document is open.' };
+        }
+        const evaluated = evaluateParameterInput(text, doc.parameters, doc.units);
+        if (!evaluated.ok) {
+            return { error: evaluated.error };
+        }
+        return { value: evaluated.value };
+    }
+
+    protected handleAddParameter(name: string, text: string): { success: boolean; error?: string } {
+        const evaluated = this.evaluateParamInput(name, text);
+        if (evaluated.error !== undefined || evaluated.value === undefined) {
+            return { success: false, error: evaluated.error ?? 'Invalid value.' };
+        }
+        const result = this.documentStore.addParameter(name.trim(), evaluated.value);
+        return result.success ? { success: true } : { success: false, error: result.error };
+    }
+
+    protected handleSetParameter(name: string, text: string): { success: boolean; error?: string } {
+        const evaluated = this.evaluateParamInput(name, text);
+        if (evaluated.error !== undefined || evaluated.value === undefined) {
+            return { success: false, error: evaluated.error ?? 'Invalid value.' };
+        }
+        const result = this.documentStore.setParameter(name, evaluated.value);
+        return result.success ? { success: true } : { success: false, error: result.error };
+    }
+
+    protected handleRemoveParameter(name: string): { success: boolean; error?: string } {
+        const result = this.documentStore.removeParameter(name);
+        return result.success ? { success: true } : { success: false, error: result.error };
+    }
+
+    /**
+     * BOM CSV export (spreadsheet export, not a spreadsheet object): one
+     * `{instance/body, label, material, volume}` row per built solid from the
+     * `SolidSummary` data already in the state manager, joined with manifest
+     * labels/materials. Saved through the file dialog like Export Python.
+     */
+    protected async handleExportBomCsv(): Promise<void> {
+        const model = this.stateManager.model;
+        if (model === undefined) {
+            this.messageService.warn('No CAD model is open.');
+            return;
+        }
+        const docMaterials = new Map<string, string>();
+        for (const body of this.documentStore.document?.bodies ?? []) {
+            if (body.label !== undefined && body.material !== undefined) {
+                docMaterials.set(body.label, body.material);
+            }
+        }
+        const source =
+            model.manifest !== undefined ? { volumes: model.manifest.volumes, selectorMap: model.result.selectorMap ?? {} } : undefined;
+        const csv = formatBomCsv(buildBomCsvRows(source, this.stateManager.solidSummaries, docMaterials));
+        const uri = await this.fileDialogService.showSaveDialog({ title: 'Export BOM as CSV', filters: { 'CSV File': ['csv'] } });
+        if (uri === undefined) {
+            return;
+        }
+        try {
+            await this.fileService.write(uri, csv);
+            this.messageService.info(`Exported BOM to ${uri.path.base}`);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            this.messageService.error(`Could not export BOM: ${message}`);
+        }
     }
 
     /**
@@ -341,6 +445,11 @@ interface CadOutlinePanelComponentProps {
     readonly onSetHiddenSolids: (ids: readonly number[]) => void;
     readonly onFuseBodies: (bodyA: string, bodyB: string) => void;
     readonly onOpenManifest: () => void;
+    /** Spreadsheet mutations; each returns the inline reason on failure (never commits invalid input). */
+    readonly onAddParameter: (name: string, text: string) => { success: boolean; error?: string };
+    readonly onSetParameter: (name: string, text: string) => { success: boolean; error?: string };
+    readonly onRemoveParameter: (name: string) => { success: boolean; error?: string };
+    readonly onExportBomCsv: () => void;
 }
 
 /** A pinned properties snapshot: summary plus its resolved body label. */
@@ -501,6 +610,12 @@ function CadOutlinePanelComponent(props: CadOutlinePanelComponentProps): React.R
                                 <i className={`codicon ${viewMode === 'list' ? 'codicon-table' : 'codicon-list-tree'}`} />
                             </button>
                         </Tooltip>
+                        <Tooltip content="Export bill of materials as CSV (instance/body, label, material, volume)" position="left">
+                            <button className="theia-button secondary manifest-button" onClick={props.onExportBomCsv}>
+                                <i className="codicon codicon-export" />
+                                BOM
+                            </button>
+                        </Tooltip>
                         <Tooltip
                             content={
                                 props.manifestExists
@@ -584,6 +699,15 @@ function CadOutlinePanelComponent(props: CadOutlinePanelComponentProps): React.R
                         <div className="cad-outline-hint">
                             No region manifest (<code>{props.manifestFileName}</code>) for this model; showing positional solids.
                         </div>
+                    )}
+
+                    {props.document !== undefined && (
+                        <ParametersSection
+                            document={props.document}
+                            onAddParameter={props.onAddParameter}
+                            onSetParameter={props.onSetParameter}
+                            onRemoveParameter={props.onRemoveParameter}
+                        />
                     )}
 
                     {displayEntry && (
@@ -715,6 +839,201 @@ function PropertiesSection(props: PropertiesSectionProps): React.ReactElement {
                 <span className="prop-value">{summary.triangleCount}</span>
             </div>
             <p className="properties-units-hint">Quantities use SI prefixes in model units.</p>
+        </div>
+    );
+}
+
+interface ParametersSectionProps {
+    readonly document: NukeCadDocument;
+    readonly onAddParameter: (name: string, text: string) => { success: boolean; error?: string };
+    readonly onSetParameter: (name: string, text: string) => { success: boolean; error?: string };
+    readonly onRemoveParameter: (name: string) => { success: boolean; error?: string };
+}
+
+const PARAM_COLUMNS: ReadonlyArray<{ readonly key: ParamSortKey; readonly label: string }> = [
+    { key: 'name', label: 'Name' },
+    { key: 'value', label: 'Value' },
+    { key: 'usedBy', label: 'Used by' }
+];
+
+/**
+ * Parameters spreadsheet section: sortable `{name, value, unit, used-by}`
+ * rows over the open document, with edit-in-place through the store mutation
+ * path and an add row. Values accept plain numbers or `expression.ts`
+ * expressions over the other parameters; the validator reason renders inline
+ * and invalid input never commits.
+ */
+function ParametersSection(props: ParametersSectionProps): React.ReactElement {
+    const [collapsed, setCollapsed] = React.useState(false);
+    const [sort, setSort] = React.useState<{ key: ParamSortKey; descending: boolean }>({ key: 'name', descending: false });
+    const [editingName, setEditingName] = React.useState<string | undefined>(undefined);
+    const [editText, setEditText] = React.useState('');
+    const [editError, setEditError] = React.useState<string | undefined>(undefined);
+    const [newName, setNewName] = React.useState('');
+    const [newText, setNewText] = React.useState('');
+    const [formError, setFormError] = React.useState<string | undefined>(undefined);
+
+    const usages: readonly ParameterUsage[] = React.useMemo(() => collectParameterUsages(props.document), [props.document]);
+    const unit = props.document.units ?? '—';
+    const rows = React.useMemo(() => [...usages].sort((a, b) => compareParamRows(a, b, sort.key, sort.descending)), [usages, sort]);
+
+    const handleSort = (key: ParamSortKey): void => {
+        setSort((previous) => ({ key, descending: previous.key === key ? !previous.descending : false }));
+    };
+
+    const beginEdit = (usage: ParameterUsage): void => {
+        setEditingName(usage.name);
+        setEditText(String(usage.value));
+        setEditError(undefined);
+        setFormError(undefined);
+    };
+
+    const cancelEdit = (): void => {
+        setEditingName(undefined);
+        setEditError(undefined);
+    };
+
+    const commitEdit = (name: string): void => {
+        const result = props.onSetParameter(name, editText);
+        if (!result.success) {
+            setEditError(result.error ?? 'Invalid value.');
+            return;
+        }
+        setEditingName(undefined);
+        setEditError(undefined);
+    };
+
+    const handleAdd = (): void => {
+        const result = props.onAddParameter(newName, newText);
+        if (!result.success) {
+            setFormError(result.error ?? 'Invalid parameter.');
+            return;
+        }
+        setNewName('');
+        setNewText('');
+        setFormError(undefined);
+    };
+
+    const handleRemove = (name: string): void => {
+        const result = props.onRemoveParameter(name);
+        if (!result.success) {
+            setFormError(result.error ?? `Could not remove '${name}'.`);
+            return;
+        }
+        setFormError(undefined);
+        if (editingName === name) {
+            cancelEdit();
+        }
+    };
+
+    return (
+        <div className="outline-section">
+            <div className="category-header" onClick={() => setCollapsed(!collapsed)}>
+                <i className={`codicon codicon-chevron-${collapsed ? 'right' : 'down'}`} />
+                <i className="codicon codicon-symbol-variable" />
+                <span>Parameters</span>
+                <span className="count-badge">{usages.length}</span>
+            </div>
+            {!collapsed && (
+                <div className="param-table">
+                    <div className="param-table-head">
+                        {PARAM_COLUMNS.map((column) => (
+                            <button key={column.key} className="param-table-th" onClick={() => handleSort(column.key)}>
+                                <span className="param-table-th-label">{column.label}</span>
+                                {sort.key === column.key && <i className={`codicon codicon-chevron-${sort.descending ? 'down' : 'up'}`} />}
+                            </button>
+                        ))}
+                        <span className="param-table-th unit">Unit</span>
+                        <span className="param-table-th actions" />
+                    </div>
+                    {rows.map((row) => (
+                        <div key={row.name} className="param-table-tr">
+                            <span className="param-table-cell name" title={row.name}>
+                                {row.name}
+                            </span>
+                            {editingName === row.name ? (
+                                <span className="param-table-cell value editing">
+                                    <input
+                                        className="param-input"
+                                        // eslint-disable-next-line jsx-a11y/no-autofocus
+                                        autoFocus
+                                        value={editText}
+                                        onChange={(e) => setEditText(e.target.value)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                                commitEdit(row.name);
+                                            } else if (e.key === 'Escape') {
+                                                cancelEdit();
+                                            }
+                                        }}
+                                    />
+                                </span>
+                            ) : (
+                                <span
+                                    className="param-table-cell value editable"
+                                    title="Click to edit (numbers or expressions over the other parameters)"
+                                    onClick={() => beginEdit(row)}
+                                >
+                                    {String(row.value)}
+                                </span>
+                            )}
+                            <span className="param-table-cell used-by" title={describeParamUsage(row)}>
+                                {row.usedBy.length === 0 ? '—' : `${row.usedBy.length} use${row.usedBy.length === 1 ? '' : 's'}`}
+                            </span>
+                            <span className="param-table-cell unit">{unit}</span>
+                            <span className="param-table-cell actions">
+                                <Tooltip content={`Delete parameter '${row.name}'`} position="left">
+                                    <button
+                                        className="theia-button secondary outline-row-action"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleRemove(row.name);
+                                        }}
+                                    >
+                                        <span className="codicon codicon-close" />
+                                    </button>
+                                </Tooltip>
+                            </span>
+                        </div>
+                    ))}
+                    {rows.length === 0 && <div className="param-table-empty">No document parameters yet — add one below.</div>}
+                    {editingName !== undefined && editError !== undefined && (
+                        <div className="param-error" role="alert">
+                            {editError}
+                        </div>
+                    )}
+                    <div className="param-add-row">
+                        <input
+                            className="param-input"
+                            placeholder="name"
+                            aria-label="New parameter name"
+                            value={newName}
+                            onChange={(e) => setNewName(e.target.value)}
+                        />
+                        <input
+                            className="param-input"
+                            placeholder="value or expression"
+                            aria-label="New parameter value or expression"
+                            value={newText}
+                            onChange={(e) => setNewText(e.target.value)}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                    handleAdd();
+                                }
+                            }}
+                        />
+                        <button className="theia-button secondary param-add-button" onClick={handleAdd}>
+                            Add
+                        </button>
+                    </div>
+                    {formError !== undefined && (
+                        <div className="param-error" role="alert">
+                            {formError}
+                        </div>
+                    )}
+                    <p className="param-hint">Values rebuild per nukeCad.rebuildOnEdit; every edit is undo-covered.</p>
+                </div>
+            )}
         </div>
     );
 }

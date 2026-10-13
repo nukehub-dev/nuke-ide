@@ -37,6 +37,8 @@ _SCRIPT_DIR = Path(__file__).parent.resolve()
 if str(_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR))
 
+import mesh_repair
+
 # Optional heavy dependencies. The module must remain importable without them.
 try:
     import numpy as np
@@ -1006,6 +1008,7 @@ def mesh_step(
     write_exodus: bool = True,
     write_inp: bool = True,
     write_vtk: bool = True,
+    repairs: list[str] | None = None,
 ) -> dict[str, Any]:
     """Generate FEM volume meshes from a canonical STEP file.
 
@@ -1023,6 +1026,9 @@ def mesh_step(
         write_exodus: Whether to write ``<stem>.e``.
         write_inp: Whether to write ``<stem>.inp``.
         write_vtk: Whether to write ``<stem>.vtk``.
+        repairs: Optional ordered mesh repair ops (see ``mesh_repair``)
+            applied to the generated mesh before conversion and reporting;
+            per-op counts are recorded under ``report["repairs"]``.
 
     Returns:
         Dict with ``success``, ``paths``, ``warnings``, ``error``, ``report``.
@@ -1035,17 +1041,28 @@ def mesh_step(
         "report": None,
     }
 
-    try:
-        _require_deps()
-    except RuntimeError as exc:
-        result["error"] = str(exc)
-        return result
+    repair_ops: list[str] = []
+    if repairs is not None:
+        try:
+            repair_ops = mesh_repair.normalize_repair_ops(repairs)
+        except mesh_repair.RepairError as exc:
+            result["error"] = f"Mesh repair failed: {exc}"
+            return result
 
     step_file = Path(step_path).resolve()
     if not step_file.exists():
         result["error"] = f"STEP file not found: {step_path}"
         return result
 
+    try:
+        _require_deps()
+    except RuntimeError as exc:
+        result["error"] = str(exc)
+        return result
+
+    # Cheap input validation runs before the heavy-dependency gate above,
+    # so a missing STEP file reports "not found" in every profile (minimal
+    # and full) instead of a dependency error.
     paths = _derive_output_paths(step_path, output_dir, output_stem)
     result["paths"] = {key: str(path) for key, path in paths.items()}
 
@@ -1096,6 +1113,31 @@ def mesh_step(
             _print_progress(f"Reading gmsh mesh for conversion: {paths['msh']}")
             mesh = meshio.read(str(paths["msh"]))
 
+        repair_report: dict[str, Any] | None = None
+        if repair_ops:
+            _print_progress(f"Applying mesh repairs: {', '.join(repair_ops)}")
+            blocks_in = [(block.type, np.asarray(block.data)) for block in mesh.cells]
+            new_points, new_cells, new_sets, new_data, repair_stats = mesh_repair.repair_mesh_data(
+                np.asarray(mesh.points),
+                blocks_in,
+                dict(mesh.cell_sets),
+                dict(mesh.cell_data),
+                dict(mesh.field_data),
+                repair_ops,
+            )
+            mesh = meshio.Mesh(
+                points=new_points,
+                cells=new_cells,
+                cell_data=new_data,
+                cell_sets=new_sets,
+                field_data=dict(mesh.field_data),
+            )
+            _print_progress(f"Rewriting repaired mesh: {paths['msh']}")
+            meshio.write(str(paths["msh"]), mesh, file_format="gmsh22", binary=False)
+            for note in repair_stats.get("warnings", []):
+                warnings.append(f"mesh repair: {note}")
+            repair_report = repair_stats
+
         tets, blocks = _extract_tetra_blocks(mesh)
         sidesets = _extract_sidesets(mesh, tets)
 
@@ -1112,6 +1154,8 @@ def mesh_step(
             _write_vtk(mesh, paths["vtk"])
 
         report = _compute_mesh_report(mesh.points, tets, blocks, sidesets)
+        if repair_report is not None:
+            report["repairs"] = repair_report
         paths["report"].write_text(json.dumps(report, indent=2), encoding="utf-8")
         result["report"] = report
 
@@ -1125,6 +1169,10 @@ def mesh_step(
             f"Done: {report['elementCount']} tetrahedra, "
             f"{report['nodeCount']} nodes, {len(blocks)} block(s)"
         )
+    except mesh_repair.RepairError as exc:
+        # Repair ops fail loudly with the op name, never as a traceback.
+        result["error"] = f"Mesh repair failed: {exc}"
+        result["warnings"] = warnings
     except NotImplementedError as exc:
         # Documented stubs: report a clean structured error instead of a traceback.
         result["error"] = str(exc)
@@ -1152,10 +1200,39 @@ def main() -> None:
     parser.add_argument("--min-size", type=float, default=None, help="Minimum element size")
     parser.add_argument("--max-size", type=float, default=None, help="Maximum element size")
     parser.add_argument("--order", type=int, default=1, help="Element order (1 or 2)")
+    parser.add_argument(
+        "--repair",
+        default=None,
+        metavar="OP,...",
+        help=(
+            "Comma-separated mesh repair ops applied after generation, before the "
+            "quality report (remove_duplicate_facets, fill_holes, smooth_laplacian, "
+            "decimate). Decimate refuses volume meshes loudly."
+        ),
+    )
     parser.add_argument("--no-exodus", action="store_true", help="Skip ExodusII output")
     parser.add_argument("--no-inp", action="store_true", help="Skip CalculiX/Abaqus output")
     parser.add_argument("--no-vtk", action="store_true", help="Skip VTK output")
     args = parser.parse_args()
+
+    repair_ops: list[str] | None = None
+    if args.repair is not None:
+        try:
+            repair_ops = mesh_repair.normalize_repair_ops(args.repair)
+        except mesh_repair.RepairError as exc:
+            print(
+                json.dumps(
+                    {
+                        "success": False,
+                        "paths": {},
+                        "warnings": [],
+                        "error": f"Mesh repair failed: {exc}",
+                        "report": None,
+                    }
+                )
+            )
+            sys.stdout.flush()
+            sys.exit(1)
 
     result = mesh_step(
         args.step,
@@ -1169,6 +1246,7 @@ def main() -> None:
         write_exodus=not args.no_exodus,
         write_inp=not args.no_inp,
         write_vtk=not args.no_vtk,
+        repairs=repair_ops,
     )
     print(json.dumps(result))
     sys.stdout.flush()
