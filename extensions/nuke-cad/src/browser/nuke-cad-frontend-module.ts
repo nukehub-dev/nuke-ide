@@ -33,7 +33,7 @@
 
 import { ContainerModule } from '@theia/core/shared/inversify';
 import { WebSocketConnectionProvider } from '@theia/core/lib/browser/messaging';
-import { CommandContribution } from '@theia/core/lib/common';
+import { CommandContribution, MenuContribution } from '@theia/core/lib/common';
 import { OpenHandler, WidgetFactory } from '@theia/core/lib/browser';
 import { NukeToolsContribution } from 'nuke-core/lib/common/nuke-tools-protocol';
 
@@ -44,6 +44,7 @@ import { NukeCadStateManager } from './state/nuke-cad-state-manager';
 import { CadDocumentStore } from './document/cad-document-store';
 import { NukeCadCommandContribution } from './contributions/nuke-cad-command-contribution';
 import { NukeCadToolsContribution } from './contributions/nuke-cad-tools-contribution';
+import { NukeCadMenuContribution } from './contributions/nuke-cad-menu-contribution';
 import { NukeCadOpenHandler } from './contributions/nuke-cad-openhandler-contribution';
 import { CadViewportWidget } from './widgets/cad-viewport/cad-viewport-widget';
 import { CadOutlinePanelWidget } from './widgets/outline-panel/outline-panel-widget';
@@ -73,6 +74,9 @@ export default new ContainerModule((bind) => {
 
     bind(NukeCadToolsContribution).toSelf().inSingletonScope();
     bind(NukeToolsContribution).toService(NukeCadToolsContribution);
+
+    bind(NukeCadMenuContribution).toSelf().inSingletonScope();
+    bind(MenuContribution).toService(NukeCadMenuContribution);
 
     bind(NukeCadOpenHandler).toSelf().inSingletonScope();
     bind(OpenHandler).toService(NukeCadOpenHandler);
