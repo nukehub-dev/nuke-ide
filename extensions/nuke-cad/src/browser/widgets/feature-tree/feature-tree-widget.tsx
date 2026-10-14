@@ -112,6 +112,12 @@ export class CadFeatureTreeWidget extends ReactWidget {
     @inject(NukeCadStateManager)
     protected readonly stateManager: NukeCadStateManager;
 
+    constructor(options?: any) {
+        super(options);
+        // Sidebar panels scroll natively (see the panel CSS) — no PerfectScrollbar thumb overlay.
+        this.scrollOptions = undefined;
+    }
+
     @postConstruct()
     protected init(): void {
         this.id = CadFeatureTreeWidget.ID;

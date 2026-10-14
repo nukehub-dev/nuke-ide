@@ -99,6 +99,12 @@ export class OpenMCGeometryTreeWidget extends ReactWidget {
     private readonly _onGeometryLoaded = new Emitter<GeometryLoadedEvent>();
     readonly onGeometryLoaded: Event<GeometryLoadedEvent> = this._onGeometryLoaded.event;
 
+    constructor(options?: any) {
+        super(options);
+        // Sidebar panels scroll natively (see the panel CSS) — no PerfectScrollbar thumb overlay.
+        this.scrollOptions = undefined;
+    }
+
     @postConstruct()
     protected init(): void {
         this.id = OpenMCGeometryTreeWidget.ID;

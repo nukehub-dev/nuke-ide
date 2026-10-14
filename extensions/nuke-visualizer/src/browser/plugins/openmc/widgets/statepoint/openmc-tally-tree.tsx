@@ -78,6 +78,12 @@ export class OpenMCTallyTreeWidget extends ReactWidget {
     private readonly _onTallySelected = new Emitter<TallySelection>();
     readonly onTallySelected: Event<TallySelection> = this._onTallySelected.event;
 
+    constructor(options?: any) {
+        super(options);
+        // Sidebar panels scroll natively (see the panel CSS) — no PerfectScrollbar thumb overlay.
+        this.scrollOptions = undefined;
+    }
+
     setLoading(loading: boolean, message: string = 'Loading...'): void {
         this.isLoading = loading;
         this.loadingMessage = message;

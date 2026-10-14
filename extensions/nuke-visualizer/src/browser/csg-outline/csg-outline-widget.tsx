@@ -83,6 +83,12 @@ export class CsgOutlineWidget extends ReactWidget {
     /** Panel-local collapsed groups (CAD TreeSection pattern); viewer state is never cached here. */
     protected collapsedGroups = new Set<string>();
 
+    constructor(options?: any) {
+        super(options);
+        // Sidebar panels scroll natively (see the panel CSS) — no PerfectScrollbar thumb overlay.
+        this.scrollOptions = undefined;
+    }
+
     @postConstruct()
     protected init(): void {
         this.id = CsgOutlineWidget.ID;

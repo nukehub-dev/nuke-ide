@@ -74,6 +74,8 @@ export class NukeToolsSidebarWidget extends ReactWidget {
 
     constructor() {
         super();
+        // Sidebar panels scroll natively (see the sidebar CSS) — no PerfectScrollbar thumb overlay.
+        this.scrollOptions = undefined;
         this.id = NukeToolsSidebarWidget.ID;
         this.title.label = NukeToolsSidebarWidget.LABEL;
         this.title.caption = NukeToolsSidebarWidget.LABEL;

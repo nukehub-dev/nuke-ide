@@ -38,6 +38,7 @@ All files under `extensions/` except generated artifacts (`*/lib/`, `*/node_modu
 
 - Follow the existing Theia style: 4-space indent, single quotes, no trailing commas (enforced by prettier, config at repo root).
 - Keep widgets and services small and composable; register everything through the module files, not ad-hoc singletons.
+- Sidebar `ReactWidget`s opt out of PerfectScrollbar (`this.scrollOptions = undefined` in the constructor — Theia enables it by default) and scroll natively via their own CSS; otherwise the `ps__thumb` overlay sits on top of panel content.
 - License header: new source files carry the BSD-2-Clause header used by existing files.
 - Extensions that spawn Python processes go through `nuke-core`'s environment detection rather than hard-coding interpreters.
 

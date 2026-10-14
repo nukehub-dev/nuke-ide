@@ -86,6 +86,12 @@ export class ViewerSettingsWidget extends ReactWidget {
     /** Panel-local collapsed sections (CAD TreeSection pattern); viewer state is never cached here. */
     protected collapsedSections = new Set<string>();
 
+    constructor(options?: any) {
+        super(options);
+        // Sidebar panels scroll natively (see the panel CSS) — no PerfectScrollbar thumb overlay.
+        this.scrollOptions = undefined;
+    }
+
     @postConstruct()
     protected init(): void {
         this.id = ViewerSettingsWidget.ID;

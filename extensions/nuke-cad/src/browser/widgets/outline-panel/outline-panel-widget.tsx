@@ -119,6 +119,12 @@ export class CadOutlinePanelWidget extends ReactWidget {
     /** Monotonically increasing token; stale manifest-existence probes are dropped. */
     private manifestCheckToken = 0;
 
+    constructor(options?: any) {
+        super(options);
+        // Sidebar panels scroll natively (see the panel CSS) — no PerfectScrollbar thumb overlay.
+        this.scrollOptions = undefined;
+    }
+
     @postConstruct()
     protected init(): void {
         this.id = CadOutlinePanelWidget.ID;

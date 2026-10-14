@@ -57,6 +57,12 @@ export class CadBomPanelWidget extends ReactWidget {
     @inject(CadDocumentStore)
     protected readonly documentStore: CadDocumentStore;
 
+    constructor(options?: any) {
+        super(options);
+        // Sidebar panels scroll natively (see the panel CSS) — no PerfectScrollbar thumb overlay.
+        this.scrollOptions = undefined;
+    }
+
     @postConstruct()
     protected init(): void {
         this.id = CadBomPanelWidget.ID;
