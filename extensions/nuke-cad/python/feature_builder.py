@@ -1234,6 +1234,27 @@ def _apply_defeature(body: Any, faces: list[Any], feature_id: str) -> Any:
     return bd.Compound(children=solids)
 
 
+def _apply_translate(body: Any, vector: Any, feature_id: str) -> Any:
+    """Rigidly move ``body`` by ``vector`` [dx, dy, dz] (document units, applied 1:1)."""
+    _require_build123d()
+    assert bd is not None
+    if (
+        not isinstance(vector, (list, tuple))
+        or len(vector) != 3
+        or any(
+            isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v)
+            for v in vector
+        )
+    ):
+        raise FeatureBuilderError(f"feature '{feature_id}': translate requires vector [dx, dy, dz]")
+    try:
+        return body.moved(bd.Location((float(vector[0]), float(vector[1]), float(vector[2]))))
+    except FeatureBuilderError:
+        raise
+    except Exception as exc:
+        raise FeatureBuilderError(f"feature '{feature_id}': translate failed: {exc}") from exc
+
+
 def _neutral_plane_from_face(face_entity: Any, feature_id: str) -> Any:
     """Return the ``gp_Pln`` of a planar neutral-plane face."""
     _require_reference_resolver()
@@ -4729,7 +4750,7 @@ def _execute_feature(state: _BuildState, feature_id: str) -> None:
         )
         return
 
-    if feature_type in ("fillet", "chamfer", "draft", "shell", "defeature"):
+    if feature_type in ("fillet", "chamfer", "draft", "shell", "defeature", "translate"):
         if body_id in consumed_bodies:
             feature_results.append({"featureId": feature_id, "bodyId": body_id, "status": "stale"})
             stale_or_failed.add(feature_id)
@@ -4835,6 +4856,8 @@ def _execute_feature(state: _BuildState, feature_id: str) -> None:
                 result_shape = _apply_shell(previous_body, entities, float(thickness), feature_id)
             elif feature_type == "defeature":
                 result_shape = _apply_defeature(previous_body, entities, feature_id)
+            elif feature_type == "translate":
+                result_shape = _apply_translate(previous_body, params.get("vector"), feature_id)
             else:
                 raise FeatureBuilderError(
                     f"feature '{feature_id}': type '{feature_type}' is not supported yet"

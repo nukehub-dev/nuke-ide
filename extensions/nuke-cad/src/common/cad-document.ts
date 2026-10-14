@@ -265,7 +265,8 @@ export type FeatureType =
     | 'primitive'
     | 'multiTransform'
     | 'lattice'
-    | 'defeature';
+    | 'defeature'
+    | 'translate';
 
 /** Feature types that create or modify solid geometry. */
 export type SolidFeatureType =
@@ -534,6 +535,12 @@ export interface DefeatureParams {
     faces: TopologyRef[];
 }
 
+/** Parameters for translate (rigid move of a body's accumulated shape). */
+export interface TranslateParams {
+    /** Translation offsets [dx, dy, dz] in document units; applied 1:1. Must be non-zero. */
+    vector: [number, number, number];
+}
+
 /** Union of all feature parameter shapes. */
 export type FeatureParams =
     | ExtrudeParams
@@ -554,6 +561,7 @@ export type FeatureParams =
     | PrimitiveParams
     | MultiTransformParams
     | DefeatureParams
+    | TranslateParams
     | Record<string, unknown>;
 
 /** A parametric feature in the model tree. */
@@ -960,7 +968,8 @@ function validateFeature(ctx: MutableValidationContext, feature: FeatureDef, ind
         'hole',
         'primitive',
         'multiTransform',
-        'defeature'
+        'defeature',
+        'translate'
     ];
     if (!knownTypes.includes(feature.type)) {
         issue(ctx, `${path}.type`, `unknown feature type '${feature.type}'`);
@@ -1529,6 +1538,15 @@ function validateFeatureParams(ctx: MutableValidationContext, path: string, type
                 for (const [i, face] of p.faces.entries()) {
                     validateEmbeddedTopologyRef(ctx, `${path}.faces[${i}]`, face);
                 }
+            }
+            break;
+        }
+        case 'translate': {
+            const vector = p.vector;
+            if (!Array.isArray(vector) || vector.length !== 3 || !vector.every((v: unknown) => isFiniteNumber(v))) {
+                issue(ctx, `${path}.vector`, 'vector must be a [dx, dy, dz] tuple of finite numbers');
+            } else if (vector[0] === 0 && vector[1] === 0 && vector[2] === 0) {
+                issue(ctx, `${path}.vector`, 'vector must be non-zero');
             }
             break;
         }

@@ -67,7 +67,8 @@ import {
     type ShellParams,
     type SketchDef,
     type SweepOrientation,
-    type SweepParams
+    type SweepParams,
+    type TranslateParams
 } from '../../../common/cad-document';
 import { createEmptyNukeCadDocument } from '../../../common/document-templates';
 
@@ -83,7 +84,14 @@ export type ReferencePreviewFeatureType =
 
 /** Feature types whose dialogs offer the ghosted preview. */
 export type PreviewableFeatureType =
-    CurveSweepFeatureType | 'loft' | 'helicalSweep' | 'lattice' | SketchSolidPreviewFeatureType | 'primitive' | ReferencePreviewFeatureType;
+    | CurveSweepFeatureType
+    | 'loft'
+    | 'helicalSweep'
+    | 'lattice'
+    | SketchSolidPreviewFeatureType
+    | 'primitive'
+    | ReferencePreviewFeatureType
+    | 'translate';
 
 /** String-state draft of a sweep/pipe dialog. */
 export interface SweepPipeDraft {
@@ -176,7 +184,8 @@ export interface FeaturePreviewRequest {
         | ShellParams
         | DraftParams
         | HoleParams
-        | BooleanParams;
+        | BooleanParams
+        | TranslateParams;
 }
 
 /** A history entry for the preview build: a feature id resolved against the document, or a feature record used verbatim. */
@@ -575,6 +584,10 @@ function draftPreviewBodyIds(request: FeaturePreviewRequest): string[] {
  * into the body) or subtractive (instances cut it), the draft must run
  * against the rebuilt real body where the source tool shape exists — on the
  * empty preview body the source would dangle and the preview would clear.
+ *
+ * Translate joins this list too: it rigid-moves the body's accumulated shape,
+ * so the draft must run against the rebuilt real body — on the empty preview
+ * body there is nothing to move and the preview would clear.
  */
 const HISTORY_TARGET_TYPES: readonly PreviewableFeatureType[] = [
     'pocket',
@@ -587,7 +600,8 @@ const HISTORY_TARGET_TYPES: readonly PreviewableFeatureType[] = [
     'lattice',
     'booleanFuse',
     'booleanCut',
-    'booleanCommon'
+    'booleanCommon',
+    'translate'
 ];
 
 /**

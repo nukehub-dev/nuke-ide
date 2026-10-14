@@ -59,7 +59,7 @@ import * as THREE from 'three';
 import { NukeCadBackendService, GeometryBuildResult } from '../../../common/nuke-cad-protocol';
 import { NukeCadStateManager, CadModel, CadSelection } from '../../state/nuke-cad-state-manager';
 import { buildSolidSummaries } from '../outline-panel/solid-summaries';
-import { toggleSolidSelection } from '../outline-panel/outline-interactions';
+import { addSolidsToSelection, toggleSolidSelection } from '../outline-panel/outline-interactions';
 import { NukeCadCommands } from '../../commands';
 import { LoadingAnimations } from 'nuke-essentials/lib/theme/browser/components/loading-spinner';
 import { NukeEmptyState, NukeLoadingOverlay } from 'nuke-essentials/lib/theme/browser/components';
@@ -278,6 +278,8 @@ export class CadViewportWidget extends ReactWidget {
     sketchEntering = false;
     /** True while a feature creation dialog is open. */
     featureCreationType?: FeatureType;
+    /** Body preselected as the dialog target, resolved from the viewport selection on open. */
+    featureCreationBodyId?: string;
     /** Id of the feature being edited, when the dialog is in edit mode. */
     editingFeatureId?: string;
     private sketchController?: SketchModeController;
@@ -503,11 +505,11 @@ export class CadViewportWidget extends ReactWidget {
         }
         const paramsRecord = params as Record<string, unknown>;
 
-        // Boolean, dress-up, pattern/mirror/hole, pipe, and loft features do not consume a sketch.
+        // Boolean, dress-up, pattern/mirror/hole, pipe, loft, and translate features do not consume a sketch.
         const isBoolean = type === 'booleanFuse' || type === 'booleanCut' || type === 'booleanCommon';
         const isDressUp = type === 'fillet' || type === 'chamfer' || type === 'draft' || type === 'shell';
         const isPatternOrMirrorOrHole = type === 'linearPattern' || type === 'circularPattern' || type === 'mirror' || type === 'hole';
-        const sketchFree = isBoolean || isDressUp || isPatternOrMirrorOrHole || type === 'pipe' || type === 'loft';
+        const sketchFree = isBoolean || isDressUp || isPatternOrMirrorOrHole || type === 'pipe' || type === 'loft' || type === 'translate';
         const sketchId = sketchFree ? undefined : this.documentStore.selection.selectedSketchId;
         if (!sketchFree && sketchId === undefined) {
             this.messageService.warn('Select a closed sketch before adding a solid feature.');
@@ -532,7 +534,7 @@ export class CadViewportWidget extends ReactWidget {
                 return;
             }
             bodyId = bodyResult.value;
-        } else if (bodyId === undefined && (type === 'pocket' || type === 'groove')) {
+        } else if (bodyId === undefined && (type === 'pocket' || type === 'groove' || type === 'translate')) {
             this.messageService.warn(`${type} requires an existing body.`);
             return;
         } else if (bodyId === undefined && isPatternOrMirrorOrHole) {
@@ -666,6 +668,7 @@ export class CadViewportWidget extends ReactWidget {
             'primitive',
             'multiTransform',
             'defeature',
+            'translate',
             'booleanFuse',
             'booleanCut',
             'booleanCommon'
@@ -1039,6 +1042,7 @@ export class CadViewportWidget extends ReactWidget {
     /** Dialog closed or committed: drop pick modes and the ghosted preview. */
     protected readonly handleCancelFeatureCreation = (): void => {
         this.featureCreationType = undefined;
+        this.featureCreationBodyId = undefined;
         this.editingFeatureId = undefined;
         this.dressUpPickMode = undefined;
         this.dressUpPickCallback = undefined;
@@ -1146,6 +1150,7 @@ export class CadViewportWidget extends ReactWidget {
             !isPatternOrMirrorOrHole &&
             type !== 'pipe' &&
             type !== 'loft' &&
+            type !== 'translate' &&
             this.documentStore.selection.selectedSketchId === undefined
         ) {
             this.messageService.warn('Select a closed sketch in the feature tree before adding a solid feature.');
@@ -1153,6 +1158,16 @@ export class CadViewportWidget extends ReactWidget {
         }
         this.editingFeatureId = undefined;
         this.featureCreationType = type;
+        // Preselect the dialog target body from the viewport selection so a
+        // selected solid opens Move/dress-up on its own body (the dialog
+        // still offers every body; stale ids fall back to the first body).
+        const selectedSolidId = this.stateManager.selection.solidId;
+        const selectedBodyId =
+            selectedSolidId !== undefined
+                ? this.stateManager.solidSummaries.find((summary) => summary.solidId === selectedSolidId)?.bodyId
+                : undefined;
+        this.featureCreationBodyId =
+            selectedBodyId !== undefined && doc.bodies.some((body) => body.id === selectedBodyId) ? selectedBodyId : undefined;
         this.update();
     }
 
@@ -1168,6 +1183,7 @@ export class CadViewportWidget extends ReactWidget {
             return;
         }
         this.editingFeatureId = id;
+        this.featureCreationBodyId = undefined;
         this.featureCreationType = feature.type;
         this.update();
     }
@@ -1823,6 +1839,7 @@ export class CadViewportWidget extends ReactWidget {
                 sketchSetupVisible={this.sketchSetupVisible}
                 sketchEntering={this.sketchEntering}
                 featureCreationType={this.featureCreationType}
+                featureCreationBodyId={this.featureCreationBodyId}
                 editingFeatureId={this.editingFeatureId}
                 facePickMode={this.facePickMode}
                 dressUpPickMode={this.dressUpPickMode}
@@ -1926,6 +1943,7 @@ interface CadViewportComponentProps {
     readonly sketchSetupVisible: boolean;
     readonly sketchEntering: boolean;
     readonly featureCreationType?: FeatureType;
+    readonly featureCreationBodyId?: string;
     readonly editingFeatureId?: string;
     readonly facePickMode?: 'sketchDatum' | 'externalGeometry';
     readonly dressUpPickMode?: { readonly type: FeatureType; readonly selecting: 'edge' | 'face' };
@@ -2648,6 +2666,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             messageService={props.messageService}
             setupVisible={props.sketchSetupVisible}
             featureCreationType={props.featureCreationType}
+            featureCreationBodyId={props.featureCreationBodyId}
             editFeature={editFeature}
             facePickMode={props.facePickMode}
             dressUpPickMode={props.dressUpPickMode}
@@ -4554,7 +4573,118 @@ function initViewport(
         return best;
     };
 
+    // Rubber-band box select: Ctrl/Cmd+drag draws a rectangle over the canvas
+    // and adds every solid with a face-box center inside it to the selection.
+    // Navigation is frozen while the modifier is held, so the drag never moves
+    // the camera; a press-release without a drag falls through to the normal
+    // click pick below. Inactive in sketch mode and every pick mode (those own
+    // Ctrl+click), and while the measure tool captures clicks.
+    const BOX_SELECT_MIN_PX = 5;
+    const boxSelectBand = document.createElement('div');
+    boxSelectBand.className = 'cad-box-select-band';
+    boxSelectBand.style.display = 'none';
+    container.appendChild(boxSelectBand);
+    let boxSelectStart: { x: number; y: number } | undefined;
+    let boxSelectDrawn = false;
+    let suppressClickAfterBox = false;
+    const boxSelectPickModesActive = (): boolean =>
+        controller.isActive ||
+        activeFacePickMode !== undefined ||
+        activeDressUpPickMode !== undefined ||
+        activeHolePickMode ||
+        activeCurvePickMode ||
+        activeDrawingDimensionPickMode ||
+        activeConnectorPickMode ||
+        measureState.active;
+    const onBoxSelectPointerDown = (event: PointerEvent): void => {
+        if (event.button !== 0 || (!event.ctrlKey && !event.metaKey) || boxSelectPickModesActive()) {
+            return;
+        }
+        const rect = renderer.domElement.getBoundingClientRect();
+        boxSelectStart = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+        boxSelectDrawn = false;
+    };
+    const onBoxSelectPointerMove = (event: PointerEvent): void => {
+        if (boxSelectStart === undefined) {
+            return;
+        }
+        const rect = renderer.domElement.getBoundingClientRect();
+        const x = event.clientX - rect.left;
+        const y = event.clientY - rect.top;
+        if (!boxSelectDrawn) {
+            if (Math.hypot(x - boxSelectStart.x, y - boxSelectStart.y) < BOX_SELECT_MIN_PX) {
+                return;
+            }
+            boxSelectDrawn = true;
+            boxSelectBand.style.display = '';
+        }
+        const containerRect = container.getBoundingClientRect();
+        const offsetX = rect.left - containerRect.left;
+        const offsetY = rect.top - containerRect.top;
+        boxSelectBand.style.left = `${Math.min(boxSelectStart.x, x) + offsetX}px`;
+        boxSelectBand.style.top = `${Math.min(boxSelectStart.y, y) + offsetY}px`;
+        boxSelectBand.style.width = `${Math.abs(x - boxSelectStart.x)}px`;
+        boxSelectBand.style.height = `${Math.abs(y - boxSelectStart.y)}px`;
+    };
+    const onBoxSelectPointerUp = (event: PointerEvent): void => {
+        if (boxSelectStart === undefined) {
+            return;
+        }
+        const start = boxSelectStart;
+        boxSelectStart = undefined;
+        if (!boxSelectDrawn) {
+            return;
+        }
+        boxSelectDrawn = false;
+        boxSelectBand.style.display = 'none';
+        suppressClickAfterBox = true;
+        const rect = renderer.domElement.getBoundingClientRect();
+        const x = event.clientX - rect.left;
+        const y = event.clientY - rect.top;
+        const minX = Math.min(start.x, x);
+        const maxX = Math.max(start.x, x);
+        const minY = Math.min(start.y, y);
+        const maxY = Math.max(start.y, y);
+        const boxed = new Set<number>();
+        const box = new THREE.Box3();
+        const center = new THREE.Vector3();
+        for (const mesh of pickableMeshes()) {
+            box.setFromObject(mesh);
+            box.getCenter(center);
+            // Behind the camera the projection flips; drop those faces.
+            const inCamera = center.clone().applyMatrix4(camera.matrixWorldInverse);
+            if (inCamera.z >= 0) {
+                continue;
+            }
+            const projected = center.project(camera);
+            const sx = ((projected.x + 1) / 2) * rect.width;
+            const sy = ((1 - projected.y) / 2) * rect.height;
+            if (sx >= minX && sx <= maxX && sy >= minY && sy <= maxY) {
+                boxed.add(mesh.userData.solidId as number);
+            }
+        }
+        if (boxed.size === 0) {
+            return;
+        }
+        onSelect(addSolidsToSelection(currentSelection, [...boxed]));
+    };
+    renderer.domElement.addEventListener('pointerdown', onBoxSelectPointerDown);
+    window.addEventListener('pointermove', onBoxSelectPointerMove);
+    window.addEventListener('pointerup', onBoxSelectPointerUp);
+    const onBoxSelectPointerCancel = (): void => {
+        boxSelectStart = undefined;
+        boxSelectDrawn = false;
+        boxSelectBand.style.display = 'none';
+    };
+    window.addEventListener('pointercancel', onBoxSelectPointerCancel);
+
     const onClick = (event: MouseEvent) => {
+        // A rubber-band drag ends with a click event too; the box already
+        // applied the selection, so there is nothing left to pick.
+        if (suppressClickAfterBox) {
+            suppressClickAfterBox = false;
+            return;
+        }
         // Canvas clicks never need a bottom-bar popover open; the popover
         // buttons live outside the canvas so this cannot eat their presses.
         onClosePopover();
@@ -5167,6 +5297,8 @@ function initViewport(
         if (!additiveModifierHeld) {
             additiveModifierHeld = true;
             applyControlsEnabled();
+            // Crosshair signals pick mode; cleared on release/blur/cleanup.
+            renderer.domElement.style.cursor = 'crosshair';
         }
     };
     const onAdditiveModifierUp = (event: KeyboardEvent): void => {
@@ -5176,12 +5308,14 @@ function initViewport(
         if (!event.ctrlKey && !event.metaKey) {
             additiveModifierHeld = false;
             applyControlsEnabled();
+            renderer.domElement.style.cursor = '';
         }
     };
     const onAdditiveModifierBlur = (): void => {
         if (additiveModifierHeld) {
             additiveModifierHeld = false;
             applyControlsEnabled();
+            renderer.domElement.style.cursor = '';
         }
     };
     window.addEventListener('keydown', onAdditiveModifierDown);
@@ -5456,6 +5590,12 @@ function initViewport(
             renderer.domElement.removeEventListener('pointermove', onPickPointerMove);
             renderer.domElement.removeEventListener('contextmenu', onContextMenu);
             renderer.domElement.removeEventListener('pointerdown', onPointerDown);
+            renderer.domElement.removeEventListener('pointerdown', onBoxSelectPointerDown);
+            window.removeEventListener('pointermove', onBoxSelectPointerMove);
+            window.removeEventListener('pointerup', onBoxSelectPointerUp);
+            window.removeEventListener('pointercancel', onBoxSelectPointerCancel);
+            boxSelectBand.remove();
+            renderer.domElement.style.cursor = '';
             renderer.domElement.removeEventListener('pointermove', onSketchPointerMove);
             renderer.domElement.removeEventListener('pointerup', onPointerUp);
             renderer.domElement.removeEventListener('wheel', onWheel);

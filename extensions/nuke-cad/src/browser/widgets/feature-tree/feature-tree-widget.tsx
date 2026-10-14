@@ -1213,6 +1213,8 @@ function iconForFeature(type: string): string {
             return 'codicon-nuke-cad-mirror';
         case 'hole':
             return 'codicon-nuke-cad-hole';
+        case 'translate':
+            return 'codicon-nuke-cad-move';
         case 'booleanFuse':
             return 'codicon-nuke-cad-boolean-fuse';
         case 'booleanCut':

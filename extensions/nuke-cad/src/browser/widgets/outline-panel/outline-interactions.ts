@@ -72,6 +72,27 @@ export function selectionSolidIds(selection: CadSelection): number[] {
     return [solidId, ...rest];
 }
 
+/**
+ * Union boxed solids into a selection (rubber-band box select): keeps the
+ * current primary, appends unseen ids in box order. Empty input returns the
+ * selection untouched so a miss never clears.
+ */
+export function addSolidsToSelection(selection: CadSelection, boxed: readonly number[]): CadSelection {
+    if (boxed.length === 0) {
+        return selection;
+    }
+    const ids = selectionSolidIds(selection);
+    for (const id of boxed) {
+        if (!ids.includes(id)) {
+            ids.push(id);
+        }
+    }
+    if (ids.length === 0) {
+        return selection;
+    }
+    return ids.length === 1 ? { solidId: ids[0] } : { solidId: ids[0], solidIds: ids };
+}
+
 /** Result of {@link parseOverlapWarning}. */
 export interface OverlapPair {
     readonly bodyA: string;
@@ -186,6 +207,7 @@ const SOLID_FEATURE_TYPES: readonly FeatureDef['type'][] = [
     'linearPattern',
     'circularPattern',
     'hole',
+    'translate',
     'booleanFuse',
     'booleanCut',
     'booleanCommon'

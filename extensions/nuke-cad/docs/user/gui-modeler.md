@@ -113,9 +113,11 @@ it opens it in the CAD viewport by default.
   Explode** (disabled at 0%). It closes on a click elsewhere or `Esc`.
 - **Multi-select**: `Ctrl`/`Cmd`-click solids in the viewport (or rows in the
   Model Outline BODIES section) to accumulate a selection; `Ctrl`/`Cmd`-click
-  again to drop one. While `Ctrl`/`Cmd` is held the camera stays frozen
-  (three.js would otherwise pan on modifier-drag), so hover+click across the
-  model never moves the view. Right-clicking a selected solid then offers **Hide /
+  again to drop one, or `Ctrl`/`Cmd`-drag a rectangle to add every solid whose
+  face centers fall inside it. While `Ctrl`/`Cmd` is held the camera stays frozen
+  (three.js would otherwise pan on modifier-drag) and the cursor turns into a
+  crosshair, so hover+click across the model never moves the view.
+  Right-clicking a selected solid then offers **Hide /
   Isolate Selected (N)** for the whole set alongside the single-solid items;
   empty-space click clears (plain click only).
 - Press `Tab` to enter sketch mode and `Tab` again to leave it; the labeled
@@ -379,6 +381,11 @@ commands in the Feature Tree:
   selected faces open.
 - **Defeature** — delete selected faces (small holes, logos, and other
   detail to remove before meshing/export).
+- **Move** — rigidly translate a body's accumulated shape by `dx`/`dy`/`dz`
+  in document units (e.g. lower a frame by entering a negative `dz`). Find it
+  in the document toolbar's **Dress-up** group (no sketch or edit mode needed):
+  the target body arrives pre-selected from the viewport selection, the dialog
+  previews the move ghosted, and later features chain through it.
 - **Linear Pattern** — replicate a sketch-based solid feature along `X`, `Y`, or
   `Z`.
 - **Circular Pattern** — replicate a sketch-based solid feature around a global

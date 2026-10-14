@@ -2651,6 +2651,7 @@ export function computeDependsOn(type: FeatureDef['type'], bodyId: string, featu
         'hole',
         'primitive',
         'multiTransform',
+        'translate',
         'booleanFuse',
         'booleanCut',
         'booleanCommon'

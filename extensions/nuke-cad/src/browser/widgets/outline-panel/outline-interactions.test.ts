@@ -27,6 +27,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+    addSolidsToSelection,
     buildFuseFeature,
     bodyTipFeature,
     classifyDiagnostic,
@@ -78,6 +79,24 @@ describe('toggleSolidSelection', () => {
     it('lists the primary first', () => {
         expect(selectionSolidIds({ solidId: 2, solidIds: [1, 2, 3] })).toEqual([2, 1, 3]);
         expect(selectionSolidIds({})).toEqual([]);
+    });
+});
+
+describe('addSolidsToSelection', () => {
+    it('unions boxed solids keeping the current primary', () => {
+        expect(addSolidsToSelection({ solidId: 1, solidIds: [1, 2] }, [2, 3, 4])).toEqual({
+            solidId: 1,
+            solidIds: [1, 2, 3, 4]
+        });
+    });
+
+    it('starts a selection from empty', () => {
+        expect(addSolidsToSelection({}, [5])).toEqual({ solidId: 5 });
+    });
+
+    it('leaves the selection untouched on an empty box', () => {
+        const current = { solidId: 1, solidIds: [1, 2] };
+        expect(addSolidsToSelection(current, [])).toBe(current);
     });
 });
 

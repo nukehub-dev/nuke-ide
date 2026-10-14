@@ -2039,6 +2039,36 @@ describe('extended feature validation', () => {
         expect(result.issues.some((i) => i.path === 'features[1].params.neutralPlane')).toBe(true);
     });
 
+    it('accepts translate with a non-zero vector, rejecting bad ones', () => {
+        const doc = makeBaseDocument();
+        doc.features.push({
+            id: 'mov1',
+            name: 'Move down',
+            type: 'translate',
+            body: 'body-1',
+            params: { vector: [0, 0, -5] },
+            suppressed: false,
+            dependsOn: ['pad1']
+        });
+        expect(validateNukeCadDocument(doc).valid).toBe(true);
+
+        for (const vector of [undefined, [0, 0], [0, 0, 0], [1, Number.NaN, 0], 'down']) {
+            const bad = makeBaseDocument();
+            bad.features.push({
+                id: 'mov1',
+                name: 'Move down',
+                type: 'translate',
+                body: 'body-1',
+                params: { vector },
+                suppressed: false,
+                dependsOn: ['pad1']
+            });
+            const result = validateNukeCadDocument(bad);
+            expect(result.valid).toBe(false);
+            expect(result.issues.some((i) => i.path === 'features[1].params.vector')).toBe(true);
+        }
+    });
+
     it('still accepts legacy documents (no schema bump)', () => {
         const doc = makeBaseDocument();
         expect(validateNukeCadDocument(doc).valid).toBe(true);

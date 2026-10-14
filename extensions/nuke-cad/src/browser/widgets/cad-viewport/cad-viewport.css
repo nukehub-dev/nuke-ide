@@ -12,6 +12,15 @@
     background: var(--theia-editor-background);
 }
 
+/* Rubber-band box-select rectangle (Ctrl/Cmd+drag); positioned inline. */
+.cad-box-select-band {
+    position: absolute;
+    z-index: 14;
+    border: 1px solid var(--theia-focusBorder);
+    background: rgba(128, 128, 128, 0.08);
+    pointer-events: none;
+}
+
 /* The empty-state card must not be a flex item alongside the absolutely
    positioned sketch overlay; in that layout Chrome resolves its width:100%
    against min-content and squishes it to the left edge. */

@@ -69,6 +69,7 @@ import {
     type HoleParams,
     type BooleanParams,
     type LatticeParams,
+    type TranslateParams,
     LATTICE_MAX_CELLS
 } from '../../../common/cad-document';
 import { type TopologyRef } from '../../../common/topology-refs';
@@ -121,6 +122,7 @@ interface CadSketchOverlayProps {
     readonly messageService: MessageService;
     readonly setupVisible: boolean;
     readonly featureCreationType?: FeatureType;
+    readonly featureCreationBodyId?: string;
     readonly editFeature?: FeatureDef;
     readonly facePickMode?: 'sketchDatum' | 'externalGeometry';
     readonly dressUpPickMode?: { readonly type: FeatureType; readonly selecting: 'edge' | 'face' };
@@ -236,6 +238,7 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
         messageService,
         setupVisible,
         featureCreationType,
+        featureCreationBodyId,
         editFeature,
         facePickMode,
         dressUpPickMode,
@@ -573,6 +576,7 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
                 <FeatureCreationDialog
                     type={featureCreationType}
                     editFeature={editFeature}
+                    initialBodyId={featureCreationBodyId}
                     sketchId={documentStore.selection.selectedSketchId}
                     documentStore={documentStore}
                     dressUpPickMode={dressUpPickMode}
@@ -1432,6 +1436,13 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
                     icon: 'codicon-nuke-cad-shell',
                     disabled: !hasBodies,
                     onClick: () => props.onStartFeatureCreation('shell')
+                },
+                {
+                    id: 'translate',
+                    label: 'Move (translate body)',
+                    icon: 'codicon-nuke-cad-move',
+                    disabled: !hasBodies,
+                    onClick: () => props.onStartFeatureCreation('translate')
                 }
             ]
         },
@@ -2384,6 +2395,8 @@ function SketchShortcutsPopover(props: SketchShortcutsPopoverProps): React.React
 interface FeatureCreationDialogProps {
     readonly type: FeatureType;
     readonly editFeature?: FeatureDef;
+    /** Body preselected as the dialog target (resolved from the viewport selection on open). */
+    readonly initialBodyId?: string;
     readonly sketchId?: string;
     readonly documentStore: CadDocumentStore;
     readonly dressUpPickMode?: { readonly type: FeatureType; readonly selecting: 'edge' | 'face' };
@@ -2424,6 +2437,7 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
     const isPrimitive = typeName === 'primitive';
     const isMultiTransform = typeName === 'multiTransform';
     const isDefeature = typeName === 'defeature';
+    const isTranslate = typeName === 'translate';
     const isLattice = typeName === 'lattice';
     const doc = props.documentStore.document;
     const bodies = doc?.bodies ?? [];
@@ -2439,7 +2453,13 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
     const [error, setError] = React.useState<string | undefined>();
 
     // Dress-up state.
-    const [dressUpBodyId, setDressUpBodyId] = React.useState<string>(bodies.length > 0 ? bodies[0].id : '');
+    const [dressUpBodyId, setDressUpBodyId] = React.useState<string>(() => {
+        const preferred = props.initialBodyId;
+        if (preferred !== undefined && bodies.some((body) => body.id === preferred)) {
+            return preferred;
+        }
+        return bodies.length > 0 ? bodies[0].id : '';
+    });
     const [refs, setRefs] = React.useState<TopologyRef[]>([]);
     const [filletRadius, setFilletRadius] = React.useState('1');
     const [chamferMode, setChamferMode] = React.useState<ChamferMode>('symmetric');
@@ -2450,6 +2470,10 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
     const [pullDirection, setPullDirection] = React.useState<[string, string, string]>(['0', '0', '1']);
     const [shellThickness, setShellThickness] = React.useState('1');
     const [shellAllFaces, setShellAllFaces] = React.useState(false);
+
+    // Translate state: rigid [dx, dy, dz] move of the target body's
+    // accumulated shape (modify-existing-body only, never a new body).
+    const [translateVector, setTranslateVector] = React.useState<[string, string, string]>(['0', '0', '0']);
 
     // Pattern/mirror state.
     const sourceFeatures = doc?.features.filter((f) => SOLID_PRODUCERS.includes(f.type) && !f.suppressed) ?? [];
@@ -2741,6 +2765,10 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
         if (isDefeature) {
             setRefs(Array.isArray(p.faces) ? (p.faces as TopologyRef[]) : []);
         }
+        if (isTranslate) {
+            const vector = p.vector as [number, number, number] | undefined;
+            setTranslateVector(vector !== undefined ? [String(vector[0]), String(vector[1]), String(vector[2])] : ['0', '0', '0']);
+        }
         setError(undefined);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [props.editFeature]);
@@ -2902,6 +2930,16 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                 const booleanType = type === 'booleanCut' ? 'booleanCut' : type === 'booleanCommon' ? 'booleanCommon' : 'booleanFuse';
                 request = { type: booleanType, params: { ...result.params, keepTools } };
             }
+        } else if (isTranslate) {
+            // The ghost path reuses the target body's full feature chain via
+            // the request body id; the same-body retarget for translate
+            // drafts lives in buildFeaturePreviewDocument (sweep-pipe.ts).
+            if (dressUpBodyId !== '') {
+                const result = validateTranslateDialogInputs(translateVector, dressUpBodyId, doc?.bodies ?? []);
+                if (result.ok) {
+                    request = { type: 'translate', params: result.params, bodyId: dressUpBodyId };
+                }
+            }
         } else if (isLattice) {
             // The ghost path reuses the pattern-source closure: the target
             // body's full feature chain (including the lattice source) is
@@ -3004,6 +3042,7 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
         targetBody,
         toolBodies,
         keepTools,
+        translateVector,
         patternSource,
         patternScale,
         latticeType,
@@ -3080,8 +3119,8 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
 
     const submit = (): void => {
         // Primitives sit on a datum, multiTransforms on pattern sources,
-        // defeatures on picked faces, and lattices on a source feature — none
-        // of them consume the selected sketch.
+        // defeatures on picked faces, translates on an existing body, and
+        // lattices on a source feature — none of them consume the selected sketch.
         if (
             !isBoolean &&
             !isDressUp &&
@@ -3090,6 +3129,7 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
             !isPrimitive &&
             !isMultiTransform &&
             !isDefeature &&
+            !isTranslate &&
             !isLattice &&
             props.sketchId === undefined
         ) {
@@ -3400,6 +3440,15 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
             finish({ faces: refs, bodyId: dressUpBodyId, label });
             return;
         }
+        if (isTranslate) {
+            const result = validateTranslateDialogInputs(translateVector, dressUpBodyId, doc?.bodies ?? []);
+            if (!result.ok) {
+                setError(result.error);
+                return;
+            }
+            finish({ vector: result.params.vector, bodyId: dressUpBodyId, label });
+            return;
+        }
         if (isExtrude) {
             // Length is required iff blind; symmetric/twoSided split
             // it equally both ways and are blind-only.
@@ -3644,7 +3693,7 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
             }
         >
             {error !== undefined && <div className="cad-feature-dialog-error">{error}</div>}
-            {!isBoolean && !isDressUp && !isHole && bodySelector}
+            {!isBoolean && !isDressUp && !isHole && !isTranslate && bodySelector}
             {isDressUp && dressUpBodySelector}
             {isDressUp && type === 'fillet' && (
                 <>
@@ -4617,6 +4666,42 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
             )}
             {isDefeature && dressUpBodySelector}
             {isDefeature && refList}
+            {isTranslate && (
+                <>
+                    {dressUpBodySelector}
+                    <label className="cad-feature-dialog-row">
+                        DX
+                        <input
+                            type="number"
+                            value={translateVector[0]}
+                            onChange={(e) => setTranslateVector(([_, y, z]) => [e.target.value, y, z])}
+                            autoFocus
+                        />
+                    </label>
+                    <label className="cad-feature-dialog-row">
+                        DY
+                        <input
+                            type="number"
+                            value={translateVector[1]}
+                            onChange={(e) => setTranslateVector(([x, _, z]) => [x, e.target.value, z])}
+                        />
+                    </label>
+                    <label className="cad-feature-dialog-row">
+                        DZ
+                        <input
+                            type="number"
+                            value={translateVector[2]}
+                            onChange={(e) => setTranslateVector(([x, y, _]) => [x, y, e.target.value])}
+                        />
+                    </label>
+                    {props.onPreviewChange !== undefined && (
+                        <label className="cad-feature-dialog-row check">
+                            <input type="checkbox" checked={previewEnabled} onChange={(e) => setPreviewEnabled(e.target.checked)} />
+                            Preview (ghosted build)
+                        </label>
+                    )}
+                </>
+            )}
             {isPrimitive && (
                 <>
                     <NukeFormRow label="Shape" className="cad-feature-dialog-row">
@@ -4798,6 +4883,25 @@ function validateShellDialogInputs(thicknessText: string, refs: TopologyRef[], a
         return { ok: false, error: 'Thickness must be a positive number.' };
     }
     return { ok: true, params: { faces: allFaces ? [] : refs, thickness } };
+}
+
+/** Translate vector plus the target body (a rigid move of existing geometry — never a new body). */
+function validateTranslateDialogInputs(
+    vector: readonly [string, string, string],
+    bodyId: string,
+    bodies: readonly { readonly id: string }[]
+): DialogValidation<TranslateParams> {
+    if (bodyId === '' || bodies.every((b) => b.id !== bodyId)) {
+        return { ok: false, error: 'Select a target body.' };
+    }
+    const nums: [number, number, number] = [Number(vector[0]), Number(vector[1]), Number(vector[2])];
+    if (!nums.every((v) => Number.isFinite(v))) {
+        return { ok: false, error: 'Translation vector must be three finite numbers.' };
+    }
+    if (nums[0] === 0 && nums[1] === 0 && nums[2] === 0) {
+        return { ok: false, error: 'Translation vector must be non-zero.' };
+    }
+    return { ok: true, params: { vector: nums } };
 }
 
 /** String-state draft of the lattice dialog (rows/cols XOR rings). */
@@ -5826,6 +5930,15 @@ function ContextShortcutBar(props: ContextShortcutBarProps): React.ReactElement 
                     </button>
                 </Tooltip>
             ))}
+            <Tooltip content="Translate" position="bottom">
+                <button
+                    className="theia-button secondary cad-shortcut-bar-button"
+                    disabled={!hasBodies}
+                    onClick={() => execute(() => onStartFeatureCreation('translate'))}
+                >
+                    <span className="codicon codicon-nuke-cad-move" />
+                </button>
+            </Tooltip>
             <span className="cad-shortcut-bar-divider" />
             {(['linearPattern', 'circularPattern', 'mirror', 'lattice', 'hole'] as FeatureType[]).map((type) => (
                 <Tooltip key={type} content={capitalize(type)} position="bottom">
