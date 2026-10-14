@@ -287,8 +287,11 @@ export class TallyNativeViewerWidget extends NativeVtkViewerWidget implements Cs
     /** Toggle the bottom probe panel, seeding endpoints from the dataset bounds on first open. */
     protected toggleProbePanel(): void {
         this.probeOpen = !this.probeOpen;
-        if (this.probeOpen && (this.probeP0 === '' || this.probeP1 === '') && this.model) {
-            const bounds = boundingBoxFromPositions(this.model.positions);
+        if (this.probeOpen) {
+            // Single active tool: the probe and contour panels share the
+            // bottom strip, so opening one closes the other.
+            this.contourOpen = false;
+            const bounds = this.model ? boundingBoxFromPositions(this.model.positions) : undefined;
             const { p0, p1 } = defaultProbeEndpoints(
                 bounds
                     ? {
@@ -304,6 +307,72 @@ export class TallyNativeViewerWidget extends NativeVtkViewerWidget implements Cs
                 this.probeP1 = formatProbePoint(p1);
             }
         }
+        this.update();
+    }
+
+    /**
+     * Seed the probe/contour source fields from the tab's own context (the
+     * opener passes the statepoint path + tally selectors it already knows).
+     * Only fills empty fields — never overwrites anything the user typed.
+     */
+    seedToolContext(context: { statepointPath?: string; tallyId?: number; score?: string; nuclide?: string }): void {
+        if (context.statepointPath) {
+            if (this.probeStatepointPath === '') {
+                this.probeStatepointPath = context.statepointPath;
+            }
+            if (this.contourStatepointPath === '') {
+                this.contourStatepointPath = context.statepointPath;
+            }
+        }
+        if (context.tallyId !== undefined) {
+            const tallyId = String(context.tallyId);
+            if (this.probeTallyId === '') {
+                this.probeTallyId = tallyId;
+            }
+            if (this.contourTallyId === '') {
+                this.contourTallyId = tallyId;
+            }
+        }
+        if (context.score !== undefined) {
+            if (this.probeScore === '') {
+                this.probeScore = context.score;
+            }
+            if (this.contourScore === '') {
+                this.contourScore = context.score;
+            }
+        }
+        if (context.nuclide !== undefined) {
+            if (this.probeNuclide === '') {
+                this.probeNuclide = context.nuclide;
+            }
+            if (this.contourNuclide === '') {
+                this.contourNuclide = context.nuclide;
+            }
+        }
+        this.update();
+    }
+
+    /** Fill the probe endpoints with the dataset span along one axis, through the dataset center. */
+    protected setProbeSpan(axis: 0 | 1 | 2): void {
+        if (!this.model) {
+            return;
+        }
+        const bounds = boundingBoxFromPositions(this.model.positions);
+        if (!bounds) {
+            return;
+        }
+        const center: ProbePoint3D = [
+            (bounds.min[0] + bounds.max[0]) / 2,
+            (bounds.min[1] + bounds.max[1]) / 2,
+            (bounds.min[2] + bounds.max[2]) / 2
+        ];
+        const p0: ProbePoint3D = [center[0], center[1], center[2]];
+        const p1: ProbePoint3D = [center[0], center[1], center[2]];
+        p0[axis] = bounds.min[axis];
+        p1[axis] = bounds.max[axis];
+        this.probeP0 = formatProbePoint(p0);
+        this.probeP1 = formatProbePoint(p1);
+        this.probeError = undefined;
         this.update();
     }
 
@@ -399,6 +468,8 @@ export class TallyNativeViewerWidget extends NativeVtkViewerWidget implements Cs
     protected toggleContourPanel(): void {
         this.contourOpen = !this.contourOpen;
         if (this.contourOpen) {
+            // Single active tool: opening contour closes the probe panel.
+            this.probeOpen = false;
             if (this.contourStatepointPath === '' && this.probeStatepointPath !== '') {
                 this.contourStatepointPath = this.probeStatepointPath;
             }
@@ -734,7 +805,13 @@ export class TallyNativeViewerWidget extends NativeVtkViewerWidget implements Cs
         return (
             <div className="openmc-output-viewer-header">
                 <Tooltip content={this.describeTallyKind()} position="bottom">
-                    <span className="openmc-output-viewer-file" style={{ fontSize: '11px', opacity: 0.8 }}>
+                    <span
+                        className="openmc-output-viewer-file"
+                        // Same text + vertical padding as the header buttons (12px / 2px): every header item then
+                        // has an identical box, so flex centering aligns icons and baselines instead of stair-stepping
+                        // them (codicon glyphs always occupy a fixed 16px box, which exposed the 11px-vs-12px mismatch).
+                        style={{ fontSize: '12px', opacity: 0.8, padding: '2px 0' }}
+                    >
                         <i className={codicon('tag')}></i>
                         {this.tallyKind}
                         {this.sliceAxis ? ` ⟂ ${this.sliceAxis}` : ''}
@@ -744,7 +821,18 @@ export class TallyNativeViewerWidget extends NativeVtkViewerWidget implements Cs
                 <Tooltip content="Sample the mesh tally along a line segment (flux profile)" position="bottom">
                     <button
                         className="theia-button tally-line-probe-toggle"
-                        style={{ padding: '2px 8px', fontSize: '12px', minWidth: '0' }}
+                        // Inline-flex centers the fixed 16px codicon box against the 12px label — a text baseline
+                        // leaves the glyph riding high.
+                        style={{
+                            padding: '2px 8px',
+                            fontSize: '12px',
+                            minWidth: '0',
+                            fontWeight: this.probeOpen ? 'bold' : undefined,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                        }}
+                        aria-pressed={this.probeOpen}
                         onClick={() => this.toggleProbePanel()}
                     >
                         <i className={codicon('graph-line')}></i> Line probe
@@ -753,7 +841,17 @@ export class TallyNativeViewerWidget extends NativeVtkViewerWidget implements Cs
                 <Tooltip content="Extract flux iso-surfaces into a sibling tab (contour)" position="bottom">
                     <button
                         className="theia-button tally-contour-toggle"
-                        style={{ padding: '2px 8px', fontSize: '12px', minWidth: '0' }}
+                        // Inline-flex centers the fixed 16px codicon box against the 12px label (see above).
+                        style={{
+                            padding: '2px 8px',
+                            fontSize: '12px',
+                            minWidth: '0',
+                            fontWeight: this.contourOpen ? 'bold' : undefined,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                        }}
+                        aria-pressed={this.contourOpen}
                         onClick={() => this.toggleContourPanel()}
                     >
                         <i className={codicon('layers')}></i> Contour
@@ -778,7 +876,18 @@ export class TallyNativeViewerWidget extends NativeVtkViewerWidget implements Cs
         return (
             <div className="openmc-output-viewer-panel-host tally-contour-panel">
                 <div className="openmc-output-viewer-panel">
-                    <h4>Contour — iso-surfaces over the mesh tally</h4>
+                    <div className="openmc-output-viewer-control" style={{ justifyContent: 'space-between', marginBottom: '4px' }}>
+                        <h4 style={{ margin: 0 }}>Contour — iso-surfaces over the mesh tally</h4>
+                        <Tooltip content="Close contour panel" position="bottom">
+                            <button
+                                className="theia-button tally-contour-close"
+                                style={{ padding: '2px 8px', fontSize: '12px', minWidth: '0' }}
+                                onClick={() => this.toggleContourPanel()}
+                            >
+                                <i className={codicon('close')}></i>
+                            </button>
+                        </Tooltip>
+                    </div>
                     <div className="openmc-output-viewer-control" style={{ flexWrap: 'wrap', rowGap: '6px' }}>
                         <label>
                             Statepoint
@@ -898,7 +1007,18 @@ export class TallyNativeViewerWidget extends NativeVtkViewerWidget implements Cs
         return (
             <div className="openmc-output-viewer-panel-host tally-line-probe-panel">
                 <div className="openmc-output-viewer-panel">
-                    <h4>Line probe — flux profile along a segment</h4>
+                    <div className="openmc-output-viewer-control" style={{ justifyContent: 'space-between', marginBottom: '4px' }}>
+                        <h4 style={{ margin: 0 }}>Line probe — flux profile along a segment</h4>
+                        <Tooltip content="Close line probe panel" position="bottom">
+                            <button
+                                className="theia-button tally-line-probe-close"
+                                style={{ padding: '2px 8px', fontSize: '12px', minWidth: '0' }}
+                                onClick={() => this.toggleProbePanel()}
+                            >
+                                <i className={codicon('close')}></i>
+                            </button>
+                        </Tooltip>
+                    </div>
                     <div className="openmc-output-viewer-control" style={{ flexWrap: 'wrap', rowGap: '6px' }}>
                         <label>
                             Statepoint
@@ -980,6 +1100,21 @@ export class TallyNativeViewerWidget extends NativeVtkViewerWidget implements Cs
                                 }}
                             />
                         </label>
+                        <span className="tally-line-probe-spans" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                            <span className="nuke-viewer-status-line">Span:</span>
+                            {(['X', 'Y', 'Z'] as const).map((axisLabel, axis) => (
+                                <Tooltip key={axisLabel} content={`Set endpoints to the dataset ${axisLabel} span`} position="bottom">
+                                    <button
+                                        className="theia-button tally-line-probe-span"
+                                        style={{ padding: '2px 8px', fontSize: '12px', minWidth: '0' }}
+                                        disabled={!this.model}
+                                        onClick={() => this.setProbeSpan(axis as 0 | 1 | 2)}
+                                    >
+                                        {axisLabel}
+                                    </button>
+                                </Tooltip>
+                            ))}
+                        </span>
                         <label>
                             Points
                             <input

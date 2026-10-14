@@ -220,10 +220,12 @@ Best for: Flux profiles along an arbitrary segment (e.g. across a fuel pin, thro
 
 - A probe builder panel below the 3D view: statepoint path, tally id,
   score/nuclide, two endpoints **P0/P1** in cm, the sample count, and a
-  **Smooth** switch.
-- Endpoints are entered numerically (endpoints default to the dataset's X
-  axis through its center, so the first run needs no typing). Canvas
-  picking stays in the measure tool.
+  **Smooth** switch. Only one tool panel is open at a time (probe and
+  contour share the bottom strip), and each panel has a close button.
+- Statepoint, tally, score, and nuclide arrive pre-filled from the open tab,
+  so a run usually needs no typing. Endpoints default to the dataset's X
+  axis through its center, with **X/Y/Z span** shortcuts for the other axes.
+  Canvas picking stays in the measure tool.
 - **Smooth** (default) trilinearly interpolates between mesh cells; turning
   it off samples nearest cells, showing the actual blocky mesh values (the
   same convention as the overlay Rendering Style).
@@ -256,7 +258,8 @@ shielding limit, nested shells around a hot spot).
 - A contour builder panel below the 3D view: statepoint path, tally id,
   score/nuclide, up to 8 **Iso values** in tally units (separated by spaces
   or commas — every value becomes a surface in one call), and a **Smooth**
-  switch.
+  switch. Source fields arrive pre-filled from the open tab; only one tool
+  panel is open at a time.
 - **Smooth** (default) interpolates surface vertices along mesh edges;
   turning it off snaps vertices to edge midpoints, showing the blocky mesh
   cells (the same convention as the overlay Rendering Style).

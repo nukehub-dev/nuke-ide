@@ -331,14 +331,16 @@ export class OpenMCService {
      * Load a converted tally/source/overlay VTK file into an already-opened
      * pending tally tab: `FileService.read` → native XML probe →
      * `setTallyText(kind)`. Conversion failure lands in the tab's error
-     * panel instead of a toast-only dead end.
+     * panel instead of a toast-only dead end. The tab's probe/contour source
+     * fields are seeded from the known context (never overwriting typing).
      */
     protected async loadTallyIntoWidget(
         widget: TallyNativeViewerWidget,
         vtkPath: string,
         kind: TallyOverlayKind,
         label: string,
-        linkKey?: string
+        linkKey?: string,
+        toolContext?: { statepointPath?: string; tallyId?: number; score?: string; nuclide?: string }
     ): Promise<TallyNativeViewerWidget> {
         try {
             const text = await readVtkText(this.fileService, new URI(vtkPath));
@@ -353,6 +355,9 @@ export class OpenMCService {
         }
         widget.title.label = label;
         widget.title.caption = label;
+        if (toolContext) {
+            widget.seedToolContext(toolContext);
+        }
         // Camera-link identity: converted text loads carry no file, so key
         // every tally tab by its source file — mesh/contour/probe tabs of one
         // statepoint link, other files never do.
@@ -379,10 +384,11 @@ export class OpenMCService {
         vtkPath: string,
         kind: TallyOverlayKind,
         label: string,
-        linkKey?: string
+        linkKey?: string,
+        toolContext?: { statepointPath?: string; tallyId?: number; score?: string; nuclide?: string }
     ): Promise<TallyNativeViewerWidget> {
         const widget = await this.createPendingTallyWidget(label, 'Loading tally dataset…');
-        return this.loadTallyIntoWidget(widget, vtkPath, kind, label, linkKey);
+        return this.loadTallyIntoWidget(widget, vtkPath, kind, label, linkKey, toolContext);
     }
 
     /**
@@ -444,7 +450,12 @@ export class OpenMCService {
                 if (!conversion.success || !conversion.vtkPath) {
                     throw new Error(conversion.error || 'Tally conversion failed');
                 }
-                const nativeWidget = await this.loadTallyIntoWidget(pendingWidget, conversion.vtkPath, 'mesh', label, statepointPath);
+                const nativeWidget = await this.loadTallyIntoWidget(pendingWidget, conversion.vtkPath, 'mesh', label, statepointPath, {
+                    statepointPath,
+                    tallyId: options.tallyId,
+                    score: options.score,
+                    nuclide: options.nuclide
+                });
                 const tallyInfo = this.currentTallies.find((t) => t.id === options.tallyId);
                 if (tallyInfo) {
                     this._onTallyVisualized.fire(tallyInfo);
@@ -577,7 +588,13 @@ export class OpenMCService {
                     conversion.vtkPath,
                     'mesh',
                     label,
-                    statepointUri.path.toString()
+                    statepointUri.path.toString(),
+                    {
+                        statepointPath: statepointUri.path.toString(),
+                        tallyId: options.tallyId,
+                        score: options.score,
+                        nuclide: options.nuclide
+                    }
                 );
                 await this.attachCsgUnderlay(nativeWidget, geometryUri);
                 return nativeWidget;
@@ -774,7 +791,13 @@ export class OpenMCService {
                     conversion.vtkPath,
                     'slice',
                     label,
-                    statepointUri.path.toString()
+                    statepointUri.path.toString(),
+                    {
+                        statepointPath: statepointUri.path.toString(),
+                        tallyId: options.tallyId,
+                        score: options.score,
+                        nuclide: options.nuclide
+                    }
                 );
                 this.messageService.info(`Loaded tally slice on ${sliceOptions.plane.toUpperCase()} plane natively`);
                 return nativeWidget;
