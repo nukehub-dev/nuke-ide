@@ -72,6 +72,8 @@ export type ViewportContextMenuAction =
     | { readonly kind: 'fitSolid'; readonly solidId: number }
     | { readonly kind: 'hideSolid'; readonly solidId: number }
     | { readonly kind: 'isolateSolid'; readonly solidId: number }
+    | { readonly kind: 'hideSolids'; readonly solidIds: readonly number[] }
+    | { readonly kind: 'isolateSolids'; readonly solidIds: readonly number[] }
     | { readonly kind: 'fitAll' }
     | { readonly kind: 'resetExplode' }
     | { readonly kind: 'showAll' }
@@ -97,12 +99,20 @@ export interface ViewportContextMenuInput {
     readonly hiddenCount?: number;
     /** Whether the section view is active; flips the section toggle label. Defaults to false. */
     readonly sectionActive?: boolean;
+    /**
+     * Multi-selected solid ids (primary first). When the solid under the
+     * pointer belongs to a multi-selection, bulk Hide/Isolate Selected
+     * items act on the whole set. Defaults to [].
+     */
+    readonly selectedIds?: readonly number[];
 }
 
 /** Hit-test-dependent menu contents; solid menu vs empty-space menu. */
 export function buildViewportContextMenu(input: ViewportContextMenuInput): readonly ViewportContextMenuItem[] {
     if (input.solid !== undefined) {
         const { solidId, featureId } = input.solid;
+        const selectedIds = (input.selectedIds ?? []).filter((id, index, all) => all.indexOf(id) === index);
+        const bulkIds = selectedIds.length > 1 && selectedIds.includes(solidId) ? selectedIds : undefined;
         return [
             {
                 label: 'Edit Feature…',
@@ -142,7 +152,22 @@ export function buildViewportContextMenu(input: ViewportContextMenuInput): reado
                 label: 'Isolate Solid',
                 icon: 'codicon-filter',
                 action: { kind: 'isolateSolid', solidId }
-            }
+            },
+            ...(bulkIds !== undefined
+                ? [
+                      {
+                          label: `Hide Selected (${bulkIds.length})`,
+                          icon: 'codicon-eye-closed',
+                          separatorAbove: true,
+                          action: { kind: 'hideSolids', solidIds: bulkIds } as const
+                      },
+                      {
+                          label: `Isolate Selected (${bulkIds.length})`,
+                          icon: 'codicon-filter',
+                          action: { kind: 'isolateSolids', solidIds: bulkIds } as const
+                      }
+                  ]
+                : [])
         ];
     }
     const hiddenCount = input.hiddenCount ?? 0;
@@ -174,6 +199,8 @@ export function buildViewportContextMenu(input: ViewportContextMenuInput): reado
  * Parent dispatch sketch (not wired — the widget owns this):
  * hideSolid -> stateManager.setHiddenSolidIds([...hidden, solidId])
  * isolateSolid -> setHiddenSolidIds(summaries.map(s => s.solidId).filter(id => id !== solidId))
+ * hideSolids -> setHiddenSolidIds([...hidden, ...solidIds])
+ * isolateSolids -> setHiddenSolidIds(allSolidIds.filter(id => !keep.has(id))) over the bodies owning solidIds
  * showAll -> stateManager.setHiddenSolidIds([])
  * toggleSection -> onSetSectionActive(!sectionActive)
  */

@@ -83,6 +83,45 @@ describe('buildViewportContextMenu', () => {
         expect(items[0].action).toEqual({ kind: 'noop' });
     });
 
+    it('adds Hide/Isolate Selected bulk items when the hit solid belongs to a multi-selection', () => {
+        const items = buildViewportContextMenu({
+            solid: { solidId: 3, featureId: 'pad-1' },
+            explodeFactor: 0,
+            selectedIds: [3, 7, 9]
+        });
+        expect(items.map((item) => item.label)).toEqual([
+            'Edit Feature…',
+            'Measure Distance',
+            'Measure Angle',
+            'Measure Radius',
+            'Fit to Solid',
+            'Hide Solid',
+            'Isolate Solid',
+            'Hide Selected (3)',
+            'Isolate Selected (3)'
+        ]);
+        expect(items[7].separatorAbove).toBe(true);
+        expect(items[7].action).toEqual({ kind: 'hideSolids', solidIds: [3, 7, 9] });
+        expect(items[8].action).toEqual({ kind: 'isolateSolids', solidIds: [3, 7, 9] });
+    });
+
+    it('omits bulk items when the hit solid is outside the multi-selection', () => {
+        const items = buildViewportContextMenu({
+            solid: { solidId: 3, featureId: 'pad-1' },
+            explodeFactor: 0,
+            selectedIds: [7, 9]
+        });
+        expect(items.map((item) => item.label)).toEqual([
+            'Edit Feature…',
+            'Measure Distance',
+            'Measure Angle',
+            'Measure Radius',
+            'Fit to Solid',
+            'Hide Solid',
+            'Isolate Solid'
+        ]);
+    });
+
     it('offers Fit All, Reset Explode, Show All Solids, and the section toggle on empty space', () => {
         const items = buildViewportContextMenu({ solid: undefined, explodeFactor: 0 });
         expect(items.map((item) => item.label)).toEqual(['Fit All', 'Reset Explode', 'Show All Solids', 'Show Section View']);

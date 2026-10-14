@@ -111,6 +111,13 @@ it opens it in the CAD viewport by default.
   Isolate Solid**; on empty space it offers **Fit All**, **Show All Solids**
   (disabled when nothing is hidden), a **Section View** toggle, and **Reset
   Explode** (disabled at 0%). It closes on a click elsewhere or `Esc`.
+- **Multi-select**: `Ctrl`/`Cmd`-click solids in the viewport (or rows in the
+  Model Outline BODIES section) to accumulate a selection; `Ctrl`/`Cmd`-click
+  again to drop one. While `Ctrl`/`Cmd` is held the camera stays frozen
+  (three.js would otherwise pan on modifier-drag), so hover+click across the
+  model never moves the view. Right-clicking a selected solid then offers **Hide /
+  Isolate Selected (N)** for the whole set alongside the single-solid items;
+  empty-space click clears (plain click only).
 - Press `Tab` to enter sketch mode and `Tab` again to leave it; the labeled
   **Finish Sketch** pill at the top-right does the same.
 

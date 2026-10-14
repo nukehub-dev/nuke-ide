@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - build: optional extensions selectable at build time via `NUKE_EXTENSIONS` allow-list / `NUKE_EXCLUDE_EXTENSIONS` deny-list.
 - nuke-cad: CAD Studio menu under Tools mirrors the sidebar (geometry, panels, analysis, environment commands).
+- nuke-cad: Ctrl/Cmd-click multi-selects viewport solids with Hide/Isolate Selected (N) bulk actions in the context menu.
 - nuke-cad: lattice feature replicates a solid feature over a rectangular grid or hexagonal ring with per-cell labels for DAGMC groups.
 - nuke-cad: staged DAGMC export with a reported stage log, sense errors naming surface + volumes, and a grouped diagnostics box.
 - nuke-cad: tag bodies with material names from the Feature Tree; tags merge into manifest volumes and reach openmc-studio as links.

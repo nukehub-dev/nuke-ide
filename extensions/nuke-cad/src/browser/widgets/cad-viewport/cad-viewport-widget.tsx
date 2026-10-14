@@ -59,6 +59,7 @@ import * as THREE from 'three';
 import { NukeCadBackendService, GeometryBuildResult } from '../../../common/nuke-cad-protocol';
 import { NukeCadStateManager, CadModel, CadSelection } from '../../state/nuke-cad-state-manager';
 import { buildSolidSummaries } from '../outline-panel/solid-summaries';
+import { toggleSolidSelection } from '../outline-panel/outline-interactions';
 import { NukeCadCommands } from '../../commands';
 import { LoadingAnimations } from 'nuke-essentials/lib/theme/browser/components/loading-spinner';
 import { NukeEmptyState, NukeLoadingOverlay } from 'nuke-essentials/lib/theme/browser/components';
@@ -362,6 +363,37 @@ export class CadViewportWidget extends ReactWidget {
     /** Context-menu entry: reveal every hidden solid. */
     protected readonly handleShowAllSolids = (): void => {
         this.stateManager.setHiddenSolidIds([]);
+    };
+
+    /** Context-menu entry: hide every solid in a multi-selection (viewport state, never document state). */
+    protected readonly handleHideSolids = (solidIds: readonly number[]): void => {
+        const hidden = new Set(this.stateManager.hiddenSolidIds);
+        for (const solidId of solidIds) {
+            hidden.add(solidId);
+        }
+        this.stateManager.setHiddenSolidIds([...hidden]);
+    };
+
+    /**
+     * Context-menu entry: isolate the bodies owning a multi-selection (same
+     * body-grouping as single isolate, unioned over the set).
+     */
+    protected readonly handleIsolateSolids = (solidIds: readonly number[]): void => {
+        const solids = this.tessData?.solids ?? [];
+        const keep = new Set<number>();
+        for (const solidId of solidIds) {
+            const bodyId = solids.find((solid) => solid.solidId === solidId)?.bodyId;
+            if (bodyId === undefined) {
+                keep.add(solidId);
+            } else {
+                for (const solid of solids) {
+                    if (solid.bodyId === bodyId) {
+                        keep.add(solid.solidId);
+                    }
+                }
+            }
+        }
+        this.stateManager.setHiddenSolidIds(solids.map((solid) => solid.solidId).filter((id) => !keep.has(id)));
     };
 
     /**
@@ -1870,6 +1902,8 @@ export class CadViewportWidget extends ReactWidget {
                 onEditFeatureRequest={this.handleEditFeatureRequest}
                 onHideSolid={this.handleHideSolid}
                 onIsolateSolid={this.handleIsolateSolid}
+                onHideSolids={this.handleHideSolids}
+                onIsolateSolids={this.handleIsolateSolids}
                 onShowAllSolids={this.handleShowAllSolids}
                 messageService={this.messageService}
             />
@@ -1976,6 +2010,8 @@ interface CadViewportComponentProps {
     /** Viewport context menu: hide/isolate/reveal solids via the state manager. */
     readonly onHideSolid: (solidId: number) => void;
     readonly onIsolateSolid: (solidId: number) => void;
+    readonly onHideSolids: (solidIds: readonly number[]) => void;
+    readonly onIsolateSolids: (solidIds: readonly number[]) => void;
     readonly onShowAllSolids: () => void;
 }
 
@@ -2346,6 +2382,8 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                 handleToggleSection,
                 props.onHideSolid,
                 props.onIsolateSolid,
+                props.onHideSolids,
+                props.onIsolateSolids,
                 props.onShowAllSolids,
                 handleViewCubeUpdate,
                 handleViewNameChange
@@ -3182,6 +3220,8 @@ function initViewport(
     onToggleSection: () => void,
     onHideSolid: (solidId: number) => void,
     onIsolateSolid: (solidId: number) => void,
+    onHideSolids: (solidIds: readonly number[]) => void,
+    onIsolateSolids: (solidIds: readonly number[]) => void,
     onShowAllSolids: () => void,
     onViewCubeUpdate: (quaternion: readonly [number, number, number, number]) => void,
     onViewNameChange: (name: string) => void
@@ -3223,6 +3263,16 @@ function initViewport(
     applyNavigationStyle(controls, navigationStyle);
     controls.target.set(0, 0, 0);
     controls.update();
+
+    // Additive selection holds navigation still: three.js maps Left+Ctrl/Meta
+    // to pan, which fights Ctrl+click multi-pick (any drag while the modifier
+    // is down moves the camera). While Ctrl/Cmd is held the orbit controls
+    // stay disabled, so hover+click accumulates the selection without moving
+    // the view; plain gestures are untouched.
+    let additiveModifierHeld = false;
+    const applyControlsEnabled = (): void => {
+        controls.enabled = !additiveModifierHeld;
+    };
 
     const modelGroup = new THREE.Group();
     modelGroup.name = 'cad-model';
@@ -4325,6 +4375,7 @@ function initViewport(
         controls.target.copy(lastCenter);
         controls.addEventListener('change', renderScene);
         controls.addEventListener('start', onViewInteractionStart);
+        applyControlsEnabled();
         controls.update();
     };
 
@@ -4632,8 +4683,16 @@ function initViewport(
         const intersects = raycaster.intersectObjects(pickableMeshes(), false);
         if (intersects.length > 0) {
             const data = intersects[0].object.userData;
-            onSelect({ solidId: data.solidId as number, faceId: data.faceId as number });
-        } else {
+            const solidId = data.solidId as number;
+            if (event.ctrlKey || event.metaKey) {
+                // Additive pick: toggle the solid inside the multi-selection
+                // (same bookkeeping as outline Ctrl+click); empty space never
+                // clears an additive click.
+                onSelect(toggleSolidSelection(currentSelection, solidId, true));
+            } else {
+                onSelect({ solidId, faceId: data.faceId as number });
+            }
+        } else if (!event.ctrlKey && !event.metaKey) {
             onSelect({});
         }
     };
@@ -4816,7 +4875,8 @@ function initViewport(
                     solid: hit !== undefined ? { solidId: hit.solidId, featureId } : undefined,
                     explodeFactor,
                     hiddenCount: hiddenSolidIds.size,
-                    sectionActive: isSectionActive()
+                    sectionActive: isSectionActive(),
+                    selectedIds: currentSelection.solidIds ?? (currentSelection.solidId !== undefined ? [currentSelection.solidId] : [])
                 }),
                 { x: event.clientX - containerRect.left, y: event.clientY - containerRect.top },
                 (action) => {
@@ -4835,6 +4895,12 @@ function initViewport(
                             break;
                         case 'isolateSolid':
                             onIsolateSolid(action.solidId);
+                            break;
+                        case 'hideSolids':
+                            onHideSolids(action.solidIds);
+                            break;
+                        case 'isolateSolids':
+                            onIsolateSolids(action.solidIds);
                             break;
                         case 'fitAll':
                             fitAllView();
@@ -5089,6 +5155,38 @@ function initViewport(
         }
     };
     window.addEventListener('keydown', onKeyDown, true);
+
+    // Freeze navigation while an additive-select modifier is held (see
+    // applyControlsEnabled). Keyup outside the window loses the release, so
+    // blur also resets; typing in inputs is unaffected (orbit only acts on
+    // canvas gestures, and pick handlers already read the same modifiers).
+    const onAdditiveModifierDown = (event: KeyboardEvent): void => {
+        if (event.key !== 'Control' && event.key !== 'Meta') {
+            return;
+        }
+        if (!additiveModifierHeld) {
+            additiveModifierHeld = true;
+            applyControlsEnabled();
+        }
+    };
+    const onAdditiveModifierUp = (event: KeyboardEvent): void => {
+        if (event.key !== 'Control' && event.key !== 'Meta') {
+            return;
+        }
+        if (!event.ctrlKey && !event.metaKey) {
+            additiveModifierHeld = false;
+            applyControlsEnabled();
+        }
+    };
+    const onAdditiveModifierBlur = (): void => {
+        if (additiveModifierHeld) {
+            additiveModifierHeld = false;
+            applyControlsEnabled();
+        }
+    };
+    window.addEventListener('keydown', onAdditiveModifierDown);
+    window.addEventListener('keyup', onAdditiveModifierUp);
+    window.addEventListener('blur', onAdditiveModifierBlur);
 
     const onFitKey = (event: KeyboardEvent): void => {
         if (!viewportHasFocus()) {
@@ -5362,6 +5460,9 @@ function initViewport(
             renderer.domElement.removeEventListener('pointerup', onPointerUp);
             renderer.domElement.removeEventListener('wheel', onWheel);
             window.removeEventListener('keydown', onKeyDown, true);
+            window.removeEventListener('keydown', onAdditiveModifierDown);
+            window.removeEventListener('keyup', onAdditiveModifierUp);
+            window.removeEventListener('blur', onAdditiveModifierBlur);
             window.removeEventListener('keydown', onFitKey);
             window.removeEventListener('keydown', onTabKey);
             window.removeEventListener('keydown', onSectionEscapeKey, true);
