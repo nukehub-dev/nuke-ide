@@ -310,26 +310,49 @@ export class OpenMCService {
     }
 
     /**
-     * Open a converted tally/source/overlay VTK file in the native tally
-     * viewer: `FileService.read` → native XML probe → `setTallyText(kind)`.
-     * Throws on any failure; callers surface the error instead of starting
-     * a server.
+     * Create a tally tab instantly with a loading status, before any
+     * conversion or file read runs, so the tab appears immediately instead
+     * of popping in only once the backend finishes. Mirrors the DAGMC
+     * instant-open (`beginPendingLoad`) pattern.
      */
-    protected async openTallyNativeWidget(
+    protected async createPendingTallyWidget(label: string, statusMessage: string): Promise<TallyNativeViewerWidget> {
+        const widget = await this.widgetManager.getOrCreateWidget<TallyNativeViewerWidget>(TallyNativeViewerWidget.ID, {
+            id: `${TallyNativeViewerWidget.ID}:${Date.now()}`
+        } as any);
+        widget.beginPendingLoad(label, statusMessage);
+        if (!widget.isAttached) {
+            this.shell.addWidget(widget, { area: 'main' });
+        }
+        await this.shell.activateWidget(widget.id);
+        return widget;
+    }
+
+    /**
+     * Load a converted tally/source/overlay VTK file into an already-opened
+     * pending tally tab: `FileService.read` → native XML probe →
+     * `setTallyText(kind)`. Conversion failure lands in the tab's error
+     * panel instead of a toast-only dead end.
+     */
+    protected async loadTallyIntoWidget(
+        widget: TallyNativeViewerWidget,
         vtkPath: string,
         kind: TallyOverlayKind,
         label: string,
         linkKey?: string
     ): Promise<TallyNativeViewerWidget> {
-        const widget = await this.widgetManager.getOrCreateWidget<TallyNativeViewerWidget>(TallyNativeViewerWidget.ID, {
-            id: `${TallyNativeViewerWidget.ID}:${kind}:${Date.now()}`
-        } as any);
-        const text = await readVtkText(this.fileService, new URI(vtkPath));
-        // Probe the native XML reader first: non-XML datasets throw here and
-        // take the trame fallback in the caller — the parser stays XML-only.
-        await parseNativeVtkXml(text);
-        await widget.setTallyText(text, kind);
+        try {
+            const text = await readVtkText(this.fileService, new URI(vtkPath));
+            // Probe the native XML reader first: non-XML datasets throw here and
+            // take the trame fallback in the caller — the parser stays XML-only.
+            await parseNativeVtkXml(text);
+            await widget.setTallyText(text, kind);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            widget.failPendingLoad(message);
+            throw error;
+        }
         widget.title.label = label;
+        widget.title.caption = label;
         // Camera-link identity: converted text loads carry no file, so key
         // every tally tab by its source file — mesh/contour/probe tabs of one
         // statepoint link, other files never do.
@@ -342,11 +365,24 @@ export class OpenMCService {
         widget.setContourOpener(async (contourPath: string, contourLabel: string) => {
             await this.openTallyNativeWidget(contourPath, 'overlay', contourLabel);
         });
-        if (!widget.isAttached) {
-            this.shell.addWidget(widget, { area: 'main' });
-        }
-        await this.shell.activateWidget(widget.id);
         return widget;
+    }
+
+    /**
+     * Open a converted tally/source/overlay VTK file in the native tally
+     * viewer. The tab opens instantly with a loading status; the converted
+     * file is read and parsed afterwards. Throws on any failure (already
+     * surfaced in-tab); callers surface the error instead of starting
+     * a server.
+     */
+    protected async openTallyNativeWidget(
+        vtkPath: string,
+        kind: TallyOverlayKind,
+        label: string,
+        linkKey?: string
+    ): Promise<TallyNativeViewerWidget> {
+        const widget = await this.createPendingTallyWidget(label, 'Loading tally dataset…');
+        return this.loadTallyIntoWidget(widget, vtkPath, kind, label, linkKey);
     }
 
     /**
@@ -393,11 +429,13 @@ export class OpenMCService {
                 label += ` (${options.score})`;
             }
 
-            // Native-only: convert to .vti and render without a server; any
-            // conversion/parse failure surfaces an error naming the cause
-            // instead of starting a server.
+            // Native-only: convert to .vti and render without a server; the
+            // tab opens instantly with a loading status while the
+            // conversion runs. Any conversion/parse failure lands in the
+            // tab's error panel instead of starting a server.
+            const statepointPath = statepointUri.path.toString();
+            const pendingWidget = await this.createPendingTallyWidget(label, 'Converting tally mesh…');
             try {
-                const statepointPath = statepointUri.path.toString();
                 const conversion = await this.openmcBackend.convertTallyMeshToVtk(statepointPath, {
                     tallyId: options.tallyId,
                     score: options.score,
@@ -406,7 +444,7 @@ export class OpenMCService {
                 if (!conversion.success || !conversion.vtkPath) {
                     throw new Error(conversion.error || 'Tally conversion failed');
                 }
-                const nativeWidget = await this.openTallyNativeWidget(conversion.vtkPath, 'mesh', label, statepointPath);
+                const nativeWidget = await this.loadTallyIntoWidget(pendingWidget, conversion.vtkPath, 'mesh', label, statepointPath);
                 const tallyInfo = this.currentTallies.find((t) => t.id === options.tallyId);
                 if (tallyInfo) {
                     this._onTallyVisualized.fire(tallyInfo);
@@ -415,8 +453,9 @@ export class OpenMCService {
                 return nativeWidget;
             } catch (error) {
                 const message = error instanceof Error ? error.message : String(error);
+                pendingWidget.failPendingLoad(message);
                 this.messageService.error(`Failed to visualize mesh tally: ${message}`);
-                return null;
+                return pendingWidget;
             }
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
@@ -457,14 +496,17 @@ export class OpenMCService {
 
         try {
             // Native-only: convert to .vtp points and render without a
-            // server; any conversion/parse failure surfaces an error naming
-            // the cause instead of starting a server.
+            // server; the tab opens instantly with a loading status while
+            // the conversion runs. Any conversion/parse failure lands in
+            // the tab's error panel instead of starting a server.
+            const pendingWidget = await this.createPendingTallyWidget('OpenMC Source Distribution', 'Converting source…');
             try {
                 const conversion = await this.openmcBackend.convertSourceToVtk(sourceUri.path.toString(), {});
                 if (!conversion.success || !conversion.vtkPath) {
                     throw new Error(conversion.error || 'Source conversion failed');
                 }
-                const nativeWidget = await this.openTallyNativeWidget(
+                const nativeWidget = await this.loadTallyIntoWidget(
+                    pendingWidget,
                     conversion.vtkPath,
                     'source',
                     'OpenMC Source Distribution',
@@ -474,8 +516,9 @@ export class OpenMCService {
                 return nativeWidget;
             } catch (error) {
                 const message = error instanceof Error ? error.message : String(error);
+                pendingWidget.failPendingLoad(message);
                 this.messageService.error(`Failed to visualize source: ${message}`);
-                return null;
+                return pendingWidget;
             }
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
@@ -515,9 +558,11 @@ export class OpenMCService {
 
             // Without a DAGMC geometry there is nothing to drape onto: open
             // the full mesh itself (.vti voxel blocks, clip-explorable)
-            // instead of a cell-center cloud. Conversion/parse failure
-            // surfaces an error naming the cause instead of starting a
+            // instead of a cell-center cloud. The tab opens instantly with
+            // a loading status while the conversion runs; conversion/parse
+            // failure lands in the tab's error panel instead of starting a
             // server.
+            const pendingWidget = await this.createPendingTallyWidget(label, 'Converting tally overlay…');
             try {
                 const conversion = await this.openmcBackend.convertTallyMeshToVtk(statepointUri.path.toString(), {
                     tallyId: options.tallyId,
@@ -527,13 +572,20 @@ export class OpenMCService {
                 if (!conversion.success || !conversion.vtkPath) {
                     throw new Error(conversion.error || 'Overlay conversion failed');
                 }
-                const nativeWidget = await this.openTallyNativeWidget(conversion.vtkPath, 'mesh', label, statepointUri.path.toString());
+                const nativeWidget = await this.loadTallyIntoWidget(
+                    pendingWidget,
+                    conversion.vtkPath,
+                    'mesh',
+                    label,
+                    statepointUri.path.toString()
+                );
                 await this.attachCsgUnderlay(nativeWidget, geometryUri);
                 return nativeWidget;
             } catch (error) {
                 const message = error instanceof Error ? error.message : String(error);
+                pendingWidget.failPendingLoad(message);
                 this.messageService.error(`Failed to overlay tally: ${message}`);
-                return null;
+                return pendingWidget;
             }
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
@@ -578,9 +630,20 @@ export class OpenMCService {
         options: TallyVisualizationOptions,
         label: string
     ): Promise<DagmcViewerWidget | null> {
+        let widget: DagmcViewerWidget | undefined;
         try {
             const h5mPath = geometryUri.path.toString();
             const smooth = options.pixelated === false;
+            // The drape tab opens instantly with a loading status while the
+            // overlay conversion runs (same instant-open as `.h5m` file opens).
+            widget = await this.widgetManager.getOrCreateWidget<DagmcViewerWidget>(DagmcViewerWidget.ID, {
+                id: `${DagmcViewerWidget.ID}:drape:${Date.now()}`
+            });
+            widget.beginPendingLoad(label, `Converting tally overlay…`, h5mPath);
+            if (!widget.isAttached) {
+                this.shell.addWidget(widget, { area: 'main' });
+            }
+            await this.shell.activateWidget(widget.id);
             const conversion = await this.openmcBackend.convertOverlayGeometryToVtk(statepointUri.path.toString(), h5mPath, {
                 tallyId: options.tallyId,
                 score: options.score,
@@ -592,12 +655,6 @@ export class OpenMCService {
             });
             if (!conversion.success || !conversion.vtkPath) {
                 throw new Error(conversion.error || 'Overlay conversion failed');
-            }
-            const widget = await this.widgetManager.getOrCreateWidget<DagmcViewerWidget>(DagmcViewerWidget.ID, {
-                id: `${DagmcViewerWidget.ID}:${conversion.vtkPath}`
-            });
-            if (!widget.isAttached) {
-                this.shell.addWidget(widget, { area: 'main' });
             }
             widget.h5mSourcePath = h5mPath;
             await widget.setVtmFile(new URI(conversion.vtkPath));
@@ -666,8 +723,9 @@ export class OpenMCService {
             return widget;
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
+            widget?.failPendingLoad(`Overlay conversion failed: ${message}`);
             this.messageService.error(`Failed to overlay tally: ${message}`);
-            return null;
+            return widget ?? null;
         }
     }
 
@@ -692,9 +750,11 @@ export class OpenMCService {
             }
             label += ` Slice (${sliceOptions.plane.toUpperCase()})`;
 
-            // Native-only: static slice cloud without a server; any
-            // conversion/parse failure surfaces an error naming the cause
-            // instead of starting a server.
+            // Native-only: static slice cloud without a server; the tab
+            // opens instantly with a loading status while the conversion
+            // runs. Any conversion/parse failure lands in the tab's error
+            // panel instead of starting a server.
+            const pendingWidget = await this.createPendingTallyWidget(label, 'Converting tally slice…');
             try {
                 const conversion = await this.openmcBackend.convertOverlayToVtk(statepointUri.path.toString(), {
                     tallyId: options.tallyId,
@@ -709,13 +769,20 @@ export class OpenMCService {
                 if (!conversion.success || !conversion.vtkPath) {
                     throw new Error(conversion.error || 'Slice conversion failed');
                 }
-                const nativeWidget = await this.openTallyNativeWidget(conversion.vtkPath, 'slice', label, statepointUri.path.toString());
+                const nativeWidget = await this.loadTallyIntoWidget(
+                    pendingWidget,
+                    conversion.vtkPath,
+                    'slice',
+                    label,
+                    statepointUri.path.toString()
+                );
                 this.messageService.info(`Loaded tally slice on ${sliceOptions.plane.toUpperCase()} plane natively`);
                 return nativeWidget;
             } catch (error) {
                 const message = error instanceof Error ? error.message : String(error);
+                pendingWidget.failPendingLoad(message);
                 this.messageService.error(`Failed to overlay tally slice: ${message}`);
-                return null;
+                return pendingWidget;
             }
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
@@ -736,6 +803,8 @@ export class OpenMCService {
         statepointPath: string,
         options: { tallyId: number; score?: string; nuclide?: string; isoValues: number[]; smooth?: boolean }
     ): Promise<TallyNativeViewerWidget | null> {
+        const label = `Tally ${options.tallyId} contour (${options.isoValues.join(', ')})`;
+        const pendingWidget = await this.createPendingTallyWidget(label, 'Extracting contour surfaces…');
         try {
             const conversion = await this.openmcBackend.convertTallyContourToVtk(statepointPath, {
                 tallyId: options.tallyId,
@@ -747,8 +816,7 @@ export class OpenMCService {
             if (!conversion.success || !conversion.vtkPath) {
                 throw new Error(conversion.error || 'Contour conversion failed');
             }
-            const label = `Tally ${options.tallyId} contour (${options.isoValues.join(', ')})`;
-            const nativeWidget = await this.openTallyNativeWidget(conversion.vtkPath, 'overlay', label, statepointPath);
+            const nativeWidget = await this.loadTallyIntoWidget(pendingWidget, conversion.vtkPath, 'overlay', label, statepointPath);
             nativeWidget.setProbeContext({
                 statepointPath,
                 tallyId: options.tallyId,
@@ -759,8 +827,9 @@ export class OpenMCService {
             return nativeWidget;
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
+            pendingWidget.failPendingLoad(message);
             this.messageService.error(`Failed to extract tally contour: ${message}`);
-            return null;
+            return pendingWidget;
         }
     }
 
@@ -1488,14 +1557,18 @@ export class OpenMCService {
 
         try {
             // Native-only: convert the statepoint source bank to .vtp points
-            // and render without a server; any conversion/parse failure
-            // surfaces an error naming the cause instead of starting a server.
+            // and render without a server; the tab opens instantly with a
+            // loading status while the conversion runs. Any
+            // conversion/parse failure lands in the tab's error panel
+            // instead of starting a server.
+            const pendingWidget = await this.createPendingTallyWidget('OpenMC Source (from Statepoint)', 'Converting source…');
             try {
                 const conversion = await this.openmcBackend.convertSourceToVtk(statepointUri.path.toString(), {});
                 if (!conversion.success || !conversion.vtkPath) {
                     throw new Error(conversion.error || 'Source conversion failed');
                 }
-                const nativeWidget = await this.openTallyNativeWidget(
+                const nativeWidget = await this.loadTallyIntoWidget(
+                    pendingWidget,
                     conversion.vtkPath,
                     'source',
                     'OpenMC Source (from Statepoint)',
@@ -1505,8 +1578,9 @@ export class OpenMCService {
                 return nativeWidget;
             } catch (error) {
                 const message = error instanceof Error ? error.message : String(error);
+                pendingWidget.failPendingLoad(message);
                 this.messageService.error(`Failed to visualize source: ${message}`);
-                return null;
+                return pendingWidget;
             }
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);

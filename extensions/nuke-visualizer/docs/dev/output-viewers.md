@@ -40,6 +40,11 @@ reload()
        └─ parseNativeVtkXml → three.js scene (instant color-by, no restart)
 ```
 
+Viewer tabs open instantly: the opener attaches the tab with `beginPendingLoad` (spinner + status) before the conversion
+runs, then loads the converted file into it (`loadTallyIntoWidget` / `setVtmFile`); conversion failure lands in the
+tab's error panel (`failPendingLoad`), never a toast-only dead end. Applies to tally mesh/slice/overlay/contour/source
+tabs and the DAGMC tally drape — never block the open on the backend.
+
 ### The Color-By Contract
 
 Color-by is a pure client-side control: `'Solid Color' | 'Point: <array>' | 'Cell: <array>'`, validated against the arrays the parsed dataset actually has. Switching arrays re-colors instantly — no conversion re-run, no restart. Converters decide _which_ arrays exist — e.g. weight windows write one cell-data array per (bound, group) named `lower_g<i>` / `upper_g<i>`, which is what makes Color By act as the group/bound selector.

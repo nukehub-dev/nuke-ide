@@ -34,7 +34,8 @@ All files under `extensions/nuke-visualizer/` except generated artifacts (`lib/`
   `*.e`/`*.exo*`) and headless geometry (`geometry_viz.py::extract_csg_mesh`, `slice_viz.py` via `openmc.geometry-mesh` /
   `openmc.geometry-slice-vtk` into `widgets/geometry-native/` and `widgets/tally-native/`); see `docs/dev/python-backends.md`.
 - Tally routing uses `python/plugins/openmc/lib/tally_vtk.py` (`openmc.tally-mesh-vtk` / `source-vtk` / `overlay-vtk` /
-  `overlay-geometry-vtk`, XML only) via `openmc-service.ts::openTallyNativeWidget`; see `docs/dev/output-viewers.md`.
+  `overlay-geometry-vtk`, XML only) via `openmc-service.ts::openTallyNativeWidget`; tabs open instantly with a loading
+  status (`beginPendingLoad`) before conversion runs, failures land in-tab (`failPendingLoad`); see `docs/dev/output-viewers.md`.
 - File claims: `*.vtm`/`*.h5m` → `DagmcViewerWidget`, `geometry.xml` → `GeometryNativeViewerWidget`,
   `*voxel*.h5`/`plot_*.h5` → random-ray widget; plain random-ray `.vtk` opens only via `openmc.open-random-ray-results`.
 - Kinetics IFP results stay in the statepoint viewer (no registry entry): conditional tab via

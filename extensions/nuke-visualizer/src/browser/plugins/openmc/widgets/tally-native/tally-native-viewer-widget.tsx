@@ -222,6 +222,14 @@ export class TallyNativeViewerWidget extends NativeVtkViewerWidget implements Cs
         this.update();
     }
 
+    /** Instant-open entry with this widget's tab title (base uses the generic native-viewer label). */
+    override beginPendingLoad(label: string, statusMessage: string): void {
+        super.beginPendingLoad(label, statusMessage);
+        this.title.label = `${TallyNativeViewerWidget.LABEL}: ${label}`;
+        this.title.caption = `${TallyNativeViewerWidget.LABEL}: ${label}`;
+        this.update();
+    }
+
     /**
      * Load already-read VTK XML text as a known dataset kind: parses through
      * the P1 path, then applies the kind default color-by and point size.

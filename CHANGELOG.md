@@ -292,6 +292,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-visualizer: legacy STRUCTURED_GRID `.vtk` files preview with voxel axes or a center-point fallback.
 - nuke-visualizer: DAGMC-less full overlay renders the voxel mesh instead of a cell-center cloud.
 - nuke-visualizer: regular weight-window/voxel grids render as instanced voxel blocks instead of moire point clouds.
+- nuke-visualizer: tally mesh/slice/overlay/contour/source tabs open instantly with a loading status while converting; failures show in-tab.
 - nuke-visualizer: tally slices render as smooth shaded surfaces with source-side decimation.
 - nuke-visualizer: round soft points in every native point cloud instead of square pixels.
 - nuke-visualizer: true Full 3D tally-on-geometry overlay paints the tally onto DAGMC volumes with outline isolation.

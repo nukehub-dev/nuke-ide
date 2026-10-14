@@ -1187,6 +1187,28 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         colors.needsUpdate = true;
     }
 
+    /**
+     * Instant-open entry: show the viewer tab with a loading status while a
+     * headless conversion runs, so the tab appears immediately instead of
+     * waiting on the backend. Mirrors the DAGMC `beginPendingLoad` pattern.
+     */
+    beginPendingLoad(label: string, statusMessage: string): void {
+        this.title.label = `${NativeVtkViewerWidget.LABEL}: ${label}`;
+        this.title.caption = `${NativeVtkViewerWidget.LABEL}: ${label}`;
+        this.isLoading = true;
+        this.error = undefined;
+        this.statusMessage = statusMessage;
+        this.update();
+    }
+
+    /** Fail the pending load in-tab (conversion failure shows the error panel, not a toast-only dead end). */
+    failPendingLoad(message: string): void {
+        this.isLoading = false;
+        this.error = message;
+        this.statusMessage = '';
+        this.update();
+    }
+
     /** Load a VTK file from disk through Theia's FileService (no HTTP fetch). */
     async setVtkFile(uri: URI): Promise<void> {
         this.fileUri = uri;
