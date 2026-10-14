@@ -434,6 +434,13 @@ Use BEM-like naming scoped to the widget:
 
 Reusable components from `nuke-essentials`:
 
+### Shared `openmc-widget.css`
+
+`widgets/shared/openmc-widget.css` is the shared design system: generic form/section/button styles scoped
+`:is(.simulation-dashboard, .openmc-widget)` — standalone widgets opt in via the `openmc-widget` root class. It also defines the shared
+chrome (`.openmc-header`, `.category-header` + `.count-badge`, top-aligned `.form-row` grids); accent is always `--theia-focusBorder`
+with Theia CSS vars only (tally-configurator keeps its own scoped sheet).
+
 ```typescript
 import { Tooltip, ColorPicker } from 'nuke-essentials/lib/theme/browser/components';
 ```

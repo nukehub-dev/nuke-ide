@@ -42,7 +42,9 @@ bind(VisualizerBackendService)
       warn: (msg) => {
         /* ... */
       },
-      onServerStop: (port) => VisualizerWidget.onServerStop(port)
+      onServerStop: (port) => {
+        console.log(`[Visualizer] Server on port ${port} stopped`);
+      }
     };
 
     return connectionProvider.createProxy<VisualizerBackendService>(VISUALIZER_BACKEND_PATH, client);

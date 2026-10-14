@@ -60,7 +60,7 @@ def cmd_greet(args):
 - The function receives one argument: `args` (an `argparse.Namespace`).
 - Return an integer exit code (`0` for success).
 - Output **JSON to stdout** for data responses.
-- Print **errors to stderr** and exit with non-zero code.
+- Report errors as one JSON `{"error": ...}` object and exit 1, never a traceback — base-plugin commands emit it on stderr, OpenMC-plugin commands on stdout; the node side parses stdout first (`executeCommandJson`).
 - Use `@arg` decorators in the order you want positional arguments to appear.
 
 ### Argument Order
@@ -377,6 +377,8 @@ const result = await this.pythonHelper.executeScriptJson<{
 - Library code → `python/plugins/<plugin>/lib/`
 - CLI commands → `python/plugins/<plugin>/commands/`
 - Unified entry point → `python/server.py`
+
+Converter libs follow the hardened pattern (`DagmcError`/`StepError`, `find_spec` probes, lazy loaders, validators before heavy imports): `plugins/base/lib/dagmc.py` + `step.py` (cached multiblock conversion), `plugins/base/lib/exodus_series.py` (`base.exodus-series`), and `plugins/openmc/lib/geometry_viz.py` + `slice_viz.py` (`openmc.geometry-mesh` / `openmc.geometry-slice-vtk`).
 
 ---
 

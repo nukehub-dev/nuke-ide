@@ -113,8 +113,6 @@ Python scripts that do the actual scientific visualization.
 
 There are no visualization servers to reach: a conversion command runs, writes its VTK/JSON output, and exits. The frontend reads the converted file (via the Theia `FileService`) and renders it natively with three.js, so the viewers work identically in browser and Electron deployments with no proxying.
 
-> **Residual:** `src/browser/visualizer-widget.tsx` still falls back to a server iframe path for formats the native parser cannot read, and `src/node/visualizer-proxy-contribution.ts` still reverse-proxies those servers. Both are slated for removal with the last server code.
-
 **Key scripts:**
 
 - `server.py` — Unified entry point with auto-discovery and plugin routing
@@ -182,7 +180,7 @@ extensions/nuke-visualizer/
 │   ├── browser/                         # Frontend
 │   │   ├── visualizer-frontend-module.ts    # DI module (bindings)
 │   │   ├── visualizer-contribution.ts       # Base viz commands/menus/OpenHandler
-│   │   ├── visualizer-widget.tsx            # native viewer widget (+ legacy server fallback)
+│   │   ├── visualizer-widget.tsx            # native viewer widget
 │   │   ├── visualizer-preferences.ts        # Settings schema
 │   │   ├── plotly/                      # Plotly integration
 │   │   │   ├── plotly-service.ts
@@ -228,10 +226,10 @@ extensions/nuke-visualizer/
 
 ## Key Design Decisions
 
-| Decision                                 | Rationale                                                                                                                                           |
-| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Native three.js widgets for 3D**       | Converters write XML VTK; the frontend parses and renders client-side. No servers, ports, or iframes — color-by switches instantly with no restart. |
-| **React widgets for 2D plots**           | Plotly.js integrates cleanly with React. No server needed — data comes over RPC and renders directly.                                               |
-| **One Python process per visualization** | Simplifies lifecycle. Killing a tab kills its server. No shared state corruption.                                                                   |
-| **RPC over WebSocket**                   | Theia's standard. Bidirectional: frontend calls backend methods; backend streams logs via `VisualizerClient`.                                       |
-| **Health checks in frontend**            | Frontend registers requirements; backend executes them via `nuke-core`. Keeps plugin logic decoupled from env detection.                            |
+| Decision                              | Rationale                                                                                                                                           |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Native three.js widgets for 3D**    | Converters write XML VTK; the frontend parses and renders client-side. No servers, ports, or iframes — color-by switches instantly with no restart. |
+| **React widgets for 2D plots**        | Plotly.js integrates cleanly with React. No server needed — data comes over RPC and renders directly.                                               |
+| **One Python process per conversion** | Simplifies lifecycle. Each conversion spawns its own short-lived Python process; nothing persists after exit.                                       |
+| **RPC over WebSocket**                | Theia's standard. Bidirectional: frontend calls backend methods; backend streams logs via `VisualizerClient`.                                       |
+| **Health checks in frontend**         | Frontend registers requirements; backend executes them via `nuke-core`. Keeps plugin logic decoupled from env detection.                            |

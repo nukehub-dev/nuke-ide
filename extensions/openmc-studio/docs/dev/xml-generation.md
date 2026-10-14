@@ -103,17 +103,17 @@ Maps `OpenMCState.geometry` → `<geometry>`.
 
 ### State → XML Mapping
 
-| State Field                | XML Element                      | Notes                                   |
-| -------------------------- | -------------------------------- | --------------------------------------- |
-| `surface.id`               | `<surface id="...">`             | Required                                |
-| `surface.type`             | `type="..."`                     | `sphere`, `x-cylinder`, `z-plane`, etc. |
-| `surface.coefficients`     | `coeffs="..."`                   | Formatted per surface type              |
-| `surface.boundary`         | `boundary="..."`                 | `vacuum`, `reflective`, `transmission`  |
-| `cell.id`                  | `<cell id="...">`                | Required                                |
-| `cell.fillType` + `fillId` | `material="..."` or `fill="..."` | Material ID, universe ID, or void       |
-| `cell.regionString`        | `region="..."`                   | CSG boolean expression                  |
-| `cell.universe`            | `universe="..."`                 | Defaults to `0` (root)                  |
-| `lattice.id`               | `<!-- placeholder -->`           | Lattices are stubbed (full impl TODO)   |
+| State Field                | XML Element                      | Notes                                                              |
+| -------------------------- | -------------------------------- | ------------------------------------------------------------------ |
+| `surface.id`               | `<surface id="...">`             | Required                                                           |
+| `surface.type`             | `type="..."`                     | `sphere`, `x-cylinder`, `z-plane`, etc.                            |
+| `surface.coefficients`     | `coeffs="..."`                   | Formatted per surface type                                         |
+| `surface.boundary`         | `boundary="..."`                 | ONLY when set; unset = transmission default (interior stays unset) |
+| `cell.id`                  | `<cell id="...">`                | Required                                                           |
+| `cell.fillType` + `fillId` | `material="..."` or `fill="..."` | Material ID, universe ID, or void                                  |
+| `cell.regionString`        | `region="..."`                   | CSG boolean expression                                             |
+| `cell.universe`            | `universe="..."`                 | Defaults to `0` (root)                                             |
+| `lattice.id`               | `<!-- placeholder -->`           | Lattices are stubbed (full impl TODO)                              |
 
 ### Surface Type Mapping
 
@@ -241,6 +241,24 @@ for (const tally of state.tallies) {
 
 ---
 
+## Depletion, Triggers, Derivatives, Kinetics, CMFD
+
+Depletion config persists in a custom `<depletion>` block in settings.xml (operator, solver, normalization, diff burnable mats,
+independent-operator file inputs, `transfer_rates`/`fission_q` as escaped JSON). The runner parses it back in `checkDepletionEnabled`
+and builds `run_depletion.py` args from it — extend both in lockstep. Coupled is CE-only, MG depletion is Independent-operator only,
+macroscopic materials never deplete.
+
+Per-tally triggers serialize as `<trigger type threshold [scores] [ignore_zeros]/>` sub-elements (scores is a space-separated
+**attribute**); settings.xml/codegen emit `<trigger><active>true</active>` automatically whenever any tally has triggers, with run-level
+`batch_interval`/`max_batches` knobs in `settings.triggers`. Tally derivatives perturb a material only
+(`density`/`nuclide_density`/`temperature`): top-level `<derivative id variable material [nuclide]/>` elements referenced by the owning
+tally via `<derivative>ID</derivative>`. Kinetics (IFP) auto-appends the three IFP tallies plus `<ifp_n_generation>` on export and
+re-derives `settings.kinetics` on import (idempotent). CMFD is C-API-only with no settings.xml element: export emits
+`openmc.cmfd.CMFDMesh`/`CMFDRun` assignments (pure `generateCmfdCodeLines`), and runs route to `run_cmfd.py`; depletion wins when both
+are configured.
+
+---
+
 ## plots.xml
 
 Maps `OpenMCState.plots` → `<plots>`. Generated only when `request.files.plots` is true and `state.plots` is non-empty.
@@ -308,17 +326,17 @@ const result = await parser.parseStringPromise(xml);
 
 Full round-trip (state → XML → state) is **lossy** by design. The following are not preserved:
 
-| What                | Status                                            |
-| ------------------- | ------------------------------------------------- |
-| Material colors     | Not in OpenMC XML — UI-only                       |
-| Cell region trees   | Converted to `regionString` — tree structure lost |
-| Lattice definitions | Generation is stubbed; import not implemented     |
-| Tally filters       | Reconstructed but IDs reassigned                  |
-| Mesh IDs            | Preserved if matching                             |
-| Plot definitions    | Import not implemented                            |
-| Project metadata    | Not in OpenMC XML — use `.nuke-openmc` projects   |
-| Depletion settings  | Written as comments only; not parsed back         |
-| Variance reduction  | Partially written; not parsed back                |
+| What                | Status                                                                                          |
+| ------------------- | ----------------------------------------------------------------------------------------------- |
+| Material colors     | Not in OpenMC XML — UI-only                                                                     |
+| Cell region trees   | Converted to `regionString` — tree structure lost                                               |
+| Lattice definitions | Generation is stubbed; import not implemented                                                   |
+| Tally filters       | Reconstructed but IDs reassigned                                                                |
+| Mesh IDs            | Preserved if matching                                                                           |
+| Plot definitions    | Import not implemented                                                                          |
+| Project metadata    | Not in OpenMC XML — use `.nuke-openmc` projects                                                 |
+| Depletion settings  | Custom `<depletion>` block in settings.xml; parsed back by the runner (`checkDepletionEnabled`) |
+| Variance reduction  | Partially written; not parsed back                                                              |
 
 **Best practice:** Use `.nuke-openmc` project files for persistent storage. Use XML generation only for running OpenMC.
 

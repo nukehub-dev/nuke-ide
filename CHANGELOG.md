@@ -9,1802 +9,338 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- nuke-visualizer: **full ParaView-style color mapping in the native 3D
-  viewers** — the colormap picker grows from 6 coarse maps to the 34-preset
-  library ported verbatim from ParaView's ColorMaps.json (plus matplotlib/
-  cmocean canonical tables for Spectral/RdBu/Seismic/Balance/Twilight/Ocean;
-  default restored to Cool to Warm), and the Viewer Settings sidebar gains
-  the ParaView color-map-editor essentials: custom color range (Auto/min/max),
-  Invert and Log-scale toggles, Magnitude/X/Y/Z component selection for
-  vector arrays, a color-legend toggle, solid-color and background pickers,
-  point-size/line-width sliders, and a Shaded + Edges mode (Surface With
-  Edges). Non-finite values render in each preset's NaN color. All native
-  viewers (VTK/tally/output, DAGMC, Exodus) share one scalar-mapping
-  pipeline; `scripts/generate-colormaps.js` regenerates the preset library.
-
-- nuke-visualizer: **native 3D output viewers** — tracks, collision-track,
-  weight-windows, and random-ray/voxel viewers now render directly in the
-  IDE (three.js) with instant color-by/colormap switching and no per-viewer
-  server; unreadable files show an error panel pointing at the generic
-  VTK viewer instead.
-- nuke-visualizer: **native tally/geometry/DAGMC viewers** — tally mesh,
-  source, overlay/slice, `geometry.xml`, and multiblock `.vtm` files now
-  open in native three.js viewers (volume/group toggles, cell pick sync,
-  arbitrary clip plane).
-- nuke-visualizer: **DAGMC files open with volume isolation** — `.h5m`
-  converts to multiblock (cached) and opens in the DAGMC viewer with
-  volume/material/group toggles; failures fall back to the single-file
-  viewer. Headers are deduped (no Solid/Fit buttons, Map disables in
-  Solid mode) and clip is per-axis (X/Y/Z tabs) for box-section views.
-- nuke-visualizer: **compressed multiblock DAGMC renders** — appended
-  payloads with per-array base64 padding decode correctly, offsets accept
-  the character-based form vtk multiblock output emits, and decompression
-  is synchronous (no platform-stream stalls); `.h5m` files open with
-  volume isolation.
-- nuke-visualizer: **orientation cube in the native 3D viewers** — a labeled ±X/±Y/±Z triad overlay (top-right, below the header; the shared nuke-essentials `ViewCube`, also used by the CAD viewport) in the native VTK and DAGMC viewers tracks the camera and snaps to the standard view when an axis knob is clicked; it hides when no dataset is loaded.
-- nuke-visualizer: **distance measure in the native 3D viewers** — a header ruler toggle in the native VTK and DAGMC viewers captures two raycast surface points and shows the distance as a viewport label (line + endpoint spheres in the scene); Escape cancels newest-first and rebuild clears. Angle/radius stay CAD-only.
-- nuke-visualizer: **Viewer Settings sidebar** — Color by, Map, Shading,
-  per-axis Clip (axis/position/flip), the measure toggle, and ISO/T/F/R/X/Y/Z
-  axis snaps moved out of the native viewer headers into a right-area sidebar
-  bound to the active viewer tab (native VTK/tally/output, DAGMC,
-  geometry-native, Exodus); headers keep file/status actions and the canvas
-  keeps the bottom bar, orientation cube, and measure annotations.
-- nuke-visualizer: **DAGMC Outline sidebar** — volume/material/group checkbox
-  trees, the Graveyard toggle, Show all, and a search filter for large models
-  moved out of the DAGMC viewer footer into a right-area sidebar bound to the
-  active DAGMC viewer tab; the viewer keeps its `N of M volumes` status line
-  and Viewer Settings keeps display settings (no overlap).
-- nuke-visualizer: **DAGMC Outline selection sync + auto-open** — volume rows
-  show the human name once with the material as a muted suffix (no more
-  `Volume 1 (mat_0) [mat:mat_0]` duplication) with Nuke tooltips throughout;
-  clicking a row highlights the volume in the canvas and picking in the canvas
-  selects the row (widget-owned selection, panel mirrors); the sidebar reveals
-  itself whenever a DAGMC viewer tab opens, without stealing focus.
-- nuke-visualizer: **instant DAGMC viewer launch** — `.h5m` files open their
-  viewer tab immediately with a loading overlay while the multiblock
-  conversion runs; conversion failure shows the in-tab error panel with a
-  jump to the generic single-file viewer (which keeps working).
-- nuke-essentials + nuke-visualizer + nuke-cad: **shared viewer chrome** —
-  one `ViewCube` labeled-triad orientation cube, one `ViewerNavBar` bottom
-  bar (ISO/T/F/R + fit + zoom), one `ViewBadge` dataset/view pill, and one
-  muted status-line pattern, owned by nuke-essentials and used by the CAD
-  viewport and every native VTK viewer (native VTK/tally/output, DAGMC).
-  The visualizer spoke gizmo, side nav cluster, and projection-math module
-  are deleted; CAD keeps its Explode slider, shading, and section tools as
-  siblings on the same bar, with no CAD features removed.
-- nuke-visualizer: **viewer navigation and tools** — OrbitControls camera
-  (orbit/pan/zoom with damping) in all native viewers, plus Shading
-  (shaded/wireframe/points/x-ray) and clip-plane (axis/position/flip)
-  controls in the viewer headers. Surfaces render lit with facet shading;
-  the 3D view has an ISO/top/front/right + fit + zoom bottom bar, a
-  right-click view menu, and Nuke tooltips instead of native titles.
-- nuke-visualizer: **`vtk` is now a required dependency** (it used to ride
-  in via paraview) — environments without it get a guided install instead
-  of a `vtk not installed` failure at conversion time.
-- openmc-studio: **DAGMC Editor routes CAD files to import** — picking a
-  STEP/IGES/BREP/STL file through Open now converts it instead of landing
-  on an empty model, and zero-volume loads warn instead of staying silent.
-- nuke-visualizer: **native-first generic viewer and View 3D** — XML and
-  legacy-ASCII VTK files (including STEP, DAGMC, and FEM outputs) and the
-  geometry tree's View 3D now render natively with instant color control;
-  binary legacy VTK and unparseable files show an error instead.
-  Large converter meshes (tens of MB) open through a raised 256 MB viewer
-  read budget instead of hitting the editor file-size gate.
-- nuke-visualizer: **filled-surface rendering** — triangle datasets render
-  as shaded surfaces instead of wireframe outlines (per-cell coloring exact
-  via a non-indexed corner soup); line-only data is unchanged.
-- nuke-visualizer: **fixed DAGMC graveyard filtering eating real geometry**
-  — limits now derive from the mesh bounding box instead of a hardcoded
-  100-unit area cap (a tokamak kept 2,420 of 74,638 facets before; it now
-  keeps 74,614 and drops only the 24 graveyard faces), with a fallback that
-  never wipes small models. Old filtered caches are invalidated
-  automatically; reopen the file (or Retry) to reconvert.
-- nuke-visualizer: **trame/ParaView servers removed** — `base.serve`,
-  `dagmc.visualize`, and the tally/geometry trame servers are deleted along
-  with the proxy/iframe layer and the `trame`/`paraview` dependencies;
-  openmc-studio's CSG-builder preview kept the 3D widget path until the
-  native reroute below.
-- nuke-visualizer: **last trame remnants removed** — `openmc-geometry-3d-widget.tsx`,
-  `visualizeGeometry`, and the `/visualizer/<port>/` reverse proxy
-  (`visualizer-proxy-contribution`, `proxy-retry`, `visualizer-url`) are
-  deleted; openmc-studio's CSG-builder preview now renders through the
-  native geometry viewer (`extractGeometryMesh` →
-  `GeometryNativeViewerWidget.setModelFile`, the same path as tree View 3D).
-- nuke-visualizer: output viewers (tracks, collision-track, weight-windows,
-  random-ray, tally, DAGMC) are now native-only — the per-viewer trame
-  fallback is removed and unreadable files show an error panel pointing
-  at the generic VTK viewer instead.
-- nuke-cad: **lattice feature** — replicate a solid feature over a
-  rectangular grid or hexagonal ring (2500-cell cap) with per-cell labels
-  (`<prefix>_r<row>c<col>`) that flow into `selector_map` and DAGMC groups,
-  fused through the standard pattern path and pattern/mirror eligible.
-- nuke-cad: **DAGMC export robustness** — staged imprint with a reported
-  stage log (fragment → dedup → capped tolerance-relaxed retry → model-only
-  fallback → loud failure), sense errors naming surface + volumes + stage,
-  additive `diagnostics`/`imprintStages`/`sealCheck` result keys, most-
-  specific selector resolution (per-cell entries beat body-level), and a
-  grouped diagnostics box in the Model Outline.
-- nuke-cad: **in-CAD material tagging** — tag bodies with bare material
-  names from the Feature Tree (undo-covered, no rebuild); tags merge into
-  manifest volumes on every document build path, persist
-  `<stem>.regions.json` beside the document, and reach openmc-studio as
-  `materialLinks`. Explicit sidecar entries always win.
-- nuke-cad: **material property cards** — the region manifest gains an
-  additive `materials` block mapping a material name to an isotropic
-  `{E, nu, rho, k, cp, alpha}` card (documented SI units, validated, no
-  migration); the FEM service resolves names manifest-first with the
-  versioned built-in cards as fallback and fails loudly on unknown names.
-  Thermal fields are stored for future coupled-physics coupling. The OpenMC
-  name flow is unchanged.
-- nuke-cad: **FEM breadth (boundary conditions and result pipeline)** —
-  `pressure` conditions now apply uniform normal traction as element-face
-  pressure loads, `temperature` conditions prescribe nodal temperatures,
-  and static/thermal/frequency step selection is covered end to end.
-  Stress runs derive `von_mises` and `max_principal` nodal arrays from the
-  solver stresses, plus a `safety_factor` (`yield` over von Mises) array
-  wherever the material card carries the new optional `yield` strength
-  (Pa); materials without it omit the factor and the run warns which ones
-  were skipped instead of defaulting. All arrays arrive as VTK color-by
-  data with no viewer changes.
-- nuke-cad: **fuse-path overlap check** now exits early (identical verdict,
-  ~150 ms saved on ×50-scale checks); profiled W7X walls (sweep-station
-  loft, GFOP variance) documented as outside the behavior-preserving
-  surface.
-- nuke-cad: **mesh repair for DAGMC prep** — `--repair <op,...>` on the mesh
-  service (`remove_duplicate_facets`, `fill_holes` with a capped, reported
-  loop size, `smooth_laplacian` with boundary preservation and an iteration
-  cap, surface-only `decimate` that refuses volume meshes loudly). Ops run
-  mesh-only after generation and before the quality report, which certifies
-  the repaired mesh with per-op counts under `repairs`; every failure names
-  the op, never a silent skip.
-- nuke-cad: **saved measurements** — the Measurements popover gains
-  pin/unpin per 3D measurement; pinned rows persist into an additive
-  `measurements` block on the `.nuke-cad` document (v3, no migration,
-  absent means none), survive rebuilds and re-render afterwards, and ride
-  snapshot undo/redo like any other edit. Unpinned rows keep the existing
-  ephemeral behavior. Saved measurements are viewport annotations and never
-  affect builds, exports, or the exported script.
-
-- nuke-cad: **undo/redo** — the document store keeps snapshot history (depth 100) over committed mutations, with toolbar buttons and `Ctrl+Z` /
-  `Ctrl+Shift+Z` / `Ctrl+Y` following the viewport key scoping rules.
-  Granularity is one committed mutation per step; sketch strokes undo as a
-  unit on save.
-
-- nuke-cad: **assemblies** — multi-part documents with instances (same-doc
-  bodies, `.nuke-cad` paths, STEP/IGES/BREP files), connector-frame mates
-  solved closed-form from an explicitly grounded instance, per-instance
-  viewport rendering with shared geometry, a mate dialog with DOF hints, a
-  **BOM** panel with viewport selection sync, STEP-assembly export (one
-  product per instance), and DAGMC export of the placed solids.
-- nuke-cad: **drawings core** — single-sheet 2D drawings (A4/A3) with base,
-  projected, section, and detail views from exact HLR linework, associative
-  dimensions created by picking model edges in the viewport (stale-flagged
-  on broken references), and SVG + DXF export. PDF export is deferred.
-
-- nuke-cad: **extrude/revolve ends, subtractive tools, datum pattern axis,
-  modeled threads, units, and offset auto-trim** — pad/pocket gain
-  **up-to-body** termination; revolve/groove gain **through-all** ends;
-  primitives and helical sweeps gain a **subtractive** option; linear
-  patterns accept a **datum axis** like circular ones; holes gain a
-  **thread** preset (`none`/`cosmetic`/`modeled`, modeled cuts a real ISO
-  thread into simple blind holes); the document toolbar gains a **Units**
-  dropdown (tags future inputs, never rescales); STEP/IGES imports read the
-  file's length unit (adopted when unset, exact scaling on mismatch); and
-  the sketch Offset popover gains **auto-trim** (miter-join, on by
-  default).
-
-- nuke-cad: **ellipse and B-spline sketch entities** — two new sketch tools
-  join the toolbar: **Ellipse** (`E`, center → major-axis endpoint → minor
-  radius) and **B-spline** (`B`, click control-polygon poles, finish with
-  Enter or double-click). An equal-radius ellipse gesture is rejected with a
-  hint pointing at the Circle tool, and an out-of-range minor radius is
-  clamped with a hint. Both entities solve with the geometric solver, snap
-  (center/end-pole/on-curve), render, serialize to the `.nuke-cad` document,
-  rebuild through the headless Python backend, and export to Python. Ellipse
-  and B-spline points accept point-level constraints (coincident, fix,
-  distance, symmetry); curve-level constraints remain lines/circles/arcs
-  only.
-- nuke-cad: **explode view and measure angle/radius** — the 3D viewport
-  navigation cluster gains an **Explode** slider (0–100%) that moves every
-  solid away from the model center, faces and edge lines together, so fused
-  multi-part bodies (e.g. a circular pattern) separate visually. It is a
-  viewport-only transform — never written to the document, reset when the
-  model reloads or rebuilds — and picking keeps working on exploded geometry.
-  The measure tool (document toolbar Inspect group, Measurements popover) now
-  has three modes: **Distance** (two points, as before), **Angle** (three
-  clicks — A, vertex B, C — with overlay segments BA/BC and the angle label
-  at B), and **Radius** (click a circular edge; reports radius and diameter
-  from the edge's fingerprint center or a least-squares circle fit, warning
-  on non-circular edges). All measurements stay viewport-only session state
-  cleared after rebuild; with the explode slider raised, existing
-  measurements stay at their original world positions (they are not
-  re-anchored to moved solids).
-- nuke-cad: **viewport context menu and draggable feature dialog** —
-  right-clicking the 3D canvas opens a context menu instead of the browser
-  default: on a solid it offers **Edit Feature…** (attributed through the
-  solid's body to the latest feature writing it; disabled when no feature
-  matches), **Measure Distance / Angle / Radius**, and **Fit to Solid**; on
-  empty space it offers **Fit All** and **Reset Explode** (disabled at 0%).
-  The feature-creation/edit dialog now floats like the sketch chrome: drag it
-  by its header, double-click or right-click the header to reset its
-  position. The `nuke.cad.editFeature` command palette entry now edits the
-  feature selected in the Feature Tree when invoked without an id, and the
-  Feature Tree shows the **Edit Parameters** pencil for boolean features too.
-- nuke-cad: **result-cache rebuilds** — document builds now persist
-  per-feature B-reps to a `<stem>.nuke-cache.zip` sidecar, so edits rebuild
-  only the dirty closure (clean predecessors restore from blobs) and opening
-  a cached document restores everything with only tessellation running; any
-  miss safely executes that feature instead. Reorders, datum edits, and
-  sketch-parameter edits all invalidate correctly. The in-session memory
-  cache still covers same-session reopens with zero backend spawn.
-- nuke-cad: **`nukeCad.rebuildOnEdit` preference** (`auto`/`manual`,
-  default `auto`) — manual mode stops edit-triggered rebuilds and marks the
-  model stale (banner + Rebuild button) instead, for documents where each
-  rebuild is expensive; opening a document always builds, and plain Save
-  never builds.
-- nuke-cad: **tessellation cache + `nukeCad.resultCacheSizeMB`** — the
-  result-cache sidecar now also stores a doc-level tessellation blob keyed
-  by doc-hash, so cache-hit opens skip meshing entirely (reported via
-  `tessCacheHit`); the new `nukeCad.resultCacheSizeMB` preference (default
-  1024 MB, minimum 1) caps the sidecar size before LRU eviction and is sent
-  on every partial build.
-- nuke-cad: **extrude end-conditions** — pad/pocket dialogs gain an End
-  selector (`blind` as before, plus first/last-face-hit, picked face, or
-  through-all) with optional two-sided extrusion; a missed end fails with
-  the existing "does not intersect" error instead of a silent no-op.
-- nuke-cad: **datum-lite** — the Sketch Plane picker offers 3-Point planes,
-  midplanes between two picked faces, and two-point line datums (pattern
-  axes only); sketch entry derives the same workplanes client-side with no
-  build round-trip.
-- nuke-cad: **hole upgrade** — counterdrill preset, taper angle, blind-only
-  drill-point angle (blank stays flat, existing holes unchanged), and a
-  stored-only cosmetic thread flag.
-- nuke-cad: **primitives, scale, multi-transform, defeature** — datum-placed
-  box/cylinder/sphere/cone/torus features (no sketch needed,
-  pattern-source eligible); per-instance scale on patterns/mirror; a
-  multiTransform chaining two same-body pattern/mirror sources; face-delete
-  defeaturing for pre-mesh cleanup; and an optional draft neutral plane.
-- nuke-cad: **sketcher round** — Slot tool (`O`), PointOnObject,
-  DistanceX/DistanceY, Diameter, and Block-freeze constraints; diagnostics
-  now tag partially-redundant constraints and flag missing coincidents,
-  open profiles, and fully-constrained state.
-- nuke-cad: **navigation styles** — `nukeCad.navigationStyle` (`orbit` default,
-  `solidworks`, `tinkercad`, `touchpad`) remaps viewport mouse/touch bindings
-  so switchers keep their orbit habits; right-click menus work everywhere.
-- nuke-cad: **document units** — `.nuke-cad` accepts `units` (`mm`/`cm`/`m`;
-  absent stays legacy unitless); curve expressions coerce to the declared
-  unit (`mm` doc: `10mm`→10, `1cm`→10, dimension mismatches error instead
-  of silently numbering) and dimension labels carry the suffix.
-- nuke-cad: **assembly foundation** — mate-connector assembly documents
-  (instances, named frame connectors, one mate per pair, explicit ground)
-  with closed-form placement and DOF counting (fixed/revolute/slider/
-  cylindrical/ball/planar). Pure model layer; no UI or backend yet.
-- nuke-cad: **exchange breadth** — IGES/BREP/glTF read-write (glTF write
-  only on this OCP), STL export, IGES face-sewing import, STEP-style
-  names/colors where formats support them. Plus versioned ISO/UNC thread
-  tables for later hole recognition.
-- nuke-cad: **sketch modify tools** — Trim, Extend, and Split (click with
-  intersection math and constraint hygiene), 3-click sketch Fillet/Chamfer,
-  chained Polyline with line/arc modes, rectangle corner/center/rounded
-  modes, regular Polygon (3–12 sides), and 4-click Arc Slot, all on
-  single-key shortcuts with M-key mode cycling; the diagnostics popover
-  gains one-click redundant removal.
-- nuke-cad: **sketch transform tools** — Move, Copy, Rotate, and Mirror
-  gestures plus Scale, Rectangular Array, and Offset inline popovers and
-  immediate Join, all operating on the selection with constraint hygiene.
-- nuke-cad: **carbon copy + ellipse internals** — a sketch toolbar button
-  imports the Feature-Tree-selected sketch (fresh ids, constraints and
-  dimensions remapped); ellipses expose their second focus plus major/minor
-  axis construction lines for constraining.
-- nuke-cad: **exact Python export for primitive pattern sources** —
-  patterns/mirrors over primitives re-derive the primitive instead of
-  hatching (multiTransform still degrades honestly).
-- nuke-cad: **expression units layer** — the mini-language enforces unit
-  algebra (`10mm + 1cm`, angle-gated trig, convert-or-fail coercion); the
-  unit-less document paths reject unit syntax until a document-unit
-  convention lands, so existing behavior is unchanged.
-- nuke-cad: **export fidelity** — STEP carries per-solid labels and face
-  colors with one object per solid on re-import; region manifests accept
-  physical-model UUIDs (surfaced on OpenMC import as copy provenance);
-  warnings-only mass-property and mesh-vs-CAD deviation gates run before
-  DAGMC export.
-- nuke-cad: **`nukeCad.viewportBackground` preference** — the 3D canvas
-  backdrop is now choosable: `theme` (default, follows the active Theia
-  theme as before), `dark`, `light`, or `gradient` (a dark gradient backdrop
-  behind a transparent renderer).
-- nuke-cad: **parameter spreadsheet** — the Model Outline panel grows a
-  Parameters section for `.nuke-cad` documents: a sortable
-  `{name, value, unit, used-by}` table with edit-in-place (plain numbers or
-  expressions over the other parameters through the shared expression
-  parser; invalid input shows the validator reason inline and never
-  commits), an add row, guarded delete (referenced parameters are rejected
-  with the referrer list), and used-by resolution through sketches, curve
-  expressions, and the feature-graph rebuild closure. The panel header's
-  **BOM** button exports `{instance/body, label, material, volume}` CSV from
-  the per-solid summaries. Edits use the normal store mutation path
-  (validation, undo, rebuild scheduling unchanged).
-- nuke-visualizer: **x-ray washed out the tally volume** — the x-ray
-  ghost scale applied to every material including the tally voxels, so the
-  hot interior faded with the container it was meant to be seen through.
-  Tally colors (voxel boxes and the smooth raycast, which already used the
-  raw opacity) now stay at slider strength while geometry ghosts; lower the
-  Opacity slider itself to fade everything together.
-- nuke-visualizer: **CSG Outline panel for geometry models** — the native
-  geometry viewer gains DAGMC-Outline parity: per-cell visibility
-  checkboxes with hover isolate, a material tree, a Void switch for
-  unfilled cells, show-all reset, search filter, and two-way canvas
-  selection sync, all bound to the active viewer tab without stealing
-  focus. The viewer's legacy in-widget tree and footer controls move out
-  (opacity/clip already live in Viewer Settings).
-- nuke-visualizer: **geometry viewer respects themes** — cell fills come
-  from a theme-aware palette (same material hues on both themes, deepened
-  on light backgrounds) with matching edge lines, rebuilt live on theme
-  switch; the canvas adopts the converged chrome (file badge, ISO bar with
-  screenshot/reload, orientation cube, muted status line).
-- openmc-studio: **CSG void cells rejected by openmc** — the XML generator
-  emitted void cells with no `material` attribute at all, which this openmc
-  refuses ("Neither material nor fill was specified"). Void cells now emit
-  the standard `material="void"` (matching `openmc.Cell` and the existing
-  import path), with round-trip coverage.
-- nuke-visualizer: **tally overlay with source shows the source again** —
-  the native-only migration had reduced "+ Source" to a bare tally cloud
-  with no source particles at all. It now opens the standard drape overlay
-  and layers the statepoint source bank over it as energy-colored points
-  (own data range, shared colormap/sliders/clip); a missing bank still
-  falls back to the plain overlay. Also fixed along the way: full-overlay
-  clouds paired every value with the wrong cell on non-degenerate meshes
-  (y-major centers against x-major values).
-- nuke-visualizer: **overlay drops the graveyard prompt** — the full-3D
-  tally overlay no longer asks about graveyard filtering: the block always
-  converts (hidden by default like before) and the DAGMC Outline's
-  Graveyard switch toggles it post-load, so a filtered-out volume can now
-  be brought back without reconverting.
-- nuke-visualizer: **tally volume renders in points mode and over ghosts**
-  — mesh blocks only carry surface vertices, so Points mode showed no
-  interior tally at all; the volume now renders as colored points over
-  non-empty cell centers (void stays empty, same mapping). Tally objects
-  (boxes, raycast, points) also draw after the ghosted shells, so the
-  interior no longer drowns in stacked transparency at some orbit angles.
-- nuke-visualizer: **smooth trilinear volume rendering for tally meshes** —
-  the DAGMC drape scene's tally volume (previously per-cell voxel boxes
-  only) gains a Viewer Settings "Smooth volume" switch rendering the same
-  mesh as a hardware-trilinear raycast volume (R8 3D texture, CPU-built
-  RGBA lookup from the shared color pipeline so colors match the boxes,
-  exact-zero cells stay invisible, clip planes cut it identically, boxes
-  on any failure). Boxes stay the default; the switch is sticky per viewer.
-- nuke-visualizer: **derived fields (Calculator) + histogram in the output
-  viewers** — the tracks, collision-track, and weight-windows data panels
-  gain a Calculator input over dataset arrays with a small closed grammar
-  (`a/b`, `a-b`, `mag(v)`, `log10(a)` — invalid input is a panel error,
-  never committed). Applying materializes a transient array the color-by
-  pipeline consumes like any parsed array (divide-by-zero yields NaN and
-  routes through each preset's NaN color), and a lightweight SVG histogram
-  (min/max/mean/std, bin count, log-y toggle) covers the active color-by
-  array.
-- nuke-visualizer: **warp-by-vector for FEM displacement** — meshes carrying
-  a 3-component point array (nodal DISP from FEM exports) gain a Viewer
-  Settings Warp row (enable switch plus vector-array pick, shown only when
-  such an array exists) with an exaggeration slider: True scale (x1),
-  Auto (magnified so the largest displacement spans 10% of the model size),
-  or a Capped custom value with one-click reset to the auto scale. Warp
-  rewrites the scene positions client-side with recomputed normals (fit,
-  clip, and the measure raycast follow it); rebuilds and recolors re-apply
-  it, and the status line reports the applied factor.
-- nuke-visualizer: **line probes for tally flux profiles** — the native
-  tally viewer gains a Line probe panel (header toggle): enter a statepoint,
-  tally, score, and two endpoints in cm (defaults span the dataset X axis),
-  pick smooth trilinear or pixelated nearest-cell sampling plus the sample
-  count, and run `openmc.tally-line-probe` to sample the mesh tally along
-  the segment. The series renders in a data-half table (distance/position/
-  value, capped at 1000 rows for interactivity) with full-series CSV export
-  following the kinetics-tab pattern; `--output`/`--write-vtp` also emit
-  the probe-path polyline (`.vtp`) for in-scene display.
-- nuke-visualizer: **threshold on tally meshes** — the Viewer Settings
-  sidebar gains a Threshold row beside Range (enable switch plus a min/max
-  window following the Range dual-control pattern: numeric inputs with
-  per-side data resets, a full-range reset, and a dual-thumb slider). It
-  hides cells whose active color-by value falls outside the window —
-  voxel boxes collapse, mesh triangles fold away — over parsed and derived
-  arrays alike, and combines with warp (warp displaces first, then cells
-  hide). Switching the color-by array clears a custom window back to the
-  new data range; the status line reports the coverage, and non-finite
-  values stay visible per the NaN-color rule.
-- nuke-visualizer: **contour (iso-surfaces) on tally meshes** — the native
-  tally viewer gains a Contour panel (header toggle): enter a statepoint,
-  tally, score, and up to 8 iso values in tally units, pick smooth
-  interpolated or pixelated midpoint-snapped vertices (the same convention
-  as the overlay Rendering Style), and run `openmc.tally-contour` to
-  extract the surfaces (pure marching-tetrahedra over the regular tally
-  grid, one `.vtp` for all values). The surface opens as a sibling tab next
-  to the tally mesh through the shared tally routing, so warp and threshold
-  keep working on it with no extra wiring; an iso list that misses the data
-  range fails with an error naming the range.
-- nuke-visualizer: **time-series animation export** — the Exodus viewer
-  header gains an Export button recording the loaded steps to a WebM file
-  through the browser-built-in MediaRecorder (VP9 preferred, no encoder
-  dependency): each step paints at the slider's decimated resolution with
-  the current color-by state and stays on screen half a second while a
-  header progress row with Cancel tracks the capture. Where MediaRecorder
-  is unavailable (headless shells) the export fails with a clear error
-  instead of silently doing nothing. The export is WYSIWYG — per-step
-  re-ranging is out, so brightness may flicker between steps when the
-  global range fits steps unevenly.
-- nuke-visualizer: **direction glyphs in the tracks viewer** — the tracks
-  viewer renders decimated direction cones (`THREE.InstancedMesh`) oriented
-  along per-point vectors (polyline tangents derived client-side; the
-  converted `.vtp` carries no explicit direction array), with Viewer
-  Settings Glyphs rows (enable switch, density slider, size slider with
-  defaults reset) beside the Warp rows. Cones sit on the warped scene
-  positions (they follow deformation), skip threshold-hidden points/cells
-  and zero-length vectors, take their colors from the active color-by
-  mapping, and report live coverage in the status line. The collision-track
-  viewer shares the instancing path and shows the same rows once a dataset
-  carries a 3-component point array. Streamlines stay deferred (no
-  integrator ships).
-- nuke-visualizer: **linked cameras across views of the same file** — the
-  viewer nav bar gains a `Link cameras` toggle (per-view state, default
-  off): with it on in two or more tabs showing the same file, orbiting one
-  view swings the others to the same direction and distance through the
-  shared orbit handle, while every view keeps its own target and framing.
-  Camera-only sync — warp, threshold, glyphs, color-by, clip, and shading
-  stay per-view and are never published. Views of different files never
-  link (identity is the file path — tally mesh/slice/overlay/source/contour
-  tabs are keyed by their source statepoint or source file, so tabs derived
-  from one file link together); applying a linked pose never
-  rebroadcasts, and the subscription drops when the tab closes.
+- build: optional extensions selectable at build time via `NUKE_EXTENSIONS` allow-list / `NUKE_EXCLUDE_EXTENSIONS` deny-list.
+- nuke-cad: lattice feature replicates a solid feature over a rectangular grid or hexagonal ring with per-cell labels for DAGMC groups.
+- nuke-cad: staged DAGMC export with a reported stage log, sense errors naming surface + volumes, and a grouped diagnostics box.
+- nuke-cad: tag bodies with material names from the Feature Tree; tags merge into manifest volumes and reach openmc-studio as links.
+- nuke-cad: material property cards ({E, nu, rho, k, cp, alpha, yield}) on the region manifest resolved by the FEM service.
+- nuke-cad: FEM pressure/temperature boundary conditions with derived von Mises, max-principal, and safety-factor result arrays.
+- nuke-cad: faster overlap checks in the fuse path with identical verdicts.
+- nuke-cad: mesh repair ops for DAGMC prep (duplicate facets, hole fill, Laplacian smooth, decimate) with per-op counts in the report.
+- nuke-cad: pinnable 3D measurements persist in the document, survive rebuilds, and ride undo/redo.
+- nuke-cad: undo/redo over committed document mutations with toolbar buttons and Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y.
+- nuke-cad: multi-part assemblies with instances, connector-frame mates, BOM panel, STEP-assembly export, and placed-solid DAGMC export.
+- nuke-cad: single-sheet 2D drawings (A4/A3) with base/projected/section/detail views and SVG + DXF export.
+- nuke-cad: up-to-body pad/pocket ends, through-all revolve/groove, subtractive primitives/sweeps, datum-axis patterns, modeled threads.
+- nuke-cad: Ellipse (E) and B-spline (B) sketch tools with solver, snap, serialization, rebuild, and Python export support.
+- nuke-cad: Explode slider for viewport separation plus Angle and Radius measure modes alongside Distance.
+- nuke-cad: viewport right-click menu (Edit Feature, measure, fit) and a draggable feature-creation dialog.
+- nuke-cad: result-cache rebuilds persist per-feature B-reps so edits rebuild only the dirty closure.
+- nuke-cad: `nukeCad.rebuildOnEdit` preference (auto/manual) to stop edit-triggered rebuilds on expensive documents.
+- nuke-cad: cached tessellation skips meshing on open, capped by the `nukeCad.resultCacheSizeMB` preference.
+- nuke-cad: pad/pocket end selector (blind, face hits, picked face, through-all) with optional two-sided extrusion.
+- nuke-cad: 3-point planes, face-midplanes, and two-point line datums in the Sketch Plane picker without a build round-trip.
+- nuke-cad: hole counterdrill preset, taper angle, blind-only drill-point angle, and cosmetic thread flag.
+- nuke-cad: datum-placed primitives, per-instance pattern scale, multiTransform chains, face-delete defeature, draft neutral plane.
+- nuke-cad: Slot tool, PointOnObject/DistanceX/Y/Diameter/Block-freeze constraints, and diagnostics for redundant/missing constraints.
+- nuke-cad: `nukeCad.navigationStyle` remaps viewport mouse/touch bindings (orbit, solidworks, tinkercad, touchpad).
+- nuke-cad: document units (mm/cm/m) with unit-aware curve expressions and suffixed dimension labels.
+- nuke-cad: mate-connector assembly document model with closed-form placement and DOF counting (model layer).
+- nuke-cad: IGES/BREP/glTF read-write plus STL export, IGES face-sewing import, and versioned thread tables.
+- nuke-cad: Trim, Extend, Split, Fillet/Chamfer, Polyline, rectangle/polygon/arc-slot tools with one-click redundant removal.
+- nuke-cad: Move, Copy, Rotate, Mirror, Scale, Rectangular Array, Offset, and Join sketch tools with constraint hygiene.
+- nuke-cad: carbon-copy import of another sketch plus second-focus and axis construction lines for ellipses.
+- nuke-cad: patterns/mirrors over primitives re-derive the primitive in Python export instead of hatching.
+- nuke-cad: unit algebra in the expression mini-language with convert-or-fail coercion (unitless paths unchanged).
+- nuke-cad: STEP carries per-solid labels and face colors; manifests accept physical-model UUIDs; pre-export deviation gates.
+- nuke-cad: `nukeCad.viewportBackground` preference (theme, dark, light, gradient) for the 3D canvas backdrop.
+- nuke-cad: parameter spreadsheet in Model Outline (edit-in-place expressions, guarded delete) with BOM CSV export.
+- nuke-cad: Loft across ordered sketch sections and Helical Sweep along an analytic helix, both pattern/mirror eligible.
+- nuke-cad: Sweep and Pipe features along picked 3D curves with ghosted preview and Python export.
+- nuke-cad: ghosted Preview in every feature dialog showing the operation on true geometry.
+- nuke-cad: multi-select, Hide/Isolate with Show all, and one-click Fuse fix for overlaps in the Model Outline.
+- nuke-cad: viewport shading popover (Shaded, Shaded + Wireframe, Edges only, X-ray) with ghost-opacity slider.
+- nuke-cad: click-two-points distance measure with a persistent viewport-only measurements list.
+- nuke-cad: X/Y/Z section-plane slicing with flip and slider; visual only, exits via button or Esc.
+- nuke-cad: read-only solid properties (volume, area, bbox, center of mass, counts) with a pin toggle in Model Outline.
+- nuke-cad: Model Outline list/table toggle with sortable SI-suffixed columns and two-way selection sync.
+- nuke-cad: sketch snap magnet toggle and S/M/L snap-radius control with status-line reflection.
+- nuke-cad: `Q` context shortcut bar with sketch tools or feature actions anchored at the cursor.
+- nuke-cad: Ctrl+click two sketch entities for a popover of valid geometric relations.
+- nuke-cad: `nukeCad.sketchAutoDimension` opens an inline dimension input right after entity creation.
+- nuke-cad: New Document templates (Empty, Pincell starter, Tokamak starter) merged over the empty document.
+- nuke-cad: 3D curves (points, parametric, Fourier) render in the viewport, rebuild headless, and export to Python.
+- nuke-cad: multi-body documents with booleanFuse/Cut/Common features, Bodies section, and v1-to-v2 migration.
+- nuke-cad: feature reorder with dependency validation, cascade delete, inline rename, edit-parameters, and reference repair.
+- nuke-cad: one-way deterministic build123d-ish Python export for `.nuke-cad` documents via the save dialog.
+- nuke-cad: fillet, chamfer, draft, and shell dress-up features with viewport edge/face picking.
+- nuke-cad: linear/circular patterns, mirror, and a viewport-placed hole wizard (simple, counterbore, countersink).
+- nuke-cad: tokamak demo gate with GUI-path driver, committed fixture, and volume/face-count drift coverage.
+- nuke-cad: script-first parametric CAD authoring (build123d/CadQuery) with live viewport and canonical STEP export.
+- nuke-cad: `.nuke-cad` documents as a full authoring mode sharing one build path with script builds.
+- nuke-cad: interactive 2D sketcher with snap, auto/explicit constraints, driving/reference dimensions, and live drag solving.
+- nuke-cad: document build pipeline executing pad/pocket/revolve/groove in topological order with per-feature status.
+- nuke-cad: fingerprint-based topological reference resolution with clear errors on ambiguous/unmatched references.
+- nuke-cad: sketch-on-face datums derived deterministically from planar predecessor faces with optional offset.
+- nuke-cad: external-geometry references projected as construction geometry without joining sketch output.
+- nuke-cad: On Face sketch-plane picking and an External Geometry tool with dashed reference rendering.
+- nuke-cad: per-sketch reference-resolution counts in the status line and broken-reference badges in the Feature Tree.
+- nuke-cad: geometric tessellation fingerprints backing face-pick references and backend resolution.
+- nuke-cad: Feature Tree panel with datums, sketches, features, suppression toggles, and build-status markers.
+- nuke-cad: New/Save/Save-As document plus New Sketch and Exit Sketch commands.
+- nuke-cad: DAGMC export via gmsh imprint/merge with manifest `mat:<name>` groups and auto graveyard.
+- nuke-cad: FEM volume meshing to gmsh/Exodus/INP/VTK with manifest blocks, side sets, and per-region refinement.
+- nuke-cad: direct STEP/IGES/BREP opening in the CAD viewport; STEP files open in nuke-cad by default.
+- nuke-cad: empty-viewport Open CAD Model button with a file picker for scripts and STEP files.
+- nuke-cad: CalculiX FEM analysis panel (materials, boundary conditions, `ccx` run, `.fem.vtk` opening).
+- nuke-cad: generic solver job runner plus OpenFOAM case scaffolding and per-solid STL export.
+- nuke-cad: Model Outline panel with manifest volumes/surfaces, two-way pick sync, and build-warnings box.
+- nuke-cad: `nukeCad.facetingTolerance` default tolerance for geometry builds, honored by open/rebuild/import.
+- nuke-cad: netgen meshing engine option with OCC imprint and second-order mesh support.
+- nuke-cad: `lengthScale` build option forwarded to DAGMC export for meter-scaled transport meshes.
+- nuke-cad: EDIT_SKETCH command and Feature-Tree action reopen an existing sketch for editing.
+- nuke-cad/openmc-studio: one-click nuke-cad import loads `.h5m` + regions manifest with placeholder materials into the project.
+- nuke-cad/openmc-studio: DAGMC Imprint & Merge refacet routes through nuke-cad, falling back to the OpenCASCADE path.
+- nuke-core: Nuke Tools sidebar aggregates every Nuke command in a searchable, categorized, state-aware left-panel view.
+- nuke-essentials: shared UI components (dialog, toolbar, empty state, loading overlay, panel, form layout) on the theme module.
+- nuke-essentials + nuke-visualizer + nuke-cad: shared viewer chrome (orientation cube, nav bar, view badge, status line) in all 3D views.
+- nuke-visualizer: ParaView-style color mapping with a 34-preset library, custom range, invert/log toggles, and component selection.
+- nuke-visualizer: native 3D output viewers (tracks, collision-track, weight-windows, voxel) render in-IDE with instant color-by.
+- nuke-visualizer: native tally, source, overlay/slice, `geometry.xml`, and multiblock viewers with clip and pick sync.
+- nuke-visualizer: DAGMC files open with volume/material/group isolation and per-axis clip.
+- nuke-visualizer: compressed multiblock DAGMC payloads decode and render with volume isolation.
+- nuke-visualizer: labeled orientation-cube overlay in native 3D viewers snaps to standard views on click.
+- nuke-visualizer: distance measure in native 3D viewers captures two surface points with an in-scene label.
+- nuke-visualizer: Viewer Settings sidebar binds color, shading, clip, measure, and view snaps to the active viewer tab.
+- nuke-visualizer: DAGMC Outline sidebar with volume/material/group trees, Graveyard toggle, Show all, and search.
+- nuke-visualizer: two-way DAGMC Outline selection sync with auto-reveal that never steals focus.
+- nuke-visualizer: DAGMC viewer tabs open instantly with a loading overlay while conversion runs.
+- nuke-visualizer: orbit/pan/zoom camera with damping plus shading and clip-plane controls in all native viewers.
+- nuke-visualizer: `vtk` is a required dependency with a guided install where it is missing.
+- nuke-visualizer: XML and legacy-ASCII VTK files plus tree View 3D render natively with instant color control.
+- nuke-visualizer: triangle datasets render as shaded surfaces with exact per-cell coloring.
+- nuke-visualizer: DAGMC graveyard filtering derives limits from the mesh bounding box so real geometry survives.
+- nuke-visualizer: trame/ParaView servers deleted along with the proxy/iframe layer and dependencies.
+- nuke-visualizer: last trame remnants deleted; the CSG-builder preview renders through the native geometry viewer.
+- nuke-visualizer: output viewers are native-only; unreadable files show an error pointing at the generic VTK viewer.
+- nuke-visualizer: x-ray ghosting no longer fades the tally volume; geometry ghosts while tally colors stay at slider strength.
+- nuke-visualizer: CSG Outline panel with per-cell visibility, material tree, Void switch, search, and selection sync.
+- nuke-visualizer: theme-aware geometry palette and converged viewer chrome that follow theme switches live.
+- nuke-visualizer: tally+source overlay layers the statepoint source bank as energy-colored points over the drape.
+- nuke-visualizer: full-3D tally overlay no longer asks about graveyard filtering; the Outline switch toggles it post-load.
+- nuke-visualizer: tally volume renders as colored points in Points mode and draws over ghosted shells.
+- nuke-visualizer: Smooth volume switch renders tally meshes as hardware-trilinear raycast volumes.
+- nuke-visualizer: Calculator derived fields over dataset arrays plus an SVG histogram with stats in output viewers.
+- nuke-visualizer: warp-by-vector exaggerates FEM displacement meshes client-side with True/Auto/Capped scaling.
+- nuke-visualizer: Line probe samples mesh tallies along a segment with a results table and CSV export.
+- nuke-visualizer: Threshold window hides cells outside the active color-by range with slider and status coverage.
+- nuke-visualizer: Contour panel extracts iso-surfaces from tally meshes into a sibling tab.
+- nuke-visualizer: Exodus viewer exports the loaded steps to WebM with progress and Cancel.
+- nuke-visualizer: decimated direction cones in the tracks viewer with density/size controls.
+- nuke-visualizer: Link cameras toggle syncs orbit direction and distance across views of the same file.
+- nuke-visualizer: depletion per-step statepoints open in the statepoint viewer.
+- nuke-visualizer: NCrystal tab browses the material library, builds config strings, and plots S(a,b) and absorption.
+- nuke-visualizer: ENDF tab browses library directories with decay, yield, and reaction-section detail.
+- nuke-visualizer: voxel-plot and summary HDF5 open on double-click with a draggable viewer/table split.
+- nuke-visualizer: visualizer proxy retries refused startup connections instead of false unreachable errors.
+- nuke-visualizer: nuclear data browser with a searchable nuclide library and one-click XS plotting.
+- nuke-visualizer: weight-windows viewer mesh selector for multi-mesh files.
+- nuke-visualizer: shared HDF5 output readers and viewers for tracks, collision-track, and weight-windows files.
+- nuke-visualizer: IFP kinetics tab (kinetics parameters with uncertainties, CSV export) plus restart-preview and random-ray viewers.
+- openmc-studio: DAGMC Editor routes picked CAD files to import instead of landing on an empty model.
+- openmc-studio: void cells emit standard `material="void"` so this OpenMC accepts them.
+- openmc-studio: Simulation Dashboard re-attaches to in-flight runs after reload with live progress and log streaming.
+- openmc-studio: one-click graveyard creation/re-tagging for DAGMC models; CAD conversion auto-creates it by default.
+- openmc-studio: Import CAD button converts STEP/IGES/BREP/STL straight into DAGMC format.
+- openmc-studio: optional Imprint & Merge DAGMC refacet that re-creates dropped graveyard volumes.
+- openmc-studio: one-click fix switches incompatible projects back to continuous energy with materials restored.
+- openmc-studio: `copyDagmcToRunDirectory` setting copies the DAGMC file into the run directory; paths stay project-relative.
+- openmc-studio: element symbols expand to natural nuclide compositions on XML/script export.
+- openmc-studio: one-click CE to multi-group conversion with lossless revert to continuous energy.
+- openmc-studio: nuclide-wise multi-group mode for random ray on DAGMC geometries.
+- openmc-studio: per-environment runtime probe adapts XML emission and gates dev-only options for upstream drift.
+- openmc-studio: plain-language mode guard rails (depletion vs multi-group, IFP vs random ray, score whitelist, ...).
+- openmc-studio: tally-derivative sensitivity tallies (density/nuclide-density/temperature perturbations).
+- openmc-studio: custom depletion chain builder from ENDF-B-VII libraries or existing chain subsets with full closure.
+- openmc-studio: manual Library mode in the MGXS generator with user-chosen XS types, domains, and decomposition.
+- openmc-studio: random-ray adjoint editing, trigger ignore_zeros, TokamakSource time distributions, search cancellation, CMFD validation.
+- openmc-studio: CMFD acceleration UI, validation, codegen, and run driver through the IDE.
+- openmc-studio: mesh sources with sub-source enforcement plus TokamakSource with Miller geometry and emission profiles.
+- openmc-studio: per-tally precision triggers with automatic emission plus run-level trigger settings.
+- openmc-studio: criticality search as an optimization-widget mode with live table and apply-to-model.
+- openmc-studio: Advanced settings section (event-based transport, photon creation, biasing, lost-particle limits, ...).
+- openmc-studio: modular simulation-dashboard tabs behind a registry; project files carry schema 1.1.0.
+- openmc-studio: full source model with file/compiled/multi sources, strengths, constraints, and surface source I/O.
+- openmc-studio: output-control settings (statepoint batches, tracks, photon physics, entropy mesh, restarts).
+- openmc-studio: track and lost-particle files move into `tracks/`/`particles/` subfolders; weight windows gain a dashboard action.
+- openmc-studio: complete 79-score tally catalog with descriptor-driven editors for all 23 filter types.
+- openmc-studio: IFP kinetics workflow with auto-generated tallies and optional per-group b_eff.
+- openmc-studio: volume-calculation window with triggers and adopt-into-materials plus a native PNG plotting window.
+- openmc-studio: advanced depletion (IndependentOperator, transfer rates, all normalizations, per-nuclide Q).
+- openmc-studio: macroscopic multigroup materials and env-gated NCrystal material import.
+- openmc-studio: random ray support with dashboard tab, MGXS generator window, and FW-CADIS weight-window generation.
+- openmc-studio: DAGMC material overrides plus auto ID toggles and sync-for-depletion.
+- openmc-studio: single-particle restart runs with track capture and post-run track handoff.
+- Testing: Playwright UI smoke suite (`yarn test:ui`) covering boot, dashboard tabs, project flow, and windows in weekly CI.
+- Testing: weekly upstream-OpenMC-develop CI lane with the Python suite on a cached conda full profile.
+- Testing: end-to-end layer running real OpenMC drivers and project-file fixtures, env-gated and skipping cleanly otherwise.
+- Testing: nuke-cad pincell DAGMC e2e (labeled pincell to imprinted h5m to real run asserting zero lost particles).
 
 ### Changed
 
-- nuke-visualizer: **two-button viewer headers removed** — the native VTK and
-  DAGMC viewers no longer carry a header strip for just Screenshot/Reload;
-  both actions moved onto the canvas bottom bar (camera/refresh icons next to
-  Clip and Shading), and the top-left badge stays the single file-name
-  surface. Viewers with real header content (tally kind chip, random-ray
-  array quick-select, tracks/collision filter bars) keep their strip.
-- nuke-visualizer: **Viewer Settings / DAGMC Outline CAD chrome polish** —
-  both sidebars now match the CAD Feature Tree / Model Outline aesthetic
-  with no behavior change: icon + subtitle headers naming the bound viewer
-  tab, collapsible count-badge sections (Display/Clip with an `n/3`
-  enabled badge/Playback/Measure/View; Volumes/Materials/Groups),
-  per-row icons, live status dots (clip planes enabled, measure armed,
-  row visible/hidden), hidden outline rows dimmed with an eye-closed
-  marker, hover isolate buttons on material/group rows (same eye-button
-  pattern as volumes, existing toggles only), an info banner where plain
-  text stood before, and Nuke tooltips instead of native titles. The
-  viewer right-click menu keeps its view-actions-only items with one icon
-  per row (each shading mode included) at CAD menu density.
-- nuke-cad: **faster large-model rebuilds** — the tessellation payload now
-  parses in a Web Worker off the UI thread and transfers to the viewport as
-  zero-copy typed arrays, and the viewport scene update is incremental:
-  unchanged faces keep their GPU geometry across rebuilds (keyed by content
-  fingerprints, not process-salted ids) and materials are shared per shading
-  role instead of cloned per face. On the ~59 MB tokamak display model the
-  main-thread work of a rebuild drops from roughly one second to about
-  0.2 s on a cold load and to a few tens of milliseconds when the geometry is
-  unchanged; a new opt-in performance test
-  (`NUKE_CAD_W7X_PERF=1`, `tests/e2e/test_w7x_performance.py`) profiles the
-  W7X-scale 50-coil document.
-- Workspace-scope settings now live in `<project>/.nuke-ide/` instead of
-  Theia's default `<project>/.theia/` — nuke-essentials rebinds Theia's
-  `PreferenceConfigurations`, so `settings.json` plus the tasks/launch/snippets
-  sections are read from and written to `.nuke-ide/` (`.vscode` remains a
-  secondary path). Projects configured through `.theia/settings.json` must move
-  that file to `.nuke-ide/settings.json` once after updating.
-- **Save Workspace As** defaults to a new `*.nuke-workspace` format (filter
-  label "Nuke workspace") — nuke-essentials rebinds Theia's
-  `WorkspaceFileService`. Existing `*.theia-workspace` and `*.code-workspace`
-  files keep opening as before.
-- nuke-cad: **compact, professional CAD viewport chrome** — the document
-  toolbar is now icon-only (tooltips on hover) with a dedicated SVG icon for
-  every feature type, and the duplicate `...` overflow menu is gone; the
-  sketch toolbar uses purpose-drawn icons for each tool and no longer
-  overlaps the constraint bar when collapsed; build warnings collapse to an
-  expandable `N build warning(s)` summary instead of a tall always-open list;
-  the Feature Tree, Model Outline, and CAD Viewport panels each got a
-  distinct custom icon in tab bars and the Nuke Tools sidebar (previously
-  three panels shared the same generic icon).
-- nuke-cad: **New Document is disabled while a document is open** — it
-  previously replaced the open document (and its unsaved changes) without
-  confirmation; start a fresh document by closing the current one first. The
-  feature-creation dialog and the Sketch Plane picker use an aligned
-  label/input grid, and the Model Outline header is a compact single-line.
-- nuke-cad: **sketch-mode usability round** — the sketch toolbar (and its
-  collapsed toggle) is now draggable anywhere in the canvas; right-click or
-  double-click it for **Reset Position**. Exiting sketch mode is a labeled
-  **Finish Sketch** pill at the top-center of the viewport (previously an
-  unlabeled check icon at the bottom of the toolbar). Dimension labels no
-  longer overlap each other — colliding labels shift apart automatically.
-  Also adds an **axis navigation gizmo** (top-right,
-  mirrors the camera; click X/Y/Z or their negatives to snap views) and a
-  **wireframe** shading toggle in the navigation cluster. Starting a sketch
-  shows a "Starting sketch solver..." overlay while the solver loads instead
-  of flashing back to document mode.
-- nuke-cad: **viewport inspection polish** — a view label overlay (top-left)
-  shows the current standard view or the active sketch name; the shading
-  button now cycles **shaded → wireframe → edges-only**; fit (`F` or the nav
-  button) frames the selected solid when one is active, double-clicking a
-  solid selects and frames it, and `.` fits the selection; `Tab` enters/exits
-  sketch mode.
+- Platform: Theia 1.73.1 to 1.74.1 with the deprecated Vercel AI provider removed; Electron shell moves to 43.4.0.
+- Platform: lerna 9 to 10 (Node.js >= 22.13.0) and markdown-it 14 to 15 in nuke-docs.
+- Platform: React 18 to 19 for all extension widgets with no component API changes.
+- nuke-cad: faster large-model rebuilds via worker-side tessellation parsing and incremental scene updates.
+- nuke-cad: icon-only document toolbar, purpose-drawn sketch icons, collapsible build warnings, and distinct panel icons.
+- nuke-cad: New Document disabled while a document is open so unsaved work can't be replaced silently.
+- nuke-cad: draggable sketch toolbar, labeled Finish Sketch pill, auto-separated dimension labels, axis gizmo, wireframe toggle.
+- nuke-cad: view-label overlay, shaded/wireframe/edges-only cycling, selection-aware fit, and Tab sketch toggle.
+- nuke-cad: overlapping additive pattern/mirror instances now union instead of raising an overlap error.
+- nuke-cad: cross-body overlap downgraded from abort to a reported warning with volumes.
+- nuke-cad: viewport chrome redesign with a structured header toolbar, overflow menu, and collapsible sketch panel.
+- nuke-cad: STEP imports skip DAGMC/FEM export by default for fast loads; script builds still export.
+- nuke-cad: DAGMC surface-sense verification is now a hard error; watertightness and overlap stay reported diagnostics.
+- nuke-cad: saving a script-source model rebuilds the viewport (STEP-source models unaffected).
+- nuke-core: spec-aware dependency installs with a canonical package registry and a drift-failing consistency test.
+- nuke-essentials: workspace settings now live in `<project>/.nuke-ide/` instead of `<project>/.theia/`.
+- nuke-essentials: Save Workspace As defaults to the new `*.nuke-workspace` format (old formats still open).
+- nuke-visualizer: two-button viewer headers removed; Screenshot/Reload live on the canvas bottom bar.
+- nuke-visualizer: Viewer Settings and DAGMC Outline sidebars restyled to match the CAD panels with no behavior change.
 
 ### Removed
 
-- nuke-visualizer: **trame/ParaView visualization servers removed** — all
-  viewers now follow convert → parse → render: headless Python commands
-  convert to XML VTK (numpy geometry, `vtk` lazily for the write) and the
-  IDE's native three.js viewers render it with instant color-by and no
-  servers, ports, or iframes. What goes away: the `base.serve`/dagmc/tally/
-  geometry trame servers, the `/visualizer/<port>/` reverse proxy, and the
-  `trame`/`paraview` (`trame-vtk`, `trame-vuetify`) dependencies —
-  dropped from `packages.json`, the shared package registry, and the Docker
-  image (which now ships conda `vtk` for the converters instead of
-  `paraview`). The docker converter smoke test covers the new seam
-  (synthetic `tracks.h5` → `.vtp` via the repo converter and the
-  `server.py` CLI, read back with `vtk`).
+- nuke-visualizer: trame/ParaView servers, reverse proxy, and dependencies removed; converters plus native viewers cover the seam.
 
 ### Fixed
 
-- nuke-essentials + nuke-visualizer + openmc-studio + nuke-cad: **new
-  shared `NukeSelect` replaces all 157 builtin selects** — the docs-kit
-  `Select` behavior (portal dropdown, flip positioning, full keyboard nav,
-  hidden native select, ARIA listbox) re-implemented dependency-free on
-  Theia tokens + codicons + CSS animation (no Tailwind/framer/lucide in the
-  IDE); every dropdown (viewer color-by/colormap/shading, plot pickers,
-  dashboard tabs, CAD feature dialogs, …) uses it, so dropdowns can never
-  clip in narrow sidebars and all pickers share one keyboard model. The one
-  `<select multiple>` (CAD boolean tool bodies) stays native — `NukeSelect`
-  is single-value. `tooltip.css` also loads centrally now instead of via a
-  one-off widget import.
-- nuke-essentials + nuke-visualizer: **form controls join the shared
-  library (`NukeCheckbox`/`NukeSlider`/`NukeSearchInput`/`NukeSwitch`/
-  `NukeBadge`)** — same docs-kit behavior ported dependency-free (themed
-  checkbox, fill-track slider, search with clear, switch for panel-level
-  show/enable, count pill). Viewer Settings sliders/switches, the clip-card
-  offset slider, and the DAGMC outline search/checkboxes/switches use
-  them; the UI smoke specs drive the new controls. Research lives in
-  `.research/nuke-essentials/ui-ports-plan.md`.
-- nuke-visualizer: **DAGMC Outline sometimes never binds on viewer open**
-  (empty "No DAGMC viewer open" with the viewer tab sitting open) — two
-  stacked causes: `revealDagmcOutline` only called `revealWidget` when the
-  panel was already attached, but adding to a collapsed side area attaches
-  without expanding, so it now always reveals; and the 3D viewers never
-  took DOM focus on activation while the shell's active/current tracking
-  (which both sidebars bind off) only updates on real focus events, so both
-  viewers now focus their node on `onActivateRequest` (statepoint parity).
-- nuke-visualizer: **tally overlay/slice failed to parse (`neither a valid
-byte position nor a base64 character position`)** — vtk 9 writers emit
-  base64 _character_ offsets into appended payloads (byte math overshoots by
-  4/3), which the parser already converted, except zero-cell sections
-  (every overlay's empty Lines/Strips/Polys): their empty blocks carry
-  `nBlocks: 0`, which the strict validator rejected. Empty sections now
-  skip decoding from their piece counts (unknown counts decode as before),
-  so corrupt offsets in zero-cell sections can never fabricate cells while
-  corrupt offsets in real sections still throw. Covered by a synthetic
-  compressed-appended regression test and verified against real
-  `statepoint.1000.h5` overlay output.
-- nuke-visualizer: **legacy `STRUCTURED_GRID` `.vtk` files preview** —
-  regular-grid legacy files (e.g. OpenMC mesh exports) no longer fail with
-  `Unsupported legacy VTK dataset`; corners average to cell centers like
-  the `.vts` path, with voxel axes (and block rendering) on axis-aligned
-  lattices and a center-point fallback otherwise.
-- nuke-visualizer: **Full overlay without DAGMC opens the voxel mesh** —
-  instead of a cell-center cloud, the full mesh renders as clip-cuttable
-  voxel blocks, so interiors are explorable with the Clip planes.
-- nuke-visualizer: **weight-window/voxel grids render as voxel blocks**
-  — rectilinear and image grids were decimated cell-center point clouds,
-  so dense regular meshes moiréd into starbursts over flat data. Grids
-  with axis info now render instanced boxes (uniformly thinned past a
-  100k-instance budget, per-cell colors, clip/shading-aware) with the
-  point cloud kept for Points mode; curvilinear grids stay clouds.
-  Zero-valued cells collapse to invisible (void never washes out
-  geometry), ghosted boxes skip depth writes so interiors stay visible,
-  and the drape view loads the tally mesh the same way. Ghosted surfaces
-  likewise skip depth writes (opaque rendering unchanged): depth ties
-  across nested DoubleSide shells and imprint-coincident faces flipped
-  winners per frame and blinked while orbiting. The tally volume
-  now also syncs material props on load (it kept build-time translucency
-  and ghosted at full opacity), and a skipped drape color-by warns with
-  the cause instead of failing silently.
-- nuke-visualizer: **tally slices render as smooth shaded surfaces** —
-  slice views were bare vertex clouds, so dense grids moiréd (diagonal
-  banding over flat data) and Shaded mode changed nothing. The slice
-  writer now emits the quad grid as Polys, the XML parser fan-triangulates
-  them (legacy-path parity, edges kept for Shaded + Edges), and wide grids
-  decimate by whole grid steps at the source (capped, coverage always
-  complete — decimating triangle lists instead would punch holes). Points
-  stay full-resolution; verts-only legacy slices still open as points.
-- nuke-visualizer: **round soft points in every native point cloud** —
-  tally overlays/slices, collision tracks, sources, and DAGMC/exodus
-  points rendered as square pixels (the dated look next to shaded
-  surfaces). A shared radial-disc sprite texture
-  (`viewer-core/point-sprite.ts`, graceful no-canvas fallback) backs every
-  `PointsMaterial`, so points render round with anti-aliased rims.
-- nuke-visualizer: **true Full 3D tally-on-geometry overlay** — the mode
-  previously wrote mesh cell centers as a point cloud despite promising
-  mapped geometry cells. With a DAGMC `.h5m` geometry the mesh tally is now
-  sampled at every volume-triangle centroid (nearest cell, x-major order
-  matching the slice resampler) into a painted multiblock (new
-  `openmc.overlay-geometry-vtk`, manifest cached), opened in the native
-  DAGMC viewer with volume/material/group isolation, instant tally
-  color-by, and the outline sidebar; other geometries keep the cloud.
-  The drape opens pre-colored by the tally array (`runConversion` now
-  hoists `arrayName` onto the result instead of burying it in stats).
-  The tally mesh volume also loads as voxel blocks inside the drape scene
-  (Viewer Settings → Tally volume toggle, same color mapping and clip
-  planes), so clipping shows the hot interior instead of hollow shells.
-  The base converter's progress prints are redirected to stderr so the
-  strict stdout-JSON contract holds (covered by a stdout-purity test).
-- nuke-visualizer: **mesh `.vti` exports had silently rescaled geometry**
-  — `write_mesh_vti` passed spacing where upper corners were expected,
-  so every mesh view rendered squashed (e.g. 63.3 cm cells written as
-  33.8). Spacing/origin now round-trip exactly (regression test).
-- nuke-visualizer: **DAGMC viewer stuck in Shaded + Edges** — the edge
-  overlay showed in both `Shaded` and `Shaded + Edges` modes (the widget
-  keyed its visibility off the material flags instead of the mode, unlike
-  the native VTK viewer). It now follows the documented contract and shows
-  only in `Shaded + Edges`, so `Shaded` faces render clean.
-- nuke-visualizer: **color legend gradient bar missing in every native
-  viewer** — the legend row wrapped in the hugging tooltip span collapsed
-  the `flex: 1` gradient to zero width, leaving only the range text
-  (`1.00 8.00 volume_id`). The shared `Tooltip` gains a `stretch` mode for
-  full-width rows, and the legend is now a floating bottom-left card
-  (array name with ellipsis, gradient bar, min/max ends, full range in the
-  hover tooltip) in the DAGMC and native VTK viewers instead of a
-  full-bleed bottom strip.
-- nuke-essentials: **empty-state card hugged the left in wide sidebars** —
-  the capped `NukeEmptyState` card (`max-width: 420px`) left an empty strip
-  on the right (visible in DAGMC Outline). The card now centers itself.
-- nuke-visualizer: **DAGMC Graveyard toggle did nothing** — the `.h5m`
-  multiblock conversion stripped the graveyard volume, so the outline toggle
-  had no block to show for either on or off. Conversion now keeps the
-  graveyard block (`--include-graveyard`, cached separately) and the viewer
-  hides it by default, so the toggle, the Graveyard material/group rows
-  (which now read hidden while the switch is off), and the per-volume row
-  all work. Isolating a graveyard volume/material/group (hover eye, canvas
-  isolate) also enables the switch — `Show all` keeps it off by design, so
-  without this the canvas went blank instead of showing the graveyard.
-  Reopening a file reconverts once into the new cache entry.
-- nuke-essentials: **color picker popup cut off in narrow sidebars** — the
-  palette rendered absolutely inside the scrolling panel and clipped at the
-  panel edge. It now portals to the document body, positioned before first
-  paint (no top-left flash) and clamped to the viewport: right-aligned to
-  the trigger near the right edge, flips above the trigger when there is no
-  room below, follows sidebar scroll, Escape closes.
-- nuke-essentials: **right-side tooltips cut off at the window edge** —
-  tooltips requested on the `right` (clip checkbox, row labels, outline
-  rows) extended past the viewport in the right-area sidebars. Tooltips now
-  flip to the opposite side when the anchor sits near that viewport edge
-  and clamp to the window, with overflow ellipsized instead of clipped.
-- nuke-visualizer: **Viewer Settings sidebar stuck on "No viewer open"** —
-  opening the panel made it both the active and current widget, so its
-  binding resolution never saw the viewer tab; it now falls back to the main
-  area's selected tab (`shell.getCurrentWidget('main')`), the same pattern
-  the DAGMC Outline already used, and binds immediately on open.
-- nuke-visualizer: **Escape does nothing after clicking the 3D canvas** —
-  canvas clicks left focus on `<body>`, so the viewers' window-capture Escape
-  handler (measure cancel, popover dismiss) never matched its inside-widget
-  target check; the canvas is now focusable and focuses on pointerdown.
-- nuke-visualizer: **DAGMC status line lost the visible-volume count without
-  model info** — `2 volumes (no model info)` reads `2 of 2 volumes (no model
-info)` again, matching the documented `N of M` contract (outline toggles
-  apply with or without `dagmc.info`).
-- nuke-visualizer: **smooth damped orbiting on large models** — the shared
-  orbit helper now pumps `controls.update()` on a drive loop from gesture
-  start until the damped camera settles (previously damping decayed with no
-  update pump, so orbits felt slow/stuck), coalesces the `change` stream to
-  one repaint per animation frame, skips repaints while the tab is hidden,
-  and pins the damping factor explicitly. No visual-output change; geometry
-  upload / fragment cost on integrated GPUs remains inherent.
-- nuke-visualizer: **bottom-bar quick actions** — the native VTK and DAGMC
-  viewers regain one-click clip toggle, X-plane section view, and shading
-  cycle on the shared bottom bar (DAGMC additionally gets exclude/isolate
-  for the selected volume), all as `ViewerNavBar` children calling the
-  existing setters, so the sidebars stay authoritative with no new state.
-- nuke-visualizer: **bottom-bar Clip/Shading popovers (CAD parity)** — the
-  inline clip toggle, X-plane section, and shading cycle become anchored
-  popover cards above the bottom bar like the CAD viewport: Clip offers
-  X/Y/Z tabs (shared with the sidebar) + enable + Flip + an Offset slider
-  with % readout that clips the canvas as it drags, Shading offers the mode
-  list with icons. Toggle on re-click, Escape/outside-click dismissal, and
-  the same existing setters throughout (sidebars stay authoritative).
-  Exclude/isolate stay direct DAGMC buttons.
-- nuke-cad: **DAGMC export mesh floor raised to tolerance/10** — the gmsh
-  minimum characteristic length was tolerance/100, letting curvature
-  refinement emit needle facets (aspect >100:1, edges far below the requested
-  faceting tolerance) that DAGMC ray firing intermittently misses; large
-  models sporadically lost particles with "No intersection found" at birth
-  or first crossing. The floor now stays within an order of magnitude below
-  the tolerance (verified zero lost on a 12-coil W7X-scale model).
-- nuke-cad: **viewport tool keys keep working while a notification toast is
-  visible** — Theia dispatches matched keybindings (Escape is bound to hiding
-  notifications) from a document-capture listener and stops the event there, so
-  viewport keys like Escape (end the measure tool, cancel a pick, exit section
-  mode), Enter, and the single-key tool shortcuts silently did nothing
-  whenever any notification was on screen. The viewport's tool-key handlers
-  now listen in the window capture phase, which runs before Theia's document
-  listener, keeping their focus and text-field guards; keys they don't claim
-  still propagate to Theia. Choosing an item from the viewport context menu
-  also hands focus back to the viewport, so a tool activated from the menu
-  responds to Escape immediately.
-- nuke-cad: **viewport theme and overlap polish** — the viewport canvas now
-  matches the active theme at first paint (the initial scene colors re-read
-  after the first frame, fixing a dark canvas under a freshly applied light
-  theme) as well as on every theme switch. Secondary buttons (Cancel/close/nav)
-  are themed in all five NukeIDE themes (Theia's `secondaryButton.*` keys were
-  only defined in the light theme, so the others fell back to Theia's default
-  slate-navy). The bottom-center status pill no longer slides under the
-  navigation cluster (capped width with ellipsis), measurement labels clamp to
-  the viewport and stack apart when they collide, the sketch shortcuts popover
-  no longer opens stacked on the measurements popover, and the sketch value
-  input no longer covers the status line.
-- nuke-cad: **viewport chrome UX round** — the shading and section popovers
-  now share a single slot above the navigation cluster (opening one closes
-  the other; picking a shading mode, pressing `Esc`, or clicking the canvas
-  closes it), fixing the stacked/overlapping cards. The context menu gains
-  **Hide / Isolate Solid** on solids plus **Show All Solids** and a
-  **Section View** toggle on empty space. Explode is capped at 0.35× the
-  model diagonal at 100% so large assemblies stay framed (previously a full
-  diagonal per solid scattered the model out of view), and the status pill
-  points at `F` to refit while exploded. The extrude dialog groups Length /
-  Direction under Dimensions and Symmetric under Options via the shared
-  `NukeSection` / `NukeFormRow` components, and the misaligned checkbox row
-  is fixed.
-- nuke-cad: **status pill no longer hides under the navigation cluster** —
-  the bottom-center hint pill used a hardcoded clearance narrower than the
-  cluster (notably with the Explode slider present), so long hints such as
-  `Explode 100% — F to refit` slid underneath the buttons. The pill now caps
-  its width from the measured cluster width (re-measured on resize) and
-  ellipsizes instead.
-- nuke-cad: **tokamak demo "pillar" defect fixed** — the six TF inner-leg
-  pads were extruded one-sided, spanning z 0..1030 instead of ±515, so six
-  thin columns stuck ~460 above the machine. The driver now pads them
-  symmetric, the committed fixture is regenerated, and a new bbox regression
-  test pins the legs at z ±515 (volumes and face counts are identical either
-  way, so drift checks could not catch it).
-- nuke-cad: **hidden bodies no longer leave their curves behind** — the
-  Model Outline hide/isolate actions skipped document curves (which have no
-  solid of their own), so hiding the copper body left its full centerline
-  loop floating in an empty viewport. A curve now hides exactly when every
-  body consuming it as a sweep/pipe path is fully hidden (unreferenced
-  construction curves always stay), and hidden curves are excluded from
-  curve picking the same way hidden solids are.
-- nuke-cad: **pattern fuse skipped for disjoint instances** — additive
-  pattern/mirror instances that are pairwise bbox-disjoint (the W7X coil set)
-  no longer pay the sequential boolean union: the union of disjoint solids is
-  exactly their compound, so the builder returns it directly. Overlapping
-  instances still fuse as before, and subtractive cuts always run
-  sequentially. Touching counts as intersecting (conservative fuse).
-  Overlapping instances now fuse in a single parallel `BRepAlgoAPI_Fuse`
-  (Arguments=body, Tools=instances) instead of a sequential pairwise loop,
-  falling back to the loop on any failure — measured ~1.5× on the tokamak TF
-  pattern with identical results.
-- nuke-cad: **closed-loop sweeps/pipes now survive STEP export** — a sweep or
-  pipe whose path curve is a closed loop (e.g. a coil centerline) previously
-  produced a tube whose periodic-seam edges carried meter-scale tolerances;
-  the solid looked valid in memory but degraded to bare faces on the STEP
-  round-trip, so DAGMC export failed with "No volumes found in STEP file".
-  Closed-spine sweeps are now rebuilt as station lofts (corner sections loft
-  through ring-sampled station wires, circular sections through analytic
-  circle stations), giving a STEP-durable solid; open-spine behavior is
-  unchanged.
-- nuke-visualizer: **DAGMC drape blocks failed with `Cannot decompress` errors** — vtk 9.3
-  multiblock output emits base64 CHARACTER offsets, and one such offset happened to satisfy the loose
-  appended-header check (it landed on the block's own csize field, reading
-  it as nblocks), so the parser trusted the byte position and died in zlib
-  instead of using the character conversion. The validator now walks the
-  whole chunk table before trusting a position, and a position that
-  validates yet fails to decode falls back to the character conversion
-  before throwing. Covered by an ambiguous-offset regression test plus a
-  direct fallback unit test; the previously-failing cached tokamak drape
-  blocks now parse.
-- nuke-visualizer: **tally overlay "Smooth Interpolation" had no effect**
-  — the rendering-style pick was collected but never reached the
-  converter: the DAGMC drape always sampled nearest-cell centroids (flat
-  per-triangle color) and the slice path always ran trilinear. Smooth now
-  trilinearly interpolates the tally mesh at the surface vertices into
-  point data (`--smooth`, `Point: <array>` color-by, GPU-blended between
-  mesh cells, cached separately), while Pixelated keeps nearest-cell
-  values (cell data, `Cell: <array>`); slices gain the matching
-  nearest-cell mode (`--pixelated`). Covered by sampler unit tests.
-- nuke-visualizer: **CSG overlay tabs now show the geometry too** — Full 3D
-  overlay on a non-DAGMC geometry opened only the tally voxel blocks, so
-  the tab gave no spatial context and the CSG Outline (bound to geometry
-  viewer tabs) sat empty. The tally widget now ghosts the extracted CSG
-  cells under the voxels (solid fills plus edge-only void shells at a
-  fixed ghost strength, no depth writes, clip-cut with the tally, raycast-transparent to measure
-  picks; header chip reads `mesh + N CSG`), loaded best-effort after the
-  tally with a message naming the cause when extraction fails. The native
-  VTK base gains the protected underlay hook behind it (plus underlay-only
-  rebuild and traverse-wide clip). Also fixed: the Rendering Style
-  quick-pick's Pixelated row carried a nonexistent `$(symbol-block)`
-  codicon and rendered iconless; it now uses the grid-like
-  `$(symbol-array)`.
-- nuke-visualizer: **geometry views open instantly with loading** —
-  clicking a `geometry.xml` or tree View 3D waited on
-  `openmc.geometry-mesh` before the tab appeared. Both openers now show
-  the tab immediately with a spinner (`beginPendingLoad`, DAGMC parity)
-  and land extraction failures in-tab instead of toast-only.
-- nuke-visualizer: **overlay finds its geometry without the picker** —
-  auto-detection only tried three hardcoded names beside the statepoint,
-  so project layouts (model up a folder, outputs below) always fell
-  through to the manual list. It now walks up toward the workspace root,
-  pins the exact file through the owning `.nuke-openmc` project's
-  `dagmcFile`, and takes a lone `*.h5m` as a last resort (backups only
-  when alone); ambiguity still opens the picker. The statepoint viewer's
-  own overlay buttons now auto-detect too (they always opened the dialog),
-  and the `.nuke-openmc` pin outranks a co-located `geometry.xml` so a
-  DAGMC project's stray CSG file no longer routes the overlay to voxels.
-- nuke-visualizer: **smooth tally volume stays inside the model** — the
-  DAGMC drape's smooth raycast rendered the whole regular-mesh box as an
-  unmasked maximum-intensity projection, so interior hotspots (and the far
-  side of the ring) showed through the ghosted shells and projected outside
-  the model's outline. The viewer now fills a stencil buffer with the
-  geometry's screen footprint and stencil-tests the volume against it, so
-  the volumetric tally only appears where the model actually is.
-- nuke-visualizer: **Range row grows resets, a slider, loses spinners**
-  — per-side reset buttons restore the data min/max independently, a
-  dual-thumb slider drags the custom range live (inputs stay for exact
-  values), and the number-spinner arrows are gone (they stepped whole
-  units on milli-scale data).
-- nuke-visualizer: **tally+source overlay skipped source on CSG** — the
-  source-bank layer only ran for DAGMC drape tabs, so CSG overlays
-  silently opened tally-only. The native VTK base now owns the source
-  layer (energy-preferred point cloud with its own range, slider/clip
-  aware, repaint-safe) and the flow layers it on tally tabs too, with
-  the same no-bank fallback message.
-- nuke-visualizer: **every native tally number read N× high** — the
-  statepoint readers took `results[..., 0]` as the mean, but openmc
-  stores [sum, sum_sq] moments: mesh tallies, drapes, slices, tally
-  tables, and spectra were all inflated by n_realizations (10× on a
-  10-batch run). Readers now divide by `n_realizations` (openmc
-  `tally.py` parity, with proper std), and the drape-manifest cache key
-  folds a converter version so inflated manifests are never reused.
-- nuke-visualizer: **smooth volume clip stretched instead of cutting**
-  — the clip section moved the raycast box but remapped the full-grid
-  texture over it, smearing the whole dataset into the cut region
-  (tallies and the DAGMC drape alike). The shader now marches a
-  separate clip window while sampling stays mapped to the full grid, so
-  cuts reveal data; the `setBox` contract test pins the split.
-- nuke-visualizer: **smooth raycast volume on tally mesh tabs** — the
-  Viewer Settings Tally volume + Smooth volume rows were DAGMC-drape
-  only, so mesh overlay tabs had boxes or nothing. The native VTK base
-  now owns the smooth machinery (grid hook, LUT repack/refresh, CPU
-  box-section clip, per-mode visibility) and tally meshes feed it their
-  grid: true 3D datasets gain both rows (Solid Color and non-cell arrays
-  fall back to boxes; slices and clouds stay boxed). Enabling smooth
-  while hidden also enables visibility, mirroring the drape rule. While
-  smooth draws, the CSG underlay ghosts auto-dim to faint context (full
-  strength on boxes) so stacked shells cannot veil the projection.
-- nuke-visualizer: **CSG cell boxes had inverted plane halfspaces** — the
-  headless extractor capped the wrong bound per plane token (`+N` shrank
-  the upper bound, `-N` the lower), so any `+low -high` cell (pincell
-  moderator, fuel/clad z) degenerated to the global bounds and outside-
-  cylinder tokens shrank shells to the inner hole (clad rendered as the
-  fuel box). Tallies overlaid exactly (mesh bounds were always right) but
-  looked tiny inside giant ghosts. Tokens now follow OpenMC senses
-  (positive floors, negative caps, curved extents inside-only) with a
-  pincell regression test; the old `-low +high` fixture is corrected to
-  `1 -2`.
-- nuke-visualizer: **CSG Outline binds tally overlay tabs** — the panel
-  sat empty on overlay tabs by widget-id design. Tally widgets now host
-  the outline for their underlay (per-cell/material hide, Void switch,
-  show-all, row-click ghost highlight; panel→canvas only), void shells
-  render edge-only so fills can't wash the tally, and the header chip
-  hides with the menu master switch.
-- nuke-visualizer: **CSG Outline hide did nothing on the canvas** — the
-  outline snapshot and status counts honored per-cell checkboxes and the
-  Void switch, but the three.js rebuild only consulted material toggles,
-  so hidden cells (e.g. moderator) stayed drawn. All three paths now share
-  one `isGeometryCellVisible` rule, the void material row reads hidden
-  while the Void switch is off (DAGMC graveyard parity), and the canvas
-  gains a right-click menu (Fit / Screenshot / Clip toggle plus Hide /
-  Isolate selected cell and Show all) for canvas-side verification.
-
-### Added
-
-- nuke-cad: **loft and helical sweep features** — a **Loft** joins two or more
-  ordered sketch sections into a single solid (sections picked in-dialog with
-  up/down reordering, used as positioned on their datums; optional ruled skin),
-  and a **Helical Sweep** sweeps a selected sketch section along an analytic
-  helix derived from axis, start radius, pitch, and turns (optional
-  left-handed winding; Frenet or fixed-binormal orientation, the latter
-  prefilled to the axis direction). Both are additive-only, offer the ghosted
-  **Preview** while editing, can be replicated by patterns and mirror, and are
-  exported by **Export as Python** (`bd.loft(...)` / `bd.Helix(...)` +
-  `bd.sweep(...)`).
-- nuke-cad: **sweep and pipe features** — sweep a selected sketch section (or a
-  circular pipe of a given radius, no sketch needed) along a 3D curve. The
-  dialog picks the path curve from a dropdown or directly in the viewport
-  (hover-highlight, right-click/Escape cancel), supports Frenet and
-  fixed-binormal orientations, and offers an optional ghosted **Preview** that
-  builds the tentative feature through the normal geometry pipeline. Sweep/pipe
-  solids can start a new body or fuse into an existing one, patterns and mirror
-  can replicate them, and **Export as Python** emits the corresponding
-  `bd.sweep(...)` calls.
-- nuke-cad: **ghosted preview in every feature dialog** — pad/pocket/revolve/
-  groove/primitive/dress-up/hole/boolean dialogs offer the same ghosted
-  **Preview** as sweep (blind ends and validated inputs only; the reason
-  shows as hint text otherwise). Cuts, dress-ups, holes, and booleans preview
-  against the referenced bodies' full feature chains with the draft retargeted
-  onto the real body, so the ghost shows the operation on true geometry.
-- nuke-cad: **Model Outline interactivity round** — `Ctrl`/`Cmd`-click rows
-  (list and table view) to build a multi-selection; every selected solid
-  highlights in the viewport while the last-clicked one drives the Properties
-  panel and fit-to-selection. Hover actions on each volume row **Hide** its
-  solids or **Isolate** it (hide all others), hidden rows render dimmed with
-  an eye-closed marker, and a **Show all** button appears in the header while
-  anything is hidden (hiding is viewport-only and resets when another model
-  loads). Cross-body overlap warnings in the Build warnings box now carry a
-  one-click **Fuse** fix for document models: it appends a `booleanFuse`
-  feature merging the offending pair and rebuilds, clearing the warning.
-  Feature Tree body/feature rows also highlight the body's solids in the
-  viewport.
-- nuke-cad: **viewport shading menu** — the wireframe toggle becomes a popover
-  with four mutually exclusive modes (**Shaded**, **Shaded + Wireframe**,
-  **Edges only**, **X-ray**) plus a **Ghost opacity** slider (15–60%) for
-  x-ray. The active mode and opacity survive rebuilds; edges-only hides face
-  fills (picking disabled with an on-screen hint) while edges stay opaque.
-- nuke-cad: **measure tool** — click two points in 3D (surface pick) or in
-  sketch mode (snap-aware plane points) to record persistent distance labels;
-  a measurements list popover allows per-row deletion, entries are viewport-
-  only annotations (never stored in the document), and they clear on rebuild.
-- nuke-cad: **section plane** — a navigation-cluster button slices the model
-  along an X/Y/Z plane with flip and a bounding-box slider; visual only,
-  exports unaffected, exits via the button or `Esc`.
-- nuke-cad: **solid properties in Model Outline** — selecting a solid shows a
-  read-only properties section (volume, area, bbox size dx/dy/dz, center of
-  mass, face/edge/triangle counts in model units) computed by the geometry
-  service via OCP mass properties, with a pin toggle to freeze it while the
-  selection changes.
-- nuke-cad: **Model Outline table view** — the volume list gains a list ⇄
-  table toggle with sortable Solid / Body label / Volume / Area / Faces /
-  Tris columns (SI-suffixed model units) and two-way selection sync.
-- nuke-cad: **sketch snap toggles** — a magnet toggle disables snapping for
-  free placement and an S/M/L control sets the snap radius (6/12/24 px,
-  session-scoped); the status line reflects the current snap state.
-- nuke-cad: **context shortcut bar (`Q`)** — press `Q` in the viewport to open a
-  transient cursor-anchored toolbar: sketch tools in sketch mode, feature-creation
-  actions in document mode. Closes on click, `Escape`, or pointer leaving the
-  viewport.
-- nuke-cad: **constraint relation popover** — `Ctrl`+click selecting exactly two
-  sketch entities opens a popover listing the valid geometric relations for the
-  pair (coincident, parallel, perpendicular, equal, tangent, concentric); clicking
-  a relation applies it through the existing constraint path.
-- nuke-cad: **auto-dimension on entity creation** — new preference
-  `nukeCad.sketchAutoDimension` (default false). When enabled, completing a line,
-  circle, or 3-point arc opens an inline input to immediately create a driving
-  distance or radius dimension; `Escape` dismisses without dimensioning.
-- nuke-cad: **document templates on New Document** — **New CAD Document** now opens
-  a compact picker with **Empty document**, **Pincell starter (cm)**, and
-  **Tokamak starter (cm)** presets. The chosen template's parameters are merged
-  over the empty v3 document; no template metadata is stored in the document.
-- nuke-cad: **3D curves** — `.nuke-cad` documents now store a top-level `curves`
-  array (schema v3). Curves can be defined by explicit points, parametric
-  expressions (`x(t)`, `y(t)`, `z(t)`), or Fourier coefficients; the document
-  store resamples parametric and Fourier sources on add/edit. Curves render as
-  viewport polylines, appear in the Feature Tree under a **CURVES** section with
-  inline rename/delete and a source editor dialog, and export to Python as
-  `bd.Spline` calls. The Python backend (`python/curve_builder.py`) fits
-  B-spline wires and includes them in the tessellation output. Curves whose
-  endpoints meet (parametric/Fourier loops close automatically; a points list
-  closes by repeating its first point) are detected as closed and built as
-  periodic wires.
-
-### Fixed
-
-- nuke-cad: **the CAD viewport now adapts to light themes** — the model body
-  previously used the theme foreground color, which is near-black in light
-  themes and rendered the model as a silhouette on the light background, and
-  the B-rep edge lines were always white (invisible on white). On light
-  editor backgrounds the body switches to a mid steel tone and edges to dark
-  slate; dark themes keep the established look. Theme switches re-color the
-  loaded model live.
-
-- nuke-cad: **giant circle over the model when using the measure tool** — the
-  viewport painted the frame before updating the measure overlays, so the frame
-  right after a click showed the marker spheres at their initial unit scale
-  (one world-unit radius, larger than the whole model) and render-on-demand
-  kept that stale frame until the next pointer move. Overlays now update before
-  the paint, with the camera matrices refreshed first.
-
-- **The startup splash screen now shows real loading progress instead of a
-  timed animation** — the bar previously ran on fake random-timer stages and
-  wiped itself after 15 seconds, leaving a blank screen (and a still-loading
-  file tree) whenever the app was served over a slow connection. Progress now
-  tracks actual events: bytes received while downloading the app (Resource
-  Timing API, with live "N MB received" counts on slow connections), bundle
-  execution, Theia attaching the workbench shell, and Theia's own reveal step
-  as the 100% signal. The splash stays up until the IDE is really there, and
-  never blanks out on a timer.
-- nuke-cad: **mouse orbiting died after clicking a gizmo axis** — OrbitControls
-  freezes its orbit pole from the camera's up vector at construction, so view
-  snaps left the camera stranded on the pole with dead drag directions (worst
-  on the Front/Back/Top/Bottom handles). Snaps now re-pole the controls
-  (top/bottom orbit map-style around Y), and the gizmo moved below the
-  toolbar with proper clearance instead of touching it.
-- nuke-cad: **reopening a CAD model showed a stale "Untitled" empty state
-  instead of a loader** — a React hooks-order violation in the viewport widget
-  wiped the widget's subtree during loading transitions; hooks now run
-  unconditionally, viewport initialization survives first-paint-during-load,
-  and an in-flight tessellation read no longer clears the loading state early.
-- nuke-cad: the axis gizmo and view label no longer render in the empty
-  viewport (they were meaningless without a model).
-- nuke-cad: the floating sketch toolbar no longer covers the constraint
-  input (the constraint bar moved to top-center below the Finish Sketch
-  pill), the toolbar panel no longer keeps dead space to the right of its
-  tool column, and the Finish Sketch pill no longer jumps sideways on hover.
-- nuke-cad: opening a CAD model now reveals the Model Outline and Feature
-  Tree panels automatically (mirroring the existing close-with-viewport
-  behavior).
-- nuke-cad: **sketch chrome placement pass** — the Finish Sketch pill moved
-  to the top-right (its tooltip and the collapsed toolbar's tooltip now
-  anchor to the button instead of the viewport's top-left), the constraint
-  bar owns top-center, the sketch toolbar defaults below the chrome row so
-  it never overlaps at init, and the collapsed toolbar is draggable again.
-- nuke-cad: **dimension labels are pinnable** — dragging a label gives it a
-  persistent screen-space offset that survives zoom/pan and opts it out of
-  the auto-deconflict shift (session state; deleting the dimension clears
-  it). The dimension value popover input now follows the dark theme, and
-  label hover/selected styling is calmer (accent border instead of full
-  orange fill). The 3D view label moved below the top bar like the gizmo.
-- nuke-cad: **saving a new CAD document no longer omits the `.nuke-cad`
-  extension** — the save dialog defaults to it and the chosen path is
-  normalized before writing.
-- nuke-cad: **sketch selection is discoverable and fully wired** — Escape now
-  clears the selection (previously it only cancelled the in-progress
-  entity), keyboard Delete/Backspace/Escape no longer leak from open text
-  fields, primitives outline on hover, clicking near an endpoint selects its
-  primitive, and the status line shows the select/drag/delete bindings while
-  the Select tool is active.
-- nuke-cad: pick-mode banners (datum, external geometry, dress-up, hole) are
-  now click-through — faces under the banner can be picked — and wrap their
-  text properly instead of collapsing one word per line.
-- nuke-cad: overlay form controls (Parameters panel, feature dialog,
-  datum picker, constraint inputs, checkboxes, selects) now follow the dark
-  theme via shared `--theia-input-*` styling instead of rendering white.
-- nuke-cad: the Model Outline and Feature Tree empty-state icons render at a
-  readable size instead of a fixed 16px glyph.
-- nuke-cad: **sketch tool shortcuts and a keyboard cheat sheet** — `S`/`L`/
-  `C`/`A`/`R`/`P` switch to select/line/circle/arc/rectangle/point, and
-  Escape falls through (cancel entity → clear selection → back to Select),
-  so there is always an obvious way back to select mode. A keyboard icon on
-  the sketch toolbar opens a cheat-sheet popover listing all bindings.
-- nuke-cad: viewport keyboard shortcuts are now scoped to viewport focus —
-  the canvas container takes focus on click and Theia's own shortcuts keep
-  working whenever focus is in an editor or another panel.
-- nuke-cad: sketch toolbar tooltips no longer render on top of the tool
-  buttons (the palette is single-column so chips land beside the panel), and
-  tool tooltips show their shortcut letter (e.g. "Line (L)").
-- nuke-cad: **shared draggable panels** — the sketch toolbar's drag behavior
-  is extracted into a shared hook and applied to the Parameters, Solver
-  Diagnostics, External Geometry, Keyboard Shortcuts, and Measurements
-  panels: drag by the header, right-click/double-click the header to reset,
-  positions persist for the session, and panels are clamped inside the
-  canvas so they can no longer be dragged under Theia's sidebar.
-- nuke-cad: the sketch toolbar body is a grouped two-column grid (draw /
-  modify & constraint / lists) — roughly half the previous height — and the
-  active tool button is clearly highlighted (accent background) in both the
-  sketch and document toolbars.
-- nuke-cad: **exiting a brand-new sketch silently failed** — the sketch session
-  was created without the pre-registered document def, so the exit-time save
-  failed datum validation (`unknown datum 'XY'`) and kept the user trapped in
-  sketch mode behind an error notification. New sketches now round-trip their
-  id, datum, and name through the session; Tab and the Finish Sketch pill both
-  exit reliably.
-- nuke-cad: the CAD viewport rendered through a disconnected throwaway
-  camera, so orbiting, zooming, and panning had no visible effect and models
-  appeared zoomed in. The viewport now renders through the live camera, and a
-  new navigation cluster (ISO/top/front/right views, fit, zoom) plus an `F`
-  fit-view shortcut make navigation explicit.
-- nuke-cad: sketch-mode pan and zoom changed the camera without repainting
-  the canvas, so wheel zoom and middle/Shift-drag pan appeared dead; both now
-  repaint and keep the HTML dimension labels anchored. The "Document mode"
-  hint no longer renders underneath sketch-mode controls, and compact CAD
-  buttons (sketch tools, toolbar actions, navigation cluster, warnings
-  toggle) now reset Theia's `.theia-button` `min-width: 65px`, which made
-  24px buttons render 65px+ wide and overlap neighboring controls.
-- nuke-cad: editing an existing sketch opened with the geometry out of
-  frame (only the grid was visible); entering a saved sketch now frames its
-  bounding box. Feature-creation dialog labels no longer clip ("Sourc..."),
-  row tooltips in the Model Outline and Feature Tree anchor to the row label
-  instead of the panel's far edge, and closing the CAD Viewport tab now also
-  closes its Model Outline and Feature Tree panels instead of leaving them
-  showing stale content.
-
-### Added
-
-- nuke-cad: **multi-body `.nuke-cad` documents and boolean features** — the
-  `.nuke-cad` schema is now v2 with explicit `bodies`; every solid feature
-  targets a body, and `booleanFuse`/`booleanCut`/`booleanCommon` features merge
-  tool bodies into a target body with optional `keepTools`. The v1→v2 migration
-  creates implicit bodies for legacy documents; the builder validates body refs,
-  maintains per-body accumulators, and runs a final cross-body overlap gate.
-  The Feature Tree adds a **Bodies** section, and boolean dialogs expose
-  target/tool body dropdowns.
-- nuke-cad: **Feature Tree editing workflow** — reorder features with
-  dependency-precedence validation; delete with a cascade-delete prompt that
-  covers pattern/mirror `source` dependents; inline rename for bodies and
-  features; an edit-parameters action that reopens the feature dialog prefilled
-  with current values; and a reference-repair popover that lists resolution
-  candidates with fingerprint comparison for each broken `TopologyRef`.
-- nuke-cad: **Export Python for `.nuke-cad` documents** — writes a deterministic,
-  one-way build123d-ish script from the current document via
-  `src/common/python-codegen.ts`, saved through the standard Theia save dialog.
-- nuke-cad: **dress-up features in the GUI modeler** — `fillet`, `chamfer`,
-  `draft`, and `shell` features are now available in `.nuke-cad` documents.
-  Fillet rounds selected edges by radius; chamfer supports symmetric,
-  two-distance, and distance-angle modes; draft tapers selected faces by an
-  angle along a pull direction; shell hollows a body by a uniform thickness with
-  optional open faces. Target edges and faces are picked directly in the
-  viewport using fingerprint-based `TopologyRef`s, and the backend resolves
-  them against the body's current B-rep so parametric edits remain robust.
-- nuke-cad: **patterns, mirror, and hole wizard in the GUI modeler** —
-  `linearPattern`, `circularPattern`, and `mirror` replicate a sketch-based
-  solid feature on the same body; the backend stores the source's tool shape and
-  applies transformed copies, with additive sources still subject to the same
-  overlap check. The hole wizard places simple, counterbore, or countersink
-  holes on a planar face picked in the viewport; the click point is projected
-  into the face's deterministic workplane coordinates so the 2D `[u, v]` center
-  aligns with the backend builder. Counterbore and countersink presets are
-  mutually exclusive.
-- nuke-cad: **tokamak demo gate** — added a GUI-path vitest driver
-  (`src/browser/document/gui-build-tokamak.test.ts`) and committed fixture
-  (`tests/e2e/assets/tokamak_with_divertor.nuke-cad`) for a multi-body tokamak
-  assembly. Plasma-facing BSpline boundaries are approximated with dense
-  polylines sampled from the reference STEP. Drift coverage
-  (`tests/python/test_tokamak_document.py`) compares per-body volumes against the
-  authoritative STEP (1e-6 for non-spline bodies, 1e-3 for spline-approximated
-  bodies) and checks face counts for non-spline bodies. DAGMC export coverage
-  (`tests/e2e/test_dagmc_tokamak_document_e2e.py`) and a gated performance test
-  (`tests/e2e/test_tokamak_performance.py`) keep the demo stable.
-- nuke-cad: **new parametric CAD extension** — script-first geometry
-  authoring with build123d/CadQuery, live three.js viewport, canonical STEP
-  export, JSON tessellation stream, and region manifest validation. Registered
-  as an optional extension in the browser and Electron apps.
-- nuke-cad: **GUI parametric modeler** — `.nuke-cad` documents are now a
-  complete authoring mode alongside Python scripts. The document stores
-  parameters, datum planes, sketches, and a feature tree; `.nuke-cad` files open
-  in the CAD viewport by default. Script builds and document builds feed the
-  same `_process_shape` path, so STEP, viewport tessellation, DAGMC, and FEM
-  artifacts are authoring-mode-agnostic.
-- nuke-cad: **sketcher** — interactive 2D sketch mode with point, line, circle,
-  3-point arc, and rectangle tools; endpoint/midpoint/center/quadrant/on-curve/
-  grid snap; auto-coincident and auto-horizontal/vertical constraints; explicit
-  constraints (coincident, fix, horizontal, vertical, parallel, perpendicular,
-  tangent, equal, concentric, point-on-object, distance, angle, radius,
-  symmetry); driving and reference dimensions with parameter binding; sketch-local
-  and document-level parameters; live drag solving; and a solver diagnostics
-  popover for conflicting or redundant constraints.
-- nuke-cad: **document build pipeline** — `python/sketch_builder.py` turns
-  stored sketch primitives into build123d `Face` objects on the sketch datum;
-  `python/feature_builder.py` executes `pad`/`pocket`/`revolve`/`groove`
-  features in topological order over explicit `dependsOn` edges; and
-  `geometry_service.py` exposes `build_document()` plus a `--from-document` CLI
-  flag. The first release performs a full rebuild on every call; per-feature status
-  (`built`/`stale`/`failed`) is returned so the viewport can show which feature
-  failed and why.
-- nuke-cad: **topological reference resolution** — `TopologyRef`s (face datums,
-  sketch `externalRefs`, and future edge arrays) are resolved against the
-  referenced predecessor feature's current B-rep using geometric fingerprints.
-  The build result carries per-reference `referenceResults`
-  (`matched`/`ambiguous`/`unmatched`) and fails dependent features with a clear
-  error when a reference is ambiguous or unmatched, so parametric edits that
-  change the B-rep do not silently pick the wrong geometry.
-- nuke-cad: **sketch-on-face (`face` datum)** — planar faces of predecessor
-  features can be used as sketch datums. The backend derives a deterministic
-  workplane from the resolved face (origin, normal, in-plane x-direction) and
-  supports an optional offset along the normal; non-planar faces produce a clear
-  build error.
-- nuke-cad: **external geometry in sketches** — sketches can reference edges or
-  faces of predecessor features via `externalRefs`. Resolved entities are
-  projected into the sketch plane and passed to the sketch builder as
-  construction geometry, so they appear as references without becoming part of
-  the sketch's output wires or faces.
-- nuke-cad: **viewport face picking** — the Sketch Plane picker now has an
-  **On Face…** button that enters face-pick mode; hover highlights and a click
-  create a `face` datum and start sketching on it. The sketch toolbar adds an
-  **External Geometry** tool for picking faces/edges of the latest solid body.
-  Resolved references are rendered as dashed construction geometry after the
-  next rebuild.
-- nuke-cad: **reference-status UI** — the sketch status line and diagnostics
-  popover now show per-sketch reference-resolution counts
-  (`matched`/`ambiguous`/`unmatched`), and the Feature Tree shows
-  `ambiguous`/`unmatched` badges on features with broken topological
-  references.
-- nuke-cad: **tessellation fingerprint** — every face in the viewport
-  tessellation now carries a geometric `fingerprint` (surface type, area,
-  centroid, normal/axis/radii) used for face-pick-based `TopologyRef`
-  construction and backend reference resolution.
-- nuke-cad: **Feature Tree panel** — a right-area widget (ID
-  `nuke-cad-feature-tree-widget`, command `Open Feature Tree`) listing datums,
-  sketches, and features with selection, suppression toggle, edit, delete, and
-  build-status markers.
-- nuke-cad: **document commands** — `New CAD Document`, `Save CAD Document`,
-  `Save CAD Document As...`, `New Sketch`, and `Exit Sketch` provide the
-  document shell workflow.
-- nuke-cad: **DAGMC export** — `dagmc_export.py` converts the
-  canonical STEP file to a tagged `.h5m` using gmsh OCC imprint/merge so
-  touching solids share exact coincident faces. Region-manifest volume names
-  map to `mat:<name>` groups, unmanifested volumes fall back to positional
-  `mat_<vol_id-1>`, and a `mat:graveyard` bounding volume is auto-created by
-  default. Geometry service exposes `dagmcPath`, `dagmcSuccess`,
-  `dagmcWarnings`, and `dagmcError` in the stdout-JSON result.
-- nuke-cad: **FEM volume meshing** — `mesh_service.py` turns the canonical
-  STEP file into gmsh `.msh`, ExodusII `.e`, CalculiX/Abaqus `.inp`, and
-  VTK `.vtk` meshes using the HXT tetrahedral algorithm. Manifest volume
-  names become Exodus/INP element blocks, manifest surface names become
-  Exodus side sets, and volume entries support an optional `meshSize` for
-  per-region refinement. The geometry service exposes `meshPath`,
-  `exodusPath`, `inpPath`, `vtkPath`, `meshReportPath`, `meshSuccess`,
-  `meshWarnings`, `meshError`, and `meshReport` in the stdout-JSON result.
-- nuke-cad/openmc-studio: **one-click nuke-cad import** — OpenMC Studio's
-  **Import from nuke-cad...** command loads a nuke-cad-produced `.h5m` and its
-  sibling `.regions.json` manifest into the project, auto-creates placeholder
-  OpenMC materials for manifest material names, and sets `dagmcFile`/
-  `dagmcInfo` so the existing DAGMC graveyard/sync/run flow works unchanged.
-- nuke-cad/openmc-studio: **imprinted DAGMC refacet through nuke-cad** — when
-  the DAGMC editor refacets with **Imprint & Merge** enabled, it routes through
-  nuke-cad's `dagmc_export.py` pipeline; if nuke-cad is unavailable it falls
-  back to the legacy OpenCASCADE path.
-- nuke-cad: **direct STEP import** — `.step` / `.stp` / `.brep` files can be
-  opened in the CAD viewport without a script. The geometry service reads the
-  file through OCP, writes the canonical viewport tessellation, and runs the
-  optional DAGMC/FEM export pipeline. Double-clicking a STEP file now opens it
-  in nuke-cad by default instead of nuke-visualizer.
-- nuke-cad: **Open CAD Model button** — the empty CAD viewport shows an
-  **Open CAD Model...** button that launches a file picker for `.py` scripts
-  and `.step` / `.stp` files.
-- nuke-cad: **CalculiX FEM analysis** — `fem_service.py` reads a
-  gmsh `.msh` file and writes a CalculiX `.inp` deck with materials, solid
-  sections, gravity loads, and boundary conditions on named surface sets.
-  The **FEM Analysis** panel lets users configure analysis type, assign
-  built-in materials to mesh blocks, add fixed/displacement/pressure/
-  temperature/heat-flux boundary conditions, run `ccx`, and open the
-  resulting `.fem.vtk` in nuke-visualizer. FRD nodal displacements (`DISP`)
-  and temperatures (`TEMP`) are parsed and written into the VTK file.
-  `ccx` is resolved from `NUKE_CCX`, `PATH`, or an explicit request path.
-- nuke-cad: **generic job runner + OpenFOAM scaffolding** —
-  `job_service.py` implements a declarative run-layer abstraction
-  (working directory, command, environment overlay, artifact globs, timeout,
-  log capture) for future solver hooks. `foam_service.py` scaffolds
-  solver-ready OpenFOAM cases (controlDict, fvSchemes, fvSolution,
-  transportProperties, and 0/U/p/T field files) from the region manifest
-  and exports per-solid STL files from a canonical STEP file for patch
-  geometry. The **OpenFOAM Case** panel exposes solver selection, boundary
-  condition editing, case scaffolding, and STL export.
-- nuke-cad: **Model Outline panel** — a new right-area widget (**Open Model
-  Outline** command, also under `CAD Studio → Geometry` in the Nuke Tools
-  sidebar) listing the active model's manifest volumes (name/material/tags)
-  and surfaces (name/role) with count badges, collapsible sections, and a
-  build-warnings box; unmanifested models fall back to positional `mat_<id>`
-  rows. Picking is synced both ways through the shared CAD state manager:
-  clicking a row highlights the whole solid in the viewport, and picking in
-  the viewport selects the row, scrolls it into view, and expands its
-  section. The panel is read-only; its manifest button opens the model's
-  `.regions.json` in the editor.
-- nuke-cad: **`nukeCad.facetingTolerance` preference** — default faceting
-  tolerance (0.001) for geometry builds (tessellation and DAGMC export),
-  honored by open, rebuild, and **Open CAD Model...**; an explicit per-call
-  tolerance still wins, and changes apply to subsequent builds only.
-- nuke-cad: **netgen meshing engine** — `mesh_service.py` now accepts
-  `engine='netgen'` (netgen.occ OCCGeometry, per-region `meshSize` mapped to
-  `solid.maxh`, surface names mapped to boundary-condition names) and
-  converges into the same meshio-based report/Exodus/INP/VTK pipeline as
-  gmsh. The netgen path imprints first — a shared gmsh
-  load/fragment/`removeAllDuplicates` pass writes an imprinted BREP (a STEP
-  round-trip re-duplicates shared faces; BREP preserves the imprint), so
-  touching solids share one face — and supports second-order meshes:
-  `order=2` produces real tetra10/triangle6 elements via netgen's
-  `Mesh.SecondOrder()` with node-order remapping to the meshio/SEACAS
-  convention (`order > 2` clamps to 2 with a warning; curved-boundary
-  mid-nodes are a best-effort projection, verified straight-edged only).
-  Netgen requires the `ngsolve` pip wheel; a missing install returns a
-  structured error.
-- build: **optional extensions are selectable at build time** —
-  `NUKE_EXTENSIONS` (allow-list, `all` = everything) / `NUKE_EXCLUDE_EXTENSIONS`
-  (deny-list) prune optional extensions from the browser/Electron bundles and
-  the Docker image (build args); `nuke-core`/`nuke-essentials` always ship and
-  local dependency closure is automatic. `yarn ext:list` previews the resolved
-  set without building. `nukelab-integration` only applies to NukeLab
-  deployments and is no longer bundled by default — NukeLab deployments must
-  opt in with `NUKE_EXTENSIONS=all`.
-
-- openmc-studio: the Simulation Dashboard re-attaches to in-flight backend
-  runs after a browser tab/window reload — Stop keeps working and live
-  progress/log streaming resumes instead of the run looking idle.
-- openmc-studio: **graveyard tooling for DAGMC models** — the DAGMC editor
-  detects a missing graveyard and offers one-click creation of a bounding box
-  tagged `mat:graveyard` (or re-tagging an existing enclosing volume), and
-  CAD→DAGMC conversion auto-creates the graveyard bounding volume by default
-  (`--no-graveyard` / `addGraveyard: false` to opt out).
-- openmc-studio: **Import CAD** button in the DAGMC editor header — imports
-  STEP/IGES/BREP/STL files straight into DAGMC format with a gmsh/OpenCASCADE
-  availability check. Generated `.h5m` files land in the project directory
-  when a project is saved, otherwise next to the source CAD file.
-- openmc-studio: optional **Imprint & Merge** mode for DAGMC refacet
-  (OpenCASCADE imprint/merge so touching faces share topology), and refacet
-  re-creates a graveyard volume that re-tessellation would otherwise drop.
-- openmc-studio: one-click fix when MGXS generation is incompatible with the
-  project (multi-group mode or macroscopic materials) — a warning box offers
-  to switch back to continuous energy, restoring materials from the
-  pre-conversion backup.
-- openmc-studio: `copyDagmcToRunDirectory` setting (Simulation tab) — off by
-  default, geometry.xml references the DAGMC file via a project-relative path;
-  on, the `.h5m` is copied into the run directory as `geometry.h5m` for a
-  self-contained run directory. Project files store DAGMC/MGXS asset paths
-  project-relative, keeping projects portable across machines.
-- nuke-visualizer: depletion per-step statepoints (`openmc_simulation_n<N>.h5`)
-  open in the statepoint viewer alongside regular `statepoint*.h5` files.
-- nuke-core: **Nuke Tools sidebar** — a searchable, categorized left-panel view that aggregates every Nuke command across extensions. Extensions contribute items via `NukeToolsContribution`, with support for nested categories, section/category ordering, and state-aware enabled/disabled items.
-- openmc-studio: element symbols (e.g. `U`, `O`) in materials are expanded to their natural nuclide compositions on XML export and script generation, so hand-edited element shorthand round-trips correctly through OpenMC.
-- openmc-studio: one-click **CE ↔ Multi-Group conversion** (Random Ray tab) —
-  generates MGXS from the current CE model, converts matched materials to
-  macroscopic with the correct XS data names, and stashes the original materials
-  in project metadata for a lossless **Revert to Continuous-Energy**.
-- openmc-studio: **nuclide-wise multi-group mode** for random ray on DAGMC
-  geometries — a `settings.nuclideWiseMgxs` flag plus nuclide-wise MGXS
-  generation (`generate_mgxs.py` / `generate_mgxs_library.py --nuclide-wise`,
-  also wired into `convertToMultigroupProject` and the MGXS Generator window)
-  that writes one micro XS data set per nuclide instead of macroscopic
-  materials, which OpenMC random ray rejects on DAGMC. Materials stay
-  nuclide-decomposed, validation and run readiness enforce the mode for DAGMC
-  random ray, and library type detection routes existing libraries correctly.
-- openmc-studio: version-compatibility architecture for upstream OpenMC drift —
-  a per-env runtime probe (ray_source XML format, adjoint source, TokamakSource,
-  s2 sampling) that adapts XML emission and gates dev-only UI options; MG library
-  reference in materials.xml with legacy path unification; depletion solver names
-  aligned to OpenMC's real integrator registry with legacy aliases.
-- openmc-studio: mode guard rails with plain-language errors — coupled depletion
-  vs multi-group, macroscopic depletable materials, MGXS generation vs MG models,
-  IFP kinetics vs random ray, random-ray score whitelist, duplicate mesh emission.
-- nuke-visualizer: NCrystal tab in the Nuclear Data window — browse the installed
-  `.ncmat` material library (or custom files/dirs), inspect phases/structure,
-  build config strings with a guided editor (temp, dcutoff, mosaicity, …) for
-  pasting into openmc-studio's NCrystal import, and plot S(α,β) scatter +
-  absorption cross sections (validated against known thermal values).
-- nuke-visualizer: ENDF tab in the Nuclear Data window — browse an ENDF-6
-  library directory (decay/nfy/sfy/neutrons sub-libraries), with per-evaluation
-  detail: decay modes and half-lives, per-energy fission-product yield tables,
-  and fast reaction-section scans of neutron files.
-- nuke-visualizer: voxel plot HDF5 (`*voxel*.h5`, `plot_*.h5`) and `summary.h5`
-  now open on double-click (voxel → results viewer; summary → geometry 3D via
-  on-the-fly XML conversion). Output viewers have a draggable viewer/table
-  split, and missing-dependency errors show an actionable install/env panel.
-- nuke-visualizer: the visualizer proxy retries refused connections on startup
-  (trame bind race), eliminating false 'Visualizer server unreachable' errors.
-- openmc-studio: tally derivatives (`TallyDerivative`) — sensitivity tallies in
-  the tally editor with density/nuclide-density/temperature perturbation
-  variables, e2e-verified against the real statepoint layout.
-- openmc-studio: custom depletion chain builder (Depletion tab) — build from an
-  ENDF-B-VII library directory (`decay/` + `nfy/` + `neutron(s)/`) or subset an
-  existing chain XML, with full recursive closure over decay/reaction targets,
-  fission-yield products, and FPY borrow parents; 'Use as Depletion Chain'
-  applies the result directly.
-- nuke-visualizer: nuclear data browser (Materials menu) — searchable library table
-  (nuclides, temperatures, reaction counts) with per-nuclide MT/temperature/
-  fission detail, resolved from `OPENMC_CROSS_SECTIONS`, and one-click plotting
-  of any nuclide in the XS viewer.
-- openmc-studio: Library (manual) mode in the MGXS generator — user-chosen XS
-  types, domains, by-nuclide decomposition, Legendre order, and estimator via
-  the `openmc.mgxs.Library` API (validated: MG k-eff within 0.3% of CE).
-- openmc-studio: random-ray adjoint source editing, tally-trigger `ignore_zeros`,
-  muir energy round-trip (serializes as `normal` in this OpenMC version),
-  TokamakSource time distributions, criticality-search cancellation, and CMFD
-  mesh-reference validation.
-- nuke-visualizer: weight-windows viewer mesh selector for multi-mesh files.
-- openmc-studio: CMFD acceleration — Convergence-section UI, validation, codegen,
-  and a `run_cmfd.py` driver so CMFD-enabled runs execute through the IDE (CMFD is
-  C-API-only in this OpenMC version; there is no settings.xml form).
-- openmc-studio: mesh sources (`MeshSource`) with exact `n_elements` sub-source
-  enforcement and a fill helper; tokamak sources (`TokamakSource`, 0.15.4+) with
-  Miller geometry and emission-profile editing. Both join the source type selector.
-- openmc-studio: per-tally precision triggers (variance/std_dev/rel_err, per-score
-  subsets) with automatic `trigger_active` emission, plus run-level trigger
-  settings in Settings → Output.
-- openmc-studio: criticality search (`search_for_keff`) as a mode of the
-  optimization widget — guess or bracket with method selection, live iteration
-  table, and apply-to-model for the converged parameter. Parameter paths
-  (`material.density|temperature|<nuclide>`, `settings.*`, `geometry.<cell>.temperature`)
-  are now one shared vocabulary used by sweeps, search, and the Python drivers.
-- openmc-studio: Advanced settings section — event-based transport, tabular
-  Legendre conversion, delayed neutron/photon creation, decay photons, survival
-  biasing, generations per batch, probability tables, lost-particle limits,
-  initial-source writing, uniform source sampling, log-grid bins, and multi-group
-  max order.
-- openmc-studio: simulation dashboard tabs are now modular contributions behind a
-  `DashboardTabRegistry` (the monolithic dashboard widget was split into per-tab
-  modules), and `.nuke-openmc` project files carry schema version 1.1.0 with a
-  chained migration hook.
-- openmc-studio: full source model — file sources, compiled sources, multi-source
-  lists with strengths, source constraints, and surface source write/read.
-- openmc-studio: output-control settings (statepoint/sourcepoint batches, track
-  files, collision tracks), photon physics (`electron_treatment`,
-  `atomic_relaxation`), Shannon entropy mesh, and restart-from-statepoint runs.
-- openmc-studio: particle track files (`tracks.h5`, `tracks_p<N>.h5`) and
-  lost-particle restart files (`particle_<batch>_<id>.h5`) are moved into
-  `tracks/` and `particles/` subfolders after a run, keeping the working
-  directory clean when many particles are written. `weight_windows.h5` is
-  surfaced as an 'Open Weight Windows' action alongside 'Open Tracks' in the
-  Simulation Dashboard.
-- openmc-studio: complete tally score catalog (79 scores incl. photon,
-  particle-production, and IFP kinetics scores) and descriptor-driven filter
-  editors for all 23 supported filter types.
-- openmc-studio: IFP kinetics workflow (`ifp_n_generation`, auto-generated IFP
-  tallies with optional per-delayed-group β_eff) with validation.
-- openmc-studio: volume-calculation window with trigger support and
-  adopt-into-materials; native plotting window for slice, voxel, solid and
-  wireframe ray-trace plots (PNG output, voxel→VTK handoff).
-- openmc-studio: advanced depletion — `IndependentOperator` (file or
-  generate-from-model MicroXS), integrator transfer rates, all normalization
-  modes with per-nuclide fission Q, and `diff_burnable_mats`.
-- openmc-studio: macroscopic (multigroup) materials and NCrystal material import
-  (optional dependency, env-gated).
-- openmc-studio: random ray support — dedicated dashboard tab, MGXS generator
-  window (`convert_to_multigroup`/`convert_to_random_ray`), and FW-CADIS weight
-  window generation via the adjoint workflow.
-- openmc-studio: DAGMC material overrides (by-name replace, per-cell assignment),
-  `auto_geom_ids`/`auto_mat_ids` toggles, and sync-for-depletion.
-- openmc-studio: single-particle restart runs with track capture (`-t`) and
-  post-run track handoff.
-- nuke-visualizer: shared HDF5 output readers and viewers for `tracks*.h5`,
-  `collision_track.h5`, and `weight_windows.h5` (convert→VTK→trame pipeline),
-  registered through a new `OutputViewerRegistry`.
-- nuke-visualizer: IFP kinetics tab in the statepoint viewer (β_eff/Λ_eff with
-  uncertainties, CSV export), particle-restart preview viewer, and a random-ray
-  results viewer with initial-coloring support (`base.serve --color-by`).
-- Testing: **Playwright UI smoke suite** (`yarn test:ui`) — boot with zero
-  console errors, all dashboard tabs, New Project flow, windows, select-sticks;
-  weekly `ui-smoke.yml` CI with failure screenshots.
-- Testing: `openmc-dev.yml` weekly CI lane building upstream OpenMC develop from
-  source; CI python tests moved to a cached conda full profile (coverage ratchet
-  back above 94%).
-- Testing: end-to-end test layer — real OpenMC runs for every driver
-  (CMFD, depletion, k-eff search, volume calc, MGXS, chain build, plots) and a
-  project-file suite (10+ `.nuke-openmc` fixtures through the real
-  load → migrate → XML → run pipeline, incl. DAGMC, random ray, kinetics,
-  derivatives, mesh/tokamak sources, and a v1.0.0 migration fixture).
-  `yarn test:python:full` runs the full-dependency profile via `NUKE_TEST_PYTHON`;
-  env-gated on `OPENMC_CROSS_SECTIONS` / `NUKE_E2E_CHAIN` / `NUKE_E2E_ENDF`,
-  skipping cleanly otherwise.
-- Testing: nuke-cad **pincell DAGMC e2e** (`extensions/nuke-cad/tests/e2e/`) —
-  labeled build123d pincell → STEP → imprinted h5m (asserts
-  `mat:fuel/clad/moderator/graveyard` groups) → a real OpenMC run asserting
-  zero lost particles. Marked `@pytest.mark.e2e`, env-gated on
-  `NUKE_TEST_PYTHON` + `OPENMC_CROSS_SECTIONS`, skipping cleanly otherwise.
-- nuke-essentials: **shared UI components** under
-  `src/theme/browser/components/` — `NukeDialog` (modal shell with backdrop),
-  `NukeToolbar`/`NukeToolbarGroup` (grouped, wrapping toolbars),
-  `NukeEmptyState`, `NukeLoadingOverlay`, `NukePanel` (floating panel chrome),
-  and `NukeSection`/`NukeFormRow` (form layout primitives), exported from the
-  components index with co-located CSS shipped via the theme module.
-
-### Changed
-
-- nuke-cad: **additive pattern instances fuse** — overlapping instances of
-  additive `linearPattern`/`circularPattern`/`mirror` features now union via
-  `_apply_pattern_or_mirror` instead of raising an overlap error, matching the
-  behavior expected for coil assemblies.
-- nuke-cad: **cross-body overlap is a warning** — non-consumed bodies that
-  overlap in space no longer abort `build_document_shape`; instead the overlap
-  volume is reported in `result["warnings"]` so CAD assemblies (e.g., the
-  tokamak demo) can build while still alerting callers that need a sealed DAGMC
-  model.
-- nuke-cad: **viewport chrome redesign** — the CAD viewport now shows the
-  welcome card only when no document is open; a new document displays a minimal
-  document hint instead. The document toolbar is now a structured header bar
-  (icon + name + dirty indicator on the left, grouped actions on the right)
-  styled after openmc-studio, with a "More" overflow menu when the action groups
-  wrap beyond two rows. The sketch toolbar is now a compact, collapsible
-  vertical panel with a floating toggle to reopen it.
-
-### Fixed
-
-- nuke-cad: **viewport chrome layout** — the empty-state card no longer clips
-  at narrow widths (border-box sizing, wrapping action row) and stays centered
-  in document mode when the document toolbar/sketch overlay is present, the
-  rebuild loading indicator is a centered overlay instead of a corner strip, the
-  document toolbar is grouped by function and wraps instead of overflowing, and
-  the feature-creation dialog is a real modal with a backdrop that blocks the
-  toolbar behind it. The chrome now builds on shared nuke-essentials
-  components (`NukeDialog`, `NukeToolbar`/`NukeToolbarGroup`, `NukeEmptyState`,
-  `NukeLoadingOverlay`, `NukePanel`), and the document toolbar gains
-  New/Save/Rebuild buttons alongside Export Python.
-- nuke-cad: non-fatal build warnings (e.g. cross-body overlap with volumes)
-  are surfaced in the viewport as a dismissible warning strip instead of only
-  reaching the message service.
-- nuke-cad: sketch mode lifecycle hardening — `SketchSession.destroy()` releases
-  the solver and clears listeners; `SketchModeController` disposes the session
-  and restores the 3D view on exit/teardown; solver and pointer-up errors now
-  surface as user-visible messages instead of failing silently.
-- nuke-cad: viewport no longer flashes the empty state when the same
-  tessellation is set repeatedly, and the open handler shows a loading overlay
-  while scripts or STEP files build.
-- nuke-cad: `REBUILD_GEOMETRY` now warns when a `.nuke-cad` document is active
-  but the CAD viewport is not open, instead of silently doing nothing.
-- nuke-cad: dimension popover input stays in sync with external parameter/value
-  changes while open.
-- nuke-cad: 3-point arc clicks catch solver failures and reset pending
-  auto-constraints instead of crashing.
-- nuke-cad: sketch snap now returns `on_curve` candidates for arcs (projected
-  onto the arc circle within the angular span), not just lines and circles.
-- nuke-cad: document validation now rejects dimensions whose `targetIds`
-  reference primitives that do not exist in the sketch.
-- nuke-cad: geometry service stdout-JSON protocol now uses a `__NUKE_RESULT__`
-  marker so user prints can no longer be mistaken for the result payload.
-- nuke-cad: DAGMC export no longer auto-detects graveyards via the >10×
-  volume-ratio + containment heuristic. Existing graveyards must be explicitly
-  flagged with `existing_graveyard_vol_ids` or by naming the STEP
-  product/assembly "graveyard".
-- nuke-cad: DAGMC export skips gmsh faces that collapse to zero triangles
-  instead of failing with a missing-surface KeyError on assemblies with very
-  thin or sliver faces (exposed by the tokamak demo).
-- nuke-cad: `pad` and `pocket` now share the same inner-wire semantics — inner
-  wires represent removed material, leaving islands for pads and producing
-  through-holes for pockets.
-- nuke-cad: overlapping additive features now raise a clear `FeatureBuilderError`
-  instead of producing invalid overlapping volumes.
-- nuke-cad: revolve/groove axes are validated to lie in the sketch plane; a
-  non-planar axis now fails fast with a clear message instead of an unwrapped
-  OCCT traceback.
-- nuke-cad: shallow `.nuke-cad` document validation in the Python service now
-  rejects unsupported feature types and missing required parameters (positive
-  length for pad/pocket, axis and angle for revolve/groove) before any geometry
-  is built.
-- nuke-cad: sketches and holes attached to a reversed-orientation face (e.g. the
-  bottom face of a box) were mirrored across the face. Datum plane extraction now
-  flips the plane normal to the outward convention, and the face-picker fallback
-  X axis matches the solver's deterministic basis.
-- nuke-cad: the topology repair popover shows suggested candidates again —
-  ambiguous references carry per-candidate fingerprints, unmatched references now
-  offer up to three best candidates, and candidate rows are clickable.
-- nuke-cad: the document build response now forwards per-feature warnings and the
-  consumed-body list on successful builds, so partial feature failures surface in
-  the UI.
-- nuke-cad: holes/pockets/grooves whose cut tool is disjoint from the target body
-  now fail with an explicit error instead of silently dropping the cut.
-- nuke-cad: pads/pockets with `upToFace`, `upToBody`, or draft `angle` parameters
-  now fail validation with a "not yet supported" error instead of silently
-  ignoring the parameter.
-- nuke-cad: pads/pockets/revolves/grooves on bodies consumed by a pattern/mirror
-  are now reported `stale`, matching dress-up and pattern features.
-- nuke-cad: pattern/mirror/hole datum references now resolve against the whole
-  document instead of only the target body — an axis datum carried by a patterned
-  instance resolves again.
-- nuke-cad: feature reordering now rejects moving a pattern/mirror above its
-  source feature (implied dependency enforced alongside datum references).
-- nuke-cad: topology repair commits are atomic — a failed commit no longer leaves
-  the document's references half-updated.
-- nuke-cad docs: corrected the sketch boundary segment limit (255), the
-  exported-CAD helix note, and the edge-overlay rendering description.
-
-### Added
-
-- nuke-cad: `lengthScale` option on `GeometryBuildRequest` and
-  `BuildDocumentRequest` (default 1.0). The value is forwarded through the RPC
-  layer to `geometry_service.py --length-scale` and applied to DAGMC `.h5m`
-  vertices via `convert_to_dagmc`. Default units are cm; use `0.01` to produce
-  meter-scaled meshes for transport solvers that expect meters.
-- nuke-cad: `EDIT_SKETCH` command and feature-tree sketch edit action open an
-  existing sketch for editing.
-
-### Fixed
-
-- nuke-cad: GUI-authored pincell DAGMC e2e no longer leaks particles. The
-  `dagmc_export.py` pipeline now imprints model volumes in gmsh first and adds
-  the optional `mat:graveyard` bounding box with a second gmsh `fragment`,
-  preserving shared model-model faces. The previous OCP boolean graveyard cut
-  re-duplicated coincident faces and caused "No intersection found with DAGMC
-  cell" lost-particle errors on document-built pincells.
-- nuke-cad: geometry scripts now run on OCP 7.9 — `ocp_compat` re-attaches
-  the `TopoDS.TopoDS.<X>_s` downcast aliases removed in OCP 7.9 (build123d
-  0.9.x still calls them), applied eagerly in the geometry-service child
-  process and optionally via a one-shot `build123d` import hook that
-  container images can activate with a site-packages `.pth` line.
-- docker: the image's Python env now ships a working build123d 0.9.1. The
-  conda solver (with paraview pinned, hence the ocp 7.9 line) silently
-  selected the broken build123d 0.7.0; the Dockerfile now installs
-  build123d/ocpsvg via pip `--no-deps` (pure Python, no binary conflicts) and
-  activates the OCP 7.9 alias shim image-wide through a `.pth` hook. A CI
-  version guard in the docker workflow prevents a silent regression.
-- nukelab-integration: IDE file downloads and uploads no longer hang on
-  "Preparing download..." after the NukeLab server access token expires
-  (5 minutes after opening the environment) — a 401 from the container auth
-  sidecar now silently re-mints the token via the hub and retries the request.
-- openmc-studio: DAGMC universes are synchronized before CoupledOperator
-  creation on DAGMC geometries — coupled depletion previously failed with
-  'Number of material instances have not been determined'.
-- openmc-studio: FW-CADIS weight-window generation is validated against
-  random ray mode (it silently required it), and repeated CAD conversions no
-  longer produce duplicate graveyard volumes.
-- openmc-studio: nuclide-wise MGXS generation with `--random-ray` sets
-  `energy_mode = 'multi-group'` directly instead of running
-  `convert_to_random_ray`, which rejects continuous-energy models.
-- openmc-studio: the OpenMC run output directory is excluded from the file
-  watcher, stopping file-manager lag on runs that flood the output dir with
-  track/particle files.
-- openmc-studio: runner robustness — in-memory run output capture is capped
-  to a 1 MB tail (multi-hour runs can't OOM the backend), client log
-  streaming is batched (chatty DAGMC warning floods no longer stall the
-  frontend), re-written track/particle files replace older copies in the
-  `tracks/`/`particles/` subfolders, and empty track directories are skipped.
-- openmc-studio: DAGMC file persistence — project files no longer break when
-  moved, with asset paths saved and resolved relative to the project file.
-- openmc-studio: random-ray ray_source emitted in the dev-clone XML format,
-  which release 0.15.3 binaries reject — now probed per env.
-- openmc-studio: macroscopic materials couldn't select the required `macro`
-  density unit; MGXS generation crashed silently on MG models via libopenmc's
-  C-level exit — now a first-class guarded error with the real cause surfaced.
-- openmc-studio: depletion solver dropdown emitted names the driver rejected
-  (`ce-cm`, `leapfrog`, `si-rk4`, `predictor-corrector`).
-- openmc-studio: `generateSurfaceElement` stamped `boundary="vacuum"` on every
-  surface, silently killing particles in all multi-region models — regenerate
-  XML for existing projects.
-- openmc-studio: cylinder surfaces generated invalid Python (`openmc.Cylinder`
-  does not exist); kinetics-enabled scripts omitted the auto-generated IFP
-  tallies; macroscopic materials lacked the required `macro` density unit —
-  all caught by the e2e layer.
-- openmc-studio: MGXS generation passed a wrong `particles` kwarg to
-  `convert_to_multigroup`; k-eff search used nonexistent `Model.clone()` and a
-  direct density assignment; nuclide-fraction changes now renormalize only
-  within the same element instead of distorting all other nuclides.
-- openmc-studio: chain builder accepts both ENDF `neutron/` and `neutrons/`
-  layouts and closes FPY borrow-parent references in ENDF-built chains.
-- openmc-studio: run-level tally trigger settings, `eventBased`,
-  `probabilityTables`, `maxLostParticles`, and `relLostParticleRate` existed in
-  the project schema but never round-tripped to XML or appeared in the UI.
-- openmc-studio: React controlled selects/checkboxes that mutated widget fields
-  without scheduling a re-render were reverted by React (DAGMC overrides, MGXS
-  generator, volume calculator) — selections now stick immediately.
-- openmc-studio: `tallies.xml` and `plots.xml` are now parsed back on XML import
-  (previously export-only), and plots use the real OpenMC element format.
-- openmc-studio: tallies emit a single space-joined `<nuclides>` element (the
-  repeated `<nuclide>` form was silently ignored by OpenMC), and tally codegen
-  emits real filter constructors instead of invalid `openmc.Filter()` calls.
-- openmc-studio: weight window generators use the real
-  `<weight_window_generators>` settings.xml format.
-- nuke-essentials: tooltips anchored to a stretched wrapper span could appear far
-  from their control, and lingered at stale coordinates after scroll/resize.
-- nuke-visualizer: output viewers' selects/inputs lacked focus/disabled styling
-  and themed dropdown option lists.
-- CI: vitest job never compiled extensions (broken imports on fresh runners);
-  setup-miniconda pinned Python 3.14, unsatisfiable for OpenMC.
-- nuke-cad: geometry builds now extract real selectors from build123d labels
-  and CadQuery assembly names — region-manifest `mat:<name>` groups, Exodus
-  block names, and per-region `meshSize` values resolve instead of falling
-  back to positional names.
-- nuke-cad: CadQuery Assembly selector extraction hardened against real
-  cadquery 2.7/2.8 — TShape-based matching via `IsPartner`, UUID-name
-  filtering, and correct multi-solid Workplane handling (covered by the
-  assembly/cadquery test suite).
-- nuke-cad: DAGMC export corrections — unmanifested volumes fall back to
-  OpenMC-recognized `mat:mat_<vol_id-1>` groups (previously missing the
-  `mat:` prefix), volume identity across the gmsh fragment step uses the
-  fragment's returned mapping (plus `removeAllDuplicates`), and the temp STEP
-  rewrite is skipped when the shape is unmodified.
-- nuke-cad: mesh service corrections — Exodus side-set numbering now follows
-  the SEACAS TETRA(4) convention, the dihedral-angle quality metric is fixed
-  (a regular tetrahedron reports 70.53°), an explicit `max_size` overrides
-  `mesh_size`, and `elementTypes` reports `tetra10` for second-order meshes.
-  Selecting the `netgen` engine returns a structured "not yet implemented"
-  error instead of silently meshing with gmsh.
-- nuke-cad: FEM service — fixed boundary conditions emit dof-range
-  `*Boundary` cards (`nset, 1, 3`) instead of the ccx-incompatible
-  `ENCASTRE`, the FRD parser handles CalculiX's real fixed-width output
-  (NDTEMP results now reach the VTK file), ccx runs time out after one hour
-  by default (`ccxTimeout` request field) and stream output to
-  `<stem>.ccx.log` with a 1 MB JSON tail, and physical-group/block
-  assignment is vectorized (was O(n²) on large meshes).
-- nuke-cad: OpenFOAM STL export works — the service loads STEP directly via
-  `STEPControl_Reader` with the correct `TopoDS` downcast (the broken
-  `cad_conversion` dependency is gone), output filenames are sanitized, the
-  writer's return status is checked, and `wall_boundaries` are wired into
-  the field files.
-- nuke-cad: user geometry scripts run in an isolated subprocess with a 120 s
-  default timeout (`--script-timeout`); `SystemExit` in a script is reported
-  as a structured error instead of taking down the service, and unsupported
-  model types raise a specific `TypeError`.
-- nuke-cad: the `.py` open handler no longer hijacks Python files from the
-  text editor (priority 50, below the editor's 100) — the CAD viewport is
-  reached via **Open With…**. STEP/STP/BREP files still open the viewport by
-  default.
-- nuke-cad: CAD viewport — face-pick highlighting works (in-place material
-  recolor), a tessellation load race is fixed (stale results are discarded),
-  the scene rebuilds only on new tessellation (indexed BufferGeometry,
-  on-demand rendering instead of a perpetual animation loop), rebuilds keep
-  the old model visible behind a loading overlay instead of flickering to
-  the empty state, and Python build errors surface in a dismissible error
-  banner in the viewport.
-- nuke-cad: job lifecycle — the backend tracks spawned services in a job
-  registry with a `cancelJob` RPC (process-group kill) and a one-hour
-  default timeout, caps captured output at a 1 MB tail, kills remaining jobs
-  when the backend stops, and the FEM panel gains a **Stop** button for
-  running CalculiX jobs; the Python `job_service` no longer leaks file
-  descriptors and kills timed-out solver processes as a group.
-- nuke-cad: the CAD environment health check is now truthful — the health
-  group requires OCP/build123d/gmsh (plus numpy) and reports
-  `missingOptional` packages; "pymoab" is renamed to its real distribution
-  name `moab` with the shimwell wheels extra index.
-
-### Changed
-
-- Platform: Theia 1.73.1 → **1.74.1** across all applications and extensions.
-  The experimental `@theia/ai-vercel-ai` provider was removed (upstream
-  deprecated and unpublished it — the dedicated `@theia/ai-openai` and
-  `@theia/ai-anthropic` providers cover the same models), and the Electron
-  shell moves to Electron **43.4.0** (Theia requires ≥ 42.3.0; both bundle
-  Node 24). Inherited upstream behavior changes: file dialogs now default to
-  the Downloads folder instead of remembering the last-used directory, and
-  frameless windows get rounded corners on Linux.
-- Platform: build tooling updates — lerna 9 → **10** (ESM-only; minimum Node.js
-  is now 22.13.0) and markdown-it 14 → **15** in nuke-docs (bundled TypeScript
-  declarations; its linkify-it v6 no longer autolinks bare domains in
-  documentation pages — use explicit markdown links).
-- Platform: React 18 → **19** (`react`/`react-dom` 19.2.8) for all extension
-  widgets, supported by Theia 1.74 — no component API changes were needed
-  beyond qualifying the removed global `JSX.Element` namespace as
-  `React.JSX.Element`.
-- nuke-cad: STEP/STP/BREP viewport imports skip DAGMC and FEM mesh export by
-  default so files load quickly (this shipped earlier without a changelog
-  entry, commit 2d0a0fc); script builds still export by default, and imports
-  opt in via `--dagmc`/`--mesh`. The backend enforces
-  `--no-dagmc`/`--no-mesh` for STEP-source models on every path, including
-  rebuilds.
-- nuke-cad: DAGMC surface-sense verification is now a hard error with
-  diagnostics (every exported surface must have sense 1 or 2);
-  watertightness holes mark the export `sealed=False` with a warning,
-  incidence > 2 edges are reported as a `nonManifoldEdges` diagnostic
-  (multi-volume imprint seams legitimately have incidence 3), and a new
-  overlap check (bbox + `BRepClass3d_SolidClassifier` sampling) is reported
-  as `overlapCheck` in the result.
-- nuke-cad: saving a script-source model's `.py` file debounce-triggers a
-  viewport rebuild (STEP-source models are unaffected).
-- nuke-core: dependency installs are now spec-aware. `PackageDependency`
-  entries carry structured install specs (`pipSpec`, `pipArgs`, `condaSpec`)
-  alongside `condaOnly`/`channels`/`extraIndexUrl`; the missing-packages
-  install flow (`ensurePackages`) routes them through a new
-  `buildDependencyInstallPlan` planner — conda envs batch `condaOnly`/
-  `condaSpec` entries into one conda command, everything else installs via
-  pip grouped by (`extraIndexUrl`, `pipArgs`) signature (so pinned/VCS specs
-  like the commit-pinned pydagmc git URL and `--no-deps` build123d are
-  actually honored, and a single `condaOnly` entry no longer flips the whole
-  batch to conda). `installCommand` is deprecated (legacy hint-only). Install
-  hints in health checks, env validation, and the Python backends render from
-  the same fields, and `extensions/nuke-core/src/common/package-registry.json`
-  pins the canonical specs for shared packages (openmc/moab → shimwell wheel
-  index, gmsh → conda `python-gmsh`, OCP → conda `ocp`, netgen/ngsolve → conda
-  `ngsolve`, mpi4py/paraview → conda-only, …) with a vitest consistency test
-  (`package-registry.test.ts`) that fails CI on drift between the three
-  extension `packages.json` files.
-
-### Fixed
-
-- nuke-cad: additive-shape bounding-box prefilter in `feature_builder.py` now
-  uses the build123d `BoundBox` `.min.X`/`.max.X` API.
-- nuke-cad: DAGMC volume-to-pre-index tracking through gmsh imprint/merge and
-  auto-graveyard insertion now survives tag renumbering after
-  `removeAllDuplicates`. The old "disturbed mapping" hard error was replaced by
-  geometric signature matching (volume + bbox), so manifest material groups
-  (`mat:<name>`) and the auto-created `mat:graveyard` bind correctly.
-- nuke-cad: opening large `.nuke-cad` documents no longer pays for DAGMC and
-  FEM mesh export. Document opens and rebuilds now default to viewport-only
-  builds (`--no-dagmc`/`--no-mesh`), matching STEP imports, while explicit
-  export requests still work. A new display-only faceting tolerance
-  (`nukeCad.displayFacetingTolerance`, default 0.01) and a soft triangle budget
-  (`nukeCad.maxDisplayTriangles`, default 2 000 000) keep viewport tessellation
-  bounded; a warning is added to the build result when the budget is exceeded.
-  DAGMC and FEM export tolerances remain controlled by `nukeCad.facetingTolerance`.
-- nuke-visualizer: **viewer right-click menu positioning and design** — the
-  menu measures itself after render and clamps fully inside the viewport (the
-  first row no longer clips near an edge), and the flat four-row list becomes
-  grouped view actions (Fit to View, Save Screenshot) with codicons,
-  separators, a Clip Planes toggle, and one row per shading mode with the
-  active mode checked. Dismissal (item click, Escape, outside pointer-down)
-  is unchanged.
-- nuke-visualizer: **DAGMC Outline header overflow and row polish** — the
-  panel header keeps the bound viewer tab label as an ellipsis-truncated
-  subtitle with the full text in its Nuke tooltip instead of overflowing the
-  panel; VOLUMES/MATERIALS/GROUPS headers are sticky with count badges,
-  volume rows gain a hover eye button isolating that volume, and the
-  Graveyard toggle row renders muted italic.
+- app: startup splash tracks real loading progress and never blanks out on slow connections.
+- CI: vitest job compiles extensions first; conda pin no longer requests an unsatisfiable Python.
+- docker: image Python env ships working build123d with the OCP 7.9 shim and a CI version guard.
+- nuke-cad: DAGMC export mesh floor raised so needle facets no longer cause sporadic lost particles.
+- nuke-cad: viewport tool keys keep working while notification toasts are visible.
+- nuke-cad: viewport matches the theme at first paint with themed secondary buttons and non-overlapping chrome.
+- nuke-cad: single-slot shading/section popovers, Hide/Isolate/Show-All context actions, and capped explode framing.
+- nuke-cad: status pill caps its width from the navigation cluster instead of sliding underneath.
+- nuke-cad: tokamak demo TF inner-leg pads extrude symmetric so the pillar defect is gone, pinned by a bbox test.
+- nuke-cad: hiding bodies hides their consumed sweep-path curves and excludes them from picking.
+- nuke-cad: pairwise-disjoint additive pattern instances skip the boolean union; overlapping ones fuse in one parallel pass.
+- nuke-cad: closed-spine sweeps rebuild as station lofts so they survive STEP export to DAGMC.
+- nuke-cad: CAD viewport adapts to light themes with a steel body tone and dark edges.
+- nuke-cad: measure markers no longer flash as a model-sized circle on first click.
+- nuke-cad: view snaps re-pole orbit controls so mouse orbiting survives gizmo-axis clicks.
+- nuke-cad: reopening a model shows a loader instead of a stale Untitled empty state.
+- nuke-cad: axis gizmo and view label hidden in the empty viewport.
+- nuke-cad: sketch chrome no longer overlaps (constraint bar top-center, compact toolbar, stable Finish pill).
+- nuke-cad: opening a model auto-reveals the Model Outline and Feature Tree panels.
+- nuke-cad: Finish Sketch pill top-right, draggable collapsed toolbar, and owned top-center constraint bar.
+- nuke-cad: dimension labels are draggable-pinnable with calmer hover styling and themed popover input.
+- nuke-cad: Save dialog defaults to and normalizes the `.nuke-cad` extension.
+- nuke-cad: Escape clears sketch selection, hover outlines primitives, and the status line shows bindings.
+- nuke-cad: pick-mode banners are click-through with proper text wrapping.
+- nuke-cad: overlay form controls follow the dark theme instead of rendering white.
+- nuke-cad: Model Outline and Feature Tree empty-state icons render at a readable size.
+- nuke-cad: single-key sketch tool shortcuts with Escape fall-through and a keyboard cheat-sheet popover.
+- nuke-cad: viewport shortcuts scoped to viewport focus so Theia shortcuts work elsewhere.
+- nuke-cad: sketch tool tooltips land beside buttons and show their shortcut letter.
+- nuke-cad: Parameters, Diagnostics, External Geometry, Shortcuts, and Measurements panels share draggable clamped chrome.
+- nuke-cad: grouped two-column sketch toolbar at half height with a clearly highlighted active tool.
+- nuke-cad: exiting a brand-new sketch saves reliably via Tab or the Finish pill.
+- nuke-cad: viewport renders through the live camera with an explicit navigation cluster and F fit shortcut.
+- nuke-cad: sketch-mode pan/zoom repaints with anchored labels; compact buttons escape Theia's 65px minimum.
+- nuke-cad: entering a saved sketch frames its bounds; dialog labels, tooltips, and panel closing fixed.
+- nuke-cad: viewport chrome layout no longer clips or overflows; dialogs are real modals on shared components.
+- nuke-cad: non-fatal build warnings surface as a dismissible viewport strip.
+- nuke-cad: sketch-mode lifecycle hardened with solver disposal, view restore, and visible errors.
+- nuke-cad: viewport no longer flashes empty state on repeated tessellation; opens show a loading overlay.
+- nuke-cad: REBUILD_GEOMETRY warns when the CAD viewport isn't open instead of silently idling.
+- nuke-cad: dimension popover input stays in sync with external parameter changes.
+- nuke-cad: 3-point arc clicks catch solver failures and reset pending auto-constraints.
+- nuke-cad: sketch snap returns on-curve candidates for arcs, not just lines and circles.
+- nuke-cad: document validation rejects dimensions targeting nonexistent primitives.
+- nuke-cad: geometry-service protocol uses a result marker so user prints can't fake the payload.
+- nuke-cad: DAGMC export drops graveyard auto-detection; existing graveyards must be flagged explicitly.
+- nuke-cad: DAGMC export skips gmsh faces collapsing to zero triangles instead of KeyErroring.
+- nuke-cad: pad and pocket share inner-wire semantics (islands for pads, through-holes for pockets).
+- nuke-cad: overlapping additive features raise a clear builder error instead of invalid volumes.
+- nuke-cad: revolve/groove axes must lie in the sketch plane, failing fast otherwise.
+- nuke-cad: Python service rejects unsupported feature types and missing parameters before building.
+- nuke-cad: sketches/holes on reversed-orientation faces no longer mirror.
+- nuke-cad: topology repair popover shows clickable per-candidate fingerprints for ambiguous and unmatched references.
+- nuke-cad: build responses forward per-feature warnings and the consumed-body list.
+- nuke-cad: cuts disjoint from their target fail explicitly instead of silently dropping.
+- nuke-cad: unsupported pad/pocket/draft parameters fail validation loudly instead of being ignored.
+- nuke-cad: features on pattern-consumed bodies report stale like dress-ups and patterns.
+- nuke-cad: pattern/mirror/hole datum references resolve against the whole document.
+- nuke-cad: reordering a pattern/mirror above its source is rejected.
+- nuke-cad: topology repair commits are atomic; failures leave references untouched.
+- nuke-cad: GUI pincell DAGMC export imprints in gmsh first so document-built pincells stop leaking particles.
+- nuke-cad: geometry scripts run on OCP 7.9 via an eagerly applied downcast-alias shim.
+- nuke-cad: builds extract real selectors from build123d labels and CadQuery assembly names.
+- nuke-cad: CadQuery assembly extraction hardened for cadquery 2.7/2.8 via partner matching and UUID filtering.
+- nuke-cad: DAGMC export uses OpenMC-recognized fallback groups and mapping-safe volume tracking.
+- nuke-cad: mesh service fixes side-set numbering, dihedral metric, max_size override, and tetra10 reporting.
+- nuke-cad: FEM service emits compatible boundary cards, parses real FRD output, and caps runs with a timeout and log.
+- nuke-cad: OpenFOAM STL export loads STEP directly with sanitized names, checked writes, and wired boundaries.
+- nuke-cad: user geometry scripts run isolated with a timeout; SystemExit becomes a structured error.
+- nuke-cad: Python files stay with the text editor; the CAD viewport is reached via Open With.
+- nuke-cad: working face-pick highlight, no tessellation race or flicker, and in-viewport error banner.
+- nuke-cad: backend job registry with cancel, timeout, output caps, and a FEM Stop button.
+- nuke-cad: truthful CAD health check requiring OCP/build123d/gmsh with correct optional-package names.
+- nuke-cad: additive-shape bbox prefilter uses the build123d BoundBox min/max API.
+- nuke-cad: DAGMC volume tracking survives gmsh tag renumbering via geometric signature matching.
+- nuke-cad: opening large documents defaults to viewport-only builds with a display tolerance and triangle budget.
+- nuke-cad docs: corrected the sketch segment limit, exported-helix note, and edge-overlay description.
+- nuke-essentials: empty-state card centers itself in wide sidebars instead of hugging the left.
+- nuke-essentials: color picker popup portals to the document body so it never clips in narrow sidebars.
+- nuke-essentials: edge-adjacent tooltips flip and clamp to the viewport instead of rendering off-screen.
+- nuke-essentials: stretched-wrapper tooltips track their control across scroll and resize.
+- nuke-essentials + nuke-visualizer: shared checkbox/slider/search/switch/badge controls used by viewer sidebars and outline panels.
+- nuke-essentials + nuke-visualizer + openmc-studio + nuke-cad: shared NukeSelect replaces all builtin selects so dropdowns never clip.
+- nuke-visualizer: DAGMC Outline always binds on viewer open instead of sitting empty.
+- nuke-visualizer: tally overlay/slice parsing accepts empty appended sections and real vtk-9 character offsets.
+- nuke-visualizer: legacy STRUCTURED_GRID `.vtk` files preview with voxel axes or a center-point fallback.
+- nuke-visualizer: DAGMC-less full overlay renders the voxel mesh instead of a cell-center cloud.
+- nuke-visualizer: regular weight-window/voxel grids render as instanced voxel blocks instead of moire point clouds.
+- nuke-visualizer: tally slices render as smooth shaded surfaces with source-side decimation.
+- nuke-visualizer: round soft points in every native point cloud instead of square pixels.
+- nuke-visualizer: true Full 3D tally-on-geometry overlay paints the tally onto DAGMC volumes with outline isolation.
+- nuke-visualizer: mesh `.vti` exports no longer silently rescale geometry; spacing and origin round-trip.
+- nuke-visualizer: DAGMC viewer shows the edge overlay only in Shaded + Edges mode.
+- nuke-visualizer: color-legend gradient bar renders as a floating card in every native viewer.
+- nuke-visualizer: DAGMC Graveyard toggle works; conversion keeps the graveyard block hidden by default.
+- nuke-visualizer: Viewer Settings sidebar binds immediately on open via the main-area tab fallback.
+- nuke-visualizer: Escape works after canvas clicks (measure cancel, popover dismiss) via canvas focus.
+- nuke-visualizer: DAGMC status line restores the `N of M volumes` count without model info.
+- nuke-visualizer: smooth damped orbiting on large models with a driven update loop and coalesced repaints.
+- nuke-visualizer: bottom-bar quick actions for clip toggle, X-plane section, shading cycle, and DAGMC exclude/isolate.
+- nuke-visualizer: bottom-bar Clip/Shading anchored popovers matching the CAD viewport cards.
+- nuke-visualizer: DAGMC drape blocks with ambiguous vtk-9 offsets parse via validated fallback instead of decompress errors.
+- nuke-visualizer: Smooth Interpolation reaches the converter (trilinear point data) with a matching Pixelated slice mode.
+- nuke-visualizer: CSG overlay tabs ghost the extracted cells under tally voxels with the CSG Outline bound.
+- nuke-visualizer: geometry views open instantly with a spinner; extraction failures land in-tab.
+- nuke-visualizer: overlay auto-detects its geometry via workspace walk, project pin, or lone `.h5m` before asking.
+- nuke-visualizer: smooth tally volume is stencil-masked to the model footprint so hotspots stay inside.
+- nuke-visualizer: Range row gains per-side resets and a dual-thumb slider; spinner arrows removed.
+- nuke-visualizer: tally+source overlay layers the source bank on CSG tabs too, not just DAGMC drapes.
+- nuke-visualizer: tally means divided by realizations so every native tally number reads correctly instead of N x high.
+- nuke-visualizer: smooth-volume clip cuts reveal data instead of smearing the dataset into the cut.
+- nuke-visualizer: Tally volume + Smooth volume rows work on tally mesh tabs with auto-dimming CSG context.
+- nuke-visualizer: CSG cell boxes follow OpenMC plane senses so pincell moderators and clads size correctly.
+- nuke-visualizer: CSG Outline binds tally overlay tabs for underlay hide, Void switch, and ghost highlight.
+- nuke-visualizer: CSG Outline hide/isolate applies on the canvas through one shared visibility rule plus a canvas menu.
+- nuke-visualizer: viewer right-click menu clamps inside the viewport with grouped actions and checked shading.
+- nuke-visualizer: DAGMC Outline header truncates with tooltips, sticky badges, hover isolate, and muted graveyard row.
+- nuke-visualizer: output viewer inputs gain focus/disabled styling and themed dropdown lists.
+- nukelab-integration: expired server tokens re-mint silently so file transfers never hang on Preparing download.
+- openmc-studio: DAGMC universes sync before CoupledOperator creation so coupled depletion runs.
+- openmc-studio: FW-CADIS generation validated against random-ray mode; repeat CAD conversions stop duplicating graveyards.
+- openmc-studio: nuclide-wise MGXS with random-ray sets the energy mode directly instead of via the rejecting converter.
+- openmc-studio: run output directory excluded from the file watcher to stop file-manager lag.
+- openmc-studio: runner caps captured output, batches log streaming, and replaces re-written track files in place.
+- openmc-studio: project-relative DAGMC/MGXS asset paths so moved projects keep working.
+- openmc-studio: ray_source XML format probed per environment instead of emitting dev-clone syntax everywhere.
+- openmc-studio: macroscopic materials offer the required macro unit; MG-model MGXS crashes surface the real cause.
+- openmc-studio: depletion solver dropdown emits only driver-accepted integrator names.
+- openmc-studio: surface generation no longer stamps vacuum boundaries everywhere; regenerate XML for affected projects.
+- openmc-studio: cylinder surfaces generate valid Python; kinetics scripts include IFP tallies; macro materials get their unit.
+- openmc-studio: MGXS/k-eff-search fraction fixes (valid kwargs, no Model.clone, same-element renormalization).
+- openmc-studio: chain builder accepts both ENDF neutron layouts and closes FPY borrow-parent references.
+- openmc-studio: schema trigger settings round-trip to XML and appear in the UI.
+- openmc-studio: DAGMC-override, MGXS-generator, and volume-calculator selections stick immediately.
+- openmc-studio: tallies.xml and plots.xml parse back on XML import using the real element format.
+- openmc-studio: tallies emit one space-joined nuclides element; codegen emits real filter constructors.
+- openmc-studio: weight-window generators use the real settings.xml format.
 
 ## [0.1.3] - 2026-07-28
 

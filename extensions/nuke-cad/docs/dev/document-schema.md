@@ -1,0 +1,25 @@
+# Document schema
+
+The `.nuke-cad` JSON document (`src/common/cad-document.ts`) and its store, migrations, shell integration, and Export-Python codegen.
+
+- Schema version is 3. Validate with `validateNukeCadDocument`; migrate with `migrateNukeCadDocument`. New migrations register steps in `MIGRATIONS` and bump `NUKE_CAD_SCHEMA_VERSION`.
+- v2 introduced `bodies` plus boolean features; v3 adds top-level `curves`. The v1→v2 migration creates one implicit body per legacy feature; v2→v3 adds an empty `curves` array.
+- Every solid feature (`pad`/`pocket`/`revolve`/`groove`, `sweep`/`pipe` with a curve ref, `loft`/`helicalSweep`, `primitive` on a datum with optional `subtractive`, `multiTransform` over two pattern/mirror sources) targets a body id.
+- Boolean features (`booleanFuse`/`booleanCut`/`booleanCommon`) consume one target body plus one or more tool bodies, with optional `keepTools`. Bodies carry an optional `label` mapping to the region manifest / `selector_map` for DAGMC and mesh export.
+- Features targeting a body consumed by a boolean are marked `stale` (uniform guard for dress-up, pattern/mirror/hole, and sketch-solid features).
+- The store (`src/browser/document/cad-document-store.ts`) holds the active document, validates immutable updates, and tracks dirty state, sketch/feature/body selection, and per-feature build results. Sketch-local parameters merge into document parameters on sketch save. Destructive deletes that would orphan dependents are rejected.
+- Undo is snapshot-based (pre-mutation documents, depth 100, redo cleared on new mutation, reset on load/create): `undo()` / `redo()` / `canUndo` / `canRedo` with normal dirty/validation/change effects, so rebuild scheduling observes them unchanged. Granularity is committed store mutations; sketch strokes reach the store only on save. Toolbar Undo/Redo plus `Ctrl+Z` / `Ctrl+Shift+Z` / `Ctrl+Y` follow viewport key scoping and stay out of active sketch sessions.
+- `.nuke-cad` files open in the CAD viewport by default (open-handler priority 500): parse JSON, load the store, run a viewport-only build (no DAGMC/FEM export). See `backend-pipeline.md` for the default export gates.
+- Commands: `nuke.cad.newDocument`, `nuke.cad.saveDocument`, `nuke.cad.saveDocumentAs`, `nuke.cad.newSketch`, `nuke.cad.exitSketch`, `nuke.cad.openFeatureTree`. `newDocument` merges a `DOCUMENT_TEMPLATES` preset (`src/common/document-templates.ts`) over an empty v3 document. Save/Save-As enforce `.nuke-cad` via `ensureNukeCadExtension` (`cad-save-path.ts`).
+- **Edit Parameters** reopens the feature-creation dialog prefilled for an existing feature and updates the document on confirmation.
+- **Export Python** (`src/common/python-codegen.ts`) writes a deterministic, one-way, lossy build123d-ish starting point (never a round trip), saved via the Theia file dialog and `FileService`. Emission mirrors `feature_builder.py` / `sketch_builder.py`:
+  - Arcs become `bd.CenterArc` with a signed degree sweep (document angles are radians); revolve uses `revolution_arc`.
+  - Pattern counts include the original; full/partial circular sweeps step `360/count` resp. `angle/(count-1)`. Pattern/mirror instances transform a re-derived source solid (never the sketch; primitive sources re-derive the same way; multiTransform still hatches).
+  - Boolean tools are combined before the operation. Contained sketch profiles (any nesting depth) are holes emitted with `bd.Mode.SUBTRACT`, matching backend outer/inner-wire pairing.
+  - Ellipses become `bd.Ellipse(x_radius, y_radius, rotation=deg)` under `bd.Locations(center)`.
+  - Loops containing a B-spline keep the authored control polygon as an explicit `bd.make_face([...])` edge list via the module-level `_bspline_edge` helper (raw OCP `Geom_BSplineCurve`), emitted once after imports whenever any non-construction B-spline exists — `bd.Spline` interpolates points and cannot express control-polygon curves. Periodic or non-unit-weight B-splines degrade the sketch to `# TODO(manual):`.
+  - Curves are emitted as `bd.Spline` calls over sample points before the bodies/features blocks (sweep/pipe reference the curve vars).
+  - Sweep/pipe emit `bd.sweep(...)` with the section repositioned to the path start via a `bd.Plane` from the curve start point and tangent (`fixedBinormal` adds a binormal-locked `# TODO(manual):` hatch); pipe sections are `bd.Circle(radius)` faces.
+  - Loft emits `bd.loft([<section fn>()...], ruled=...)` in section order (an unbuildable section degrades the whole feature to `# TODO(manual):`).
+  - HelicalSweep emits `bd.Helix(pitch, height=pitch*turns, radius, direction, lefthand)` plus the same `_sweep_plane` + `bd.sweep(...)` emission as sweep.
+  - Face datums, external geometry, fillet/chamfer edges, draft/shell faces, and hole placement emit as `# TODO(manual):` comments, never silently dropped.

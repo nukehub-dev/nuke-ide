@@ -15,11 +15,7 @@ export const MyBackendService = Symbol('MyBackendService');
 export const MY_BACKEND_PATH = '/services/my-plugin';
 
 export interface MyBackendService {
-  // Server management
-  startServer(filePath: string): Promise<{ port: number; url: string }>;
-  stopServer(port: number): Promise<void>;
-
-  // Domain methods
+  // Headless converters (no startServer/stopServer — commands write files and exit)
   getData(filePath: string): Promise<MyData>;
 }
 
@@ -54,22 +50,11 @@ Defines the contract for the base 3D mesh visualizer.
 
 ```typescript
 export interface VisualizerBackendService {
-  // Server lifecycle
-  startServer(filePath?: string, config?: PythonConfig, theme?: string): Promise<ServerInfo>;
-  stopServer(port: number): Promise<void>;
+  // Headless converters (no servers — each command writes VTK/JSON and exits)
+  convertDagmc(filePath: string, volumeId?: number): Promise<string>;
 
   // Environment
   checkEnvironment(config?: PythonConfig): Promise<EnvironmentInfo>;
-
-  // File conversion
-  convertDagmc(filePath: string, volumeId?: number): Promise<string>;
-
-  // Visualization controls (placeholders for future API)
-  getVisualizationState(port: number): Promise<VisualizationState>;
-  updateVisualizationState(port: number, state: Partial<VisualizationState>): Promise<void>;
-  resetCamera(port: number): Promise<boolean>;
-  setCameraView(port: number, viewType: CameraViewType): Promise<boolean>;
-  captureScreenshot(port: number, options: ScreenshotOptions): Promise<ScreenshotResult>;
 
   // Client for log streaming
   setClient(client: VisualizerClient): void;
@@ -119,10 +104,10 @@ export interface OpenMCBackendService {
   getStatepointFullInfo(statepointPath: string): Promise<OpenMCStatepointFullInfo>;
   getKGenerationData(statepointPath: string): Promise<OpenMCKGenerationData>;
 
-  // Tally visualization
-  visualizeMeshTally(statepointPath, tallyId, score?, nuclide?): Promise<OpenMCVisualizationResult>;
-  visualizeSource(sourcePath: string): Promise<OpenMCVisualizationResult>;
-  visualizeTallyOnGeometry(geometryPath, statepointPath, tallyId, score?, filterGraveyard?): Promise<OpenMCVisualizationResult>;
+  // Headless VTK converters (no visualize* servers — each writes XML VTK and exits)
+  convertTallyMeshToVtk(statepointPath: string, options?: OpenMCTallyMeshVtkOptions): Promise<OpenMCVtkConversionResult>;
+  convertSourceToVtk(filePath: string, options?: OpenMCSourceVtkOptions): Promise<OpenMCVtkConversionResult>;
+  convertOverlayToVtk(statepointPath: string, options?: OpenMCOverlayVtkOptions): Promise<OpenMCVtkConversionResult>;
 
   // Plot data
   getEnergySpectrum(statepointPath, tallyId, scoreIndex?, nuclideIndex?): Promise<OpenMCSpectrumData>;
@@ -152,10 +137,10 @@ export interface OpenMCBackendService {
   mixMaterials(request: OpenMCMaterialMixRequest): Promise<OpenMCMaterialMixResponse>;
   addMaterial(filePath: string, materialXml: string): Promise<void>;
 
-  // Server lifecycle
-  stopServer(port: number): Promise<void>;
+  // Environment
   checkOpenMCAvailable(): Promise<{ available; message; warning? }>;
   checkOpenMCPythonAvailable(): Promise<{ available; message; warning? }>;
+  // (No stopServer — the legacy stub is a no-op; nothing listens on ports.)
 }
 ```
 

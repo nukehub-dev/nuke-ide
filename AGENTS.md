@@ -43,6 +43,7 @@ Update parent docs when parent-level structure, ownership, workflow, or child in
 
 - **User/dev docs** when a change alters user-visible or developer-facing behavior — features, UI, RPC/protocol contracts, settings, file formats, workflows. Product docs live in `docs/*.md`; extension docs are the source of truth under `extensions/<name>/docs/` (`user/` and `dev/`), read in-IDE by `extensions/nuke-docs`. See `docs/AGENTS.md`.
 - **`CHANGELOG.md`** (`Unreleased`, Keep a Changelog format) for every user-visible addition, change, or fix — the release flow extracts release notes from it, so an unlogged feature never reaches users.
+- New entries go under `Unreleased` in the single matching `### Added` / `### Changed` / `### Fixed` / `### Removed` section (never per-extension sub-sections), sorted by extension prefix. One bullet per feature/fix, one line, max ~140 cols: `<extension>: <what + user-visible effect>` (e.g. `nuke-visualizer: native 3D output viewers render in-IDE with instant color-by`). No implementation internals, file names, perf numbers, or history — detail lives in `extensions/<name>/docs/user/`. Never edit released `## [x.y.z]` sections.
 
 Internal refactors, bug fixes with no behavior change, and test-only work need neither.
 
@@ -71,6 +72,7 @@ Default section order:
 - Keep docs concise, current, and operational.
 - Document stable contracts, not diary entries.
 - Put broad rules in parent docs and concrete details in child docs.
+- `AGENTS.md` bullets stay short (max ~3 lines, ~140 cols): stable rule + pointer (`see docs/dev/<topic>.md`). Subsystem detail, command lists, deleted-symbol history, and migration notes live in `extensions/<name>/docs/dev/`, never in `AGENTS.md`.
 - Prefer direct bullets with explicit names.
 - Do not duplicate rules across many files unless each scope needs a local version.
 - Delete stale notes instead of explaining history.

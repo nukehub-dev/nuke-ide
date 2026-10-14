@@ -1,5 +1,7 @@
 # Nuke CAD architecture
 
+Detailed subsystem contracts live in the sibling dev docs: `document-schema.md`, `sketch.md`, `features-patterns.md`, `backend-pipeline.md`, `viewport-outline.md`, `drawings-assemblies.md`, `fem-mesh-foam.md`, `testing-e2e.md`. This file sketches the runtime and service layout; on any conflict the subsystem docs win.
+
 ## Layout
 
 ```
@@ -30,9 +32,9 @@ protocol payload.
 Spawned services are tracked in a backend job registry with a one-hour default
 timeout, a 1 MB output tail, and a `cancelJob(jobId)` RPC that kills the
 process group (used by the FEM panel's **Stop** button); remaining jobs are
-killed when the backend stops. STEP-source models are always spawned with
-`--no-dagmc`/`--no-mesh` — DAGMC and FEM mesh export only run for script
-builds unless explicitly requested.
+killed when the backend stops. STEP-source imports and `.nuke-cad` document
+opens/rebuilds are always spawned with `--no-dagmc`/`--no-mesh` — DAGMC and FEM
+mesh export only run when explicitly requested (see `backend-pipeline.md`).
 
 The frontend receives the result, caches the active `CadModel` in
 `NukeCadStateManager`, and renders `model.tess.json` in a three.js viewport.

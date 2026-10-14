@@ -238,12 +238,12 @@ this.nukeCoreService.onEnvironmentChanged((event) => {
 
 ## Summary: Which Service Do I Need?
 
-| Task                                   | Service                        |
-| -------------------------------------- | ------------------------------ |
-| Check if Python packages are installed | `HealthCheckFramework`         |
-| Run a Python script                    | `PythonCommandHelper`          |
-| Show a 2D chart                        | `PlotlyService`                |
-| Embed a Python server UI               | `VisualizerWidget`             |
-| React to env changes                   | `NukeCoreService`              |
-| Log to output channel                  | `OutputChannelManager` (Theia) |
-| Show toast notifications               | `MessageService` (Theia)       |
+| Task                                   | Service                            |
+| -------------------------------------- | ---------------------------------- |
+| Check if Python packages are installed | `HealthCheckFramework`             |
+| Run a Python script                    | `PythonCommandHelper`              |
+| Show a 2D chart                        | `PlotlyService`                    |
+| Show a converted 3D dataset            | `NativeVtkViewerWidget.setVtkText` |
+| React to env changes                   | `NukeCoreService`                  |
+| Log to output channel                  | `OutputChannelManager` (Theia)     |
+| Show toast notifications               | `MessageService` (Theia)           |

@@ -61,8 +61,6 @@ The nav bar carries a `Link cameras` toggle (`widgets/viewer-nav-extras.tsx::Lin
 - `reload()` converts, reads the file text, and re-parses; parameter changes (filters, mesh selection) re-run `reload()` — convert again, re-parse.
 - There are no servers to start, wait for, or kill: conversion timeouts scale with file size via the `nukeVisualizer.serverTimeout` + `nukeVisualizer.serverTimeoutPerMB` preferences, and conversion/parse failure surfaces an error panel pointing at the generic VTK viewer instead of starting anything.
 
-> **Residual:** the generic `visualizer-widget.tsx` still falls back to a server iframe path for formats the native parser cannot read. The output viewers themselves no longer use it.
-
 ### Split Drag (`drag-split.ts`)
 
 The resizable split between the 3D area and the data panel uses `src/browser/plugins/openmc/widgets/drag-split.ts::startSplitDrag`. During the drag it shields the 3D view's mouse capture (direct DOM writes — no per-pixel React renders; state commits once on mouseup). The Nuclear Data window's horizontal split uses the same helper.
@@ -74,6 +72,14 @@ The resizable split between the 3D area and the data panel uses `src/browser/plu
 ### Multi-Mesh Weight Windows
 
 `weight_windows_to_vtk(path, output_path, mesh_id)` anchors the conversion to one mesh; windows on other meshes are skipped and reported in the result (`convertedWindows` / `skippedWindows`). The widget shows a mesh selector when the file's info reports more than one mesh ID, and passes the selection through the `meshId` RPC parameter to the `--mesh-id` CLI argument.
+
+### HDF5 Output Readers
+
+`python/plugins/openmc/lib/output_readers.py` backs the tracks/collision-track/weight-windows/kinetics commands with pure functions returning JSON-safe dicts (raising `OutputReaderError` on failure); limits and decimation are enforced server-side.
+
+### Kinetics (IFP) Tab
+
+IFP kinetics results live in ordinary `statepoint*.h5` files, so they have no registry entry: the statepoint viewer shows a conditional tab when `kinetics-utils.ts::hasIfpTallies` matches, lazy-loading `openmc.kinetics` via `getKineticsParameters()`.
 
 ---
 

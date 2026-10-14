@@ -349,6 +349,42 @@ if (stats.success) {
 
 ---
 
+## Domain Drivers
+
+### CAD / DAGMC and the graveyard
+
+`cad_conversion/nurbs_handler.py` auto-creates a `mat:graveyard` bounding volume during CAD→DAGMC conversion unless `--no-graveyard` /
+`addGraveyard: false` (detection via STEP/IGES product names plus a volume/bbox heuristic; existing graveyards are re-tagged).
+`dagmc_editor_service.py` exposes `detect_graveyard` / `create_graveyard_box` (preferred, new axis-aligned shell) / `tag_graveyard`
+(secondary, re-tags an enclosing volume). `refacet` re-tessellates from source CAD and re-creates the graveyard when the old file had one;
+with imprint/merge it routes through nuke-cad's `dagmc_export.py` when available, else the legacy OpenCASCADE BOPAlgo path.
+
+### Depletion, search, and sweep drivers
+
+`run_depletion.py` supports coupled and independent operators, `get_microxs_and_flux` generation, transfer rates (via
+`Integrator.add_transfer_rate`), custom fission Q, and diff burnable mats. Before `CoupledOperator` it syncs DAGMC universes
+(`init_lib` → `sync_dagmc_universes` → `finalize_lib`, with an `openmc.lib` cell-enumeration fallback); depletable materials must carry
+`VOLUMES`. All operator-construction failures surface as `DepletionConfigError` (clean JSON, no traceback). `run_keff_search.py` wraps
+`openmc.search_for_keff`; `run_optimization.py` applies parameter sweeps. `sync_dagmc_depletion.py` rewrites geometry.xml with per-cell
+material overrides (never the `.h5m`).
+
+### MGXS library and chain builder
+
+`generate_mgxs_library.py` drives the raw `openmc.mgxs.Library` API: user-chosen XS types (validated vs `MGXS_TYPES`), domain type/IDs,
+by-nuclide, Legendre order, estimator; it auto-appends the `consistent nu-scatter` + `multiplicity` matrices XSdata conversion requires.
+`--nuclide-wise` exports one micro XSdata set per nuclide (the only form random ray + DAGMC accepts). `build_chain.py` builds depletion
+chains via `--from-chain` (subset closure over decay/reaction targets, FPY products, and FPY-borrow parents) or `--from-endf`
+(`Chain.from_endf` over ENDF TEXT `decay/`/`nfy/`/`neutron(s)/` sub-libraries only); the result writes `depletion.chainFile`.
+
+### `generate_mgxs.py` pre-import guards
+
+MGXS generation is a CE per-nuclide workflow, so `generate_mgxs.py` validates MG settings / macroscopic materials via stdlib ET
+(`read_model_compatibility`) BEFORE the openmc import. On DAGMC/C-API paths `model.run` executes in-process, where a libopenmc
+`fatal_error` is a C-level `std::exit` (exit 255) that bypasses Python exceptions — no final JSON is printed, so the backend scans
+stdout backwards for the last JSON line and reports `exit code N` plus the tail instead of a parse error.
+
+---
+
 ## Summary Checklist
 
 When writing a new Python backend script:

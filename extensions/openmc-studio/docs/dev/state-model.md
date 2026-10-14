@@ -147,6 +147,13 @@ interface OpenMCThermalScattering {
 
 **Concept:** Thermal scattering is stored as a first-class array on the material, not as a nuclide modifier. This mirrors OpenMC's XML structure and makes the tally-configurator widget's material inspector simpler.
 
+### Macroscopic and NCrystal materials
+
+Materials may carry `macroscopic: { name }` (multigroup XS data, no nuclide decomposition; `densityUnit: 'macro'`) — materials.xml uses
+the real `<macroscopic name="..."/>` form and round-trips, except in nuclide-wise mode where stale flags are ignored. Materials may also
+carry `ncrystalCfg` (NCrystal configuration string), emitted as the `<material cfg="...">` attribute with nuclide decomposition kept; `cfg`
+is incompatible with sab and macroscopic. The Python exporter emits `Material.from_ncrystal(...)` for cfg materials.
+
 ---
 
 ## Settings
@@ -180,6 +187,13 @@ interface OpenMCSource {
 ```
 
 **Concept:** Each distribution type is a separate interface extending a common base. Widgets can switch rendering based on `type` without parsing opaque parameter arrays.
+
+### Mesh and tokamak source variants
+
+The source model is a discriminated union (`independent` | `file` | `compiled` | `mesh` | `tokamak`; absent `type` means `independent`)
+with optional per-source `constraints` (fixed-source random ray requires material/cell/universe domain constraints). The `mesh` variant
+references a state mesh by `meshId` with exactly one independent sub-source per mesh element; the `tokamak` variant (0.15.4+) models Miller
+flux-surface geometry plus an `{r, s}` emission profile and a single energy distribution (`muir` serializes lossy as `normal`).
 
 ### Entropy Mesh
 
