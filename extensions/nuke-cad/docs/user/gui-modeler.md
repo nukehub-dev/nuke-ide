@@ -381,8 +381,9 @@ commands in the Feature Tree:
   selected faces open.
 - **Defeature** — delete selected faces (small holes, logos, and other
   detail to remove before meshing/export).
-- **Move** — rigidly translate a body's accumulated shape by `dx`/`dy`/`dz`
-  in document units (e.g. lower a frame by entering a negative `dz`). Find it
+- **Move** — rigidly translate a body's accumulated shape by a non-zero
+  `dx`/`dy`/`dz` in document units (e.g. lower a frame by entering a
+  negative `dz`). Find it
   in the document toolbar's **Dress-up** group (no sketch or edit mode needed):
   the target body arrives pre-selected from the viewport selection, the dialog
   previews the move ghosted, and later features chain through it.

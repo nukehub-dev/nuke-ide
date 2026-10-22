@@ -51,7 +51,8 @@ import {
     sampleParametricWithUnits,
     sha256Hex,
     shouldUsePartialPlan,
-    type CachedDocumentResult
+    type CachedDocumentResult,
+    uniqueFeatureId
 } from './cad-document-store';
 import {
     NUKE_CAD_SCHEMA_VERSION,
@@ -300,6 +301,23 @@ describe('CadDocumentStore', () => {
             store.addBody('Body 1');
             store.addFeature(feature('pad1', 'pad'));
             expect(store.selection.selectedFeatureId).toBe('pad1');
+        });
+
+        it('mints feature ids unique within the document across sessions', () => {
+            const store = new CadDocumentStore();
+            store.createDocument('test');
+            store.addBody('Body 1');
+            // A reloaded document may already hold session-counter ids.
+            store.addFeature(feature('feature-1', 'pad'));
+            store.addFeature(feature('feature-2', 'pad'));
+            const doc = store.document;
+            expect(doc).toBeDefined();
+            if (doc === undefined) {
+                return;
+            }
+            const id = uniqueFeatureId(doc);
+            expect(doc.features.some((f) => f.id === id)).toBe(false);
+            expect(id).toBe('feature-3');
         });
     });
 

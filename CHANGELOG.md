@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - build: optional extensions selectable at build time via `NUKE_EXTENSIONS` allow-list / `NUKE_EXCLUDE_EXTENSIONS` deny-list.
 - nuke-cad: CAD Studio menu under Tools mirrors the sidebar (geometry, panels, analysis, environment commands).
 - nuke-cad: Move feature rigidly translates a body by dx/dy/dz with ghosted preview and tip chaining.
+- nuke-cad: matching custom undo/redo toolbar icons (the codicon font ships no undo glyph).
+- nuke-cad: Move dialog shows document units, a non-zero hint, and previews by default; a zero move fails with a clear error.
 - nuke-cad: Ctrl/Cmd-click multi-selects viewport solids (camera frozen while held, crosshair cursor) with Ctrl/Cmd-drag box select and Hide/Isolate Selected (N) bulk actions.
 - nuke-cad: lattice feature replicates a solid feature over a rectangular grid or hexagonal ring with per-cell labels for DAGMC groups.
 - nuke-cad: staged DAGMC export with a reported stage log, sense errors naming surface + volumes, and a grouped diagnostics box.
@@ -246,6 +248,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-cad: non-fatal build warnings surface as a dismissible viewport strip.
 - nuke-cad: sketch-mode lifecycle hardened with solver disposal, view restore, and visible errors.
 - nuke-cad: viewport no longer flashes empty state on repeated tessellation; opens show a loading overlay.
+- nuke-cad: rebuilding a feature-less document reports nothing-to-build instead of a no-solids failure.
 - nuke-cad: REBUILD_GEOMETRY warns when the CAD viewport isn't open instead of silently idling.
 - nuke-cad: dimension popover input stays in sync with external parameter changes.
 - nuke-cad: 3-point arc clicks catch solver failures and reset pending auto-constraints.
@@ -258,6 +261,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-cad: overlapping additive features raise a clear builder error instead of invalid volumes.
 - nuke-cad: revolve/groove axes must lie in the sketch plane, failing fast otherwise.
 - nuke-cad: Python service rejects unsupported feature types and missing parameters before building.
+- nuke-cad: validation accepts lattice, primitive, multi-transform, defeature, and Move features instead of rejecting them as unsupported.
+- nuke-cad: features added to a reopened document get ids unique within it instead of colliding with saved ones.
 - nuke-cad: sketches/holes on reversed-orientation faces no longer mirror.
 - nuke-cad: topology repair popover shows clickable per-candidate fingerprints for ambiguous and unmatched references.
 - nuke-cad: build responses forward per-feature warnings and the consumed-body list.
@@ -284,6 +289,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-cad: DAGMC volume tracking survives gmsh tag renumbering via geometric signature matching.
 - nuke-cad: opening large documents defaults to viewport-only builds with a display tolerance and triangle budget.
 - nuke-cad docs: corrected the sketch segment limit, exported-helix note, and edge-overlay description.
+- nuke-core + nuke-cad + nuke-visualizer + openmc-studio: sidebar panels scroll natively; PerfectScrollbar's overlay no longer covers panel content.
 - nuke-essentials: empty-state card centers itself in wide sidebars instead of hugging the left.
 - nuke-essentials: color picker popup portals to the document body so it never clips in narrow sidebars.
 - nuke-essentials: edge-adjacent tooltips flip and clamp to the viewport instead of rendering off-screen.

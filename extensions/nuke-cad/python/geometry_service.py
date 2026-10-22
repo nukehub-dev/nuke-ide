@@ -2710,6 +2710,11 @@ def _validate_document_refs(document: dict[str, Any], source_file: Path) -> dict
             "circularPattern",
             "mirror",
             "hole",
+            "lattice",
+            "primitive",
+            "multiTransform",
+            "defeature",
+            "translate",
             "booleanFuse",
             "booleanCut",
             "booleanCommon",
@@ -2881,7 +2886,35 @@ def _validate_document_refs(document: dict[str, Any], source_file: Path) -> dict
                     }
             continue
 
-        if feature_type in ("linearPattern", "circularPattern", "mirror", "hole"):
+        if feature_type in (
+            "linearPattern",
+            "circularPattern",
+            "mirror",
+            "hole",
+            "lattice",
+            "primitive",
+            "multiTransform",
+            "defeature",
+        ):
+            continue
+
+        if feature_type == "translate":
+            params = feature.get("params", {}) if isinstance(feature.get("params"), dict) else {}
+            vector = params.get("vector")
+            if (
+                not isinstance(vector, (list, tuple))
+                or len(vector) != 3
+                or not all(
+                    isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+                    for v in vector
+                )
+                or (vector[0] == 0 and vector[1] == 0 and vector[2] == 0)
+            ):
+                return {
+                    "success": False,
+                    "error": f"Feature '{fid}' (translate) requires a non-zero vector [dx, dy, dz]",
+                    "scriptPath": str(source_file),
+                }
             continue
 
         if feature_type == "loft":

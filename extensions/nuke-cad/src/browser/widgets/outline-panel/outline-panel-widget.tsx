@@ -62,7 +62,7 @@ import { type NukeCadDocument } from '../../../common/cad-document';
 import { NukeCadStateManager, CadModel, CadSelection, SolidSummary } from '../../state/nuke-cad-state-manager';
 import {
     CadDocumentStore,
-    createFeatureId,
+    uniqueFeatureId,
     collectParameterUsages,
     evaluateParameterInput,
     getAssemblySection,
@@ -234,7 +234,7 @@ export class CadOutlinePanelWidget extends ReactWidget {
         if (doc === undefined) {
             return;
         }
-        const feature = buildFuseFeature(doc, bodyA, bodyB, createFeatureId());
+        const feature = buildFuseFeature(doc, bodyA, bodyB, uniqueFeatureId(doc));
         if (feature === undefined) {
             this.messageService.error(`Cannot fuse '${bodyA}' and '${bodyB}': not both bodies of the open document.`);
             return;

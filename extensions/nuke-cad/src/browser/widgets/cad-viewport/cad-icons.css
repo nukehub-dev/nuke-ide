@@ -70,6 +70,8 @@
 .codicon-nuke-cad-join,
 .codicon-nuke-cad-assembly,
 .codicon-nuke-cad-bom,
+.codicon-nuke-cad-undo,
+.codicon-nuke-cad-redo,
 .codicon-nuke-cad-mate,
 .codicon-nuke-cad-connector {
     display: inline-block;
@@ -396,6 +398,19 @@
     mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.3 12.5a6.6 6.6 0 0 1 11.4 0'/%3E%3Cpath d='M5 12.5a4 4 0 0 1 6 0'/%3E%3C/svg%3E");
 }
 
+/* Curved left arrow — document Undo (the codicon font ships redo but no undo). */
+.codicon-nuke-cad-undo {
+    display: inline-block;
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6.8 3.5 3.3 7l3.5 3.5'/%3E%3Cpath d='M3.3 7h7.2a4 4 0 0 1 0 8H8'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6.8 3.5 3.3 7l3.5 3.5'/%3E%3Cpath d='M3.3 7h7.2a4 4 0 0 1 0 8H8'/%3E%3C/svg%3E");
+}
+
+/* Curved right arrow — document Redo, matching the undo glyph above. */
+.codicon-nuke-cad-redo {
+    display: inline-block;
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9.2 3.5l3.5 3.5-3.5 3.5'/%3E%3Cpath d='M12.7 7H5.5a4 4 0 0 0 0 8H8'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9.2 3.5l3.5 3.5-3.5 3.5'/%3E%3Cpath d='M12.7 7H5.5a4 4 0 0 0 0 8H8'/%3E%3C/svg%3E");
+}
 /* Four arrows from the center — Move sketch tool. */
 .codicon-nuke-cad-move {
     -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M8 1.8v12.4M1.8 8h12.4'/%3E%3Cpath d='M8 1.8 5.8 4M8 1.8l2.2 2.2M8 14.2l-2.2-2.2M8 14.2l2.2-2.2M1.8 8l2.2-2.2M1.8 8l2.2 2.2M14.2 8l-2.2-2.2M14.2 8l-2.2 2.2'/%3E%3C/svg%3E");

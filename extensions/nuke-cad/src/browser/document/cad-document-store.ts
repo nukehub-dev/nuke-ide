@@ -2534,6 +2534,23 @@ function uniqueBodyId(doc: NukeCadDocument): string {
 }
 
 /**
+ * Return a new feature id unique within the document.
+ *
+ * The session counter behind {@link createFeatureId} restarts every IDE
+ * session, so ids it mints collide with features saved by earlier sessions.
+ * Always prefer this for document features.
+ */
+export function uniqueFeatureId(doc: NukeCadDocument): string {
+    let index = doc.features.length + 1;
+    let id: string;
+    const existing = new Set(doc.features.map((f) => f.id));
+    do {
+        id = `feature-${index++}`;
+    } while (existing.has(id));
+    return id;
+}
+
+/**
  * Return a new unique id for a datum plane.
  *
  * The prefix is chosen so the id is stable enough for tests while remaining

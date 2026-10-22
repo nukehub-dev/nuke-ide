@@ -1269,14 +1269,14 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
                 {
                     id: 'undo',
                     label: 'Undo (Ctrl+Z)',
-                    icon: 'codicon-undo',
+                    icon: 'codicon-nuke-cad-undo',
                     disabled: !props.documentStore.canUndo,
                     onClick: () => props.documentStore.undo()
                 },
                 {
                     id: 'redo',
                     label: 'Redo (Ctrl+Shift+Z / Ctrl+Y)',
-                    icon: 'codicon-redo',
+                    icon: 'codicon-nuke-cad-redo',
                     disabled: !props.documentStore.canRedo,
                     onClick: () => props.documentStore.redo()
                 },
@@ -2528,7 +2528,7 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
     const [helixLeftHanded, setHelixLeftHanded] = React.useState(false);
     const [helixOrientation, setHelixOrientation] = React.useState<'frenet' | 'fixedBinormal'>('fixedBinormal');
     const [helixBinormal, setHelixBinormal] = React.useState<[string, string, string]>(['0', '0', '1']);
-    const [previewEnabled, setPreviewEnabled] = React.useState(false);
+    const [previewEnabled, setPreviewEnabled] = React.useState(props.type === 'translate');
 
     // Extrude end-conditions (pad/pocket take the full set; revolve/groove
     // take blind/throughAll). `upToBody` names another body as the extrusion
@@ -4669,6 +4669,9 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
             {isTranslate && (
                 <>
                     {dressUpBodySelector}
+                    <div className="nuke-viewer-status-line" style={{ margin: '2px 0 4px' }}>
+                        Offsets in {doc?.units ?? 'document units'} — at least one must be non-zero.
+                    </div>
                     <label className="cad-feature-dialog-row">
                         DX
                         <input

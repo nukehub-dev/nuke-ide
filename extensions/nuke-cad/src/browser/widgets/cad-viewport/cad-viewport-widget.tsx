@@ -79,7 +79,7 @@ import {
 import { createSnapConfig, snap } from '../../sketch/snap';
 import { ensureNukeCadExtension } from './cad-save-path';
 import { CadSketchOverlay, DocumentTemplatePicker, type DatumDraft } from './cad-sketch-overlay';
-import { CadDocumentStore, createSketchId, createFeatureId, computeDependsOn, getAssemblySection } from '../../document/cad-document-store';
+import { CadDocumentStore, createSketchId, computeDependsOn, getAssemblySection, uniqueFeatureId } from '../../document/cad-document-store';
 import {
     MemoryResultCache,
     PartialRebuildTracker,
@@ -598,7 +598,7 @@ export class CadViewportWidget extends ReactWidget {
         }
 
         const feature: FeatureDef = {
-            id: createFeatureId(),
+            id: uniqueFeatureId(doc),
             name: `${type} ${doc.features.length + 1}`,
             type,
             body: bodyId,
@@ -1260,6 +1260,18 @@ export class CadViewportWidget extends ReactWidget {
             }
         }
         const filePath = new URI(this.documentStore.uri).path.toString();
+        if (doc.features.length === 0 && doc.curves.length === 0) {
+            // Nothing to build yet (e.g. a fresh document with only sketches):
+            // skip the backend round-trip — it reports "produced no solids" —
+            // and present the empty state instead of a failure.
+            this.buildWarnings = [];
+            this.dismissBuildError();
+            this.documentStore.setFeatureResults([]);
+            this.rebuildTracker.succeed();
+            this.buildStale = false;
+            this.messageService.info('Nothing to build yet — add a solid feature first.');
+            return;
+        }
         // Drain the accumulated dirty set into this build; unknown scope (or a
         // fresh open) yields an empty list → full build below.
         const attempted = this.rebuildTracker.beginBuild() ?? [];

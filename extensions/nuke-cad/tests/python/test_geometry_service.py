@@ -546,6 +546,46 @@ def test_build_document_rejects_unsupported_feature_type(tmp_path: Path) -> None
     assert "unsupported type 'thread'" in result["error"]
 
 
+def test_build_document_rejects_zero_translate_vector(tmp_path: Path) -> None:
+    doc_path = tmp_path / "bad.nuke-cad"
+    _write_minimal_document(doc_path)
+    doc = json.loads(doc_path.read_text())
+    doc["features"][0]["type"] = "translate"
+    doc["features"][0]["params"] = {"vector": [0, 0, 0]}
+    doc_path.write_text(json.dumps(doc), encoding="utf-8")
+    result = geometry_service.build_document(str(doc_path), output_dir=str(tmp_path))
+    assert result["success"] is False
+    assert "non-zero vector" in result["error"]
+
+
+def test_build_document_passes_translate_gate(tmp_path: Path) -> None:
+    """A valid translate vector clears the ref gate (full build needs OCP)."""
+    doc_path = tmp_path / "move.nuke-cad"
+    _write_minimal_document(doc_path)
+    doc = json.loads(doc_path.read_text())
+    doc["features"][0]["type"] = "translate"
+    doc["features"][0]["params"] = {"vector": [0, 0, -5]}
+    doc_path.write_text(json.dumps(doc), encoding="utf-8")
+    result = geometry_service.build_document(str(doc_path), output_dir=str(tmp_path))
+    if result["success"]:
+        assert result["solidCount"] >= 1
+    else:
+        assert "unsupported type" not in result["error"]
+        assert "non-zero vector" not in result["error"]
+
+
+@pytest.mark.parametrize("ftype", ["lattice", "primitive", "multiTransform", "defeature"])
+def test_build_document_accepts_newer_feature_types(tmp_path: Path, ftype: str) -> None:
+    """Types the backend supports must clear the ref gate (regression: the gate lagged behind)."""
+    doc_path = tmp_path / "newer.nuke-cad"
+    _write_minimal_document(doc_path)
+    doc = json.loads(doc_path.read_text())
+    doc["features"][0]["type"] = ftype
+    doc_path.write_text(json.dumps(doc), encoding="utf-8")
+    result = geometry_service.build_document(str(doc_path), output_dir=str(tmp_path))
+    assert "unsupported type" not in result.get("error", "")
+
+
 def test_build_document_rejects_missing_sketch_id(tmp_path: Path) -> None:
     doc_path = tmp_path / "bad.nuke-cad"
     _write_minimal_document(doc_path)
