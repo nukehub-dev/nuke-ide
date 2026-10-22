@@ -1811,10 +1811,12 @@ describe('result cache key scheme (P2 C3)', () => {
             builderVersion: RESULT_CACHE_BUILDER_VERSION,
             ocpVersion: RESULT_CACHE_OCP_UNKNOWN
         });
+        // Golden keys for builder version 2 (cache-semantics bump: shell
+        // winding, suppression in keys, cached overlap verdicts).
         expect(table.keys).toEqual({
-            'sketch:sk1': '27d8e6a715197e9dd3464682a1add6c1044ae14a76c68226426c10a376673db8',
-            'feature:f1': 'd1ffe8b34324c4f911f9b96756e33dd51c911a15b7fe6849c42c92c29fdf5878',
-            'feature:f2': 'd3aa6736423d7ebacf950a4e6450232ee0e8bef665671dce2f06981a3c9998cf'
+            'sketch:sk1': '55d562c989a0c8476075675d4c6c7ae026ea003a00218b4b88488d55fea2f71c',
+            'feature:f1': 'a8708ead69eab00c157ba96e9b0dd2b389c81a136d068e8404e02ca25213540a',
+            'feature:f2': '50736a1c3573512768eb8ddb0a3bbb9d0fe9795b98ed2d252f703e7987d88593'
         });
     });
 

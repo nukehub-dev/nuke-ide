@@ -58,14 +58,6 @@ class FeatureBuilderError(ValueError):
     """Raised when the feature tree cannot be built."""
 
 
-#: Builder semantics version. Bumped on any change that alters built geometry
-#: for identical document inputs (the P2 result cache keys every per-feature
-#: entry on this alongside the OCP version, so a bump invalidates everything
-#: loudly instead of serving poisoned blobs). Pure refactors that keep
-#: ``build_document_shape`` byte-identical leave this at 1.
-BUILDER_VERSION = 1
-
-
 _AXIS_VECTOR: dict[str, tuple[float, float, float]] = {
     "x": (1.0, 0.0, 0.0),
     "y": (0.0, 1.0, 0.0),

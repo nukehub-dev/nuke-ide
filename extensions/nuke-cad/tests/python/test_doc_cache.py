@@ -79,7 +79,7 @@ def _ctx() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
 
 def test_builder_version_contract() -> None:
     # Bump only with a comment in doc_cache.py: this invalidates every sidecar.
-    assert dc.BUILDER_VERSION == 3
+    assert dc.BUILDER_VERSION == 2
 
 
 def test_key_deterministic() -> None:
@@ -157,6 +157,37 @@ def test_key_version_inputs() -> None:
         != base
     )
     assert dc.compute_feature_key(feature, sketches_by_id=sketches, ocp_version="7.9") != base
+
+
+def test_suppression_changes_keys_and_tess_hash() -> None:
+    """Suppression skips a feature and its dependents, so it must key the cache."""
+    feature, sketches, _ = _ctx()
+    base = dc.compute_feature_key(feature, sketches_by_id=sketches)
+    suppressed = dc.compute_feature_key({**feature, "suppressed": True}, sketches_by_id=sketches)
+    assert suppressed != base
+
+    doc = {
+        "features": [
+            {"id": "a", "type": "pad", "body": "b", "params": {"length": 5.0}},
+            {
+                "id": "b",
+                "type": "translate",
+                "body": "b",
+                "params": {"vector": [1, 0, 0]},
+                "dependsOn": ["a"],
+            },
+        ]
+    }
+    enabled = dc.compute_document_keys(doc)
+    doc["features"][0]["suppressed"] = True
+    disabled = dc.compute_document_keys(doc)
+    assert disabled["a"] != enabled["a"]
+    assert disabled["b"] != enabled["b"]  # downstream key chains the upstream key
+    assert dc.compute_tess_doc_hash(doc, 0.001, 1.0) != dc.compute_tess_doc_hash(
+        {**doc, "features": [{**doc["features"][0], "suppressed": False}, doc["features"][1]]},
+        0.001,
+        1.0,
+    )
 
 
 def test_sketch_key_covers_primitives_and_datum() -> None:

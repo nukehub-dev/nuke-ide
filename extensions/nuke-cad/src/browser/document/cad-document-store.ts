@@ -2705,7 +2705,7 @@ export function computeDependsOn(type: FeatureDef['type'], bodyId: string, featu
  * to builder semantics — or to the canonicalization below — bumps both, which
  * loudly invalidates every stored key (hash mismatch → full rebuild).
  */
-export const RESULT_CACHE_BUILDER_VERSION = 1;
+export const RESULT_CACHE_BUILDER_VERSION = 2;
 
 /** Version input used when the OCP version is not known (pure key checks). */
 export const RESULT_CACHE_OCP_UNKNOWN = 'unknown';

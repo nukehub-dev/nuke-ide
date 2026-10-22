@@ -49,6 +49,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+import doc_cache as dc
 import feature_builder as fb
 import pytest
 from doc_build_helpers import _by_id, _document, _feature, _rect_sketch
@@ -61,8 +62,9 @@ _W7X_CENTERLINE = (
 
 
 def test_builder_version_is_int() -> None:
-    """The cache-key version constant exists and is a positive int (C1 consumes it)."""
-    assert isinstance(fb.BUILDER_VERSION, int) and fb.BUILDER_VERSION >= 1
+    """The cache-key version lives in doc_cache only (single source, C1)."""
+    assert isinstance(dc.BUILDER_VERSION, int) and dc.BUILDER_VERSION >= 1
+    assert not hasattr(fb, "BUILDER_VERSION")
 
 
 def _zip_path(tmp_path: Path) -> str:

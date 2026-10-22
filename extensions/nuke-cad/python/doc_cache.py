@@ -71,12 +71,11 @@ from typing import Any
 #: fingerprinting, or the key-canonicalization below. A bump invalidates
 #: every existing cache loudly (whole-zip miss with a warning); forgetting
 #: the bump risks silent cache poisoning (stale geometry served as fresh).
-#: Bumped when cached output semantics change without a document change.
-#: 2: tessellated triangles follow shell face orientation (TopAbs_REVERSED),
-#: so blobs written by 1 hold inward-wound faces and must not be served.
-#: 3: overlap verdicts written by 2 dropped restored-body overlaps (ShapeList
-#: intersections read as zero), so those verdicts must not be reused.
-BUILDER_VERSION = 3
+#: Version 2 (unreleased change set, one bump from main's 1): tessellated
+#: triangles follow shell face orientation (TopAbs_REVERSED); feature keys
+#: include suppression (toggling it changes built geometry); and body-pair
+#: overlap verdicts are cached, so pre-2 caches must not be served.
+BUILDER_VERSION = 2
 
 #: Manifest schema version (bump only for manifest-layout changes).
 MANIFEST_VERSION = 1
@@ -233,6 +232,10 @@ def compute_feature_key(
         "ocpVersion": ocp_version,
         "order": order,
         "type": feature.get("type"),
+        # Suppression changes the built body (the feature and every dependent
+        # are skipped), so it must key the cache: otherwise a toggle reuses the
+        # old feature blobs and the old doc-level tessellation.
+        "suppressed": bool(feature.get("suppressed", False)),
         "params": feature.get("params", {}),
         "sketches": {
             sid: _sketch_snapshot(sketches[sid]) if sid in sketches else None for sid in sketch_ids
