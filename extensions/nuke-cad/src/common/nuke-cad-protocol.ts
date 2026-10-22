@@ -390,6 +390,18 @@ export interface BuildDocumentRequest {
     readonly scriptPath: string;
     /** Optional output directory; defaults to the document file's directory. */
     readonly outputDirectory?: string;
+    /**
+     * Directory holding the ``<stem>.nuke-cache.zip`` sidecar. Defaults to the
+     * document file's directory when omitted. Emitted as ``--cache-dir`` so a
+     * full build primes the per-feature cache for the next partial rebuild.
+     */
+    readonly cacheDir?: string;
+    /**
+     * Whether the build may write the result-cache sidecar (default true).
+     * Transient documents (ghosted feature previews in the temp directory) set
+     * false so every keystroke cannot leave a multi-hundred-MB zip behind.
+     */
+    readonly useCache?: boolean;
     /** BRepMesh faceting tolerance. */
     readonly tolerance?: number;
     /** Whether to export DAGMC .h5m (default true). */
@@ -444,6 +456,8 @@ export interface BuildFeaturesPartialRequest {
     readonly scriptPath: string;
     /** Feature ids to rebuild, in topological build order (see ``FeatureGraph.recomputePlan``). */
     readonly featureIds: string[];
+    /** BRepMesh faceting tolerance (display tolerance when omitted). */
+    readonly tolerance?: number;
     /**
      * Directory holding the ``<stem>.nuke-cache.zip`` sidecar. Defaults to the
      * document file's directory when omitted. TS owns this policy; the backend
@@ -484,17 +498,13 @@ export interface NukeCadBackendService {
      * Rebuild only ``featureIds`` of a ``.nuke-cad`` document against the
      * result-cache sidecar in ``cacheDir``.
      *
-     * Optional (additive P2 API) so existing implementers keep compiling while
-     * the backend lands: callers invoke it via ``?.`` and fall back to
-     * ``buildDocument`` when absent or rejected.
-     *
      * The backend loads cached input shapes for clean predecessors from the
      * zip, executes only the dirty features, writes back fresh blobs, and
      * returns the unified tessellation as a {@link GeometryBuildResult}.
      * Callers compute the id list with ``FeatureGraph.markDirty`` +
      * ``recomputePlan``; the backend owns topo order within the closure.
      */
-    buildFeaturesPartial?(request: BuildFeaturesPartialRequest): Promise<GeometryBuildResult>;
+    buildFeaturesPartial(request: BuildFeaturesPartialRequest): Promise<GeometryBuildResult>;
 
     /**
      * Build a drawing sheet of a ``.nuke-cad`` document (exact HLR linework,

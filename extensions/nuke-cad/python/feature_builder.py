@@ -15,6 +15,7 @@ with on this code path.
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
 from typing import Any
 
 # Heavy imports are guarded so the module stays importable in the minimal pytest
@@ -4462,7 +4463,85 @@ def _shape_volume(shape: Any) -> float:
         return 0.0
 
 
-def _check_cross_body_overlap(bodies: list[Any], body_ids: list[str]) -> list[str]:
+def _body_overlap_signatures(
+    document: Mapping[str, Any], keys: Mapping[str, str]
+) -> dict[str, str]:
+    """Per-body content signature from the feature cache keys that shape it.
+
+    A body's geometry is fully determined by the cache keys of the features
+    that write it (booleans write their ``targetBody``; everything else writes
+    ``body``) because each key already folds in upstream features, sketch
+    inputs, and the builder/OCP versions. Two equal signatures therefore mean
+    byte-equal geometry, which is what makes cached overlap verdicts sound.
+    """
+    import hashlib
+    import json
+
+    features = document.get("features")
+    if not isinstance(features, list):
+        return {}
+    per_body: dict[str, list[list[str]]] = {}
+    for feature in features:
+        if not isinstance(feature, dict):
+            continue
+        feature_id = feature.get("id")
+        if not isinstance(feature_id, str):
+            continue
+        key = keys.get(feature_id)
+        if not isinstance(key, str) or not key:
+            continue
+        bodies: list[str] = []
+        body_id = feature.get("body")
+        if isinstance(body_id, str) and body_id:
+            bodies.append(body_id)
+        params = feature.get("params")
+        if isinstance(params, dict):
+            target = params.get("targetBody")
+            if isinstance(target, str) and target and target not in bodies:
+                bodies.append(target)
+        for body in bodies:
+            per_body.setdefault(body, []).append([feature_id, key])
+    signatures: dict[str, str] = {}
+    for body_id, entries in per_body.items():
+        entries.sort()
+        payload = json.dumps(entries, separators=(",", ":"), sort_keys=True).encode("utf-8")
+        signatures[body_id] = hashlib.sha256(payload).hexdigest()
+    return signatures
+
+
+def _boolean_result_volume(result: Any) -> float:
+    """Volume of a boolean result, summing disjoint components.
+
+    ``build123d`` returns a single ``Part``/``Shape`` for overlapping bodies
+    that were built in this process, but a ``ShapeList`` of disjoint
+    intersection components when the operands include cache-restored
+    ``Solid`` wrappers. Reading ``getattr(result, "volume", 0.0)`` silently
+    reports 0 for the list case, which would drop real overlap warnings after
+    any restore — sum the components instead.
+    """
+    if result is None:
+        return 0.0
+    volume = getattr(result, "volume", None)
+    if isinstance(volume, (int, float)):
+        return float(volume)
+    try:
+        components = list(result)
+    except TypeError:
+        return 0.0
+    total = 0.0
+    for component in components:
+        value = getattr(component, "volume", 0.0)
+        if isinstance(value, (int, float)):
+            total += float(value)
+    return total
+
+
+def _check_cross_body_overlap(
+    bodies: list[Any],
+    body_ids: list[str],
+    cached: Mapping[str, Mapping[str, Any]] | None = None,
+    signatures: Mapping[str, str] | None = None,
+) -> tuple[list[str], dict[str, dict[str, Any]]]:
     """Detect non-consumed bodies that overlap in space and return warnings.
 
     Overlapping parts are valid in pure CAD assemblies (for example the tokamak
@@ -4470,37 +4549,78 @@ def _check_cross_body_overlap(bodies: list[Any], body_ids: list[str]) -> list[st
     coils in the STEP source). The builder therefore reports overlaps as
     warnings instead of failing, so callers that need a sealed model (DAGMC)
     can inspect them without blocking the B-rep build.
+
+    ``cached`` maps ``"<idA>|<idB>"`` to ``{"a", "b", "volume"}`` from the
+    previous build and ``signatures`` maps body id to its content signature.
+    A pair whose two signatures match reuses the cached volume (exact booleans
+    over whole bodies are by far the most expensive part of assembly, O(n²)),
+    so a partial edit only re-checks the pairs touching a changed body. The
+    returned verdict map is the new complete set for the active bodies, ready
+    to be stored back.
     """
     warnings: list[str] = []
+    verdicts: dict[str, dict[str, Any]] = {}
     if bd is None:
-        return warnings
+        return warnings, verdicts
+    cached_map = cached if isinstance(cached, Mapping) else {}
+    signature_map = signatures if isinstance(signatures, Mapping) else {}
     for i in range(len(bodies)):
         for j in range(i + 1, len(bodies)):
-            a = bodies[i]
-            b = bodies[j]
-            if a is None or b is None:
-                continue
-            if not _bbox_overlaps_3d(a.bounding_box(), b.bounding_box()):
-                continue
-            try:
-                common = a & b
-            except ValueError as exc:
-                if "empty compound" in str(exc).lower():
+            id_a = body_ids[i]
+            id_b = body_ids[j]
+            # Pair identity is order-independent: reordering bodies in the
+            # document must not invalidate a verdict.
+            first, second = (id_a, id_b) if id_a <= id_b else (id_b, id_a)
+            signature_first = signature_map.get(first, "")
+            signature_second = signature_map.get(second, "")
+            pair = f"{first}|{second}"
+            overlap_volume: float | None = None
+            if signature_first and signature_second:
+                entry = cached_map.get(pair)
+                if (
+                    isinstance(entry, Mapping)
+                    and entry.get("a") == signature_first
+                    and entry.get("b") == signature_second
+                ):
+                    try:
+                        overlap_volume = float(entry.get("volume", 0.0))
+                    except (TypeError, ValueError):
+                        overlap_volume = None
+            if overlap_volume is None:
+                a = bodies[i]
+                b = bodies[j]
+                if a is None or b is None:
                     continue
-                raise FeatureBuilderError(
-                    f"failed to check overlap between bodies '{body_ids[i]}' and '{body_ids[j]}': {exc}"
-                ) from exc
-            except Exception as exc:
-                raise FeatureBuilderError(
-                    f"failed to check overlap between bodies '{body_ids[i]}' and '{body_ids[j]}': {exc}"
-                ) from exc
-            overlap_volume = getattr(common, "volume", 0.0)
-            if common is not None and overlap_volume > 1e-9:
+                if not _bbox_overlaps_3d(a.bounding_box(), b.bounding_box()):
+                    overlap_volume = 0.0
+                else:
+                    try:
+                        common = a & b
+                    except ValueError as exc:
+                        if "empty compound" in str(exc).lower():
+                            overlap_volume = 0.0
+                        else:
+                            raise FeatureBuilderError(
+                                f"failed to check overlap between bodies '{id_a}' and '{id_b}': {exc}"
+                            ) from exc
+                    except Exception as exc:
+                        raise FeatureBuilderError(
+                            f"failed to check overlap between bodies '{id_a}' and '{id_b}': {exc}"
+                        ) from exc
+                    else:
+                        overlap_volume = _boolean_result_volume(common)
+            if signature_first and signature_second:
+                verdicts[pair] = {
+                    "a": signature_first,
+                    "b": signature_second,
+                    "volume": overlap_volume,
+                }
+            if overlap_volume > 1e-9:
                 warnings.append(
-                    f"bodies '{body_ids[i]}' and '{body_ids[j]}' overlap "
+                    f"bodies '{id_a}' and '{id_b}' overlap "
                     f"(volume {overlap_volume:.6g} mm³) but are not merged by a boolean"
                 )
-    return warnings
+    return warnings, verdicts
 
 
 class _BuildState:
@@ -5322,13 +5442,20 @@ def _execute_feature(state: _BuildState, feature_id: str) -> None:
     feature_results.append({"featureId": feature_id, "bodyId": body_id, "status": "built"})
 
 
-def _assemble_final_shape(state: _BuildState) -> dict[str, Any]:
+def _assemble_final_shape(
+    state: _BuildState,
+    overlap_cached: Mapping[str, Mapping[str, Any]] | None = None,
+    overlap_signatures: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
     """Assemble the final Compound from the state's non-consumed bodies.
 
     Shared by the full build and the P2 partial build: a ``Compound`` of
     non-consumed body accumulators in document body order, plus the body-label
     ``selectorMap``, per-solid body ids, cross-body overlap warnings, and the
-    accumulated feature/reference records.
+    accumulated feature/reference records. ``overlap_cached`` /
+    ``overlap_signatures`` let the partial path reuse exact overlap verdicts
+    for body pairs whose content signatures did not change; the fresh verdict
+    map rides back on ``overlapCache``.
     """
     body_ids = state.body_ids
     consumed_bodies = state.consumed_bodies
@@ -5369,7 +5496,9 @@ def _assemble_final_shape(state: _BuildState) -> dict[str, Any]:
             "warnings": list(state.warnings),
         }
 
-    overlap_warnings = _check_cross_body_overlap(active_body_shapes, active_body_ids)
+    overlap_warnings, overlap_verdicts = _check_cross_body_overlap(
+        active_body_shapes, active_body_ids, overlap_cached, overlap_signatures
+    )
 
     assembled = (
         final_children[0] if len(final_children) == 1 else bd.Compound(children=final_children)
@@ -5395,7 +5524,7 @@ def _assemble_final_shape(state: _BuildState) -> dict[str, Any]:
     # untouched).
     _flush_lattice_selector_entries(state, selector_map, body_index_offset)
 
-    return {
+    result: dict[str, Any] = {
         "shape": assembled,
         "selectorMap": selector_map,
         "featureResults": feature_results,
@@ -5404,6 +5533,9 @@ def _assemble_final_shape(state: _BuildState) -> dict[str, Any]:
         "solidBodyIds": solid_body_ids,
         "warnings": list(state.warnings) + overlap_warnings,
     }
+    if overlap_verdicts:
+        result["overlapCache"] = overlap_verdicts
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -5759,6 +5891,7 @@ def build_document_shape_partial(
     curve_results: dict[str, dict[str, Any]] | None = None,
     cache_path: str | None = None,
     size_cap_bytes: int | None = None,
+    cache: Any | None = None,
 ) -> dict[str, Any]:
     """Build only the dirty closure of a document, restoring the rest from cache.
 
@@ -5771,6 +5904,11 @@ def build_document_shape_partial(
     successful execution writes its fresh blobs back. A cache miss on a clean
     feature degrades to executing it, so with an empty cache this is exactly
     the full build. Unknown feature ids are a hard error.
+
+    ``cache`` lets the caller inject an already-open cache handle (the
+    geometry service passes its ``DocCache`` batch so restore + write-back
+    share one archive load and one commit); when ``None`` the handle is opened
+    from ``cache_path`` as before. Builder semantics are unchanged either way.
 
     Pattern fast path (brief section 8): a dirty pattern whose source is
     clean reuses the CACHED source tool shape, transforming it ×N through the
@@ -5797,12 +5935,28 @@ def build_document_shape_partial(
     # path looks entries up by key and the write-back path stores under the
     # same key, so the two sides stay consistent without comparing anything
     # across the TS/Python boundary. Key failure degrades to a full execute.
-    cache = _open_cache(cache_path, size_cap_bytes)
+    cache = cache if cache is not None else _open_cache(cache_path, size_cap_bytes)
     try:
         keys = _content_keys_for_document(document) if cache is not None else {}
     except Exception:
         cache = None
         keys = {}
+
+    # Exact cross-body overlap checks are O(n²) booleans over whole bodies and
+    # dominate assembly on multi-body documents. Reuse the previous verdicts
+    # for pairs whose bodies' content signatures did not change (a partial
+    # edit re-checks only the pairs touching a changed body); the fresh map is
+    # written back so the next build can reuse it too.
+    overlap_cached: Mapping[str, Mapping[str, Any]] | None = None
+    overlap_signatures: Mapping[str, str] | None = None
+    if cache is not None and keys:
+        overlap_signatures = _body_overlap_signatures(document, keys)
+        read_verdicts = getattr(cache, "overlap_verdicts", None)
+        if callable(read_verdicts):
+            try:
+                overlap_cached = read_verdicts()
+            except Exception:
+                overlap_cached = None
 
     for feature_id in state.order:
         feature = state.feature_map[feature_id]
@@ -5814,7 +5968,15 @@ def build_document_shape_partial(
             _execute_feature(state, feature_id)
             _write_back_feature(state, feature, cache, key)
 
-    return _assemble_final_shape(state)
+    result = _assemble_final_shape(state, overlap_cached, overlap_signatures)
+    verdicts = result.pop("overlapCache", None)
+    store_verdicts = getattr(cache, "store_overlap_verdicts", None)
+    if verdicts and callable(store_verdicts):
+        try:
+            store_verdicts(verdicts)
+        except Exception:
+            pass
+    return result
 
 
 def _content_keys_for_document(document: dict[str, Any]) -> dict[str, str]:

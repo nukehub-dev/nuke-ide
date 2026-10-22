@@ -29,6 +29,8 @@ or crash in the user script is reported as a normal error result.
 """
 
 import argparse
+import contextlib
+import hashlib
 import json
 import math
 import sys
@@ -1786,6 +1788,10 @@ def _tessellate_shape(
 ) -> list[dict]:
     """Tessellate ``shape`` and return per-solid face and edge buffers.
 
+    Triangles are emitted outward-wound: faces the shell stores
+    ``TopAbs_REVERSED`` get their index order flipped (node order, face order,
+    fingerprints, hashes, and edges are untouched).
+
     Each face entry includes a geometric ``fingerprint`` (surface type, area,
     centroid, normal/axis/radius) when OCP is available. Each edge entry
     carries a polyline approximation and an edge fingerprint for viewport
@@ -1799,7 +1805,7 @@ def _tessellate_shape(
     from OCP.BRepAdaptor import BRepAdaptor_Curve
     from OCP.BRepMesh import BRepMesh_IncrementalMesh
     from OCP.GCPnts import GCPnts_QuasiUniformDeflection
-    from OCP.TopAbs import TopAbs_EDGE, TopAbs_FACE, TopAbs_SOLID
+    from OCP.TopAbs import TopAbs_EDGE, TopAbs_FACE, TopAbs_REVERSED, TopAbs_SOLID
     from OCP.TopExp import TopExp_Explorer
     from OCP.TopoDS import TopoDS
 
@@ -1836,10 +1842,14 @@ def _tessellate_shape(
                 pnt.Transform(trsf)
                 nodes.append([pnt.X(), pnt.Y(), pnt.Z()])
 
+            # OCCT triangulations follow the face's natural surface orientation,
+            # so a shell-reversed face would otherwise emit inward-wound triangles.
+            reversed_face = face.Orientation() == TopAbs_REVERSED
             triangles: list[list[int]] = []
             for i in range(1, tri.NbTriangles() + 1):
                 t = tri.Triangle(i)
-                triangles.append([t.Value(1) - 1, t.Value(2) - 1, t.Value(3) - 1])
+                a, b, c = t.Value(1) - 1, t.Value(2) - 1, t.Value(3) - 1
+                triangles.append([a, c, b] if reversed_face else [a, b, c])
 
             face_entry: dict[str, Any] = {
                 "faceId": face_id,
@@ -2086,20 +2096,74 @@ def _tess_doc_hash_for(
         return None
 
 
+#: Chunk size for the streaming hash/compare of the (large) tess stream.
+_HASH_CHUNK_BYTES = 1 << 20
+
+
+def _text_digest(text: str) -> tuple[int, str]:
+    """Streaming ``(utf-8 size, sha256)`` of ``text``, chunked to bound memory."""
+    digest = hashlib.sha256()
+    size = 0
+    for start in range(0, len(text), _HASH_CHUNK_BYTES):
+        chunk = text[start : start + _HASH_CHUNK_BYTES].encode("utf-8")
+        size += len(chunk)
+        digest.update(chunk)
+    return size, digest.hexdigest()
+
+
+def _file_digest(path: Path) -> tuple[int, str] | None:
+    """Streaming ``(size, sha256)`` of an on-disk file; ``None`` when unreadable.
+
+    Never reads the whole file into memory: the tess stream can be ~100 MB and
+    holding it (plus the new text) would double peak RSS for nothing.
+    """
+    digest = hashlib.sha256()
+    size = 0
+    try:
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(_HASH_CHUNK_BYTES), b""):
+                size += len(chunk)
+                digest.update(chunk)
+    except OSError:
+        return None
+    return size, digest.hexdigest()
+
+
+def _write_text_if_changed(path: Path, text: str) -> bool:
+    """Write ``path`` only when its content differs from ``text``.
+
+    Compares a streamed on-disk sha256 + size against the new text first, so a
+    no-change rebuild (cache hit, or a deterministic re-mesh to the same text)
+    does not rewrite a multi-hundred-MB artifact. Returns True when the file
+    was written, False when it was already identical.
+    """
+    if _file_digest(path) == _text_digest(text):
+        return False
+    path.write_text(text, encoding="utf-8")
+    return True
+
+
 def _lookup_tess_blob(
     cache_path: str | None,
     doc_hash: str | None,
     tolerance: float,
     length_scale: float,
     size_cap_bytes: int | None = None,
+    tess_cache: Any | None = None,
 ) -> str | None:
     """Return the cached tessellation text on an exact key match, else None.
 
     Caching inactive (no path/hash, no doc_cache module) is a miss. Never raises.
+    ``tess_cache`` is an already-open ``DocCache``/batch handle (the partial
+    build's single-load session); it wins over ``cache_path``.
     """
-    if not cache_path or not doc_hash or not HAS_DOC_CACHE or doc_cache is None:
+    if not doc_hash or not HAS_DOC_CACHE or doc_cache is None:
         return None
     try:
+        if tess_cache is not None:
+            return tess_cache.lookup_tess(doc_hash, tolerance, length_scale)
+        if not cache_path:
+            return None
         if size_cap_bytes is None:
             return doc_cache.DocCache(cache_path).lookup_tess(doc_hash, tolerance, length_scale)
         return doc_cache.DocCache(cache_path, size_cap_bytes=size_cap_bytes).lookup_tess(
@@ -2116,11 +2180,21 @@ def _store_tess_blob(
     length_scale: float,
     tess_text: str,
     size_cap_bytes: int | None = None,
+    tess_cache: Any | None = None,
 ) -> None:
-    """Persist the just-written tessellation text; failures warn to stderr, never raise."""
-    if not cache_path or not doc_hash or not HAS_DOC_CACHE or doc_cache is None:
+    """Persist the just-written tessellation text; failures warn to stderr, never raise.
+
+    ``tess_cache`` is an already-open ``DocCache``/batch handle; a batch stages
+    the blob and writes it with the caller's single commit.
+    """
+    if not doc_hash or not HAS_DOC_CACHE or doc_cache is None:
         return
     try:
+        if tess_cache is not None:
+            tess_cache.store_tess(doc_hash, tolerance, length_scale, tess_text)
+            return
+        if not cache_path:
+            return
         if size_cap_bytes is None:
             doc_cache.DocCache(cache_path).store_tess(doc_hash, tolerance, length_scale, tess_text)
         else:
@@ -2153,6 +2227,7 @@ def _process_shape(
     tess_cache_path: str | None = None,
     tess_doc_hash: str | None = None,
     tess_size_cap_bytes: int | None = None,
+    tess_cache: Any | None = None,
     step_names: list[str | None] | None = None,
 ) -> dict:
     """Tessellate ``shape`` and write canonical artifacts.
@@ -2171,6 +2246,14 @@ def _process_shape(
     normally, the fresh text is stored, and ``tessCacheHit`` is ``False``
     (also ``False`` whenever caching is inactive, with byte-identical output
     to a cache-disabled build).
+
+    ``tess_cache`` is an already-open cache handle (the partial build's
+    ``DocCache`` batch): it replaces the per-call sidecar open so the tess
+    lookup/store shares the build's single load and single commit.
+
+    An identical tess stream is never rewritten: ``tessWriteSkipped`` reports
+    True when the on-disk file already held exactly these bytes (length +
+    sha256 compare), in both the hit and the fresh branch.
 
     ``step_names`` overrides the per-solid STEP product names derived from
     ``selector_map`` (assembly builds pass ``<instanceId>:<bodyLabel>`` names
@@ -2204,6 +2287,7 @@ def _process_shape(
         "warnings": [],
         "selectorMap": selector_map,
         "tessCacheHit": False,
+        "tessWriteSkipped": False,
     }
 
     # ------------------------------------------------------------------
@@ -2246,7 +2330,12 @@ def _process_shape(
     cached_text: str | None = None
     if has_solids:
         cached_text = _lookup_tess_blob(
-            tess_cache_path, tess_doc_hash, tolerance, length_scale, tess_size_cap_bytes
+            tess_cache_path,
+            tess_doc_hash,
+            tolerance,
+            length_scale,
+            tess_size_cap_bytes,
+            tess_cache=tess_cache,
         )
         if cached_text is not None:
             try:
@@ -2282,11 +2371,12 @@ def _process_shape(
 
     if cached_text is not None:
         try:
-            paths["tess"].write_text(cached_text, encoding="utf-8")
+            written = _write_text_if_changed(paths["tess"], cached_text)
         except Exception as exc:
             result["error"] = f"Failed to write tessellation stream: {exc}"
             return result
         result["tessCacheHit"] = True
+        result["tessWriteSkipped"] = not written
     else:
         tess_data: dict[str, Any] = {
             "version": 1,
@@ -2301,11 +2391,16 @@ def _process_shape(
             ]
         try:
             tess_text = json.dumps(tess_data)
-            paths["tess"].write_text(tess_text, encoding="utf-8")
+            written = _write_text_if_changed(paths["tess"], tess_text)
         except Exception as exc:
             result["error"] = f"Failed to write tessellation stream: {exc}"
             return result
+        result["tessWriteSkipped"] = not written
         if has_solids:
+            # Kept unconditional even when the file was identical: a fresh
+            # branch means the sidecar missed this key, so skipping the store
+            # would leave the cache permanently cold while the artifact on disk
+            # still matches (e.g. sidecar evicted/cleared, tess file kept).
             _store_tess_blob(
                 tess_cache_path,
                 tess_doc_hash,
@@ -2313,6 +2408,7 @@ def _process_shape(
                 length_scale,
                 tess_text,
                 tess_size_cap_bytes,
+                tess_cache=tess_cache,
             )
 
     # ------------------------------------------------------------------
@@ -3215,10 +3311,12 @@ def build_document(
     artifacts are identical to script builds. Per-feature status is returned in
     ``featureResults``.
 
-    ``cache_dir`` enables the P2 doc-level tessellation cache (sidecar
+    ``cache_dir`` enables the P2 result cache (sidecar
     ``<stem>.nuke-cache.zip`` resolved inside it; ``None`` disables caching
     and the result reports ``tessCacheHit: False`` with byte-identical output
-    to a cache-disabled build).
+    to a cache-disabled build). A cache-enabled build primes BOTH the
+    doc-level tessellation blob and every feature's B-rep blob, so the next
+    edit can restore clean predecessors instead of rebuilding everything.
     """
     document_file = Path(document_path).resolve()
     if not document_file.exists():
@@ -3316,21 +3414,76 @@ def build_document(
             }
 
     _print_progress("Building document features")
-    try:
-        build_result = feature_builder.build_document_shape(document, curve_results=curve_results)
-    except (feature_builder.FeatureBuilderError, sketch_builder.SketchError) as exc:
-        return {
-            "success": False,
-            "error": str(exc),
-            "scriptPath": str(document_file),
-        }
-    except Exception as exc:
-        return {
-            "success": False,
-            "error": f"Document build failed: {exc}",
-            "traceback": traceback.format_exc(),
-            "scriptPath": str(document_file),
-        }
+    # The result cache is a display-build optimization: export builds (DAGMC,
+    # FEM mesh) would pay a large sidecar write for a cache nobody reads.
+    display_build = not export_dagmc and not export_mesh
+    tess_cache_path = _tess_cache_path_for(cache_dir, document_file.stem) if display_build else None
+    # A cache-enabled full build runs through the partial builder with every
+    # feature dirty (the equivalence-tested cold-cache path). It executes the
+    # same features in the same order but writes each feature's B-rep blob
+    # back, so the FIRST edit after opening can restore clean predecessors
+    # instead of silently rebuilding the whole document. Without a cache path
+    # this is the plain full build.
+    with contextlib.ExitStack() as cache_stack:
+        cache_batch: Any | None = None
+        if tess_cache_path and HAS_DOC_CACHE and doc_cache is not None:
+            try:
+                capacity = _size_cap_bytes(size_cap_mb)
+                cache_store = (
+                    doc_cache.DocCache(tess_cache_path)
+                    if capacity is None
+                    else doc_cache.DocCache(tess_cache_path, size_cap_bytes=capacity)
+                )
+                cache_batch = cache_stack.enter_context(cache_store.batch(best_effort=True))
+            except Exception:
+                cache_batch = None
+        try:
+            if cache_batch is not None:
+                raw_features = document.get("features", [])
+                feature_ids = [
+                    feature.get("id")
+                    for feature in (raw_features if isinstance(raw_features, list) else [])
+                    if isinstance(feature, dict) and isinstance(feature.get("id"), str)
+                ]
+                try:
+                    build_result = feature_builder.build_document_shape_partial(
+                        document,
+                        feature_ids,
+                        curve_results=curve_results,
+                        cache_path=tess_cache_path,
+                        size_cap_bytes=_size_cap_bytes(size_cap_mb),
+                        cache=cache_batch,
+                    )
+                except Exception as exc:
+                    # Priming must never make a document unbuildable. Fall
+                    # back to the canonical full builder without the cache and
+                    # say so, instead of surfacing a partial-path-only failure.
+                    print(
+                        f"Warning: cache-primed build failed ({exc}); "
+                        "retrying the full build without the result cache",
+                        file=sys.stderr,
+                    )
+                    cache_batch = None
+                    build_result = feature_builder.build_document_shape(
+                        document, curve_results=curve_results
+                    )
+            else:
+                build_result = feature_builder.build_document_shape(
+                    document, curve_results=curve_results
+                )
+        except (feature_builder.FeatureBuilderError, sketch_builder.SketchError) as exc:
+            return {
+                "success": False,
+                "error": str(exc),
+                "scriptPath": str(document_file),
+            }
+        except Exception as exc:
+            return {
+                "success": False,
+                "error": f"Document build failed: {exc}",
+                "traceback": traceback.format_exc(),
+                "scriptPath": str(document_file),
+            }
 
     shape = build_result.get("shape")
     if shape is None and not has_curves:
@@ -3350,7 +3503,8 @@ def build_document(
     manifest, _derived_material_volumes = _manifest_with_document_materials(document, manifest)
     if _derived_material_volumes:
         _write_merged_sidecar(document_file, manifest)
-    tess_cache_path = _tess_cache_path_for(cache_dir, document_file.stem)
+    # tess_cache_path is resolved before the build so the feature priming batch
+    # can share it; the tess blob itself is written by _process_shape below.
     tess_doc_hash = (
         _tess_doc_hash_for(document, tolerance, length_scale) if tess_cache_path else None
     )
@@ -3713,77 +3867,98 @@ def build_document_partial(
         except Exception:
             cache_path = None
     _print_progress("Building document features (partial)")
-    try:
-        build_result = feature_builder.build_document_shape_partial(
-            document,
-            list(feature_ids or []),
-            curve_results=curve_results,
-            cache_path=cache_path,
-            size_cap_bytes=_size_cap_bytes(size_cap_mb),
+    with contextlib.ExitStack() as stack:
+        # One load + one commit for the whole partial build: feature restores,
+        # feature write-backs, and the doc tess blob share a single sidecar
+        # session, so k dirty features no longer cost k decompressions + k
+        # recompressions of an archive that also holds the doc tess blob.
+        capacity = _size_cap_bytes(size_cap_mb)
+        cache_batch: Any | None = None
+        if cache_path and HAS_DOC_CACHE and doc_cache is not None:
+            try:
+                cache_store = (
+                    doc_cache.DocCache(cache_path)
+                    if capacity is None
+                    else doc_cache.DocCache(cache_path, size_cap_bytes=capacity)
+                )
+                cache_batch = stack.enter_context(cache_store.batch(best_effort=True))
+            except Exception:
+                cache_batch = None
+        try:
+            build_result = feature_builder.build_document_shape_partial(
+                document,
+                list(feature_ids or []),
+                curve_results=curve_results,
+                cache_path=cache_path,
+                size_cap_bytes=capacity,
+                cache=cache_batch,
+            )
+        except (feature_builder.FeatureBuilderError, sketch_builder.SketchError) as exc:
+            return {
+                "success": False,
+                "error": str(exc),
+                "scriptPath": str(document_file),
+            }
+        except Exception as exc:
+            return {
+                "success": False,
+                "error": f"Document build failed: {exc}",
+                "traceback": traceback.format_exc(),
+                "scriptPath": str(document_file),
+            }
+
+        shape = build_result.get("shape")
+        if shape is None and not has_curves:
+            return {
+                "success": False,
+                "error": "Document produced no solids; check feature results for failures",
+                "scriptPath": str(document_file),
+                "featureResults": build_result.get("featureResults", []),
+                "referenceResults": build_result.get("referenceResults", []),
+                "consumedBodies": build_result.get("consumedBodies", []),
+                "warnings": build_result.get("warnings", []),
+            }
+
+        wrapped = getattr(shape, "wrapped", None) if shape is not None else None
+
+        manifest, manifest_warnings = _load_manifest(document_file)
+        manifest, _derived_material_volumes = _manifest_with_document_materials(document, manifest)
+        if _derived_material_volumes:
+            _write_merged_sidecar(document_file, manifest)
+        tess_doc_hash = (
+            _tess_doc_hash_for(document, tolerance, length_scale) if cache_path else None
         )
-    except (feature_builder.FeatureBuilderError, sketch_builder.SketchError) as exc:
-        return {
-            "success": False,
-            "error": str(exc),
-            "scriptPath": str(document_file),
-        }
-    except Exception as exc:
-        return {
-            "success": False,
-            "error": f"Document build failed: {exc}",
-            "traceback": traceback.format_exc(),
-            "scriptPath": str(document_file),
-        }
-
-    shape = build_result.get("shape")
-    if shape is None and not has_curves:
-        return {
-            "success": False,
-            "error": "Document produced no solids; check feature results for failures",
-            "scriptPath": str(document_file),
-            "featureResults": build_result.get("featureResults", []),
-            "referenceResults": build_result.get("referenceResults", []),
-            "consumedBodies": build_result.get("consumedBodies", []),
-            "warnings": build_result.get("warnings", []),
-        }
-
-    wrapped = getattr(shape, "wrapped", None) if shape is not None else None
-
-    manifest, manifest_warnings = _load_manifest(document_file)
-    manifest, _derived_material_volumes = _manifest_with_document_materials(document, manifest)
-    if _derived_material_volumes:
-        _write_merged_sidecar(document_file, manifest)
-    tess_doc_hash = _tess_doc_hash_for(document, tolerance, length_scale) if cache_path else None
-    result = _process_shape(
-        wrapped,
-        document_file,
-        out_dir,
-        document_file.stem,
-        tolerance=tolerance,
-        export_dagmc=export_dagmc,
-        add_graveyard=add_graveyard,
-        export_mesh=export_mesh,
-        mesh_engine=mesh_engine,
-        mesh_size=mesh_size,
-        mesh_min_size=mesh_min_size,
-        mesh_max_size=mesh_max_size,
-        mesh_order=mesh_order,
-        selector_map=build_result.get("selectorMap", {}),
-        manifest=manifest,
-        length_scale=length_scale,
-        body_ids=build_result.get("solidBodyIds"),
-        curve_results=curve_results,
-        tess_cache_path=cache_path,
-        tess_doc_hash=tess_doc_hash,
-        tess_size_cap_bytes=_size_cap_bytes(size_cap_mb),
-    )
-    result["featureResults"] = build_result.get("featureResults", [])
-    result["referenceResults"] = build_result.get("referenceResults", [])
-    result["consumedBodies"] = build_result.get("consumedBodies", [])
-    result["warnings"] = (
-        (result.get("warnings") or []) + build_result.get("warnings", []) + manifest_warnings
-    )
-    return result
+        result = _process_shape(
+            wrapped,
+            document_file,
+            out_dir,
+            document_file.stem,
+            tolerance=tolerance,
+            export_dagmc=export_dagmc,
+            add_graveyard=add_graveyard,
+            export_mesh=export_mesh,
+            mesh_engine=mesh_engine,
+            mesh_size=mesh_size,
+            mesh_min_size=mesh_min_size,
+            mesh_max_size=mesh_max_size,
+            mesh_order=mesh_order,
+            selector_map=build_result.get("selectorMap", {}),
+            manifest=manifest,
+            length_scale=length_scale,
+            body_ids=build_result.get("solidBodyIds"),
+            curve_results=curve_results,
+            tess_cache_path=cache_path,
+            tess_doc_hash=tess_doc_hash,
+            tess_size_cap_bytes=capacity,
+            tess_cache=cache_batch,
+        )
+        result["featureResults"] = build_result.get("featureResults", [])
+        result["referenceResults"] = build_result.get("referenceResults", [])
+        result["consumedBodies"] = build_result.get("consumedBodies", [])
+        result["warnings"] = (
+            (result.get("warnings") or []) + build_result.get("warnings", []) + manifest_warnings
+        )
+        return result
 
 
 def main() -> None:

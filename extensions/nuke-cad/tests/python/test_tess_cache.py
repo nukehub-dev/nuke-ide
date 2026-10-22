@@ -373,6 +373,98 @@ def test_build_caches_and_hits(tmp_path: Path) -> None:
     assert edited_text != first_text
 
 
+def test_build_primes_every_feature_for_partial_restore(tmp_path: Path) -> None:
+    """A cache-enabled full build stores every feature B-rep.
+
+    That is what makes the FIRST edit after opening a document partial: without
+    priming, a cold feature cache forces the partial path to execute (and only
+    then write back) every feature, so the spinner's "1 of N" claim would hide
+    a full rebuild. A zero-dirty partial rebuild afterwards must restore every
+    feature (``cached``) and reuse the identical tess stream.
+    """
+    pytest.importorskip("build123d", reason="build123d not installed")
+    import geometry_service
+
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+    first = _build(_doc(), tmp_path, str(cache_dir))
+    assert first["success"] is True, first.get("error", "")
+
+    sidecar = cache_dir / "tess.nuke-cache.zip"
+    with zipfile.ZipFile(sidecar) as archive:
+        manifest = json.loads(archive.read("manifest.json"))
+    keys = dc.compute_document_keys(_doc(), ocp_version=dc.current_ocp_version())
+    assert set(manifest["features"]) == {"pad1", "pad2"}
+    cache = dc.DocCache(str(sidecar))
+    for feature_id, input_key in keys.items():
+        assert manifest["features"][feature_id]["inputKey"] == input_key
+        assert cache.lookup(feature_id, input_key) is not None
+
+    part = geometry_service.build_document_partial(
+        str(tmp_path / "tess.nuke-cad"),
+        [],
+        cache_dir=str(cache_dir),
+        output_dir=str(tmp_path / "out"),
+        export_dagmc=False,
+        export_mesh=False,
+    )
+    assert part["success"] is True, part.get("error", "")
+    statuses = {record["featureId"]: record.get("status") for record in part["featureResults"]}
+    assert statuses == {"pad1": "cached", "pad2": "cached"}
+    assert part["tessCacheHit"] is True
+    assert part["tessWriteSkipped"] is True
+
+
+def test_priming_failure_falls_back_to_the_full_builder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A cache-primed build failure must never fail the document.
+
+    Priming routes full builds through the partial builder; if that path
+    raises, the canonical full builder runs without the cache and the build
+    still succeeds (and leaves no half-written sidecar behind).
+    """
+    pytest.importorskip("build123d", reason="build123d not installed")
+    import feature_builder
+
+    def boom(*args: Any, **kwargs: Any) -> None:
+        raise RuntimeError("priming exploded")
+
+    monkeypatch.setattr(feature_builder, "build_document_shape_partial", boom)
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+    result = _build(_doc(), tmp_path, str(cache_dir))
+    assert result["success"] is True, result.get("error", "")
+    assert result["solidCount"] == 2
+    # The fallback may still store the doc-level tess blob (that hook is
+    # independent), but it must not claim to have primed feature entries.
+    sidecar = cache_dir / "tess.nuke-cache.zip"
+    if sidecar.exists():
+        with zipfile.ZipFile(sidecar) as archive:
+            manifest = json.loads(archive.read("manifest.json"))
+        assert manifest.get("features", {}) == {}
+
+
+def test_export_build_does_not_prime_the_cache(tmp_path: Path) -> None:
+    """Export builds skip the sidecar entirely (display-only priming)."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    import geometry_service
+
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    doc_path = _write_doc(tmp_path / "export.nuke-cad", _doc())
+    geometry_service.build_document(
+        doc_path,
+        output_dir=str(out_dir),
+        cache_dir=str(cache_dir),
+        export_dagmc=True,
+        export_mesh=False,
+    )
+    assert not (cache_dir / "export.nuke-cache.zip").exists()
+
+
 def test_build_without_cache_reports_false_and_matches(tmp_path: Path) -> None:
     """Cache-disabled builds report False and emit identical tess content.
 

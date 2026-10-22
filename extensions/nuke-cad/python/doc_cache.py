@@ -35,7 +35,18 @@ Doc-level — not per-feature — because per-feature facet blobs cannot survive
 boolean reindexing (fuse/cut renumber solids and faces), while a doc-level
 blob keyed by :func:`compute_tess_doc_hash` skips meshing soundly: any
 geometry-affecting edit changes the hash and the blob is simply a miss. The
-blob counts toward the LRU/size cap like any feature entry.
+blob counts toward the LRU/size cap like any feature entry. It is written
+with ``ZIP_STORED`` (the other entries stay deflated): it is one large JSON
+stream whose compression CPU cost buys little next to the decompress/write
+time a multi-hundred-MB archive already pays.
+
+Batch IO (brief §3 of the open-cache brief): :meth:`DocCache.batch` opens a
+:class:`DocCacheBatch` — one archive load, staged reads/writes, and ONE LRU
+pass + ONE atomic zip write at commit. A partial build restores and writes
+back many features plus the doc tess blob; per-call ``lookup``/``store``
+would decompress and recompress the whole archive each time. The one-shot
+methods are thin wrappers over a single-use batch, so callers that touch a
+single entry keep the old behavior.
 """
 
 from __future__ import annotations
@@ -60,7 +71,12 @@ from typing import Any
 #: fingerprinting, or the key-canonicalization below. A bump invalidates
 #: every existing cache loudly (whole-zip miss with a warning); forgetting
 #: the bump risks silent cache poisoning (stale geometry served as fresh).
-BUILDER_VERSION = 1
+#: Bumped when cached output semantics change without a document change.
+#: 2: tessellated triangles follow shell face orientation (TopAbs_REVERSED),
+#: so blobs written by 1 hold inward-wound faces and must not be served.
+#: 3: overlap verdicts written by 2 dropped restored-body overlaps (ShapeList
+#: intersections read as zero), so those verdicts must not be reused.
+BUILDER_VERSION = 3
 
 #: Manifest schema version (bump only for manifest-layout changes).
 MANIFEST_VERSION = 1
@@ -405,6 +421,12 @@ def _tess_record(manifest: Mapping[str, Any]) -> dict[str, Any] | None:
     return tess if isinstance(tess, dict) else None
 
 
+def _overlap_records(manifest: Mapping[str, Any]) -> dict[str, Any]:
+    """Return the manifest ``overlaps`` section as a dict (empty when absent)."""
+    records = manifest.get("overlaps")
+    return records if isinstance(records, dict) else {}
+
+
 def _manifest_total(manifest: Mapping[str, Any]) -> int:
     """Summed ``sizeBytes`` over feature records plus the doc-level tess blob."""
     total = 0
@@ -423,24 +445,29 @@ def _evict_lru(
     size_cap_bytes: int,
     keep_id: str | None = None,
     keep_tess: bool = False,
+    keep_ids: set[str] | frozenset[str] | None = None,
 ) -> None:
     """Drop least-recently-used entries until under the cap (brief §6).
 
     The doc-level tess blob counts toward the cap like any feature entry.
     Feature entries evict oldest-first, sparing ``keep_id`` (the just-stored
-    feature) while anything else can go; the tess section evicts next unless
-    ``keep_tess`` protects the just-stored blob. A single oversized kept
-    entry is held with a warning instead of making the store a no-op.
+    feature) and every id in ``keep_ids`` (a batch's staged writes) while
+    anything else can go; the tess section evicts next unless ``keep_tess``
+    protects the just-stored blob. A single oversized kept entry is held with
+    a warning instead of making the store a no-op.
     """
     if _manifest_total(manifest) <= size_cap_bytes:
         return
     records = manifest.get("features", {})
     if not isinstance(records, dict):
         return
+    protected = set(keep_ids or ())
+    if keep_id is not None:
+        protected.add(keep_id)
     for fid in sorted(records, key=lambda f: records[f].get("updatedAt", 0.0)):
         if _manifest_total(manifest) <= size_cap_bytes:
             break
-        if fid == keep_id and (len(records) > 1 or _tess_record(manifest) is not None):
+        if fid in protected and (len(records) > 1 or _tess_record(manifest) is not None):
             continue
         record = records.pop(fid)
         _ = record
@@ -463,7 +490,11 @@ def _evict_lru(
 
 
 def _write_zip_atomic(path: Path, manifest: dict[str, Any], blobs: dict[str, bytes]) -> None:
-    """Write the whole zip to a tmp sibling and rename over the target (brief §1)."""
+    """Write the whole zip to a tmp sibling and rename over the target (brief §1).
+
+    The manifest goes first, then the doc-level tess blob ``ZIP_STORED`` (large
+    JSON that does not earn its deflate CPU), then every other blob deflated.
+    """
     parent = path.parent
     parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(dir=str(parent), prefix=path.name + ".", suffix=".tmp")
@@ -471,7 +502,12 @@ def _write_zip_atomic(path: Path, manifest: dict[str, Any], blobs: dict[str, byt
         with os.fdopen(fd, "wb") as handle:
             with zipfile.ZipFile(handle, "w", compression=zipfile.ZIP_DEFLATED) as archive:
                 archive.writestr(MANIFEST_NAME, json.dumps(manifest, sort_keys=True))
+                tess_raw = blobs.get(TESS_BLOB_NAME)
+                if tess_raw is not None:
+                    archive.writestr(TESS_BLOB_NAME, tess_raw, compress_type=zipfile.ZIP_STORED)
                 for name in sorted(blobs):
+                    if name == TESS_BLOB_NAME:
+                        continue
                     archive.writestr(name, blobs[name])
         os.replace(tmp_name, path)
     except BaseException:
@@ -518,6 +554,239 @@ def _build_entry(
     )
 
 
+class DocCacheBatch:
+    """Single-load/single-commit session over one result-cache sidecar.
+
+    ``with cache.batch() as batch:`` reads the archive once into memory;
+    :meth:`lookup`/:meth:`store`/:meth:`lookup_tess`/:meth:`store_tess` then
+    work on that snapshot and see each other (a store is visible to a later
+    lookup in the same batch). :meth:`__exit__` commits once — one LRU pass
+    and one atomic zip write — and only when something was stored; a
+    read-only batch never touches the file.
+
+    An exception inside the block discards every staged write (the archive on
+    disk stays untouched); the exception propagates unchanged. With
+    ``best_effort=True`` a commit IO failure warns instead of raising, so a
+    build is never held hostage by the sidecar.
+    """
+
+    def __init__(self, path: Path, *, size_cap_bytes: int, best_effort: bool = False) -> None:
+        self._path = path
+        self._size_cap_bytes = size_cap_bytes
+        self._best_effort = best_effort
+        self._manifest: dict[str, Any] | None = None
+        self._blobs: dict[str, bytes] = {}
+        self._dirty = False
+        self._stored_ids: set[str] = set()
+        self._stored_tess = False
+        self._entered = False
+
+    # -- lifecycle -----------------------------------------------------
+
+    def __enter__(self) -> DocCacheBatch:
+        if self._entered:
+            raise RuntimeError("DocCache batch is already open")
+        self._load()
+        self._entered = True
+        return self
+
+    def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> bool:
+        self._entered = False
+        if exc_type is not None:
+            # Staged writes are dropped: the archive on disk is the old one.
+            self._manifest = None
+            self._blobs = {}
+            self._dirty = False
+            return False
+        self._commit()
+        return False
+
+    def _load(self) -> None:
+        self._manifest, self._blobs = _load_zip(self._path)
+
+    def _state(self) -> dict[str, Any]:
+        """Manifest snapshot, loading lazily for callers outside ``with``."""
+        if self._manifest is None:
+            self._load()
+        assert self._manifest is not None
+        return self._manifest
+
+    def _commit(self) -> bool:
+        """LRU-evict once + one atomic zip write; True when the zip was rewritten."""
+        if not self._dirty or self._manifest is None:
+            return False
+        _evict_lru(
+            self._manifest,
+            self._blobs,
+            self._size_cap_bytes,
+            keep_ids=self._stored_ids,
+            keep_tess=self._stored_tess,
+        )
+        try:
+            _write_zip_atomic(self._path, self._manifest, self._blobs)
+        except Exception as exc:
+            if not self._best_effort:
+                raise
+            _warn(f"Could not write result cache {self._path}: {exc}")
+            return False
+        self._dirty = False
+        return True
+
+    # -- reads ---------------------------------------------------------
+
+    def lookup(self, feature_id: str, input_key: str) -> CachedFeature | None:
+        """Return the entry on an exact key match, else ``None`` (miss, brief §10)."""
+        record = self._state().get("features", {}).get(feature_id)
+        if not isinstance(record, dict) or record.get("inputKey") != input_key:
+            return None
+        entry = _build_entry(feature_id, record, self._blobs)
+        if entry is None:
+            _warn(f"Ignoring corrupt result-cache entry {feature_id!r} in {self._path}")
+            return None
+        return entry
+
+    def lookup_tess(self, doc_hash: str, tolerance: float, length_scale: float) -> str | None:
+        """Return the cached tessellation text on an exact key match, else ``None``."""
+        record = _tess_record(self._state())
+        if record is None:
+            return None
+        if record.get("docHash") != doc_hash:
+            return None
+        if record.get("tolerance") != tolerance:
+            return None
+        if record.get("lengthScale") != length_scale:
+            return None
+        raw = self._blobs.get(TESS_BLOB_NAME)
+        if raw is None:
+            _warn(f"Ignoring corrupt result-cache tess entry in {self._path}")
+            return None
+        try:
+            return raw.decode("utf-8")
+        except UnicodeDecodeError:
+            _warn(f"Ignoring corrupt result-cache tess entry in {self._path}")
+            return None
+
+    # -- overlap verdicts ---------------------------------------------
+
+    def overlap_verdicts(self) -> dict[str, dict[str, Any]]:
+        """Cached per-body-pair overlap verdicts (``{pair: {a, b, volume}}``).
+
+        A body-pair verdict is valid only while both bodies' content
+        signatures match, so a partial edit re-checks just the pairs whose
+        bodies changed instead of running exact booleans over the whole
+        document. Returns a copy; a missing/corrupt section is an empty map.
+        """
+        records = _overlap_records(self._state())
+        return {str(key): dict(value) for key, value in records.items() if isinstance(value, dict)}
+
+    def store_overlap_verdicts(self, verdicts: Mapping[str, Mapping[str, Any]]) -> None:
+        """Stage the body-pair overlap verdicts (written at batch commit).
+
+        Marks the batch dirty only when the verdicts actually changed, so a
+        no-change build still never rewrites the archive.
+        """
+        cleaned = {
+            str(key): dict(value) for key, value in verdicts.items() if isinstance(value, Mapping)
+        }
+        manifest = self._state()
+        if _overlap_records(manifest) == cleaned:
+            return
+        manifest["overlaps"] = cleaned
+        self._dirty = True
+
+    # -- staged writes -------------------------------------------------
+
+    def store(
+        self,
+        feature_id: str,
+        *,
+        input_key: str,
+        shape_fingerprint: str,
+        brep_bytes: bytes | None = None,
+        tess_json: str | bytes | None = None,
+        tool_bytes: bytes | None = None,
+        meta: Mapping[str, Any] | None = None,
+        updated_at: float | None = None,
+    ) -> CachedFeature:
+        """Stage one feature entry (written to disk at batch commit)."""
+        if isinstance(tess_json, str):
+            tess_raw = tess_json.encode("utf-8")
+        else:
+            tess_raw = tess_json
+        manifest = self._state()
+        now = time.time() if updated_at is None else updated_at
+        size = len(brep_bytes or b"") + len(tess_raw or b"") + len(tool_bytes or b"")
+        records = manifest.setdefault("features", {})
+        records[feature_id] = {
+            "inputKey": input_key,
+            "shapeFingerprint": shape_fingerprint,
+            "hasBrep": brep_bytes is not None,
+            "hasTess": tess_raw is not None,
+            "hasTool": tool_bytes is not None,
+            "meta": dict(meta) if isinstance(meta, Mapping) else {},
+            "updatedAt": now,
+            "sizeBytes": size,
+        }
+        if brep_bytes is not None:
+            self._blobs[_brep_name(feature_id)] = bytes(brep_bytes)
+        else:
+            self._blobs.pop(_brep_name(feature_id), None)
+        if tess_raw is not None:
+            self._blobs[_tess_name(feature_id)] = bytes(tess_raw)
+        else:
+            self._blobs.pop(_tess_name(feature_id), None)
+        if tool_bytes is not None:
+            self._blobs[_tool_name(feature_id)] = bytes(tool_bytes)
+        else:
+            self._blobs.pop(_tool_name(feature_id), None)
+        self._stored_ids.add(feature_id)
+        self._dirty = True
+        return _build_entry(feature_id, records[feature_id], self._blobs)  # type: ignore[return-value]
+
+    def store_tess(
+        self,
+        doc_hash: str,
+        tolerance: float,
+        length_scale: float,
+        tess_text: str | bytes,
+        *,
+        updated_at: float | None = None,
+    ) -> None:
+        """Stage the DOC-LEVEL tessellation blob (written at batch commit)."""
+        if isinstance(tess_text, bytes):
+            raw = bytes(tess_text)
+            raw.decode("utf-8")  # validate text; raises UnicodeDecodeError otherwise
+        elif isinstance(tess_text, str):
+            raw = tess_text.encode("utf-8")
+        else:
+            raise TypeError(f"tess_text must be str or utf-8 bytes, got {type(tess_text).__name__}")
+        manifest = self._state()
+        # A warm open / no-change rebuild regenerates or re-reads exactly the
+        # blob already staged: do not mark the batch dirty, or every open would
+        # rewrite a multi-hundred-MB archive for nothing. LRU recency is
+        # deliberately not refreshed here; the blob is evicted last anyway.
+        existing = _tess_record(manifest)
+        if (
+            self._blobs.get(TESS_BLOB_NAME) == raw
+            and existing is not None
+            and existing.get("docHash") == doc_hash
+            and existing.get("tolerance") == tolerance
+            and existing.get("lengthScale") == length_scale
+        ):
+            return
+        now = time.time() if updated_at is None else updated_at
+        manifest["tess"] = {
+            "docHash": doc_hash,
+            "tolerance": tolerance,
+            "lengthScale": length_scale,
+            "updatedAt": now,
+            "sizeBytes": len(raw),
+        }
+        self._blobs[TESS_BLOB_NAME] = raw
+        self._stored_tess = True
+        self._dirty = True
+
+
 class DocCache:
     """File-backed per-feature result cache (single-zip sidecar, brief §1)."""
 
@@ -533,20 +802,23 @@ class DocCache:
     def size_cap_bytes(self) -> int:
         return self._size_cap_bytes
 
+    def batch(self, *, best_effort: bool = False) -> DocCacheBatch:
+        """Open a one-load/one-commit session (see :class:`DocCacheBatch`).
+
+        ``best_effort`` turns a commit IO failure into a warning: builds pass
+        it so a full disk never fails a geometry build.
+        """
+        return DocCacheBatch(
+            self._path, size_cap_bytes=self._size_cap_bytes, best_effort=best_effort
+        )
+
     def lookup(self, feature_id: str, input_key: str) -> CachedFeature | None:
         """Return the entry on an exact key match, else ``None`` (miss, brief §10).
 
         Never raises for missing/corrupt caches: corruption warns and is a miss.
         """
-        manifest, blobs = _load_zip(self._path)
-        record = manifest.get("features", {}).get(feature_id)
-        if not isinstance(record, dict) or record.get("inputKey") != input_key:
-            return None
-        entry = _build_entry(feature_id, record, blobs)
-        if entry is None:
-            _warn(f"Ignoring corrupt result-cache entry {feature_id!r} in {self._path}")
-            return None
-        return entry
+        with self.batch() as batch:
+            return batch.lookup(feature_id, input_key)
 
     def store(
         self,
@@ -565,42 +837,20 @@ class DocCache:
         ``tool_bytes`` persists a solid-producer's tool shape for pattern
         source reuse; ``meta`` is a small verbatim sidecar (booleans store
         target/consumed bodies). Both are optional and backward compatible:
-        entries written without them read back with ``None``/``{}``.
+        entries written without them read back with ``None``/``{}``. This is a
+        one-shot batch; multi-entry callers should use :meth:`batch`.
         """
-        if isinstance(tess_json, str):
-            tess_raw = tess_json.encode("utf-8")
-        else:
-            tess_raw = tess_json
-        manifest, blobs = _load_zip(self._path)
-        now = time.time() if updated_at is None else updated_at
-        size = len(brep_bytes or b"") + len(tess_raw or b"") + len(tool_bytes or b"")
-        records = manifest.setdefault("features", {})
-        records[feature_id] = {
-            "inputKey": input_key,
-            "shapeFingerprint": shape_fingerprint,
-            "hasBrep": brep_bytes is not None,
-            "hasTess": tess_raw is not None,
-            "hasTool": tool_bytes is not None,
-            "meta": dict(meta) if isinstance(meta, Mapping) else {},
-            "updatedAt": now,
-            "sizeBytes": size,
-        }
-        if brep_bytes is not None:
-            blobs[_brep_name(feature_id)] = bytes(brep_bytes)
-        else:
-            blobs.pop(_brep_name(feature_id), None)
-        if tess_raw is not None:
-            blobs[_tess_name(feature_id)] = bytes(tess_raw)
-        else:
-            blobs.pop(_tess_name(feature_id), None)
-        if tool_bytes is not None:
-            blobs[_tool_name(feature_id)] = bytes(tool_bytes)
-        else:
-            blobs.pop(_tool_name(feature_id), None)
-        _evict_lru(manifest, blobs, self._size_cap_bytes, keep_id=feature_id)
-        _write_zip_atomic(self._path, manifest, blobs)
-        stored = records[feature_id]
-        return _build_entry(feature_id, stored, blobs)  # type: ignore[return-value]
+        with self.batch() as batch:
+            return batch.store(
+                feature_id,
+                input_key=input_key,
+                shape_fingerprint=shape_fingerprint,
+                brep_bytes=brep_bytes,
+                tess_json=tess_json,
+                tool_bytes=tool_bytes,
+                meta=meta,
+                updated_at=updated_at,
+            )
 
     def store_tess(
         self,
@@ -613,32 +863,15 @@ class DocCache:
     ) -> None:
         """Write the DOC-LEVEL tessellation blob (brief §9 revision).
 
-        Persists ``tess_text`` as ``__doc__.tess.json`` plus the manifest
-        ``tess`` section (``docHash``/``tolerance``/``lengthScale``/
+        Persists ``tess_text`` as ``__doc__.tess.json`` (``ZIP_STORED``) plus
+        the manifest ``tess`` section (``docHash``/``tolerance``/``lengthScale``/
         ``updatedAt``/``sizeBytes``). The blob counts toward the LRU/size cap
         like any feature entry. Raises ``TypeError``/``UnicodeDecodeError``
         for non-text payloads; zip IO failures propagate to the caller (the
         geometry-service hook guards the store so a build never breaks).
         """
-        if isinstance(tess_text, bytes):
-            raw = bytes(tess_text)
-            raw.decode("utf-8")  # validate text; raises UnicodeDecodeError otherwise
-        elif isinstance(tess_text, str):
-            raw = tess_text.encode("utf-8")
-        else:
-            raise TypeError(f"tess_text must be str or utf-8 bytes, got {type(tess_text).__name__}")
-        manifest, blobs = _load_zip(self._path)
-        now = time.time() if updated_at is None else updated_at
-        manifest["tess"] = {
-            "docHash": doc_hash,
-            "tolerance": tolerance,
-            "lengthScale": length_scale,
-            "updatedAt": now,
-            "sizeBytes": len(raw),
-        }
-        blobs[TESS_BLOB_NAME] = raw
-        _evict_lru(manifest, blobs, self._size_cap_bytes, keep_tess=True)
-        _write_zip_atomic(self._path, manifest, blobs)
+        with self.batch() as batch:
+            batch.store_tess(doc_hash, tolerance, length_scale, tess_text, updated_at=updated_at)
 
     def lookup_tess(self, doc_hash: str, tolerance: float, length_scale: float) -> str | None:
         """Return the cached tessellation text on an exact key match, else ``None``.
@@ -647,25 +880,18 @@ class DocCache:
         exactly; a missing/corrupt zip or section is a miss (warns like the
         feature path, never raises for IO damage).
         """
-        manifest, blobs = _load_zip(self._path)
-        record = _tess_record(manifest)
-        if record is None:
-            return None
-        if record.get("docHash") != doc_hash:
-            return None
-        if record.get("tolerance") != tolerance:
-            return None
-        if record.get("lengthScale") != length_scale:
-            return None
-        raw = blobs.get(TESS_BLOB_NAME)
-        if raw is None:
-            _warn(f"Ignoring corrupt result-cache tess entry in {self._path}")
-            return None
-        try:
-            return raw.decode("utf-8")
-        except UnicodeDecodeError:
-            _warn(f"Ignoring corrupt result-cache tess entry in {self._path}")
-            return None
+        with self.batch() as batch:
+            return batch.lookup_tess(doc_hash, tolerance, length_scale)
+
+    def overlap_verdicts(self) -> dict[str, dict[str, Any]]:
+        """One-shot read of the cached body-pair overlap verdicts (see batch)."""
+        with self.batch() as batch:
+            return batch.overlap_verdicts()
+
+    def store_overlap_verdicts(self, verdicts: Mapping[str, Mapping[str, Any]]) -> None:
+        """One-shot write of the body-pair overlap verdicts (see batch)."""
+        with self.batch() as batch:
+            batch.store_overlap_verdicts(verdicts)
 
     def invalidate(self, feature_id: str) -> bool:
         """Drop one entry; ``False`` when absent (missing zip counts as absent)."""

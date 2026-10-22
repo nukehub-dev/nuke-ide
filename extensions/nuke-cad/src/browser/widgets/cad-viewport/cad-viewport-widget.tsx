@@ -173,6 +173,7 @@ import {
 import { edgeRadius } from './radius-fit';
 import { clampExplodeFactor, planExplodeOffsets, type ExplodeSolidCentroid } from './explode-view';
 import { visibleCurveIds, type CurvePathUser } from './curve-visibility';
+import { computeClipPlanes } from './clip-planes';
 import { headerRegionTarget, useDraggablePanel } from './draggable-panel';
 import { buildFeaturePreviewDocument, resolveCurvePick, type FeaturePreviewRequest } from './sweep-pipe';
 import {
@@ -271,6 +272,8 @@ export class CadViewportWidget extends ReactWidget {
     /** Job id of the in-flight partial rebuild, for cancellation. */
     private pendingPartialJobId?: string;
     private partialJobCounter = 0;
+    /** One fallback warning per viewport instance, not per rebuild. */
+    private partialFallbackWarned = false;
 
     /** True while the datum picker is waiting for the user to choose a plane. */
     sketchSetupVisible = false;
@@ -1015,7 +1018,8 @@ export class CadViewportWidget extends ReactWidget {
         const uri = new URI(`file:///tmp/nuke-cad-preview-${token}-${Date.now()}.nuke-cad`);
         try {
             await this.fileService.write(uri, JSON.stringify(previewDoc));
-            const result = await this.backendService.buildDocument({ scriptPath: uri.path.toString() });
+            // Preview documents are transient: never write a cache sidecar.
+            const result = await this.backendService.buildDocument({ scriptPath: uri.path.toString(), useCache: false });
             if (!result.success || result.tessPath === undefined) {
                 throw new Error(result.error ?? 'Preview build produced no tessellation.');
             }
@@ -1298,6 +1302,10 @@ export class CadViewportWidget extends ReactWidget {
                   ? 'Restoring cached geometry...'
                   : 'Rebuilding CAD geometry...'
         );
+        // The backend rewrites <stem>.tess.json at the same path, so a rebuild
+        // must not trust the path-equality check in handleModelChange. Keep
+        // tessData on screen (the old model) until the new tessellation lands.
+        this.invalidateTessellation();
         try {
             const result = usePartial
                 ? await this.buildPartialWithFallback(filePath, plan!)
@@ -1345,13 +1353,18 @@ export class CadViewportWidget extends ReactWidget {
      * (yet) implement ``buildFeaturesPartial`` the transport throws and the
      * existing full-build path runs instead. A reached backend returning
      * ``success: false`` is a real build error and is NOT retried as full.
+     *
+     * The spinner claim is corrected in place before the full build: the
+     * caller set a "N of M" message optimistically, so a fallback must say
+     * that every feature is rebuilding (once per viewport instance warned).
      */
     private async buildPartialWithFallback(filePath: string, featureIds: string[]): Promise<GeometryBuildResult> {
         const jobId = `cad-partial-${Date.now()}-${this.partialJobCounter++}`;
         this.pendingPartialJobId = jobId;
         try {
-            const partial = this.backendService.buildFeaturesPartial;
-            if (partial === undefined) {
+            // Defensive: a third-party service may still omit the optional RPC.
+            const partial = (this.backendService as Partial<NukeCadBackendService>).buildFeaturesPartial;
+            if (typeof partial !== 'function') {
                 throw new Error('buildFeaturesPartial is not implemented by the backend service.');
             }
             return await partial.call(this.backendService, {
@@ -1362,7 +1375,17 @@ export class CadViewportWidget extends ReactWidget {
                 jobId
             });
         } catch (error) {
-            console.warn('[CadViewport] Partial rebuild unavailable, falling back to full build:', error);
+            const doc = this.documentStore?.document;
+            const featureCount = doc?.features.length ?? 0;
+            if (!this.partialFallbackWarned) {
+                this.partialFallbackWarned = true;
+                console.warn(`[CadViewport] Partial rebuild unavailable for ${featureCount} features, falling back to full build:`, error);
+            }
+            if (doc !== undefined) {
+                // Replace the caller's optimistic "N of M" claim before the
+                // full build starts so the spinner never overstates the work.
+                this.setLoading(true, `Rebuilding all ${featureCount} features (cache unavailable)`);
+            }
             this.pendingPartialJobId = undefined;
             return this.backendService.buildDocument({ scriptPath: filePath });
         }
@@ -1613,6 +1636,16 @@ export class CadViewportWidget extends ReactWidget {
         this.update();
     }
 
+    /**
+     * Forget which tessellation is on screen so the next model change reloads
+     * it. The backend rewrites `<stem>.tess.json` at the same path on every
+     * build, so path equality alone cannot detect a rebuild. `tessData` stays
+     * untouched: the previous model remains visible during the build.
+     */
+    private invalidateTessellation(): void {
+        this.loadedTessPath = undefined;
+    }
+
     private handleModelChange(model: CadModel | undefined): void {
         const tessPath = model?.result.tessPath;
         const token = ++this.tessLoadToken;
@@ -1708,9 +1741,20 @@ export class CadViewportWidget extends ReactWidget {
     }
 
     /**
-     * Prompt for a CAD model script or STEP file and load it into the viewport.
+     * Open a `.nuke-cad` document by URI (public entry point for the open handler).
+     *
+     * Delegates to the document load path, which reloads the tessellation
+     * after the build.
      */
-    protected async openModel(): Promise<void> {
+    public async openModel(uri: URI): Promise<void> {
+        await this.openDocumentModel(uri, uri.path.toString());
+    }
+
+    /**
+     * Open a CAD model script, STEP file, or `.nuke-cad` document chosen from
+     * the Open dialog.
+     */
+    protected async openModelFromDialog(): Promise<void> {
         const uri = await this.fileDialogService.showOpenDialog({
             title: 'Open CAD Model',
             canSelectFiles: true,
@@ -1782,6 +1826,9 @@ export class CadViewportWidget extends ReactWidget {
             // Opening a document always builds, in both rebuild modes.
             this.buildStale = false;
             this.rebuildTracker.reset();
+            // A fresh open must not trust any tessellation left on screen:
+            // the build rewrites the same `<stem>.tess.json` path.
+            this.invalidateTessellation();
             const doc = this.documentStore.document;
             if (doc !== undefined && (await this.tryOpenFastPath(uri, filePath, doc))) {
                 return;
@@ -1870,7 +1917,7 @@ export class CadViewportWidget extends ReactWidget {
                 subscribeSelection={this.subscribeSelection}
                 subscribeHiddenSolids={this.subscribeHiddenSolids}
                 subscribeThemeChange={this.subscribeThemeChange}
-                onOpenModel={() => this.openModel()}
+                onOpenModel={() => this.openModelFromDialog()}
                 onNewDocument={this.handleNewDocument}
                 onCreateDocument={this.handleCreateDocument}
                 onCancelTemplatePicker={this.handleCancelTemplatePicker}
@@ -3275,7 +3322,10 @@ function initViewport(
     const background = applyBackground();
     const viewportColors = cadViewportColors(background, readThemeColor(container, '--theia-foreground', '#cccccc'));
 
-    const camera = new THREE.PerspectiveCamera(45, width / height, 0.01, 10000);
+    // Near/far are recomputed from the scene scale before every render (see
+    // renderScene); these values only cover the pre-fit placeholder camera.
+    const initialClip = computeClipPlanes(Math.sqrt(300), 5);
+    const camera = new THREE.PerspectiveCamera(45, width / height, initialClip.near, initialClip.far);
     camera.name = 'cad-perspective-camera';
     camera.position.set(10, 10, 10);
     // Z-up world: OrbitControls freezes its orbit pole from camera.up at
@@ -3828,6 +3878,19 @@ function initViewport(
     let controller: SketchModeController;
     const renderScene = (): void => {
         const cam = controller.getActiveCamera();
+        // Clip planes follow the scene scale on every render (build, fit,
+        // dolly, orbit, zoom): a fixed far plane clips any model larger than
+        // ~5.8 km (the tokamak's 6.4 km diagonal) and a fixed 1e6 near/far
+        // ratio z-fights concentric shells. Sketch mode keeps its own ortho
+        // frustum, so only the perspective model camera is re-fit.
+        if (cam === camera) {
+            const clip = computeClipPlanes(camera.position.distanceTo(controls.target), lastDiag / 2);
+            if (camera.near !== clip.near || camera.far !== clip.far) {
+                camera.near = clip.near;
+                camera.far = clip.far;
+                camera.updateProjectionMatrix();
+            }
+        }
         // Camera matrices must be fresh before the overlay projection math, and
         // the overlays must be updated BEFORE the paint: with render-on-demand
         // there is no next frame to correct a stale one, so painting first would

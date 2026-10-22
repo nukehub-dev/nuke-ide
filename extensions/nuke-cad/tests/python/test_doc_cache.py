@@ -78,7 +78,8 @@ def _ctx() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
 
 
 def test_builder_version_contract() -> None:
-    assert dc.BUILDER_VERSION == 1
+    # Bump only with a comment in doc_cache.py: this invalidates every sidecar.
+    assert dc.BUILDER_VERSION == 3
 
 
 def test_key_deterministic() -> None:
@@ -149,7 +150,12 @@ def test_key_upstream_change() -> None:
 def test_key_version_inputs() -> None:
     feature, sketches, _ = _ctx()
     base = dc.compute_feature_key(feature, sketches_by_id=sketches)
-    assert dc.compute_feature_key(feature, sketches_by_id=sketches, builder_version=2) != base
+    assert (
+        dc.compute_feature_key(
+            feature, sketches_by_id=sketches, builder_version=dc.BUILDER_VERSION + 1
+        )
+        != base
+    )
     assert dc.compute_feature_key(feature, sketches_by_id=sketches, ocp_version="7.9") != base
 
 

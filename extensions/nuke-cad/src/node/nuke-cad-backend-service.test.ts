@@ -26,6 +26,8 @@
 // *****************************************************************************
 
 import { describe, it, expect } from 'vitest';
+import * as fs from 'fs';
+import * as path from 'path';
 import { buildGeometryArgs, buildDocumentArgs, buildFeaturesPartialArgs } from './nuke-cad-backend-service';
 import type { GeometryBuildRequest, BuildDocumentRequest, BuildFeaturesPartialRequest } from '../common/nuke-cad-protocol';
 
@@ -141,11 +143,39 @@ describe('buildDocumentArgs', () => {
             '--from-document',
             '--output-dir',
             '/tmp/out',
+            '--cache-dir',
+            '/tmp',
             '--tolerance',
             '0.005',
             '--no-dagmc',
             '--no-mesh'
         ]);
+    });
+
+    it('always primes the cache in the document directory by default', () => {
+        const request: BuildDocumentRequest = { scriptPath: '/work/models/model.nuke-cad' };
+        const args = buildDocumentArgs(request, SCRIPT_PATH);
+        expect(args[args.indexOf('--cache-dir') + 1]).toBe('/work/models');
+    });
+
+    it('honours an explicit cacheDir', () => {
+        const request: BuildDocumentRequest = { scriptPath: MODEL_PATH, cacheDir: '/work/cache' };
+        const args = buildDocumentArgs(request, SCRIPT_PATH);
+        expect(args[args.indexOf('--cache-dir') + 1]).toBe('/work/cache');
+    });
+
+    it('omits --cache-dir for export builds', () => {
+        for (const exports of [{ exportDagmc: true }, { exportMesh: true }, { exportDagmc: true, exportMesh: true }]) {
+            const request: BuildDocumentRequest = { scriptPath: MODEL_PATH, ...exports };
+            const args = buildDocumentArgs(request, SCRIPT_PATH);
+            expect(args).not.toContain('--cache-dir');
+        }
+    });
+
+    it('omits --cache-dir for transient preview documents', () => {
+        const request: BuildDocumentRequest = { scriptPath: '/tmp/preview.nuke-cad', useCache: false };
+        const args = buildDocumentArgs(request, SCRIPT_PATH);
+        expect(args).not.toContain('--cache-dir');
     });
 });
 
@@ -156,7 +186,7 @@ describe('buildFeaturesPartialArgs', () => {
             SCRIPT_PATH,
             MODEL_PATH,
             '--from-document',
-            '--partial-features',
+            '--partial-feature-ids',
             'f1,f2',
             '--no-dagmc',
             '--no-mesh',
@@ -168,7 +198,7 @@ describe('buildFeaturesPartialArgs', () => {
     it('omits --cache-dir when the caller leaves policy to the backend default', () => {
         const request: BuildFeaturesPartialRequest = { scriptPath: MODEL_PATH, featureIds: ['f1'] };
         const args = buildFeaturesPartialArgs(request, SCRIPT_PATH);
-        expect(args).toContain('--partial-features');
+        expect(args).toContain('--partial-feature-ids');
         expect(args).not.toContain('--cache-dir');
     });
 
@@ -183,7 +213,7 @@ describe('buildFeaturesPartialArgs', () => {
             SCRIPT_PATH,
             MODEL_PATH,
             '--from-document',
-            '--partial-features',
+            '--partial-feature-ids',
             'f1,f2',
             '--no-dagmc',
             '--no-mesh',
@@ -203,6 +233,37 @@ describe('buildFeaturesPartialArgs', () => {
     it('passes a single id without separators', () => {
         const request: BuildFeaturesPartialRequest = { scriptPath: MODEL_PATH, featureIds: ['only'] };
         const args = buildFeaturesPartialArgs(request, SCRIPT_PATH);
-        expect(args[args.indexOf('--partial-features') + 1]).toBe('only');
+        expect(args[args.indexOf('--partial-feature-ids') + 1]).toBe('only');
+    });
+
+    it('passes the resolved display tolerance', () => {
+        const request: BuildFeaturesPartialRequest = { scriptPath: MODEL_PATH, featureIds: ['f1'], tolerance: 0.01 };
+        const args = buildFeaturesPartialArgs(request, SCRIPT_PATH);
+        expect(args[args.indexOf('--tolerance') + 1]).toBe('0.01');
+    });
+});
+
+describe('buildFeaturesPartialArgs CLI parity with geometry_service.py', () => {
+    it('only emits flags that the Python parser declares', () => {
+        const request: BuildFeaturesPartialRequest = {
+            scriptPath: MODEL_PATH,
+            featureIds: ['f1', 'f2'],
+            cacheDir: '/tmp/out',
+            tolerance: 0.01,
+            sizeCapMB: 1024
+        };
+        const args = buildFeaturesPartialArgs(request, SCRIPT_PATH);
+        const emittedFlags = args.filter((arg) => arg.startsWith('--'));
+        expect(emittedFlags).toContain('--partial-feature-ids');
+
+        const serviceSource = fs.readFileSync(path.join(__dirname, '../../python/geometry_service.py'), 'utf-8');
+        const declaredFlags = new Set(
+            Array.from(serviceSource.matchAll(/add_argument\(\s*["']([^"']+)["']/g), (match) => match[1]).filter((flag) =>
+                flag.startsWith('--')
+            )
+        );
+        for (const flag of emittedFlags) {
+            expect(declaredFlags.has(flag), `${flag} is not declared in geometry_service.py`).toBe(true);
+        }
     });
 });

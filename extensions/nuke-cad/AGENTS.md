@@ -54,8 +54,9 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   an outline **Fuse** auto-fix. See `docs/dev/features-patterns.md`.
 - Backend builds (`geometry_service.py` script isolation at 120s, `feature_builder.py`
   topological bodies, `curve_builder.py` wires, datums `XY`–`line2Point`, P2
-  `<stem>.nuke-cache.zip` partial cache with TS/C1 keys and doc-hash tess blob).
-  See `docs/dev/backend-pipeline.md`.
+  `<stem>.nuke-cache.zip` partial cache with TS/C1 keys and doc-hash tess blob; display builds
+  prime it, one batch load/commit serves a build, and per-body overlap verdicts are reused for
+  unchanged signatures). See `docs/dev/backend-pipeline.md`.
 - Imports (STEP/IGES/glTF/STL with unit adoption, build123d/CadQuery selectors) and
   default `--no-dagmc`/`--no-mesh` gates with opt-in flags; DAGMC export
   (`dagmc_export.py`: sense hard error, staged gmsh imprint, most-specific-wins
@@ -64,12 +65,12 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
 - Package requirements live in `src/common/packages.json` (single source of truth;
   `health` group → `CAD_HEALTH_PACKAGES` for `checkCadEnvironment`, rest reference
   data; shared specs must match nuke-core's registry). See `docs/dev/backend-pipeline.md`.
-- Viewport: purpose-built three.js widget (active-camera rule, `ViewerNavBar`
-  children, scoped keys with capture phase, `ViewCube`/`ViewBadge` below the toolbar,
-  theme-adaptive colors), worker-parsed tessellation with content-keyed reuse,
-  single-authority shading, visual-only section, measure (distance/angle/radius +
-  pinnable `measurements` block), per-solid explode, hidden-set picking filters. See
-  `docs/dev/viewport-outline.md`.
+- Viewport: purpose-built three.js widget (active-camera rule, scene-scaled
+  `clip-planes.ts` near/far, `ViewerNavBar` children, scoped keys with capture phase,
+  `ViewCube`/`ViewBadge` below the toolbar, theme-adaptive colors), worker-parsed
+  tessellation with content-keyed reuse that rebuilds invalidate, single-authority
+  shading, visual-only section, measure (distance/angle/radius + pinnable `measurements`
+  block), per-solid explode, hidden-set picking filters. See `docs/dev/viewport-outline.md`.
 - Model Outline (read-only manifest + Properties/Table/Parameters/BOM/warnings-Fuse)
   and Feature Tree (ordered bodies/datums/sketches/features/curves, suppression,
   reorder/delete guards, repair popover) with mask-based `codicon-nuke-cad-*` icons

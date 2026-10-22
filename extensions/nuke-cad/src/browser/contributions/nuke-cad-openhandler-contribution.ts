@@ -37,12 +37,10 @@
 import { injectable, inject } from '@theia/core/shared/inversify';
 import { OpenHandler, ApplicationShell, WidgetManager } from '@theia/core/lib/browser';
 import { MessageService } from '@theia/core/lib/common/message-service';
-import { FileService } from '@theia/filesystem/lib/browser/file-service';
 import { URI } from '@theia/core/lib/common/uri';
 
 import { NukeCadBackendService } from '../../common/nuke-cad-protocol';
 import { NukeCadStateManager } from '../state/nuke-cad-state-manager';
-import { CadDocumentStore } from '../document/cad-document-store';
 import { CadViewportWidget } from '../widgets/cad-viewport/cad-viewport-widget';
 import { CadOutlinePanelWidget } from '../widgets/outline-panel/outline-panel-widget';
 import { CadFeatureTreeWidget } from '../widgets/feature-tree/feature-tree-widget';
@@ -64,12 +62,6 @@ export class NukeCadOpenHandler implements OpenHandler {
 
     @inject(NukeCadStateManager)
     protected readonly stateManager: NukeCadStateManager;
-
-    @inject(CadDocumentStore)
-    protected readonly documentStore: CadDocumentStore;
-
-    @inject(FileService)
-    protected readonly fileService: FileService;
 
     @inject(MessageService)
     protected readonly messageService: MessageService;
@@ -104,7 +96,7 @@ export class NukeCadOpenHandler implements OpenHandler {
         await this.shell.activateWidget(widget.id);
 
         if (ext === '.nuke-cad') {
-            await this.openDocument(uri, filePath, widget);
+            await this.openDocument(uri, widget);
             return;
         }
 
@@ -150,36 +142,7 @@ export class NukeCadOpenHandler implements OpenHandler {
         }
     }
 
-    private async openDocument(uri: URI, filePath: string, widget: CadViewportWidget): Promise<void> {
-        try {
-            const content = await this.fileService.read(uri);
-            const json = JSON.parse(content.value.toString()) as unknown;
-            const result = this.documentStore.loadDocument(json);
-            if (!result.success) {
-                this.messageService.error(result.error || 'Failed to load .nuke-cad document.');
-                return;
-            }
-            this.documentStore.setUri(uri.toString());
-            this.documentStore.markSaved();
-            widget.setLoading(true, 'Building CAD geometry...');
-            const buildResult = await this.backendService.buildDocument({
-                scriptPath: filePath,
-                exportDagmc: false,
-                exportMesh: false
-            });
-            this.documentStore.setFeatureResults(buildResult.featureResults ?? []);
-            if (buildResult.success) {
-                this.stateManager.setModel({ scriptPath: filePath, result: buildResult, manifest: buildResult.regionManifest });
-            } else {
-                widget.showBuildError(buildResult.error || 'Document build failed.');
-                this.messageService.error(buildResult.error || 'Document build failed.');
-            }
-        } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            this.messageService.error(`Failed to open .nuke-cad document: ${message}`);
-            console.error('[NukeCad] Open document failed:', error);
-        } finally {
-            widget.setLoading(false);
-        }
+    private async openDocument(uri: URI, widget: CadViewportWidget): Promise<void> {
+        await widget.openModel(uri);
     }
 }

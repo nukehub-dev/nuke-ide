@@ -854,17 +854,20 @@ sketch. Undo and redo rebuild exactly like a normal edit.
   first opened.
 - Build errors surface in a dismissible banner in the viewport and in the feature
   tree status markers.
-- **Large documents:** every edit rebuilds by default (`nukeCad.rebuildOnEdit:
-auto`). For models where each rebuild is expensive (patterned assemblies),
-  switch the setting to `manual`: edits then only mark the model stale until
-  **Rebuild CAD Geometry** runs — opening still always builds. Suppressing an
-  expensive pattern/mirror feature in the Feature Tree has the same effect for
-  that subtree and composes with either mode.
-- **Result cache:** rebuilds persist per-feature B-reps plus a doc-level
-  tessellation blob to a `<stem>.nuke-cache.zip` sidecar next to the document,
-  so edits rebuild only the dirty closure and cache-hit opens skip meshing.
-  `nukeCad.resultCacheSizeMB` (default 1024 MB) caps the sidecar size before
-  old entries are evicted.
+- **Large documents:** every edit rebuilds the dirty feature closure by default
+  (`nukeCad.rebuildOnEdit: auto`). For models where each edit is expensive
+  (patterned assemblies), switch the setting to `manual`: edits then only mark
+  the model stale until **Rebuild CAD Geometry** runs. Suppressing an expensive
+  pattern/mirror feature in the Feature Tree has the same effect for that
+  subtree and composes with either mode.
+- **Result cache:** a full build stores per-feature B-reps plus a doc-level
+  tessellation blob in a `<stem>.nuke-cache.zip` sidecar next to the document.
+  Later edits rebuild only the dirty closure, and reopening a document restores
+  it from the cache without re-meshing. The first build of a document (or one
+  after the sidecar is evicted, deleted, or invalidated by a version change)
+  executes every feature because the cache is cold; it primes the sidecar so the
+  next edit is already partial. `nukeCad.resultCacheSizeMB` (default 1024 MB)
+  caps the sidecar size before old entries are evicted.
 
 ## Demo model: tokamak with divertor
 

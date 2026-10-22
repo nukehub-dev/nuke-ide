@@ -37,6 +37,7 @@ import {
     GeometryBuildRequest,
     GeometryBuildResult,
     BuildDocumentRequest,
+    BuildFeaturesPartialRequest,
     FemRunRequest,
     FemRunResult,
     FemMaterial,
@@ -71,6 +72,13 @@ export class NukeCadFrontendService implements NukeCadBackendService {
     buildDocument(request: BuildDocumentRequest): Promise<GeometryBuildResult> {
         const tolerance = this.resolveTolerance(request, 'document');
         return this.proxy.buildDocument({ ...request, tolerance }).then((result) => this.postProcessResult(request, result, 'document'));
+    }
+
+    buildFeaturesPartial(request: BuildFeaturesPartialRequest): Promise<GeometryBuildResult> {
+        const tolerance = this.resolveTolerance(request, 'document');
+        return this.proxy
+            .buildFeaturesPartial({ ...request, tolerance })
+            .then((result) => this.postProcessResult(request, result, 'document'));
     }
 
     buildDrawing(request: DrawingBuildRequest): Promise<DrawingBuildResult> {

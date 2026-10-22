@@ -54,9 +54,7 @@ def test_translate_moves_body_down() -> None:
     assert _by_id(moved)["m"]["status"] == "built"
     assert moved["shape"] is not None and plain["shape"] is not None
     assert math.isclose(moved["shape"].volume, plain["shape"].volume, rel_tol=1e-9)
-    assert math.isclose(
-        plain["shape"].center().Z - moved["shape"].center().Z, 5.0, rel_tol=1e-9
-    )
+    assert math.isclose(plain["shape"].center().Z - moved["shape"].center().Z, 5.0, rel_tol=1e-9)
 
 
 def test_translate_rejects_bad_vector() -> None:

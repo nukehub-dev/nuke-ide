@@ -122,6 +122,15 @@ export function buildDocumentArgs(request: BuildDocumentRequest, scriptPath: str
     if (request.outputDirectory) {
         args.push('--output-dir', request.outputDirectory);
     }
+    // Full document builds must prime the per-feature cache so the next edit
+    // can run partially; default to the document's directory like the partial
+    // path does. Transient preview documents opt out (their temp directory
+    // must not accumulate cache zips) and so do export builds (DAGMC/mesh),
+    // where a sidecar write is pure overhead.
+    const isDisplayBuild = request.exportDagmc !== true && request.exportMesh !== true;
+    if (request.useCache !== false && isDisplayBuild) {
+        args.push('--cache-dir', request.cacheDir ?? path.dirname(request.scriptPath));
+    }
     if (request.tolerance !== undefined) {
         args.push('--tolerance', String(request.tolerance));
     }
@@ -158,22 +167,26 @@ export function buildDocumentArgs(request: BuildDocumentRequest, scriptPath: str
  * Build the argument list for ``python/geometry_service.py --from-document``
  * partial rebuilds (P2 result cache).
  *
- * ``featureIds`` travel as a single comma-separated ``--partial-features``
+ * ``featureIds`` travel as a single comma-separated ``--partial-feature-ids``
  * argument; ``cacheDir`` travels as ``--cache-dir`` when supplied (otherwise
  * the backend defaults to the document file's directory) and ``sizeCapMB``
  * travels as ``--size-cap-mb`` when supplied (otherwise the backend default
- * applies). DAGMC and FEM mesh
+ * applies). ``tolerance`` travels as ``--tolerance`` when supplied so a partial
+ * rebuild facets like a document build. DAGMC and FEM mesh
  * export stay skipped exactly like {@link buildDocumentArgs} — partial
  * rebuilds are viewport-only operations.
  *
  * Exported for unit testing; callers should use {@link NukeCadBackendServiceImpl.buildFeaturesPartial}.
  */
 export function buildFeaturesPartialArgs(request: BuildFeaturesPartialRequest, scriptPath: string): string[] {
-    const args = [scriptPath, request.scriptPath, '--from-document', '--partial-features', request.featureIds.join(',')];
+    const args = [scriptPath, request.scriptPath, '--from-document', '--partial-feature-ids', request.featureIds.join(',')];
     // Viewport-only, like document builds: skip expensive DAGMC/mesh export.
     args.push('--no-dagmc', '--no-mesh');
     if (request.cacheDir !== undefined && request.cacheDir.length > 0) {
         args.push('--cache-dir', request.cacheDir);
+    }
+    if (request.tolerance !== undefined) {
+        args.push('--tolerance', String(request.tolerance));
     }
     if (request.sizeCapMB !== undefined) {
         args.push('--size-cap-mb', String(request.sizeCapMB));
