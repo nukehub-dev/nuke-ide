@@ -199,6 +199,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-cad: STEP imports skip DAGMC/FEM export by default for fast loads; script builds still export.
 - nuke-cad: DAGMC surface-sense verification is now a hard error; watertightness and overlap stay reported diagnostics.
 - nuke-cad: saving a script-source model rebuilds the viewport (STEP-source models unaffected).
+- nuke-cad: viewport context menu gains Find in Feature Tree, Clear Selection (Esc), and shortcut hints.
 - nuke-core: spec-aware dependency installs with a canonical package registry and a drift-failing consistency test.
 - nuke-essentials: workspace settings now live in `<project>/.nuke-ide/` instead of `<project>/.theia/`.
 - nuke-essentials: Save Workspace As defaults to the new `*.nuke-workspace` format (old formats still open).

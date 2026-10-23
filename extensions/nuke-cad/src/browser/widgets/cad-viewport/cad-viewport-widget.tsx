@@ -414,6 +414,23 @@ export class CadViewportWidget extends ReactWidget {
         return this.stateManager.onSelectionChange(listener);
     };
 
+    /**
+     * Context-menu/Escape Clear Selection: reset both sides of the selection.
+     * The document store owns the tree selection (feature/body/sketch/curve);
+     * the state manager owns the viewport solids and their highlight. Clearing
+     * only one leaves the other visibly active.
+     */
+    protected readonly handleClearSelection = (): void => {
+        this.documentStore.clearSelection();
+        this.stateManager.setSelection({});
+    };
+
+    /** Context-menu Find in Feature Tree: select the feature, then reveal its panel. */
+    protected readonly handleRevealFeature = (featureId: string): void => {
+        this.documentStore.selectFeature(featureId);
+        void this.commandService.executeCommand(NukeCadCommands.OPEN_FEATURE_TREE.id);
+    };
+
     protected readonly subscribeHiddenSolids = (listener: (ids: readonly number[]) => void): Disposable => {
         listener(this.stateManager.hiddenSolidIds);
         return this.stateManager.onHiddenSolidsChange(listener);
@@ -1981,6 +1998,8 @@ export class CadViewportWidget extends ReactWidget {
                 onHideSolids={this.handleHideSolids}
                 onIsolateSolids={this.handleIsolateSolids}
                 onShowAllSolids={this.handleShowAllSolids}
+                onClearSelection={this.handleClearSelection}
+                onRevealFeature={this.handleRevealFeature}
                 messageService={this.messageService}
             />
         );
@@ -2090,6 +2109,10 @@ interface CadViewportComponentProps {
     readonly onHideSolids: (solidIds: readonly number[]) => void;
     readonly onIsolateSolids: (solidIds: readonly number[]) => void;
     readonly onShowAllSolids: () => void;
+    /** Viewport context menu/Escape: clear the document and viewport selection. */
+    readonly onClearSelection: () => void;
+    /** Viewport context menu: select a feature and reveal the Feature Tree. */
+    readonly onRevealFeature: (featureId: string) => void;
 }
 
 function CadViewportComponent(props: CadViewportComponentProps): React.ReactElement {
@@ -2462,6 +2485,8 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                 props.onHideSolids,
                 props.onIsolateSolids,
                 props.onShowAllSolids,
+                props.onClearSelection,
+                props.onRevealFeature,
                 handleViewCubeUpdate,
                 handleViewNameChange
             );
@@ -3301,6 +3326,8 @@ function initViewport(
     onHideSolids: (solidIds: readonly number[]) => void,
     onIsolateSolids: (solidIds: readonly number[]) => void,
     onShowAllSolids: () => void,
+    onClearSelection: () => void,
+    onRevealFeature: (featureId: string) => void,
     onViewCubeUpdate: (quaternion: readonly [number, number, number, number]) => void,
     onViewNameChange: (name: string) => void
 ): ViewportApi {
@@ -3431,6 +3458,8 @@ function initViewport(
     let curveLines: THREE.Line[] = [];
     let selectedCurveId: string | undefined;
     let currentSelection: CadSelection = {};
+    /** A selected solid drives Clear Selection (and makes F fit-to-selection). */
+    const hasViewportSelection = (): boolean => currentSelection.solidId !== undefined || (currentSelection.solidIds?.length ?? 0) > 0;
     // Solids hidden through the Model Outline hide/isolate actions; cleared on
     // every new model (solid indices are positional and can shuffle).
     let hiddenSolidIds = new Set<number>();
@@ -5081,7 +5110,8 @@ function initViewport(
                     explodeFactor,
                     hiddenCount: hiddenSolidIds.size,
                     sectionActive: isSectionActive(),
-                    selectedIds: currentSelection.solidIds ?? (currentSelection.solidId !== undefined ? [currentSelection.solidId] : [])
+                    selectedIds: currentSelection.solidIds ?? (currentSelection.solidId !== undefined ? [currentSelection.solidId] : []),
+                    hasSelection: hasViewportSelection()
                 }),
                 { x: event.clientX - containerRect.left, y: event.clientY - containerRect.top },
                 (action) => {
@@ -5118,6 +5148,12 @@ function initViewport(
                             break;
                         case 'toggleSection':
                             onToggleSection();
+                            break;
+                        case 'clearSelection':
+                            onClearSelection();
+                            break;
+                        case 'revealFeature':
+                            onRevealFeature(action.featureId);
                             break;
                         case 'noop':
                             break;
@@ -5301,6 +5337,41 @@ function initViewport(
                 }
             }
             return;
+        }
+        // Document-mode Escape clears the selection. It sits after the pick and
+        // measure branches (they return above) but before the sketch-session
+        // block below, so it never takes Escape from an active tool. Section
+        // view, transient overlays, and dialogs own Escape through their own
+        // handlers and leave selection clearing to a later press.
+        if (
+            event.key === 'Escape' &&
+            !controller.isActive &&
+            !measureState.active &&
+            !isSectionActive() &&
+            activeFacePickMode === undefined &&
+            activeDressUpPickMode === undefined &&
+            !activeHolePickMode &&
+            !activeCurvePickMode &&
+            !activeDrawingDimensionPickMode &&
+            !activeConnectorPickMode &&
+            hasViewportSelection() &&
+            // Transient overlays own Escape: the menu and shortcut bar run
+            // their own window-capture handlers, and NukeDialog listens on
+            // document capture, which this handler's stopPropagation() would
+            // swallow.
+            container.querySelector('.cad-viewport-context-menu, .cad-shortcut-bar, [role="dialog"]') === null
+        ) {
+            const target = event.target;
+            const isTextField =
+                target instanceof HTMLInputElement ||
+                target instanceof HTMLTextAreaElement ||
+                target instanceof HTMLSelectElement ||
+                (target instanceof HTMLElement && target.isContentEditable);
+            if (!isTextField) {
+                event.preventDefault();
+                event.stopPropagation();
+                onClearSelection();
+            }
         }
         // Q shortcut bar: available in both document and sketch mode when no
         // transient tool or text field is active and no modifier is held.

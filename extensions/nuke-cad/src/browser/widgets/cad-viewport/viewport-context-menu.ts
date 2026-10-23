@@ -78,6 +78,8 @@ export type ViewportContextMenuAction =
     | { readonly kind: 'resetExplode' }
     | { readonly kind: 'showAll' }
     | { readonly kind: 'toggleSection' }
+    | { readonly kind: 'clearSelection' }
+    | { readonly kind: 'revealFeature'; readonly featureId: string }
     /** Only ever on disabled items (the Edit Feature placeholder). */
     | { readonly kind: 'noop' };
 
@@ -87,6 +89,12 @@ export interface ViewportContextMenuItem {
     readonly disabled?: boolean;
     /** Render a separator above this item (group boundaries). */
     readonly separatorAbove?: boolean;
+    /**
+     * Right-aligned key hint. Only real bindings belong here (`F` fits the
+     * view/selection, `Esc` clears selection) — never advertise a key that
+     * does nothing in this viewport.
+     */
+    readonly hint?: string;
     readonly action: ViewportContextMenuAction;
 }
 
@@ -105,10 +113,13 @@ export interface ViewportContextMenuInput {
      * items act on the whole set. Defaults to [].
      */
     readonly selectedIds?: readonly number[];
+    /** Whether the viewport has a selection; gates Clear Selection. Defaults to false. */
+    readonly hasSelection?: boolean;
 }
 
 /** Hit-test-dependent menu contents; solid menu vs empty-space menu. */
 export function buildViewportContextMenu(input: ViewportContextMenuInput): readonly ViewportContextMenuItem[] {
+    const hasSelection = input.hasSelection === true;
     if (input.solid !== undefined) {
         const { solidId, featureId } = input.solid;
         const selectedIds = (input.selectedIds ?? []).filter((id, index, all) => all.indexOf(id) === index);
@@ -120,6 +131,16 @@ export function buildViewportContextMenu(input: ViewportContextMenuInput): reado
                 disabled: featureId === undefined ? true : undefined,
                 action: featureId !== undefined ? { kind: 'editFeature', featureId } : { kind: 'noop' }
             },
+            ...(featureId !== undefined
+                ? [
+                      {
+                          label: 'Find in Feature Tree',
+                          icon: 'codicon-list-tree',
+                          separatorAbove: true,
+                          action: { kind: 'revealFeature', featureId } as const
+                      }
+                  ]
+                : []),
             {
                 label: 'Measure Distance',
                 icon: 'codicon-nuke-cad-measure',
@@ -140,6 +161,7 @@ export function buildViewportContextMenu(input: ViewportContextMenuInput): reado
                 label: 'Fit to Solid',
                 icon: 'codicon-zoom-in',
                 separatorAbove: true,
+                hint: 'F',
                 action: { kind: 'fitSolid', solidId }
             },
             {
@@ -167,12 +189,35 @@ export function buildViewportContextMenu(input: ViewportContextMenuInput): reado
                           action: { kind: 'isolateSolids', solidIds: bulkIds } as const
                       }
                   ]
+                : []),
+            ...(hasSelection
+                ? [
+                      {
+                          label: 'Clear Selection',
+                          icon: 'codicon-clear-all',
+                          hint: 'Esc',
+                          separatorAbove: true,
+                          action: { kind: 'clearSelection' } as const
+                      }
+                  ]
                 : [])
         ];
     }
     const hiddenCount = input.hiddenCount ?? 0;
     const sectionActive = input.sectionActive ?? false;
     return [
+        ...(hasSelection
+            ? [
+                  {
+                      label: 'Clear Selection',
+                      icon: 'codicon-clear-all',
+                      hint: 'Esc',
+                      action: { kind: 'clearSelection' } as const
+                  }
+              ]
+            : []),
+        // No hint here: F fits the selected solid when one exists, so it is
+        // not the Fit All binding.
         { label: 'Fit All', icon: 'codicon-zoom-out', action: { kind: 'fitAll' } },
         {
             label: 'Reset Explode',
@@ -203,6 +248,8 @@ export function buildViewportContextMenu(input: ViewportContextMenuInput): reado
  * isolateSolids -> setHiddenSolidIds(allSolidIds.filter(id => !keep.has(id))) over the bodies owning solidIds
  * showAll -> stateManager.setHiddenSolidIds([])
  * toggleSection -> onSetSectionActive(!sectionActive)
+ * clearSelection -> onClearSelection() (document selection + viewport highlight)
+ * revealFeature -> onRevealFeature(featureId) (select in the tree, then open its panel)
  */
 
 /**
@@ -232,7 +279,17 @@ export function openViewportContextMenu(
         const icon = document.createElement('span');
         icon.className = `codicon ${item.icon}`;
         button.appendChild(icon);
-        button.appendChild(document.createTextNode(item.label));
+        const label = document.createElement('span');
+        label.className = 'cad-viewport-context-menu-label';
+        label.textContent = item.label;
+        button.appendChild(label);
+        if (item.hint !== undefined) {
+            const hint = document.createElement('span');
+            hint.className = 'cad-viewport-context-menu-hint';
+            hint.textContent = item.hint;
+            button.appendChild(hint);
+            button.setAttribute('aria-keyshortcuts', item.hint === 'Esc' ? 'Escape' : item.hint);
+        }
         button.addEventListener('click', () => {
             close();
             if (item.disabled !== true) {

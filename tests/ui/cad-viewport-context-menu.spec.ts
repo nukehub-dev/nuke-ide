@@ -6,10 +6,12 @@ import { collectErrors, waitForWorkbench, openFileByQuickOpen } from './helpers'
  *
  * Right-clicking the canvas opens the viewport's own menu (no browser
  * default): on a solid it offers Edit Feature (attributed through the solid's
- * body), the three measure tools, and Fit to Solid; on empty space it offers
- * Fit All and Reset Explode (disabled at 0%). The feature dialog it opens
- * drags by its header and resets on a header double-click, like the sketch
- * chrome panels.
+ * body), Find in Feature Tree, the three measure tools, Fit to Solid, and
+ * Hide/Isolate; on empty space it offers Fit All and Reset Explode (disabled
+ * at 0%). Clear Selection (Esc) appears only while something is selected, and
+ * the real bindings carry right-aligned hints (F, Esc). The feature dialog it
+ * opens drags by its header and resets on a header double-click, like the
+ * sketch chrome panels.
  *
  * The menu only appears once a tessellation is on screen, which requires a
  * working CAD backend. Without one the build fails and the viewport shows its
@@ -55,21 +57,33 @@ test('right-click context menu and draggable feature dialog', async ({ page }) =
     const center = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
     const menu = viewport.locator('.cad-viewport-context-menu');
 
-    // Solid surface: Edit Feature (attributed), the three measure tools, Fit to Solid, Hide/Isolate Solid.
+    // Select the solid first: Clear Selection is selection-aware.
+    await page.mouse.click(center.x, center.y);
     await page.mouse.click(center.x, center.y, { button: 'right' });
     await expect(menu).toBeVisible();
-    const solidLabels = (await menu.locator('.cad-viewport-context-menu-item').allTextContents()).map((t) => t.trim());
+    const labelTexts = async (): Promise<string[]> =>
+        (await menu.locator('.cad-viewport-context-menu-label').allTextContents()).map((text) => text.trim());
+    const solidLabels = await labelTexts();
     expect(solidLabels).toEqual([
         'Edit Feature…',
+        'Find in Feature Tree',
         'Measure Distance',
         'Measure Angle',
         'Measure Radius',
         'Fit to Solid',
         'Hide Solid',
-        'Isolate Solid'
+        'Isolate Solid',
+        'Clear Selection'
     ]);
     const editItem = menu.locator('.cad-viewport-context-menu-item', { hasText: 'Edit Feature…' });
     await expect(editItem).toBeEnabled();
+    const fitItem = menu.locator('.cad-viewport-context-menu-item', { hasText: 'Fit to Solid' });
+    await expect(fitItem.locator('.cad-viewport-context-menu-hint')).toHaveText('F');
+    await expect(fitItem).toHaveAttribute('aria-keyshortcuts', 'F');
+    const clearItem = menu.locator('.cad-viewport-context-menu-item', { hasText: 'Clear Selection' });
+    await expect(clearItem.locator('.cad-viewport-context-menu-hint')).toHaveText('Esc');
+    await expect(clearItem).toHaveAttribute('aria-keyshortcuts', 'Escape');
+    await menu.screenshot({ path: 'test-results/cad-context-menu.png' });
 
     // Measure Distance activates the tool: the status pill takes over the hint.
     await menu.locator('.cad-viewport-context-menu-item', { hasText: 'Measure Distance' }).click();
@@ -78,7 +92,8 @@ test('right-click context menu and draggable feature dialog', async ({ page }) =
     await page.keyboard.press('Escape');
     await expect(viewport.locator('.cad-viewport-shading-hint')).toBeHidden();
 
-    // Escape closed the menu without activating anything.
+    // Escape closes the menu without activating anything, and the menu owns the
+    // key: the selection survives for the empty-space menu below.
     await page.mouse.click(center.x, center.y, { button: 'right' });
     await expect(menu).toBeVisible();
     await page.keyboard.press('Escape');
@@ -87,8 +102,11 @@ test('right-click context menu and draggable feature dialog', async ({ page }) =
     // Empty space: bottom-left corner (clear of the model, toolbar, status pill, and nav cluster).
     await page.mouse.click(box.x + 20, box.y + box.height - 20, { button: 'right' });
     await expect(menu).toBeVisible();
-    const emptyLabels = (await menu.locator('.cad-viewport-context-menu-item').allTextContents()).map((t) => t.trim());
-    expect(emptyLabels).toEqual(['Fit All', 'Reset Explode', 'Show All Solids', 'Show Section View']);
+    const emptyLabels = await labelTexts();
+    expect(emptyLabels).toEqual(['Clear Selection', 'Fit All', 'Reset Explode', 'Show All Solids', 'Show Section View']);
+    await expect(
+        menu.locator('.cad-viewport-context-menu-item', { hasText: 'Clear Selection' }).locator('.cad-viewport-context-menu-hint')
+    ).toHaveText('Esc');
     await expect(menu.locator('.cad-viewport-context-menu-item', { hasText: 'Reset Explode' })).toBeDisabled();
     await page.keyboard.press('Escape');
     await expect(menu).toBeHidden();
@@ -116,6 +134,31 @@ test('right-click context menu and draggable feature dialog', async ({ page }) =
     expect(Math.abs(reset.y - initial.y)).toBeLessThan(5);
     await dialog.locator('.nuke-dialog-close').click();
     await expect(dialog).toBeHidden();
+
+    // Escape clears a document-mode selection: select, press Escape, reopen the
+    // menu, and Clear Selection is gone.
+    await page.mouse.click(center.x, center.y);
+    await page.keyboard.press('Escape');
+    await page.mouse.click(center.x, center.y, { button: 'right' });
+    await expect(menu).toBeVisible();
+    const afterEscapeLabels = await labelTexts();
+    expect(afterEscapeLabels).toEqual([
+        'Edit Feature…',
+        'Find in Feature Tree',
+        'Measure Distance',
+        'Measure Angle',
+        'Measure Radius',
+        'Fit to Solid',
+        'Hide Solid',
+        'Isolate Solid'
+    ]);
+
+    // Find in Feature Tree selects the attributed feature and opens its panel.
+    // Last canvas-coordinate step: the panel shrinks the viewport.
+    await menu.locator('.cad-viewport-context-menu-item', { hasText: 'Find in Feature Tree' }).click();
+    const featureTree = page.locator('.cad-feature-tree-panel');
+    await expect(featureTree).toBeVisible();
+    await expect(featureTree.locator('.feature-tree-row.feature.selected').first()).toBeVisible();
 
     const severe = errors.filter((e) => !e.includes('l10n') && !e.includes('localization bundles'));
     expect(severe, `unexpected severe errors:\n${severe.join('\n')}`).toEqual([]);

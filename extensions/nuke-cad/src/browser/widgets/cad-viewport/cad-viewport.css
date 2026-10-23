@@ -332,6 +332,16 @@
     background: var(--theia-list-hoverBackground);
 }
 
+.cad-viewport-context-menu-label {
+    white-space: nowrap;
+}
+
+.cad-viewport-context-menu-hint {
+    margin-left: auto;
+    padding-left: 16px;
+    color: var(--theia-descriptionForeground);
+}
+
 .cad-viewport-context-menu-item:disabled {
     opacity: 0.5;
     cursor: default;

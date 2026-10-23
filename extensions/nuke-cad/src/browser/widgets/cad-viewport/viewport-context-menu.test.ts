@@ -53,10 +53,13 @@ describe('attributeBodyToFeature', () => {
 });
 
 describe('buildViewportContextMenu', () => {
-    it('offers Edit Feature (attributed), the three measure tools, Fit to Solid, Hide and Isolate on a solid', () => {
+    const labels = (items: ReturnType<typeof buildViewportContextMenu>): string[] => items.map((item) => item.label);
+
+    it('offers Edit Feature, Find in Feature Tree, the three measure tools, Fit to Solid, Hide and Isolate on a solid', () => {
         const items = buildViewportContextMenu({ solid: { solidId: 3, featureId: 'pad-1' }, explodeFactor: 0 });
-        expect(items.map((item) => item.label)).toEqual([
+        expect(labels(items)).toEqual([
             'Edit Feature…',
+            'Find in Feature Tree',
             'Measure Distance',
             'Measure Angle',
             'Measure Radius',
@@ -66,19 +69,32 @@ describe('buildViewportContextMenu', () => {
         ]);
         expect(items[0].disabled).toBeUndefined();
         expect(items[0].action).toEqual({ kind: 'editFeature', featureId: 'pad-1' });
-        expect(items[1].action).toEqual({ kind: 'measure', tool: 'distance' });
-        expect(items[2].action).toEqual({ kind: 'measure', tool: 'angle' });
-        expect(items[3].action).toEqual({ kind: 'measure', tool: 'radius' });
-        expect(items[4].action).toEqual({ kind: 'fitSolid', solidId: 3 });
-        expect(items[5].separatorAbove).toBe(true);
-        expect(items[5].disabled).toBeUndefined();
-        expect(items[5].action).toEqual({ kind: 'hideSolid', solidId: 3 });
+        expect(items[1].separatorAbove).toBe(true);
+        expect(items[1].action).toEqual({ kind: 'revealFeature', featureId: 'pad-1' });
+        expect(items[2].separatorAbove).toBe(true);
+        expect(items[2].action).toEqual({ kind: 'measure', tool: 'distance' });
+        expect(items[3].action).toEqual({ kind: 'measure', tool: 'angle' });
+        expect(items[4].action).toEqual({ kind: 'measure', tool: 'radius' });
+        expect(items[5].hint).toBe('F');
+        expect(items[5].action).toEqual({ kind: 'fitSolid', solidId: 3 });
+        expect(items[6].separatorAbove).toBe(true);
         expect(items[6].disabled).toBeUndefined();
-        expect(items[6].action).toEqual({ kind: 'isolateSolid', solidId: 3 });
+        expect(items[6].action).toEqual({ kind: 'hideSolid', solidId: 3 });
+        expect(items[7].disabled).toBeUndefined();
+        expect(items[7].action).toEqual({ kind: 'isolateSolid', solidId: 3 });
     });
 
-    it('disables Edit Feature when attribution fails instead of guessing', () => {
+    it('disables Edit Feature when attribution fails instead of guessing, and omits Find in Feature Tree', () => {
         const items = buildViewportContextMenu({ solid: { solidId: 3 }, explodeFactor: 0 });
+        expect(labels(items)).toEqual([
+            'Edit Feature…',
+            'Measure Distance',
+            'Measure Angle',
+            'Measure Radius',
+            'Fit to Solid',
+            'Hide Solid',
+            'Isolate Solid'
+        ]);
         expect(items[0].disabled).toBe(true);
         expect(items[0].action).toEqual({ kind: 'noop' });
     });
@@ -89,8 +105,9 @@ describe('buildViewportContextMenu', () => {
             explodeFactor: 0,
             selectedIds: [3, 7, 9]
         });
-        expect(items.map((item) => item.label)).toEqual([
+        expect(labels(items)).toEqual([
             'Edit Feature…',
+            'Find in Feature Tree',
             'Measure Distance',
             'Measure Angle',
             'Measure Radius',
@@ -100,9 +117,9 @@ describe('buildViewportContextMenu', () => {
             'Hide Selected (3)',
             'Isolate Selected (3)'
         ]);
-        expect(items[7].separatorAbove).toBe(true);
-        expect(items[7].action).toEqual({ kind: 'hideSolids', solidIds: [3, 7, 9] });
-        expect(items[8].action).toEqual({ kind: 'isolateSolids', solidIds: [3, 7, 9] });
+        expect(items[8].separatorAbove).toBe(true);
+        expect(items[8].action).toEqual({ kind: 'hideSolids', solidIds: [3, 7, 9] });
+        expect(items[9].action).toEqual({ kind: 'isolateSolids', solidIds: [3, 7, 9] });
     });
 
     it('omits bulk items when the hit solid is outside the multi-selection', () => {
@@ -111,8 +128,9 @@ describe('buildViewportContextMenu', () => {
             explodeFactor: 0,
             selectedIds: [7, 9]
         });
-        expect(items.map((item) => item.label)).toEqual([
+        expect(labels(items)).toEqual([
             'Edit Feature…',
+            'Find in Feature Tree',
             'Measure Distance',
             'Measure Angle',
             'Measure Radius',
@@ -122,15 +140,66 @@ describe('buildViewportContextMenu', () => {
         ]);
     });
 
+    it('hints only real bindings: F for Fit to Solid and Esc for Clear Selection', () => {
+        const items = buildViewportContextMenu({
+            solid: { solidId: 3, featureId: 'pad-1' },
+            explodeFactor: 0,
+            hasSelection: true
+        });
+        const byLabel = (label: string) => items.find((item) => item.label === label);
+        expect(byLabel('Fit to Solid')?.hint).toBe('F');
+        expect(byLabel('Clear Selection')?.hint).toBe('Esc');
+        for (const label of [
+            'Edit Feature…',
+            'Find in Feature Tree',
+            'Measure Distance',
+            'Measure Angle',
+            'Measure Radius',
+            'Hide Solid',
+            'Isolate Solid'
+        ]) {
+            expect(byLabel(label)?.hint).toBeUndefined();
+        }
+    });
+
+    it('adds Clear Selection last, only when the viewport has a selection', () => {
+        const without = buildViewportContextMenu({ solid: { solidId: 3, featureId: 'pad-1' }, explodeFactor: 0 });
+        expect(labels(without)).not.toContain('Clear Selection');
+
+        const withSelection = buildViewportContextMenu({
+            solid: { solidId: 3, featureId: 'pad-1' },
+            explodeFactor: 0,
+            hasSelection: true
+        });
+        const clear = withSelection[withSelection.length - 1];
+        expect(clear.label).toBe('Clear Selection');
+        expect(clear.hint).toBe('Esc');
+        expect(clear.separatorAbove).toBe(true);
+        expect(clear.action).toEqual({ kind: 'clearSelection' });
+    });
+
     it('offers Fit All, Reset Explode, Show All Solids, and the section toggle on empty space', () => {
         const items = buildViewportContextMenu({ solid: undefined, explodeFactor: 0 });
-        expect(items.map((item) => item.label)).toEqual(['Fit All', 'Reset Explode', 'Show All Solids', 'Show Section View']);
+        expect(labels(items)).toEqual(['Fit All', 'Reset Explode', 'Show All Solids', 'Show Section View']);
         expect(items[0].disabled).toBeUndefined();
+        // F fits the selected solid when one exists, so Fit All carries no hint.
+        expect(items[0].hint).toBeUndefined();
         expect(items[1].disabled).toBe(true);
 
         const exploded = buildViewportContextMenu({ solid: undefined, explodeFactor: 0.5 });
         expect(exploded[1].disabled).toBeUndefined();
         expect(exploded[1].action).toEqual({ kind: 'resetExplode' });
+    });
+
+    it('prepends Clear Selection on empty space only when the viewport has a selection', () => {
+        const without = buildViewportContextMenu({ solid: undefined, explodeFactor: 0 });
+        expect(labels(without)).not.toContain('Clear Selection');
+
+        const withSelection = buildViewportContextMenu({ solid: undefined, explodeFactor: 0, hasSelection: true });
+        expect(labels(withSelection)).toEqual(['Clear Selection', 'Fit All', 'Reset Explode', 'Show All Solids', 'Show Section View']);
+        expect(withSelection[0].hint).toBe('Esc');
+        expect(withSelection[0].action).toEqual({ kind: 'clearSelection' });
+        expect(withSelection[1].hint).toBeUndefined();
     });
 
     it('disables Show All Solids when nothing is hidden', () => {

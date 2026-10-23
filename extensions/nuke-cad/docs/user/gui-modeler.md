@@ -107,10 +107,15 @@ it opens it in the CAD viewport by default.
   active) for a context menu instead of the browser default. On a solid it
   offers **Edit Feature…** (the solid is attributed to the latest feature that
   wrote its body — disabled when no feature matches, e.g. script/STEP models),
-  **Measure Distance / Angle / Radius**, **Fit to Solid**, and **Hide /
-  Isolate Solid**; on empty space it offers **Fit All**, **Show All Solids**
-  (disabled when nothing is hidden), a **Section View** toggle, and **Reset
-  Explode** (disabled at 0%). It closes on a click elsewhere or `Esc`.
+  **Find in Feature Tree** (selects the owning feature and opens the panel;
+  omitted for unattributed solids), **Measure Distance / Angle / Radius**, **Fit
+  to Solid** (`F`), **Hide / Isolate Solid** plus bulk variants for a
+  multi-selection, and **Clear Selection** (`Esc`) while something is selected;
+  on empty space it offers **Clear Selection** first when a selection exists,
+  then **Fit All**, **Show All Solids** (disabled when nothing is hidden), a
+  **Section View** toggle, and **Reset Explode** (disabled at 0%). Shortcut
+  hints appear only for real bindings. It closes on a click elsewhere or `Esc`;
+  with no menu open, `Esc` clears the current selection.
 - **Multi-select**: `Ctrl`/`Cmd`-click solids in the viewport (or rows in the
   Model Outline BODIES section) to accumulate a selection; `Ctrl`/`Cmd`-click
   again to drop one, or `Ctrl`/`Cmd`-drag a rectangle to add every solid whose
