@@ -109,6 +109,21 @@ export namespace NukeCadCommands {
         label: nls.localize('nuke/cad/openDrawingSheet', 'Open Drawing Sheet')
     };
 
+    export const SAVE_NAMED_VIEW: Command = {
+        id: 'nuke.cad.saveNamedView',
+        label: nls.localize('nuke/cad/saveNamedView', 'Save Named View')
+    };
+
+    export const RESTORE_NAMED_VIEW: Command = {
+        id: 'nuke.cad.restoreNamedView',
+        label: nls.localize('nuke/cad/restoreNamedView', 'Restore Named View')
+    };
+
+    export const DELETE_NAMED_VIEW: Command = {
+        id: 'nuke.cad.deleteNamedView',
+        label: nls.localize('nuke/cad/deleteNamedView', 'Delete Named View')
+    };
+
     export const ADD_FEATURE_PAD: Command = {
         id: 'nuke.cad.addFeature.pad',
         label: nls.localize('nuke/cad/addFeature/pad', 'Add Pad Feature')

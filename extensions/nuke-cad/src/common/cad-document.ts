@@ -621,6 +621,25 @@ export interface SavedMeasurement {
     createdAt: string;
 }
 
+/**
+ * One saved viewport camera persisted in the `.nuke-cad` document (additive,
+ * schema v3 — no migration: absent means no saved views, the same convention
+ * as `measurements` and `drawings`).
+ *
+ * `position`, `target`, and `up` are `[x, y, z]` tuples in world space;
+ * `name` is user-facing and unique within the document; `createdAt` is an
+ * ISO-8601 timestamp. The geometry backend never reads this block — it must
+ * never affect builds, exports, or codegen.
+ */
+export interface SavedNamedView {
+    id: string;
+    name: string;
+    position: CurvePoint;
+    target: CurvePoint;
+    up: CurvePoint;
+    createdAt: string;
+}
+
 /** Complete `.nuke-cad` document. */
 export interface NukeCadDocument {
     version: number;
@@ -654,6 +673,13 @@ export interface NukeCadDocument {
      * step exists.
      */
     measurements?: SavedMeasurement[];
+    /**
+     * Additive saved viewport cameras (schema v3). Absent means the document
+     * has no named views. Display-only state: the backend never reads this
+     * block, so older documents simply have no `views` and no migration step
+     * exists.
+     */
+    views?: SavedNamedView[];
 }
 
 /** A single validation issue. */
@@ -1700,6 +1726,29 @@ function validateSavedMeasurement(ctx: MutableValidationContext, measurement: Sa
     }
 }
 
+/** ISO-8601 timestamp with an explicit zone (the form `Date#toISOString` emits). */
+const ISO_TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
+
+function isIsoTimestamp(value: unknown): value is string {
+    return isString(value) && ISO_TIMESTAMP_PATTERN.test(value) && !Number.isNaN(Date.parse(value));
+}
+
+function validateSavedNamedView(ctx: MutableValidationContext, view: SavedNamedView, index: number): void {
+    const path = `views[${index}]`;
+    requireId(ctx, `${path}.id`, view.id);
+    if (!isString(view.name) || view.name.trim().length === 0) {
+        issue(ctx, `${path}.name`, 'name must be a non-empty string');
+    }
+    for (const field of ['position', 'target', 'up'] as const) {
+        if (!isFinitePoint3(view[field])) {
+            issue(ctx, `${path}.${field}`, `${field} must be a [x, y, z] tuple of finite numbers`);
+        }
+    }
+    if (!isIsoTimestamp(view.createdAt)) {
+        issue(ctx, `${path}.createdAt`, 'createdAt must be an ISO-8601 timestamp string');
+    }
+}
+
 /**
  * Validate the additive assembly section by delegating to the frozen
  * `validateAssemblyDocument` spec on a synthesized root. Absent assembly is
@@ -1826,6 +1875,24 @@ export function validateNukeCadDocument(doc: NukeCadDocument): ValidationResult 
         } else {
             for (const [i, measurement] of doc.measurements.entries()) {
                 validateSavedMeasurement(ctx, measurement as SavedMeasurement, i);
+            }
+        }
+    }
+    if (doc.views !== undefined) {
+        if (!Array.isArray(doc.views)) {
+            issue(ctx, 'views', 'views must be an array of saved named views');
+        } else {
+            const names = new Set<string>();
+            for (const [i, view] of doc.views.entries()) {
+                validateSavedNamedView(ctx, view as SavedNamedView, i);
+                const name = (view as SavedNamedView).name;
+                if (isString(name) && name.trim().length > 0) {
+                    const key = name.trim().toLowerCase();
+                    if (names.has(key)) {
+                        issue(ctx, `views[${i}].name`, `duplicate view name '${name.trim()}'`);
+                    }
+                    names.add(key);
+                }
             }
         }
     }

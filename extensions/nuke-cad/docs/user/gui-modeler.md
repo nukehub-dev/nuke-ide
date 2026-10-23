@@ -104,6 +104,11 @@ it opens it in the CAD viewport by default.
   orientation; click an axis knob (or its opposite) to snap to that view.
 - **View badge** (top-left, below the toolbar, shared with the native VTK viewers): shows the active view
   (`User view` after orbiting, `Top view` after snapping) or the active sketch.
+- **Named views** (Model Outline → **Named Views**): **Save current view**
+  (the `+` button) prompts for a name and stores the live camera pose in the
+  document, so it survives save/reopen and rides undo/redo. Click a row to
+  restore that camera; the hover trash button deletes it. Named views are
+  display-only and never rebuild geometry.
 - **Fit**: `F` or the fit button frames the whole model; with a solid selected
   it frames that selection instead — `.` and double-clicking a solid also fit
   the selection.
@@ -768,6 +773,21 @@ reference-dependent items (face datums, external geometry, fillet/chamfer edges,
 draft/shell faces, and hole placement faces) are emitted as clearly marked
 `# TODO(manual):` comments so nothing is silently dropped. The export is not
 round-trippable; it is intended as readable output for downstream editing.
+
+## Document settings
+
+The top of the **Model Outline** carries a collapsible **Document Settings**
+section for `.nuke-cad` documents. It summarizes the open document and is
+read-only apart from the units choice:
+
+- **Units** — the same `Unitless`/`mm`/`cm`/`m` choice as the document
+  toolbar. Declared units tag future numeric inputs only; changing them never
+  rescales existing parameters, curves, or sketch coordinates.
+- **Parameters** — the number of document parameters. Edit them in the
+  [Parameters spreadsheet](#parameters-spreadsheet) below.
+- **Design Properties** — the document **Name**, its **Source** (the model
+  file, or `In-memory document` when unsaved), the **Bodies** count, and the
+  **Schema** version.
 
 ## Parameters spreadsheet
 

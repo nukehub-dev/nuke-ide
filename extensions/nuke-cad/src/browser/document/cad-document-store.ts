@@ -58,6 +58,7 @@ import {
     type DrawingView,
     type SavedMeasurement,
     type SavedMeasurementKind,
+    type SavedNamedView,
     NUKE_CAD_SCHEMA_VERSION,
     validateNukeCadDocument,
     migrateNukeCadDocument
@@ -120,6 +121,9 @@ export interface DocumentSelection {
 /** Maximum number of pre-mutation snapshots kept for undo (oldest dropped). */
 export const DOCUMENT_HISTORY_DEPTH = 100;
 
+/** Maximum number of saved named views per document (display-only state). */
+export const MAX_NAMED_VIEWS = 32;
+
 /**
  * One undo/redo history entry: the pre-mutation document plus the derived
  * `drawingVersion` counter. Snapshots cover derived counters automatically —
@@ -153,6 +157,10 @@ let idCounter = 0;
 
 function nextId(prefix: string): string {
     return `${prefix}-${++idCounter}`;
+}
+
+function isFinitePoint3(value: unknown): value is CurvePoint {
+    return Array.isArray(value) && value.length === 3 && value.every((v) => typeof v === 'number' && Number.isFinite(v));
 }
 
 /** Document-level assembly section (B1 `NukeCadAssembly`, schema v3 additive). */
@@ -276,6 +284,15 @@ function cloneSavedMeasurement(measurement: SavedMeasurement): SavedMeasurement 
     };
 }
 
+function cloneSavedNamedView(view: SavedNamedView): SavedNamedView {
+    return {
+        ...view,
+        position: [view.position[0], view.position[1], view.position[2]],
+        target: [view.target[0], view.target[1], view.target[2]],
+        up: [view.up[0], view.up[1], view.up[2]]
+    };
+}
+
 function cloneDocument(doc: NukeCadDocument): NukeCadDocument {
     const assembly = cloneAssemblySection(getAssemblySection(doc));
     return {
@@ -302,6 +319,7 @@ function cloneDocument(doc: NukeCadDocument): NukeCadDocument {
         curves: doc.curves.map((c) => cloneCurve(c)),
         ...(doc.drawings !== undefined ? { drawings: doc.drawings.map((s) => cloneDrawingSheet(s)) } : {}),
         ...(doc.measurements !== undefined ? { measurements: doc.measurements.map((m) => cloneSavedMeasurement(m)) } : {}),
+        ...(doc.views !== undefined ? { views: doc.views.map((v) => cloneSavedNamedView(v)) } : {}),
         ...(assembly !== undefined ? { assembly } : {})
     };
 }
@@ -1985,6 +2003,83 @@ export class CadDocumentStore {
     }
 
     // *************************************************************************
+    // Saved named-view mutations (display-only camera poses). Immutable +
+    // validated through the normal commit path (v3 schema, additive `views`
+    // block). Saving or deleting a view never schedules a rebuild: views are
+    // display state and must never affect builds, exports, or codegen.
+    // *************************************************************************
+
+    /**
+     * Save a viewport camera pose into the document's `views` block.
+     *
+     * The name is trimmed and must be unique within the document (compared
+     * case-insensitively); the block is capped at {@link MAX_NAMED_VIEWS}.
+     * The entry rides the normal commit path (schema validation, snapshot
+     * undo/redo, dirty flag, change event) — but callers must not schedule a
+     * rebuild for it: views are display-only. Returns the new view id.
+     */
+    addNamedView(input: { name: string; position: CurvePoint; target: CurvePoint; up: CurvePoint }): DocumentMutationResult<string> {
+        const check = this.requireDocument();
+        if (!check.success) {
+            return { success: false, error: check.error, issues: check.issues };
+        }
+        if (typeof input.name !== 'string') {
+            return { success: false, error: 'Named view name must be a non-empty string' };
+        }
+        const name = input.name.trim();
+        if (name.length === 0) {
+            return { success: false, error: 'Named view name must be a non-empty string' };
+        }
+        for (const field of ['position', 'target', 'up'] as const) {
+            if (!isFinitePoint3(input[field])) {
+                return { success: false, error: `Named view ${field} must be a [x, y, z] tuple of finite numbers` };
+            }
+        }
+        const doc = cloneDocument(check.value!);
+        const views = doc.views ?? [];
+        if (views.length >= MAX_NAMED_VIEWS) {
+            return { success: false, error: `Named views are limited to ${MAX_NAMED_VIEWS} per document` };
+        }
+        if (views.some((view) => view.name.trim().toLowerCase() === name.toLowerCase())) {
+            return { success: false, error: `A named view called '${name}' already exists` };
+        }
+        const saved: SavedNamedView = {
+            id: createNamedViewId(),
+            name,
+            position: [input.position[0], input.position[1], input.position[2]],
+            target: [input.target[0], input.target[1], input.target[2]],
+            up: [input.up[0], input.up[1], input.up[2]],
+            createdAt: new Date().toISOString()
+        };
+        doc.views = [...views, saved];
+        const result = this.commit(doc);
+        if (!result.success) {
+            return { success: false, error: result.error, issues: result.issues };
+        }
+        return { success: true, value: saved.id };
+    }
+
+    /**
+     * Delete a saved named view by id.
+     *
+     * Unknown ids are a structured error (never a silent no-op). Like every
+     * mutation this is undo-covered, and it never schedules a rebuild.
+     */
+    removeNamedView(id: string): DocumentMutationResult {
+        const check = this.requireDocument();
+        if (!check.success) {
+            return { success: false, error: check.error, issues: check.issues };
+        }
+        const doc = cloneDocument(check.value!);
+        const views = doc.views ?? [];
+        if (!views.some((view) => view.id === id)) {
+            return { success: false, error: `Named view '${id}' not found` };
+        }
+        doc.views = views.filter((view) => view.id !== id);
+        return this.commit(doc);
+    }
+
+    // *************************************************************************
     // Assembly mutations (Wave B2). Immutable + validated through the
     // B1-optional `assembly` channel; `computeDependsOn` is untouched —
     // assembly adds no feature edges.
@@ -2638,6 +2733,17 @@ export function createDimensionId(): string {
  */
 export function createMeasurementId(): string {
     return nextId('measurement');
+}
+
+/**
+ * Return a new unique id for a saved named view.
+ *
+ * Callers may override the generated id; this helper is provided for
+ * convenience in UI code. The `named-view` prefix keeps ids distinct from
+ * drawing view ids (`createViewId`, prefix `view`).
+ */
+export function createNamedViewId(): string {
+    return nextId('named-view');
 }
 
 /**

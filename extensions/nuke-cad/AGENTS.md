@@ -70,8 +70,8 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   `ViewCube`/`ViewBadge` below the toolbar, theme-adaptive colors), worker-parsed
   tessellation with content-keyed reuse that rebuilds invalidate, single-authority
   shading, visual-only section, measure (distance/angle/radius + pinnable `measurements`
-  block), per-solid explode, hidden-set picking filters. See `docs/dev/viewport-outline.md`.
-- Model Outline (read-only manifest + Properties/Table/Parameters/BOM/warnings-Fuse)
+  block), saved named views (`views` block + camera API), per-solid explode, hidden-set picking filters. See `docs/dev/viewport-outline.md`.
+- Model Outline (read-only manifest + Document Settings/Properties/Table/Parameters/BOM/warnings-Fuse)
   and Feature Tree (ordered bodies/datums/sketches/features/curves, suppression,
   reorder/delete guards, repair popover) with mask-based `codicon-nuke-cad-*` icons
   and `nuke-cad-preferences.ts` (faceting/display/background/navigation/rebuild/cache).

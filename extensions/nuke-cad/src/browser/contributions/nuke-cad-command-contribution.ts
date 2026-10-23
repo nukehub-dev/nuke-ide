@@ -35,6 +35,7 @@ import { injectable, inject } from '@theia/core/shared/inversify';
 import { CommandContribution, CommandRegistry } from '@theia/core/lib/common';
 import { MessageService } from '@theia/core/lib/common/message-service';
 import { WidgetManager, ApplicationShell } from '@theia/core/lib/browser';
+import { QuickInputService } from '@theia/core/lib/browser/quick-input';
 import { FileService } from '@theia/filesystem/lib/browser/file-service';
 import { FileDialogService } from '@theia/filesystem/lib/browser/file-dialog';
 import { NukeCadCommands } from '../commands';
@@ -74,6 +75,9 @@ export class NukeCadCommandContribution implements CommandContribution {
 
     @inject(FileDialogService)
     protected readonly fileDialogService: FileDialogService;
+
+    @inject(QuickInputService)
+    protected readonly quickInput: QuickInputService;
 
     registerCommands(commands: CommandRegistry): void {
         commands.registerCommand(NukeCadCommands.OPEN_CAD_VIEWPORT, {
@@ -241,6 +245,68 @@ export class NukeCadCommandContribution implements CommandContribution {
                 const widget = await this.widgetManager.getOrCreateWidget(DrawingSheetWidget.ID);
                 await this.shell.addWidget(widget, { area: 'main' });
                 await this.shell.activateWidget(widget.id);
+            }
+        });
+
+        commands.registerCommand(NukeCadCommands.SAVE_NAMED_VIEW, {
+            execute: async () => {
+                const viewport = await this.widgetManager.getWidget<CadViewportWidget>(CadViewportWidget.ID);
+                if (viewport === undefined) {
+                    this.messageService.warn('Open the CAD viewport before saving a named view.');
+                    return;
+                }
+                if (!this.documentStore.hasDocument) {
+                    this.messageService.warn('Open or create a CAD document before saving a named view.');
+                    return;
+                }
+                const existing = this.documentStore.document?.views ?? [];
+                const used = new Set(existing.map((view) => view.name.trim().toLowerCase()));
+                let suffix = existing.length + 1;
+                while (used.has(`view ${suffix}`)) {
+                    suffix += 1;
+                }
+                const name = await this.quickInput.input({
+                    title: 'Save Named View',
+                    prompt: 'Name this camera view',
+                    placeHolder: 'View name',
+                    value: `View ${suffix}`
+                });
+                if (name === undefined) {
+                    return;
+                }
+                const trimmed = name.trim();
+                if (trimmed.length === 0) {
+                    return;
+                }
+                viewport.saveNamedView(trimmed);
+            }
+        });
+
+        commands.registerCommand(NukeCadCommands.RESTORE_NAMED_VIEW, {
+            execute: async (viewId?: string) => {
+                if (typeof viewId !== 'string') {
+                    this.messageService.warn('Select a named view to restore.');
+                    return;
+                }
+                const viewport = await this.widgetManager.getWidget<CadViewportWidget>(CadViewportWidget.ID);
+                if (viewport === undefined) {
+                    this.messageService.warn('Open the CAD viewport before restoring a named view.');
+                    return;
+                }
+                viewport.restoreNamedView(viewId);
+            }
+        });
+
+        commands.registerCommand(NukeCadCommands.DELETE_NAMED_VIEW, {
+            execute: (viewId?: string) => {
+                if (typeof viewId !== 'string') {
+                    this.messageService.warn('Select a named view to delete.');
+                    return;
+                }
+                const result = this.documentStore.removeNamedView(viewId);
+                if (!result.success) {
+                    this.messageService.error(result.error || 'Failed to delete the named view.');
+                }
             }
         });
 

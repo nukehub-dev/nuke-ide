@@ -80,6 +80,7 @@ import { createSnapConfig, snap } from '../../sketch/snap';
 import { ensureNukeCadExtension } from './cad-save-path';
 import { CadSketchOverlay, DocumentTemplatePicker, type DatumDraft } from './cad-sketch-overlay';
 import { CadDocumentStore, createSketchId, computeDependsOn, getAssemblySection, uniqueFeatureId } from '../../document/cad-document-store';
+import type { DocumentMutationResult } from '../../document/cad-document-store';
 import {
     MemoryResultCache,
     PartialRebuildTracker,
@@ -195,6 +196,23 @@ import './cad-icons.css';
 /** Tessellation payload in its transfer-friendly parsed form (typed arrays). */
 type TessData = ParsedTessData;
 
+/** Camera pose captured by a saved named view (world-space `[x, y, z]` tuples). */
+export interface CadCameraState {
+    readonly position: CurvePoint;
+    readonly target: CurvePoint;
+    readonly up: CurvePoint;
+}
+
+/** Imperative camera access the mounted scene hands back to the widget. */
+export interface CadCameraApi {
+    readonly getCameraState: () => CadCameraState;
+    readonly setCameraState: (state: CadCameraState) => void;
+}
+
+function isFiniteCameraVector(value: unknown): value is CurvePoint {
+    return Array.isArray(value) && value.length === 3 && value.every((v) => typeof v === 'number' && Number.isFinite(v));
+}
+
 /**
  * Lightweight stage timings behind a localStorage flag: set
  * `localStorage['nuke-cad-profile'] = '1'` to log file-read/parse/buildModel
@@ -287,6 +305,8 @@ export class CadViewportWidget extends ReactWidget {
     editingFeatureId?: string;
     private sketchController?: SketchModeController;
     private sketchCamera?: THREE.PerspectiveCamera;
+    /** Camera get/set pair published by the mounted scene (named views). */
+    private cameraApi?: CadCameraApi;
     /** Id of the sketch being edited, or undefined for a new sketch. */
     private editingSketchId?: string;
     /** Active face-pick mode, if any. */
@@ -451,6 +471,14 @@ export class CadViewportWidget extends ReactWidget {
     protected readonly handleControllerReady = (controller: SketchModeController, camera: THREE.PerspectiveCamera): void => {
         this.sketchController = controller;
         this.sketchCamera = camera;
+    };
+
+    /**
+     * Camera access for named views: the mounted scene publishes its
+     * get/set camera-state pair and clears it on unmount.
+     */
+    protected readonly handleCameraApiReady = (api: CadCameraApi | undefined): void => {
+        this.cameraApi = api;
     };
 
     protected readonly handleEnterSketch = (kind: DatumKind, offset: number): void => {
@@ -1117,6 +1145,44 @@ export class CadViewportWidget extends ReactWidget {
     /** Open an existing sketch for editing. */
     editSketch(sketchId: string): void {
         this.handleEditSketch(sketchId);
+    }
+
+    /**
+     * Save the current camera pose as a named view.
+     *
+     * Capture goes through the mounted scene's camera API; the store owns
+     * name/vector validation and undo. Display-only: never triggers a build.
+     */
+    saveNamedView(name: string): DocumentMutationResult<string> {
+        if (this.cameraApi === undefined) {
+            const error = 'Open the CAD viewport before saving a named view.';
+            this.messageService.error(error);
+            return { success: false, error };
+        }
+        const result = this.documentStore.addNamedView({ name, ...this.cameraApi.getCameraState() });
+        if (!result.success) {
+            this.messageService.error(result.error || 'Failed to save the named view.');
+        }
+        return result;
+    }
+
+    /**
+     * Restore a saved named view by id.
+     *
+     * Missing ids and an unmounted scene warn instead of throwing; the stored
+     * pose is copied verbatim (no distance clamping).
+     */
+    restoreNamedView(id: string): void {
+        const view = this.documentStore.document?.views?.find((entry) => entry.id === id);
+        if (view === undefined) {
+            this.messageService.warn(`Named view '${id}' not found.`);
+            return;
+        }
+        if (this.cameraApi === undefined) {
+            this.messageService.warn('Open the CAD viewport before restoring a named view.');
+            return;
+        }
+        this.cameraApi.setCameraState({ position: view.position, target: view.target, up: view.up });
     }
 
     /** Create a new document and open the viewport. */
@@ -1942,6 +2008,7 @@ export class CadViewportWidget extends ReactWidget {
                 onSaveDocument={this.handleSaveDocument}
                 onRebuildDocument={this.handleRebuildDocument}
                 onControllerReady={this.handleControllerReady}
+                onCameraApiReady={this.handleCameraApiReady}
                 onStartSketchSetup={this.startSketchSetup}
                 onEnterSketch={this.handleEnterSketch}
                 onEnterSketchDraft={this.handleEnterSketchDraft}
@@ -2053,6 +2120,8 @@ interface CadViewportComponentProps {
     readonly onSaveDocument: () => void;
     readonly onRebuildDocument: () => void;
     readonly onControllerReady: (controller: SketchModeController, camera: THREE.PerspectiveCamera) => void;
+    /** Publish/clear camera access for named-view capture and restore. */
+    readonly onCameraApiReady: (api: CadCameraApi | undefined) => void;
     readonly onStartSketchSetup: () => void;
     readonly onEnterSketch: (kind: DatumKind, offset: number) => void;
     readonly onEnterSketchDraft: (draft: DatumDraft, offset: number) => void;
@@ -2521,6 +2590,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             viewportApi.current.setExplodeFactor = api.setExplodeFactor;
             viewportApi.current.updateMeasureState = api.updateMeasureState;
             viewportApi.current.setAutoDimensionEnabled = api.setAutoDimensionEnabled;
+            props.onCameraApiReady({ getCameraState: api.getCameraState, setCameraState: api.setCameraState });
             api.setFacePickMode(props.facePickMode);
             api.setDressUpPickMode(props.dressUpPickMode);
             api.setHolePickMode(props.holePickMode ?? false);
@@ -2556,6 +2626,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             viewportApi.current.setExplodeFactor = undefined;
             viewportApi.current.updateMeasureState = undefined;
             viewportApi.current.setAutoDimensionEnabled = undefined;
+            props.onCameraApiReady(undefined);
             cleanup?.();
         };
         // All non-tessData props are stable widget-bound callbacks; the scene is
@@ -3273,6 +3344,8 @@ interface ViewportApi {
     readonly fitView: () => void;
     readonly zoomView: (factor: number) => void;
     readonly setStandardView: (view: 'iso' | 'top' | 'front' | 'right') => void;
+    readonly getCameraState: () => CadCameraState;
+    readonly setCameraState: (state: CadCameraState) => void;
     readonly setShading: (mode: ShadingMode) => void;
     readonly setGhostOpacity: (value: number) => void;
     readonly setViewportBackground: (style: ViewportBackgroundStyle) => void;
@@ -4552,6 +4625,51 @@ function initViewport(
         setViewDirection(directions[view]);
     };
 
+    /** Snapshot the live camera pose for a saved named view. */
+    const getCameraState = (): CadCameraState => ({
+        position: [camera.position.x, camera.position.y, camera.position.z],
+        target: [controls.target.x, controls.target.y, controls.target.z],
+        up: [camera.up.x, camera.up.y, camera.up.z]
+    });
+
+    /**
+     * Restore a saved camera pose (no distance clamping).
+     *
+     * Position and target are copied verbatim and `up` is normalized.
+     * Non-finite vectors are ignored; a zero up vector is ignored too because
+     * `lookAt`/OrbitControls would turn it into NaNs. A different up re-creates
+     * the controls for the same reason the standard-view snap does
+     * (OrbitControls freezes its orbit pole at construction).
+     */
+    const setCameraState = (state: CadCameraState): void => {
+        const candidate = state as CadCameraState | undefined;
+        if (
+            candidate === undefined ||
+            !isFiniteCameraVector(candidate.position) ||
+            !isFiniteCameraVector(candidate.target) ||
+            !isFiniteCameraVector(candidate.up)
+        ) {
+            return;
+        }
+        const desiredUp = new THREE.Vector3(...candidate.up);
+        if (desiredUp.lengthSq() === 0) {
+            return;
+        }
+        desiredUp.normalize();
+        if (!controlsUp.equals(desiredUp)) {
+            recreateControls(desiredUp);
+        }
+        const target = new THREE.Vector3(...candidate.target);
+        camera.up.copy(desiredUp);
+        camera.position.set(...candidate.position);
+        controls.target.copy(target);
+        camera.lookAt(target);
+        // The restored pose is arbitrary, never one of the labeled standards.
+        onViewNameChange('User');
+        controls.update();
+        renderScene();
+    };
+
     const setShading = (mode: ShadingMode): void => {
         shading = mode;
         applyShading();
@@ -5700,6 +5818,8 @@ function initViewport(
         fitView,
         zoomView,
         setStandardView,
+        getCameraState,
+        setCameraState,
         setShading,
         setGhostOpacity,
         setViewportBackground,

@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - build: optional extensions selectable at build time via `NUKE_EXTENSIONS` allow-list / `NUKE_EXCLUDE_EXTENSIONS` deny-list.
+- nuke-cad: Document Settings section in the Model Outline shows units (editable), parameter count, name, source, body count, and schema version.
 - nuke-cad: New Sketch opens a Create Sketch task panel with the ribbon in place; empty documents offer Create Sketch/Open Model and the Model Outline shows the body count.
 - nuke-cad: CAD Studio menu under Tools mirrors the sidebar (geometry, panels, analysis, environment commands).
 - nuke-cad: Move feature rigidly translates a body by dx/dy/dz with ghosted preview and tip chaining.
@@ -24,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-cad: faster overlap checks in the fuse path with identical verdicts.
 - nuke-cad: mesh repair ops for DAGMC prep (duplicate facets, hole fill, Laplacian smooth, decimate) with per-op counts in the report.
 - nuke-cad: pinnable 3D measurements persist in the document, survive rebuilds, and ride undo/redo.
+- nuke-cad: saved named views capture the current camera, restore from the Model Outline, and persist with the document.
 - nuke-cad: undo/redo over committed document mutations with toolbar buttons and Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y.
 - nuke-cad: multi-part assemblies with instances, connector-frame mates, BOM panel, STEP-assembly export, and placed-solid DAGMC export.
 - nuke-cad: single-sheet 2D drawings (A4/A3) with base/projected/section/detail views and SVG + DXF export.

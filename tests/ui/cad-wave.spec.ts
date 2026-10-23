@@ -121,6 +121,76 @@ test('parameter spreadsheet rejects invalid input and rebuilds on valid edit', a
     expect(bad, `unexpected severe errors:\n${bad.join('\n')}`).toEqual([]);
 });
 
+test('named views save, restore, and delete from the outline', async ({ page }) => {
+    const errors = collectErrors(page);
+    await page.goto('/');
+    await waitForWorkbench(page);
+
+    const { viewport, outline } = await openCadDocument(page);
+    const section = outline.locator('.named-views-section');
+    await expect(section).toBeVisible({ timeout: 30_000 });
+    await expect(section.locator('.named-view-empty')).toBeVisible();
+
+    // Save the live camera through the header button's quick-input prompt.
+    await section.locator('button[aria-label="Save current view"]').click();
+    const input = page.locator('.quick-input-widget input');
+    await expect(input).toBeVisible({ timeout: 30_000 });
+    await input.fill('Overview');
+    await input.press('Enter');
+    await expect(input).toBeHidden({ timeout: 30_000 });
+
+    const row = section.locator('.named-view-row', { hasText: 'Overview' });
+    await expect(row).toBeVisible({ timeout: 30_000 });
+    await outline.screenshot({ path: 'test-results/cad-named-views.png' });
+
+    // Row click restores the saved pose through the viewport widget.
+    await row.locator('.named-view-restore').click();
+    await expect(viewport.locator('.cad-viewport-error-banner')).toBeHidden();
+
+    // The hover trash button deletes the stored entry; the empty state returns.
+    await row.hover();
+    await row.locator('.named-view-delete').click();
+    await expect(row).toBeHidden({ timeout: 30_000 });
+    await expect(section.locator('.named-view-empty')).toBeVisible();
+
+    const bad = severe(errors);
+    expect(bad, `unexpected severe errors:\n${bad.join('\n')}`).toEqual([]);
+});
+
+test('document settings summarize metadata and set units', async ({ page }) => {
+    const errors = collectErrors(page);
+    await page.goto('/');
+    await waitForWorkbench(page);
+
+    const { viewport, outline } = await openCadDocument(page);
+    const section = outline.locator('.document-settings-section');
+    await expect(section).toBeVisible({ timeout: 30_000 });
+    await expect(section.locator('.category-header')).toContainText('Document Settings');
+
+    const row = (label: string) => section.locator('.document-settings-row', { hasText: label });
+    await expect(row('Name').locator('.document-settings-value')).toHaveText('pincell');
+    await expect(row('Parameters').locator('.document-settings-value')).toHaveText('3');
+    await expect(row('Bodies').locator('.document-settings-value')).toHaveText('3');
+    await expect(row('Schema').locator('.document-settings-value')).toHaveText('v3');
+
+    const outlineUnits = section.locator('.document-settings-units .nuke-select-trigger');
+    await expect(outlineUnits).toHaveText('Unitless');
+
+    // The outline select writes through the shared store, so the document
+    // toolbar's units select follows immediately.
+    await outlineUnits.click();
+    await page.locator('.nuke-select-list').getByRole('option', { name: 'mm' }).click();
+    await expect(outlineUnits).toHaveText('mm');
+    await expect(page.locator('.cad-document-toolbar-units .nuke-select-trigger')).toHaveText('mm');
+    await expect(viewport.locator('.nuke-loading-overlay')).toBeHidden({ timeout: 120_000 });
+    await expect(viewport.locator('.cad-viewport-error-banner')).toBeHidden();
+
+    await outline.screenshot({ path: 'test-results/cad-document-settings.png' });
+
+    const bad = severe(errors);
+    expect(bad, `unexpected severe errors:\n${bad.join('\n')}`).toEqual([]);
+});
+
 test('pinned measurement survives a rebuild with its label', async ({ page }) => {
     const errors = collectErrors(page);
     await page.goto('/');

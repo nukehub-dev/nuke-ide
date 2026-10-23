@@ -58,7 +58,7 @@ import { FileDialogService } from '@theia/filesystem/lib/browser/file-dialog';
 import { URI } from '@theia/core/lib/common/uri';
 
 import { RegionManifestData } from '../../../common/nuke-cad-protocol';
-import { type NukeCadDocument } from '../../../common/cad-document';
+import { type DocumentUnits, type NukeCadDocument, type SavedNamedView } from '../../../common/cad-document';
 import { NukeCadStateManager, CadModel, CadSelection, SolidSummary } from '../../state/nuke-cad-state-manager';
 import {
     CadDocumentStore,
@@ -83,6 +83,7 @@ import {
 } from './solid-summaries';
 import { buildFuseFeature, groupDiagnostics, selectionSolidIds, toggleSolidSelection } from './outline-interactions';
 import { buildBomCsvRows, compareParamRows, describeParamUsage, formatBomCsv, type ParamSortKey } from './param-table';
+import { NukeSelect } from 'nuke-essentials/lib/theme/browser/components';
 import { Tooltip, useTooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
 import './outline-panel.css';
 
@@ -256,6 +257,7 @@ export class CadOutlinePanelWidget extends ReactWidget {
                 hiddenSolidIds={this.hiddenSolidIds}
                 document={this.documentStore.document}
                 assembly={this.documentStore.document !== undefined ? getAssemblySection(this.documentStore.document) : undefined}
+                namedViews={this.documentStore.document?.views ?? []}
                 manifestExists={this.manifestExists}
                 manifestFileName={this.manifestFileName}
                 onSelect={(solidId, additive) => this.handleSelect(solidId, additive)}
@@ -266,7 +268,11 @@ export class CadOutlinePanelWidget extends ReactWidget {
                 onAddParameter={(name, text) => this.handleAddParameter(name, text)}
                 onSetParameter={(name, text) => this.handleSetParameter(name, text)}
                 onRemoveParameter={(name) => this.handleRemoveParameter(name)}
+                onSetUnits={(units) => this.handleSetUnits(units)}
                 onExportBomCsv={() => void this.handleExportBomCsv()}
+                onSaveNamedView={() => void this.commandService.executeCommand(NukeCadCommands.SAVE_NAMED_VIEW.id)}
+                onRestoreNamedView={(id) => void this.commandService.executeCommand(NukeCadCommands.RESTORE_NAMED_VIEW.id, id)}
+                onDeleteNamedView={(id) => void this.commandService.executeCommand(NukeCadCommands.DELETE_NAMED_VIEW.id, id)}
             />
         );
     }
@@ -309,6 +315,18 @@ export class CadOutlinePanelWidget extends ReactWidget {
     protected handleRemoveParameter(name: string): { success: boolean; error?: string } {
         const result = this.documentStore.removeParameter(name);
         return result.success ? { success: true } : { success: false, error: result.error };
+    }
+
+    /**
+     * Declared document units from the outline's Document Settings section.
+     * The store owns the mutation semantics (tagging only, never rescaling)
+     * and rebuild scheduling; the outline only surfaces failures.
+     */
+    protected handleSetUnits(units: DocumentUnits | undefined): void {
+        const result = this.documentStore.setUnits(units);
+        if (!result.success) {
+            this.messageService.error(result.error || 'Could not set document units.');
+        }
     }
 
     /**
@@ -442,6 +460,8 @@ interface CadOutlinePanelComponentProps {
     readonly hiddenSolidIds: readonly number[];
     /** Open `.nuke-cad` document, when the model was built from one (enables the fuse auto-fix). */
     readonly document?: NukeCadDocument;
+    /** Saved named views from the open document (display-only camera poses). */
+    readonly namedViews: readonly SavedNamedView[];
     /** Assembly section through the B1-optional channel (absent = single-part). */
     readonly assembly?: AssemblySection;
     readonly manifestExists: boolean;
@@ -455,7 +475,13 @@ interface CadOutlinePanelComponentProps {
     readonly onAddParameter: (name: string, text: string) => { success: boolean; error?: string };
     readonly onSetParameter: (name: string, text: string) => { success: boolean; error?: string };
     readonly onRemoveParameter: (name: string) => { success: boolean; error?: string };
+    /** Declared document units from the Document Settings section (`undefined` clears to unitless). */
+    readonly onSetUnits: (units: DocumentUnits | undefined) => void;
     readonly onExportBomCsv: () => void;
+    /** Named Views: save the current camera, restore a row, or delete it by id. */
+    readonly onSaveNamedView: () => void;
+    readonly onRestoreNamedView: (id: string) => void;
+    readonly onDeleteNamedView: (id: string) => void;
 }
 
 /** A pinned properties snapshot: summary plus its resolved body label. */
@@ -712,6 +738,19 @@ function CadOutlinePanelComponent(props: CadOutlinePanelComponentProps): React.R
                     )}
 
                     {props.document !== undefined && (
+                        <DocumentSettingsSection document={props.document} source={scriptName} onSetUnits={props.onSetUnits} />
+                    )}
+
+                    {props.document !== undefined && (
+                        <NamedViewsSection
+                            views={props.namedViews}
+                            onSave={props.onSaveNamedView}
+                            onRestore={props.onRestoreNamedView}
+                            onDelete={props.onDeleteNamedView}
+                        />
+                    )}
+
+                    {props.document !== undefined && (
                         <ParametersSection
                             document={props.document}
                             onAddParameter={props.onAddParameter}
@@ -849,6 +888,148 @@ function PropertiesSection(props: PropertiesSectionProps): React.ReactElement {
                 <span className="prop-value">{summary.triangleCount}</span>
             </div>
             <p className="properties-units-hint">Quantities use SI prefixes in model units.</p>
+        </div>
+    );
+}
+
+const UNIT_OPTIONS: ReadonlyArray<{ readonly value: string; readonly label: string }> = [
+    { value: '', label: 'Unitless' },
+    { value: 'mm', label: 'mm' },
+    { value: 'cm', label: 'cm' },
+    { value: 'm', label: 'm' }
+];
+
+interface DocumentSettingsSectionProps {
+    readonly document: NukeCadDocument;
+    /** Active model file name; absent for in-memory documents. */
+    readonly source?: string;
+    readonly onSetUnits: (units: DocumentUnits | undefined) => void;
+}
+
+/**
+ * Compact, collapsible document summary above Named Views: declared units
+ * (the one editable value, through the same `CadDocumentStore.setUnits` path
+ * as the toolbar), the parameter count, and read-only design properties.
+ * Editing parameters/name/source stays in their dedicated sections.
+ */
+function DocumentSettingsSection(props: DocumentSettingsSectionProps): React.ReactElement {
+    const [collapsed, setCollapsed] = React.useState(false);
+    const document = props.document;
+    const source = props.source ?? 'In-memory document';
+
+    return (
+        <div className="outline-section document-settings-section">
+            <div className="category-header" onClick={() => setCollapsed(!collapsed)}>
+                <i className={`codicon codicon-chevron-${collapsed ? 'right' : 'down'}`} />
+                <i className="codicon codicon-settings-gear" />
+                <span>Document Settings</span>
+            </div>
+            {!collapsed && (
+                <div className="document-settings-grid">
+                    <div className="document-settings-row">
+                        <span className="document-settings-label">Units</span>
+                        <NukeSelect
+                            className="document-settings-units"
+                            ariaLabel="Document units"
+                            value={document.units ?? ''}
+                            options={UNIT_OPTIONS}
+                            onChange={(value) => props.onSetUnits(value === '' ? undefined : (value as DocumentUnits))}
+                        />
+                    </div>
+                    <div className="document-settings-row">
+                        <span className="document-settings-label">Parameters</span>
+                        <span className="document-settings-value">{Object.keys(document.parameters).length}</span>
+                    </div>
+                    <div className="document-settings-subhead">Design Properties</div>
+                    <div className="document-settings-row">
+                        <span className="document-settings-label">Name</span>
+                        <span className="document-settings-value" title={document.name}>
+                            {document.name}
+                        </span>
+                    </div>
+                    <div className="document-settings-row">
+                        <span className="document-settings-label">Source</span>
+                        <span className="document-settings-value" title={source}>
+                            {source}
+                        </span>
+                    </div>
+                    <div className="document-settings-row">
+                        <span className="document-settings-label">Bodies</span>
+                        <span className="document-settings-value">{document.bodies.length}</span>
+                    </div>
+                    <div className="document-settings-row">
+                        <span className="document-settings-label">Schema</span>
+                        <span className="document-settings-value">{`v${document.version}`}</span>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
+interface NamedViewsSectionProps {
+    readonly views: readonly SavedNamedView[];
+    readonly onSave: () => void;
+    readonly onRestore: (id: string) => void;
+    readonly onDelete: (id: string) => void;
+}
+
+/**
+ * Saved camera poses from the document's additive `views` block. The header's
+ * add button runs `nuke.cad.saveNamedView` (quick-input prompt); row clicks
+ * restore through the viewport widget and the trash button deletes through the
+ * store. Display-only state: restoring never rebuilds geometry.
+ */
+function NamedViewsSection(props: NamedViewsSectionProps): React.ReactElement {
+    const [collapsed, setCollapsed] = React.useState(false);
+
+    return (
+        <div className="outline-section named-views-section">
+            <div className="category-header" onClick={() => setCollapsed(!collapsed)}>
+                <i className={`codicon codicon-chevron-${collapsed ? 'right' : 'down'}`} />
+                <i className="codicon codicon-device-camera" />
+                <span>Named Views</span>
+                <Tooltip content="Save the current camera as a named view" position="left">
+                    <button
+                        className="theia-button secondary named-view-add"
+                        aria-label="Save current view"
+                        onClick={(event) => {
+                            event.stopPropagation();
+                            props.onSave();
+                        }}
+                    >
+                        <i className="codicon codicon-add" />
+                    </button>
+                </Tooltip>
+            </div>
+            {!collapsed &&
+                (props.views.length === 0 ? (
+                    <p className="named-view-empty">No saved views yet — orbit, then Save current view.</p>
+                ) : (
+                    <div className="named-view-rows">
+                        {props.views.map((view) => (
+                            <div key={view.id} className="named-view-row">
+                                <button
+                                    className="named-view-restore"
+                                    title={`Restore '${view.name}'`}
+                                    onClick={() => props.onRestore(view.id)}
+                                >
+                                    <i className="codicon codicon-device-camera named-view-icon" />
+                                    <span className="named-view-name">{view.name}</span>
+                                </button>
+                                <Tooltip content="Delete named view" position="left">
+                                    <button
+                                        className="theia-button secondary named-view-delete"
+                                        aria-label={`Delete named view '${view.name}'`}
+                                        onClick={() => props.onDelete(view.id)}
+                                    >
+                                        <i className="codicon codicon-trash" />
+                                    </button>
+                                </Tooltip>
+                            </div>
+                        ))}
+                    </div>
+                ))}
         </div>
     );
 }
