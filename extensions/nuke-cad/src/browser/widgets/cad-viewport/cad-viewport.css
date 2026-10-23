@@ -1352,9 +1352,12 @@
 .cad-feature-dialog-row input[type='text'],
 .cad-feature-dialog-row input[type='number'],
 .cad-feature-dialog-row select,
-.cad-feature-dialog-row .nuke-select {
+.cad-feature-dialog-row .nuke-select,
+.cad-feature-dialog-row .nuke-select-trigger {
     width: 100%;
     min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
 }
 
 .cad-feature-dialog-row input[type='checkbox'] {
@@ -1765,10 +1768,12 @@
     opacity: 0.9;
 }
 
-/* Measurements popover in 3D document mode (below the document toolbar) */
+/* Measurements popover in 3D document mode (below the document toolbar).
+   The bar publishes its measured bottom as `--nuke-cad-toolbar-bottom`
+   (density changes the bar height); 64px is the no-toolbar fallback. */
 .cad-viewport-measure-popover {
     position: absolute;
-    top: 60px;
+    top: calc(var(--nuke-cad-toolbar-bottom, 64px) + 4px);
     right: 8px;
     z-index: 16;
     display: flex;
@@ -1867,6 +1872,15 @@
     width: 20px;
     height: 20px;
     padding: 0;
+}
+
+/* Popover buttons sit on the light editor-widget panel in light themes:
+   inherit the secondary-button foreground explicitly so they never pick up
+   the primary `button-foreground` (white) from the global .theia-button rule. */
+.cad-viewport-measure-popover .cad-measure-header .cad-measure-row-remove,
+.cad-viewport-measure-popover .cad-measure-list .cad-measure-row-remove,
+.cad-viewport-measure-popover .cad-measure-footer .cad-measure-clear {
+    color: var(--theia-secondaryButton-foreground);
 }
 
 .cad-measure-empty {

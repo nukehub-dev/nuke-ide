@@ -1373,6 +1373,7 @@ export class CadViewportWidget extends ReactWidget {
                     event.preferenceName === 'nukeCad.ribbonPins' ||
                     event.preferenceName === 'nukeCad.appearancePresets' ||
                     event.preferenceName === 'nukeCad.colorByMaterial' ||
+                    event.preferenceName === 'nukeCad.showOriginAxes' ||
                     event.preferenceName === 'nukeCad.showOriginX' ||
                     event.preferenceName === 'nukeCad.showOriginY' ||
                     event.preferenceName === 'nukeCad.showOriginZ'
@@ -2263,6 +2264,7 @@ export class CadViewportWidget extends ReactWidget {
                 colorByMaterial={this.preferences['nukeCad.colorByMaterial']}
                 lengthDecimals={this.preferences['nukeCad.lengthDecimals']}
                 angleDecimals={this.preferences['nukeCad.angleDecimals']}
+                showOriginAxes={this.preferences['nukeCad.showOriginAxes']}
                 showOriginX={this.preferences['nukeCad.showOriginX']}
                 showOriginY={this.preferences['nukeCad.showOriginY']}
                 showOriginZ={this.preferences['nukeCad.showOriginZ']}
@@ -2401,7 +2403,8 @@ interface CadViewportComponentProps {
     readonly lengthDecimals: number;
     /** Maximum decimal places for angle readouts (measure labels + popover rows). */
     readonly angleDecimals: number;
-    /** World-origin axis visibility preferences (display-only). */
+    /** World-origin triad and per-axis visibility preferences (display-only). */
+    readonly showOriginAxes: boolean;
     readonly showOriginX: boolean;
     readonly showOriginY: boolean;
     readonly showOriginZ: boolean;
@@ -2876,7 +2879,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                 props.navigationStyle,
                 props.colorByMaterial,
                 { length: props.lengthDecimals, angle: props.angleDecimals },
-                { x: props.showOriginX, y: props.showOriginY, z: props.showOriginZ },
+                { enabled: props.showOriginAxes, x: props.showOriginX, y: props.showOriginY, z: props.showOriginZ },
                 () => sectionActiveRef.current,
                 handleClosePopover,
                 handleToggleSection,
@@ -3064,13 +3067,22 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
     // Origin axes are display-only: preference changes update line visibility
     // in place, never re-initialize the scene. Sketch setup/entering suppresses
     // the whole group with the rest of the document chrome; an active sketch
-    // session is hidden inside the scene itself.
+    // session is hidden inside the scene itself, and the scene also hides the
+    // group whenever no tessellation is loaded.
     React.useEffect(() => {
         viewportApi.current.setOriginAxes?.(
-            { x: props.showOriginX, y: props.showOriginY, z: props.showOriginZ },
+            { enabled: props.showOriginAxes, x: props.showOriginX, y: props.showOriginY, z: props.showOriginZ },
             props.sketchSetupVisible || props.sketchEntering
         );
-    }, [props.showOriginX, props.showOriginY, props.showOriginZ, props.sketchSetupVisible, props.sketchEntering, controller]);
+    }, [
+        props.showOriginAxes,
+        props.showOriginX,
+        props.showOriginY,
+        props.showOriginZ,
+        props.sketchSetupVisible,
+        props.sketchEntering,
+        controller
+    ]);
 
     React.useEffect(() => {
         if (props.warnings.length > 0) {
@@ -3724,6 +3736,7 @@ function MeasureListPopover(props: MeasureListPopoverProps): React.ReactElement 
 }
 
 interface OriginAxesVisibility {
+    readonly enabled: boolean;
     readonly x: boolean;
     readonly y: boolean;
     readonly z: boolean;
@@ -3986,12 +3999,15 @@ function initViewport(
     // Display-only world-origin triad: three RGB lines at the scene origin,
     // each parented to `origin-axes` so per-axis visibility is one flag per
     // line. Scale follows the model diagonal so it stays legible at tokamak
-    // scale; never document state, never a build/export input.
+    // scale; never document state, never a build/export input. The master
+    // preference and the presence of a loaded tessellation gate the group.
     const ORIGIN_AXIS_COLORS = ['#e05252', '#4caf50', '#3b82f6'] as const;
     const ORIGIN_AXIS_NAMES = ['x', 'y', 'z'] as const;
     const originAxesGroup = new THREE.Group();
     originAxesGroup.name = 'origin-axes';
     scene.add(originAxesGroup);
+    /** Master Show axes preference; per-axis flags only matter while on. */
+    let originAxesEnabled = initialOriginAxes.enabled;
     /** Sketch setup/entering hides the whole group on top of the controller check. */
     let originAxesSuppressed = false;
     const originAxisLines = ORIGIN_AXIS_NAMES.map((axis, index) => {
@@ -4530,9 +4546,11 @@ function initViewport(
     let controller: SketchModeController;
     const renderScene = (): void => {
         const cam = controller.getActiveCamera();
-        // World-origin axes are document-mode chrome: a sketch session hides
-        // the group and exiting restores it on the next render.
-        originAxesGroup.visible = !controller.isActive && !originAxesSuppressed;
+        // World-origin axes are document-mode chrome that need a loaded model:
+        // a sketch session hides the group, and an empty viewport (no document
+        // or an empty/reset document with no tessellation) never shows it.
+        const hasLoadedModel = currentTessData !== undefined && meshes.length > 0;
+        originAxesGroup.visible = originAxesEnabled && hasLoadedModel && !controller.isActive && !originAxesSuppressed;
         // Clip planes follow the scene scale on every render (build, fit,
         // dolly, orbit, zoom): a fixed far plane clips any model larger than
         // ~5.8 km (the tokamak's 6.4 km diagonal) and a fixed 1e6 near/far
@@ -4564,6 +4582,7 @@ function initViewport(
     onControllerReady(controller, camera);
 
     const setOriginAxes = (axes: OriginAxesVisibility, suppressed = false): void => {
+        originAxesEnabled = axes.enabled;
         originAxesSuppressed = suppressed;
         originAxisLines[0].visible = axes.x;
         originAxisLines[1].visible = axes.y;

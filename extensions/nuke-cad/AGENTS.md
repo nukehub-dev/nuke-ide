@@ -75,7 +75,8 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   shading, visual-only section, measure (distance/angle/radius + pinnable `measurements`
   block), saved named views (`views` block + camera API), per-solid explode, hidden-set picking filters,
   overlapping-face Select Other (context-menu candidate popover + Alt+click cycling), and a
-  display-only world-origin triad with per-axis `nukeCad.showOriginX/Y/Z` visibility (Model Outline Origin section).
+  display-only world-origin triad with a master `nukeCad.showOriginAxes` switch plus per-axis
+  `nukeCad.showOriginX/Y/Z` visibility (Model Outline Origin section; only rendered with a loaded model).
   See `docs/dev/viewport-outline.md`.
 - Per-body appearance overrides (`BodyDef.appearance`: `color` `#rrggbb` + `opacity` 0–1,
   display-only, no rebuild) use one cloned material per overridden body; selection keeps

@@ -84,6 +84,37 @@ function paramRow(outline: ReturnType<Page['locator']>, name: string) {
     return outline.locator('.param-table-tr', { hasText: name });
 }
 
+/**
+ * Open the Measurements popover from the Inspect section. At tiles/icons
+ * density the button is promoted; in menus density it lives in the section
+ * menu, which this helper opens first.
+ */
+async function openMeasurements(page: Page, viewport: ReturnType<Page['locator']>) {
+    const inspect = viewport.locator('.cad-document-toolbar [role="group"][aria-label="Inspect"]');
+    const promoted = inspect.locator('.nuke-ribbon-item:has(.codicon-list-unordered)');
+    if (await promoted.isVisible()) {
+        await promoted.click();
+        return { trigger: promoted, promoted: true };
+    }
+    await inspect.locator('.nuke-ribbon-menu-trigger').click();
+    const menuItem = page.locator('.nuke-ribbon-menu [role="menuitem"]:has(.codicon-list-unordered)').first();
+    await expect(menuItem).toBeVisible();
+    await menuItem.click();
+    return { trigger: menuItem, promoted: false };
+}
+
+/** Resolve a Theia CSS custom property to its computed color value. */
+async function resolveColorToken(page: Page, token: string): Promise<string> {
+    return page.evaluate((name) => {
+        const probe = document.createElement('span');
+        probe.style.color = `var(${name})`;
+        document.body.appendChild(probe);
+        const color = getComputedStyle(probe).color;
+        probe.remove();
+        return color;
+    }, token);
+}
+
 test('parameter spreadsheet rejects invalid input and rebuilds on valid edit', async ({ page }) => {
     const errors = collectErrors(page);
     await page.goto('/');
@@ -254,38 +285,56 @@ test('origin axes section toggles per-axis visibility', async ({ page }) => {
     await expect(section).toBeVisible({ timeout: 30_000 });
     await expect(section.locator('.category-header')).toContainText('Origin');
 
-    const rows = section.locator('.origin-axis-row');
-    await expect(rows).toHaveCount(3);
+    const chipRow = section.locator('.origin-axis-chips');
+    await expect(chipRow).toHaveAttribute('role', 'group');
+    await expect(chipRow).toHaveAttribute('aria-label', 'Origin axes');
+    const chips = chipRow.locator('.origin-axis-chip');
+    await expect(chips).toHaveCount(3);
     for (const [index, label] of ['X', 'Y', 'Z'].entries()) {
-        await expect(rows.nth(index).locator('.origin-axis-label')).toHaveText(label);
+        await expect(chips.nth(index).locator('.origin-axis-chip-label')).toHaveText(label);
     }
 
-    // Axis letters mirror the viewport triad colors, the dot grew to 10 px,
-    // and every row keeps the shared 24 px grid.
+    // Pressed chips mirror the viewport triad colors and the compact 26 px
+    // grid (the mini glyph sits beside the bold axis letter).
     const axisColors = ['rgb(224, 82, 82)', 'rgb(76, 175, 80)', 'rgb(59, 130, 246)'];
     for (const [index, color] of axisColors.entries()) {
-        const row = rows.nth(index);
-        await expect(row).toHaveCSS('height', '24px');
-        await expect(row.locator('.origin-axis-label')).toHaveCSS('color', color);
-        await expect(row.locator('.origin-axis-dot')).toHaveCSS('width', '10px');
+        const chip = chips.nth(index);
+        await expect(chip).toHaveCSS('height', '26px');
+        await expect(chip).toHaveCSS('color', color);
+        await expect(chip).toHaveCSS('border-top-color', color);
+        await expect(chip.locator('.origin-axis-chip-glyph')).toHaveCSS('width', '12px');
     }
 
-    // Each eye toggle reflects its axis preference. X starts visible (schema
-    // default) and flips through the same user-scoped preference the viewport
-    // subscribes to.
-    const xToggle = rows.nth(0).locator('.origin-axis-toggle');
-    await expect(xToggle).toHaveAttribute('aria-pressed', 'true');
-    await expect(xToggle).toHaveAttribute('aria-label', 'Hide X axis');
-    await xToggle.click();
-    await expect(xToggle).toHaveAttribute('aria-pressed', 'false');
-    await expect(xToggle).toHaveAttribute('aria-label', 'Show X axis');
-    await expect(rows.nth(1).locator('.origin-axis-toggle')).toHaveAttribute('aria-pressed', 'true');
-    await expect(rows.nth(2).locator('.origin-axis-toggle')).toHaveAttribute('aria-pressed', 'true');
+    // The master switch gates the whole triad; the chips keep their own saved
+    // state while it is off.
+    const master = section.getByRole('switch', { name: 'Show origin axes' });
+    await expect(master).toBeVisible();
+    await expect(master).toHaveAttribute('aria-checked', 'true');
+    const xChip = section.getByRole('button', { name: 'Hide X axis' });
+    await expect(xChip).toHaveAttribute('aria-pressed', 'true');
+    await xChip.click();
+    await expect(section.getByRole('button', { name: 'Show X axis' })).toHaveAttribute('aria-pressed', 'false');
+    await expect(section.getByRole('button', { name: 'Hide Y axis' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(section.getByRole('button', { name: 'Hide Z axis' })).toHaveAttribute('aria-pressed', 'true');
+
+    // With the master off the chips are disabled but keep their saved pressed
+    // state, so toggling back restores the per-axis choices.
+    await master.click();
+    await expect(master).toHaveAttribute('aria-checked', 'false');
+    for (const name of ['Show X axis', 'Hide Y axis', 'Hide Z axis']) {
+        const chip = section.getByRole('button', { name });
+        await expect(chip).toBeDisabled();
+        await expect(chip).toHaveAttribute('aria-disabled', 'true');
+    }
+    await expect(section.getByRole('button', { name: 'Show X axis' })).toHaveAttribute('aria-pressed', 'false');
+    await master.click();
+    await expect(master).toHaveAttribute('aria-checked', 'true');
+    await expect(section.getByRole('button', { name: 'Show X axis' })).toBeEnabled();
+    await expect(section.getByRole('button', { name: 'Show X axis' })).toHaveAttribute('aria-pressed', 'false');
 
     // Restore all axes before the reference screenshot.
-    await xToggle.click();
-    await expect(xToggle).toHaveAttribute('aria-pressed', 'true');
-    await expect(xToggle).toHaveAttribute('aria-label', 'Hide X axis');
+    await section.getByRole('button', { name: 'Show X axis' }).click();
+    await expect(section.getByRole('button', { name: 'Hide X axis' })).toHaveAttribute('aria-pressed', 'true');
     await expect(viewport.locator('.cad-viewport-error-banner')).toBeHidden();
     await outline.screenshot({ path: 'test-results/cad-origin-section.png' });
     await viewport.screenshot({ path: 'test-results/cad-origin-axes.png' });
@@ -298,6 +347,9 @@ test('pinned measurement survives a rebuild with its label', async ({ page }) =>
     const errors = collectErrors(page);
     await page.goto('/');
     await waitForWorkbench(page);
+    // Icons density keeps the Inspect measure buttons promoted (menus only
+    // below 930 px of toolbar width).
+    await page.setViewportSize({ width: 1440, height: 900 });
 
     const { viewport, outline } = await openCadDocument(page);
     const canvas = viewport.locator('canvas').first();
@@ -334,12 +386,32 @@ test('pinned measurement survives a rebuild with its label', async ({ page }) =>
 
     // The Measurements list popover (toolbar Inspect group) hosts the rows;
     // it renders on toggle, never on commit.
-    await viewport.locator('.cad-document-toolbar button:has(.codicon-list-unordered)').click();
+    const { trigger: measureButton, promoted } = await openMeasurements(page, viewport);
     const popover = viewport.locator('.cad-viewport-measure-popover');
     await expect(popover).toBeVisible({ timeout: 30_000 });
     const measureRow = popover.locator('.cad-measure-row').first();
     await expect(measureRow).toBeVisible({ timeout: 30_000 });
     await expect(measureRow.locator('.cad-measure-value')).not.toBeEmpty();
+
+    // The popover clears the document toolbar at every ribbon density.
+    const toolbarBox = await viewport.locator('.cad-document-toolbar').boundingBox();
+    const popoverBox = await popover.boundingBox();
+    expect(toolbarBox).not.toBeNull();
+    expect(popoverBox).not.toBeNull();
+    expect(popoverBox!.y).toBeGreaterThan(toolbarBox!.y + toolbarBox!.height);
+
+    // Active Inspect action and popover buttons use the theme's own contrast
+    // tokens instead of inheriting the primary white button foreground.
+    const buttonForeground = await resolveColorToken(page, '--theia-button-foreground');
+    const secondaryForeground = await resolveColorToken(page, '--theia-secondaryButton-foreground');
+    if (promoted) {
+        const focusBorder = await resolveColorToken(page, '--theia-focusBorder');
+        await expect(measureButton).toHaveClass(/(?:^|\s)active(?:\s|$)/);
+        await expect(measureButton).toHaveCSS('background-color', focusBorder);
+        await expect(measureButton.locator('.codicon')).toHaveCSS('color', buttonForeground);
+    }
+    await expect(popover.locator('.cad-measure-header .cad-measure-row-remove')).toHaveCSS('color', secondaryForeground);
+    await expect(popover.locator('.cad-measure-clear')).toHaveCSS('color', secondaryForeground);
 
     // Pin persists the annotation into the document's `measurements` block
     // (the row button flips to the unpin treatment once stored).

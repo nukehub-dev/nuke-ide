@@ -37,6 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-cad: Appearance dialog adds user presets (save/apply/delete) and applies an appearance to every body in a multi-body selection.
 - nuke-cad: saved named views capture the current camera, restore from the Model Outline, and persist with the document.
 - nuke-cad: world-origin axis triad in the viewport with per-axis X/Y/Z eye toggles in a Model Outline Origin section.
+- nuke-cad: Model Outline Origin section gains a Show axes master switch, and the world-origin triad only renders once a model is loaded.
 - nuke-cad: undo/redo over committed document mutations with toolbar buttons and Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y.
 - nuke-cad: multi-part assemblies with instances, connector-frame mates, BOM panel, STEP-assembly export, and placed-solid DAGMC export.
 - nuke-cad: single-sheet 2D drawings (A4/A3) with base/projected/section/detail views and SVG + DXF export.
@@ -202,6 +203,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Platform: Theia 1.73.1 to 1.74.1 with the deprecated Vercel AI provider removed; Electron shell moves to 43.4.0.
 - Platform: lerna 9 to 10 (Node.js >= 22.13.0) and markdown-it 14 to 15 in nuke-docs.
 - Platform: React 18 to 19 for all extension widgets with no component API changes.
+- nuke-cad: Origin section swaps three eye-toggle rows for a compact X/Y/Z chip row; master switch and per-axis preferences unchanged.
 - nuke-cad: viewport toolbar groups actions into labelled sections with promoted buttons, per-section menus, and a width-driven compact mode.
 - nuke-cad: faster large-model rebuilds via worker-side tessellation parsing and incremental scene updates.
 - nuke-cad: multi-body opens and rebuilds reuse cross-body overlap verdicts for unchanged bodies instead of re-running the O(n²) exact boolean gate (tokamak: 30 s → 6 s warm, single edit 21 s → 8 s).
@@ -232,6 +234,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - app: startup splash tracks real loading progress and never blanks out on slow connections.
 - CI: vitest job compiles extensions first; conda pin no longer requests an unsatisfiable Python.
 - docker: image Python env ships working build123d with the OCP 7.9 shim and a CI version guard.
+- nuke-cad: Measurements popover opens below the document toolbar at every ribbon density, and feature-dialog inputs/selects stay inside the dialog padding.
 - nuke-cad: Copy sketch icon renders both offset squares (the standard mask declaration dropped the back square).
 - nuke-cad: Escape cancels an inline parameter edit even when Theia's keybinding registry consumes the key.
 - nuke-cad: large or far-offset models no longer vanish — viewport clip planes scale with the scene instead of a fixed 10,000-unit far plane (this also removes z-fighting on concentric shells).
@@ -317,6 +320,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-cad docs: corrected the sketch segment limit, exported-helix note, and edge-overlay description.
 - nuke-core + nuke-cad + nuke-visualizer + openmc-studio: sidebar panels scroll natively; PerfectScrollbar's overlay no longer covers panel content.
 - nuke-essentials: empty-state card centers itself in wide sidebars instead of hugging the left.
+- nuke-essentials: active ribbon actions keep readable icon contrast in light themes, and text inputs use border-box sizing app-wide.
 - nuke-essentials: color picker popup portals to the document body so it never clips in narrow sidebars.
 - nuke-essentials: edge-adjacent tooltips flip and clamp to the viewport instead of rendering off-screen.
 - nuke-essentials: stretched-wrapper tooltips track their control across scroll and resize.

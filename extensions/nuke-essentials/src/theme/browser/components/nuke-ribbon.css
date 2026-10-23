@@ -69,10 +69,19 @@
     cursor: not-allowed;
 }
 
-.nuke-ribbon-item.active,
-.nuke-ribbon-item.active:hover:not(:disabled) {
-    background: var(--theia-focusBorder);
+/* Active state must win over `.theia-button.secondary` (equal specificity in
+   Theia's own sheet, loaded later): a higher-specificity ribbon selector with
+   background-color/background-image keeps the accent fill and its foreground
+   in both light and dark themes. */
+.nuke-ribbon .nuke-ribbon-item.active,
+.nuke-ribbon .nuke-ribbon-item.active:hover:not(:disabled) {
+    background-color: var(--theia-focusBorder);
+    background-image: none;
     border-color: var(--theia-focusBorder);
+    color: var(--theia-button-foreground);
+}
+
+.nuke-ribbon .nuke-ribbon-item.active .codicon {
     color: var(--theia-button-foreground);
 }
 

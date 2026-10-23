@@ -201,6 +201,36 @@ test('right-click context menu and draggable feature dialog', async ({ page }) =
     // NukeCheckbox hides the native input; click its label to toggle it.
     await filletDialog.locator('label.nuke-checkbox', { hasText: 'Tangent chain' }).click();
     await expect(tangentChain).toBeChecked();
+
+    // Feature-dialog controls stay inside the padded dialog body: border-box
+    // sizing prevents 100%-wide inputs from spilling into the right padding.
+    const radiusInput = filletDialog.locator('.nuke-dialog-body input[type="number"], .nuke-dialog-body input[type="text"]').first();
+    await expect(radiusInput).toBeVisible();
+    const inputMetrics = await radiusInput.evaluate((element) => {
+        const body = element.closest('.nuke-dialog-body') as HTMLElement | null;
+        if (body === null) {
+            throw new Error('feature input is not inside a dialog body');
+        }
+        const bodyStyle = getComputedStyle(body);
+        const bodyRect = body.getBoundingClientRect();
+        const paddingRight = parseFloat(bodyStyle.paddingRight) || 0;
+        const borderRight = parseFloat(bodyStyle.borderRightWidth) || 0;
+        // Client box excludes the vertical scrollbar; subtract padding for the
+        // true content-box right edge.
+        const contentRight = bodyRect.left + body.clientLeft + body.clientWidth - paddingRight;
+        const inputRect = element.getBoundingClientRect();
+        return {
+            boxSizing: getComputedStyle(element).boxSizing,
+            inputRight: inputRect.right,
+            contentRight,
+            bodyRight: bodyRect.right - borderRight
+        };
+    });
+    expect(inputMetrics.boxSizing).toBe('border-box');
+    expect(inputMetrics.inputRight).toBeLessThanOrEqual(inputMetrics.contentRight + 0.5);
+    // At least the 8 px breathing room the dialog's right padding provides.
+    expect(inputMetrics.inputRight).toBeLessThanOrEqual(inputMetrics.bodyRight - 8 + 0.5);
+
     await filletDialog.locator('button', { hasText: 'Pick edge' }).click();
     const cancelPick = filletDialog.locator('button', { hasText: 'Cancel pick' });
     await expect(cancelPick).toBeVisible();

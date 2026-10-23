@@ -551,80 +551,131 @@
     border-color: var(--theia-focusBorder);
 }
 
-/* Origin: three 24 px world-axis rows with axis-colored labels, 10 px dots,
-   and eye toggles aligned with the outline row actions. */
+/* Origin: a master switch above one compact row of axis chips. Chips keep the
+   same 26 px density as other compact outline controls; pressed chips use the
+   viewport triad colors (#e05252/#4caf50/#3b82f6). */
 .origin-axis-rows {
     display: flex;
     flex-direction: column;
-    gap: 0;
-    padding: 2px 8px 4px;
+    gap: 2px;
+    padding: 2px 0;
 }
 
-.origin-axis-row {
+.origin-master-row {
     display: flex;
     align-items: center;
     gap: 8px;
-    height: 24px;
-    padding-right: 2px;
-    border-radius: 4px;
+    min-height: 28px;
+    padding: 2px 8px;
 }
 
-.origin-axis-row:hover {
-    background: var(--theia-list-hoverBackground);
-}
-
-.origin-axis-row.hidden .origin-axis-label {
-    opacity: 0.5;
-}
-
-.origin-axis-dot {
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    flex-shrink: 0;
-}
-
-.origin-axis-dot-x {
-    background: #e05252;
-}
-
-.origin-axis-dot-y {
-    background: #4caf50;
-}
-
-.origin-axis-dot-z {
-    background: #3b82f6;
-}
-
-.origin-axis-label {
+.origin-master-label {
     flex: 1;
     min-width: 0;
     font-size: 13px;
 }
 
-/* Axis letter colors mirror the viewport triad (cad-viewport-widget.tsx). */
-.origin-axis-label-x {
-    color: #e05252;
-}
-
-.origin-axis-label-y {
-    color: #4caf50;
-}
-
-.origin-axis-label-z {
-    color: #3b82f6;
-}
-
-.origin-axis-toggle {
-    min-width: 0;
+.origin-master-toggle {
     margin-left: auto;
-    padding: 1px 3px;
+}
+
+.origin-axis-chips {
+    display: flex;
+    gap: 6px;
+    padding: 2px 8px 6px;
+}
+
+/* The shared Tooltip wraps each chip in a fit-content span; make that wrapper
+   the equal-width flex item so the three chips split the row evenly. */
+.origin-axis-chips > span {
+    flex: 1 1 0;
+    min-width: 0;
+}
+
+.origin-axis-chip {
+    --origin-axis-color: var(--theia-descriptionForeground);
+    flex: 1 1 0;
+    min-width: 0;
+    height: 26px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    flex-shrink: 0;
-    font-size: 11px;
+    gap: 6px;
+    box-sizing: border-box;
+    padding: 0 6px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--theia-descriptionForeground);
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
     line-height: 1;
+    cursor: pointer;
+}
+
+.origin-axis-chip-x {
+    --origin-axis-color: #e05252;
+}
+
+.origin-axis-chip-y {
+    --origin-axis-color: #4caf50;
+}
+
+.origin-axis-chip-z {
+    --origin-axis-color: #3b82f6;
+}
+
+/* Mini axis glyph: a 12 px line paired with the bold letter label. */
+.origin-axis-chip-glyph {
+    width: 12px;
+    height: 2px;
+    flex-shrink: 0;
+    border-radius: 1px;
+    background: var(--origin-axis-color);
+    opacity: 0.55;
+}
+
+.origin-axis-chip-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.origin-axis-chip:not([aria-pressed='true']):hover:not(:disabled) {
+    border-color: var(--theia-panel-border);
+    background: var(--theia-toolbar-hoverBackground);
+    color: var(--theia-foreground);
+}
+
+.origin-axis-chip[aria-pressed='true'] {
+    border-color: var(--origin-axis-color);
+    color: var(--origin-axis-color);
+    background: color-mix(in srgb, var(--origin-axis-color) 12%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--origin-axis-color) 30%, transparent);
+}
+
+.origin-axis-chip[aria-pressed='true'] .origin-axis-chip-glyph {
+    opacity: 1;
+}
+
+.origin-axis-chip[aria-pressed='true']:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--origin-axis-color) 18%, transparent);
+}
+
+.origin-axis-chip:focus-visible {
+    outline: 1px solid var(--theia-focusBorder);
+    outline-offset: 1px;
+}
+
+.origin-axis-chip:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.origin-axis-chip[aria-pressed='true']:disabled {
+    color: color-mix(in srgb, var(--origin-axis-color) 65%, var(--theia-descriptionForeground));
+    border-color: color-mix(in srgb, var(--origin-axis-color) 50%, var(--theia-panel-border));
 }
 
 /* V10: spreadsheet table view */

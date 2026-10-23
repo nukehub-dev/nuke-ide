@@ -135,15 +135,16 @@ describe('NukeCadPreferenceSchema color by material', () => {
 });
 
 describe('NukeCadPreferenceSchema origin axes', () => {
-    it('shows all three world-origin axes by default', () => {
-        for (const name of ['nukeCad.showOriginX', 'nukeCad.showOriginY', 'nukeCad.showOriginZ']) {
+    it('shows the world-origin triad and all three axes by default', () => {
+        for (const name of ['nukeCad.showOriginAxes', 'nukeCad.showOriginX', 'nukeCad.showOriginY', 'nukeCad.showOriginZ']) {
             const prop = NukeCadPreferenceSchema.properties[name];
             expect(prop.type).toBe('boolean');
             expect(prop.default).toBe(true);
         }
     });
 
-    it('describes each axis in its own setting', () => {
+    it('describes the master switch and each axis in its own setting', () => {
+        expect(NukeCadPreferenceSchema.properties['nukeCad.showOriginAxes'].description).toContain('world-origin axis triad');
         expect(NukeCadPreferenceSchema.properties['nukeCad.showOriginX'].description).toContain('X axis');
         expect(NukeCadPreferenceSchema.properties['nukeCad.showOriginY'].description).toContain('Y axis');
         expect(NukeCadPreferenceSchema.properties['nukeCad.showOriginZ'].description).toContain('Z axis');

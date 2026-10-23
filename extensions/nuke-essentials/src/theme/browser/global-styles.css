@@ -92,6 +92,7 @@ input[type='number'],
 input[type='search'],
 textarea,
 .theia-input {
+    box-sizing: border-box;
     transition:
         border-color var(--nuke-transition-fast),
         box-shadow var(--nuke-transition-fast);

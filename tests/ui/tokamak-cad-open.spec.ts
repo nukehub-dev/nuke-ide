@@ -86,7 +86,6 @@ test('document-mode header toolbar renders with grouped actions and hides welcom
     const emptyCard = viewport.locator('.cad-viewport-document-empty').first();
     await expect(emptyCard).toBeVisible({ timeout: 10_000 });
     await expect(emptyCard.locator('.cad-viewport-document-empty-title')).toHaveText('Empty document');
-    await viewport.screenshot({ path: 'test-results/cad-empty-document.png' });
 
     // The redesigned header toolbar should render with the document title on the
     // left and grouped action buttons on the right.
@@ -96,6 +95,8 @@ test('document-mode header toolbar renders with grouped actions and hides welcom
     // flows mask this behind backend-build waits, new-document flows do not).
     const toolbar = page.locator('.cad-document-toolbar').first();
     await expect(toolbar).toBeVisible({ timeout: 60_000 });
+    // Visual review: the world-origin triad must not render without a model.
+    await viewport.screenshot({ path: 'test-results/cad-empty-no-axes.png' });
     await expect(toolbar.locator('.cad-document-toolbar-name')).toContainText('Untitled');
     await expect(toolbar.locator('.nuke-ribbon-section')).toHaveCount(7);
     await expect(toolbar.locator('[role="group"][aria-label="Document"]')).toBeVisible();

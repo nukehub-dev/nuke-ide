@@ -173,6 +173,11 @@ export const NukeCadPreferenceSchema: PreferenceSchema = {
             default: false,
             description: 'Color bodies by their material tag using the shared material palette. Explicit body appearance colors win.'
         },
+        'nukeCad.showOriginAxes': {
+            type: 'boolean',
+            default: true,
+            description: 'Show the world-origin axis triad in the CAD viewport.'
+        },
         'nukeCad.showOriginX': {
             type: 'boolean',
             default: true,
@@ -221,6 +226,8 @@ export interface NukeCadConfiguration {
     'nukeCad.appearancePresets': AppearancePreset[];
     /** Color bodies by their material tag; explicit body appearance colors still win. */
     'nukeCad.colorByMaterial': boolean;
+    /** Show the world-origin axis triad in the CAD viewport. */
+    'nukeCad.showOriginAxes': boolean;
     /** Show the world-origin X axis in the CAD viewport. */
     'nukeCad.showOriginX': boolean;
     /** Show the world-origin Y axis in the CAD viewport. */

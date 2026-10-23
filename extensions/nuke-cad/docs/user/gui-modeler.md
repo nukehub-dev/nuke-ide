@@ -129,11 +129,18 @@ it opens it in the CAD viewport by default.
   (default, follows the active Theia theme), `dark`, `light`, or `gradient`.
 - **Origin axes** (Model Outline → **Origin**): the viewport draws the
   world-origin triad in X red, Y green, and Z blue, scaled to the model so it
-  stays legible at any size. The three eye buttons hide or show one axis at a
-  time and remember the choice as user preferences
-  (`nukeCad.showOriginX` / `showOriginY` / `showOriginZ`, all on by default).
-  The axes are display-only — they never change geometry, builds, exports, or
-  the exported script — and disappear while you sketch (setup or session).
+  stays legible at any size. The **Show axes** master switch turns the whole
+  triad on or off; below it, one compact row of three equal-width **X / Y / Z**
+  chips hides or shows one axis at a time. A pressed chip is tinted in its
+  triad color, and with the master switch off the chips are muted and disabled
+  but remember their state until you switch the triad back on. Both the master
+  and per-axis choices persist as user preferences
+  (`nukeCad.showOriginAxes` plus `nukeCad.showOriginX` / `showOriginY` /
+  `showOriginZ`, all on by default).
+  The axes only appear once a model is loaded — the empty viewport, the
+  welcome card, and an empty document show none — and are display-only: they
+  never change geometry, builds, exports, or the exported script, and
+  disappear while you sketch (setup or session).
 - **Orientation cube** (top-right, below the toolbar, shared with the native VTK viewers): mirrors the current camera
   orientation; click an axis knob (or its opposite) to snap to that view.
 - **View badge** (top-left, below the toolbar, shared with the native VTK viewers): shows the active view
