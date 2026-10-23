@@ -80,6 +80,8 @@ export type ViewportContextMenuAction =
     | { readonly kind: 'toggleSection' }
     | { readonly kind: 'clearSelection' }
     | { readonly kind: 'revealFeature'; readonly featureId: string }
+    /** Open the per-body Appearance dialog (display-only color/opacity override). */
+    | { readonly kind: 'appearance'; readonly bodyId: string }
     /** Only ever on disabled items (the Edit Feature placeholder). */
     | { readonly kind: 'noop' };
 
@@ -87,6 +89,8 @@ export interface ViewportContextMenuItem {
     readonly label: string;
     readonly icon: string;
     readonly disabled?: boolean;
+    /** Concise native tooltip on a disabled item. */
+    readonly reason?: string;
     /** Render a separator above this item (group boundaries). */
     readonly separatorAbove?: boolean;
     /**
@@ -99,8 +103,8 @@ export interface ViewportContextMenuItem {
 }
 
 export interface ViewportContextMenuInput {
-    /** The solid under the pointer, with its attributed feature when known. */
-    readonly solid: { readonly solidId: number; readonly featureId?: string } | undefined;
+    /** The solid under the pointer, with its attributed feature and body when known. */
+    readonly solid: { readonly solidId: number; readonly featureId?: string; readonly bodyId?: string } | undefined;
     /** Current explode factor (0 = assembled); gates Reset Explode. */
     readonly explodeFactor: number;
     /** Hidden-solid count; gates Show All Solids. Defaults to 0. */
@@ -121,7 +125,7 @@ export interface ViewportContextMenuInput {
 export function buildViewportContextMenu(input: ViewportContextMenuInput): readonly ViewportContextMenuItem[] {
     const hasSelection = input.hasSelection === true;
     if (input.solid !== undefined) {
-        const { solidId, featureId } = input.solid;
+        const { solidId, featureId, bodyId } = input.solid;
         const selectedIds = (input.selectedIds ?? []).filter((id, index, all) => all.indexOf(id) === index);
         const bulkIds = selectedIds.length > 1 && selectedIds.includes(solidId) ? selectedIds : undefined;
         return [
@@ -129,6 +133,7 @@ export function buildViewportContextMenu(input: ViewportContextMenuInput): reado
                 label: 'Edit Feature…',
                 icon: 'codicon-edit',
                 disabled: featureId === undefined ? true : undefined,
+                reason: featureId === undefined ? 'No feature writes this body.' : undefined,
                 action: featureId !== undefined ? { kind: 'editFeature', featureId } : { kind: 'noop' }
             },
             ...(featureId !== undefined
@@ -138,6 +143,15 @@ export function buildViewportContextMenu(input: ViewportContextMenuInput): reado
                           icon: 'codicon-list-tree',
                           separatorAbove: true,
                           action: { kind: 'revealFeature', featureId } as const
+                      }
+                  ]
+                : []),
+            ...(bodyId !== undefined
+                ? [
+                      {
+                          label: 'Appearance…',
+                          icon: 'codicon-symbol-color',
+                          action: { kind: 'appearance', bodyId } as const
                       }
                   ]
                 : []),
@@ -276,6 +290,9 @@ export function openViewportContextMenu(
         const button = document.createElement('button');
         button.className = 'cad-viewport-context-menu-item';
         button.disabled = item.disabled === true;
+        if (item.disabled === true && item.reason !== undefined) {
+            button.title = item.reason;
+        }
         const icon = document.createElement('span');
         icon.className = `codicon ${item.icon}`;
         button.appendChild(icon);

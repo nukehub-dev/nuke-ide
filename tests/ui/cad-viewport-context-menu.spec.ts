@@ -67,6 +67,7 @@ test('right-click context menu and draggable feature dialog', async ({ page }) =
     expect(solidLabels).toEqual([
         'Edit Feature…',
         'Find in Feature Tree',
+        'Appearance…',
         'Measure Distance',
         'Measure Angle',
         'Measure Radius',
@@ -145,6 +146,7 @@ test('right-click context menu and draggable feature dialog', async ({ page }) =
     expect(afterEscapeLabels).toEqual([
         'Edit Feature…',
         'Find in Feature Tree',
+        'Appearance…',
         'Measure Distance',
         'Measure Angle',
         'Measure Radius',
@@ -153,8 +155,46 @@ test('right-click context menu and draggable feature dialog', async ({ page }) =
         'Isolate Solid'
     ]);
 
+    // Appearance… opens the per-body display-only override dialog. The menu is
+    // already open here; the dialog's opacity number input is the keyboard- and
+    // test-friendly mirror of the slider.
+    const openAppearance = async () => {
+        await page.mouse.click(center.x, center.y, { button: 'right' });
+        await expect(menu).toBeVisible();
+        await menu.locator('.cad-viewport-context-menu-item', { hasText: 'Appearance…' }).click();
+        const dialog = viewport.locator('.nuke-dialog');
+        await expect(dialog).toBeVisible();
+        return dialog;
+    };
+
+    await menu.locator('.cad-viewport-context-menu-item', { hasText: 'Appearance…' }).click();
+    let appearanceDialog = viewport.locator('.nuke-dialog');
+    await expect(appearanceDialog).toBeVisible();
+    await expect(appearanceDialog.locator('.nuke-dialog-title')).toContainText('Appearance');
+    await expect(appearanceDialog.locator('.cad-body-appearance-subtitle')).not.toBeEmpty();
+    const opacityPercent = appearanceDialog.getByLabel('Opacity percent');
+    await expect(opacityPercent).toHaveValue('100');
+    await opacityPercent.fill('50');
+    await appearanceDialog.locator('button', { hasText: 'OK' }).click();
+    await expect(appearanceDialog).toBeHidden();
+    await viewport.screenshot({ path: 'test-results/cad-body-appearance.png' });
+
+    // The override persists in the document: reopening prefills 50, and
+    // Remove override clears it back to the default 100.
+    appearanceDialog = await openAppearance();
+    await expect(appearanceDialog.getByLabel('Opacity percent')).toHaveValue('50');
+    await appearanceDialog.locator('button', { hasText: 'Remove override' }).click();
+    await expect(appearanceDialog).toBeHidden();
+
+    appearanceDialog = await openAppearance();
+    await expect(appearanceDialog.getByLabel('Opacity percent')).toHaveValue('100');
+    await appearanceDialog.locator('.nuke-dialog-close').click();
+    await expect(appearanceDialog).toBeHidden();
+
     // Find in Feature Tree selects the attributed feature and opens its panel.
     // Last canvas-coordinate step: the panel shrinks the viewport.
+    await page.mouse.click(center.x, center.y, { button: 'right' });
+    await expect(menu).toBeVisible();
     await menu.locator('.cad-viewport-context-menu-item', { hasText: 'Find in Feature Tree' }).click();
     const featureTree = page.locator('.cad-feature-tree-panel');
     await expect(featureTree).toBeVisible();

@@ -162,6 +162,18 @@ describe('solid-summaries', () => {
             expect(formatSi(2e-9)).toBe('2n');
             expect(formatSi(1e-10)).toBe('1.00e-10');
         });
+
+        it('honors an explicit decimal precision', () => {
+            expect(formatSi(2.555, 2)).toBe('2.56');
+            expect(formatSi(123.456, 2)).toBe('123.46');
+            expect(formatSi(12.3456, 1)).toBe('12.3');
+            expect(formatSi(123456, 2)).toBe('123.46k');
+            expect(formatSi(1234.5, 0)).toBe('1k');
+            expect(formatSi(0.0005555, 2)).toBe('555.5µ');
+            expect(formatSi(1e-10, 2)).toBe('1e-10');
+            expect(formatSi(0, 2)).toBe('0');
+            expect(formatSi(undefined, 2)).toBe(MISSING_VALUE);
+        });
     });
 
     describe('formatQuantity', () => {
@@ -173,6 +185,12 @@ describe('solid-summaries', () => {
 
         it('renders the placeholder without a unit for missing values', () => {
             expect(formatQuantity(undefined, 'u³')).toBe(MISSING_VALUE);
+        });
+
+        it('passes the decimal precision through', () => {
+            expect(formatQuantity(1234.5, 'u³', 2)).toBe('1.23k u³');
+            expect(formatQuantity(2.555, 'u', 0)).toBe('3 u');
+            expect(formatQuantity(undefined, 'u³', 2)).toBe(MISSING_VALUE);
         });
     });
 
@@ -186,6 +204,11 @@ describe('solid-summaries', () => {
             expect(formatVec3(undefined)).toBe(MISSING_VALUE);
             expect(formatVec3([1, 2])).toBe(MISSING_VALUE);
             expect(formatVec3([1, Number.NaN, 3])).toBe(MISSING_VALUE);
+        });
+
+        it('passes the decimal precision through each component', () => {
+            expect(formatVec3([2.555, 2000, 0.5], 'u', 2)).toBe('2.56, 2k, 500m u');
+            expect(formatVec3([2.555, 0.5, 0], undefined, 0)).toBe('3, 500m, 0');
         });
     });
 

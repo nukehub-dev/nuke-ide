@@ -66,3 +66,19 @@ describe('NukeCadPreferenceSchema resultCacheSizeMB', () => {
         expect(prop.minimum).toBe(1);
     });
 });
+
+describe('NukeCadPreferenceSchema display precision', () => {
+    it('defaults to two length decimals and one angle decimal', () => {
+        expect(NukeCadPreferenceSchema.properties['nukeCad.lengthDecimals'].default).toBe(2);
+        expect(NukeCadPreferenceSchema.properties['nukeCad.angleDecimals'].default).toBe(1);
+    });
+
+    it('accepts zero through six decimals', () => {
+        for (const name of ['nukeCad.lengthDecimals', 'nukeCad.angleDecimals']) {
+            const prop = NukeCadPreferenceSchema.properties[name];
+            expect(prop.type).toBe('number');
+            expect(prop.minimum).toBe(0);
+            expect(prop.maximum).toBe(6);
+        }
+    });
+});

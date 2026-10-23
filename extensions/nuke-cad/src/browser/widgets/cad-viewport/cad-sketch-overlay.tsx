@@ -78,6 +78,14 @@ import {
 import { type TopologyRef } from '../../../common/topology-refs';
 import { CadDocumentStore } from '../../document/cad-document-store';
 import {
+    buildCadCommands,
+    CAD_RIBBON_GROUPS,
+    cadCommandGroupLabel,
+    type CadCommandContext,
+    type CadCommandHandlers,
+    type CadCommandSpec
+} from '../../cad-command-registry';
+import {
     type DragTargetFilter,
     type DraggablePanelApi,
     headerRegionTarget,
@@ -85,6 +93,8 @@ import {
     clampPanelPosition
 } from './draggable-panel';
 import { type DocumentTemplate } from '../../../common/document-templates';
+import { CadCommandSearch, CAD_COMMAND_SEARCH_TRIGGER_ATTRIBUTE } from './cad-command-search';
+import { type CadCommandSearchAction } from './cad-command-search-model';
 import { validRelations, type SketchEntityType } from './constraint-relations';
 import {
     validateSweepPipeDraft,
@@ -165,6 +175,16 @@ interface CadSketchOverlayProps {
     readonly onToggleMeasure?: () => void;
     readonly onToggleMeasureList?: () => void;
     readonly onCloseShortcutBar: () => void;
+}
+
+/** True for controls that own their keystrokes (`/` must type, never open search). */
+function isTextEntryTarget(target: EventTarget | null): boolean {
+    return (
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement ||
+        (target instanceof HTMLElement && target.isContentEditable)
+    );
 }
 
 /**
@@ -566,6 +586,17 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
                     documentStore={documentStore}
                     sketchSetupActive={setupVisible}
                     sketchEditing={sketchEditing}
+                    searchShortcutBlocked={
+                        setupVisible ||
+                        featureCreationType !== undefined ||
+                        editFeature !== undefined ||
+                        facePickMode !== undefined ||
+                        dressUpPickMode !== undefined ||
+                        holePickMode === true ||
+                        curvePickMode === true ||
+                        measureActive === true ||
+                        shortcutBar !== undefined
+                    }
                     onStartSketchSetup={onStartSketchSetup}
                     onExitSketch={() => void onExitSketch()}
                     onEditSketch={onEditSketch}
@@ -1178,6 +1209,13 @@ interface DocumentModeToolbarProps {
     readonly documentStore: CadDocumentStore;
     readonly sketchSetupActive: boolean;
     readonly sketchEditing: boolean;
+    /**
+     * True while a task panel/dialog/pick/measure session owns the keyboard:
+     * the `/` search shortcut stays inert then. The `/` handler itself only
+     * mounts with this toolbar (document mode), so sketch sessions are already
+     * excluded.
+     */
+    readonly searchShortcutBlocked: boolean;
     readonly onStartSketchSetup: () => void;
     readonly onExitSketch: () => void;
     readonly onEditSketch: (sketchId: string) => void;
@@ -1259,13 +1297,47 @@ const SET_UNITS_TOOLTIP =
 function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElement {
     const doc = props.documentStore.document;
     const selectedSketchId = props.documentStore.selection.selectedSketchId;
-    const sketchSelected = selectedSketchId !== undefined;
     const hasBodies = doc !== undefined && doc.bodies.length > 0;
     const hasCurves = doc !== undefined && doc.curves.length > 0;
     const hasSolidProducers = doc !== undefined && doc.features.some((f) => SOLID_PRODUCERS.includes(f.type) && !f.suppressed);
 
     const toolbarRef = React.useRef<HTMLDivElement>(null);
     const [ribbonDensity, setRibbonDensity] = React.useState<NukeRibbonDensity>('tiles');
+    const [searchOpen, setSearchOpen] = React.useState(false);
+    const closeSearch = React.useCallback(() => setSearchOpen(false), []);
+
+    // A task panel/dialog/pick mode that starts while the popover is open owns
+    // the keyboard next: get the search card out of its way.
+    React.useEffect(() => {
+        if (props.searchShortcutBlocked) {
+            setSearchOpen(false);
+        }
+    }, [props.searchShortcutBlocked]);
+
+    // Document-mode `/` shortcut. Window bubble phase is enough: `/` has no
+    // viewport/Theia binding to pre-empt, and the guards keep it out of every
+    // input. `searchShortcutBlocked` covers the task panel/dialog/pick/measure
+    // states the toolbar host owns.
+    React.useEffect(() => {
+        const onSearchKey = (event: KeyboardEvent): void => {
+            if (event.key !== '/' || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) {
+                return;
+            }
+            const target = event.target;
+            // Only inside this CAD viewport: another editor or a non-text
+            // control elsewhere must keep its own `/` key.
+            if (!(target instanceof Element) || target.closest('.cad-viewport') === null) {
+                return;
+            }
+            if (isTextEntryTarget(target) || searchOpen || props.searchShortcutBlocked) {
+                return;
+            }
+            event.preventDefault();
+            setSearchOpen(true);
+        };
+        window.addEventListener('keydown', onSearchKey);
+        return () => window.removeEventListener('keydown', onSearchKey);
+    }, [searchOpen, props.searchShortcutBlocked]);
 
     // Measure the whole bar (not the ribbon) so the info block and units select
     // count against the density decision. Hysteresis lives in the pure model.
@@ -1315,291 +1387,87 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
         };
     }, []);
 
-    const groups: Array<{ label: string; actions: NukeRibbonItem[]; promoted: number }> = [
-        {
-            label: 'Document',
-            promoted: 5,
-            actions: [
-                {
-                    id: 'newDocument',
-                    label: 'New Document',
-                    shortLabel: 'New',
-                    icon: 'codicon-new-file',
-                    disabled: props.onNewDocument === undefined || props.documentStore.hasDocument,
-                    onClick: () => props.onNewDocument?.()
-                },
-                {
-                    id: 'saveDocument',
-                    label: 'Save Document',
-                    shortLabel: 'Save',
-                    icon: 'codicon-save',
-                    disabled: props.onSaveDocument === undefined || !props.documentStore.dirty,
-                    onClick: () => props.onSaveDocument?.()
-                },
-                {
-                    id: 'undo',
-                    label: 'Undo (Ctrl+Z)',
-                    shortLabel: 'Undo',
-                    icon: 'codicon-nuke-cad-undo',
-                    disabled: !props.documentStore.canUndo,
-                    onClick: () => props.documentStore.undo()
-                },
-                {
-                    id: 'redo',
-                    label: 'Redo (Ctrl+Shift+Z / Ctrl+Y)',
-                    shortLabel: 'Redo',
-                    icon: 'codicon-nuke-cad-redo',
-                    disabled: !props.documentStore.canRedo,
-                    onClick: () => props.documentStore.redo()
-                },
-                {
-                    id: 'rebuild',
-                    label: 'Rebuild Geometry',
-                    shortLabel: 'Rebuild',
-                    icon: 'codicon-refresh',
-                    disabled: props.onRebuildDocument === undefined,
-                    onClick: () => props.onRebuildDocument?.()
-                },
-                {
-                    id: 'exportPython',
-                    label: 'Export as Python',
-                    icon: 'codicon-code',
-                    disabled: props.onExportPython === undefined,
-                    onClick: () => props.onExportPython?.()
-                }
-            ]
-        },
-        {
-            label: 'Sketch',
-            promoted: 2,
-            actions: [
-                {
-                    id: 'newSketch',
-                    label: 'New Sketch',
-                    shortLabel: 'New',
-                    icon: 'codicon-nuke-cad-sketch',
-                    disabled: false,
-                    active: props.sketchSetupActive && !props.sketchEditing,
-                    onClick: props.onStartSketchSetup
-                },
-                ...(selectedSketchId !== undefined
-                    ? [
-                          {
-                              id: 'editSketch',
-                              label: 'Edit Selected Sketch',
-                              shortLabel: 'Edit',
-                              icon: 'codicon-edit',
-                              disabled: false,
-                              active: props.sketchSetupActive && props.sketchEditing,
-                              onClick: () => props.onEditSketch(selectedSketchId)
-                          }
-                      ]
-                    : [])
-            ]
-        },
-        {
-            label: 'Additive',
-            promoted: 3,
-            actions: [
-                {
-                    id: 'pad',
-                    label: 'Pad (extrude add)',
-                    shortLabel: 'Pad',
-                    icon: 'codicon-nuke-cad-pad',
-                    disabled: !sketchSelected,
-                    onClick: () => props.onStartFeatureCreation('pad')
-                },
-                {
-                    id: 'pocket',
-                    label: 'Pocket (extrude cut)',
-                    shortLabel: 'Pocket',
-                    icon: 'codicon-nuke-cad-pocket',
-                    disabled: !sketchSelected || !hasBodies,
-                    onClick: () => props.onStartFeatureCreation('pocket')
-                },
-                {
-                    id: 'revolve',
-                    label: 'Revolve',
-                    icon: 'codicon-nuke-cad-revolve',
-                    disabled: !sketchSelected,
-                    onClick: () => props.onStartFeatureCreation('revolve')
-                },
-                {
-                    id: 'groove',
-                    label: 'Groove',
-                    icon: 'codicon-nuke-cad-groove',
-                    disabled: !sketchSelected || !hasBodies,
-                    onClick: () => props.onStartFeatureCreation('groove')
-                },
-                {
-                    id: 'loft',
-                    label: 'Loft (join sketch sections)',
-                    icon: 'codicon-nuke-cad-loft',
-                    disabled: doc === undefined || doc.sketches.length < 2,
-                    onClick: () => props.onStartFeatureCreation('loft')
-                },
-                {
-                    id: 'sweep',
-                    label: 'Sweep (sketch along curve)',
-                    icon: 'codicon-nuke-cad-sweep',
-                    disabled: !sketchSelected || !hasCurves,
-                    onClick: () => props.onStartFeatureCreation('sweep')
-                },
-                {
-                    id: 'pipe',
-                    label: 'Pipe (circle along curve)',
-                    icon: 'codicon-nuke-cad-pipe',
-                    disabled: !hasCurves,
-                    onClick: () => props.onStartFeatureCreation('pipe')
-                },
-                {
-                    id: 'helicalSweep',
-                    label: 'Helical Sweep (sketch along helix)',
-                    icon: 'codicon-nuke-cad-helix',
-                    disabled: !sketchSelected,
-                    onClick: () => props.onStartFeatureCreation('helicalSweep')
-                }
-            ]
-        },
-        {
-            label: 'Boolean',
-            promoted: 3,
-            actions: [
-                {
-                    id: 'booleanFuse',
-                    label: 'Boolean Fuse',
-                    shortLabel: 'Fuse',
-                    icon: 'codicon-nuke-cad-boolean-fuse',
-                    disabled: !hasBodies,
-                    onClick: () => props.onStartFeatureCreation('booleanFuse')
-                },
-                {
-                    id: 'booleanCut',
-                    label: 'Boolean Cut',
-                    shortLabel: 'Cut',
-                    icon: 'codicon-nuke-cad-boolean-cut',
-                    disabled: !hasBodies,
-                    onClick: () => props.onStartFeatureCreation('booleanCut')
-                },
-                {
-                    id: 'booleanCommon',
-                    label: 'Boolean Common',
-                    shortLabel: 'Common',
-                    icon: 'codicon-nuke-cad-boolean-common',
-                    disabled: !hasBodies,
-                    onClick: () => props.onStartFeatureCreation('booleanCommon')
-                }
-            ]
-        },
-        {
-            label: 'Dress-up',
-            promoted: 3,
-            actions: [
-                {
-                    id: 'fillet',
-                    label: 'Fillet',
-                    icon: 'codicon-nuke-cad-fillet',
-                    disabled: !hasBodies,
-                    onClick: () => props.onStartFeatureCreation('fillet')
-                },
-                {
-                    id: 'chamfer',
-                    label: 'Chamfer',
-                    icon: 'codicon-nuke-cad-chamfer',
-                    disabled: !hasBodies,
-                    onClick: () => props.onStartFeatureCreation('chamfer')
-                },
-                {
-                    id: 'shell',
-                    label: 'Shell',
-                    icon: 'codicon-nuke-cad-shell',
-                    disabled: !hasBodies,
-                    onClick: () => props.onStartFeatureCreation('shell')
-                },
-                {
-                    id: 'draft',
-                    label: 'Draft',
-                    icon: 'codicon-nuke-cad-draft',
-                    disabled: !hasBodies,
-                    onClick: () => props.onStartFeatureCreation('draft')
-                },
-                {
-                    id: 'translate',
-                    label: 'Move (translate body)',
-                    icon: 'codicon-nuke-cad-move',
-                    disabled: !hasBodies,
-                    onClick: () => props.onStartFeatureCreation('translate')
-                }
-            ]
-        },
-        {
-            label: 'Pattern',
-            promoted: 3,
-            actions: [
-                {
-                    id: 'linearPattern',
-                    label: 'Linear Pattern',
-                    shortLabel: 'Linear',
-                    icon: 'codicon-nuke-cad-linear-pattern',
-                    disabled: !hasBodies || !hasSolidProducers,
-                    onClick: () => props.onStartFeatureCreation('linearPattern')
-                },
-                {
-                    id: 'circularPattern',
-                    label: 'Circular Pattern',
-                    shortLabel: 'Circular',
-                    icon: 'codicon-nuke-cad-circular-pattern',
-                    disabled: !hasBodies || !hasSolidProducers,
-                    onClick: () => props.onStartFeatureCreation('circularPattern')
-                },
-                {
-                    id: 'mirror',
-                    label: 'Mirror',
-                    icon: 'codicon-nuke-cad-mirror',
-                    disabled: !hasBodies || !hasSolidProducers,
-                    onClick: () => props.onStartFeatureCreation('mirror')
-                },
-                {
-                    id: 'lattice',
-                    label: 'Lattice',
-                    icon: 'codicon-nuke-cad-lattice',
-                    disabled: !hasBodies || !hasSolidProducers,
-                    onClick: () => props.onStartFeatureCreation('lattice')
-                },
-                {
-                    id: 'hole',
-                    label: 'Hole',
-                    icon: 'codicon-nuke-cad-hole',
-                    disabled: !hasBodies,
-                    onClick: () => props.onStartFeatureCreation('hole')
-                }
-            ]
-        },
-        {
-            label: 'Inspect',
-            promoted: 2,
-            actions: [
-                {
-                    id: 'measure',
-                    label: 'Measure (distance, angle, radius)',
-                    shortLabel: 'Measure',
-                    icon: 'codicon-nuke-cad-measure',
-                    disabled: false,
-                    active: props.measureActive,
-                    onClick: () => props.onToggleMeasure?.()
-                },
-                {
-                    id: 'measureList',
-                    label: `Measurements${props.measureCount ? ` (${props.measureCount})` : ''}`,
-                    shortLabel: 'Measures',
-                    icon: 'codicon-list-unordered',
-                    disabled: false,
-                    active: props.measureListOpen,
-                    onClick: () => props.onToggleMeasureList?.()
-                }
-            ]
+    const commandContext: CadCommandContext = {
+        hasDocument: props.documentStore.hasDocument,
+        selectedSketchId,
+        hasBodies,
+        hasCurves,
+        hasSolidProducers,
+        sketchCount: doc?.sketches.length ?? 0,
+        canUndo: props.documentStore.canUndo,
+        canRedo: props.documentStore.canRedo,
+        dirty: props.documentStore.dirty,
+        measureActive: props.measureActive === true,
+        measureListOpen: props.measureListOpen === true,
+        measureCount: props.measureCount ?? 0
+    };
+    const commandHandlers: CadCommandHandlers = {
+        onNewDocument: props.onNewDocument,
+        onSaveDocument: props.onSaveDocument,
+        onRebuildDocument: props.onRebuildDocument,
+        onExportPython: props.onExportPython,
+        onStartSketchSetup: props.onStartSketchSetup,
+        onEditSketch: props.onEditSketch,
+        onStartFeatureCreation: props.onStartFeatureCreation,
+        onUndo: () => props.documentStore.undo(),
+        onRedo: () => props.documentStore.redo(),
+        onToggleMeasure: props.onToggleMeasure,
+        onToggleMeasureList: props.onToggleMeasureList
+    };
+    const commands = buildCadCommands(commandContext, commandHandlers);
+    const isCommandEnabled = (command: CadCommandSpec): boolean => command.isEnabled(commandContext);
+    const commandDisabledReason = (command: CadCommandSpec): string | undefined =>
+        isCommandEnabled(command) ? undefined : command.disabledReason?.(commandContext);
+    // Active states describe a transient mode, not availability, so the host
+    // owns them and the pure registry only answers "can this run?".
+    const isCommandActive = (id: string): boolean => {
+        switch (id) {
+            case 'newSketch':
+                return props.sketchSetupActive && !props.sketchEditing;
+            case 'editSketch':
+                return props.sketchSetupActive && props.sketchEditing;
+            case 'measure':
+                return commandContext.measureActive;
+            case 'measureList':
+                return commandContext.measureListOpen;
+            default:
+                return false;
         }
-    ];
+    };
+
+    const groups: Array<{ label: string; actions: NukeRibbonItem[]; promoted: number }> = CAD_RIBBON_GROUPS.map((group) => ({
+        label: group.label,
+        promoted: group.promoted,
+        actions: commands
+            .filter((command) => command.group === group.id)
+            .map((command) => ({
+                id: command.id,
+                label: command.label,
+                shortLabel: command.shortLabel,
+                icon: command.icon,
+                disabled: !isCommandEnabled(command),
+                disabledReason: commandDisabledReason(command),
+                // Sketch setup is a toggle: keep aria-pressed present (true/false),
+                // while other ribbon actions only expose it when active.
+                active:
+                    command.id === 'newSketch' || command.id === 'editSketch'
+                        ? isCommandActive(command.id)
+                        : isCommandActive(command.id) || undefined,
+                onClick: command.run
+            }))
+    }));
+
+    // The search consumes exactly the same specs (promoted + caret-menu tails).
+    const searchActions: CadCommandSearchAction[] = commands.map((command) => ({
+        id: command.id,
+        label: command.label,
+        shortLabel: command.shortLabel,
+        icon: command.icon,
+        disabled: !isCommandEnabled(command),
+        disabledReason: commandDisabledReason(command),
+        group: cadCommandGroupLabel(command.group),
+        onClick: command.run
+    }));
 
     return (
         <div className="cad-document-toolbar" ref={toolbarRef}>
@@ -1633,7 +1501,23 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
                         <NukeRibbonSection key={group.label} label={group.label} items={group.actions} promoted={group.promoted} />
                     ))}
                 </NukeRibbon>
+                <div className="cad-document-toolbar-search-anchor">
+                    <Tooltip content="Search CAD commands (/)" position="bottom">
+                        <button
+                            type="button"
+                            className="theia-button secondary cad-document-toolbar-search"
+                            aria-label="Search CAD commands"
+                            aria-haspopup="dialog"
+                            aria-expanded={searchOpen}
+                            {...{ [CAD_COMMAND_SEARCH_TRIGGER_ATTRIBUTE]: '' }}
+                            onClick={() => setSearchOpen((open) => !open)}
+                        >
+                            <span className="codicon codicon-search" />
+                        </button>
+                    </Tooltip>
+                </div>
             </div>
+            <CadCommandSearch open={searchOpen} actions={searchActions} onClose={closeSearch} />
         </div>
     );
 }

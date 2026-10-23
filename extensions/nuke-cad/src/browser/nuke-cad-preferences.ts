@@ -119,6 +119,22 @@ export const NukeCadPreferenceSchema: PreferenceSchema = {
                 'Viewport mouse/touch bindings: orbit uses left-drag orbit, SolidWorks reserves left-drag for ' +
                 'selection with middle-drag orbit, TinkerCAD orbits on right-drag, touchpad uses finger gestures. ' +
                 'Right-click context menus work in every style.'
+        },
+        'nukeCad.lengthDecimals': {
+            type: 'number',
+            default: 2,
+            minimum: 0,
+            maximum: 6,
+            description:
+                'Maximum decimal places for length readouts (measurement labels, model properties). ' +
+                'Values are rounded; trailing zeros stay trimmed.'
+        },
+        'nukeCad.angleDecimals': {
+            type: 'number',
+            default: 1,
+            minimum: 0,
+            maximum: 6,
+            description: 'Maximum decimal places for angle readouts (measurement labels). Values are rounded; trailing zeros stay trimmed.'
         }
     }
 };
@@ -141,6 +157,10 @@ export interface NukeCadConfiguration {
     'nukeCad.resultCacheSizeMB': number;
     /** Viewport mouse/touch bindings: orbit, solidworks, tinkercad, or touchpad. */
     'nukeCad.navigationStyle': string;
+    /** Maximum decimal places for length readouts (measurement labels, model properties). */
+    'nukeCad.lengthDecimals': number;
+    /** Maximum decimal places for angle readouts (measurement labels). */
+    'nukeCad.angleDecimals': number;
 }
 
 /** Symbol used to bind the {@link PreferenceContribution} for Nuke CAD. */

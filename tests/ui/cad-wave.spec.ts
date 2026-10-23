@@ -185,6 +185,18 @@ test('document settings summarize metadata and set units', async ({ page }) => {
     await expect(viewport.locator('.nuke-loading-overlay')).toBeHidden({ timeout: 120_000 });
     await expect(viewport.locator('.cad-viewport-error-banner')).toBeHidden();
 
+    // Display precision: defaults are 2 length / 1 angle decimal places and
+    // the fields commit through the user preference scope.
+    const lengthPrecision = section.getByLabel('Length decimal places');
+    const anglePrecision = section.getByLabel('Angle decimal places');
+    await expect(lengthPrecision).toHaveValue('2');
+    await expect(anglePrecision).toHaveValue('1');
+    await lengthPrecision.fill('0');
+    await expect(lengthPrecision).toHaveValue('0');
+    await lengthPrecision.fill('2');
+    await expect(lengthPrecision).toHaveValue('2');
+    await expect(outlineUnits).toHaveText('mm');
+
     await outline.screenshot({ path: 'test-results/cad-document-settings.png' });
 
     const bad = severe(errors);

@@ -187,12 +187,14 @@ test('document toolbar collapses to section menus without wrapping at narrow wid
         'Rebuild'
     ]);
     await expect(toolbar.locator('[role="group"][aria-label="Inspect"] .nuke-ribbon-item-label').last()).toHaveText('Measures');
+    await expect(toolbar.locator('.cad-document-toolbar-search')).toBeVisible();
     await toolbar.screenshot({ path: 'test-results/cad-ribbon-tiles.png' });
 
     // Narrow the window: the bar must switch to caption menus, not wrap.
     await page.setViewportSize({ width: 900, height: 800 });
     await expect(toolbar.locator('.nuke-ribbon-menus')).toBeVisible({ timeout: 10_000 });
     await expect(toolbar.locator('.nuke-ribbon-section')).toHaveCount(7);
+    await expect(toolbar.locator('.cad-document-toolbar-search')).toBeVisible();
     const menuTriggers = toolbar.locator('.nuke-ribbon-menu-trigger');
     await expect(menuTriggers).toHaveCount(7);
     for (let index = 0; index < 7; index++) {
@@ -209,10 +211,14 @@ test('document toolbar collapses to section menus without wrapping at narrow wid
     }));
     expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth + 1);
 
-    // A section menu is portaled and closes on Escape.
+    // A section menu is portaled and closes on Escape; the disabled Pad row
+    // states why it cannot run.
     await toolbar.locator('[role="group"][aria-label="Additive"] .nuke-ribbon-menu-trigger').click();
     const menu = page.locator('.nuke-ribbon-menu');
     await expect(menu).toBeVisible({ timeout: 10_000 });
+    const padRow = menu.locator('[role="menuitem"]:has(.codicon-nuke-cad-pad)').first();
+    await expect(padRow).toBeDisabled();
+    await expect(padRow.locator('.nuke-ribbon-menu-item-reason')).toHaveText('Select a sketch first.');
     await page.keyboard.press('Escape');
     await expect(menu).toBeHidden();
 
@@ -314,6 +320,87 @@ test('Q shortcut bar opens in sketch mode and closes on Escape', async ({ page }
 
     await page.keyboard.press('Escape');
     await expect(shortcutBar).toBeHidden();
+
+    const severe = errors.filter((e) => !e.includes('l10n') && !e.includes('localization bundles'));
+    expect(severe, `unexpected severe errors:\n${severe.join('\n')}`).toEqual([]);
+});
+
+test('document toolbar command search runs ribbon actions and opens with /', async ({ page }) => {
+    test.setTimeout(180_000);
+    const errors = collectErrors(page);
+    await page.goto('/');
+    await waitForWorkbench(page);
+
+    // The pincell fixture has bodies, so body-dependent actions (Fillet) are
+    // enabled; the empty document disables them.
+    await openFileByQuickOpen(page, 'cad-pincell.nuke-cad');
+
+    const viewport = page.locator('.cad-viewport').first();
+    await expect(viewport).toBeVisible({ timeout: 30_000 });
+    const toolbar = viewport.locator('.cad-document-toolbar').first();
+    await expect(toolbar).toBeVisible({ timeout: 60_000 });
+
+    // Wait for the backend build: the explode slider renders with the
+    // tessellation, the banner when the CAD backend is unavailable.
+    const errorBanner = viewport.locator('.cad-viewport-error-banner');
+    const model = viewport.locator('.cad-viewport-explode input[type=range]');
+    await expect(model.or(errorBanner).first()).toBeVisible({ timeout: 120_000 });
+    if (await errorBanner.isVisible()) {
+        test.skip(true, `CAD backend unavailable: ${(await errorBanner.textContent()) ?? 'build failed'}`);
+    }
+
+    const searchButton = toolbar.locator('.cad-document-toolbar-search');
+    await expect(searchButton).toBeVisible();
+    await expect(searchButton).toHaveAttribute('aria-label', 'Search CAD commands');
+
+    // Button flow: filter the flattened ribbon table, then Enter runs Fillet.
+    await searchButton.click();
+    const popover = viewport.locator('.cad-command-search-popover');
+    await expect(popover).toBeVisible();
+    const search = popover.locator('.nuke-search-input-field');
+    await expect(search).toBeFocused();
+
+    await search.fill('groove');
+    const rows = popover.locator('.cad-command-search-item');
+    await expect(rows).toHaveCount(1);
+    await expect(rows.first().locator('.cad-command-search-label')).toHaveText('Groove');
+    await expect(rows.first().locator('.cad-command-search-group')).toHaveText('Additive');
+
+    // A disabled row stays searchable and explains why it cannot run.
+    await search.fill('pad');
+    await expect(rows).toHaveCount(1);
+    await expect(rows.first()).toBeDisabled();
+    await expect(rows.first().locator('.cad-command-search-label')).toHaveText('Pad (extrude add)');
+    await expect(rows.first().locator('.cad-command-search-reason')).toHaveText('Select a sketch first.');
+
+    await search.fill('fillet');
+    await expect(rows).toHaveCount(1);
+    await expect(rows.first()).toBeEnabled();
+    await expect(rows.first().locator('.cad-command-search-label')).toHaveText('Fillet');
+    await expect(rows.first().locator('.cad-command-search-group')).toHaveText('Dress-up');
+    await popover.screenshot({ path: 'test-results/cad-command-search.png' });
+
+    await search.press('Enter');
+    await expect(popover).toBeHidden();
+    const dialog = viewport.locator('.nuke-dialog').first();
+    await expect(dialog).toBeVisible();
+    await expect(dialog.locator('.nuke-dialog-title')).toHaveText('Fillet');
+    await page.keyboard.press('Escape');
+    await expect(dialog).toBeHidden();
+
+    // `/` opens the same popover in document mode; Escape closes it without
+    // running anything.
+    await viewport
+        .locator('canvas')
+        .first()
+        .click({ position: { x: 200, y: 200 } });
+    await viewport.focus();
+    await page.keyboard.press('/');
+    await expect(popover).toBeVisible();
+    await expect(search).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(popover).toBeHidden();
+    await expect(page.locator('.nuke-dialog')).toBeHidden();
 
     const severe = errors.filter((e) => !e.includes('l10n') && !e.includes('localization bundles'));
     expect(severe, `unexpected severe errors:\n${severe.join('\n')}`).toEqual([]);

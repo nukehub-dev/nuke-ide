@@ -68,6 +68,7 @@ describe('buildViewportContextMenu', () => {
             'Isolate Solid'
         ]);
         expect(items[0].disabled).toBeUndefined();
+        expect(items[0].reason).toBeUndefined();
         expect(items[0].action).toEqual({ kind: 'editFeature', featureId: 'pad-1' });
         expect(items[1].separatorAbove).toBe(true);
         expect(items[1].action).toEqual({ kind: 'revealFeature', featureId: 'pad-1' });
@@ -84,6 +85,49 @@ describe('buildViewportContextMenu', () => {
         expect(items[7].action).toEqual({ kind: 'isolateSolid', solidId: 3 });
     });
 
+    it('offers Appearance… for a body, after Find in Feature Tree and before Measure', () => {
+        const items = buildViewportContextMenu({
+            solid: { solidId: 3, featureId: 'pad-1', bodyId: 'body-a' },
+            explodeFactor: 0
+        });
+        expect(labels(items)).toEqual([
+            'Edit Feature…',
+            'Find in Feature Tree',
+            'Appearance…',
+            'Measure Distance',
+            'Measure Angle',
+            'Measure Radius',
+            'Fit to Solid',
+            'Hide Solid',
+            'Isolate Solid'
+        ]);
+        expect(items[2].icon).toBe('codicon-symbol-color');
+        expect(items[2].separatorAbove).toBeUndefined();
+        expect(items[2].action).toEqual({ kind: 'appearance', bodyId: 'body-a' });
+        // Measure starts its own group after the feature/body group.
+        expect(items[3].separatorAbove).toBe(true);
+    });
+
+    it('offers Appearance… directly after Edit Feature when no feature is attributed', () => {
+        const items = buildViewportContextMenu({ solid: { solidId: 3, bodyId: 'body-a' }, explodeFactor: 0 });
+        expect(labels(items)).toEqual([
+            'Edit Feature…',
+            'Appearance…',
+            'Measure Distance',
+            'Measure Angle',
+            'Measure Radius',
+            'Fit to Solid',
+            'Hide Solid',
+            'Isolate Solid'
+        ]);
+        expect(items[1].action).toEqual({ kind: 'appearance', bodyId: 'body-a' });
+    });
+
+    it('omits Appearance… when the hit carries no body id (script/STEP models)', () => {
+        const items = buildViewportContextMenu({ solid: { solidId: 3, featureId: 'pad-1' }, explodeFactor: 0 });
+        expect(labels(items)).not.toContain('Appearance…');
+    });
+
     it('disables Edit Feature when attribution fails instead of guessing, and omits Find in Feature Tree', () => {
         const items = buildViewportContextMenu({ solid: { solidId: 3 }, explodeFactor: 0 });
         expect(labels(items)).toEqual([
@@ -96,6 +140,7 @@ describe('buildViewportContextMenu', () => {
             'Isolate Solid'
         ]);
         expect(items[0].disabled).toBe(true);
+        expect(items[0].reason).toBe('No feature writes this body.');
         expect(items[0].action).toEqual({ kind: 'noop' });
     });
 

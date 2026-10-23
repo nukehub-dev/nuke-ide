@@ -103,7 +103,8 @@ import {
     type FeatureType,
     type FeatureParams,
     type CurvePoint,
-    type NukeCadDocument
+    type NukeCadDocument,
+    type BodyAppearance
 } from '../../../common/cad-document';
 import { type TopologyRef } from '../../../common/topology-refs';
 import { FaceHighlighter, type FacePickHit, buildTopologyRef, pointerToNdc, projectHitToFaceUv, raycastFace } from './face-picker';
@@ -162,6 +163,7 @@ import {
     restoreSavedMeasurements,
     toSavedMeasurement,
     type Measurement,
+    type MeasurementDecimals,
     type MeasureAngle,
     type MeasureKind,
     type MeasureLabelCandidate,
@@ -186,6 +188,8 @@ import {
     type ConnectorTriad
 } from './assembly-view';
 import { MateDialog, type MateDraft } from './mate-dialog';
+import { BodyAppearanceDialog, type BodyAppearanceTarget } from './body-appearance-dialog';
+import { resolveBodyAppearance } from './body-appearance';
 import { AssemblyInstanceList } from './assembly-instance-list';
 import { faceReuseKey, planFaceReuse, type ParsedTessCurve, type ParsedTessData } from './tess-reuse';
 import { parseTessellationAsync } from './tess-parse-client';
@@ -350,6 +354,8 @@ export class CadViewportWidget extends ReactWidget {
     private featurePreviewToken = 0;
     /** True while the viewport section plane is engaged. */
     private sectionActive = false;
+    /** Body targeted by the Appearance dialog (display-only color/opacity override). */
+    private appearanceTarget?: BodyAppearanceTarget;
 
     /** Toggle viewport section mode (nav-cluster button). */
     protected readonly handleSetSectionActive = (active: boolean): void => {
@@ -449,6 +455,47 @@ export class CadViewportWidget extends ReactWidget {
     protected readonly handleRevealFeature = (featureId: string): void => {
         this.documentStore.selectFeature(featureId);
         void this.commandService.executeCommand(NukeCadCommands.OPEN_FEATURE_TREE.id);
+    };
+
+    /** Context-menu Appearance…: open the per-body color/opacity dialog. */
+    protected readonly handleOpenAppearance = (bodyId: string): void => {
+        const body = this.documentStore.document?.bodies.find((b) => b.id === bodyId);
+        if (body === undefined) {
+            return;
+        }
+        const label = body.label !== undefined && body.label.length > 0 ? `${body.name} · ${body.label}` : body.name;
+        this.appearanceTarget = { bodyId, label };
+        this.update();
+    };
+
+    protected readonly handleCloseAppearance = (): void => {
+        this.appearanceTarget = undefined;
+        this.update();
+    };
+
+    /**
+     * Appearance dialog OK: commit through the store (validation, undo, dirty
+     * flag) and close on success. A failed commit keeps the dialog open so the
+     * user can correct the values; the store never schedules a rebuild.
+     */
+    protected readonly handleApplyAppearance = (bodyId: string, appearance: BodyAppearance): void => {
+        const result = this.documentStore.setBodyAppearance(bodyId, appearance);
+        if (!result.success) {
+            this.messageService.error(result.error || 'Failed to set the body appearance.');
+            return;
+        }
+        this.appearanceTarget = undefined;
+        this.update();
+    };
+
+    protected readonly handleRemoveAppearance = (bodyId: string): void => {
+        const result = this.documentStore.setBodyAppearance(bodyId, undefined);
+        if (!result.success) {
+            this.messageService.error(result.error || 'Failed to remove the body appearance.');
+            return;
+        }
+        this.appearanceTarget = undefined;
+        this.update();
     };
 
     protected readonly subscribeHiddenSolids = (listener: (ids: readonly number[]) => void): Disposable => {
@@ -1116,6 +1163,16 @@ export class CadViewportWidget extends ReactWidget {
         this.toDispose.push(this.monacoWorkspace.onDidSaveTextDocument((document) => this.onModelScriptSaved(document)));
         this.toDispose.push(Disposable.create(() => this.clearSaveRebuildTimer()));
         this.toDispose.push(Disposable.create(this.documentStore.onChange(() => this.onDocumentChange())));
+        // Display precision is a rendering-only preference: re-render the React
+        // chrome (measure popover props) and let the mounted scene refresh its
+        // overlay labels through `setMeasurementDecimals`.
+        this.toDispose.push(
+            this.preferences.onPreferenceChanged((event) => {
+                if (event.preferenceName === 'nukeCad.lengthDecimals' || event.preferenceName === 'nukeCad.angleDecimals') {
+                    this.update();
+                }
+            })
+        );
         // Drawing-dimension edge picks arrive from the Drawing Sheet widget
         // through the `edge-picker` broker (no shared service to dispose).
         this.toDispose.push(Disposable.create(onDrawingDimensionPickRequest((request) => this.handleDrawingDimensionPickRequest(request))));
@@ -1992,6 +2049,8 @@ export class CadViewportWidget extends ReactWidget {
                 sketchAutoDimension={this.preferences['nukeCad.sketchAutoDimension']}
                 viewportBackground={this.preferences['nukeCad.viewportBackground'] as ViewportBackgroundStyle}
                 navigationStyle={this.preferences['nukeCad.navigationStyle'] as NavigationStyle}
+                lengthDecimals={this.preferences['nukeCad.lengthDecimals']}
+                angleDecimals={this.preferences['nukeCad.angleDecimals']}
                 rebuildOnEdit={this.preferences['nukeCad.rebuildOnEdit']}
                 buildStale={this.buildStale}
                 templates={DOCUMENT_TEMPLATES}
@@ -2069,6 +2128,11 @@ export class CadViewportWidget extends ReactWidget {
                 onShowAllSolids={this.handleShowAllSolids}
                 onClearSelection={this.handleClearSelection}
                 onRevealFeature={this.handleRevealFeature}
+                appearanceTarget={this.appearanceTarget}
+                onOpenAppearance={this.handleOpenAppearance}
+                onCloseAppearance={this.handleCloseAppearance}
+                onApplyAppearance={this.handleApplyAppearance}
+                onRemoveAppearance={this.handleRemoveAppearance}
                 messageService={this.messageService}
             />
         );
@@ -2104,6 +2168,10 @@ interface CadViewportComponentProps {
     readonly sketchAutoDimension: boolean;
     readonly viewportBackground: ViewportBackgroundStyle;
     readonly navigationStyle: NavigationStyle;
+    /** Maximum decimal places for length readouts (measure labels + popover rows). */
+    readonly lengthDecimals: number;
+    /** Maximum decimal places for angle readouts (measure labels + popover rows). */
+    readonly angleDecimals: number;
     readonly rebuildOnEdit: 'auto' | 'manual';
     readonly buildStale: boolean;
     readonly templates: ReadonlyArray<import('../../../common/document-templates').DocumentTemplate>;
@@ -2186,6 +2254,13 @@ interface CadViewportComponentProps {
     readonly onClearSelection: () => void;
     /** Viewport context menu: select a feature and reveal the Feature Tree. */
     readonly onRevealFeature: (featureId: string) => void;
+    /** Per-body Appearance dialog target; undefined when the dialog is closed. */
+    readonly appearanceTarget?: BodyAppearanceTarget;
+    /** Viewport context menu Appearance…: open the dialog for a body. */
+    readonly onOpenAppearance: (bodyId: string) => void;
+    readonly onCloseAppearance: () => void;
+    readonly onApplyAppearance: (bodyId: string, appearance: BodyAppearance) => void;
+    readonly onRemoveAppearance: (bodyId: string) => void;
 }
 
 function CadViewportComponent(props: CadViewportComponentProps): React.ReactElement {
@@ -2262,6 +2337,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
         setSection?: (section?: SectionState) => void;
         setExplodeFactor?: (factor: number) => void;
         updateMeasureState?: (state: MeasureViewState) => void;
+        setMeasurementDecimals?: (decimals: MeasurementDecimals) => void;
         setAutoDimensionEnabled?: (enabled: boolean) => void;
     }>({});
 
@@ -2550,6 +2626,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                 OrbitControls,
                 props.viewportBackground,
                 props.navigationStyle,
+                { length: props.lengthDecimals, angle: props.angleDecimals },
                 () => sectionActiveRef.current,
                 handleClosePopover,
                 handleToggleSection,
@@ -2560,6 +2637,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                 props.onShowAllSolids,
                 props.onClearSelection,
                 props.onRevealFeature,
+                props.onOpenAppearance,
                 handleViewCubeUpdate,
                 handleViewNameChange
             );
@@ -2589,6 +2667,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             viewportApi.current.setSection = api.setSection;
             viewportApi.current.setExplodeFactor = api.setExplodeFactor;
             viewportApi.current.updateMeasureState = api.updateMeasureState;
+            viewportApi.current.setMeasurementDecimals = api.setMeasurementDecimals;
             viewportApi.current.setAutoDimensionEnabled = api.setAutoDimensionEnabled;
             props.onCameraApiReady({ getCameraState: api.getCameraState, setCameraState: api.setCameraState });
             api.setFacePickMode(props.facePickMode);
@@ -2625,6 +2704,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             viewportApi.current.setSection = undefined;
             viewportApi.current.setExplodeFactor = undefined;
             viewportApi.current.updateMeasureState = undefined;
+            viewportApi.current.setMeasurementDecimals = undefined;
             viewportApi.current.setAutoDimensionEnabled = undefined;
             props.onCameraApiReady(undefined);
             cleanup?.();
@@ -2716,6 +2796,10 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
     React.useEffect(() => {
         viewportApi.current.setNavigationStyle?.(props.navigationStyle);
     }, [props.navigationStyle, controller]);
+
+    React.useEffect(() => {
+        viewportApi.current.setMeasurementDecimals?.({ length: props.lengthDecimals, angle: props.angleDecimals });
+    }, [props.lengthDecimals, props.angleDecimals, controller]);
 
     React.useEffect(() => {
         if (props.warnings.length > 0) {
@@ -3049,6 +3133,8 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             measurements={modeMeasurements}
             tool={activeMeasureTool}
             showToolSelector={measureMode === 'model3d'}
+            lengthDecimals={props.lengthDecimals}
+            angleDecimals={props.angleDecimals}
             pinnedIds={new Set((props.documentStore.document?.measurements ?? []).map((saved) => saved.id))}
             canPin={measureMode === 'model3d' && props.documentStore.hasDocument}
             onToolChange={handleMeasureToolChange}
@@ -3175,7 +3261,27 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                 />
             )}
             {props.mateDialogOpen && <AssemblyMateDialog {...props} />}
+            {props.appearanceTarget !== undefined && <BodyAppearanceDialogHost {...props} />}
         </div>
+    );
+}
+
+/** Adapter: feed the per-body Appearance dialog from the document store. */
+function BodyAppearanceDialogHost(props: CadViewportComponentProps): React.ReactElement | null {
+    const target = props.appearanceTarget;
+    if (target === undefined) {
+        return null;
+    }
+    const appearance = props.documentStore.document?.bodies.find((body) => body.id === target.bodyId)?.appearance;
+    return (
+        <BodyAppearanceDialog
+            key={target.bodyId}
+            target={target}
+            appearance={appearance}
+            onApply={(next) => props.onApplyAppearance(target.bodyId, next)}
+            onRemove={() => props.onRemoveAppearance(target.bodyId)}
+            onClose={props.onCloseAppearance}
+        />
     );
 }
 
@@ -3207,6 +3313,10 @@ interface MeasureListPopoverProps {
     readonly tool: MeasureToolMode;
     /** Show the mode selector row (model3d popover only). */
     readonly showToolSelector: boolean;
+    /** Display precision for distance/radius rows. */
+    readonly lengthDecimals: number;
+    /** Display precision for angle rows. */
+    readonly angleDecimals: number;
     /** Saved-measurement ids from the document block; rows in this set render pinned. */
     readonly pinnedIds: ReadonlySet<string>;
     /** Pin buttons render only for pinnable rows (model3d documents only). */
@@ -3281,7 +3391,12 @@ function MeasureListPopover(props: MeasureListPopoverProps): React.ReactElement 
                 <div className="cad-measure-list">
                     {props.measurements.map((measurement) => (
                         <div key={measurement.id} className="cad-measure-row">
-                            <span className="cad-measure-value">{formatMeasurementValue(measurement)}</span>
+                            <span className="cad-measure-value">
+                                {formatMeasurementValue(measurement, {
+                                    length: props.lengthDecimals,
+                                    angle: props.angleDecimals
+                                })}
+                            </span>
                             {props.canPin &&
                                 (props.pinnedIds.has(measurement.id) ? (
                                     <Tooltip content="Unpin measurement (stop saving it in the document)" position="left">
@@ -3354,6 +3469,7 @@ interface ViewportApi {
     readonly setExplodeFactor: (factor: number) => void;
     readonly snapView: (direction: readonly [number, number, number]) => void;
     readonly updateMeasureState: (state: MeasureViewState) => void;
+    readonly setMeasurementDecimals: (decimals: MeasurementDecimals) => void;
     readonly setAutoDimensionEnabled: (enabled: boolean) => void;
 }
 
@@ -3409,6 +3525,7 @@ function initViewport(
     },
     initialViewportBackground: ViewportBackgroundStyle,
     initialNavigationStyle: NavigationStyle,
+    initialMeasurementDecimals: MeasurementDecimals,
     isSectionActive: () => boolean,
     onClosePopover: () => void,
     onToggleSection: () => void,
@@ -3419,6 +3536,7 @@ function initViewport(
     onShowAllSolids: () => void,
     onClearSelection: () => void,
     onRevealFeature: (featureId: string) => void,
+    onOpenBodyAppearance: (bodyId: string) => void,
     onViewCubeUpdate: (quaternion: readonly [number, number, number, number]) => void,
     onViewNameChange: (name: string) => void
 ): ViewportApi {
@@ -3462,6 +3580,13 @@ function initViewport(
     applyNavigationStyle(controls, navigationStyle);
     controls.target.set(0, 0, 0);
     controls.update();
+
+    // Measurement labels and popover rows share this mutable precision; the
+    // React effect pushes preference changes through `setMeasurementDecimals`.
+    const measurementDecimals: { length: number; angle: number } = {
+        length: initialMeasurementDecimals.length,
+        angle: initialMeasurementDecimals.angle
+    };
 
     // Additive selection holds navigation still: three.js maps Left+Ctrl/Meta
     // to pan, which fights Ctrl+click multi-pick (any drag while the modifier
@@ -3613,6 +3738,73 @@ function initViewport(
         depthWrite: false
     });
 
+    /**
+     * Per-body appearance overrides. Bodies without an override keep the
+     * shared body/highlight materials above; every overridden body gets a
+     * private clone, so color and opacity never leak to other bodies. `color`
+     * is the explicit override (stays fixed through theme changes), `opacity`
+     * the explicit alpha (shaded mode only). The map is rebuilt from the
+     * document on store changes; replaced/removed entries are disposed.
+     */
+    interface BodyAppearanceMaterial {
+        readonly material: THREE.MeshStandardMaterial;
+        readonly color?: string;
+        readonly opacity?: number;
+    }
+    let bodyAppearanceMaterials = new Map<string, BodyAppearanceMaterial>();
+
+    const disposeBodyAppearanceMaterials = (): void => {
+        for (const entry of bodyAppearanceMaterials.values()) {
+            entry.material.dispose();
+        }
+        bodyAppearanceMaterials = new Map();
+    };
+
+    const syncBodyAppearances = (): void => {
+        const doc = documentStore.document;
+        const next = new Map<string, BodyAppearanceMaterial>();
+        for (const body of doc?.bodies ?? []) {
+            const appearance = resolveBodyAppearance(doc, body.id);
+            if (appearance === undefined) {
+                continue;
+            }
+            const previous = bodyAppearanceMaterials.get(body.id);
+            // Unchanged overrides keep their material object: live meshes stay
+            // assigned across unrelated document edits (no shader churn).
+            if (previous !== undefined && previous.color === appearance.color && previous.opacity === appearance.opacity) {
+                next.set(body.id, previous);
+                continue;
+            }
+            const material = bodyMaterial.clone();
+            material.color.set(appearance.color ?? baseColor);
+            material.opacity = appearance.opacity ?? 1;
+            next.set(body.id, { material, color: appearance.color, opacity: appearance.opacity });
+        }
+        for (const [bodyId, entry] of bodyAppearanceMaterials) {
+            if (next.get(bodyId) !== entry) {
+                entry.material.dispose();
+            }
+        }
+        bodyAppearanceMaterials = next;
+    };
+
+    const appearanceMaterial = (bodyId: unknown): THREE.MeshStandardMaterial | undefined =>
+        typeof bodyId === 'string' ? bodyAppearanceMaterials.get(bodyId)?.material : undefined;
+
+    /**
+     * Explicit override colors stay fixed through theme changes; opacity-only
+     * overrides take the freshly resolved theme body color.
+     */
+    const recolorBodyAppearanceMaterials = (): void => {
+        for (const entry of bodyAppearanceMaterials.values()) {
+            if (entry.color !== undefined) {
+                entry.material.color.set(entry.color);
+            } else {
+                entry.material.color.copy(baseColor);
+            }
+        }
+    };
+
     // Shared orientation cube: the scene pushes the live camera orientation
     // to the React chrome on every renderScene — never React state, so
     // orbiting causes no re-renders. The cube itself is hidden with no model
@@ -3748,7 +3940,7 @@ function initViewport(
             sphereA.position.set(measurement.a[0], measurement.a[1], measurement.a[2]);
             const sphereB = makeMeasureSphere();
             sphereB.position.set(measurement.b[0], measurement.b[1], measurement.b[2]);
-            label.textContent = formatMeasureDistance(measurement.distance);
+            label.textContent = formatMeasureDistance(measurement.distance, measurementDecimals.length);
             measureGroup.add(line, sphereA, sphereB);
             return { type: 'segment', measurement, line, sphereA, sphereB, label };
         }
@@ -3766,13 +3958,13 @@ function initViewport(
             sphereB.position.set(measurement.b[0], measurement.b[1], measurement.b[2]);
             const sphereC = makeMeasureSphere();
             sphereC.position.set(measurement.c[0], measurement.c[1], measurement.c[2]);
-            label.textContent = formatMeasureAngle(measurement.angle);
+            label.textContent = formatMeasureAngle(measurement.angle, measurementDecimals.angle);
             measureGroup.add(lineBA, lineBC, sphereA, sphereB, sphereC);
             return { type: 'angle', measurement, lineBA, lineBC, sphereA, sphereB, sphereC, label };
         }
         const sphereCenter = makeMeasureSphere();
         sphereCenter.position.set(measurement.center[0], measurement.center[1], measurement.center[2]);
-        label.textContent = formatMeasureRadius(measurement.radius);
+        label.textContent = formatMeasureRadius(measurement.radius, measurementDecimals.length);
         measureGroup.add(sphereCenter);
         return { type: 'radius', measurement, sphereCenter, label };
     };
@@ -3804,7 +3996,7 @@ function initViewport(
             setMeasureLinePoints(visual.line, measurement.a, measurement.b);
             visual.sphereA.position.set(measurement.a[0], measurement.a[1], measurement.a[2]);
             visual.sphereB.position.set(measurement.b[0], measurement.b[1], measurement.b[2]);
-            visual.label.textContent = formatMeasureDistance(measurement.distance);
+            visual.label.textContent = formatMeasureDistance(measurement.distance, measurementDecimals.length);
             return;
         }
         if (visual.type === 'angle' && isMeasureAngle(measurement)) {
@@ -3814,13 +4006,13 @@ function initViewport(
             visual.sphereA.position.set(measurement.a[0], measurement.a[1], measurement.a[2]);
             visual.sphereB.position.set(measurement.b[0], measurement.b[1], measurement.b[2]);
             visual.sphereC.position.set(measurement.c[0], measurement.c[1], measurement.c[2]);
-            visual.label.textContent = formatMeasureAngle(measurement.angle);
+            visual.label.textContent = formatMeasureAngle(measurement.angle, measurementDecimals.angle);
             return;
         }
         if (visual.type === 'radius' && isMeasureRadius(measurement)) {
             visual.measurement = measurement;
             visual.sphereCenter.position.set(measurement.center[0], measurement.center[1], measurement.center[2]);
-            visual.label.textContent = formatMeasureRadius(measurement.radius);
+            visual.label.textContent = formatMeasureRadius(measurement.radius, measurementDecimals.length);
         }
     };
 
@@ -3912,13 +4104,13 @@ function initViewport(
             let text: string;
             if (visual.type === 'segment') {
                 anchor = visual.measurement.midpoint;
-                text = formatMeasureDistance(visual.measurement.distance);
+                text = formatMeasureDistance(visual.measurement.distance, measurementDecimals.length);
             } else if (visual.type === 'angle') {
                 anchor = visual.measurement.b;
-                text = formatMeasureAngle(visual.measurement.angle);
+                text = formatMeasureAngle(visual.measurement.angle, measurementDecimals.angle);
             } else {
                 anchor = visual.measurement.center;
-                text = formatMeasureRadius(visual.measurement.radius);
+                text = formatMeasureRadius(visual.measurement.radius, measurementDecimals.length);
             }
             const screen = positionLabel(visual.label, anchor, text);
             if (screen !== undefined) {
@@ -3959,12 +4151,16 @@ function initViewport(
             const pendingScreen =
                 measureState.tool === 'angle' && vertex !== undefined && measureHover !== undefined
                     ? // Live angle preview at the vertex while the third point hovers.
-                      positionLabel(pendingLabel, vertex, formatMeasureAngle(measureAngle(pendingPoint, vertex, measureHover)))
+                      positionLabel(
+                          pendingLabel,
+                          vertex,
+                          formatMeasureAngle(measureAngle(pendingPoint, vertex, measureHover), measurementDecimals.angle)
+                      )
                     : positionLabel(
                           pendingLabel,
                           measureHover ?? pendingPoint,
                           measureHover !== undefined && measureState.tool === 'distance'
-                              ? formatMeasureDistance(measureDistance(pendingPoint, measureHover))
+                              ? formatMeasureDistance(measureDistance(pendingPoint, measureHover), measurementDecimals.length)
                               : measureState.tool === 'radius'
                                 ? 'Pick a circular edge'
                                 : vertex !== undefined
@@ -4050,7 +4246,9 @@ function initViewport(
             const isSelected =
                 highlightIds.includes(data.solidId as number) &&
                 (currentSelection.faceId === undefined || data.faceId === currentSelection.faceId);
-            const material = isSelected ? highlightMaterial : bodyMaterial;
+            // Selection always uses the shared highlight material; otherwise an
+            // overridden body renders with its private appearance material.
+            const material = isSelected ? highlightMaterial : (appearanceMaterial(data.bodyId) ?? bodyMaterial);
             if (mesh.material !== material) {
                 mesh.material = material;
             }
@@ -4072,14 +4270,28 @@ function initViewport(
     const applyShading = (): void => {
         const clippingPlanes = computeSectionPlanes();
         const flags = meshShadingFlags(shading, ghostOpacity);
-        // Flags are role-wide: every body face shares the two materials, so the
-        // shading mode lands on the materials directly; per-mesh state is
-        // visibility only (plus hidden solids).
+        // Flags are role-wide: bodies without overrides share the two core
+        // materials, so the shading mode lands on the materials directly;
+        // per-mesh state is visibility only (plus hidden solids).
         for (const material of [bodyMaterial, highlightMaterial]) {
             material.wireframe = flags.wireframe;
             material.transparent = flags.transparent;
             material.opacity = flags.opacity;
             material.depthWrite = flags.depthWrite;
+            material.clippingPlanes = clippingPlanes;
+            material.needsUpdate = true;
+        }
+        // Per-body appearance materials follow the same flags, except that a
+        // body opacity applies in `shaded` mode only: x-ray/ghost opacity wins,
+        // and shaded-wireframe/edges-only keep full opacity (edges stay
+        // readable over a translucent solid).
+        for (const entry of bodyAppearanceMaterials.values()) {
+            const material = entry.material;
+            const appearanceOpacity = shading === 'shaded' ? entry.opacity : undefined;
+            material.wireframe = flags.wireframe;
+            material.transparent = appearanceOpacity !== undefined ? appearanceOpacity < 1 : flags.transparent;
+            material.opacity = appearanceOpacity ?? flags.opacity;
+            material.depthWrite = appearanceOpacity !== undefined && appearanceOpacity < 1 ? false : flags.depthWrite;
             material.clippingPlanes = clippingPlanes;
             material.needsUpdate = true;
         }
@@ -4368,6 +4580,7 @@ function initViewport(
         if (data === undefined) {
             previousTessData = undefined;
             disposePooledMeshes();
+            disposeBodyAppearanceMaterials();
             explodeCentroids = undefined;
             applyExplode();
             applyShading();
@@ -4453,6 +4666,9 @@ function initViewport(
         meshPool = nextPool;
         meshes = nextMeshes;
         applyInstanceGroups();
+        // Appearance overrides are document state; re-derive them for every
+        // build (materials survive across rebuilds when overrides are equal).
+        syncBodyAppearances();
 
         for (const edge of data.edges) {
             const line = buildEdgeLine(edge.solidId, edge, edgeLineMaterial);
@@ -5242,7 +5458,7 @@ function initViewport(
             closeContextMenu = openViewportContextMenu(
                 container,
                 buildViewportContextMenu({
-                    solid: hit !== undefined ? { solidId: hit.solidId, featureId } : undefined,
+                    solid: hit !== undefined ? { solidId: hit.solidId, featureId, bodyId } : undefined,
                     explodeFactor,
                     hiddenCount: hiddenSolidIds.size,
                     sectionActive: isSectionActive(),
@@ -5290,6 +5506,9 @@ function initViewport(
                             break;
                         case 'revealFeature':
                             onRevealFeature(action.featureId);
+                            break;
+                        case 'appearance':
+                            onOpenBodyAppearance(action.bodyId);
                             break;
                         case 'noop':
                             break;
@@ -5491,11 +5710,11 @@ function initViewport(
             !activeDrawingDimensionPickMode &&
             !activeConnectorPickMode &&
             hasViewportSelection() &&
-            // Transient overlays own Escape: the menu and shortcut bar run
-            // their own window-capture handlers, and NukeDialog listens on
-            // document capture, which this handler's stopPropagation() would
-            // swallow.
-            container.querySelector('.cad-viewport-context-menu, .cad-shortcut-bar, [role="dialog"]') === null
+            // Transient overlays own Escape: the menu, shortcut bar, and command
+            // search run their own window-capture handlers, and NukeDialog
+            // listens on document capture, which this handler's
+            // stopPropagation() would swallow.
+            container.querySelector('.cad-viewport-context-menu, .cad-shortcut-bar, .cad-command-search-popover, [role="dialog"]') === null
         ) {
             const target = event.target;
             const isTextField =
@@ -5661,15 +5880,20 @@ function initViewport(
     };
     window.addEventListener('keydown', onTabKey);
 
-    // Escape exits section mode unless a pick mode, sketch session, dialog, or
-    // text field consumes the key first (same guards as the fit/tab keys), and
-    // always closes an open bottom-bar popover.
+    // Escape exits section mode unless a pick mode, sketch session, dialog,
+    // command search, or text field consumes the key first (same guards as the
+    // fit/tab keys), and always closes an open bottom-bar popover.
     // Capture phase, for the same Theia keybinding race as onKeyDown.
     const onSectionEscapeKey = (event: KeyboardEvent): void => {
         if (!viewportHasFocus()) {
             return;
         }
         if (event.key !== 'Escape') {
+            return;
+        }
+        if (container.querySelector('.cad-command-search-popover') !== null) {
+            // The popover's own capture handler closes it and stops the event;
+            // never exit section mode on the same press.
             return;
         }
         if (
@@ -5706,6 +5930,13 @@ function initViewport(
         applyHighlight();
     });
 
+    // Per-body appearance overrides are document state but display-only: every
+    // store change re-derives the material map and re-applies shading (which
+    // re-renders). Rebuild scheduling belongs to the widget, never this sync.
+    const unsubscribeBodyAppearances = documentStore.onChange(() => {
+        syncBodyAppearances();
+        applyShading();
+    });
     // Fires immediately with the current hidden set, then on every change;
     // applyShading re-applies visibility and re-renders.
     const hiddenSolidsDisposable = subscribeHiddenSolids((ids) => {
@@ -5723,6 +5954,8 @@ function initViewport(
         edgeColor.set(nextColors.edges);
         // Shared materials re-color in place; per-mesh state is untouched.
         bodyMaterial.color.copy(baseColor);
+        syncBodyAppearances();
+        recolorBodyAppearanceMaterials();
         edgeLineMaterial.color.set(edgeColor);
         curveLineMaterial.color.set(edgeColor);
         previewGhostMaterial.color.copy(baseColor);
@@ -5845,6 +6078,12 @@ function initViewport(
             syncMeasureObjects();
             renderScene();
         },
+        setMeasurementDecimals: (decimals) => {
+            measurementDecimals.length = decimals.length;
+            measurementDecimals.angle = decimals.angle;
+            // Committed labels cache their text; refresh them on the next paint.
+            renderScene();
+        },
         cleanup: () => {
             closeContextMenu?.();
             closeContextMenu = undefined;
@@ -5866,6 +6105,8 @@ function initViewport(
             measureSphereMaterial.dispose();
             selectionDisposable.dispose();
             hiddenSolidsDisposable.dispose();
+            unsubscribeBodyAppearances();
+            disposeBodyAppearanceMaterials();
             themeColorsDisposed = true;
             themeDisposable.dispose();
             resizeObserver.disconnect();

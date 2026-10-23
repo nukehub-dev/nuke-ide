@@ -134,6 +134,20 @@ export interface SketchDef {
     externalRefs?: TopologyRef[];
 }
 
+/**
+ * Display-only appearance override for one body (viewport color and opacity).
+ *
+ * Absent means the body follows the shared theme-adaptive material. This block
+ * is never read by the geometry backend: it must never affect builds, exports,
+ * or codegen. At least one field must be present when an override exists.
+ */
+export interface BodyAppearance {
+    /** Solid fill color as `#rrggbb`. */
+    color?: string;
+    /** Surface opacity in the inclusive range 0–1. */
+    opacity?: number;
+}
+
 /** A named, label-bearing body in the document. */
 export interface BodyDef {
     id: string;
@@ -145,6 +159,12 @@ export interface BodyDef {
      * Exported through the `.regions.json` sidecar as `{ selector: <label>, material: <tag> }`.
      */
     material?: string;
+    /**
+     * Optional display-only appearance override (color and/or opacity).
+     * The geometry backend never reads this block — it never affects builds,
+     * exports, or codegen.
+     */
+    appearance?: BodyAppearance;
 }
 
 /** Maximum in-CAD material tag length (free-text input bound). */
@@ -821,6 +841,27 @@ function pointDistance(a: CurvePoint, b: CurvePoint): number {
     return Math.sqrt((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2 + (b[2] - a[2]) ** 2);
 }
 
+function validateBodyAppearance(ctx: MutableValidationContext, path: string, appearance: unknown): void {
+    if (!isPlainObject(appearance)) {
+        issue(ctx, path, 'appearance must be an object');
+        return;
+    }
+    const { color, opacity } = appearance as BodyAppearance;
+    if (color === undefined && opacity === undefined) {
+        issue(ctx, path, 'appearance must set color, opacity, or both');
+    }
+    if (color !== undefined) {
+        if (!isString(color) || !/^#[0-9a-fA-F]{6}$/.test(color)) {
+            issue(ctx, `${path}.color`, 'color must be a #rrggbb hex string');
+        }
+    }
+    if (opacity !== undefined) {
+        if (!isFiniteNumber(opacity) || opacity < 0 || opacity > 1) {
+            issue(ctx, `${path}.opacity`, 'opacity must be a finite number between 0 and 1');
+        }
+    }
+}
+
 function validateBody(ctx: MutableValidationContext, body: BodyDef, index: number): void {
     const path = `bodies[${index}]`;
     requireId(ctx, `${path}.id`, body.id);
@@ -841,6 +882,9 @@ function validateBody(ctx: MutableValidationContext, body: BodyDef, index: numbe
                 issue(ctx, `${path}.material`, reason);
             }
         }
+    }
+    if (body.appearance !== undefined) {
+        validateBodyAppearance(ctx, `${path}.appearance`, body.appearance);
     }
 }
 

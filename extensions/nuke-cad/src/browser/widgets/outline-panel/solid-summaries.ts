@@ -36,6 +36,7 @@
  */
 
 import { SolidSummary, TessSolidProperties } from '../../state/nuke-cad-state-manager';
+import { clampDecimals, formatDecimal } from '../../../common/number-format';
 
 /** Structural subset of a tessellation face needed for counting. */
 interface SummaryFaceInput {
@@ -90,18 +91,19 @@ const SMALL_PREFIXES: ReadonlyArray<{ readonly factor: number; readonly symbol: 
     { factor: 1e-9, symbol: 'n' }
 ];
 
-function formatSignificand(value: number): string {
+/**
+ * Adaptive significand for SI readouts: whole numbers stay compact, small
+ * magnitudes keep two decimals. An explicit precision from the preference
+ * replaces the heuristic; trailing zeros always stay trimmed.
+ */
+function formatSignificand(value: number, decimals?: number): string {
     const abs = Math.abs(value);
-    const digits = abs >= 100 ? 0 : abs >= 10 ? 1 : 2;
-    let text = value.toFixed(digits);
-    if (text.includes('.')) {
-        text = text.replace(/0+$/, '').replace(/\.$/, '');
-    }
-    return text === '-0' ? '0' : text;
+    const digits = decimals !== undefined ? decimals : abs >= 100 ? 0 : abs >= 10 ? 1 : 2;
+    return formatDecimal(value, digits);
 }
 
 /** Compact SI-prefixed rendering ('—' for missing/non-finite values). */
-export function formatSi(value: number | undefined | null): string {
+export function formatSi(value: number | undefined | null, decimals?: number): string {
     if (value === undefined || value === null || !Number.isFinite(value)) {
         return MISSING_VALUE;
     }
@@ -112,35 +114,45 @@ export function formatSi(value: number | undefined | null): string {
     if (abs >= 1000) {
         for (const prefix of LARGE_PREFIXES) {
             if (abs >= prefix.factor) {
-                return formatSignificand(value / prefix.factor) + prefix.symbol;
+                return formatSignificand(value / prefix.factor, decimals) + prefix.symbol;
             }
         }
     }
     if (abs < 1) {
         for (const prefix of SMALL_PREFIXES) {
             if (abs >= prefix.factor) {
-                return formatSignificand(value / prefix.factor) + prefix.symbol;
+                return formatSignificand(value / prefix.factor, decimals) + prefix.symbol;
             }
         }
+        return formatExponential(value, decimals);
+    }
+    return formatSignificand(value, decimals);
+}
+
+/** Below the smallest SI prefix, render exponential notation (trimmed when a precision is given). */
+function formatExponential(value: number, decimals?: number): string {
+    if (decimals === undefined) {
         return value.toExponential(2);
     }
-    return formatSignificand(value);
+    const digits = clampDecimals(decimals);
+    const [mantissa, exponent] = value.toExponential(digits).split('e');
+    return `${formatDecimal(Number(mantissa), digits)}e${exponent}`;
 }
 
 export type QuantityUnit = 'u' | 'u²' | 'u³';
 
 /** Formats a scalar with its model-unit suffix ('u', 'u²', 'u³'). */
-export function formatQuantity(value: number | undefined | null, unit: QuantityUnit): string {
-    const formatted = formatSi(value);
+export function formatQuantity(value: number | undefined | null, unit: QuantityUnit, decimals?: number): string {
+    const formatted = formatSi(value, decimals);
     return formatted === MISSING_VALUE ? MISSING_VALUE : `${formatted} ${unit}`;
 }
 
 /** Renders an xyz triple as comma-joined values ('—' when absent). */
-export function formatVec3(values: number[] | undefined, unit?: QuantityUnit): string {
+export function formatVec3(values: number[] | undefined, unit?: QuantityUnit, decimals?: number): string {
     if (!values || values.length < 3 || values.some((v) => !Number.isFinite(v))) {
         return MISSING_VALUE;
     }
-    const text = `${formatSi(values[0])}, ${formatSi(values[1])}, ${formatSi(values[2])}`;
+    const text = `${formatSi(values[0], decimals)}, ${formatSi(values[1], decimals)}, ${formatSi(values[2], decimals)}`;
     return unit ? `${text} ${unit}` : text;
 }
 

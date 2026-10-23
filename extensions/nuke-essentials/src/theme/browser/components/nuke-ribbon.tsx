@@ -54,6 +54,8 @@ export interface NukeRibbonItem {
     /** Codicon class list, e.g. `codicon codicon-nuke-cad-pad`. */
     icon: string;
     disabled?: boolean;
+    /** Concise explanation shown in the disabled tooltip and menu second line. */
+    disabledReason?: string;
     active?: boolean;
     onClick: () => void;
 }
@@ -226,7 +228,12 @@ function RibbonMenu(props: RibbonMenuProps): React.ReactElement | null {
                     }}
                 >
                     <span className={`codicon ${item.icon}`} />
-                    <span className="nuke-ribbon-menu-item-label">{item.label}</span>
+                    <span className="nuke-ribbon-menu-item-text">
+                        <span className="nuke-ribbon-menu-item-label">{item.label}</span>
+                        {item.disabled === true && item.disabledReason !== undefined && (
+                            <span className="nuke-ribbon-menu-item-reason">{item.disabledReason}</span>
+                        )}
+                    </span>
                 </button>
             ))}
         </div>,
@@ -295,7 +302,15 @@ export const NukeRibbonSection: React.FC<NukeRibbonSectionProps> = ({ label, ite
                 <>
                     <div className="nuke-ribbon-buttons">
                         {split.promoted.map((item) => (
-                            <Tooltip key={item.id} content={item.label} position="bottom">
+                            <Tooltip
+                                key={item.id}
+                                content={
+                                    item.disabled === true && item.disabledReason !== undefined
+                                        ? `${item.label} — ${item.disabledReason}`
+                                        : item.label
+                                }
+                                position="bottom"
+                            >
                                 <button
                                     type="button"
                                     className={

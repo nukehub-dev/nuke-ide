@@ -40,6 +40,7 @@
 import {
     type NukeCadDocument,
     type BodyDef,
+    type BodyAppearance,
     type SketchDef,
     type FeatureDef,
     type FeatureParams,
@@ -306,7 +307,10 @@ function cloneDocument(doc: NukeCadDocument): NukeCadDocument {
             points: d.points !== undefined ? d.points.map((p) => [p[0], p[1], p[2]] as CurvePoint) : undefined,
             faces: d.faces !== undefined ? d.faces.map((f) => cloneTopologyRef(f)) : undefined
         })),
-        bodies: doc.bodies.map((b) => ({ ...b })),
+        bodies: doc.bodies.map((b) => ({
+            ...b,
+            ...(b.appearance !== undefined ? { appearance: { ...b.appearance } } : {})
+        })),
         sketches: doc.sketches.map((s) => ({
             ...s,
             primitives: s.primitives.map((p) => ({ ...p })),
@@ -1626,6 +1630,33 @@ export class CadDocumentStore {
             delete body.material;
         } else {
             body.material = material;
+        }
+        return this.commit(doc);
+    }
+
+    /**
+     * Set or clear the display-only appearance override of an existing body.
+     *
+     * Appearance state is viewport-only (color + opacity). Like
+     * `setBodyMaterial` it rides the normal commit path — schema validation,
+     * snapshot undo/redo, dirty flag, change event — but callers must never
+     * schedule a rebuild: the geometry backend never reads it. `undefined`
+     * removes the override; the schema rejects an empty `{}`.
+     */
+    setBodyAppearance(id: string, appearance: BodyAppearance | undefined): DocumentMutationResult {
+        const check = this.requireDocument();
+        if (!check.success) {
+            return { success: false, error: check.error, issues: check.issues };
+        }
+        const doc = cloneDocument(check.value!);
+        const body = doc.bodies.find((b) => b.id === id);
+        if (body === undefined) {
+            return { success: false, error: `Body '${id}' not found` };
+        }
+        if (appearance === undefined) {
+            delete body.appearance;
+        } else {
+            body.appearance = { ...appearance };
         }
         return this.commit(doc);
     }

@@ -56,9 +56,12 @@ import { OpenerService } from '@theia/core/lib/browser/opener-service';
 import { FileService } from '@theia/filesystem/lib/browser/file-service';
 import { FileDialogService } from '@theia/filesystem/lib/browser/file-dialog';
 import { URI } from '@theia/core/lib/common/uri';
+import { PreferenceService } from '@theia/core/lib/common/preferences';
+import { PreferenceScope } from '@theia/core';
 
 import { RegionManifestData } from '../../../common/nuke-cad-protocol';
 import { type DocumentUnits, type NukeCadDocument, type SavedNamedView } from '../../../common/cad-document';
+import { clampDecimals, MAX_DECIMALS } from '../../../common/number-format';
 import { NukeCadStateManager, CadModel, CadSelection, SolidSummary } from '../../state/nuke-cad-state-manager';
 import {
     CadDocumentStore,
@@ -113,6 +116,9 @@ export class CadOutlinePanelWidget extends ReactWidget {
     @inject(CommandService)
     protected readonly commandService: CommandService;
 
+    @inject(PreferenceService)
+    protected readonly preferenceService: PreferenceService;
+
     private selection: CadSelection = {};
     private summaries: readonly SolidSummary[] = [];
     private hiddenSolidIds: readonly number[] = [];
@@ -158,6 +164,15 @@ export class CadOutlinePanelWidget extends ReactWidget {
             this.stateManager.onHiddenSolidsChange((ids) => {
                 this.hiddenSolidIds = ids;
                 this.update();
+            })
+        );
+        // Display precision only changes rendered text: re-render the outline,
+        // no document mutation or rebuild is involved.
+        this.toDispose.push(
+            this.preferenceService.onPreferenceChanged((event) => {
+                if (event.preferenceName === 'nukeCad.lengthDecimals' || event.preferenceName === 'nukeCad.angleDecimals') {
+                    this.update();
+                }
             })
         );
         this.refreshManifestExists();
@@ -269,6 +284,10 @@ export class CadOutlinePanelWidget extends ReactWidget {
                 onSetParameter={(name, text) => this.handleSetParameter(name, text)}
                 onRemoveParameter={(name) => this.handleRemoveParameter(name)}
                 onSetUnits={(units) => this.handleSetUnits(units)}
+                lengthDecimals={this.readDisplayDecimals('nukeCad.lengthDecimals', 2)}
+                angleDecimals={this.readDisplayDecimals('nukeCad.angleDecimals', 1)}
+                onSetLengthDecimals={(decimals) => this.handleSetLengthDecimals(decimals)}
+                onSetAngleDecimals={(decimals) => this.handleSetAngleDecimals(decimals)}
                 onExportBomCsv={() => void this.handleExportBomCsv()}
                 onSaveNamedView={() => void this.commandService.executeCommand(NukeCadCommands.SAVE_NAMED_VIEW.id)}
                 onRestoreNamedView={(id) => void this.commandService.executeCommand(NukeCadCommands.RESTORE_NAMED_VIEW.id, id)}
@@ -327,6 +346,27 @@ export class CadOutlinePanelWidget extends ReactWidget {
         if (!result.success) {
             this.messageService.error(result.error || 'Could not set document units.');
         }
+    }
+
+    /**
+     * Display precision is a user preference, not document state: the outline
+     * writes through `PreferenceService` so the viewport measure labels react
+     * to the same setting.
+     */
+    protected handleSetLengthDecimals(decimals: number): void {
+        this.setDisplayDecimals('nukeCad.lengthDecimals', decimals);
+    }
+
+    protected handleSetAngleDecimals(decimals: number): void {
+        this.setDisplayDecimals('nukeCad.angleDecimals', decimals);
+    }
+
+    private setDisplayDecimals(name: 'nukeCad.lengthDecimals' | 'nukeCad.angleDecimals', decimals: number): void {
+        void this.preferenceService.set(name, clampDecimals(decimals), PreferenceScope.User);
+    }
+
+    private readDisplayDecimals(name: 'nukeCad.lengthDecimals' | 'nukeCad.angleDecimals', fallback: number): number {
+        return clampDecimals(this.preferenceService.get<number>(name, fallback));
     }
 
     /**
@@ -477,6 +517,11 @@ interface CadOutlinePanelComponentProps {
     readonly onRemoveParameter: (name: string) => { success: boolean; error?: string };
     /** Declared document units from the Document Settings section (`undefined` clears to unitless). */
     readonly onSetUnits: (units: DocumentUnits | undefined) => void;
+    /** Display precision for property readouts (maximum decimal places). */
+    readonly lengthDecimals: number;
+    readonly angleDecimals: number;
+    readonly onSetLengthDecimals: (decimals: number) => void;
+    readonly onSetAngleDecimals: (decimals: number) => void;
     readonly onExportBomCsv: () => void;
     /** Named Views: save the current camera, restore a row, or delete it by id. */
     readonly onSaveNamedView: () => void;
@@ -738,7 +783,15 @@ function CadOutlinePanelComponent(props: CadOutlinePanelComponentProps): React.R
                     )}
 
                     {props.document !== undefined && (
-                        <DocumentSettingsSection document={props.document} source={scriptName} onSetUnits={props.onSetUnits} />
+                        <DocumentSettingsSection
+                            document={props.document}
+                            source={scriptName}
+                            onSetUnits={props.onSetUnits}
+                            lengthDecimals={props.lengthDecimals}
+                            angleDecimals={props.angleDecimals}
+                            onSetLengthDecimals={props.onSetLengthDecimals}
+                            onSetAngleDecimals={props.onSetAngleDecimals}
+                        />
                     )}
 
                     {props.document !== undefined && (
@@ -760,7 +813,12 @@ function CadOutlinePanelComponent(props: CadOutlinePanelComponentProps): React.R
                     )}
 
                     {displayEntry && (
-                        <PropertiesSection entry={displayEntry} pinned={pinnedEntry !== undefined} onTogglePin={handleTogglePin} />
+                        <PropertiesSection
+                            entry={displayEntry}
+                            pinned={pinnedEntry !== undefined}
+                            onTogglePin={handleTogglePin}
+                            lengthDecimals={props.lengthDecimals}
+                        />
                     )}
 
                     {viewMode === 'list' ? (
@@ -826,6 +884,7 @@ function CadOutlinePanelComponent(props: CadOutlinePanelComponentProps): React.R
                             onSort={handleSort}
                             selectedSolids={selectionSolidIds(props.selection)}
                             onSelect={props.onSelect}
+                            lengthDecimals={props.lengthDecimals}
                         />
                     )}
                 </div>
@@ -838,12 +897,15 @@ interface PropertiesSectionProps {
     readonly entry: SolidPropertiesEntry;
     readonly pinned: boolean;
     readonly onTogglePin: () => void;
+    /** Maximum decimal places for length-derived readouts. */
+    readonly lengthDecimals: number;
 }
 
 function PropertiesSection(props: PropertiesSectionProps): React.ReactElement {
     const summary = props.entry.summary;
     const properties = summary.properties;
     const size = bboxSize(properties);
+    const decimals = props.lengthDecimals;
 
     return (
         <div className="outline-section properties-section">
@@ -871,15 +933,17 @@ function PropertiesSection(props: PropertiesSectionProps): React.ReactElement {
                 <span className="prop-label">Solid</span>
                 <span className="prop-value">{summary.solidId}</span>
                 <span className="prop-label">Volume</span>
-                <span className="prop-value">{formatQuantity(properties?.volume, 'u³')}</span>
+                <span className="prop-value">{formatQuantity(properties?.volume, 'u³', decimals)}</span>
                 <span className="prop-label">Area</span>
-                <span className="prop-value">{formatQuantity(properties?.area, 'u²')}</span>
+                <span className="prop-value">{formatQuantity(properties?.area, 'u²', decimals)}</span>
                 <span className="prop-label">Size dx × dy × dz</span>
                 <span className="prop-value">
-                    {size ? `${formatSi(size[0])} × ${formatSi(size[1])} × ${formatSi(size[2])} u` : MISSING_VALUE}
+                    {size
+                        ? `${formatSi(size[0], decimals)} × ${formatSi(size[1], decimals)} × ${formatSi(size[2], decimals)} u`
+                        : MISSING_VALUE}
                 </span>
                 <span className="prop-label">Center of mass</span>
-                <span className="prop-value">{formatVec3(properties?.centerOfMass, 'u')}</span>
+                <span className="prop-value">{formatVec3(properties?.centerOfMass, 'u', decimals)}</span>
                 <span className="prop-label">Faces</span>
                 <span className="prop-value">{summary.faceCount}</span>
                 <span className="prop-label">Edges</span>
@@ -887,7 +951,7 @@ function PropertiesSection(props: PropertiesSectionProps): React.ReactElement {
                 <span className="prop-label">Triangles</span>
                 <span className="prop-value">{summary.triangleCount}</span>
             </div>
-            <p className="properties-units-hint">Quantities use SI prefixes in model units.</p>
+            <p className="properties-units-hint">Quantities use SI prefixes in model units at the Document Settings precision.</p>
         </div>
     );
 }
@@ -904,12 +968,50 @@ interface DocumentSettingsSectionProps {
     /** Active model file name; absent for in-memory documents. */
     readonly source?: string;
     readonly onSetUnits: (units: DocumentUnits | undefined) => void;
+    /** Display precision preferences (maximum decimal places). */
+    readonly lengthDecimals: number;
+    readonly angleDecimals: number;
+    readonly onSetLengthDecimals: (decimals: number) => void;
+    readonly onSetAngleDecimals: (decimals: number) => void;
+}
+
+interface PrecisionInputProps {
+    readonly ariaLabel: string;
+    readonly value: number;
+    readonly onChange: (value: number) => void;
+}
+
+/** Compact 0–6 number input that only commits valid integer values. */
+function PrecisionInput(props: PrecisionInputProps): React.ReactElement {
+    const [text, setText] = React.useState(String(props.value));
+    React.useEffect(() => setText(String(props.value)), [props.value]);
+    return (
+        <input
+            className="document-settings-precision-input"
+            type="number"
+            min={0}
+            max={MAX_DECIMALS}
+            step={1}
+            inputMode="numeric"
+            aria-label={props.ariaLabel}
+            value={text}
+            onChange={(event) => {
+                const next = event.target.value;
+                setText(next);
+                const parsed = Number.parseInt(next, 10);
+                if (Number.isFinite(parsed)) {
+                    props.onChange(clampDecimals(parsed));
+                }
+            }}
+            onBlur={() => setText(String(props.value))}
+        />
+    );
 }
 
 /**
  * Compact, collapsible document summary above Named Views: declared units
- * (the one editable value, through the same `CadDocumentStore.setUnits` path
- * as the toolbar), the parameter count, and read-only design properties.
+ * (through the same `CadDocumentStore.setUnits` path as the toolbar), display
+ * precision preferences, the parameter count, and read-only design properties.
  * Editing parameters/name/source stays in their dedicated sections.
  */
 function DocumentSettingsSection(props: DocumentSettingsSectionProps): React.ReactElement {
@@ -935,6 +1037,28 @@ function DocumentSettingsSection(props: DocumentSettingsSectionProps): React.Rea
                             options={UNIT_OPTIONS}
                             onChange={(value) => props.onSetUnits(value === '' ? undefined : (value as DocumentUnits))}
                         />
+                    </div>
+                    <div className="document-settings-row">
+                        <span className="document-settings-label">Precision</span>
+                        <div className="document-settings-precision" title="Maximum decimal places for length and angle readouts">
+                            <label className="document-settings-precision-field">
+                                <span title="Length readout decimal places">L</span>
+                                <PrecisionInput
+                                    ariaLabel="Length decimal places"
+                                    value={props.lengthDecimals}
+                                    onChange={props.onSetLengthDecimals}
+                                />
+                            </label>
+                            <label className="document-settings-precision-field">
+                                <span title="Angle readout decimal places">A</span>
+                                <PrecisionInput
+                                    ariaLabel="Angle decimal places"
+                                    value={props.angleDecimals}
+                                    onChange={props.onSetAngleDecimals}
+                                />
+                                <span>°</span>
+                            </label>
+                        </div>
                     </div>
                     <div className="document-settings-row">
                         <span className="document-settings-label">Parameters</span>
@@ -1265,6 +1389,8 @@ interface SolidTableProps {
     readonly onSort: (key: SolidSortKey) => void;
     readonly selectedSolids: readonly number[];
     readonly onSelect: (solidId: number, additive: boolean) => void;
+    /** Maximum decimal places for volume/area readouts. */
+    readonly lengthDecimals: number;
 }
 
 function SolidTable(props: SolidTableProps): React.ReactElement {
@@ -1290,8 +1416,12 @@ function SolidTable(props: SolidTableProps): React.ReactElement {
                     <span className="outline-table-cell label" title={row.label}>
                         {row.label}
                     </span>
-                    <span className="outline-table-cell num">{formatQuantity(row.summary?.properties?.volume, 'u³')}</span>
-                    <span className="outline-table-cell num">{formatQuantity(row.summary?.properties?.area, 'u²')}</span>
+                    <span className="outline-table-cell num">
+                        {formatQuantity(row.summary?.properties?.volume, 'u³', props.lengthDecimals)}
+                    </span>
+                    <span className="outline-table-cell num">
+                        {formatQuantity(row.summary?.properties?.area, 'u²', props.lengthDecimals)}
+                    </span>
                     <span className="outline-table-cell num">{row.summary ? row.summary.faceCount : MISSING_VALUE}</span>
                     <span className="outline-table-cell num">{row.summary ? row.summary.triangleCount : MISSING_VALUE}</span>
                 </div>

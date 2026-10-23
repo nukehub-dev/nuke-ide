@@ -108,11 +108,13 @@ The **Model Outline** panel gives a structured tree view of the active model:
   volume, area, bounding-box size (dx/dy/dz), center of mass, and face/edge/
   triangle counts (model units; em-dashes when a value is unavailable). The
   pin button freezes the current solid's data so it stays visible while the
-  selection changes.
+  selection changes. Decimal places follow the **Precision** row in Document
+  Settings.
 - **Table view** — the header toggle switches the volume list to a sortable
   table (Solid, Body label, Volume, Area, Faces, Tris). Click a header to
   sort; click a row to select that solid in the viewport (`Ctrl`/`Cmd`-click
-  multi-selects). Values are model units with SI suffixes.
+  multi-selects). Values are model units with SI suffixes at the same
+  precision.
 - **Build warnings** — cross-body overlap warnings (`bodies 'x' and 'y'
 overlap … but are not merged by a boolean`) carry a **Fuse** button when the
   model was built from an open `.nuke-cad` document. Clicking it appends a

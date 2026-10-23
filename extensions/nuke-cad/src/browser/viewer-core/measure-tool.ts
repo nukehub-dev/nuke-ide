@@ -38,6 +38,7 @@
  */
 
 import type { SavedMeasurement } from '../../common/cad-document';
+import { formatDecimal } from '../../common/number-format';
 
 /** Which capture surface a measurement belongs to. */
 export type MeasureKind = 'model3d' | 'sketch';
@@ -172,30 +173,39 @@ export function createMeasureRadius(id: string, center: MeasurePoint3D, radius: 
  * Format an angle in degrees for labels and popover rows: trimmed like the
  * distance formatter, with a degree suffix (`90°`, `45.5°`).
  */
-export function formatMeasureAngle(degrees: number): string {
+export function formatMeasureAngle(degrees: number, decimals: number = 1): string {
     if (!Number.isFinite(degrees)) {
         return '—';
     }
-    return `${degrees.toFixed(1).replace(/\.?0+$/, '')}°`;
+    return `${formatDecimal(degrees, decimals)}°`;
 }
 
 /** Compact radius/diameter label: `R 5 · ⌀ 10`. */
-export function formatMeasureRadius(radius: number): string {
+export function formatMeasureRadius(radius: number, decimals: number = 2): string {
     if (!Number.isFinite(radius)) {
         return '—';
     }
-    return `R ${formatMeasureDistance(radius)} · ⌀ ${formatMeasureDistance(radius * 2)}`;
+    return `R ${formatMeasureDistance(radius, decimals)} · ⌀ ${formatMeasureDistance(radius * 2, decimals)}`;
 }
 
+/** Decimal-place counts applied to committed measurement readouts. */
+export interface MeasurementDecimals {
+    readonly length: number;
+    readonly angle: number;
+}
+
+/** Default measurement precision: two length decimals, one angle decimal. */
+export const DEFAULT_MEASUREMENT_DECIMALS: MeasurementDecimals = { length: 2, angle: 1 };
+
 /** Short popover-row value for any committed measurement. */
-export function formatMeasurementValue(measurement: Measurement): string {
+export function formatMeasurementValue(measurement: Measurement, decimals: MeasurementDecimals = DEFAULT_MEASUREMENT_DECIMALS): string {
     if (isMeasureSegment(measurement)) {
-        return formatMeasureDistance(measurement.distance);
+        return formatMeasureDistance(measurement.distance, decimals.length);
     }
     if (isMeasureAngle(measurement)) {
-        return formatMeasureAngle(measurement.angle);
+        return formatMeasureAngle(measurement.angle, decimals.angle);
     }
-    return formatMeasureRadius(measurement.radius);
+    return formatMeasureRadius(measurement.radius, decimals.length);
 }
 
 /**
@@ -204,11 +214,8 @@ export function formatMeasurementValue(measurement: Measurement): string {
  * Model units only — no millimeter suffix — trimmed like the sketcher's
  * dimension labels so `5.00` reads as `5` and `2.5` stays `2.5`.
  */
-export function formatMeasureDistance(value: number): string {
-    if (!Number.isFinite(value)) {
-        return '—';
-    }
-    return value.toFixed(2).replace(/\.?0+$/, '');
+export function formatMeasureDistance(value: number, decimals: number = 2): string {
+    return formatDecimal(value, decimals);
 }
 
 /** A world point projected into container-relative screen pixels. */

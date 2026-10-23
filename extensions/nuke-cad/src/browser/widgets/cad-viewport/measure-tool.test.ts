@@ -102,6 +102,14 @@ describe('measure-tool', () => {
         expect(formatMeasureDistance(42)).not.toContain('mm');
     });
 
+    it('honors explicit distance decimal counts', () => {
+        expect(formatMeasureDistance(2.5, 0)).toBe('3');
+        expect(formatMeasureDistance(2.5556, 3)).toBe('2.556');
+        expect(formatMeasureDistance(1 / 3, 0)).toBe('0');
+        expect(formatMeasureDistance(100, 0)).toBe('100');
+        expect(formatMeasureDistance(Number.POSITIVE_INFINITY, 3)).toBe('—');
+    });
+
     it('projects the world origin to the container center under an identity matrix', () => {
         expect(projectMeasurePoint([0, 0, 0], IDENTITY, 800, 600)).toEqual({ x: 400, y: 300, visible: true });
     });
@@ -186,16 +194,40 @@ describe('measure-tool', () => {
         expect(formatMeasureAngle(NaN)).toBe('—');
     });
 
+    it('honors explicit angle decimal counts', () => {
+        expect(formatMeasureAngle(45.5, 0)).toBe('46°');
+        expect(formatMeasureAngle(125.264, 3)).toBe('125.264°');
+        expect(formatMeasureAngle(90, 3)).toBe('90°');
+        expect(formatMeasureAngle(Number.NEGATIVE_INFINITY, 0)).toBe('—');
+    });
+
     it('formats radius rows with radius and diameter', () => {
         expect(formatMeasureRadius(5)).toBe('R 5 · ⌀ 10');
         expect(formatMeasureRadius(2.5)).toBe('R 2.5 · ⌀ 5');
         expect(formatMeasureRadius(NaN)).toBe('—');
     });
 
+    it('honors explicit radius decimal counts', () => {
+        expect(formatMeasureRadius(2.5, 0)).toBe('R 3 · ⌀ 5');
+        expect(formatMeasureRadius(2.5556, 3)).toBe('R 2.556 · ⌀ 5.111');
+        expect(formatMeasureRadius(5, 3)).toBe('R 5 · ⌀ 10');
+    });
+
     it('formats any measurement kind for popover rows', () => {
         expect(formatMeasurementValue(createMeasureSegment('m1', 'model3d', [0, 0, 0], [3, 0, 0]))).toBe('3');
         expect(formatMeasurementValue(createMeasureAngle('m2', 'model3d', [1, 0, 0], [0, 0, 0], [0, 1, 0]))).toBe('90°');
         expect(formatMeasurementValue(createMeasureRadius('m3', [0, 0, 0], 4))).toBe('R 4 · ⌀ 8');
+    });
+
+    it('applies length and angle decimals independently to popover rows', () => {
+        const segment = createMeasureSegment('m1', 'model3d', [0, 0, 0], [2.5556, 0, 0]);
+        const angle = createMeasureAngle('m2', 'model3d', [1, 0, 0], [0, 0, 0], [1, 1, 0]);
+        const radius = createMeasureRadius('m3', [0, 0, 0], 2.5556);
+        const decimals = { length: 3, angle: 0 };
+        expect(formatMeasurementValue(segment, decimals)).toBe('2.556');
+        expect(formatMeasurementValue(angle, decimals)).toBe('45°');
+        expect(formatMeasurementValue(radius, decimals)).toBe('R 2.556 · ⌀ 5.111');
+        expect(formatMeasurementValue(segment, { length: 0, angle: 2 })).toBe('3');
     });
 });
 

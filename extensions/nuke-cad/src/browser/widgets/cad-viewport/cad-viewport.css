@@ -411,6 +411,7 @@
 .cad-viewport-error-dismiss,
 .cad-measure-row-remove,
 .cad-measure-clear,
+.cad-document-toolbar-search,
 .cad-sketch-parameter-actions button,
 .cad-feature-dialog-ref-row button {
     min-width: 0;
@@ -1111,6 +1112,7 @@
     display: flex;
     align-items: center;
     justify-content: flex-end;
+    gap: 6px;
     min-width: 0;
     flex: 1;
 }
@@ -1121,7 +1123,147 @@
  * it shrink at narrow widths.
  */
 .cad-document-toolbar-actions .nuke-ribbon {
+    flex: 1 1 auto;
     justify-content: flex-end;
+    min-width: 0;
+}
+
+/*
+ * Command-search trigger at the right end of the actions row. Compact 26×26 in
+ * every density so the non-wrapping ribbon keeps its width budget.
+ */
+.cad-document-toolbar-search-anchor {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+}
+
+.cad-document-toolbar-search {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 4px;
+    background: transparent;
+    color: var(--theia-secondaryButton-foreground, var(--theia-foreground));
+    cursor: pointer;
+}
+
+.cad-document-toolbar-search:hover,
+.cad-document-toolbar-search[aria-expanded='true'] {
+    background: var(--theia-secondaryButton-hoverBackground, var(--theia-toolbar-hoverBackground));
+    color: var(--theia-foreground);
+}
+
+.cad-document-toolbar-search:focus-visible {
+    outline: 1px solid var(--theia-focusBorder);
+    outline-offset: -1px;
+}
+
+/*
+ * Command search popover: anchored to the toolbar root (it is the positioned
+ * containing block) so it follows the bar's density-dependent height. Never
+ * portaled — the overlay owns placement.
+ */
+.cad-command-search-popover {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 8px;
+    z-index: 30;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    width: 340px;
+    max-width: calc(100% - 8px);
+    max-height: 320px;
+    padding: 8px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editorWidget-background);
+    box-shadow:
+        0 4px 6px rgba(0, 0, 0, 0.1),
+        0 2px 4px rgba(0, 0, 0, 0.06);
+    pointer-events: auto;
+}
+
+.cad-command-search-results {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+.cad-command-search-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    min-width: 0;
+    margin-left: 0;
+    padding: 4px 8px;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--theia-foreground);
+    font-size: var(--theia-ui-font-size1);
+    text-align: left;
+    cursor: pointer;
+}
+
+.cad-command-search-item:hover:not(:disabled),
+.cad-command-search-item.active {
+    background: var(--theia-list-hoverBackground);
+    color: var(--theia-list-hoverForeground);
+}
+
+.cad-command-search-item:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.cad-command-search-icon {
+    flex: 0 0 auto;
+    font-size: 16px;
+}
+
+.cad-command-search-text {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    gap: 1px;
+    min-width: 0;
+}
+
+.cad-command-search-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cad-command-search-reason {
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size0);
+    line-height: 1.3;
+    white-space: normal;
+}
+
+.cad-command-search-group {
+    flex: 0 0 auto;
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size0);
+    white-space: nowrap;
+}
+
+.cad-command-search-empty {
+    padding: 6px 8px;
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size1);
 }
 
 /* Feature creation dialog (shell provided by NukeDialog) */
@@ -1162,6 +1304,49 @@
     gap: 6px;
     justify-content: flex-end;
     margin-top: 4px;
+}
+
+/* Per-body Appearance dialog (shell + rows from NukeDialog/NukeFormRow) */
+
+.cad-body-appearance-title {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    overflow: hidden;
+}
+
+.cad-body-appearance-subtitle {
+    overflow: hidden;
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size0);
+    font-weight: 400;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cad-body-appearance-opacity {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+}
+
+.cad-body-appearance-opacity .nuke-slider {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.nuke-form-row-control input.cad-body-appearance-percent {
+    flex: 0 0 auto;
+    width: 56px;
+}
+
+.cad-body-appearance-percent-unit {
+    color: var(--theia-descriptionForeground);
+}
+
+.cad-body-appearance-remove {
+    margin-right: auto;
 }
 
 .cad-feature-dialog-row.vertical {

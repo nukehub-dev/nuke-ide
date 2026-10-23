@@ -41,6 +41,22 @@ IGES imports read the file's length unit: a new document adopts it, and a
 mismatch against declared document units scales the geometry by the exact
 factor (reported in the import message).
 
+**Command search** sits at the right end of the document toolbar (magnifier
+button). Click it or press `/` in the viewport to filter every toolbar action —
+including the ones that normally live in a section's caret menu — by name,
+short label, or section caption. An empty field lists the first actions in
+ribbon order. Use `↑`/`↓` and `Enter` (or click a row) to run the highlighted
+command; disabled commands stay listed, cannot run, and show the same reason in
+a muted line under the row (for example, **Pad** asks you to select a sketch
+first). `Esc` or `Tab` closes the search without clearing the current
+selection. The `/` shortcut works in document mode only, never while typing in
+a field and never while a task panel, feature dialog, pick mode, measure
+session, or shortcut bar owns the keys.
+
+Disabled toolbar actions stay visible and explain themselves: hover a disabled
+button for `<action> — <reason>`, or open its section's caret menu to read that
+reason as a muted second line under the action.
+
 You can also create a `.nuke-cad` file directly in the Explorer; double-clicking
 it opens it in the CAD viewport by default.
 
@@ -78,7 +94,9 @@ it opens it in the CAD viewport by default.
   survive rebuilds and re-render afterwards, ride snapshot undo/redo like
   any other edit, and never affect builds, exports, or the exported script.
   Unpinning keeps the row on screen as an ephemeral measurement; deleting a
-  pinned row removes the saved copy too.
+  pinned row removes the saved copy too. Label and popover values follow the
+  Document Settings **Precision** row (default 2 length / 1 angle decimal
+  place, trimmed).
 - **Section plane** (bottom bar): slices the model open along an X,
   Y, or Z plane. A popover offers axis buttons, **Flip**, and a slider that
   slides the plane across the model's bounding box. Sectioning is visual
@@ -117,8 +135,9 @@ it opens it in the CAD viewport by default.
   offers **Edit Feature…** (the solid is attributed to the latest feature that
   wrote its body — disabled when no feature matches, e.g. script/STEP models),
   **Find in Feature Tree** (selects the owning feature and opens the panel;
-  omitted for unattributed solids), **Measure Distance / Angle / Radius**, **Fit
-  to Solid** (`F`), **Hide / Isolate Solid** plus bulk variants for a
+  omitted for unattributed solids), **Appearance…** (per-body display color
+  and opacity, see [Bodies](#bodies)), **Measure Distance / Angle / Radius**,
+  **Fit to Solid** (`F`), **Hide / Isolate Solid** plus bulk variants for a
   multi-selection, and **Clear Selection** (`Esc`) while something is selected;
   on empty space it offers **Clear Selection** first when a selection exists,
   then **Fit All**, **Show All Solids** (disabled when nothing is hidden), a
@@ -364,6 +383,23 @@ Bodies let you model multi-part assemblies: for example, a pincell can have
 separate `clad`, `fuel`, and `moderator` bodies that touch but remain distinct
 solids. Bodies that overlap in space must be merged with a boolean feature; the
 builder raises an error if two non-consumed bodies occupy the same volume.
+
+### Appearance
+
+Right-click a solid and choose **Appearance…** to override that body's display
+look without changing its geometry:
+
+- **Color** — the solid fill color (`#rrggbb`, picked from the shared palette
+  or typed as hex).
+- **Opacity** — 0–100% in 5% steps, set with the slider or the number field.
+
+**OK** stores the override in the document (it survives save/reopen and rides
+undo/redo); **Remove override** returns the body to the theme-adaptive default;
+**Cancel** or closing the dialog discards the draft. Overrides are
+**display-only**: they never affect builds, exports, DAGMC/FEM output, or
+Export Python. Selection highlighting still uses the shared focus color; in
+X-ray mode the ghost opacity wins over the per-body value, and shaded-wireframe
+/ edges-only modes keep bodies fully opaque.
 
 ## Features
 
@@ -778,11 +814,18 @@ round-trippable; it is intended as readable output for downstream editing.
 
 The top of the **Model Outline** carries a collapsible **Document Settings**
 section for `.nuke-cad` documents. It summarizes the open document and is
-read-only apart from the units choice:
+read-only apart from the units and display-precision choices:
 
 - **Units** — the same `Unitless`/`mm`/`cm`/`m` choice as the document
   toolbar. Declared units tag future numeric inputs only; changing them never
   rescales existing parameters, curves, or sketch coordinates.
+- **Precision** — maximum decimal places for readouts, split into length
+  (default 2) and angle (default 1), each 0–6. Values are rounded and trailing
+  zeros stay trimmed, so the defaults read `5` and `45.5°` rather than `5.00`
+  and `45.50°`. The setting applies to viewport measurement labels, the
+  Measurements popover, and the Model Outline's property/table readouts; it
+  never changes geometry or exports. The same values live in the
+  `nukeCad.lengthDecimals` / `nukeCad.angleDecimals` settings.
 - **Parameters** — the number of document parameters. Edit them in the
   [Parameters spreadsheet](#parameters-spreadsheet) below.
 - **Design Properties** — the document **Name**, its **Source** (the model
