@@ -2,7 +2,11 @@
     width: 100%;
     height: 100%;
     min-height: 200px;
+    /* `clip` (not just hidden) prevents focus/scrollIntoView from scrolling
+       the chrome overlay out of view — a 40 px scroll hid the sketch top bar
+       under the tab bar. Hidden stays as the fallback. */
     overflow: hidden;
+    overflow: clip;
     position: relative;
     background: var(--theia-editor-background);
 }
@@ -64,11 +68,36 @@
     top: 8px;
     left: 8px;
     right: 8px;
-    z-index: 10;
+    /* Deliberately no z-index: the container must not form a stacking context,
+       so the warning strip/popover (z-index 30) can rise above the z-index-20
+       sketch overlay. The error banner carries no z-index and stays behind the
+       sketch chrome, exactly as before. */
+    z-index: auto;
     display: flex;
     flex-direction: column;
+    align-items: flex-start;
     gap: 6px;
     pointer-events: none;
+}
+
+/* Document mode: drop the banner stack below the measured document toolbar
+   (`--nuke-cad-toolbar-bottom` is published on `.cad-viewport` by the toolbar's
+   ResizeObserver). Chromium supports `:has`, so no state round-trip is needed. */
+.cad-viewport:has(.cad-document-toolbar) .cad-viewport-banners {
+    top: calc(var(--nuke-cad-toolbar-bottom, 64px) + 4px);
+}
+
+/* In document mode the top-left slot belongs to the Assembly panel; park the
+   warning badge under the toolbar on the right, clear of the 68 px ViewCube
+   (right 10) with an 8 px gap. Its popover opens leftwards. */
+.cad-viewport:has(.cad-document-toolbar) .cad-viewport-warning-strip {
+    align-self: flex-end;
+    margin-right: 86px;
+}
+
+.cad-viewport:has(.cad-document-toolbar) .cad-viewport-warning-popover {
+    left: auto;
+    right: 0;
 }
 
 .cad-viewport-banners > * {
@@ -76,9 +105,11 @@
 }
 
 .cad-viewport-error-banner {
+    box-sizing: border-box;
     display: flex;
     align-items: flex-start;
     gap: 8px;
+    width: min(100%, 720px);
     padding: 8px 10px;
     border: 1px solid var(--theia-editorError-foreground);
     border-radius: 6px;
@@ -98,39 +129,81 @@
     padding: 2px 6px;
 }
 
+/* Compact badge: only the header is in flow, so expanding the list never
+   stretches the strip or pushes it into the centered constraint bar. The
+   popover is anchored below it (see `.cad-viewport-warning-popover`). */
 .cad-viewport-warning-strip {
+    position: relative;
+    z-index: 30;
+    box-sizing: border-box;
     display: flex;
     flex-direction: column;
     gap: 4px;
-    padding: 8px 10px;
+    width: fit-content;
+    max-width: min(260px, calc(100% - 16px));
+    padding: 6px 8px;
     border: 1px solid var(--theia-editorWarning-foreground);
     border-radius: 6px;
     background: var(--theia-inputValidation-warningBackground, var(--theia-editorWidget-background));
     color: var(--theia-editorWarning-foreground);
 }
 
+/* Icon, count/chevron toggle, and dismiss X share one line: the X must stay
+   fully visible and clickable at the compact max width. */
 .cad-viewport-warning-header {
     display: flex;
+    flex-wrap: nowrap;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
+    min-width: 0;
+}
+
+.cad-viewport-warning-header > .codicon {
+    flex-shrink: 0;
+}
+
+/* Tooltip wraps the dismiss button in an inline span; keep it from being
+   squeezed out of the compact header. */
+.cad-viewport-warning-header > span {
+    flex-shrink: 0;
 }
 
 .cad-viewport-warning-toggle {
     display: inline-flex;
     align-items: center;
     gap: 4px;
+    min-width: 0;
     margin-right: auto;
     padding: 1px 6px;
     font-size: var(--theia-ui-font-size1);
+    white-space: nowrap;
+}
+
+.cad-viewport-warning-popover {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    z-index: 30;
+    box-sizing: border-box;
+    width: min(340px, calc(100vw - 32px));
+    max-height: 180px;
+    overflow-y: auto;
+    padding: 8px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editorWidget-background);
+    color: var(--theia-foreground);
+    box-shadow:
+        0 4px 6px rgba(0, 0, 0, 0.1),
+        0 2px 4px rgba(0, 0, 0, 0.06);
+    pointer-events: auto;
+    white-space: normal;
 }
 
 .cad-viewport-warning-list {
-    flex: 1;
     display: flex;
     flex-direction: column;
-    gap: 2px;
-    max-height: 96px;
-    overflow-y: auto;
+    gap: 4px;
     font-size: var(--theia-ui-font-size1);
 }
 
@@ -228,7 +301,10 @@
 /*
  * Default spot sits a full row below the top chrome (constraint select centered,
  * Finish Sketch pill right) so the horizontal tool strip clears both at init;
- * dragged positions override this inline.
+ * dragged positions override this inline. The 100px reservation is the top
+ * offset (64px) plus the status line's own bottom band (~36px): the palette's
+ * bottom edge stops exactly at the status line top. Only the body scrolls, so
+ * the header (and its collapse/reset gestures) stays put.
  */
 .cad-sketch-toolbar {
     position: absolute;
@@ -237,18 +313,19 @@
     z-index: 20;
     display: flex;
     flex-direction: column;
+    box-sizing: border-box;
     min-width: 40px;
-    max-height: calc(100% - 16px);
+    max-height: calc(100% - 100px);
     border: 1px solid var(--theia-panel-border);
     border-radius: 6px;
     background: var(--theia-editorWidget-background);
     overflow: hidden;
-    overflow-y: auto;
     pointer-events: auto;
 }
 
 .cad-sketch-toolbar-header {
     display: flex;
+    flex: 0 0 auto;
     align-items: center;
     justify-content: space-between;
     gap: 4px;
@@ -424,20 +501,70 @@
 
 /*
  * Compact two-column grouped grid: drawing tools / modify & constraint tools /
- * inspect lists, separated by thin rules. Tooltips anchor below the buttons
- * (position="bottom"; header buttons use "top") so chips never sit on top of
- * the neighbouring column.
+ * inspect lists, separated by thin rules and labelled by full-width captions.
+ * The body owns scrolling (the toolbar root clips) so the header stays put and
+ * long palettes never spill under the status line. Tooltips anchor below the
+ * buttons (position="bottom"; header buttons use "top") so chips never sit on
+ * top of the neighbouring column.
  */
+/* Fade the last few pixels of the scroll body so a clipped tool row reads as
+   "more below" rather than a layout bug. */
+.cad-sketch-toolbar::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 6px;
+    bottom: 0;
+    height: 12px;
+    background: linear-gradient(to top, var(--theia-editorWidget-background), transparent);
+    pointer-events: none;
+}
+
 .cad-sketch-toolbar-body {
     display: grid;
+    flex: 1 1 auto;
     grid-template-columns: repeat(2, 28px);
+    align-content: start;
     justify-content: center;
     gap: 3px 4px;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
     padding: 5px 6px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--theia-scrollbarSlider-background) transparent;
+}
+
+.cad-sketch-toolbar-body::-webkit-scrollbar {
+    width: 6px;
+}
+
+.cad-sketch-toolbar-body::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.cad-sketch-toolbar-body::-webkit-scrollbar-thumb {
+    border-radius: 3px;
+    background: var(--theia-scrollbarSlider-background);
+}
+
+.cad-sketch-toolbar-body::-webkit-scrollbar-thumb:hover {
+    background: var(--theia-scrollbarSlider-hoverBackground);
 }
 
 .cad-sketch-toolbar-group {
     display: contents;
+}
+
+.cad-sketch-toolbar-group-label {
+    grid-column: 1 / -1;
+    padding: 3px 2px 1px;
+    font-size: 9px;
+    line-height: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: var(--theia-descriptionForeground);
 }
 
 .cad-sketch-toolbar-separator {
@@ -465,6 +592,7 @@
 .cad-sketch-toolbar-toggle,
 .cad-sketch-toolbar-collapse,
 .cad-sketch-tool-button,
+.cad-sketch-constraint-chip,
 .cad-viewport-nav-button,
 .cad-viewport-shading-item,
 .cad-viewport-section-axis,
@@ -507,6 +635,16 @@
     background: var(--theia-focusBorder);
     color: var(--theia-button-foreground);
     border-color: var(--theia-focusBorder);
+}
+
+.cad-sketch-grid-glyph {
+    font-family: var(--theia-code-font-family, monospace);
+    font-size: 15px;
+    line-height: 1;
+}
+
+.cad-sketch-tool-button.active .cad-sketch-grid-glyph {
+    color: var(--theia-button-foreground);
 }
 
 /*
@@ -696,8 +834,12 @@
     left: 50%;
     transform: translateX(-50%);
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 8px;
+    justify-content: center;
+    gap: 4px 6px;
+    box-sizing: border-box;
+    max-width: min(760px, calc(100% - 300px));
     padding: 4px 8px;
     border: 1px solid var(--theia-panel-border);
     border-radius: 6px;
@@ -706,13 +848,90 @@
     font-size: var(--theia-ui-font-size1);
 }
 
-.cad-sketch-constraint-select {
-    min-width: 140px;
+.cad-sketch-constraint-label {
+    flex: 0 0 auto;
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size0);
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+}
+
+.cad-sketch-constraint-chips {
+    display: flex;
+    flex: 0 1 auto;
+    flex-wrap: wrap;
+    gap: 3px;
+}
+
+/*
+ * 26px glyph chips: Theia's .theia-button min-width/padding/margin are reset
+ * by the grouped compact-button rule above. Active state must beat
+ * `.theia-button.secondary` in both themes (same lesson as the ribbon).
+ */
+.cad-sketch-constraint-bar button.cad-sketch-constraint-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    min-width: 0;
+    margin-left: 0;
+    padding: 0;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 5px;
+    background: transparent;
+    background-image: none;
+    color: var(--theia-foreground);
+    font-family: var(--theia-code-font-family, monospace);
+    line-height: 1;
+    cursor: pointer;
+}
+
+.cad-sketch-constraint-bar button.cad-sketch-constraint-chip:hover:not(:disabled) {
+    background: var(--theia-toolbar-hoverBackground);
+}
+
+.cad-sketch-constraint-bar button.cad-sketch-constraint-chip:focus-visible {
+    outline: 1px solid var(--theia-focusBorder);
+    outline-offset: -1px;
+}
+
+.cad-sketch-constraint-bar button.cad-sketch-constraint-chip.active,
+.cad-sketch-constraint-bar button.cad-sketch-constraint-chip.active:hover:not(:disabled) {
+    background-color: var(--theia-focusBorder);
+    background-image: none;
+    border-color: var(--theia-focusBorder);
+    color: var(--theia-button-foreground);
+}
+
+.cad-sketch-constraint-bar .cad-sketch-constraint-chip.active .cad-sketch-constraint-glyph {
+    color: var(--theia-button-foreground);
+}
+
+.cad-sketch-constraint-glyph {
+    color: inherit;
+    font-family: var(--theia-code-font-family, monospace);
+    font-size: 14px;
+    line-height: 1;
+}
+
+.cad-sketch-constraint-more {
+    flex: 0 0 auto;
+    min-width: 88px;
+    max-width: 118px;
+}
+
+.cad-sketch-constraint-more .nuke-select-trigger {
+    height: 26px;
+    padding: 2px 6px;
 }
 
 .cad-sketch-constraint-hint {
+    flex: 0 0 auto;
     opacity: 0.8;
     font-size: var(--theia-ui-font-size0);
+    white-space: nowrap;
 }
 
 /* Sits above the full-width status line (which tops out ~38px) — never over it. */
@@ -749,14 +968,65 @@
     right: 8px;
     display: flex;
     align-items: center;
-    justify-content: center;
-    gap: 8px;
+    justify-content: space-between;
+    gap: 12px;
+    box-sizing: border-box;
+    min-height: 28px;
     padding: 4px 10px;
     border: 1px solid var(--theia-panel-border);
     border-radius: 6px;
     background: var(--theia-editorWidget-background);
     color: var(--theia-foreground);
     font-size: var(--theia-ui-font-size1);
+}
+
+.cad-sketch-status-hints {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--theia-descriptionForeground);
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.cad-sketch-status-badges {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 6px;
+}
+
+.cad-sketch-status-badge {
+    display: inline-flex;
+    align-items: center;
+    box-sizing: border-box;
+    height: 18px;
+    padding: 0 7px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 9px;
+    font-size: var(--theia-ui-font-size0);
+    line-height: 1;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+.cad-sketch-status-badge-error {
+    border-color: var(--theia-editorError-foreground);
+    color: var(--theia-editorError-foreground);
+}
+
+.cad-sketch-status-badge-warning {
+    border-color: var(--theia-editorWarning-foreground);
+    color: var(--theia-editorWarning-foreground);
+}
+
+.cad-sketch-status-badge-success {
+    border-color: var(--theia-inputValidation-successBorder, #16a34a);
+    color: var(--theia-inputValidation-successBorder, #16a34a);
+}
+
+.cad-sketch-status-badge-muted {
+    color: var(--theia-descriptionForeground);
 }
 
 .cad-sketch-status {

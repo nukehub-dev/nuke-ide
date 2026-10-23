@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-cad: Document section precision sets maximum decimals for length and angle readouts across measurement labels and model properties.
 - nuke-cad: Model Outline Document section gains a Display group with a material legend, compact headers, and axis-colored Origin labels.
 - nuke-cad: New Sketch opens a Create Sketch task panel with the ribbon in place; empty documents offer Create Sketch/Open Model and the Model Outline shows the body count.
+- nuke-cad: sketch mode gains a constraint chip toolbar with a More menu, solver/DOF and snap/grid status badges, and an explicit grid toggle.
 - nuke-cad: command search in the document toolbar (button or `/`) filters and runs any ribbon action, including caret-menu-only entries.
 - nuke-cad: ribbon section menus pin any command inline (persisted in `nukeCad.ribbonPins`) and `nukeCad.ribbonLabels` hides tile labels for compact icon buttons.
 - nuke-cad: CAD Studio menu under Tools mirrors the sidebar (geometry, panels, analysis, environment commands).
@@ -235,7 +236,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - app: startup splash tracks real loading progress and never blanks out on slow connections.
 - CI: vitest job compiles extensions first; conda pin no longer requests an unsatisfiable Python.
 - docker: image Python env ships working build123d with the OCP 7.9 shim and a CI version guard.
+- nuke-cad: build warnings render as a compact badge below the document toolbar, with the list in an anchored popover clear of sketch chrome.
 - nuke-cad: Measurements popover opens below the document toolbar at every ribbon density, and feature-dialog inputs/selects stay inside the dialog padding.
+- nuke-cad: sketch palette clears the status line, scrolls under a fixed header, and labels Draw & edit, Reference, Inspect, and Transform.
 - nuke-cad: Copy sketch icon renders both offset squares (the standard mask declaration dropped the back square).
 - nuke-cad: Escape cancels an inline parameter edit even when Theia's keybinding registry consumes the key.
 - nuke-cad: large or far-offset models no longer vanish — viewport clip planes scale with the scene instead of a fixed 10,000-unit far plane (this also removes z-fighting on concentric shells).

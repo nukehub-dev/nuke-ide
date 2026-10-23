@@ -145,6 +145,8 @@ export class SketchModeController {
     private session?: SketchSession;
     private datumPlane: DatumPlane = buildDatumPlane('XY', 0);
     private construction = false;
+    /** Session-independent grid visibility toggle (default on). */
+    private gridEnabled = true;
     private readonly selectedIds = new Set<string>();
     private constraintInput?: ConstraintInputState;
     private drag?: DragState;
@@ -599,7 +601,7 @@ export class SketchModeController {
         }
         this.dimModel(true);
         this.scene.add(this.sketchGroup);
-        this.grid.visible = true;
+        this.grid.visible = this.gridEnabled;
         this.renderProjectedPrimitives();
         this.renderSketch();
         this.renderCallback();
@@ -634,7 +636,7 @@ export class SketchModeController {
     /** Re-read theme colors and refresh sketch materials. */
     refreshThemeColors(): void {
         this.themeColors = this.readThemeColors();
-        (this.grid.material as THREE.LineBasicMaterial).color.copy(this.themeColors.grid);
+        this.recolourGrid();
         (this.snapMarker.material as THREE.PointsMaterial).color.copy(this.themeColors.snap);
         this.renderSketch();
     }
@@ -874,6 +876,19 @@ export class SketchModeController {
     /** True when snapping is enabled; defaults to true without a session. */
     isSnapEnabled(): boolean {
         return this.session?.isSnapEnabled() ?? true;
+    }
+
+    /** Show or hide the sketch grid; the preference survives sessions. */
+    setGridEnabled(on: boolean): void {
+        this.gridEnabled = on;
+        this.grid.visible = this.isActive && on;
+        this.emitChange();
+        this.renderCallback();
+    }
+
+    /** True when the sketch grid is enabled; defaults to true. */
+    isGridEnabled(): boolean {
+        return this.gridEnabled;
     }
 
     /** Set the snap search radius in screen pixels (no-op without a session). */
@@ -2230,7 +2245,7 @@ export class SketchModeController {
             conflict: this.readColor('--theia-editorError-foreground', '#f48771'),
             preview: this.readColor('--theia-editorInfo-foreground', '#1a85ff'),
             snap: this.readColor('--theia-focusBorder', '#007fd4'),
-            grid: this.readColor('--theia-panel-border', '#3c3c3c')
+            grid: this.readColor('--theia-descriptionForeground', '#3c3c3c')
         };
     }
 
@@ -2240,9 +2255,32 @@ export class SketchModeController {
     }
 
     private buildGrid(): THREE.GridHelper {
-        const grid = new THREE.GridHelper(100, 100, this.themeColors.grid.getHex(), this.themeColors.grid.getHex());
+        // Both grid colors (center split + regular lines) share the muted
+        // theme color; transparency keeps the grid readable without competing
+        // with sketch geometry. The material color stays white so the baked
+        // vertex colors render at their exact theme value.
+        const color = this.themeColors.grid.getHex();
+        const grid = new THREE.GridHelper(100, 100, color, color);
+        const material = grid.material as THREE.LineBasicMaterial;
+        material.transparent = true;
+        material.opacity = 0.35;
+        material.depthWrite = false;
         grid.rotation.x = Math.PI / 2;
+        grid.renderOrder = -1;
         return grid;
+    }
+
+    /** Keep the grid's baked vertex colors in sync with the active theme. */
+    private recolourGrid(): void {
+        const attribute = this.grid.geometry.getAttribute('color');
+        if (!(attribute instanceof THREE.BufferAttribute)) {
+            return;
+        }
+        const color = this.themeColors.grid;
+        for (let i = 0; i < attribute.count; i++) {
+            attribute.setXYZ(i, color.r, color.g, color.b);
+        }
+        attribute.needsUpdate = true;
     }
 
     /** Highlight conflicting or redundant constraints by selecting their primitives. */

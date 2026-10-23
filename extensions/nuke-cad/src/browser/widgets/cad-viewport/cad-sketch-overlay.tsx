@@ -250,19 +250,24 @@ const SNAP_RADIUS_PRESETS: ReadonlyArray<{ label: string; px: number }> = [
 
 const SOLID_PRODUCERS: FeatureType[] = ['pad', 'pocket', 'revolve', 'groove', 'sweep', 'pipe', 'loft', 'helicalSweep', 'primitive'];
 
-const CONSTRAINT_OPTIONS: Array<{ kind: ConstraintKind; label: string }> = [
-    { kind: 'coincident', label: 'Coincident' },
+/** Primary constraint chips: the icon-row affordance the sketch toolbar exposes first. */
+const PRIMARY_CONSTRAINT_CHIPS: ReadonlyArray<{ kind: ConstraintKind; label: string; glyph: string }> = [
+    { kind: 'coincident', label: 'Coincident', glyph: '•' },
+    { kind: 'horizontal', label: 'Horizontal', glyph: 'H' },
+    { kind: 'vertical', label: 'Vertical', glyph: 'V' },
+    { kind: 'parallel', label: 'Parallel', glyph: '∥' },
+    { kind: 'perpendicular', label: 'Perpendicular', glyph: '⊥' },
+    { kind: 'tangent', label: 'Tangent', glyph: '⌒' },
+    { kind: 'equal', label: 'Equal', glyph: '=' },
+    { kind: 'distance', label: 'Distance', glyph: '↔' },
+    { kind: 'radius', label: 'Radius', glyph: 'R' },
+    { kind: 'angle', label: 'Angle', glyph: '∠' }
+];
+
+/** Tail constraints behind the compact More select; every kind stays reachable. */
+const MORE_CONSTRAINT_OPTIONS: ReadonlyArray<{ kind: ConstraintKind; label: string }> = [
     { kind: 'fix', label: 'Fix' },
-    { kind: 'horizontal', label: 'Horizontal' },
-    { kind: 'vertical', label: 'Vertical' },
-    { kind: 'parallel', label: 'Parallel' },
-    { kind: 'perpendicular', label: 'Perpendicular' },
-    { kind: 'tangent', label: 'Tangent' },
-    { kind: 'equal', label: 'Equal' },
     { kind: 'concentric', label: 'Concentric' },
-    { kind: 'distance', label: 'Distance' },
-    { kind: 'angle', label: 'Angle' },
-    { kind: 'radius', label: 'Radius' },
     { kind: 'symmetry', label: 'Symmetry' },
     { kind: 'pointOnObject', label: 'Point on Object' }
 ];
@@ -546,7 +551,8 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
     };
 
     const refCounts = countReferenceResults(relevantRefs);
-    const snapSummary = controller.isSnapEnabled() ? `Snap: ${controller.getSnapRadiusPx()}px` : 'Snap off';
+    const snapSummary = controller.isSnapEnabled() ? `Snap ${controller.getSnapRadiusPx()}px` : 'Snap off';
+    const gridEnabled = controller.isGridEnabled();
     const gestureHint =
         active && tool === 'ellipse'
             ? 'Click: center · Click: major-axis endpoint · Click: minor-radius point'
@@ -557,7 +563,7 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
         active && tool === 'select' && constraintInput === undefined
             ? 'Click: select · Ctrl+Click: multi-select / relations · Q: shortcut bar · Del: delete · Esc: clear'
             : gestureHint;
-    const statusText = buildStatusText(status, refCounts, snapSummary, selectHint);
+    const hintText = buildHintText(status, refCounts, selectHint);
     const hasDiagnostics =
         status.conflicting.length > 0 || status.redundant.length > 0 || refCounts.ambiguous > 0 || refCounts.unmatched > 0;
 
@@ -720,14 +726,46 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
                     />
 
                     <div className="cad-sketch-constraint-bar">
-                        <span className="cad-sketch-constraint-label">Constraint:</span>
+                        <span className="cad-sketch-constraint-label">Constrain</span>
+                        <div className="cad-sketch-constraint-chips" role="group" aria-label="Sketch constraints">
+                            {PRIMARY_CONSTRAINT_CHIPS.map(({ kind, label, glyph }) => {
+                                const chipActive = constraintInput?.kind === kind;
+                                return (
+                                    <Tooltip key={kind} content={label} position="bottom">
+                                        <button
+                                            type="button"
+                                            className={`theia-button secondary cad-sketch-constraint-chip ${chipActive ? 'active' : ''}`}
+                                            aria-label={label}
+                                            aria-pressed={chipActive}
+                                            onClick={() => {
+                                                if (chipActive) {
+                                                    controller.cancel();
+                                                } else {
+                                                    controller.startConstraint(kind);
+                                                }
+                                            }}
+                                        >
+                                            <span className="cad-sketch-constraint-glyph" aria-hidden="true">
+                                                {glyph}
+                                            </span>
+                                        </button>
+                                    </Tooltip>
+                                );
+                            })}
+                        </div>
                         <NukeSelect
-                            className="theia-select cad-sketch-constraint-select"
-                            ariaLabel="Constraint"
-                            value={constraintInput?.kind ?? ''}
+                            className="cad-sketch-constraint-more"
+                            ariaLabel="More constraints"
+                            placeholder="More"
+                            value={
+                                constraintInput !== undefined &&
+                                MORE_CONSTRAINT_OPTIONS.some((option) => option.kind === constraintInput.kind)
+                                    ? constraintInput.kind
+                                    : 'more'
+                            }
                             options={[
                                 { value: '', label: 'None' },
-                                ...CONSTRAINT_OPTIONS.map((opt) => ({ value: opt.kind, label: opt.label }))
+                                ...MORE_CONSTRAINT_OPTIONS.map((option) => ({ value: option.kind, label: option.label }))
                             ]}
                             onChange={(value) => {
                                 if (value !== '') {
@@ -896,8 +934,47 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
                 <div
                     className={`cad-sketch-status-line ${hasDiagnostics ? 'has-diagnostics' : ''}`}
                     onClick={() => hasDiagnostics && setDiagnosticsOpen(!diagnosticsOpen)}
+                    title={hasDiagnostics ? 'Open solver diagnostics' : undefined}
                 >
-                    {statusText}
+                    <span className="cad-sketch-status-hints" title={hintText}>
+                        {hintText}
+                    </span>
+                    <span className="cad-sketch-status-badges">
+                        {status.conflicting.length > 0 && (
+                            <span
+                                className="cad-sketch-status-badge cad-sketch-status-badge-error"
+                                title={`${status.conflicting.length} conflicting constraint${status.conflicting.length === 1 ? '' : 's'}`}
+                            >
+                                {status.conflicting.length} conflicting
+                            </span>
+                        )}
+                        {status.redundant.length > 0 && (
+                            <span
+                                className="cad-sketch-status-badge cad-sketch-status-badge-warning"
+                                title={`${status.redundant.length} redundant constraint${status.redundant.length === 1 ? '' : 's'}`}
+                            >
+                                {status.redundant.length} redundant
+                            </span>
+                        )}
+                        <span
+                            className={`cad-sketch-status-badge cad-sketch-status-dof ${
+                                status.fullyConstrained ? 'cad-sketch-status-badge-success' : 'cad-sketch-status-badge-warning'
+                            }`}
+                            title={
+                                status.fullyConstrained
+                                    ? 'All degrees of freedom are constrained'
+                                    : `${status.dof} unconstrained degree${status.dof === 1 ? '' : 's'} of freedom`
+                            }
+                        >
+                            {status.fullyConstrained ? 'Fully constrained' : `${status.dof} DOF`}
+                        </span>
+                        <span className="cad-sketch-status-badge cad-sketch-status-badge-muted" title="Snap state">
+                            {snapSummary}
+                        </span>
+                        <span className="cad-sketch-status-badge cad-sketch-status-badge-muted" title="Sketch grid state">
+                            {gridEnabled ? 'Grid' : 'Grid off'}
+                        </span>
+                    </span>
                 </div>
             )}
         </div>
@@ -1611,6 +1688,7 @@ function SketchToolbar(props: SketchToolbarProps): React.ReactElement {
     const drag = useDraggablePanel({ canDrag: TOOLBAR_DRAG_TARGET, canResetFrom: TOOLBAR_RESET_TARGET, resetOnContextMenu: false });
 
     const snapEnabled = controller.isSnapEnabled();
+    const gridEnabled = controller.isGridEnabled();
     const snapPresetIndex = SNAP_RADIUS_PRESETS.findIndex((p) => p.px === controller.getSnapRadiusPx());
     const snapPreset = SNAP_RADIUS_PRESETS[snapPresetIndex === -1 ? 1 : snapPresetIndex];
     const cycleSnapRadius = (): void => {
@@ -1744,6 +1822,7 @@ function SketchToolbar(props: SketchToolbarProps): React.ReactElement {
                 </div>
                 <div className="cad-sketch-toolbar-body">
                     <div className="cad-sketch-toolbar-group">
+                        <div className="cad-sketch-toolbar-group-label">Draw</div>
                         {TOOLS.map(({ tool: t, label, icon, key }) => (
                             <Tooltip key={t} content={`${label} (${key})`} position="bottom">
                                 <button
@@ -1757,6 +1836,7 @@ function SketchToolbar(props: SketchToolbarProps): React.ReactElement {
                     </div>
                     <div className="cad-sketch-toolbar-separator" />
                     <div className="cad-sketch-toolbar-group">
+                        <div className="cad-sketch-toolbar-group-label">Reference</div>
                         <Tooltip content="Construction Geometry" position="bottom">
                             <button
                                 className={`theia-button secondary cad-sketch-tool-button ${construction ? 'active' : ''}`}
@@ -1806,9 +1886,22 @@ function SketchToolbar(props: SketchToolbarProps): React.ReactElement {
                                 {snapPreset.label}
                             </button>
                         </Tooltip>
+                        <Tooltip content="Toggle Sketch Grid" position="bottom">
+                            <button
+                                className={`theia-button secondary cad-sketch-tool-button ${gridEnabled ? 'active' : ''}`}
+                                aria-label="Toggle Sketch Grid"
+                                aria-pressed={gridEnabled}
+                                onClick={() => controller.setGridEnabled(!gridEnabled)}
+                            >
+                                <span className="cad-sketch-grid-glyph" aria-hidden="true">
+                                    ▦
+                                </span>
+                            </button>
+                        </Tooltip>
                     </div>
                     <div className="cad-sketch-toolbar-separator" />
                     <div className="cad-sketch-toolbar-group">
+                        <div className="cad-sketch-toolbar-group-label">Inspect</div>
                         <Tooltip content="Parameters" position="bottom">
                             <button
                                 className={`theia-button secondary cad-sketch-tool-button ${paramsOpen ? 'active' : ''}`}
@@ -2236,6 +2329,7 @@ function TransformActions(props: TransformActionsProps): React.ReactElement {
         <>
             <div className="cad-sketch-toolbar-separator" />
             <div className="cad-sketch-toolbar-group">
+                <div className="cad-sketch-toolbar-group-label">Transform</div>
                 <Tooltip content="Scale selection…" position="bottom">
                     <button
                         className={`theia-button secondary cad-sketch-tool-button ${open === 'scale' ? 'active' : ''}`}
@@ -5553,7 +5647,11 @@ export function formatDimensionWithUnits(text: string, units: DocumentUnits | un
     return units === undefined ? text : `${text} ${units}`;
 }
 
-function buildStatusText(status: SketchStatus, referenceCounts?: ReferenceCounts, snapSummary?: string, selectHint?: string): string {
+/**
+ * Left side of the sketch status line: transient hints only. Solver state
+ * (conflicts/redundancy/DOF) belongs to the adjacent badges, not this text.
+ */
+function buildHintText(status: SketchStatus, referenceCounts?: ReferenceCounts, selectHint?: string): string {
     const parts: string[] = [];
     if (selectHint !== undefined) {
         parts.push(selectHint);
@@ -5565,20 +5663,6 @@ function buildStatusText(status: SketchStatus, referenceCounts?: ReferenceCounts
         if (referenceCounts.unmatched > 0) {
             parts.push(`${referenceCounts.unmatched} unmatched ref${referenceCounts.unmatched === 1 ? '' : 's'}`);
         }
-    }
-    if (status.conflicting.length > 0) {
-        parts.push(`${status.conflicting.length} conflicting`);
-    }
-    if (status.redundant.length > 0) {
-        parts.push(`${status.redundant.length} redundant`);
-    }
-    if (status.fullyConstrained) {
-        parts.push('Fully constrained');
-    } else {
-        parts.push(`${status.dof} degrees of freedom`);
-    }
-    if (snapSummary !== undefined) {
-        parts.push(snapSummary);
     }
     if (status.lastAutoConstraints.length > 0) {
         const kinds = status.lastAutoConstraints.map((a) => a.kind).join(', ');

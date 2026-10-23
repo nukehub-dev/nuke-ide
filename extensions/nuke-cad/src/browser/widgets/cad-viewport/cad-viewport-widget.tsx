@@ -2523,6 +2523,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
     const [sectionFlip, setSectionFlip] = React.useState(false);
     const [sectionFraction, setSectionFraction] = React.useState(DEFAULT_SECTION_FRACTION);
     const [warningsOpen, setWarningsOpen] = React.useState(false);
+    const warningStripRef = React.useRef<HTMLDivElement>(null);
     const [measureActive, setMeasureActive] = React.useState(false);
     const [measureTool, setMeasureTool] = React.useState<MeasureToolMode>('distance');
     const [measurements, setMeasurements] = React.useState<Measurement[]>([]);
@@ -3090,6 +3091,33 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
         }
     }, [props.warnings.length]);
 
+    // The warning list is a transient popover: besides the toggle, a pointer
+    // press anywhere outside the strip and Escape close it. Listeners exist
+    // only while it is open and are removed on close/unmount.
+    React.useEffect(() => {
+        if (!warningsOpen) {
+            return undefined;
+        }
+        const closeOnOutsidePointer = (event: PointerEvent): void => {
+            const strip = warningStripRef.current;
+            if (strip !== null && event.target instanceof Node && strip.contains(event.target)) {
+                return;
+            }
+            setWarningsOpen(false);
+        };
+        const closeOnEscape = (event: KeyboardEvent): void => {
+            if (event.key === 'Escape') {
+                setWarningsOpen(false);
+            }
+        };
+        window.addEventListener('pointerdown', closeOnOutsidePointer, true);
+        window.addEventListener('keydown', closeOnEscape, true);
+        return () => {
+            window.removeEventListener('pointerdown', closeOnOutsidePointer, true);
+            window.removeEventListener('keydown', closeOnEscape, true);
+        };
+    }, [warningsOpen]);
+
     // All hooks must run on every render: the loading branch below returns
     // early, so nothing that calls a hook may sit after it.
     const sketchActive = (controller?.isActive ?? false) || props.sketchSetupVisible || props.sketchEntering;
@@ -3123,10 +3151,14 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
 
     const warningStrip =
         props.warnings.length > 0 ? (
-            <div className="cad-viewport-warning-strip">
+            <div className="cad-viewport-warning-strip" ref={warningStripRef}>
                 <div className="cad-viewport-warning-header">
                     <span className="codicon codicon-warning" />
-                    <button className="theia-button secondary cad-viewport-warning-toggle" onClick={() => setWarningsOpen(!warningsOpen)}>
+                    <button
+                        className="theia-button secondary cad-viewport-warning-toggle"
+                        aria-expanded={warningsOpen}
+                        onClick={() => setWarningsOpen(!warningsOpen)}
+                    >
                         {`${props.warnings.length} build warning${props.warnings.length === 1 ? '' : 's'}`}
                         <span className={`codicon ${warningsOpen ? 'codicon-chevron-down' : 'codicon-chevron-right'}`} />
                     </button>
@@ -3137,12 +3169,14 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                     </Tooltip>
                 </div>
                 {warningsOpen && (
-                    <div className="cad-viewport-warning-list">
-                        {props.warnings.map((warning, index) => (
-                            <div key={index} className="cad-viewport-warning-item">
-                                {warning}
-                            </div>
-                        ))}
+                    <div className="cad-viewport-warning-popover">
+                        <div className="cad-viewport-warning-list">
+                            {props.warnings.map((warning, index) => (
+                                <div key={index} className="cad-viewport-warning-item">
+                                    {warning}
+                                </div>
+                            ))}
+                        </div>
                     </div>
                 )}
             </div>

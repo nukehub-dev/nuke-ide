@@ -24,6 +24,12 @@ export function collectErrors(page: Page): string[] {
 export async function waitForWorkbench(page: Page): Promise<void> {
     const shell = page.locator('#theia-app-shell');
     await expect(shell).toBeVisible({ timeout: 60_000 });
+    // The preload splash can still sit above the shell after it becomes
+    // visible; clicks would be intercepted until it clears (startup flake).
+    const preload = page.locator('.theia-preload');
+    if ((await preload.count()) > 0) {
+        await expect(preload).toBeHidden({ timeout: 120_000 });
+    }
 }
 
 /**

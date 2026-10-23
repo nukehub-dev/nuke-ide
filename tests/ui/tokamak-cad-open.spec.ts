@@ -63,6 +63,100 @@ test('tokamak nuke-cad fixture loading overlay is centered', async ({ page }) =>
     expect(severe, `unexpected severe errors:\n${severe.join('\n')}`).toEqual([]);
 });
 
+test('tokamak build warnings render as a compact badge with a popover list', async ({ page }) => {
+    test.setTimeout(240_000);
+    const errors = collectErrors(page);
+    await page.goto('/');
+    await waitForWorkbench(page);
+
+    await openFileByQuickOpen(page, 'tokamak_with_divertor.nuke-cad');
+    const viewport = page.locator('.cad-viewport').first();
+    await expect(viewport).toBeVisible({ timeout: 30_000 });
+
+    // Wait for the backend build: the tokamak fixture reports five non-fatal
+    // warnings; a failed build shows the error banner instead (skip, like the
+    // command-search spec does).
+    const strip = viewport.locator('.cad-viewport-warning-strip').first();
+    const errorBanner = viewport.locator('.cad-viewport-error-banner');
+    await expect(strip.or(errorBanner).first()).toBeVisible({ timeout: 120_000 });
+    if (await errorBanner.isVisible()) {
+        test.skip(true, `CAD backend unavailable: ${(await errorBanner.textContent()) ?? 'build failed'}`);
+    }
+    await expect(strip).toContainText('5 build warnings');
+
+    // Document mode: the badge sits fully below the document toolbar (never
+    // hidden behind its z-index) and stays a compact badge, not a full-width bar.
+    const toolbar = viewport.locator('.cad-document-toolbar').first();
+    await expect(toolbar).toBeVisible({ timeout: 60_000 });
+    const [stripBox, toolbarBox] = await Promise.all([strip.boundingBox(), toolbar.boundingBox()]);
+    expect(stripBox, 'warning strip has no bounding box').not.toBeNull();
+    expect(toolbarBox, 'document toolbar has no bounding box').not.toBeNull();
+    expect(stripBox!.width).toBeLessThanOrEqual(300);
+    expect(stripBox!.y).toBeGreaterThanOrEqual(toolbarBox!.y + toolbarBox!.height);
+
+    // The dismiss X is fully inside the strip and clickable.
+    const dismiss = strip.locator('.cad-viewport-error-dismiss').first();
+    await expect(dismiss).toBeVisible();
+    const dismissBox = await dismiss.boundingBox();
+    expect(dismissBox, 'warning dismiss has no bounding box').not.toBeNull();
+    expect(dismissBox!.x + dismissBox!.width).toBeLessThanOrEqual(stripBox!.x + stripBox!.width + 1);
+
+    // Expanding renders the list in a popover; the strip itself keeps its size.
+    const toggle = strip.locator('.cad-viewport-warning-toggle');
+    await toggle.click();
+    const popover = viewport.locator('.cad-viewport-warning-popover').first();
+    await expect(popover).toBeVisible();
+    await expect(popover.locator('.cad-viewport-warning-item')).toHaveCount(5);
+    const [popoverBox, openStripBox] = await Promise.all([popover.boundingBox(), strip.boundingBox()]);
+    expect(popoverBox, 'warning popover has no bounding box').not.toBeNull();
+    expect(openStripBox, 'open warning strip has no bounding box').not.toBeNull();
+    expect(popoverBox!.width).toBeLessThanOrEqual(340);
+    expect(popoverBox!.y).toBeGreaterThanOrEqual(openStripBox!.y + openStripBox!.height);
+    expect(openStripBox!.height).toBeLessThanOrEqual(stripBox!.height + 0.5);
+    // Document mode parks the badge on the right, clear of the ViewCube slot.
+    const documentViewport = await viewport.boundingBox();
+    expect(documentViewport, 'viewport has no bounding box').not.toBeNull();
+    expect(stripBox!.x + stripBox!.width).toBeLessThanOrEqual(documentViewport!.x + documentViewport!.width - 80);
+    await page.screenshot({ path: 'test-results/cad-build-warnings.png' });
+
+    await page.keyboard.press('Escape');
+    await expect(popover).toBeHidden();
+
+    // An outside pointer press closes it as well.
+    await toggle.click();
+    await expect(popover).toBeVisible();
+    const viewportBox = await viewport.boundingBox();
+    expect(viewportBox, 'viewport has no bounding box').not.toBeNull();
+    await page.mouse.click(viewportBox!.x + viewportBox!.width - 30, viewportBox!.y + viewportBox!.height - 30);
+    await expect(popover).toBeHidden();
+
+    // Sketch mode: the compact strip ends before the centered constraint bar
+    // and the top-right Finish Sketch pill, and the dismiss stays visible.
+    await runCommand(page, 'New Sketch');
+    const datumPicker = viewport.locator('.cad-sketch-datum-picker').first();
+    await expect(datumPicker).toBeVisible({ timeout: 10_000 });
+    await datumPicker.locator('button', { hasText: 'Start Sketch' }).first().click();
+    await expect(viewport.locator('.cad-sketch-finish-button')).toBeVisible({ timeout: 30_000 });
+    const constraintBar = viewport.locator('.cad-sketch-constraint-bar').first();
+    await expect(constraintBar).toBeVisible();
+    const [sketchStripBox, barBox, finishBox] = await Promise.all([
+        strip.boundingBox(),
+        constraintBar.boundingBox(),
+        viewport.locator('.cad-sketch-finish-button').boundingBox()
+    ]);
+    expect(sketchStripBox, 'sketch warning strip has no bounding box').not.toBeNull();
+    expect(barBox, 'constraint bar has no bounding box').not.toBeNull();
+    expect(finishBox, 'finish button has no bounding box').not.toBeNull();
+    expect(sketchStripBox!.width).toBeLessThanOrEqual(300);
+    expect(sketchStripBox!.x + sketchStripBox!.width).toBeLessThan(barBox!.x + 1);
+    expect(sketchStripBox!.x + sketchStripBox!.width).toBeLessThan(finishBox!.x + 1);
+    await expect(dismiss).toBeVisible();
+    await page.screenshot({ path: 'test-results/cad-build-warnings-sketch.png' });
+
+    const severe = errors.filter((e) => !e.includes('l10n') && !e.includes('localization bundles'));
+    expect(severe, `unexpected severe errors:\n${severe.join('\n')}`).toEqual([]);
+});
+
 test('document-mode header toolbar renders with grouped actions and hides welcome card', async ({ page }) => {
     const errors = collectErrors(page);
     await page.goto('/');

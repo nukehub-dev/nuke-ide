@@ -31,9 +31,11 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   lines/circles/arcs, ellipses/B-splines take point-level ones; evaluation lives in
   `sketch-curves.ts`. See `docs/dev/sketch.md`.
 - Sketch UI is three layers (`sketch-session.ts`, `sketch-mode-controller.ts`,
-  `cad-sketch-overlay.tsx`) with session-scoped snap (default 12px, magnet + S/M/L)
-  and face/edge picking (`face-picker.ts`, `edge-picker.ts`) feeding `externalRefs`
-  as construction geometry. See `docs/dev/sketch.md`.
+  `cad-sketch-overlay.tsx`) with session-scoped snap (default 12px, magnet + S/M/L),
+  a controller-owned grid toggle, a top-center constraint chip bar plus a **More**
+  select, and split hints/solver badges on the status line; face/edge picking
+  (`face-picker.ts`, `edge-picker.ts`) feeds `externalRefs` as construction geometry.
+  See `docs/dev/sketch.md`.
 - Feature recompute (`feature-graph.ts`: DAG, topological order, cycle rejection,
   `markDirty`/`recomputePlan`/`markClean`, suppression → stale) plus fingerprint
   `TopologyRef`s (`topology-refs.ts` types, Python scoring/resolver,

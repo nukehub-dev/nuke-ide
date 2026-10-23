@@ -191,8 +191,12 @@ it opens it in the CAD viewport by default.
   **Finish Sketch** pill at the top-right does the same.
 
 Build warnings (for example, intentional cross-body overlaps in assemblies)
-appear as a compact collapsible strip at the top of the viewport: click the
-warning count to expand the full list. The Model Outline's warnings box groups
+appear as a compact badge at the top-left of the viewport, below the document
+toolbar when one is open. Click **N build warnings** to open the full list in a
+popover; click the count again, click elsewhere, or press `Escape` to close it.
+The badge never stretches or covers the sketch constraint bar or **Finish
+Sketch** pill, and its **X** dismisses the warnings until the next build. The
+Model Outline's warnings box groups
 DAGMC export diagnostics (overlap, seal, sense, imprint stages, inspection)
 with per-group repair hints and adds a
 one-click **Fuse** fix for overlap warnings in document mode — see
@@ -221,7 +225,8 @@ Geometry`).
    the panel and returns to document mode without creating a sketch.
 
 The viewport switches to an orthographic view looking straight at the datum,
-grays out the 3D model, and shows a sketch grid.
+grays out the 3D model, and shows a sketch grid (toggle it from the toolbar's
+**Grid** button).
 
 ### Draw with snap and auto-constraints
 
@@ -279,13 +284,19 @@ coincident or point-on-object constraint is added automatically.
 
 The **magnet toggle** on the sketch toolbar turns snapping off entirely for
 free placement, and the adjacent **S/M/L** control sets the snap radius
-(6/12/24 px). The status line shows the current snap state (for example
-`Snap: 12px`).
+(6/12/24 px). The **Grid** button next to them shows or hides the sketch grid.
+The status line's snap and grid badges mirror both toggles (for example
+`Snap 12px` and `Grid`).
 
 ### Constrain the sketch
 
-Use the **Constraint** dropdown (top-center of the viewport) to
-add geometric constraints:
+The constraint bar at the top-center of the viewport has icon chips for the
+most-used constraints — Coincident, Horizontal, Vertical, Parallel,
+Perpendicular, Tangent, Equal, Distance, Radius, and Angle — plus a **More**
+dropdown for Fix, Concentric, Symmetry, and Point on Object. Click a chip to
+start that constraint; click the active chip again, choose **None** in the
+**More** dropdown, or start another constraint to cancel. The bar shows how
+many primitives it still needs, for example `2 / 2 selected`.
 
 - Coincident, fix, horizontal, vertical
 - Parallel, perpendicular, tangent
@@ -296,7 +307,8 @@ add geometric constraints:
 
 Most constraints are applied by selecting the required number of primitives.
 `distance`, `radius`, and `angle` additionally ask for a numeric value or
-parameter name.
+parameter name. The **More** dropdown shows the active kind while one of its
+constraints is armed and falls back to **More** otherwise.
 
 Curve-level constraints (horizontal/vertical, tangent, equal, concentric,
 point-on-object, radius/diameter) apply to lines, circles, and arcs. Ellipses
@@ -378,12 +390,15 @@ itself is rejected.
 
 ### Diagnostics, pan, zoom, and exit
 
-The status line at the bottom shows remaining degrees of freedom, conflicting
-constraints, redundant constraints, and the last auto-constraints applied. Click
-it when diagnostics exist to open the **Solver Diagnostics** popover and see
-which constraints are conflicting, redundant, or partially redundant. The
-diagnostics also flag missing coincident constraints on touching endpoints,
-open profile vertices, and whether the sketch is fully constrained.
+The status line at the bottom keeps transient hints on the left (shortcuts,
+auto-constraints, reference ambiguity) and solver badges on the right:
+conflicting and redundant constraint counts when present, the remaining
+degrees of freedom (`12 DOF`) or **Fully constrained**, and the snap/grid
+state. Click the line when diagnostics exist to open the **Solver Diagnostics**
+popover and see which constraints are conflicting, redundant, or partially
+redundant. The diagnostics also flag missing coincident constraints on
+touching endpoints, open profile vertices, and whether the sketch is fully
+constrained.
 
 - **Pan**: middle-drag or Shift+left-drag.
 - **Zoom**: mouse wheel around the cursor.
@@ -398,8 +413,10 @@ The other sketch panels — Parameters, Solver Diagnostics, External Geometry,
 Keyboard Shortcuts, and Measurements — drag the same way: grab the panel
 header to move it, right-click or double-click the header to reset it to its
 default spot. Panels always stay inside the canvas. The toolbar body groups
-its buttons into two columns (draw / modify & constraint / lists), and the
-active tool is highlighted.
+its buttons into two labelled columns (Draw & edit / Reference / Inspect /
+Transform) and scrolls under the fixed **SKETCH** header when the palette is
+taller than the canvas, so every tool stays reachable above the status line.
+The active tool is highlighted.
 Dimension labels shift apart automatically when they would overlap; drag a
 label to pin it to a spot of your choosing — pinned labels keep their
 placement while you zoom and pan, and unpinned labels keep auto-shifting.
