@@ -577,7 +577,11 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
                     type={featureCreationType}
                     editFeature={editFeature}
                     initialBodyId={featureCreationBodyId}
-                    sketchId={documentStore.selection.selectedSketchId}
+                    // Editing a sketch-based feature carries its own sketch;
+                    // the selection may hold bodies (viewport/outline edit),
+                    // which would otherwise block Save with "No sketch is
+                    // selected."
+                    sketchId={editFeature?.sketchId ?? documentStore.selection.selectedSketchId}
                     documentStore={documentStore}
                     dressUpPickMode={dressUpPickMode}
                     holePickMode={holePickMode}
@@ -3122,6 +3126,7 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
         // defeatures on picked faces, translates on an existing body, and
         // lattices on a source feature — none of them consume the selected sketch.
         if (
+            props.editFeature === undefined &&
             !isBoolean &&
             !isDressUp &&
             !isPipe &&
