@@ -899,6 +899,27 @@ function ParametersSection(props: ParametersSectionProps): React.ReactElement {
         setEditError(undefined);
     };
 
+    // Theia's KeybindingRegistry handles keys in a document-capture listener and
+    // calls stopPropagation() when a binding matches (Escape often has one), so
+    // the editor's own onKeyDown never sees the key. Cancel one phase earlier,
+    // the same way the CAD viewport handles Escape.
+    React.useEffect(() => {
+        if (editingName === undefined) {
+            return undefined;
+        }
+        const onKeyDown = (event: KeyboardEvent): void => {
+            if (event.key !== 'Escape') {
+                return;
+            }
+            event.preventDefault();
+            event.stopPropagation();
+            setEditingName(undefined);
+            setEditError(undefined);
+        };
+        window.addEventListener('keydown', onKeyDown, true);
+        return () => window.removeEventListener('keydown', onKeyDown, true);
+    }, [editingName]);
+
     const commitEdit = (name: string): void => {
         const result = props.onSetParameter(name, editText);
         if (!result.success) {

@@ -48,6 +48,16 @@ export { NukeDialog } from './nuke-dialog';
 export type { NukeDialogProps } from './nuke-dialog';
 export { NukeToolbar, NukeToolbarGroup } from './nuke-toolbar';
 export type { NukeToolbarProps, NukeToolbarGroupProps } from './nuke-toolbar';
+export { NukeRibbon, NukeRibbonSection } from './nuke-ribbon';
+export type { NukeRibbonDensity, NukeRibbonItem, NukeRibbonProps, NukeRibbonSectionProps } from './nuke-ribbon';
+export {
+    RIBBON_DENSITY_HYSTERESIS,
+    RIBBON_ICONS_MIN_WIDTH,
+    RIBBON_TILES_MIN_WIDTH,
+    selectRibbonDensity,
+    splitRibbonItems
+} from './nuke-ribbon-model';
+export type { RibbonItemSplit } from './nuke-ribbon-model';
 export { NukeEmptyState } from './nuke-empty-state';
 export type { NukeEmptyStateProps } from './nuke-empty-state';
 export { NukeLoadingOverlay } from './nuke-loading-overlay';

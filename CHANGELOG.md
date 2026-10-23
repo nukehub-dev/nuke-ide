@@ -186,6 +186,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Platform: Theia 1.73.1 to 1.74.1 with the deprecated Vercel AI provider removed; Electron shell moves to 43.4.0.
 - Platform: lerna 9 to 10 (Node.js >= 22.13.0) and markdown-it 14 to 15 in nuke-docs.
 - Platform: React 18 to 19 for all extension widgets with no component API changes.
+- nuke-cad: viewport toolbar groups actions into labelled sections with promoted buttons, per-section menus, and a width-driven compact mode.
 - nuke-cad: faster large-model rebuilds via worker-side tessellation parsing and incremental scene updates.
 - nuke-cad: multi-body opens and rebuilds reuse cross-body overlap verdicts for unchanged bodies instead of re-running the O(n²) exact boolean gate (tokamak: 30 s → 6 s warm, single edit 21 s → 8 s).
 - nuke-cad: icon-only document toolbar, purpose-drawn sketch icons, collapsible build warnings, and distinct panel icons.
@@ -213,6 +214,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - app: startup splash tracks real loading progress and never blanks out on slow connections.
 - CI: vitest job compiles extensions first; conda pin no longer requests an unsatisfiable Python.
 - docker: image Python env ships working build123d with the OCP 7.9 shim and a CI version guard.
+- nuke-cad: Copy sketch icon renders both offset squares (the standard mask declaration dropped the back square).
+- nuke-cad: Escape cancels an inline parameter edit even when Theia's keybinding registry consumes the key.
 - nuke-cad: large or far-offset models no longer vanish — viewport clip planes scale with the scene instead of a fixed 10,000-unit far plane (this also removes z-fighting on concentric shells).
 - nuke-cad: edits now really rebuild only the dirty features (the partial-rebuild RPC was never wired, the CLI flag was misspelled, and a same-path rebuild kept stale triangles on screen).
 - nuke-cad: opening a document from the explorer uses the cached open path instead of a full rebuild, and full builds prime the per-feature cache so the first edit is already partial.

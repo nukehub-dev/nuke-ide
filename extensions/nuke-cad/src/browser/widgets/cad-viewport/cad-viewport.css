@@ -142,10 +142,12 @@
 /* Shared viewer chrome (nuke-essentials ViewCube/ViewBadge): the labeled
    triad cube sits top-right below the document toolbar and the view badge
    top-left, mirroring the native VTK viewers. Knob/pill looks live in
-   nuke-essentials; only the below-toolbar placement stays here. */
+   nuke-essentials; only the below-toolbar placement stays here. The toolbar
+   publishes its measured bottom as `--nuke-cad-toolbar-bottom` (density
+   changes the bar height); 64px is the no-toolbar fallback. */
 .cad-viewport .nuke-view-cube {
     position: absolute;
-    top: 64px;
+    top: var(--nuke-cad-toolbar-bottom, 64px);
     right: 10px;
     z-index: 12;
     pointer-events: none;
@@ -158,7 +160,7 @@
 
 .cad-viewport .nuke-view-badge {
     position: absolute;
-    top: 64px;
+    top: var(--nuke-cad-toolbar-bottom, 64px);
     left: 10px;
     z-index: 12;
 }
@@ -391,7 +393,6 @@
 .cad-sketch-toolbar-toggle,
 .cad-sketch-toolbar-collapse,
 .cad-sketch-tool-button,
-.cad-document-toolbar-action,
 .cad-viewport-nav-button,
 .cad-viewport-shading-item,
 .cad-viewport-section-axis,
@@ -429,13 +430,6 @@
 
 .cad-sketch-tool-button.active,
 .cad-sketch-tool-button.theia-button.secondary.active {
-    background: var(--theia-focusBorder);
-    color: var(--theia-button-foreground);
-    border-color: var(--theia-focusBorder);
-}
-
-.cad-document-toolbar-action.active,
-.cad-document-toolbar-action.theia-button.secondary.active {
     background: var(--theia-focusBorder);
     color: var(--theia-button-foreground);
     border-color: var(--theia-focusBorder);
@@ -1015,37 +1009,13 @@
     flex: 1;
 }
 
-.cad-document-toolbar-actions .nuke-toolbar {
+/*
+ * The shared ribbon owns section spacing, separators, and button sizing
+ * (nuke-essentials `nuke-ribbon.css`); the host only right-aligns it and lets
+ * it shrink at narrow widths.
+ */
+.cad-document-toolbar-actions .nuke-ribbon {
     justify-content: flex-end;
-    gap: 8px;
-}
-
-.cad-document-toolbar-actions .nuke-toolbar-group {
-    gap: 2px;
-}
-
-.cad-document-toolbar-actions .nuke-toolbar-group + .nuke-toolbar-group {
-    margin-left: 6px;
-    padding-left: 8px;
-    border-left: 1px solid var(--theia-panel-border);
-}
-
-.cad-document-toolbar-action {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 26px;
-    height: 26px;
-    padding: 0;
-}
-
-.cad-document-toolbar-action.active {
-    background: var(--theia-focusBorder);
-    color: var(--theia-button-foreground);
-}
-
-.cad-document-toolbar-action .codicon {
-    font-size: 16px;
 }
 
 /* Feature creation dialog (shell provided by NukeDialog) */

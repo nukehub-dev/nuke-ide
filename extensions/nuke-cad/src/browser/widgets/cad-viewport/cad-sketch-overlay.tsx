@@ -41,10 +41,13 @@ import {
     NukeDialog,
     NukeFormRow,
     NukePanel,
+    NukeRibbon,
+    NukeRibbonSection,
     NukeSection,
     NukeSelect,
-    NukeToolbar,
-    NukeToolbarGroup
+    selectRibbonDensity,
+    type NukeRibbonDensity,
+    type NukeRibbonItem
 } from 'nuke-essentials/lib/theme/browser/components';
 import { SketchModeController } from '../../sketch/sketch-mode-controller';
 import {
@@ -1231,15 +1234,6 @@ function ExternalRefsPanel(props: ExternalRefsPanelProps): React.ReactElement {
     );
 }
 
-interface ToolbarAction {
-    readonly id: string;
-    readonly label: string;
-    readonly icon: string;
-    readonly disabled: boolean;
-    readonly active?: boolean;
-    readonly onClick: () => void;
-}
-
 /** Tooltip for the document-units dropdown (tags future inputs, never rescales). */
 const SET_UNITS_TOOLTIP =
     'Document units for future numeric inputs. Changing units on a unitless document only tags future inputs and never rescales existing numbers.';
@@ -1252,13 +1246,66 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
     const hasCurves = doc !== undefined && doc.curves.length > 0;
     const hasSolidProducers = doc !== undefined && doc.features.some((f) => SOLID_PRODUCERS.includes(f.type) && !f.suppressed);
 
-    const groups: Array<{ label: string; actions: ToolbarAction[] }> = [
+    const toolbarRef = React.useRef<HTMLDivElement>(null);
+    const [ribbonDensity, setRibbonDensity] = React.useState<NukeRibbonDensity>('tiles');
+
+    // Measure the whole bar (not the ribbon) so the info block and units select
+    // count against the density decision. Hysteresis lives in the pure model.
+    React.useLayoutEffect(() => {
+        const toolbar = toolbarRef.current;
+        if (toolbar === null) {
+            return undefined;
+        }
+        let disposed = false;
+        let previous: NukeRibbonDensity | undefined;
+        const applyWidth = (width: number): void => {
+            if (disposed) {
+                return;
+            }
+            const next = selectRibbonDensity(width, previous);
+            previous = next;
+            setRibbonDensity((current) => (current === next ? current : next));
+        };
+        // Keep the shared viewer chrome (ViewCube/ViewBadge, CSS `top`) clear
+        // of the bar as its density changes its height.
+        const updateOverlayGap = (): void => {
+            if (disposed) {
+                return;
+            }
+            const host = toolbar.closest('.cad-viewport');
+            if (host instanceof HTMLElement) {
+                host.style.setProperty('--nuke-cad-toolbar-bottom', `${Math.ceil(toolbar.getBoundingClientRect().height + 16)}px`);
+            }
+        };
+        applyWidth(toolbar.getBoundingClientRect().width);
+        updateOverlayGap();
+        const observer =
+            typeof ResizeObserver === 'undefined'
+                ? undefined
+                : new ResizeObserver(() => {
+                      applyWidth(toolbar.getBoundingClientRect().width);
+                      updateOverlayGap();
+                  });
+        observer?.observe(toolbar);
+        return () => {
+            disposed = true;
+            observer?.disconnect();
+            const host = toolbar.closest('.cad-viewport');
+            if (host instanceof HTMLElement) {
+                host.style.removeProperty('--nuke-cad-toolbar-bottom');
+            }
+        };
+    }, []);
+
+    const groups: Array<{ label: string; actions: NukeRibbonItem[]; promoted: number }> = [
         {
             label: 'Document',
+            promoted: 5,
             actions: [
                 {
                     id: 'newDocument',
                     label: 'New Document',
+                    shortLabel: 'New',
                     icon: 'codicon-new-file',
                     disabled: props.onNewDocument === undefined || props.documentStore.hasDocument,
                     onClick: () => props.onNewDocument?.()
@@ -1266,6 +1313,7 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
                 {
                     id: 'saveDocument',
                     label: 'Save Document',
+                    shortLabel: 'Save',
                     icon: 'codicon-save',
                     disabled: props.onSaveDocument === undefined || !props.documentStore.dirty,
                     onClick: () => props.onSaveDocument?.()
@@ -1273,6 +1321,7 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
                 {
                     id: 'undo',
                     label: 'Undo (Ctrl+Z)',
+                    shortLabel: 'Undo',
                     icon: 'codicon-nuke-cad-undo',
                     disabled: !props.documentStore.canUndo,
                     onClick: () => props.documentStore.undo()
@@ -1280,6 +1329,7 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
                 {
                     id: 'redo',
                     label: 'Redo (Ctrl+Shift+Z / Ctrl+Y)',
+                    shortLabel: 'Redo',
                     icon: 'codicon-nuke-cad-redo',
                     disabled: !props.documentStore.canRedo,
                     onClick: () => props.documentStore.redo()
@@ -1287,6 +1337,7 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
                 {
                     id: 'rebuild',
                     label: 'Rebuild Geometry',
+                    shortLabel: 'Rebuild',
                     icon: 'codicon-refresh',
                     disabled: props.onRebuildDocument === undefined,
                     onClick: () => props.onRebuildDocument?.()
@@ -1302,10 +1353,12 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
         },
         {
             label: 'Sketch',
+            promoted: 2,
             actions: [
                 {
                     id: 'newSketch',
                     label: 'New Sketch',
+                    shortLabel: 'New',
                     icon: 'codicon-nuke-cad-sketch',
                     disabled: false,
                     onClick: props.onNewSketch
@@ -1315,6 +1368,7 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
                           {
                               id: 'editSketch',
                               label: 'Edit Selected Sketch',
+                              shortLabel: 'Edit',
                               icon: 'codicon-edit',
                               disabled: false,
                               onClick: () => props.onEditSketch(selectedSketchId)
@@ -1325,10 +1379,12 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
         },
         {
             label: 'Additive',
+            promoted: 3,
             actions: [
                 {
                     id: 'pad',
                     label: 'Pad (extrude add)',
+                    shortLabel: 'Pad',
                     icon: 'codicon-nuke-cad-pad',
                     disabled: !sketchSelected,
                     onClick: () => props.onStartFeatureCreation('pad')
@@ -1336,6 +1392,7 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
                 {
                     id: 'pocket',
                     label: 'Pocket (extrude cut)',
+                    shortLabel: 'Pocket',
                     icon: 'codicon-nuke-cad-pocket',
                     disabled: !sketchSelected || !hasBodies,
                     onClick: () => props.onStartFeatureCreation('pocket')
@@ -1386,10 +1443,12 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
         },
         {
             label: 'Boolean',
+            promoted: 3,
             actions: [
                 {
                     id: 'booleanFuse',
                     label: 'Boolean Fuse',
+                    shortLabel: 'Fuse',
                     icon: 'codicon-nuke-cad-boolean-fuse',
                     disabled: !hasBodies,
                     onClick: () => props.onStartFeatureCreation('booleanFuse')
@@ -1397,6 +1456,7 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
                 {
                     id: 'booleanCut',
                     label: 'Boolean Cut',
+                    shortLabel: 'Cut',
                     icon: 'codicon-nuke-cad-boolean-cut',
                     disabled: !hasBodies,
                     onClick: () => props.onStartFeatureCreation('booleanCut')
@@ -1404,6 +1464,7 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
                 {
                     id: 'booleanCommon',
                     label: 'Boolean Common',
+                    shortLabel: 'Common',
                     icon: 'codicon-nuke-cad-boolean-common',
                     disabled: !hasBodies,
                     onClick: () => props.onStartFeatureCreation('booleanCommon')
@@ -1412,6 +1473,7 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
         },
         {
             label: 'Dress-up',
+            promoted: 3,
             actions: [
                 {
                     id: 'fillet',
@@ -1428,18 +1490,18 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
                     onClick: () => props.onStartFeatureCreation('chamfer')
                 },
                 {
-                    id: 'draft',
-                    label: 'Draft',
-                    icon: 'codicon-nuke-cad-draft',
-                    disabled: !hasBodies,
-                    onClick: () => props.onStartFeatureCreation('draft')
-                },
-                {
                     id: 'shell',
                     label: 'Shell',
                     icon: 'codicon-nuke-cad-shell',
                     disabled: !hasBodies,
                     onClick: () => props.onStartFeatureCreation('shell')
+                },
+                {
+                    id: 'draft',
+                    label: 'Draft',
+                    icon: 'codicon-nuke-cad-draft',
+                    disabled: !hasBodies,
+                    onClick: () => props.onStartFeatureCreation('draft')
                 },
                 {
                     id: 'translate',
@@ -1452,10 +1514,12 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
         },
         {
             label: 'Pattern',
+            promoted: 3,
             actions: [
                 {
                     id: 'linearPattern',
                     label: 'Linear Pattern',
+                    shortLabel: 'Linear',
                     icon: 'codicon-nuke-cad-linear-pattern',
                     disabled: !hasBodies || !hasSolidProducers,
                     onClick: () => props.onStartFeatureCreation('linearPattern')
@@ -1463,6 +1527,7 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
                 {
                     id: 'circularPattern',
                     label: 'Circular Pattern',
+                    shortLabel: 'Circular',
                     icon: 'codicon-nuke-cad-circular-pattern',
                     disabled: !hasBodies || !hasSolidProducers,
                     onClick: () => props.onStartFeatureCreation('circularPattern')
@@ -1492,10 +1557,12 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
         },
         {
             label: 'Inspect',
+            promoted: 2,
             actions: [
                 {
                     id: 'measure',
                     label: 'Measure (distance, angle, radius)',
+                    shortLabel: 'Measure',
                     icon: 'codicon-nuke-cad-measure',
                     disabled: false,
                     active: props.measureActive,
@@ -1504,6 +1571,7 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
                 {
                     id: 'measureList',
                     label: `Measurements${props.measureCount ? ` (${props.measureCount})` : ''}`,
+                    shortLabel: 'Measures',
                     icon: 'codicon-list-unordered',
                     disabled: false,
                     active: props.measureListOpen,
@@ -1514,7 +1582,7 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
     ];
 
     return (
-        <div className="cad-document-toolbar">
+        <div className="cad-document-toolbar" ref={toolbarRef}>
             <div className="cad-document-toolbar-info">
                 <span className="codicon codicon-file cad-document-toolbar-icon" />
                 <div className="cad-document-toolbar-title">
@@ -1540,23 +1608,11 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
                 </Tooltip>
             </div>
             <div className="cad-document-toolbar-actions">
-                <NukeToolbar>
+                <NukeRibbon density={ribbonDensity} className="cad-document-toolbar-ribbon">
                     {groups.map((group) => (
-                        <NukeToolbarGroup key={group.label} label={group.label} className="cad-document-toolbar-group">
-                            {group.actions.map((action) => (
-                                <Tooltip key={action.id} content={action.label} position="bottom">
-                                    <button
-                                        className={`theia-button secondary cad-document-toolbar-action ${action.active ? 'active' : ''}`}
-                                        disabled={action.disabled}
-                                        onClick={action.onClick}
-                                    >
-                                        <span className={`codicon ${action.icon}`} />
-                                    </button>
-                                </Tooltip>
-                            ))}
-                        </NukeToolbarGroup>
+                        <NukeRibbonSection key={group.label} label={group.label} items={group.actions} promoted={group.promoted} />
                     ))}
-                </NukeToolbar>
+                </NukeRibbon>
             </div>
         </div>
     );

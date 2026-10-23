@@ -38,7 +38,7 @@ test('tokamak nuke-cad fixture loading overlay is centered', async ({ page }) =>
 
     const overlay = page.locator('.nuke-loading-overlay').first();
     await expect(overlay).toBeVisible({ timeout: 30_000 });
-    await expect(overlay).toContainText(/^(Loading|Building|Rebuilding)/);
+    await expect(overlay).toContainText(/^(Loading|Building|Rebuilding|Restoring)/);
     await overlay.screenshot({ path: 'test-results/tokamak-cad-loading.png' });
 
     // Spot-check that the message text is centered (x within 20 % of viewport center).
@@ -47,7 +47,7 @@ test('tokamak nuke-cad fixture loading overlay is centered', async ({ page }) =>
         const viewportEl = overlayEl?.closest('.cad-viewport');
         const msgEl = overlayEl
             ? Array.from(overlayEl.querySelectorAll('*')).find(
-                  (e) => e.children.length === 0 && /^(Loading|Building|Rebuilding)/.test((e.textContent ?? '').trim())
+                  (e) => e.children.length === 0 && /^(Loading|Building|Rebuilding|Restoring)/.test((e.textContent ?? '').trim())
               )
             : null;
         return [msgEl?.getBoundingClientRect() ?? null, viewportEl?.getBoundingClientRect() ?? null];
@@ -94,7 +94,7 @@ test('document-mode header toolbar renders with grouped actions and hides welcom
     const toolbar = page.locator('.cad-document-toolbar').first();
     await expect(toolbar).toBeVisible({ timeout: 60_000 });
     await expect(toolbar.locator('.cad-document-toolbar-name')).toContainText('Untitled');
-    await expect(toolbar.locator('.nuke-toolbar-group')).toHaveCount(7);
+    await expect(toolbar.locator('.nuke-ribbon-section')).toHaveCount(7);
     await expect(toolbar.locator('[role="group"][aria-label="Document"]')).toBeVisible();
     await expect(toolbar.locator('[role="group"][aria-label="Sketch"]')).toBeVisible();
     await expect(toolbar.locator('[role="group"][aria-label="Additive"]')).toBeVisible();
@@ -103,15 +103,97 @@ test('document-mode header toolbar renders with grouped actions and hides welcom
     await expect(toolbar.locator('[role="group"][aria-label="Pattern"]')).toBeVisible();
     await expect(toolbar.locator('[role="group"][aria-label="Inspect"]')).toBeVisible();
 
+    // Every section keeps a visible caption underneath its promoted buttons.
+    for (const label of ['Document', 'Additive', 'Inspect']) {
+        const caption = toolbar.locator(`[role="group"][aria-label="${label}"] .nuke-ribbon-caption-label`);
+        await expect(caption).toHaveText(label);
+        await expect(caption).toBeVisible();
+    }
+
     await viewport.screenshot({ path: 'test-results/cad-viewport-document-toolbar.png' });
 
     // Pad is disabled until a sketch is selected; verify the toolbar state is
     // sensible and no dialog opens when a disabled feature button is clicked.
-    const padButton = toolbar.locator('button:has(.codicon-nuke-cad-pad)').first();
+    // At menus density the action lives behind the Additive caret.
+    const additive = toolbar.locator('[role="group"][aria-label="Additive"]').first();
+    let padButton = additive.locator('button:has(.codicon-nuke-cad-pad)').first();
+    let openedMenu = false;
+    if (!(await padButton.isVisible())) {
+        await additive.locator('.nuke-ribbon-menu-trigger').click();
+        padButton = page.locator('.nuke-ribbon-menu [role="menuitem"]:has(.codicon-nuke-cad-pad)').first();
+        openedMenu = true;
+    }
     await expect(padButton).toBeVisible();
     await expect(padButton).toBeDisabled();
     await padButton.click({ force: true });
     await expect(page.locator('.nuke-dialog').first()).toBeHidden();
+    if (openedMenu) {
+        await page.keyboard.press('Escape');
+        await expect(page.locator('.nuke-ribbon-menu')).toBeHidden();
+    }
+
+    const severe = errors.filter((e) => !e.includes('l10n') && !e.includes('localization bundles'));
+    expect(severe, `unexpected severe errors:\n${severe.join('\n')}`).toEqual([]);
+});
+
+test('document toolbar collapses to section menus without wrapping at narrow width', async ({ page }) => {
+    const errors = collectErrors(page);
+    await page.goto('/');
+    await waitForWorkbench(page);
+
+    // Start from a clean workbench so New CAD Document is enabled.
+    await closeAllEditors(page);
+    await runCommand(page, 'New CAD Document');
+    const viewport = page.locator('.cad-viewport').first();
+    await expect(viewport).toBeVisible({ timeout: 30_000 });
+
+    const templatePicker = page.locator('.cad-template-picker').first();
+    await expect(templatePicker).toBeVisible({ timeout: 10_000 });
+    await templatePicker.locator('button', { hasText: 'Empty document' }).first().click();
+
+    const toolbar = page.locator('.cad-document-toolbar').first();
+    await expect(toolbar).toBeVisible({ timeout: 60_000 });
+
+    // Wide window: tiles density with short captions; full labels stay in the
+    // tooltip and the section menu.
+    await page.setViewportSize({ width: 1920, height: 800 });
+    await expect(toolbar.locator('.nuke-ribbon-tiles')).toBeVisible({ timeout: 10_000 });
+    await expect(toolbar.locator('[role="group"][aria-label="Document"] .nuke-ribbon-item-label')).toHaveText([
+        'New',
+        'Save',
+        'Undo',
+        'Redo',
+        'Rebuild'
+    ]);
+    await expect(toolbar.locator('[role="group"][aria-label="Inspect"] .nuke-ribbon-item-label').last()).toHaveText('Measures');
+    await toolbar.screenshot({ path: 'test-results/cad-ribbon-tiles.png' });
+
+    // Narrow the window: the bar must switch to caption menus, not wrap.
+    await page.setViewportSize({ width: 900, height: 800 });
+    await expect(toolbar.locator('.nuke-ribbon-menus')).toBeVisible({ timeout: 10_000 });
+    await expect(toolbar.locator('.nuke-ribbon-section')).toHaveCount(7);
+    const menuTriggers = toolbar.locator('.nuke-ribbon-menu-trigger');
+    await expect(menuTriggers).toHaveCount(7);
+    for (let index = 0; index < 7; index++) {
+        await expect(menuTriggers.nth(index)).toBeVisible();
+    }
+
+    // One action row, no horizontal overflow.
+    const box = await toolbar.boundingBox();
+    expect(box, 'toolbar bounding box').not.toBeNull();
+    expect(box!.height).toBeLessThan(80);
+    const overflow = await toolbar.evaluate((element) => ({
+        scrollWidth: element.scrollWidth,
+        clientWidth: element.clientWidth
+    }));
+    expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth + 1);
+
+    // A section menu is portaled and closes on Escape.
+    await toolbar.locator('[role="group"][aria-label="Additive"] .nuke-ribbon-menu-trigger').click();
+    const menu = page.locator('.nuke-ribbon-menu');
+    await expect(menu).toBeVisible({ timeout: 10_000 });
+    await page.keyboard.press('Escape');
+    await expect(menu).toBeHidden();
 
     const severe = errors.filter((e) => !e.includes('l10n') && !e.includes('localization bundles'));
     expect(severe, `unexpected severe errors:\n${severe.join('\n')}`).toEqual([]);
