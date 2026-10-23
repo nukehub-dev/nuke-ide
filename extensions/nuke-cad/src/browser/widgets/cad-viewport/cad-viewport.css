@@ -683,6 +683,19 @@
     top: 8px;
     right: 8px;
     z-index: 21;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* Unsaved-changes dot; inside the anchor so it can never slide under the pill
+   or into the centered constraint bar, whatever the viewport width. */
+.cad-sketch-finish-dirty {
+    flex: 0 0 auto;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--theia-editorInfo-foreground);
 }
 
 .cad-sketch-finish-button {

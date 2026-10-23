@@ -697,6 +697,7 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
             {active && (
                 <>
                     <div className="cad-sketch-finish-anchor">
+                        {documentStore.dirty && <span className="cad-sketch-finish-dirty" title="Unsaved changes" />}
                         <Tooltip content="Exit sketch mode and merge the sketch into the document" position="bottom">
                             <button className="theia-button cad-sketch-finish-button" onClick={() => void onExitSketch()}>
                                 <span className="codicon codicon-check" />

@@ -33,7 +33,8 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
 - Sketch UI is three layers (`sketch-session.ts`, `sketch-mode-controller.ts`,
   `cad-sketch-overlay.tsx`) with session-scoped snap (default 12px, magnet + S/M/L),
   a controller-owned grid toggle, a top-center constraint chip bar plus a **More**
-  select, and split hints/solver badges on the status line; face/edge picking
+  select, a selection-aware right-click menu, and split hints/solver badges on the
+  status line; face/edge picking
   (`face-picker.ts`, `edge-picker.ts`) feeds `externalRefs` as construction geometry.
   See `docs/dev/sketch.md`.
 - Feature recompute (`feature-graph.ts`: DAG, topological order, cycle rejection,

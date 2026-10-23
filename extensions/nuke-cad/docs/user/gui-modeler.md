@@ -188,7 +188,8 @@ it opens it in the CAD viewport by default.
   Isolate Selected (N)** for the whole set alongside the single-solid items;
   empty-space click clears (plain click only).
 - Press `Tab` to enter sketch mode and `Tab` again to leave it; the labeled
-  **Finish Sketch** pill at the top-right does the same.
+  **Finish Sketch** pill at the top-right does the same. The blue dot beside
+  the pill marks unsaved document changes.
 
 Build warnings (for example, intentional cross-body overlaps in assemblies)
 appear as a compact badge at the top-left of the viewport, below the document
@@ -309,6 +310,18 @@ Most constraints are applied by selecting the required number of primitives.
 `distance`, `radius`, and `angle` additionally ask for a numeric value or
 parameter name. The **More** dropdown shows the active kind while one of its
 constraints is armed and falls back to **More** otherwise.
+
+- **Right-click menu** — right-click a sketch entity to see only the
+  constraints that fit the current selection: Horizontal/Vertical and **Add
+  Length Dimension…** on a line, Parallel/Perpendicular/Equal and **Add Angle
+  Dimension…** on two lines, Tangent on a line and circle/arc, Concentric/
+  Equal/Tangent on two curves, Coincident and **Add Distance Dimension…** on
+  two points, Point on Object on a point plus curve, and Fix on a point. The
+  menu also offers **Make Construction/Normal**, **Delete**, and **Clear
+  Selection**. Dimension actions open the value box with the targets already
+  chosen. Right-click empty canvas for **Fit Sketch**, **Show/Hide Grid**, and
+  **Finish Sketch**; right-click during a drawing or constraint gesture
+  cancels it instead of opening the menu.
 
 Curve-level constraints (horizontal/vertical, tangent, equal, concentric,
 point-on-object, radius/diameter) apply to lines, circles, and arcs. Ellipses

@@ -213,7 +213,8 @@ import {
 import { AssemblyInstanceList } from './assembly-instance-list';
 import { faceReuseKey, planFaceReuse, type ParsedTessCurve, type ParsedTessData } from './tess-reuse';
 import { parseTessellationAsync } from './tess-parse-client';
-import { attributeBodyToFeature, buildViewportContextMenu, openViewportContextMenu } from './viewport-context-menu';
+import { attributeBodyToFeature, buildViewportContextMenu, openContextMenu, openViewportContextMenu } from './viewport-context-menu';
+import { buildSketchContextMenu, type SketchContextMenuAction, type SketchContextTarget } from './sketch-context-menu';
 import { buildSelectOtherRows, openSelectOtherMenu } from './select-other-menu';
 import './cad-viewport.css';
 import './cad-icons.css';
@@ -2867,6 +2868,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                 props.connectorPickMode !== undefined,
                 props.messageService,
                 props.onToggleSketchMode,
+                props.onExitSketch,
                 props.onExitSection,
                 handleMeasurePoint,
                 handleMeasureRadius,
@@ -3470,7 +3472,6 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
         return (
             <div ref={containerRef} tabIndex={-1} className="cad-viewport empty">
                 {banners}
-                {dirtyMarker}
                 {props.sketchEntering && <NukeLoadingOverlay message="Starting sketch solver..." />}
                 {sketchOverlay}
                 {templatePicker}
@@ -3837,6 +3838,7 @@ function initViewport(
     initialConnectorPickMode: boolean,
     messageService: MessageService,
     onToggleSketchMode: () => void,
+    onExitSketch: () => Promise<void>,
     onExitSection: () => void,
     onMeasurePoint: (point: MeasurePoint3D) => void,
     onMeasureRadius: (center: MeasurePoint3D, radius: number) => void,
@@ -5867,6 +5869,66 @@ function initViewport(
     };
     renderer.domElement.addEventListener('pointermove', onPickPointerMove);
 
+    const dispatchSketchMenuAction = (action: SketchContextMenuAction): void => {
+        switch (action.kind) {
+            case 'constraint':
+            case 'valueConstraint':
+                controller.applyConstraintToTargets(action.constraint, action.targetIds).catch((err) => {
+                    console.error('[CAD] sketch context constraint failed:', err);
+                });
+                break;
+            case 'setConstruction':
+                controller.setPrimitivesConstruction(action.ids, action.construction).catch((err) => {
+                    console.error('[CAD] sketch context construction failed:', err);
+                });
+                break;
+            case 'delete':
+                controller.deletePrimitives(action.ids).catch((err) => {
+                    console.error('[CAD] sketch context delete failed:', err);
+                });
+                break;
+            case 'clearSelection':
+                controller.clearSelection();
+                break;
+            case 'fitSketch':
+                controller.fitView();
+                break;
+            case 'toggleGrid':
+                controller.setGridEnabled(action.enabled);
+                break;
+            case 'finishSketch':
+                onExitSketch().catch((err) => {
+                    console.error('[CAD] finish sketch from context menu failed:', err);
+                });
+                break;
+        }
+    };
+
+    const openSketchMenu = (event: MouseEvent): void => {
+        const targetId = controller.getContextTargetIdAt(event.clientX, event.clientY);
+        controller.selectPrimitiveForContextMenu(targetId);
+        controller.dismissConstraintPopover();
+        const selection: SketchContextTarget[] = controller.getSelectedPrimitives().map((primitive) => ({
+            id: primitive.id,
+            type: primitive.type,
+            construction: primitive.construction,
+            linePointIds: primitive.type === 'line' ? ([primitive.p1Id, primitive.p2Id] as const) : undefined
+        }));
+        const rect = container.getBoundingClientRect();
+        const menu = openContextMenu(
+            container,
+            buildSketchContextMenu({
+                selection,
+                gridEnabled: controller.isGridEnabled(),
+                canvas: targetId === undefined
+            }),
+            { x: event.clientX - rect.left, y: event.clientY - rect.top },
+            dispatchSketchMenuAction,
+            { className: 'cad-sketch-context-menu' }
+        );
+        closeContextMenu = menu;
+    };
+
     const onContextMenu = (event: MouseEvent): void => {
         if (
             activeFacePickMode === undefined &&
@@ -5877,9 +5939,28 @@ function initViewport(
             !activeConnectorPickMode
         ) {
             // No pick mode: the viewport's own menu replaces the browser
-            // default. Sketch mode keeps the default — the menu is a 3D-model
-            // surface — and an empty canvas has nothing to act on.
-            if (controller.isActive || meshes.length === 0) {
+            // default. An empty document has nothing to act on.
+            if (controller.isActive) {
+                event.preventDefault();
+                // A right-click during a drawing/constraint gesture cancels it,
+                // matching the Escape gesture, instead of stacking a menu over
+                // the in-progress preview.
+                if (
+                    controller.getTool() !== 'select' ||
+                    controller.getSession()?.isInProgress() === true ||
+                    controller.getConstraintInput() !== undefined
+                ) {
+                    controller.cancel();
+                    if (controller.getTool() !== 'select') {
+                        controller.setTool('select');
+                    }
+                    return;
+                }
+                controller.cancelAutoDimension();
+                openSketchMenu(event);
+                return;
+            }
+            if (meshes.length === 0) {
                 return;
             }
             event.preventDefault();
@@ -6053,7 +6134,10 @@ function initViewport(
         controller.onPointerMove(event.clientX, event.clientY);
     };
     const onPointerUp = (event: PointerEvent): void => {
-        if (!controller.isActive) {
+        // A right pointerup precedes `contextmenu` on Windows; letting it reach
+        // the session would commit the point the new right-click contract is
+        // about to cancel. Middle is still needed to end a pan.
+        if (!controller.isActive || (event.button !== 0 && event.button !== 1)) {
             return;
         }
         void controller.onPointerUp(event.clientX, event.clientY);
@@ -6222,6 +6306,11 @@ function initViewport(
         if (!controller.isActive) {
             return;
         }
+        // The right-click menu owns its own Escape dismissal; do not also clear
+        // the sketch selection or delete geometry behind it.
+        if (container.querySelector('.cad-viewport-context-menu') !== null) {
+            return;
+        }
         // Text fields (constraint value box, dimension editor, parameters panel)
         // consume Delete/Backspace/Escape; never route them to the sketch session.
         const target = event.target;
@@ -6304,21 +6393,30 @@ function initViewport(
         if (event.key !== 'f' && event.key !== 'F' && event.key !== '.') {
             return;
         }
+        const target = event.target;
+        if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) {
+            return;
+        }
+        if (target instanceof HTMLElement && target.isContentEditable) {
+            return;
+        }
+        if (target instanceof HTMLElement && target.closest('.cad-viewport-context-menu') !== null) {
+            return;
+        }
+        if (controller.isActive) {
+            // The sketch context menu advertises F for Fit Sketch; the
+            // document-only guard must not swallow it in sketch mode.
+            event.preventDefault();
+            controller.fitView();
+            return;
+        }
         if (
-            controller.isActive ||
             activeFacePickMode !== undefined ||
             activeDressUpPickMode !== undefined ||
             activeHolePickMode ||
             activeCurvePickMode ||
             activeDrawingDimensionPickMode
         ) {
-            return;
-        }
-        const target = event.target;
-        if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) {
-            return;
-        }
-        if (target instanceof HTMLElement && target.isContentEditable) {
             return;
         }
         fitView();
@@ -6350,6 +6448,9 @@ function initViewport(
             return;
         }
         event.preventDefault();
+        // A context menu is an unmanaged DOM child of the persistent container;
+        // dismiss it before React swaps the document/sketch branches.
+        closeViewportOverlays();
         onToggleSketchMode();
     };
     window.addEventListener('keydown', onTabKey);

@@ -87,7 +87,8 @@ export type ViewportContextMenuAction =
     /** Only ever on disabled items (the Edit Feature placeholder). */
     | { readonly kind: 'noop' };
 
-export interface ViewportContextMenuItem {
+/** One menu row; the action payload is domain-specific to the caller. */
+export interface ContextMenuItem<T> {
     readonly label: string;
     readonly icon: string;
     readonly disabled?: boolean;
@@ -101,8 +102,10 @@ export interface ViewportContextMenuItem {
      * does nothing in this viewport.
      */
     readonly hint?: string;
-    readonly action: ViewportContextMenuAction;
+    readonly action: T;
 }
+
+export type ViewportContextMenuItem = ContextMenuItem<ViewportContextMenuAction>;
 
 export interface ViewportContextMenuInput {
     /** The solid under the pointer, with its attributed feature and body when known. */
@@ -287,24 +290,32 @@ export function buildViewportContextMenu(input: ViewportContextMenuInput): reado
  * selectOther -> open the anchored candidate popover for the right-click ray
  */
 
+/** Optional presentation/dismissal hooks for the shared context-menu renderer. */
+export interface ContextMenuOptions {
+    /** Extra class on the menu panel; the base class is always applied. */
+    readonly className?: string;
+    /** Fired when the menu is dismissed without choosing an item. */
+    readonly onClose?: () => void;
+}
+
 /**
- * Render the menu at a container-relative anchor and invoke `onAction` for the
+ * Render a menu at a container-relative anchor and invoke `onAction` for the
  * chosen item. Clamps the panel inside the container. Closes on any window
  * pointerdown outside the menu or on Escape; returns the close function so the
- * viewport cleanup can dismiss it too. `onClose` fires for those dismissals and
+ * owner's cleanup can dismiss it too. `onClose` fires for those dismissals and
  * for external `close()` calls, but not for an item dispatch, whose action may
  * still need data captured at open time. Choosing an item hands focus back to
  * the container, since the pressed button leaves the DOM with the menu.
  */
-export function openViewportContextMenu(
+export function openContextMenu<T>(
     container: HTMLElement,
-    items: readonly ViewportContextMenuItem[],
+    items: readonly ContextMenuItem<T>[],
     anchor: { readonly x: number; readonly y: number },
-    onAction: (action: ViewportContextMenuAction) => void,
-    onClose?: () => void
+    onAction: (action: T) => void,
+    options?: ContextMenuOptions
 ): () => void {
     const menu = document.createElement('div');
-    menu.className = 'cad-viewport-context-menu';
+    menu.className = options?.className !== undefined ? `cad-viewport-context-menu ${options.className}` : 'cad-viewport-context-menu';
     for (const item of items) {
         if (item.separatorAbove === true) {
             const separator = document.createElement('div');
@@ -329,7 +340,7 @@ export function openViewportContextMenu(
             hint.className = 'cad-viewport-context-menu-hint';
             hint.textContent = item.hint;
             button.appendChild(hint);
-            button.setAttribute('aria-keyshortcuts', item.hint === 'Esc' ? 'Escape' : item.hint);
+            button.setAttribute('aria-keyshortcuts', item.hint === 'Esc' ? 'Escape' : item.hint === 'Del' ? 'Delete' : item.hint);
         }
         button.addEventListener('click', () => {
             close(false);
@@ -375,8 +386,19 @@ export function openViewportContextMenu(
         window.removeEventListener('keydown', onKeyDown, true);
         menu.remove();
         if (dismiss) {
-            onClose?.();
+            options?.onClose?.();
         }
     }
     return () => close(true);
+}
+
+/** Viewport-model menu over the shared renderer. */
+export function openViewportContextMenu(
+    container: HTMLElement,
+    items: readonly ViewportContextMenuItem[],
+    anchor: { readonly x: number; readonly y: number },
+    onAction: (action: ViewportContextMenuAction) => void,
+    onClose?: () => void
+): () => void {
+    return openContextMenu(container, items, anchor, onAction, { onClose });
 }

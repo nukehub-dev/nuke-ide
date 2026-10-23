@@ -334,6 +334,71 @@ export class SketchModeController {
         return this.selectedIds;
     }
 
+    /** Selected primitives with their construction flag (menu applicability input). */
+    getSelectedPrimitives(): (SketchPrimitive & { construction: boolean })[] {
+        if (this.session === undefined) {
+            return [];
+        }
+        const selected: (SketchPrimitive & { construction: boolean })[] = [];
+        for (const id of this.selectedIds) {
+            const primitive = this.session.getPrimitive(id);
+            if (primitive !== undefined) {
+                selected.push(primitive);
+            }
+        }
+        return selected;
+    }
+
+    /**
+     * Primitive a right-click should target. Endpoint snaps resolve to the
+     * owning line/arc/circle so the menu matches the Select tool's click
+     * semantics; empty canvas returns undefined.
+     */
+    getContextTargetIdAt(clientX: number, clientY: number): string | undefined {
+        if (this.session === undefined) {
+            return undefined;
+        }
+        const point = this.pointerToSketch(clientX, clientY);
+        if (point === undefined) {
+            return undefined;
+        }
+        // Picking is not placement: a right-click must still resolve the
+        // primitive under the pointer when the snap toggle is off.
+        return this.hoveredPrimitiveId(this.computeSnap(point, true));
+    }
+
+    /** Select the right-click target only when it is not part of the current selection. */
+    selectPrimitiveForContextMenu(id: string | undefined): void {
+        if (id === undefined || this.selectedIds.has(id)) {
+            return;
+        }
+        this.selectedIds.clear();
+        this.selectedIds.add(id);
+        this.selectedDimensionId = undefined;
+        this.constraintPopover = undefined;
+        this.renderSelection();
+        this.renderDimensions();
+        this.emitChange();
+    }
+
+    /** Clear the primitive/dimension selection and any transient relation popover. */
+    clearSelection(): void {
+        if (this.selectedIds.size === 0 && this.selectedDimensionId === undefined && this.constraintPopover === undefined) {
+            return;
+        }
+        this.selectedIds.clear();
+        this.selectedDimensionId = undefined;
+        this.constraintPopover = undefined;
+        this.renderSelection();
+        this.renderDimensions();
+        this.emitChange();
+    }
+
+    /** Fit the active sketch into the viewport (canvas context menu). */
+    fitView(): void {
+        this.fitSketchView();
+    }
+
     /** All dimensions in the active sketch. */
     getDimensions(): SketchDimension[] {
         return this.session?.getDimensions() ?? [];
@@ -921,6 +986,44 @@ export class SketchModeController {
         this.emitChange();
     }
 
+    /**
+     * Apply a constraint to explicit targets (sketch context menu).
+     *
+     * Relational constraints commit immediately; value constraints seed the
+     * existing constraint value box so the user only supplies the number.
+     */
+    async applyConstraintToTargets(kind: ConstraintKind, targetIds: readonly string[]): Promise<void> {
+        if (this.session === undefined) {
+            return;
+        }
+        if (targetIds.length !== CONSTRAINT_ARITY[kind]) {
+            this.messageService?.error(`Select ${CONSTRAINT_ARITY[kind]} primitives for ${kind}.`);
+            return;
+        }
+        if (VALUE_CONSTRAINTS.has(kind)) {
+            this.constraintInput = { kind, targetIds: [...targetIds] };
+            this.session.setTool('select');
+            this.emitChange();
+            return;
+        }
+        const result = await this.session.addConstraint(kind, [...targetIds]);
+        if (!result.success) {
+            this.messageService?.error(result.error ?? `Failed to apply the ${kind} constraint.`);
+        }
+        this.emitChange();
+    }
+
+    /** Set construction mode for explicit ids (context menu bulk action). */
+    async setPrimitivesConstruction(ids: readonly string[], construction: boolean): Promise<void> {
+        if (this.session === undefined) {
+            return;
+        }
+        for (const id of ids) {
+            await this.session.setConstruction(id, construction);
+        }
+        this.emitChange();
+    }
+
     /** Apply a constraint with a numeric value or parameter name (for distance/radius/angle). */
     async applyConstraintValue(kind: ConstraintKind, value: number | string, options?: { diameter?: boolean }): Promise<void> {
         if (this.session === undefined || this.constraintInput === undefined || this.constraintInput.kind !== kind) {
@@ -943,14 +1046,21 @@ export class SketchModeController {
 
     /** Delete the selected primitives. */
     async deleteSelection(): Promise<void> {
+        await this.deletePrimitives([...this.selectedIds]);
+    }
+
+    /** Delete explicit primitive ids (context menu action). */
+    async deletePrimitives(ids: readonly string[]): Promise<void> {
         if (this.session === undefined) {
             return;
         }
-        for (const id of [...this.selectedIds]) {
+        for (const id of ids) {
             await this.session.deletePrimitive(id);
+            this.selectedIds.delete(id);
         }
-        this.selectedIds.clear();
+        this.constraintPopover = undefined;
         this.renderSelection();
+        this.renderDimensions();
         this.emitChange();
     }
 
@@ -1250,6 +1360,11 @@ export class SketchModeController {
             return;
         }
         const arity = CONSTRAINT_ARITY[this.constraintInput.kind];
+        // A seeded value constraint (context menu) already owns its targets;
+        // stray canvas clicks must not push the count past the arity.
+        if (this.constraintInput.targetIds.length >= arity) {
+            return;
+        }
         const targetIds = [...this.constraintInput.targetIds, targetId];
         if (targetIds.length < arity) {
             this.constraintInput = { kind: this.constraintInput.kind, targetIds };
@@ -1416,9 +1531,13 @@ export class SketchModeController {
         this.renderCallback();
     }
 
-    private computeSnap(raw: Point2): SnapResult {
+    private computeSnap(raw: Point2, forceEnabled = false): SnapResult {
         const radius = pixelRadiusToModelUnits(this.getSnapRadiusPx(), this.getOrthoHeight(), this.container.clientHeight);
-        return snap(raw, this.session?.getPrimitives() ?? [], createSnapConfig({ enabled: this.isSnapEnabled(), radius, gridPitch: 1 }));
+        return snap(
+            raw,
+            this.session?.getPrimitives() ?? [],
+            createSnapConfig({ enabled: forceEnabled || this.isSnapEnabled(), radius, gridPitch: 1 })
+        );
     }
 
     private pointerToSketch(clientX: number, clientY: number): Point2 | undefined {
