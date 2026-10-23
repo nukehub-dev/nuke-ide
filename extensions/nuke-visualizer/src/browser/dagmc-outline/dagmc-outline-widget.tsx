@@ -476,6 +476,13 @@ export class DagmcOutlineWidget extends ReactWidget {
                     <i className={`${codicon('symbol-color')} dagmc-outline-row-icon`}></i>
                     <Tooltip content={`Material ${entry.name} (${entry.volumeCount} volumes)`} position="right">
                         <span className="dagmc-outline-row-label">
+                            {entry.color !== undefined && (
+                                <span
+                                    className="dagmc-outline-material-swatch"
+                                    style={{ backgroundColor: entry.color }}
+                                    aria-hidden="true"
+                                />
+                            )}
                             <span className="dagmc-outline-row-name">{entry.name}</span>
                             <span className="dagmc-outline-row-material dagmc-outline-count-badge">{entry.volumeCount}</span>
                         </span>
@@ -517,6 +524,13 @@ export class DagmcOutlineWidget extends ReactWidget {
                     <i className={`${codicon('folder')} dagmc-outline-row-icon`}></i>
                     <Tooltip content={`Group ${entry.name} (${entry.volumeCount} volumes)`} position="right">
                         <span className="dagmc-outline-row-label">
+                            {entry.color !== undefined && (
+                                <span
+                                    className="dagmc-outline-material-swatch"
+                                    style={{ backgroundColor: entry.color }}
+                                    aria-hidden="true"
+                                />
+                            )}
                             <span className="dagmc-outline-row-name">{entry.name}</span>
                             <span className="dagmc-outline-row-material dagmc-outline-count-badge">{entry.volumeCount}</span>
                         </span>

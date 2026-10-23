@@ -122,6 +122,18 @@ describe('NukeCadPreferenceSchema appearance presets', () => {
     });
 });
 
+describe('NukeCadPreferenceSchema color by material', () => {
+    it('defaults off so explicit appearance and the theme base are unchanged', () => {
+        const prop = NukeCadPreferenceSchema.properties['nukeCad.colorByMaterial'];
+        expect(prop.type).toBe('boolean');
+        expect(prop.default).toBe(false);
+    });
+
+    it('documents that explicit appearance colors win', () => {
+        expect(NukeCadPreferenceSchema.properties['nukeCad.colorByMaterial'].description).toContain('Explicit body appearance colors win');
+    });
+});
+
 describe('NukeCadPreferenceSchema origin axes', () => {
     it('shows all three world-origin axes by default', () => {
         for (const name of ['nukeCad.showOriginX', 'nukeCad.showOriginY', 'nukeCad.showOriginZ']) {

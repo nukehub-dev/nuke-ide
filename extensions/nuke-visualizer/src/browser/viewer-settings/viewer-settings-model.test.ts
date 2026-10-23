@@ -212,6 +212,57 @@ describe('viewer-settings-model display contract', () => {
         expect(snapshot.background).toBeUndefined();
         expect(snapshot.pointSize).toBeUndefined();
         expect(snapshot.lineWidth).toBeUndefined();
+        expect(snapshot.note).toBeUndefined();
+    });
+
+    it('carries an optional categorical-mode note', () => {
+        const snapshot: ViewerSettingsSnapshot = {
+            widgetId: 'dagmc-viewer-widget:/tmp/fuel_pin_volumes.vtm',
+            title: 'fuel_pin_volumes.vtm',
+            hasDataset: true,
+            colorBy: {
+                value: 'Material',
+                options: [
+                    { value: 'Solid Color', label: 'Solid Color' },
+                    { value: 'Material', label: 'Material' }
+                ]
+            },
+            note: 'Color by material'
+        };
+        expect(snapshot.note).toBe('Color by material');
+        expect(snapshot.colorBy?.value).toBe('Material');
+        expect(snapshot.scalarBar).toBeUndefined();
+        expect(snapshot.solidColor).toBeUndefined();
+    });
+
+    it('carries Volume and Group categorical-mode notes without a legend or solid color', () => {
+        const options = [
+            { value: 'Solid Color', label: 'Solid Color' },
+            { value: 'Material', label: 'Material' },
+            { value: 'Volume', label: 'Volume' },
+            { value: 'Group', label: 'Group' }
+        ];
+        const volume: ViewerSettingsSnapshot = {
+            widgetId: 'dagmc-viewer-widget:/tmp/fuel_pin_volumes.vtm',
+            title: 'fuel_pin_volumes.vtm',
+            hasDataset: true,
+            colorBy: { value: 'Volume', options },
+            note: 'Color by volume'
+        };
+        const group: ViewerSettingsSnapshot = {
+            widgetId: 'dagmc-viewer-widget:/tmp/fuel_pin_volumes.vtm',
+            title: 'fuel_pin_volumes.vtm',
+            hasDataset: true,
+            colorBy: { value: 'Group', options },
+            note: 'Color by group'
+        };
+        expect(volume.note).toBe('Color by volume');
+        expect(group.note).toBe('Color by group');
+        expect(group.colorBy?.options.map((entry) => entry.value)).toEqual(['Solid Color', 'Material', 'Volume', 'Group']);
+        expect(volume.scalarBar).toBeUndefined();
+        expect(group.scalarBar).toBeUndefined();
+        expect(volume.solidColor).toBeUndefined();
+        expect(group.solidColor).toBeUndefined();
     });
 });
 

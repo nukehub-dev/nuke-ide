@@ -7,7 +7,7 @@
 .viewer-settings-panel {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 6px;
     padding: 8px 12px;
     overflow-y: auto;
     height: 100%;
@@ -71,6 +71,12 @@
     font-style: italic;
 }
 
+/* Categorical color-mode note (DAGMC Material): muted status line under the
+   header; the shared .nuke-viewer-status-line owns the text treatment. */
+.viewer-settings-note {
+    color: var(--theia-descriptionForeground);
+}
+
 .viewer-settings-empty {
     display: flex;
     flex-direction: column;
@@ -95,22 +101,26 @@
     font-size: 11px;
 }
 
-/* Collapsible badge section (CAD TreeSection grammar). */
+/* Collapsible badge section (CAD TreeSection grammar). Headers share the
+   Model Outline treatment: 11 px uppercase, 0.3 px tracking, 7 px gap,
+   tight 2 px section spacing. */
 .viewer-settings-section {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 2px;
 }
 
 .viewer-settings-category-header {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 7px;
     font-size: 11px;
     font-weight: 600;
+    line-height: 16px;
     color: var(--theia-descriptionForeground);
     text-transform: uppercase;
-    letter-spacing: 0.5px;
+    letter-spacing: 0.3px;
+    white-space: nowrap;
     cursor: pointer;
     user-select: none;
     border-radius: 3px;
@@ -134,9 +144,11 @@
 }
 
 .viewer-settings-count-badge {
+    flex-shrink: 0;
     font-size: 10px;
     font-weight: 600;
-    padding: 0 6px;
+    line-height: 14px;
+    padding: 1px 6px;
     border-radius: 8px;
     background: var(--theia-badge-background);
     color: var(--theia-badge-foreground);
@@ -167,24 +179,32 @@
     display: flex;
     flex-direction: column;
     gap: 4px;
-    padding: 6px 8px;
+    padding: 4px 8px 6px;
     border: 1px solid var(--theia-panel-border);
 }
 
+/* Row grid: a non-shrinking label column (min 82 px, max-content) plus the
+   controls, which absorb the remaining width. At the 250 px default the
+   simple rows stay on one line ("Background", "Point size", "Line width",
+   "Opacity" never ellipsize); dense rows wrap their extra controls only
+   when the panel is too narrow. */
 .viewer-settings-row {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
-    gap: 8px;
+    gap: 4px 8px;
+    min-width: 0;
 }
 
 /* The shared Tooltip wraps row labels in an inline-flex span sized to the
-   content: stretch the label wrapper so labels hug the left and controls
-   the right. Scoped to label wrappers only — button Tooltips (clip tabs,
-   snap row, measure) keep their hug-the-button size. */
+   content: reserve the label column here so labels keep their full text
+   instead of clipping next to the controls. Scoped to label wrappers only —
+   button Tooltips (clip tabs, snap row, measure) keep their hug-the-button
+   size. */
 .viewer-settings-row > span:has(> .viewer-settings-row-label) {
-    flex: 1 1 auto !important;
-    min-width: 0 !important;
+    flex: 0 0 auto !important;
+    min-width: 82px !important;
     max-width: 100% !important;
 }
 
@@ -192,9 +212,6 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
     white-space: nowrap;
 }
 
@@ -214,6 +231,31 @@
 .viewer-settings-row input[type='range'] {
     flex: 1;
     min-width: 0;
+}
+
+/* Shared ColorPicker in a settings row: compact enough that the hex field
+   and chevron still fit beside the label column in a 250 px sidebar. */
+.viewer-settings-row .nuke-color-picker {
+    flex: 0 1 auto;
+    min-width: 0;
+}
+
+.viewer-settings-row .nuke-color-picker-trigger {
+    max-width: 100%;
+    padding: 2px 6px;
+    gap: 6px;
+}
+
+.viewer-settings-row .nuke-color-preview {
+    width: 16px;
+    height: 16px;
+}
+
+.viewer-settings-row .nuke-color-value {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 /* Tooltip-wrapped sliders: the wrapper hugs content by default, so stretch

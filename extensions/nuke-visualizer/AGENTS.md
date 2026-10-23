@@ -26,6 +26,8 @@ All files under `extensions/nuke-visualizer/` except generated artifacts (`lib/`
   (`native-vtk-data.ts`, 256 MB `NATIVE_VTK_MAX_READ_BYTES` budget — never bare `FileService.read`) and `parseNativeVtk`.
 - Shared viewer is `NativeVtkViewerWidget` (+ `widgets/native-vtk/`); color-by (`Solid Color|Point:|Cell:`) maps through
   `viewer-core/scalar-mapping.ts` (34-preset generated `colormaps.ts` — never hand-edit); see `docs/dev/output-viewers.md`.
+  DAGMC adds categorical `Material|Volume|Group` (`dagmc-color-by.ts` + shared `material-colors`): no scalar mapping or
+  legend, and Viewer Settings hides the colormap/Invert/Log/range/threshold/legend rows (`colormap.disabled`).
 - Output routing uses `src/browser/output-viewer/` (`output-viewer-registry.ts` + `output-file-patterns.ts`); register
   with `bind(OutputViewerContribution).to(...)`; see `docs/dev/output-viewers.md`.
 - DAGMC/STEP use `python/plugins/base/lib/dagmc.py` / `step.py` (`DagmcError`/`StepError`, `find_spec` probes, lazy
@@ -48,7 +50,8 @@ All files under `extensions/nuke-visualizer/` except generated artifacts (`lib/`
 - 3D navigation is `viewer-core/orbit-controls.ts` OrbitControls only (`ORBIT_DAMPING_FACTOR`,
   `fitBounds`/`setViewDirection`/`zoomBy`) — never hand-roll orbit math.
 - Side panels bind one active viewer each: Viewer Settings (`ViewerSettingsHost`), DAGMC Outline (`DagmcOutlineHost`),
-  CSG Outline (`CsgOutlineHost`) under `src/browser/<panel>/`.
+  CSG Outline (`CsgOutlineHost`) under `src/browser/<panel>/`. Settings rows reserve a nowrap 82 px label column with
+  plain-integer section badges; DAGMC Outline mirrors Model Outline headers/24 px rows (see `docs/dev/widget-patterns.md`).
 - `contributions/visualizer-tools-contribution.ts` exposes commands in the Nuke Tools sidebar under `Visualizer` and
   `Visualizer > OpenMC`; 3D chrome comes from `nuke-essentials` (`ViewCube`/`ViewerNavBar`/`ViewBadge`,
   `.nuke-viewer-status-line`) — never local gizmo/nav widgets.

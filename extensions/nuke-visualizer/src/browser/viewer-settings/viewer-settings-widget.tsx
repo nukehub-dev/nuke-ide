@@ -73,6 +73,10 @@ import './viewer-settings.css';
  * subtitle header, collapsible count-badge sections, per-row icons, live
  * status dots, Nuke tooltips throughout, never `title=`). Section collapse
  * is panel-local UI state only — it never touches the viewer contract.
+ * Scalar-only rows (colormap, Invert/Log, range, threshold, color legend)
+ * are omitted while the snapshot reports no scalar mapping
+ * (`colormap.disabled`: Solid Color or a DAGMC categorical mode), leaving
+ * the Color by row plus the snapshot note.
  */
 @injectable()
 export class ViewerSettingsWidget extends ReactWidget {
@@ -189,15 +193,15 @@ export class ViewerSettingsWidget extends ReactWidget {
 
     /**
      * CAD-style collapsible section: chevron + icon + uppercase label +
-     * count badge, with an optional live status dot (clip planes active,
-     * measure armed). Collapse is panel-local; the body keeps every
+     * integer count badge, with an optional live status dot (clip planes
+     * active, measure armed). Collapse is panel-local; the body keeps every
      * existing control hook unchanged.
      */
     protected renderSection(
         id: string,
         label: string,
         icon: string,
-        count: string,
+        count: number,
         dotOn: boolean | undefined,
         body: React.ReactNode
     ): React.ReactNode {
@@ -258,6 +262,9 @@ export class ViewerSettingsWidget extends ReactWidget {
         return (
             <div className="viewer-settings-panel">
                 {this.renderHeader(snapshot.title, snapshot.widgetId)}
+                {snapshot.hasDataset && snapshot.note !== undefined && (
+                    <div className="viewer-settings-note nuke-viewer-status-line">{snapshot.note}</div>
+                )}
                 {!snapshot.hasDataset ? (
                     <div className="viewer-settings-empty">
                         <p>No dataset loaded yet.</p>
@@ -279,13 +286,17 @@ export class ViewerSettingsWidget extends ReactWidget {
     }
 
     protected renderDisplaySection(host: ViewerSettingsHost, snapshot: ViewerSettingsSnapshot): React.ReactNode {
+        // One rule for every viewer: a disabled colormap means no scalar array
+        // is active (Solid Color or DAGMC Material/Volume/Group), so the
+        // mapping controls are omitted instead of shown as dead widgets.
+        const scalarMapping = snapshot.colormap !== undefined && !snapshot.colormap.disabled;
         const rows = [
             snapshot.colorBy && this.renderColorBy(host, snapshot),
-            snapshot.component && this.renderComponent(host, snapshot),
-            snapshot.colormap && this.renderColormap(host, snapshot),
-            snapshot.range && this.renderRange(host, snapshot),
-            snapshot.threshold && this.renderThreshold(host, snapshot),
-            snapshot.scalarBar && this.renderScalarBar(host, snapshot),
+            scalarMapping && snapshot.component && this.renderComponent(host, snapshot),
+            scalarMapping && snapshot.colormap && this.renderColormap(host, snapshot),
+            scalarMapping && snapshot.range && this.renderRange(host, snapshot),
+            scalarMapping && snapshot.threshold && this.renderThreshold(host, snapshot),
+            scalarMapping && snapshot.scalarBar && this.renderScalarBar(host, snapshot),
             snapshot.tallyVolume && this.renderTallyVolume(host, snapshot),
             snapshot.tallyVolume && this.renderTallyVolumeSmooth(host, snapshot),
             snapshot.warp && this.renderWarp(host, snapshot),
@@ -303,7 +314,7 @@ export class ViewerSettingsWidget extends ReactWidget {
         if (rows.length === 0) {
             return undefined;
         }
-        return this.renderSection('display', 'Display', 'symbol-color', `${rows.length}`, undefined, <>{rows}</>);
+        return this.renderSection('display', 'Display', 'symbol-color', rows.length, undefined, <>{rows}</>);
     }
 
     protected renderClipSection(host: ViewerSettingsHost, snapshot: ViewerSettingsSnapshot): React.ReactNode {
@@ -311,12 +322,11 @@ export class ViewerSettingsWidget extends ReactWidget {
         if (!clip) {
             return undefined;
         }
-        const enabledCount = CLIP_AXES.filter((axis) => clip.state[axis].enabled).length;
         return this.renderSection(
             'clip',
             'Clip',
             'layers',
-            `${enabledCount}/${CLIP_AXES.length}`,
+            CLIP_AXES.length,
             anyClipEnabled(clip.state),
             this.renderClipBody(host, snapshot)
         );
@@ -326,7 +336,7 @@ export class ViewerSettingsWidget extends ReactWidget {
         if (!snapshot.step) {
             return undefined;
         }
-        return this.renderSection('playback', 'Playback', 'play', '1', undefined, this.renderStep(host, snapshot));
+        return this.renderSection('playback', 'Playback', 'play', 1, undefined, this.renderStep(host, snapshot));
     }
 
     protected renderMeasureSection(host: ViewerSettingsHost, snapshot: ViewerSettingsSnapshot): React.ReactNode {
@@ -334,11 +344,11 @@ export class ViewerSettingsWidget extends ReactWidget {
         if (!measure) {
             return undefined;
         }
-        return this.renderSection('measure', 'Measure', 'ruler', '1', measure.active, this.renderMeasure(host, snapshot));
+        return this.renderSection('measure', 'Measure', 'ruler', 1, measure.active, this.renderMeasure(host, snapshot));
     }
 
     protected renderViewSection(host: ViewerSettingsHost): React.ReactNode {
-        return this.renderSection('view', 'View', 'screen-full', `${VIEWER_SNAP_ACTIONS.length}`, undefined, this.renderSnap(host));
+        return this.renderSection('view', 'View', 'screen-full', VIEWER_SNAP_ACTIONS.length, undefined, this.renderSnap(host));
     }
 
     protected renderColorBy(host: ViewerSettingsHost, snapshot: ViewerSettingsSnapshot): React.ReactNode {
@@ -1018,10 +1028,14 @@ export class ViewerSettingsWidget extends ReactWidget {
             return undefined;
         }
         const tab = clip.state[clip.tab];
+        const enabledCount = CLIP_AXES.filter((axis) => clip.state[axis].enabled).length;
         return (
             <div className="viewer-settings-group">
                 <div className="viewer-settings-row">
-                    <Tooltip content="Clip planes: enabled planes apply together (box-section view)" position="right">
+                    <Tooltip
+                        content={`Clip planes: ${enabledCount} of ${CLIP_AXES.length} enabled (enabled planes apply together as a box section)`}
+                        position="right"
+                    >
                         <span className="viewer-settings-row-label">Clip</span>
                     </Tooltip>
                     <NukeSwitch

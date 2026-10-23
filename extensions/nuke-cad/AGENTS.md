@@ -81,11 +81,15 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   display-only, no rebuild) use one cloned material per overridden body; selection keeps
   the shared highlight and xray wins opacity. `nukeCad.appearancePresets` is a user-level
   preset library (normalized in `body-appearance.ts`); multi-body apply commits once via
-  `setBodiesAppearance`. See `docs/dev/viewport-outline.md`.
-- Model Outline (read-only manifest + Document Settings/Properties/Table/Parameters/BOM/warnings-Fuse)
+  `setBodiesAppearance`. `nukeCad.colorByMaterial` adds material-tag palette colors beneath
+  explicit appearance colors (`resolveBodyDisplayAppearance`; shared `materialColor`). See
+  `docs/dev/viewport-outline.md`.
+- Model Outline (read-only manifest; Document units/precision/display + material legend,
+  Properties, Table, Parameters, BOM, warnings-Fuse)
   and Feature Tree (ordered bodies/datums/sketches/features/curves, suppression,
   reorder/delete guards, repair popover) with mask-based `codicon-nuke-cad-*` icons
-  and `nuke-cad-preferences.ts` (faceting/display/background/navigation/rebuild/cache/precision/origin axes/ribbon labels+pins).
+  and `nuke-cad-preferences.ts` (faceting/display/background/navigation/rebuild/cache/
+  precision/origin axes/ribbon labels+pins/appearance/material color).
   See `docs/dev/viewport-outline.md`.
 - Curves (`points`/`parametric`/`fourier` via `expression.ts` + units, closed-repeat
   convention, `curve_builder.py` wires), drawings (additive block, HLR

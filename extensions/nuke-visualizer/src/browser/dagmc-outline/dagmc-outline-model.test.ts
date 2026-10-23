@@ -26,8 +26,11 @@
 // *****************************************************************************
 
 import { describe, expect, it } from 'vitest';
+import { categoryColor, GRAVEYARD_MATERIAL_COLOR, materialColor } from 'nuke-essentials/lib/theme/browser/material-colors';
 import {
     DAGMC_OUTLINE_WIDGET_IDS,
+    createDagmcOutlineGroupEntry,
+    createDagmcOutlineMaterialEntry,
     dagmcOutlineVolumeMatches,
     describeDagmcOutlineCounts,
     formatDagmcOutlineVolumeLabel,
@@ -143,6 +146,29 @@ describe('dagmc-outline-model volume labels', () => {
     it('shows the human name once with no material repetition', () => {
         expect(formatDagmcOutlineVolumeLabel(1)).toBe('Volume 1');
         expect(formatDagmcOutlineVolumeLabel(22)).toBe('Volume 22');
+    });
+});
+
+describe('dagmc-outline-model material and group swatches', () => {
+    it('carries the deterministic material color on material rows', () => {
+        const fuel = createDagmcOutlineMaterialEntry('fuel', 2, true);
+        expect(fuel).toEqual({ name: 'fuel', volumeCount: 2, visible: true, color: materialColor('fuel') });
+        expect(createDagmcOutlineMaterialEntry('  FUEL ', 2, false).color).toBe(fuel.color);
+    });
+
+    it('mutes the graveyard material swatch', () => {
+        expect(createDagmcOutlineMaterialEntry('Graveyard', 1, false).color).toBe(GRAVEYARD_MATERIAL_COLOR);
+    });
+
+    it('carries the deterministic group color on group rows', () => {
+        const core = createDagmcOutlineGroupEntry('core', 3, true);
+        expect(core).toEqual({ name: 'core', volumeCount: 3, visible: true, color: categoryColor('group:core') });
+        expect(createDagmcOutlineGroupEntry('CORE', 3, false).color).toBe(core.color);
+    });
+
+    it('keys group colors separately from same-named materials', () => {
+        expect(createDagmcOutlineGroupEntry('fuel', 1, true).color).toBe(categoryColor('group:fuel'));
+        expect(createDagmcOutlineGroupEntry('fuel', 1, true).color).not.toBe(materialColor('fuel'));
     });
 });
 

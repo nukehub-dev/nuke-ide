@@ -171,6 +171,29 @@ Some features combine both patterns:
 
 ---
 
+## Sidebar Panel Contracts (Viewer Settings / DAGMC Outline)
+
+The two visualizer sidebars share the CAD Model Outline grammar and stay
+readable at the 250 px default width:
+
+- **Section headers** are 11 px uppercase, weight 600, 0.3 px letter-spacing,
+  7 px gap, with plain-integer count badges (`3`, never `03` or `0/3`).
+- **Settings rows** reserve a non-shrinking label column (`flex: 0 0 auto`,
+  `min-width: 82px`, `white-space: nowrap`) and let controls absorb the
+  remaining width. Never shrink or ellipsize a label so a control fits; dense
+  rows wrap extra controls only when the panel is too narrow.
+- **Categorical color modes** report no scalar mapping through
+  `ViewerSettingsSnapshot.colormap.disabled` (Solid Color and DAGMC
+  Material/Volume/Group). The panel must omit the colormap, Invert/Log, range,
+  threshold, and color-legend rows instead of rendering disabled controls,
+  leaving Color by plus the muted `note` line. `solidColor` renders only in
+  Solid Color.
+- **DAGMC Outline rows** are 24 px with the same header treatment; count
+  badges, material/group swatches, search, and visibility/isolate actions are
+  behavior, not chrome — keep them when restyling.
+
+---
+
 ## Decision Flowchart
 
 ```

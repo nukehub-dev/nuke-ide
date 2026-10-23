@@ -25,6 +25,7 @@
 // SPDX-License-Identifier: BSD-2-Clause
 // *****************************************************************************
 
+import { categoryColor, materialColor } from 'nuke-essentials/lib/theme/browser/material-colors';
 import type { DagmcModelInfo } from '../plugins/openmc/widgets/dagmc/dagmc-toggle-model';
 
 /**
@@ -65,6 +66,28 @@ export interface DagmcOutlineNamedEntry {
     readonly name: string;
     readonly volumeCount: number;
     readonly visible: boolean;
+    /**
+     * Deterministic swatch color for material and group rows (the same
+     * categorical color the viewer paints in Material or Group mode);
+     * unmapped entries leave it unset.
+     */
+    readonly color?: string;
+}
+
+/**
+ * Material row including its deterministic swatch color from the shared
+ * `materialColor` palette, so the outline and the canvas agree.
+ */
+export function createDagmcOutlineMaterialEntry(name: string, volumeCount: number, visible: boolean): DagmcOutlineNamedEntry {
+    return { name, volumeCount, visible, color: materialColor(name) };
+}
+
+/**
+ * Group row including its deterministic swatch color from the shared
+ * `categoryColor` palette (`group:<name>`, the same key Group mode paints).
+ */
+export function createDagmcOutlineGroupEntry(name: string, volumeCount: number, visible: boolean): DagmcOutlineNamedEntry {
+    return { name, volumeCount, visible, color: categoryColor(`group:${name}`) };
 }
 
 /**

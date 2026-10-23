@@ -168,6 +168,11 @@ export const NukeCadPreferenceSchema: PreferenceSchema = {
                 'User-level appearance presets for the body Appearance dialog (color and opacity). ' +
                 'Names are trimmed and deduplicated in app code; applying a preset only fills the dialog draft.'
         },
+        'nukeCad.colorByMaterial': {
+            type: 'boolean',
+            default: false,
+            description: 'Color bodies by their material tag using the shared material palette. Explicit body appearance colors win.'
+        },
         'nukeCad.showOriginX': {
             type: 'boolean',
             default: true,
@@ -214,6 +219,8 @@ export interface NukeCadConfiguration {
     'nukeCad.ribbonPins': string[];
     /** User-level appearance presets (trimmed unique names; preference-scoped, never document data). */
     'nukeCad.appearancePresets': AppearancePreset[];
+    /** Color bodies by their material tag; explicit body appearance colors still win. */
+    'nukeCad.colorByMaterial': boolean;
     /** Show the world-origin X axis in the CAD viewport. */
     'nukeCad.showOriginX': boolean;
     /** Show the world-origin Y axis in the CAD viewport. */

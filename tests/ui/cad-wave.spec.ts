@@ -157,7 +157,7 @@ test('named views save, restore, and delete from the outline', async ({ page }) 
     expect(bad, `unexpected severe errors:\n${bad.join('\n')}`).toEqual([]);
 });
 
-test('document settings summarize metadata and set units', async ({ page }) => {
+test('document section summarizes metadata and sets units', async ({ page }) => {
     const errors = collectErrors(page);
     await page.goto('/');
     await waitForWorkbench(page);
@@ -165,7 +165,11 @@ test('document settings summarize metadata and set units', async ({ page }) => {
     const { viewport, outline } = await openCadDocument(page);
     const section = outline.locator('.document-settings-section');
     await expect(section).toBeVisible({ timeout: 30_000 });
-    await expect(section.locator('.category-header')).toContainText('Document Settings');
+    const header = section.locator('.category-header');
+    // The short "Document" label stays on one line at the default 200 px panel
+    // width; the full "Document settings" wording lives in the title tooltip.
+    await expect(header).toHaveText('Document');
+    await expect(header).toHaveAttribute('title', 'Document settings');
 
     const row = (label: string) => section.locator('.document-settings-row', { hasText: label });
     await expect(row('Name').locator('.document-settings-value')).toHaveText('pincell');
@@ -197,7 +201,44 @@ test('document settings summarize metadata and set units', async ({ page }) => {
     await expect(lengthPrecision).toHaveValue('2');
     await expect(outlineUnits).toHaveText('mm');
 
+    // Display-only preferences live under a DISPLAY subhead. The Color by
+    // material row is full-width with a 4 px box inset so it shares the label
+    // column instead of floating between Precision and Parameters.
+    const subheads = section.locator('.document-settings-subhead');
+    await expect(subheads).toHaveCount(2);
+    await expect(subheads.nth(0)).toHaveText('Display');
+    await expect(subheads.nth(1)).toHaveText('Design Properties');
+
+    // NukeCheckbox hides its native input under a painted box, so toggle
+    // through the label and assert the input's checked state.
+    const colorRow = section.locator('.document-settings-color-row');
+    const colorCheckbox = colorRow.locator('label.nuke-checkbox');
+    const colorInput = colorRow.locator('input[type="checkbox"]');
+    await expect(colorCheckbox).toContainText('Color by material');
+    await expect(colorInput).not.toBeChecked();
+    // No legend while the toggle is off.
+    await expect(section.locator('.document-settings-material-legend')).toHaveCount(0);
+
+    const colorRowBox = await colorRow.boundingBox();
+    const colorCheckboxBox = await colorCheckbox.boundingBox();
+    if (!colorRowBox || !colorCheckboxBox) {
+        throw new Error('color-by-material row needs a laid-out checkbox');
+    }
+    expect(colorCheckboxBox.x - colorRowBox.x).toBeLessThanOrEqual(6);
+
+    await colorCheckbox.click();
+    await expect(colorInput).toBeChecked();
+    // The pincell fixture tags no bodies: the legend explains the empty state
+    // rather than disappearing silently while the toggle is on.
+    const legend = section.locator('.document-settings-material-legend');
+    await expect(legend).toBeVisible();
+    await expect(legend).toContainText('No material tags yet');
+
     await outline.screenshot({ path: 'test-results/cad-document-settings.png' });
+
+    await colorCheckbox.click();
+    await expect(colorInput).not.toBeChecked();
+    await expect(section.locator('.document-settings-material-legend')).toHaveCount(0);
 
     const bad = severe(errors);
     expect(bad, `unexpected severe errors:\n${bad.join('\n')}`).toEqual([]);
@@ -219,6 +260,16 @@ test('origin axes section toggles per-axis visibility', async ({ page }) => {
         await expect(rows.nth(index).locator('.origin-axis-label')).toHaveText(label);
     }
 
+    // Axis letters mirror the viewport triad colors, the dot grew to 10 px,
+    // and every row keeps the shared 24 px grid.
+    const axisColors = ['rgb(224, 82, 82)', 'rgb(76, 175, 80)', 'rgb(59, 130, 246)'];
+    for (const [index, color] of axisColors.entries()) {
+        const row = rows.nth(index);
+        await expect(row).toHaveCSS('height', '24px');
+        await expect(row.locator('.origin-axis-label')).toHaveCSS('color', color);
+        await expect(row.locator('.origin-axis-dot')).toHaveCSS('width', '10px');
+    }
+
     // Each eye toggle reflects its axis preference. X starts visible (schema
     // default) and flips through the same user-scoped preference the viewport
     // subscribes to.
@@ -236,6 +287,7 @@ test('origin axes section toggles per-axis visibility', async ({ page }) => {
     await expect(xToggle).toHaveAttribute('aria-pressed', 'true');
     await expect(xToggle).toHaveAttribute('aria-label', 'Hide X axis');
     await expect(viewport.locator('.cad-viewport-error-banner')).toBeHidden();
+    await outline.screenshot({ path: 'test-results/cad-origin-section.png' });
     await viewport.screenshot({ path: 'test-results/cad-origin-axes.png' });
 
     const bad = severe(errors);

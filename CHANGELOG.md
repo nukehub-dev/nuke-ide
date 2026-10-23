@@ -12,8 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - build: optional extensions selectable at build time via `NUKE_EXTENSIONS` allow-list / `NUKE_EXCLUDE_EXTENSIONS` deny-list.
 - nuke-cad: disabled toolbar and command-search actions now explain why they cannot run, in the tooltip, section menu, and search row.
 - nuke-cad: Fillet and Chamfer offer an opt-in Tangent chain pick that expands one edge click to every tangent-connected edge on the same solid.
-- nuke-cad: Document Settings section in the Model Outline shows units (editable), parameter count, name, source, body count, and schema version.
-- nuke-cad: Document Settings precision sets maximum decimals for length and angle readouts across measurement labels and model properties.
+- nuke-cad: Document section in the Model Outline shows units (editable), parameter count, name, source, body count, and schema version.
+- nuke-cad: Document section precision sets maximum decimals for length and angle readouts across measurement labels and model properties.
+- nuke-cad: Model Outline Document section gains a Display group with a material legend, compact headers, and axis-colored Origin labels.
 - nuke-cad: New Sketch opens a Create Sketch task panel with the ribbon in place; empty documents offer Create Sketch/Open Model and the Model Outline shows the body count.
 - nuke-cad: command search in the document toolbar (button or `/`) filters and runs any ribbon action, including caret-menu-only entries.
 - nuke-cad: ribbon section menus pin any command inline (persisted in `nukeCad.ribbonPins`) and `nukeCad.ribbonLabels` hides tile labels for compact icon buttons.
@@ -32,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-cad: mesh repair ops for DAGMC prep (duplicate facets, hole fill, Laplacian smooth, decimate) with per-op counts in the report.
 - nuke-cad: pinnable 3D measurements persist in the document, survive rebuilds, and ride undo/redo.
 - nuke-cad: per-body Appearance dialog sets display-only color and opacity overrides that persist in the document and never rebuild geometry.
+- nuke-cad: Color by material colors bodies from their material tags with the shared palette; explicit appearance colors still win.
 - nuke-cad: Appearance dialog adds user presets (save/apply/delete) and applies an appearance to every body in a multi-body selection.
 - nuke-cad: saved named views capture the current camera, restore from the Model Outline, and persist with the document.
 - nuke-cad: world-origin axis triad in the viewport with per-axis X/Y/Z eye toggles in a Model Outline Origin section.
@@ -154,6 +156,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-visualizer: weight-windows viewer mesh selector for multi-mesh files.
 - nuke-visualizer: shared HDF5 output readers and viewers for tracks, collision-track, and weight-windows files.
 - nuke-visualizer: IFP kinetics tab (kinetics parameters with uncertainties, CSV export) plus restart-preview and random-ray viewers.
+- nuke-visualizer: DAGMC Viewer Settings offers Color by Material with deterministic per-material colors and matching outline swatches.
+- nuke-visualizer: DAGMC color-by adds deterministic Volume and Group modes with matching outline swatches.
 - openmc-studio: DAGMC Editor routes picked CAD files to import instead of landing on an empty model.
 - openmc-studio: void cells emit standard `material="void"` so this OpenMC accepts them.
 - openmc-studio: Simulation Dashboard re-attaches to in-flight runs after reload with live progress and log streaming.
@@ -217,6 +221,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-essentials: Save Workspace As defaults to the new `*.nuke-workspace` format (old formats still open).
 - nuke-visualizer: two-button viewer headers removed; Screenshot/Reload live on the canvas bottom bar.
 - nuke-visualizer: Viewer Settings and DAGMC Outline sidebars restyled to match the CAD panels with no behavior change.
+- nuke-visualizer: Viewer Settings rows keep full labels in narrow sidebars, section badges are plain integers, and categorical color modes hide scalar-only controls; DAGMC Outline mirrors the CAD header and 24 px row treatment.
 
 ### Removed
 

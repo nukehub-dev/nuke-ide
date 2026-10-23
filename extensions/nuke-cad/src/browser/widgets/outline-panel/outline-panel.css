@@ -100,17 +100,21 @@
     padding: 12px;
 }
 
-/* Collapsible group headers with row-count badges */
+/* Collapsible group headers with row-count badges. One treatment for every
+   section: 11 px uppercase label, tight 2 px bottom margin, and nowrap label
+   text that never gets squeezed by count badges or header actions. */
 .cad-outline-panel .category-header {
     display: flex;
     align-items: center;
-    gap: 8px;
-    margin-bottom: 4px;
-    font-size: 12px;
+    gap: 7px;
+    margin-bottom: 2px;
+    font-size: 11px;
     font-weight: 600;
+    line-height: 16px;
     color: var(--theia-descriptionForeground);
     text-transform: uppercase;
-    letter-spacing: 0.5px;
+    letter-spacing: 0.3px;
+    white-space: nowrap;
     cursor: pointer;
     user-select: none;
 }
@@ -119,6 +123,15 @@
     color: var(--theia-focusBorder);
     display: inline-flex;
     align-items: center;
+    flex-shrink: 0;
+}
+
+.cad-outline-panel .category-header .category-header-label {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .cad-outline-panel .category-header:hover {
@@ -126,6 +139,7 @@
 }
 
 .cad-outline-panel .category-header .count-badge {
+    flex-shrink: 0;
     color: var(--theia-badge-foreground);
     background: var(--theia-badge-background);
     font-size: 10px;
@@ -137,7 +151,7 @@
 }
 
 .outline-section {
-    margin-bottom: 16px;
+    margin-bottom: 10px;
 }
 
 .outline-rows {
@@ -345,7 +359,7 @@
 
 /* V7: read-only properties of the selected (or pinned) solid */
 .properties-section {
-    margin-bottom: 16px;
+    margin-bottom: 10px;
 }
 
 .cad-outline-panel .properties-header {
@@ -354,6 +368,7 @@
 
 .pin-button {
     margin-left: auto;
+    flex-shrink: 0;
     background: transparent;
     border: none;
     padding: 1px 4px;
@@ -398,16 +413,7 @@
     color: var(--theia-descriptionForeground);
 }
 
-/* Document Settings: compact document metadata above the Named Views section. */
-/* Long section titles ("Document Settings", "Named Views") must stay on one
-   line in the default 200 px outline panel. */
-.document-settings-section .category-header,
-.named-views-section .category-header {
-    gap: 6px;
-    font-size: 11px;
-    letter-spacing: 0.3px;
-}
-
+/* Document: compact document metadata above Named Views. */
 .document-settings-grid {
     display: flex;
     flex-direction: column;
@@ -436,19 +442,66 @@
 }
 
 .document-settings-subhead {
-    margin-top: 6px;
-    padding: 2px 0;
+    margin: 8px 0 2px;
+    padding: 0;
     font-size: 11px;
     font-weight: 600;
+    line-height: 14px;
     color: var(--theia-descriptionForeground);
     text-transform: uppercase;
-    letter-spacing: 0.5px;
+    letter-spacing: 0.3px;
 }
 
 .document-settings-units {
     width: 120px;
     max-width: 100%;
     justify-self: start;
+}
+
+/* Full-width display row: the checkbox box keeps a 4 px inset so it lines up
+   with the label column instead of floating in the value column (which is too
+   narrow for the label at the default 200 px panel width). */
+.document-settings-row.document-settings-color-row {
+    grid-template-columns: minmax(0, 1fr);
+    padding-left: 4px;
+}
+
+.document-settings-color-by-material {
+    color: var(--theia-foreground);
+    white-space: nowrap;
+}
+
+/* Material legend behind the Color by material toggle: one muted 10 px swatch
+   + tag per distinct body material (max MATERIAL_LEGEND_LIMIT rows). */
+.document-settings-material-legend {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    margin: 1px 0 2px;
+    padding: 1px 0 1px 6px;
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+}
+
+.document-settings-material-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 18px;
+}
+
+.document-settings-material-swatch {
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    flex-shrink: 0;
+}
+
+.document-settings-material-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 /* Two compact 0–6 precision fields sharing the 24 px document-settings row. */
@@ -498,11 +551,12 @@
     border-color: var(--theia-focusBorder);
 }
 
-/* Origin: three 24 px world-axis rows with colored dots and eye toggles. */
+/* Origin: three 24 px world-axis rows with axis-colored labels, 10 px dots,
+   and eye toggles aligned with the outline row actions. */
 .origin-axis-rows {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 0;
     padding: 2px 8px 4px;
 }
 
@@ -524,8 +578,8 @@
 }
 
 .origin-axis-dot {
-    width: 8px;
-    height: 8px;
+    width: 10px;
+    height: 10px;
     border-radius: 50%;
     flex-shrink: 0;
 }
@@ -548,6 +602,19 @@
     font-size: 13px;
 }
 
+/* Axis letter colors mirror the viewport triad (cad-viewport-widget.tsx). */
+.origin-axis-label-x {
+    color: #e05252;
+}
+
+.origin-axis-label-y {
+    color: #4caf50;
+}
+
+.origin-axis-label-z {
+    color: #3b82f6;
+}
+
 .origin-axis-toggle {
     min-width: 0;
     margin-left: auto;
@@ -555,6 +622,7 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    flex-shrink: 0;
     font-size: 11px;
     line-height: 1;
 }
@@ -796,6 +864,7 @@
 .named-views-section .named-view-add {
     min-width: 0;
     margin-left: auto;
+    flex-shrink: 0;
     padding: 1px 4px;
     display: inline-flex;
     align-items: center;

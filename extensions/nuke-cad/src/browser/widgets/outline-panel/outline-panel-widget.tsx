@@ -86,8 +86,10 @@ import {
 } from './solid-summaries';
 import { buildFuseFeature, groupDiagnostics, selectionSolidIds, toggleSolidSelection } from './outline-interactions';
 import { buildBomCsvRows, compareParamRows, describeParamUsage, formatBomCsv, type ParamSortKey } from './param-table';
-import { NukeSelect } from 'nuke-essentials/lib/theme/browser/components';
+import { NukeCheckbox, NukeSelect } from 'nuke-essentials/lib/theme/browser/components';
 import { Tooltip, useTooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
+import { materialColor } from 'nuke-essentials/lib/theme/browser/material-colors';
+import { collectMaterialTags, MATERIAL_LEGEND_LIMIT } from './outline-materials';
 import './outline-panel.css';
 
 /** World-origin axes with user-scoped display preferences. */
@@ -176,12 +178,14 @@ export class CadOutlinePanelWidget extends ReactWidget {
         );
         // Display precision only changes rendered text: re-render the outline,
         // no document mutation or rebuild is involved. Origin-axis visibility
-        // is the same kind of rendering-only user preference.
+        // and material coloring are the same kind of rendering-only user
+        // preference.
         this.toDispose.push(
             this.preferenceService.onPreferenceChanged((event) => {
                 if (
                     event.preferenceName === 'nukeCad.lengthDecimals' ||
                     event.preferenceName === 'nukeCad.angleDecimals' ||
+                    event.preferenceName === 'nukeCad.colorByMaterial' ||
                     event.preferenceName === 'nukeCad.showOriginX' ||
                     event.preferenceName === 'nukeCad.showOriginY' ||
                     event.preferenceName === 'nukeCad.showOriginZ'
@@ -301,11 +305,13 @@ export class CadOutlinePanelWidget extends ReactWidget {
                 onSetUnits={(units) => this.handleSetUnits(units)}
                 lengthDecimals={this.readDisplayDecimals('nukeCad.lengthDecimals', 2)}
                 angleDecimals={this.readDisplayDecimals('nukeCad.angleDecimals', 1)}
+                colorByMaterial={this.readColorByMaterial()}
                 showOriginX={this.readOriginAxisVisible('x')}
                 showOriginY={this.readOriginAxisVisible('y')}
                 showOriginZ={this.readOriginAxisVisible('z')}
                 onSetLengthDecimals={(decimals) => this.handleSetLengthDecimals(decimals)}
                 onSetAngleDecimals={(decimals) => this.handleSetAngleDecimals(decimals)}
+                onSetColorByMaterial={(enabled) => this.handleSetColorByMaterial(enabled)}
                 onToggleOriginAxis={(axis) => this.handleToggleOriginAxis(axis)}
                 onExportBomCsv={() => void this.handleExportBomCsv()}
                 onSaveNamedView={() => void this.commandService.executeCommand(NukeCadCommands.SAVE_NAMED_VIEW.id)}
@@ -356,7 +362,7 @@ export class CadOutlinePanelWidget extends ReactWidget {
     }
 
     /**
-     * Declared document units from the outline's Document Settings section.
+     * Declared document units from the outline's Document section.
      * The store owns the mutation semantics (tagging only, never rescaling)
      * and rebuild scheduling; the outline only surfaces failures.
      */
@@ -386,6 +392,19 @@ export class CadOutlinePanelWidget extends ReactWidget {
 
     private readDisplayDecimals(name: 'nukeCad.lengthDecimals' | 'nukeCad.angleDecimals', fallback: number): number {
         return clampDecimals(this.preferenceService.get<number>(name, fallback));
+    }
+
+    /**
+     * Material coloring is a display-only user preference: the viewport
+     * subscribes to the same key and re-derives its per-body materials, so the
+     * outline only writes the preference and re-renders the checked state.
+     */
+    protected handleSetColorByMaterial(enabled: boolean): void {
+        void this.preferenceService.set('nukeCad.colorByMaterial', enabled, PreferenceScope.User);
+    }
+
+    private readColorByMaterial(): boolean {
+        return this.preferenceService.get<boolean>('nukeCad.colorByMaterial', false);
     }
 
     /**
@@ -548,13 +567,16 @@ interface CadOutlinePanelComponentProps {
     readonly onAddParameter: (name: string, text: string) => { success: boolean; error?: string };
     readonly onSetParameter: (name: string, text: string) => { success: boolean; error?: string };
     readonly onRemoveParameter: (name: string) => { success: boolean; error?: string };
-    /** Declared document units from the Document Settings section (`undefined` clears to unitless). */
+    /** Declared document units from the Document section (`undefined` clears to unitless). */
     readonly onSetUnits: (units: DocumentUnits | undefined) => void;
     /** Display precision for property readouts (maximum decimal places). */
     readonly lengthDecimals: number;
     readonly angleDecimals: number;
     readonly onSetLengthDecimals: (decimals: number) => void;
     readonly onSetAngleDecimals: (decimals: number) => void;
+    /** Color bodies from their material tags (display-only user preference). */
+    readonly colorByMaterial: boolean;
+    readonly onSetColorByMaterial: (enabled: boolean) => void;
     /** World-origin axis visibility (display-only user preferences). */
     readonly showOriginX: boolean;
     readonly showOriginY: boolean;
@@ -829,6 +851,8 @@ function CadOutlinePanelComponent(props: CadOutlinePanelComponentProps): React.R
                             angleDecimals={props.angleDecimals}
                             onSetLengthDecimals={props.onSetLengthDecimals}
                             onSetAngleDecimals={props.onSetAngleDecimals}
+                            colorByMaterial={props.colorByMaterial}
+                            onSetColorByMaterial={props.onSetColorByMaterial}
                         />
                     )}
 
@@ -956,7 +980,7 @@ function PropertiesSection(props: PropertiesSectionProps): React.ReactElement {
         <div className="outline-section properties-section">
             <div className="category-header properties-header">
                 <i className="codicon codicon-info" />
-                <span>Properties</span>
+                <span className="category-header-label">Properties</span>
                 <Tooltip
                     content={
                         props.pinned
@@ -996,7 +1020,7 @@ function PropertiesSection(props: PropertiesSectionProps): React.ReactElement {
                 <span className="prop-label">Triangles</span>
                 <span className="prop-value">{summary.triangleCount}</span>
             </div>
-            <p className="properties-units-hint">Quantities use SI prefixes in model units at the Document Settings precision.</p>
+            <p className="properties-units-hint">Quantities use SI prefixes in model units at the Document section precision.</p>
         </div>
     );
 }
@@ -1018,6 +1042,9 @@ interface DocumentSettingsSectionProps {
     readonly angleDecimals: number;
     readonly onSetLengthDecimals: (decimals: number) => void;
     readonly onSetAngleDecimals: (decimals: number) => void;
+    /** Color bodies from their material tags; explicit appearance colors still win. */
+    readonly colorByMaterial: boolean;
+    readonly onSetColorByMaterial: (enabled: boolean) => void;
 }
 
 interface PrecisionInputProps {
@@ -1057,19 +1084,26 @@ function PrecisionInput(props: PrecisionInputProps): React.ReactElement {
  * Compact, collapsible document summary above Named Views: declared units
  * (through the same `CadDocumentStore.setUnits` path as the toolbar), display
  * precision preferences, the parameter count, and read-only design properties.
- * Editing parameters/name/source stays in their dedicated sections.
+ * A Display subhead groups the Color by material toggle and its material
+ * legend. Editing parameters/name/source stays in their dedicated sections.
  */
 function DocumentSettingsSection(props: DocumentSettingsSectionProps): React.ReactElement {
     const [collapsed, setCollapsed] = React.useState(false);
     const document = props.document;
     const source = props.source ?? 'In-memory document';
+    // Distinct body material tags behind the display-only color toggle. The
+    // legend keeps one row per material (first spelling wins) and caps at
+    // MATERIAL_LEGEND_LIMIT so a heavily tagged document cannot push the
+    // document facts off screen.
+    const materialTags = React.useMemo(() => collectMaterialTags(document.bodies), [document.bodies]);
+    const legendTags = materialTags.slice(0, MATERIAL_LEGEND_LIMIT);
 
     return (
         <div className="outline-section document-settings-section">
-            <div className="category-header" onClick={() => setCollapsed(!collapsed)}>
+            <div className="category-header" title="Document settings" onClick={() => setCollapsed(!collapsed)}>
                 <i className={`codicon codicon-chevron-${collapsed ? 'right' : 'down'}`} />
                 <i className="codicon codicon-settings-gear" />
-                <span>Document Settings</span>
+                <span className="category-header-label">Document</span>
             </div>
             {!collapsed && (
                 <div className="document-settings-grid">
@@ -1109,6 +1143,36 @@ function DocumentSettingsSection(props: DocumentSettingsSectionProps): React.Rea
                         <span className="document-settings-label">Parameters</span>
                         <span className="document-settings-value">{Object.keys(document.parameters).length}</span>
                     </div>
+                    <div className="document-settings-subhead">Display</div>
+                    <div className="document-settings-row document-settings-color-row">
+                        <NukeCheckbox
+                            className="document-settings-color-by-material"
+                            checked={props.colorByMaterial}
+                            ariaLabel="Color by material"
+                            onChange={props.onSetColorByMaterial}
+                        >
+                            <Tooltip content="Color bodies by their material tag; explicit appearance colors win">
+                                <span>Color by material</span>
+                            </Tooltip>
+                        </NukeCheckbox>
+                    </div>
+                    {props.colorByMaterial && (
+                        <div className="document-settings-material-legend" title={materialTags.join(', ') || undefined}>
+                            {legendTags.length === 0 ? (
+                                <span className="document-settings-material-empty">No material tags yet</span>
+                            ) : (
+                                legendTags.map((tag) => (
+                                    <div key={tag.toLowerCase()} className="document-settings-material-row">
+                                        <span
+                                            className="document-settings-material-swatch"
+                                            style={{ backgroundColor: materialColor(tag) }}
+                                        />
+                                        <span className="document-settings-material-name">{tag}</span>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    )}
                     <div className="document-settings-subhead">Design Properties</div>
                     <div className="document-settings-row">
                         <span className="document-settings-label">Name</span>
@@ -1163,7 +1227,7 @@ function OriginSection(props: OriginSectionProps): React.ReactElement {
             <div className="category-header" onClick={() => setCollapsed(!collapsed)}>
                 <i className={`codicon codicon-chevron-${collapsed ? 'right' : 'down'}`} />
                 <i className="codicon codicon-nuke-cad-datum" />
-                <span>Origin</span>
+                <span className="category-header-label">Origin</span>
             </div>
             {!collapsed && (
                 <div className="origin-axis-rows">
@@ -1173,7 +1237,7 @@ function OriginSection(props: OriginSectionProps): React.ReactElement {
                         return (
                             <div key={axis} className={`origin-axis-row${shown ? '' : ' hidden'}`}>
                                 <span className={`origin-axis-dot origin-axis-dot-${axis}`} />
-                                <span className="origin-axis-label">{label}</span>
+                                <span className={`origin-axis-label origin-axis-label-${axis}`}>{label}</span>
                                 <Tooltip content={`${action} ${label} axis`} position="left">
                                     <button
                                         className="theia-button secondary origin-axis-toggle"
@@ -1214,7 +1278,7 @@ function NamedViewsSection(props: NamedViewsSectionProps): React.ReactElement {
             <div className="category-header" onClick={() => setCollapsed(!collapsed)}>
                 <i className={`codicon codicon-chevron-${collapsed ? 'right' : 'down'}`} />
                 <i className="codicon codicon-device-camera" />
-                <span>Named Views</span>
+                <span className="category-header-label">Named Views</span>
                 <Tooltip content="Save the current camera as a named view" position="left">
                     <button
                         className="theia-button secondary named-view-add"
@@ -1369,7 +1433,7 @@ function ParametersSection(props: ParametersSectionProps): React.ReactElement {
             <div className="category-header" onClick={() => setCollapsed(!collapsed)}>
                 <i className={`codicon codicon-chevron-${collapsed ? 'right' : 'down'}`} />
                 <i className="codicon codicon-symbol-variable" />
-                <span>Parameters</span>
+                <span className="category-header-label">Parameters</span>
                 <span className="count-badge">{usages.length}</span>
             </div>
             {!collapsed && (
@@ -1546,7 +1610,7 @@ function OutlineSection(props: OutlineSectionProps): React.ReactElement {
         <div className="outline-section">
             <div className="category-header" onClick={props.onToggle}>
                 <i className={`codicon codicon-chevron-${props.collapsed ? 'right' : 'down'}`} />
-                <span>{props.title}</span>
+                <span className="category-header-label">{props.title}</span>
                 <span className="count-badge">{props.count}</span>
             </div>
             {!props.collapsed && <div className="outline-rows">{props.children}</div>}
@@ -1576,7 +1640,7 @@ function AssembliesSection(props: AssembliesSectionProps): React.ReactElement {
         <div className="outline-section">
             <div className="category-header" onClick={() => setCollapsed(!collapsed)}>
                 <i className={`codicon codicon-chevron-${collapsed ? 'right' : 'down'}`} />
-                <span>Assemblies</span>
+                <span className="category-header-label">Assemblies</span>
                 <span className="count-badge">{props.assembly.instances.length}</span>
             </div>
             {!collapsed && (

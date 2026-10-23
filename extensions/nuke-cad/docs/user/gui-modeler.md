@@ -104,8 +104,8 @@ it opens it in the CAD viewport by default.
   any other edit, and never affect builds, exports, or the exported script.
   Unpinning keeps the row on screen as an ephemeral measurement; deleting a
   pinned row removes the saved copy too. Label and popover values follow the
-  Document Settings **Precision** row (default 2 length / 1 angle decimal
-  place, trimmed).
+  Model Outline's **Document** section **Precision** row (default 2 length /
+  1 angle decimal place, trimmed).
 - **Section plane** (bottom bar): slices the model open along an X,
   Y, or Z plane. A popover offers axis buttons, **Flip**, and a slider that
   slides the plane across the model's bounding box. Sectioning is visual
@@ -436,6 +436,16 @@ undo/redo); **Remove override** returns the body to the theme-adaptive default;
 Export Python. Selection highlighting still uses the shared focus color; in
 X-ray mode the ghost opacity wins over the per-body value, and shaded-wireframe
 / edges-only modes keep bodies fully opaque.
+
+When **Color by material** is on (the **Display** group in the Model Outline's
+**Document** section, or the `nukeCad.colorByMaterial` setting), bodies without
+an explicit appearance color take the deterministic palette color of their
+material tag — the same color the native DAGMC viewer uses for that material,
+including the muted grey graveyard swatch. The same group shows a compact
+material legend (one swatch + tag per distinct body material). An explicit
+appearance color always wins, and appearance opacity stays independent of the
+material color. The switch is display-only: it never changes the document,
+builds, or exports.
 
 ## Features
 
@@ -849,11 +859,12 @@ draft/shell faces, and hole placement faces) are emitted as clearly marked
 `# TODO(manual):` comments so nothing is silently dropped. The export is not
 round-trippable; it is intended as readable output for downstream editing.
 
-## Document settings
+## Document section
 
-The top of the **Model Outline** carries a collapsible **Document Settings**
-section for `.nuke-cad` documents. It summarizes the open document and is
-read-only apart from the units and display-precision choices:
+The top of the **Model Outline** carries a collapsible **Document** section for
+`.nuke-cad` documents (the gear header's hover title still reads "Document
+settings"). It summarizes the open document and is read-only apart from the
+units, display-precision, and display-only coloring choices:
 
 - **Units** — the same `Unitless`/`mm`/`cm`/`m` choice as the document
   toolbar. Declared units tag future numeric inputs only; changing them never
@@ -867,6 +878,17 @@ read-only apart from the units and display-precision choices:
   `nukeCad.lengthDecimals` / `nukeCad.angleDecimals` settings.
 - **Parameters** — the number of document parameters. Edit them in the
   [Parameters spreadsheet](#parameters-spreadsheet) below.
+- **Display** — a `DISPLAY` subhead for the display-only material coloring.
+  **Color by material** colors each body from its material tag with the shared
+  deterministic palette (the same swatch the native viewers use for DAGMC
+  color-by). Untagged bodies keep the theme body color, and an explicit
+  per-body appearance color still wins. The switch is display-only: no
+  rebuild, no document or export change. The same setting is
+  `nukeCad.colorByMaterial` (off by default). While the switch is on, a
+  compact **material legend** lists each distinct body material (up to eight,
+  case-insensitive duplicates collapsed to the first spelling) with its
+  viewport swatch; with no tagged body it reads **No material tags yet**. The
+  legend is hidden while the switch is off.
 - **Design Properties** — the document **Name**, its **Source** (the model
   file, or `In-memory document` when unsaved), the **Bodies** count, and the
   **Schema** version.

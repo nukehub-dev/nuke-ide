@@ -141,6 +141,18 @@ test('viewer settings sidebar shows values and drives shading', async ({ page })
     // CAD panel chrome: collapsible count-badge sections with live status dots.
     await expect(settings.locator('.viewer-settings-category-header').first()).toBeVisible();
     await expect(settings.locator('.viewer-settings-state-dot').first()).toBeVisible();
+    // Row-layout regression: the label column keeps its full text at the
+    // 250 px sidebar width (never "Opacit…") and section badges are plain
+    // integers ("3" clip axes, never a "0/3" fraction).
+    const opacityLabel = settings.locator('.viewer-settings-row-label', { hasText: 'Opacity' });
+    await expect(opacityLabel).toHaveText('Opacity');
+    const labelMetrics = await opacityLabel.evaluate((element) => ({
+        contentWidth: element.scrollWidth,
+        layoutWidth: element.getBoundingClientRect().width
+    }));
+    expect(labelMetrics.contentWidth).toBeLessThanOrEqual(Math.ceil(labelMetrics.layoutWidth));
+    const clipSection = settings.locator('.viewer-settings-section').filter({ hasText: 'Clip' }).first();
+    await expect(clipSection.locator('.viewer-settings-count-badge')).toHaveText('3');
     const colorByTrigger = settings.locator('.viewer-settings-color-by .nuke-select-trigger');
     await expect(colorByTrigger).toBeVisible();
     await expect(colorByTrigger).not.toHaveText('Select an option');
@@ -160,6 +172,15 @@ test('viewer settings sidebar shows values and drives shading', async ({ page })
     await settings.locator('button.viewer-settings-snap-iso').click();
     await expect(canvas).toBeVisible();
     await expect(container.locator('.openmc-output-viewer-status.error')).toHaveCount(0);
+
+    // Solid Color has no scalar array: the mapping rows disappear instead of
+    // staying behind as disabled controls, while Color by and the solid-color
+    // picker remain.
+    await selectNukeOption(page, settings, 'viewer-settings-color-by', 'Solid Color');
+    await expect(settings.locator('.viewer-settings-color-by')).toBeVisible();
+    await expect(settings.locator('.viewer-settings-colormap')).toHaveCount(0);
+    await expect(settings.locator('.viewer-settings-scalar-bar')).toHaveCount(0);
+    await expect(settings.locator('.viewer-settings-row-label', { hasText: 'Solid color' })).toBeVisible();
 
     const bad = severe(errors);
     expect(bad, `unexpected severe errors:\n${bad.join('\n')}`).toEqual([]);
@@ -334,6 +355,8 @@ test('DAGMC outline sidebar lists volumes and toggles visibility', async ({ page
     await expect(panel.locator('.dagmc-outline-header-icon')).toBeVisible();
     await expect(panel.locator('.dagmc-outline-panel-name')).toHaveText('DAGMC Outline');
     await expect(panel.locator('.dagmc-outline-group-header').first()).toBeVisible();
+    // Count badges stay plain integers (no zero padding, no fractions).
+    await expect(panel.locator('.dagmc-outline-group-header .dagmc-outline-count-badge').first()).toHaveText(/^\d+$/);
     await expect(panel.locator('.dagmc-outline-volume-row .dagmc-outline-state-dot')).toHaveCount(2);
     await expect(panel.locator('.dagmc-outline-banner')).toContainText('Material and group info need model info');
 

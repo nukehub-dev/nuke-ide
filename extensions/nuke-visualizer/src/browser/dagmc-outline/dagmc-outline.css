@@ -6,7 +6,7 @@
 .dagmc-outline-panel {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 6px;
     padding: 8px 12px;
     overflow-y: auto;
     height: 100%;
@@ -99,31 +99,45 @@
 .dagmc-outline-group {
     display: flex;
     flex-direction: column;
-    gap: 2px;
-    padding: 6px 8px;
+    gap: 0;
+    padding: 4px 8px 6px;
     border: 1px solid var(--theia-panel-border);
 }
 
 .dagmc-outline-group-label {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     font-weight: 600;
     font-size: 11px;
+    letter-spacing: 0.3px;
     text-transform: uppercase;
-    opacity: 0.8;
 }
 
 /* Sticky collapsible section header with a count badge: the header pins to
    the panel top while a long section scrolls beneath it. Click toggles the
-   section (CAD TreeSection grammar); keyboard Enter/Space works too. */
+   section (CAD TreeSection grammar); keyboard Enter/Space works too. The
+   11 px uppercase / 0.3 px tracking / 7 px gap treatment mirrors the Model
+   Outline category headers. */
 .dagmc-outline-group-header {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 7px;
     position: sticky;
     top: 0;
     z-index: 1;
+    margin-bottom: 2px;
     padding: 2px;
     border-radius: 3px;
     background: var(--theia-sideBar-background, var(--theia-editor-background));
+    color: var(--theia-descriptionForeground);
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 16px;
+    letter-spacing: 0.3px;
+    white-space: nowrap;
     cursor: pointer;
     user-select: none;
 }
@@ -144,22 +158,29 @@
 }
 
 .dagmc-outline-count-badge {
+    flex-shrink: 0;
     font-size: 10px;
     font-weight: 600;
-    padding: 0 6px;
+    line-height: 14px;
+    padding: 1px 6px;
     border-radius: 8px;
     background: var(--theia-badge-background);
     color: var(--theia-badge-foreground);
+    text-transform: none;
+    letter-spacing: normal;
     white-space: nowrap;
 }
 
+/* 24 px rows mirror the Model Outline geometry: the checkbox, swatch, label,
+   and hover isolate action share one compact line. */
 .dagmc-outline-row {
     display: flex;
     align-items: center;
     gap: 6px;
     min-width: 0;
+    min-height: 24px;
     border-radius: 3px;
-    padding: 1px 2px;
+    padding: 0 2px;
 }
 
 div.dagmc-outline-row {
@@ -227,6 +248,18 @@ div.dagmc-outline-row.selected .dagmc-outline-row-material {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+/* Deterministic material/group swatch (the same color Material or Group mode
+   paints on the canvas). The border keeps pale palette entries visible on
+   light themes; volume rows never render one. */
+.dagmc-outline-material-swatch {
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    border: 1px solid var(--theia-panel-border);
+    flex-shrink: 0;
+    align-self: center;
 }
 
 .dagmc-outline-row-material {

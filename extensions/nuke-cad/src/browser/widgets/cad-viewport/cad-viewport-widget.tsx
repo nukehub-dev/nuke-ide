@@ -207,7 +207,7 @@ import {
     BODY_APPEARANCE_DEFAULT_COLOR,
     BODY_APPEARANCE_DEFAULT_OPACITY,
     normalizeAppearancePresets,
-    resolveBodyAppearance,
+    resolveBodyDisplayAppearance,
     type AppearancePreset
 } from './body-appearance';
 import { AssemblyInstanceList } from './assembly-instance-list';
@@ -1361,9 +1361,9 @@ export class CadViewportWidget extends ReactWidget {
         this.toDispose.push(Disposable.create(this.documentStore.onChange(() => this.onDocumentChange())));
         // Display precision is a rendering-only preference: re-render the React
         // chrome (measure popover props) and let the mounted scene refresh its
-        // overlay labels through `setMeasurementDecimals`. Ribbon labels/pins
-        // and world-origin axis visibility are pure React/scene chrome, so the
-        // same subscription re-renders them.
+        // overlay labels through `setMeasurementDecimals`. Ribbon labels/pins,
+        // world-origin axis visibility, and material coloring are pure
+        // React/scene chrome, so the same subscription re-renders them.
         this.toDispose.push(
             this.preferences.onPreferenceChanged((event) => {
                 if (
@@ -1372,6 +1372,7 @@ export class CadViewportWidget extends ReactWidget {
                     event.preferenceName === 'nukeCad.ribbonLabels' ||
                     event.preferenceName === 'nukeCad.ribbonPins' ||
                     event.preferenceName === 'nukeCad.appearancePresets' ||
+                    event.preferenceName === 'nukeCad.colorByMaterial' ||
                     event.preferenceName === 'nukeCad.showOriginX' ||
                     event.preferenceName === 'nukeCad.showOriginY' ||
                     event.preferenceName === 'nukeCad.showOriginZ'
@@ -2259,6 +2260,7 @@ export class CadViewportWidget extends ReactWidget {
                 onToggleRibbonPin={this.handleToggleRibbonPin}
                 viewportBackground={this.preferences['nukeCad.viewportBackground'] as ViewportBackgroundStyle}
                 navigationStyle={this.preferences['nukeCad.navigationStyle'] as NavigationStyle}
+                colorByMaterial={this.preferences['nukeCad.colorByMaterial']}
                 lengthDecimals={this.preferences['nukeCad.lengthDecimals']}
                 angleDecimals={this.preferences['nukeCad.angleDecimals']}
                 showOriginX={this.preferences['nukeCad.showOriginX']}
@@ -2393,6 +2395,8 @@ interface CadViewportComponentProps {
     readonly onToggleRibbonPin: (commandId: string) => void;
     readonly viewportBackground: ViewportBackgroundStyle;
     readonly navigationStyle: NavigationStyle;
+    /** Color bodies from their material tags (explicit appearance colors still win). */
+    readonly colorByMaterial: boolean;
     /** Maximum decimal places for length readouts (measure labels + popover rows). */
     readonly lengthDecimals: number;
     /** Maximum decimal places for angle readouts (measure labels + popover rows). */
@@ -2574,6 +2578,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
         snapView?: (direction: readonly [number, number, number]) => void;
         setShading?: (mode: ShadingMode) => void;
         setGhostOpacity?: (value: number) => void;
+        setColorByMaterial?: (enabled: boolean) => void;
         setViewportBackground?: (style: ViewportBackgroundStyle) => void;
         setNavigationStyle?: (style: NavigationStyle) => void;
         setSection?: (section?: SectionState) => void;
@@ -2869,6 +2874,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                 OrbitControls,
                 props.viewportBackground,
                 props.navigationStyle,
+                props.colorByMaterial,
                 { length: props.lengthDecimals, angle: props.angleDecimals },
                 { x: props.showOriginX, y: props.showOriginY, z: props.showOriginZ },
                 () => sectionActiveRef.current,
@@ -2906,6 +2912,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             viewportApi.current.snapView = api.snapView;
             viewportApi.current.setShading = api.setShading;
             viewportApi.current.setGhostOpacity = api.setGhostOpacity;
+            viewportApi.current.setColorByMaterial = api.setColorByMaterial;
             viewportApi.current.setViewportBackground = api.setViewportBackground;
             viewportApi.current.setNavigationStyle = api.setNavigationStyle;
             viewportApi.current.setSection = api.setSection;
@@ -2944,6 +2951,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             viewportApi.current.snapView = undefined;
             viewportApi.current.setShading = undefined;
             viewportApi.current.setGhostOpacity = undefined;
+            viewportApi.current.setColorByMaterial = undefined;
             viewportApi.current.setViewportBackground = undefined;
             viewportApi.current.setNavigationStyle = undefined;
             viewportApi.current.setSection = undefined;
@@ -3038,6 +3046,12 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
     React.useEffect(() => {
         viewportApi.current.setViewportBackground?.(props.viewportBackground);
     }, [props.viewportBackground, controller]);
+
+    // Material coloring is purely a display preference: the body override map
+    // re-derives in place, never rebuilding the scene.
+    React.useEffect(() => {
+        viewportApi.current.setColorByMaterial?.(props.colorByMaterial);
+    }, [props.colorByMaterial, controller]);
 
     React.useEffect(() => {
         viewportApi.current.setNavigationStyle?.(props.navigationStyle);
@@ -3738,6 +3752,7 @@ interface ViewportApi {
     readonly setGhostOpacity: (value: number) => void;
     readonly setViewportBackground: (style: ViewportBackgroundStyle) => void;
     readonly setNavigationStyle: (style: NavigationStyle) => void;
+    readonly setColorByMaterial: (enabled: boolean) => void;
     readonly setSection: (section?: SectionState) => void;
     readonly setExplodeFactor: (factor: number) => void;
     readonly snapView: (direction: readonly [number, number, number]) => void;
@@ -3798,6 +3813,7 @@ function initViewport(
     },
     initialViewportBackground: ViewportBackgroundStyle,
     initialNavigationStyle: NavigationStyle,
+    initialColorByMaterial: boolean,
     initialMeasurementDecimals: MeasurementDecimals,
     initialOriginAxes: OriginAxesVisibility,
     isSectionActive: () => boolean,
@@ -3861,6 +3877,10 @@ function initViewport(
         length: initialMeasurementDecimals.length,
         angle: initialMeasurementDecimals.angle
     };
+
+    // Material coloring is display-only: the preference effect pushes changes
+    // through `setColorByMaterial`, which re-derives the per-body materials.
+    let colorByMaterial = initialColorByMaterial;
 
     // Additive selection holds navigation still: three.js maps Left+Ctrl/Meta
     // to pan, which fights Ctrl+click multi-pick (any drag while the modifier
@@ -4052,12 +4072,14 @@ function initViewport(
     });
 
     /**
-     * Per-body appearance overrides. Bodies without an override keep the
-     * shared body/highlight materials above; every overridden body gets a
-     * private clone, so color and opacity never leak to other bodies. `color`
-     * is the explicit override (stays fixed through theme changes), `opacity`
-     * the explicit alpha (shaded mode only). The map is rebuilt from the
-     * document on store changes; replaced/removed entries are disposed.
+     * Per-body display overrides. Bodies without an override keep the shared
+     * body/highlight materials above; every overridden body gets a private
+     * clone, so color and opacity never leak to other bodies. `color` is the
+     * effective fixed color (explicit appearance color, else the material
+     * palette color when `nukeCad.colorByMaterial` is on) and stays fixed
+     * through theme changes; `opacity` is the explicit alpha (shaded mode
+     * only). The map is rebuilt from the document on store changes and
+     * preference toggles; replaced/removed entries are disposed.
      */
     interface BodyAppearanceMaterial {
         readonly material: THREE.MeshStandardMaterial;
@@ -4077,7 +4099,7 @@ function initViewport(
         const doc = documentStore.document;
         const next = new Map<string, BodyAppearanceMaterial>();
         for (const body of doc?.bodies ?? []) {
-            const appearance = resolveBodyAppearance(doc, body.id);
+            const appearance = resolveBodyDisplayAppearance(doc, body.id, colorByMaterial);
             if (appearance === undefined) {
                 continue;
             }
@@ -4105,8 +4127,9 @@ function initViewport(
         typeof bodyId === 'string' ? bodyAppearanceMaterials.get(bodyId)?.material : undefined;
 
     /**
-     * Explicit override colors stay fixed through theme changes; opacity-only
-     * overrides take the freshly resolved theme body color.
+     * Fixed colors (explicit appearance or material palette) stay through
+     * theme changes; opacity-only overrides take the freshly resolved theme
+     * body color.
      */
     const recolorBodyAppearanceMaterials = (): void => {
         for (const entry of bodyAppearanceMaterials.values()) {
@@ -5231,6 +5254,17 @@ function initViewport(
 
     const setShading = (mode: ShadingMode): void => {
         shading = mode;
+        applyShading();
+    };
+    /**
+     * Preference change: re-derive the per-body overrides (material colors
+     * appear or disappear; explicit appearance colors and opacity carry over
+     * unchanged) and re-apply shading so live meshes swap assignments. No
+     * document mutation, no rebuild.
+     */
+    const setColorByMaterial = (enabled: boolean): void => {
+        colorByMaterial = enabled;
+        syncBodyAppearances();
         applyShading();
     };
     const setGhostOpacity = (value: number): void => {
@@ -6443,6 +6477,7 @@ function initViewport(
         setCameraState,
         setShading,
         setGhostOpacity,
+        setColorByMaterial,
         setViewportBackground,
         setNavigationStyle,
         setSection,

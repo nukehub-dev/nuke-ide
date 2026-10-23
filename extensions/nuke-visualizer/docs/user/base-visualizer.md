@@ -45,6 +45,15 @@ The visualizer supports **multi-instance** tabs. Each file gets its own tab with
 
 Once the file loads, the visualization panel shows an interactive 3D view with a control sidebar:
 
+**Viewer Settings** is a narrow sidebar panel built like the CAD outline:
+every row reserves a visible label column, so **Background**, **Point size**,
+**Line width**, and **Opacity** keep their full text at the default 250 px
+width, and section headers are 11 px uppercase with plain-integer count
+badges. Dense rows wrap their extra controls only when the panel is too
+narrow. Controls appear only when they apply: **Solid Color** and the DAGMC
+categorical modes hide the scalar mapping rows (Color Map, Invert/Log, Range,
+Threshold, Scalar Bar) instead of showing them disabled.
+
 ### Appearance
 
 | Control        | What It Does                                                                                                     |
@@ -200,12 +209,39 @@ When you open a `.h5m` file:
 
 If you select a specific volume ID (e.g., from the Geometry Hierarchy), only that volume is extracted and visualized.
 
+### Color by Material, Volume, and Group
+
+Converted `.h5m` files carry per-volume material names and group membership
+from `dagmc.info`, so **Viewer Settings → Color by** also offers **Material**,
+**Volume**, and **Group**:
+
+- **Material** paints every volume with one deterministic color per material
+  name (case and surrounding whitespace are ignored — `Fuel` and `fuel`
+  match; the Graveyard termination material is muted grey). Volumes without a
+  material fall back to the solid color.
+- **Volume** paints every volume with its own deterministic color (keyed by
+  volume id), so neighboring volumes stay visually distinct.
+- **Group** paints each volume with the color of its primary group — the
+  first group (in model order) containing the volume. Volumes in no group
+  fall back to the solid color.
+
+These modes have no scalar mapping, so the colormap, component, range,
+threshold, and color legend rows are hidden (not shown disabled) and the
+panel shows a muted `Color by material`, `Color by volume`, or `Color by
+group` note. Unlike Material mode, Volume and Group are structural: graveyard
+volumes keep their normal category color (the Graveyard switch still hides
+them). The same colors appear as swatches on the DAGMC Outline material and
+group rows; picking a data array in Color by switches back to scalar mapping
+instantly. **Solid Color** follows the same rule: only the Color by row and
+the solid-color picker remain among the mapping controls.
+
 ### DAGMC Outline Sidebar
 
 The **DAGMC Outline** sidebar opens automatically with every DAGMC viewer
 tab (or via `Tools → Visualizer → DAGMC Outline`), bound to the active
 DAGMC viewer tab. Like the CAD panels it has an icon + subtitle header
-(the bound viewer tab) and collapsible count-badge sections:
+(the bound viewer tab) and collapsible count-badge sections with 11 px
+uppercase headers and 24 px rows:
 
 - **Volumes** — one row per `Volume_<id>` block: per-row icon plus a live
   status dot (green visible, muted hidden), the checkbox toggles
@@ -216,9 +252,10 @@ DAGMC viewer tab. Like the CAD panels it has an icon + subtitle header
   muted suffix — never repeated in the name.
 - **Materials / Groups** — one row per name with the same icon, status
   dot, checkbox, and hover isolate button; unchecking hides every member
-  volume. These sections need the `dagmc.info` model metadata (present for
-  converted `.h5m` files); without it an info banner says so instead of
-  bare text.
+  volume. Material and group rows carry a small swatch matching the canvas
+  color used by **Color by → Material** / **Group**. These sections need the
+  `dagmc.info` model metadata (present for converted `.h5m` files); without
+  it an info banner says so instead of bare text.
 - **Graveyard** — show or hide the graveyard termination volumes (hidden
   by default; conversion keeps the block so the toggle takes effect on
   either setting). Isolating a graveyard row with the hover eye also turns

@@ -26,12 +26,15 @@
 // *****************************************************************************
 
 import { describe, expect, it } from 'vitest';
+import { GRAVEYARD_MATERIAL_COLOR, materialColor } from 'nuke-essentials/lib/theme/browser/material-colors';
 import { NUKE_CAD_SCHEMA_VERSION, type NukeCadDocument } from '../../../common/cad-document';
 import {
     BODY_APPEARANCE_DEFAULT_COLOR,
     BODY_APPEARANCE_DEFAULT_OPACITY,
     normalizeAppearancePresets,
-    resolveBodyAppearance
+    resolveBodyAppearance,
+    resolveBodyDisplayAppearance,
+    resolveBodyMaterialColor
 } from './body-appearance';
 
 function docWithAppearance(appearance: { color?: string; opacity?: number } | undefined): NukeCadDocument {
@@ -41,6 +44,26 @@ function docWithAppearance(appearance: { color?: string; opacity?: number } | un
         parameters: {},
         datums: [{ id: 'datum-xy', kind: 'XY', name: 'XY' }],
         bodies: [{ id: 'body-1', name: 'Body 1', ...(appearance !== undefined ? { appearance } : {}) }],
+        sketches: [],
+        features: [],
+        curves: []
+    };
+}
+
+function docWithMaterial(material: string | undefined, appearance?: { color?: string; opacity?: number }): NukeCadDocument {
+    return {
+        version: NUKE_CAD_SCHEMA_VERSION,
+        name: 'material',
+        parameters: {},
+        datums: [{ id: 'datum-xy', kind: 'XY', name: 'XY' }],
+        bodies: [
+            {
+                id: 'body-1',
+                name: 'Body 1',
+                ...(material !== undefined ? { material } : {}),
+                ...(appearance !== undefined ? { appearance } : {})
+            }
+        ],
         sketches: [],
         features: [],
         curves: []
@@ -83,6 +106,75 @@ describe('resolveBodyAppearance', () => {
     it('exposes the dialog defaults', () => {
         expect(BODY_APPEARANCE_DEFAULT_COLOR).toBe('#c4c7cc');
         expect(BODY_APPEARANCE_DEFAULT_OPACITY).toBe(1);
+    });
+});
+
+describe('resolveBodyMaterialColor', () => {
+    it('returns undefined when color-by-material is disabled', () => {
+        expect(resolveBodyMaterialColor(docWithMaterial('fuel'), 'body-1', false)).toBeUndefined();
+    });
+
+    it('resolves the shared palette color when enabled', () => {
+        expect(resolveBodyMaterialColor(docWithMaterial('fuel'), 'body-1', true)).toBe(materialColor('fuel'));
+    });
+
+    it('returns undefined without a document, body, or usable material', () => {
+        expect(resolveBodyMaterialColor(undefined, 'body-1', true)).toBeUndefined();
+        expect(resolveBodyMaterialColor(docWithMaterial(undefined), 'body-1', true)).toBeUndefined();
+        expect(resolveBodyMaterialColor(docWithMaterial('fuel'), 'body-missing', true)).toBeUndefined();
+        expect(resolveBodyMaterialColor(docWithMaterial('   '), 'body-1', true)).toBeUndefined();
+    });
+
+    it('special-cases the graveyard termination material', () => {
+        expect(resolveBodyMaterialColor(docWithMaterial('Graveyard'), 'body-1', true)).toBe(GRAVEYARD_MATERIAL_COLOR);
+    });
+
+    it('normalizes case and surrounding whitespace through materialColor', () => {
+        expect(resolveBodyMaterialColor(docWithMaterial('  FUEL '), 'body-1', true)).toBe(materialColor('fuel'));
+        expect(resolveBodyMaterialColor(docWithMaterial('  FUEL '), 'body-1', true)).toBe(
+            resolveBodyMaterialColor(docWithMaterial('fuel'), 'body-1', true)
+        );
+    });
+});
+
+describe('resolveBodyDisplayAppearance', () => {
+    it('keeps the theme base with coloring off and no appearance', () => {
+        expect(resolveBodyDisplayAppearance(docWithMaterial('fuel'), 'body-1', false)).toBeUndefined();
+    });
+
+    it('uses the material color when enabled and no appearance exists', () => {
+        expect(resolveBodyDisplayAppearance(docWithMaterial('fuel'), 'body-1', true)).toEqual({ color: materialColor('fuel') });
+    });
+
+    it('returns undefined when coloring is off, the body is untagged, and no appearance exists', () => {
+        expect(resolveBodyDisplayAppearance(docWithMaterial(undefined), 'body-1', true)).toBeUndefined();
+        expect(resolveBodyDisplayAppearance(docWithMaterial(undefined), 'body-1', false)).toBeUndefined();
+    });
+
+    it('lets an explicit appearance color win over the material color', () => {
+        expect(resolveBodyDisplayAppearance(docWithMaterial('fuel', { color: '#ff8800' }), 'body-1', true)).toEqual({
+            color: '#ff8800'
+        });
+    });
+
+    it('keeps appearance opacity independent from the material color', () => {
+        expect(resolveBodyDisplayAppearance(docWithMaterial('fuel', { opacity: 0.4 }), 'body-1', true)).toEqual({
+            color: materialColor('fuel'),
+            opacity: 0.4
+        });
+    });
+
+    it('resolves color and opacity together with explicit color precedence', () => {
+        expect(resolveBodyDisplayAppearance(docWithMaterial('fuel', { color: '#00ff00', opacity: 0 }), 'body-1', true)).toEqual({
+            color: '#00ff00',
+            opacity: 0
+        });
+    });
+
+    it('keeps an opacity-only appearance when coloring is off', () => {
+        expect(resolveBodyDisplayAppearance(docWithMaterial('fuel', { opacity: 0.25 }), 'body-1', false)).toEqual({
+            opacity: 0.25
+        });
     });
 });
 

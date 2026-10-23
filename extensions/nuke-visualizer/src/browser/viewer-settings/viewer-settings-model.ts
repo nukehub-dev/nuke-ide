@@ -225,6 +225,12 @@ export interface ViewerSettingsSnapshot {
     readonly widgetId: string;
     readonly title: string;
     readonly hasDataset: boolean;
+    /**
+     * Optional short status note under the panel header for modes that
+     * change how every control is interpreted (e.g. DAGMC `Color by
+     * material`, `volume`, or `group`, where no scalar mapping applies).
+     */
+    readonly note?: string;
     readonly colorBy?: ViewerColorBySettings;
     readonly colormap?: ViewerColormapSettings;
     readonly component?: ViewerComponentSettings;

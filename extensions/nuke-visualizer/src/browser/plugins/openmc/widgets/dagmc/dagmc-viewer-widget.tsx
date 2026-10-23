@@ -37,6 +37,7 @@ import { MessageService } from '@theia/core/lib/common';
 import { FileService } from '@theia/filesystem/lib/browser/file-service';
 import { NukeLoadingOverlay, Tooltip, ViewBadge, ViewerNavBar, ViewCube } from 'nuke-essentials/lib/theme/browser/components';
 import type { ViewerNavAction, ViewCubeHandle } from 'nuke-essentials/lib/theme/browser/components';
+import { categoryColor, materialColor } from 'nuke-essentials/lib/theme/browser/material-colors';
 import {
     ClassifiedNativeVtkArrays,
     classifyNativeVtkArrays,
@@ -124,9 +125,23 @@ import {
     DagmcOutlineHost,
     DagmcOutlinePatch,
     DagmcOutlineSnapshot,
+    createDagmcOutlineGroupEntry,
+    createDagmcOutlineMaterialEntry,
     formatDagmcOutlineVolumeLabel
 } from '../../../../dagmc-outline/dagmc-outline-model';
 import { DagmcBlockModel, mergeDagmcBounds, parseBlockDataset, parseVtmManifest } from './dagmc-multiblock';
+import {
+    GROUP_COLOR_NOTE,
+    MATERIAL_COLOR_NOTE,
+    VOLUME_COLOR_NOTE,
+    dagmcColorByOptions,
+    isCategoricalColorBy,
+    isGroupColorBy,
+    isMaterialColorBy,
+    isVolumeColorBy,
+    materialForVolume,
+    primaryGroupForVolume
+} from './dagmc-color-by';
 import {
     DagmcModelInfo,
     DagmcVisibility,
@@ -504,25 +519,29 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
 
     /** Color-by entries for the sidebar select (same options the header offered). */
     colorByOptions(): { value: string; label: string }[] {
-        if (this.blocks.length === 0 || !this.classified) {
-            return [{ value: SOLID_COLOR, label: SOLID_COLOR }];
-        }
-        const options: { value: string; label: string }[] = [{ value: SOLID_COLOR, label: SOLID_COLOR }];
-        const push = (arrays: OpenMCVtkArrayInfo[]): void => {
-            for (const array of arrays) {
-                const value = colorByValue(array);
-                if (!options.some((option) => option.value === value)) {
-                    options.push({ value, label: `${array.association === 'point' ? 'Point' : 'Cell'}: ${array.name}` });
+        const arrayOptions: { value: string; label: string }[] = [];
+        if (this.blocks.length > 0 && this.classified) {
+            const push = (arrays: OpenMCVtkArrayInfo[]): void => {
+                for (const array of arrays) {
+                    const value = colorByValue(array);
+                    if (!arrayOptions.some((option) => option.value === value)) {
+                        arrayOptions.push({ value, label: `${array.association === 'point' ? 'Point' : 'Cell'}: ${array.name}` });
+                    }
                 }
-            }
-        };
-        push(this.classified.energies);
-        push(this.classified.fluxGroups);
-        push(this.classified.scalars);
-        push(this.classified.sources);
-        push(this.classified.ids);
-        push(this.classified.other);
-        return options;
+            };
+            push(this.classified.energies);
+            push(this.classified.fluxGroups);
+            push(this.classified.scalars);
+            push(this.classified.sources);
+            push(this.classified.ids);
+            push(this.classified.other);
+        }
+        return dagmcColorByOptions(
+            this.blocks.length > 0,
+            this.modelInfo !== undefined,
+            this.modelInfo !== undefined && Object.keys(this.modelInfo.groups).length > 0,
+            arrayOptions
+        );
     }
 
     /** Whether the distance-measure tool is armed (sidebar toggle state). */
@@ -547,6 +566,9 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
     /** Read the current settings for the sidebar panel. */
     getViewerSettingsSnapshot(): ViewerSettingsSnapshot {
         const solid = this.colorBy === SOLID_COLOR;
+        const material = isMaterialColorBy(this.colorBy);
+        const volume = isVolumeColorBy(this.colorBy);
+        const group = isGroupColorBy(this.colorBy);
         const active = this.activeColorArray();
         const range = this.effectiveArrayRange();
         const dataRange = active ? (this.mergedArrayRange(active.kind, active.name) ?? active.array.range) : undefined;
@@ -558,19 +580,19 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
             colormap: {
                 value: this.colormap,
                 options: [...COLORMAP_NAMES],
-                disabled: solid,
+                disabled: isCategoricalColorBy(this.colorBy),
                 invert: this.invert,
                 logScale: { value: this.logScale, disabled: !logScaleAvailable(range ?? [0, 0]) }
             },
             component:
-                !solid && active && active.array.components > 1
+                !isCategoricalColorBy(this.colorBy) && active && active.array.components > 1
                     ? { value: this.component, options: componentOptions(active.array.components) }
                     : undefined,
             range:
-                !solid && active && range && dataRange
+                !isCategoricalColorBy(this.colorBy) && active && range && dataRange
                     ? { mode: this.rangeMode, min: range[0], max: range[1], dataMin: dataRange[0], dataMax: dataRange[1] }
                     : undefined,
-            scalarBar: { visible: this.scalarBarVisible },
+            scalarBar: material || volume || group ? undefined : { visible: this.scalarBarVisible },
             tallyVolume:
                 this.tallyVolumeMesh || this.tallyVolumeGrid
                     ? { visible: this.tallyVolumeVisible, smooth: this.tallyVolumeMode === 'smooth' }
@@ -582,7 +604,8 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
             measure: { active: this.measure.active },
             opacity: { value: this.opacity, ...OPACITY_SPEC },
             pointSize: { value: this.pointSize, ...POINT_SIZE_SPEC },
-            lineWidth: { value: this.lineWidth, ...LINE_WIDTH_SPEC }
+            lineWidth: { value: this.lineWidth, ...LINE_WIDTH_SPEC },
+            note: material ? MATERIAL_COLOR_NOTE : volume ? VOLUME_COLOR_NOTE : group ? GROUP_COLOR_NOTE : undefined
         };
     }
 
@@ -634,8 +657,11 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
         this.logScale = false;
     }
 
-    /** Active color-by array (first block that carries it) plus its selector; undefined in Solid Color mode. */
+    /** Active color-by array (first block that carries it) plus its selector; undefined in Solid Color/Material mode. */
     private activeColorArray(): { kind: 'point' | 'cell'; name: string; array: NativeVtkDataArray } | undefined {
+        if (isCategoricalColorBy(this.colorBy)) {
+            return undefined;
+        }
         const selection = parseColorBy(this.colorBy);
         if (selection.kind === 'solid' || selection.arrayName === null) {
             return undefined;
@@ -717,15 +743,16 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
             });
         const materials = info
             ? Object.entries(info.materials)
-                  .map(([name, meta]) => ({
-                      name,
-                      volumeCount: meta.volumeCount,
-                      // The graveyard switch is an extra override on top of the
-                      // material hidden-set: while it is off, the Graveyard
-                      // material reads hidden even though it is not in the set.
-                      visible:
+                  .map(([name, meta]) =>
+                      createDagmcOutlineMaterialEntry(
+                          name,
+                          meta.volumeCount,
+                          // The graveyard switch is an extra override on top of the
+                          // material hidden-set: while it is off, the Graveyard
+                          // material reads hidden even though it is not in the set.
                           !this.visibility.hiddenMaterials.includes(name) && (!isGraveyardMaterial(name) || this.visibility.showGraveyard)
-                  }))
+                      )
+                  )
                   .sort((a, b) => a.name.localeCompare(b.name))
             : [];
         const groups = info
@@ -737,11 +764,11 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
                       const graveyardOnly =
                           meta.volumeIds.length > 0 &&
                           [...memberMaterials].every((material) => typeof material === 'string' && isGraveyardMaterial(material));
-                      return {
+                      return createDagmcOutlineGroupEntry(
                           name,
-                          volumeCount: meta.volumeCount,
-                          visible: !this.visibility.hiddenGroups.includes(name) && (!graveyardOnly || this.visibility.showGraveyard)
-                      };
+                          meta.volumeCount,
+                          !this.visibility.hiddenGroups.includes(name) && (!graveyardOnly || this.visibility.showGraveyard)
+                      );
                   })
                   .sort((a, b) => a.name.localeCompare(b.name))
             : [];
@@ -2366,16 +2393,24 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
     /**
      * Instant recolor: rewrite vertex colors from the current color-by array
      * and the shared scalar-mapping pipeline (component picker, effective
-     * range, log/invert). No reload, no server restart.
+     * range, log/invert). Material, Volume, and Group modes fill each volume
+     * with its deterministic categorical color instead (solid-color fallback
+     * when the category is unknown); graveyard volumes keep their category
+     * color in Volume/Group mode because those modes are structural. No
+     * reload, no server restart.
      */
     private recolor(): void {
         if (!this.dataGroup) {
             return;
         }
         this.note = '';
+        const materialMode = isMaterialColorBy(this.colorBy);
+        const volumeMode = isVolumeColorBy(this.colorBy);
+        const groupMode = isGroupColorBy(this.colorBy);
+        const categorical = materialMode || volumeMode || groupMode;
         const selection = parseColorBy(this.colorBy);
         const solid = new THREE.Color(this.solidColor);
-        const mapping = this.scalarMapping();
+        const mapping = categorical ? undefined : this.scalarMapping();
         const solidAt = (): [number, number, number] => [solid.r, solid.g, solid.b];
         const mapAt = (value: number): [number, number, number] => {
             const mapped = value !== undefined && mapping ? mapScalar(value, mapping) : undefined;
@@ -2383,11 +2418,13 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
         };
         this.dataGroup.children.forEach((group) => {
             // Tally voxel volume: same color-by mapping as the surfaces,
-            // matched by array name (volume-only arrays stay solid).
+            // matched by array name (volume-only arrays stay solid; the
+            // categorical modes have no per-voxel category, so they stay
+            // solid too).
             if (group instanceof THREE.InstancedMesh && this.tallyVolumeLayout) {
                 const layout = this.tallyVolumeLayout;
                 const voxelArray =
-                    selection.kind !== 'solid' && selection.arrayName !== null
+                    !categorical && selection.kind !== 'solid' && selection.arrayName !== null
                         ? this.tallyVolumeArrays.find((entry) => entry.name === selection.arrayName)
                         : undefined;
                 const tupleCount = voxelArray ? Math.floor(voxelArray.values.length / Math.max(1, voxelArray.components)) : 0;
@@ -2425,11 +2462,24 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
             if (!block) {
                 return;
             }
+            // Categorical modes: every vertex takes the volume's deterministic
+            // category color; unknown categories fall back to solid.
+            let categoricalHex: string | undefined;
+            if (materialMode) {
+                categoricalHex = materialColor(materialForVolume(this.modelInfo, this.blockVolumeId(block)));
+            } else if (volumeMode) {
+                const volumeId = this.blockVolumeId(block);
+                categoricalHex = volumeId === undefined ? undefined : categoryColor(`volume:${volumeId}`);
+            } else if (groupMode) {
+                const groupName = primaryGroupForVolume(this.modelInfo, this.blockVolumeId(block));
+                categoricalHex = groupName === undefined ? undefined : categoryColor(`group:${groupName}`);
+            }
+            const base = categoricalHex !== undefined ? new THREE.Color(categoricalHex) : solid;
             const array =
-                selection.kind !== 'solid' && selection.arrayName !== null
+                !categorical && selection.kind !== 'solid' && selection.arrayName !== null
                     ? this.findArrayInBlock(block, selection.kind, selection.arrayName)
                     : undefined;
-            if (selection.kind !== 'solid' && !array) {
+            if (!categorical && selection.kind !== 'solid' && !array) {
                 this.note = `'${this.colorBy}' is not in every block — missing blocks show Solid Color`;
             }
             group.children.forEach((child) => {
@@ -2440,9 +2490,9 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
                 const colors = geometry.getAttribute('color') as THREE.BufferAttribute;
                 const map = array ? this.tupleMap(block, geometry.userData['kind'] as DagmcRenderKind, array.association) : undefined;
                 for (let i = 0; i < colors.count; i++) {
-                    let r = solid.r;
-                    let g = solid.g;
-                    let b = solid.b;
+                    let r = base.r;
+                    let g = base.g;
+                    let b = base.b;
                     if (array && map && map[i] >= 0 && mapping) {
                         const value = tupleScalar(array.values, array.components, map[i], this.component);
                         const mapped = mapScalar(value, mapping);
@@ -2615,6 +2665,9 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
     }
 
     private hasArray(colorBy: string): boolean {
+        if (isCategoricalColorBy(colorBy)) {
+            return true;
+        }
         const selection = parseColorBy(colorBy);
         return (
             selection.kind === 'solid' ||
