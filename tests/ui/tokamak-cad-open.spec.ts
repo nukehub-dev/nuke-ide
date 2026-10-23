@@ -80,10 +80,13 @@ test('document-mode header toolbar renders with grouped actions and hides welcom
     await templatePicker.locator('button', { hasText: 'Empty document' }).first().click();
 
     // After creating a document the welcome card should be hidden and the
-    // document-mode hint should be shown instead.
+    // empty-document card should be shown instead (never the welcome
+    // `.nuke-empty-state`).
     await expect(viewport.locator('.nuke-empty-state')).toBeHidden();
-    const hint = viewport.locator('.cad-viewport-document-hint').first();
-    await expect(hint).toBeVisible({ timeout: 10_000 });
+    const emptyCard = viewport.locator('.cad-viewport-document-empty').first();
+    await expect(emptyCard).toBeVisible({ timeout: 10_000 });
+    await expect(emptyCard.locator('.cad-viewport-document-empty-title')).toHaveText('Empty document');
+    await viewport.screenshot({ path: 'test-results/cad-empty-document.png' });
 
     // The redesigned header toolbar should render with the document title on the
     // left and grouped action buttons on the right.
@@ -131,6 +134,24 @@ test('document-mode header toolbar renders with grouped actions and hides welcom
         await page.keyboard.press('Escape');
         await expect(page.locator('.nuke-ribbon-menu')).toBeHidden();
     }
+
+    // The empty-document Create Sketch CTA opens the task panel while the
+    // ribbon stays mounted; New Sketch reads as pressed until setup ends.
+    await page.setViewportSize({ width: 1920, height: 800 });
+    await expect(toolbar.locator('.nuke-ribbon-tiles')).toBeVisible({ timeout: 10_000 });
+    await emptyCard.locator('button', { hasText: 'Create Sketch' }).click();
+    const datumPicker = viewport.locator('.cad-sketch-datum-picker').first();
+    await expect(datumPicker).toBeVisible({ timeout: 10_000 });
+    await expect(datumPicker).toHaveAttribute('role', 'dialog');
+    await expect(datumPicker.locator('.cad-sketch-datum-title')).toHaveText('Create Sketch');
+    await expect(datumPicker.locator('.cad-sketch-datum-instruction')).toHaveText('Pick a plane or planar face for the sketch.');
+    await viewport.screenshot({ path: 'test-results/cad-create-sketch-panel.png' });
+    await expect(toolbar).toBeVisible();
+    const newSketch = toolbar.locator('[role="group"][aria-label="Sketch"] button:has(.codicon-nuke-cad-sketch)').first();
+    await expect(newSketch).toHaveAttribute('aria-pressed', 'true');
+    await datumPicker.locator('button[aria-label="Cancel sketch setup"]').click();
+    await expect(datumPicker).toBeHidden();
+    await expect(newSketch).toHaveAttribute('aria-pressed', 'false');
 
     const severe = errors.filter((e) => !e.includes('l10n') && !e.includes('localization bundles'));
     expect(severe, `unexpected severe errors:\n${severe.join('\n')}`).toEqual([]);
@@ -213,7 +234,7 @@ test('Q shortcut bar opens in document mode and closes on Escape', async ({ page
     const templatePicker = page.locator('.cad-template-picker').first();
     await expect(templatePicker).toBeVisible({ timeout: 10_000 });
     await templatePicker.locator('button', { hasText: 'Empty document' }).first().click();
-    await expect(viewport.locator('.cad-viewport-document-hint')).toBeVisible({ timeout: 10_000 });
+    await expect(viewport.locator('.cad-viewport-document-empty')).toBeVisible({ timeout: 10_000 });
     // Overlay chrome mounts only after the controller's cold dynamic import
     // (~20 s fresh); wait for the toolbar before driving overlay UI.
     await expect(viewport.locator('.cad-document-toolbar').first()).toBeVisible({ timeout: 60_000 });
@@ -256,7 +277,7 @@ test('Q shortcut bar opens in sketch mode and closes on Escape', async ({ page }
     const templatePicker = page.locator('.cad-template-picker').first();
     await expect(templatePicker).toBeVisible({ timeout: 10_000 });
     await templatePicker.locator('button', { hasText: 'Empty document' }).first().click();
-    await expect(viewport.locator('.cad-viewport-document-hint')).toBeVisible({ timeout: 10_000 });
+    await expect(viewport.locator('.cad-viewport-document-empty')).toBeVisible({ timeout: 10_000 });
     // Overlay chrome mounts only after the controller's cold dynamic import
     // (~20 s fresh); wait for the toolbar before driving overlay UI.
     await expect(viewport.locator('.cad-document-toolbar').first()).toBeVisible({ timeout: 60_000 });

@@ -1095,14 +1095,14 @@ export class CadViewportWidget extends ReactWidget {
     }
 
     /** Show the datum-plane picker and prepare to enter sketch mode. */
-    startSketchSetup(): void {
+    readonly startSketchSetup = (): void => {
         if (!this.documentStore.hasDocument) {
             this.documentStore.createDocument('Untitled');
         }
         this.editingSketchId = undefined;
         this.sketchSetupVisible = true;
         this.update();
-    }
+    };
 
     /** Enter sketch mode on the chosen datum plane. */
     enterSketch(kind: DatumKind, offset: number): void {
@@ -1913,6 +1913,7 @@ export class CadViewportWidget extends ReactWidget {
                 warnings={this.buildWarnings}
                 dirty={this.documentStore.dirty}
                 sketchSetupVisible={this.sketchSetupVisible}
+                sketchEditing={this.editingSketchId !== undefined}
                 sketchEntering={this.sketchEntering}
                 featureCreationType={this.featureCreationType}
                 featureCreationBodyId={this.featureCreationBodyId}
@@ -1941,6 +1942,7 @@ export class CadViewportWidget extends ReactWidget {
                 onSaveDocument={this.handleSaveDocument}
                 onRebuildDocument={this.handleRebuildDocument}
                 onControllerReady={this.handleControllerReady}
+                onStartSketchSetup={this.startSketchSetup}
                 onEnterSketch={this.handleEnterSketch}
                 onEnterSketchDraft={this.handleEnterSketchDraft}
                 onExitSketch={this.handleExitSketch}
@@ -2019,6 +2021,7 @@ interface CadViewportComponentProps {
     readonly warnings: readonly string[];
     readonly dirty: boolean;
     readonly sketchSetupVisible: boolean;
+    readonly sketchEditing: boolean;
     readonly sketchEntering: boolean;
     readonly featureCreationType?: FeatureType;
     readonly featureCreationBodyId?: string;
@@ -2050,6 +2053,7 @@ interface CadViewportComponentProps {
     readonly onSaveDocument: () => void;
     readonly onRebuildDocument: () => void;
     readonly onControllerReady: (controller: SketchModeController, camera: THREE.PerspectiveCamera) => void;
+    readonly onStartSketchSetup: () => void;
     readonly onEnterSketch: (kind: DatumKind, offset: number) => void;
     readonly onEnterSketchDraft: (draft: DatumDraft, offset: number) => void;
     readonly onExitSketch: () => Promise<void>;
@@ -2765,6 +2769,8 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             onAddFeature={props.onAddFeature}
             onEditFeature={props.onEditFeature}
             onEditSketch={props.onEditSketch}
+            sketchEditing={props.sketchEditing}
+            onStartSketchSetup={props.onStartSketchSetup}
             onExportPython={props.onExportPython}
             onNewDocument={props.onNewDocument}
             onSaveDocument={props.onSaveDocument}
@@ -3028,9 +3034,21 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             <div ref={containerRef} tabIndex={-1} className="cad-viewport empty">
                 {banners}
                 {dirtyMarker}
-                <div className="cad-viewport-document-hint">
-                    <span className="codicon codicon-info" />
-                    Document mode: use the Feature Tree to add sketches and features, then rebuild.
+                <div className="cad-viewport-empty-wrapper">
+                    <div className="cad-viewport-document-empty">
+                        <span className="codicon codicon-nuke-cad-sketch cad-viewport-document-empty-icon" />
+                        <div className="cad-viewport-document-empty-title">Empty document</div>
+                        <div className="cad-viewport-document-empty-message">Create a sketch or open a model to get started.</div>
+                        <div className="cad-viewport-document-empty-hint">Sketches start on a datum plane or a planar face.</div>
+                        <div className="cad-viewport-document-empty-actions">
+                            <button className="theia-button" onClick={props.onStartSketchSetup}>
+                                <span className="codicon codicon-nuke-cad-sketch" /> Create Sketch
+                            </button>
+                            <button className="theia-button secondary open-cad-model-button" onClick={props.onOpenModel}>
+                                <span className="codicon codicon-folder-opened" /> Open CAD Model…
+                            </button>
+                        </div>
+                    </div>
                 </div>
                 {sketchOverlay}
                 {templatePicker}

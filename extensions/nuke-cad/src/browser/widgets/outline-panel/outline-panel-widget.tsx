@@ -528,6 +528,9 @@ function CadOutlinePanelComponent(props: CadOutlinePanelComponentProps): React.R
         viewMode === 'table' ? buildSolidTableRows(model, summaries).sort((a, b) => compareSolidRows(a, b, sort.key, sort.descending)) : [];
 
     const scriptName = model?.scriptPath.split(/[\\/]/).pop();
+    // Prefer authored document bodies; script/STEP models expose only solid count.
+    const bodyCount = props.document?.bodies.length ?? model?.result.solidCount ?? 0;
+    const bodyCountLabel = `${bodyCount} ${bodyCount === 1 ? 'body' : 'bodies'}`;
     const warnings = model?.result.warnings ?? [];
     // DAGMC failures (e.g. seal fail-fast, sense errors) are non-fatal to the
     // build but must never be silent: surface dagmcError alongside warnings.
@@ -596,6 +599,7 @@ function CadOutlinePanelComponent(props: CadOutlinePanelComponentProps): React.R
                     <h2>
                         <i className="codicon codicon-nuke-cad-outline" />
                         Model Outline
+                        <span className="cad-outline-body-count">{bodyCountLabel}</span>
                     </h2>
                     <p className="header-description">{scriptName ?? 'No CAD model open'}</p>
                 </div>

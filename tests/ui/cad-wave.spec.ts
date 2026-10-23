@@ -76,6 +76,7 @@ async function openCadDocument(page: Page) {
     }
     const outline = page.locator('.cad-outline-panel').first();
     await expect(outline).toBeVisible({ timeout: 30_000 });
+    await expect(outline.locator('.cad-outline-body-count')).toHaveText(/^\d+ bod(y|ies)$/);
     return { viewport, outline };
 }
 

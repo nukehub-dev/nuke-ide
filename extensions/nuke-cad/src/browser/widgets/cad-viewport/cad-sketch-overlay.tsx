@@ -141,6 +141,8 @@ interface CadSketchOverlayProps {
     readonly onAddFeature: (type: FeatureType, params: FeatureParams) => void;
     readonly onEditFeature?: (id: string, params: FeatureParams) => void;
     readonly onEditSketch: (sketchId: string) => void;
+    readonly sketchEditing: boolean;
+    readonly onStartSketchSetup: () => void;
     readonly onExportPython?: () => void;
     readonly onNewDocument?: () => void;
     readonly onSaveDocument?: () => void;
@@ -255,6 +257,8 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
         onAddFeature,
         onEditFeature,
         onEditSketch,
+        sketchEditing,
+        onStartSketchSetup,
         onExportPython,
         onNewDocument,
         onSaveDocument,
@@ -544,6 +548,7 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
                     offset={offset}
                     facePickMode={facePickMode}
                     holePickMode={holePickMode}
+                    sketchEditing={sketchEditing}
                     onDatumKindChange={setDatumKind}
                     onOffsetChange={setOffset}
                     onEnter={() => onEnterSketch(datumKind, Number(offset))}
@@ -556,10 +561,12 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
                 />
             )}
 
-            {!active && documentStore.hasDocument && !setupVisible && (
+            {!active && documentStore.hasDocument && (
                 <DocumentModeToolbar
                     documentStore={documentStore}
-                    onNewSketch={() => onEnterSketch('XY', 0)}
+                    sketchSetupActive={setupVisible}
+                    sketchEditing={sketchEditing}
+                    onStartSketchSetup={onStartSketchSetup}
                     onExitSketch={() => void onExitSketch()}
                     onEditSketch={onEditSketch}
                     onStartFeatureCreation={onStartFeatureCreation}
@@ -901,6 +908,7 @@ interface DatumPickerProps {
     offset: string;
     facePickMode?: 'sketchDatum' | 'externalGeometry';
     holePickMode?: boolean;
+    sketchEditing: boolean;
     onDatumKindChange: (kind: DatumKind) => void;
     onOffsetChange: (value: string) => void;
     onEnter: () => void;
@@ -915,6 +923,7 @@ interface DatumPickerProps {
 
 function DatumPicker(props: DatumPickerProps): React.ReactElement {
     const picking = props.facePickMode === 'sketchDatum';
+    const title = props.sketchEditing ? 'Edit Sketch' : 'Create Sketch';
     const [formKind, setFormKind] = React.useState<DatumFormKind>(props.datumKind);
     const [pointInputs, setPointInputs] = React.useState<string[]>(['0', '0', '0', '0', '0', '0', '1', '0', '0']);
     const [midplaneFaces, setMidplaneFaces] = React.useState<TopologyRef[]>([]);
@@ -1015,8 +1024,15 @@ function DatumPicker(props: DatumPickerProps): React.ReactElement {
     const isExtended = formKind === 'threePoint' || formKind === 'midplane' || formKind === 'line2Point';
     const pointRowCount = formKind === 'line2Point' ? 2 : 3;
     return (
-        <div className={`cad-sketch-datum-picker${picking ? ' picking' : ''}`}>
-            <div className="cad-sketch-datum-title">Sketch Plane</div>
+        <div className={`cad-sketch-datum-picker${picking ? ' picking' : ''}`} role="dialog" aria-label={title}>
+            <div className="cad-sketch-datum-header">
+                <span className="codicon codicon-nuke-cad-sketch cad-sketch-datum-icon" />
+                <span className="cad-sketch-datum-title">{title}</span>
+                <button className="theia-button secondary cad-sketch-datum-close" aria-label="Cancel sketch setup" onClick={props.onCancel}>
+                    <span className="codicon codicon-close" />
+                </button>
+            </div>
+            <div className="cad-sketch-datum-instruction">Pick a plane or planar face for the sketch.</div>
             {picking ? (
                 <div className="cad-sketch-face-pick-banner">
                     <span className="codicon codicon-target" />
@@ -1136,8 +1152,11 @@ function DatumPicker(props: DatumPickerProps): React.ReactElement {
                     </label>
                     {datumError !== undefined && <div className="cad-feature-dialog-error">{datumError}</div>}
                     <div className="cad-sketch-datum-actions">
+                        <button className="theia-button secondary" onClick={props.onCancel}>
+                            Cancel
+                        </button>
                         <button
-                            className="theia-button secondary"
+                            className="theia-button"
                             onClick={() => {
                                 if (isExtended) {
                                     startExtended();
@@ -1148,9 +1167,6 @@ function DatumPicker(props: DatumPickerProps): React.ReactElement {
                         >
                             Start Sketch
                         </button>
-                        <button className="theia-button secondary" onClick={props.onCancel}>
-                            Cancel
-                        </button>
                     </div>
                 </>
             )}
@@ -1160,7 +1176,9 @@ function DatumPicker(props: DatumPickerProps): React.ReactElement {
 
 interface DocumentModeToolbarProps {
     readonly documentStore: CadDocumentStore;
-    readonly onNewSketch: () => void;
+    readonly sketchSetupActive: boolean;
+    readonly sketchEditing: boolean;
+    readonly onStartSketchSetup: () => void;
     readonly onExitSketch: () => void;
     readonly onEditSketch: (sketchId: string) => void;
     readonly onStartFeatureCreation: (type: FeatureType) => void;
@@ -1361,7 +1379,8 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
                     shortLabel: 'New',
                     icon: 'codicon-nuke-cad-sketch',
                     disabled: false,
-                    onClick: props.onNewSketch
+                    active: props.sketchSetupActive && !props.sketchEditing,
+                    onClick: props.onStartSketchSetup
                 },
                 ...(selectedSketchId !== undefined
                     ? [
@@ -1371,6 +1390,7 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
                               shortLabel: 'Edit',
                               icon: 'codicon-edit',
                               disabled: false,
+                              active: props.sketchSetupActive && props.sketchEditing,
                               onClick: () => props.onEditSketch(selectedSketchId)
                           }
                       ]

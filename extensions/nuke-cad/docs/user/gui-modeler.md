@@ -30,6 +30,10 @@ Studio the same way you would a script build.
    location.
 4. The empty document contains three canonical datum planes: XY, YZ, and XZ.
 
+An empty document shows a centered **Empty document** card with **Create Sketch**
+and **Open CAD Model…** actions instead of a blank canvas; the ribbon stays
+available above it.
+
 The document toolbar carries a **Units** dropdown (`Unitless`, `mm`, `cm`,
 `m`). Declared units tag future numeric inputs (curve expressions may then
 carry unit syntax); changing units never rescales existing numbers. STEP and
@@ -146,13 +150,17 @@ modified to force an export.
 Geometry`).
 2. Click **New Sketch** in the document toolbar, or right-click a datum in the
    feature tree and choose **Edit Sketch**.
-3. The **Sketch Plane** picker appears. Choose `XY`, `YZ`, or `XZ`, optionally
+3. The **Create Sketch** task panel appears at the top-right below the
+   toolbar — the ribbon stays visible and **New Sketch** (or **Edit Selected
+   Sketch** when editing) stays pressed. Choose `XY`, `YZ`, or `XZ`, optionally
    enter an offset, then click **Start Sketch**. To sketch on a face of an
    existing body, click **On Face…**, then click the desired face in the
-   viewport. The picker also offers **3-Point** (plane through three
+   viewport. The panel also offers **3-Point** (plane through three
    coordinates), **Midplane** (midway between two picked faces), and
    **Line-2Pt** (an axis through two coordinates, for pattern axes only —
    sketches cannot be placed on it).
+4. **Cancel**, the panel's close button, or `Esc` in the offset field closes
+   the panel and returns to document mode without creating a sketch.
 
 The viewport switches to an orthographic view looking straight at the datum,
 grays out the 3D model, and shows a sketch grid.

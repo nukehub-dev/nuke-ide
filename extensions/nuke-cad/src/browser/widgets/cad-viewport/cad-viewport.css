@@ -496,20 +496,31 @@
     cursor: grab;
 }
 
+/*
+ * Create/Edit Sketch task panel. Anchored just under the document toolbar and
+ * shifted left of the shared ViewCube's 68 px slot, so the card never covers
+ * the orientation cube (and does not float lower than needed when no model is
+ * open and the cube is hidden).
+ */
 .cad-sketch-datum-picker {
     position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
+    top: calc(var(--nuke-cad-toolbar-bottom, 64px) + 8px);
+    right: 96px;
+    left: auto;
+    transform: none;
+    z-index: 21;
     display: flex;
     flex-direction: column;
-    gap: 12px;
-    min-width: 220px;
-    padding: 16px;
+    gap: 10px;
+    width: 260px;
+    max-height: calc(100% - var(--nuke-cad-toolbar-bottom, 64px) - 24px);
+    overflow-y: auto;
+    padding: 12px 14px;
     border: 1px solid var(--theia-panel-border);
     border-radius: 8px;
     background: var(--theia-editorWidget-background);
     color: var(--theia-foreground);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
     pointer-events: auto;
 }
 
@@ -522,10 +533,59 @@
     pointer-events: auto;
 }
 
+.cad-sketch-datum-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.cad-sketch-datum-picker .cad-sketch-datum-icon {
+    flex-shrink: 0;
+    width: 20px;
+    height: 20px;
+    color: var(--theia-focusBorder);
+    /* Custom CAD glyphs are 16px masks; scale them explicitly. */
+    -webkit-mask-size: 20px 20px;
+    mask-size: 20px 20px;
+}
+
 .cad-sketch-datum-title {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     font-size: var(--theia-ui-font-size2);
     font-weight: 600;
-    text-align: center;
+    text-align: left;
+}
+
+.cad-sketch-datum-close {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    min-width: 0;
+    margin-left: 0;
+    padding: 0;
+}
+
+.cad-sketch-datum-instruction {
+    font-size: var(--theia-ui-font-size1);
+    line-height: 1.35;
+    color: var(--theia-descriptionForeground);
+}
+
+/* Pick banners inside the task panel flow with the card instead of floating
+   over the viewport center (the card is their positioned ancestor). */
+.cad-sketch-datum-picker .cad-sketch-face-pick-banner {
+    position: static;
+    transform: none;
+    width: auto;
+    max-width: none;
+    padding: 6px 8px;
 }
 
 .cad-sketch-datum-buttons {
@@ -945,21 +1005,57 @@
     background: var(--theia-editorInfo-foreground);
 }
 
-.cad-viewport-document-hint {
-    position: absolute;
-    top: 8px;
-    left: 50%;
-    transform: translateX(-50%);
-    z-index: 10;
+.cad-viewport-document-empty {
     display: flex;
+    flex-direction: column;
     align-items: center;
-    gap: 6px;
-    padding: 4px 10px;
-    border: 1px solid var(--theia-panel-border);
-    border-radius: 6px;
+    justify-content: center;
+    gap: 8px;
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 420px;
+    margin-inline: auto;
+    padding: 28px 32px;
+    text-align: center;
+    color: var(--theia-foreground);
     background: var(--theia-editorWidget-background);
-    color: var(--theia-descriptionForeground);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 12px;
+}
+
+.cad-viewport .cad-viewport-document-empty-icon {
+    width: 44px;
+    height: 44px;
+    margin-bottom: 4px;
+    font-size: 44px;
+    opacity: 0.5;
+    /* Custom CAD glyphs are 16px masks; scale them explicitly. */
+    -webkit-mask-size: 44px 44px;
+    mask-size: 44px 44px;
+}
+
+.cad-viewport-document-empty-title {
+    font-size: var(--theia-ui-font-size2);
+    font-weight: 600;
+}
+
+.cad-viewport-document-empty-message {
     font-size: var(--theia-ui-font-size1);
+    line-height: 1.4;
+    opacity: 0.85;
+}
+
+.cad-viewport-document-empty-hint {
+    font-size: var(--theia-ui-font-size0);
+    opacity: 0.6;
+}
+
+.cad-viewport-document-empty-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 6px;
 }
 
 .cad-document-toolbar {

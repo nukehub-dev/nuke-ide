@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - build: optional extensions selectable at build time via `NUKE_EXTENSIONS` allow-list / `NUKE_EXCLUDE_EXTENSIONS` deny-list.
+- nuke-cad: New Sketch opens a Create Sketch task panel with the ribbon in place; empty documents offer Create Sketch/Open Model and the Model Outline shows the body count.
 - nuke-cad: CAD Studio menu under Tools mirrors the sidebar (geometry, panels, analysis, environment commands).
 - nuke-cad: Move feature rigidly translates a body by dx/dy/dz with ghosted preview and tip chaining.
 - nuke-cad: matching custom undo/redo toolbar icons (the codicon font ships no undo glyph).
