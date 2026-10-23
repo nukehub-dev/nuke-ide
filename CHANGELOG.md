@@ -11,15 +11,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - build: optional extensions selectable at build time via `NUKE_EXTENSIONS` allow-list / `NUKE_EXCLUDE_EXTENSIONS` deny-list.
 - nuke-cad: disabled toolbar and command-search actions now explain why they cannot run, in the tooltip, section menu, and search row.
+- nuke-cad: Fillet and Chamfer offer an opt-in Tangent chain pick that expands one edge click to every tangent-connected edge on the same solid.
 - nuke-cad: Document Settings section in the Model Outline shows units (editable), parameter count, name, source, body count, and schema version.
 - nuke-cad: Document Settings precision sets maximum decimals for length and angle readouts across measurement labels and model properties.
 - nuke-cad: New Sketch opens a Create Sketch task panel with the ribbon in place; empty documents offer Create Sketch/Open Model and the Model Outline shows the body count.
 - nuke-cad: command search in the document toolbar (button or `/`) filters and runs any ribbon action, including caret-menu-only entries.
+- nuke-cad: ribbon section menus pin any command inline (persisted in `nukeCad.ribbonPins`) and `nukeCad.ribbonLabels` hides tile labels for compact icon buttons.
 - nuke-cad: CAD Studio menu under Tools mirrors the sidebar (geometry, panels, analysis, environment commands).
 - nuke-cad: Move feature rigidly translates a body by dx/dy/dz with ghosted preview and tip chaining.
 - nuke-cad: matching custom undo/redo toolbar icons (the codicon font ships no undo glyph).
 - nuke-cad: Move dialog shows document units, a non-zero hint, and previews by default; a zero move fails with a clear error.
 - nuke-cad: Ctrl/Cmd-click multi-selects viewport solids (camera frozen while held, crosshair cursor) with Ctrl/Cmd-drag box select and Hide/Isolate Selected (N) bulk actions.
+- nuke-cad: Select Other disambiguates overlapping faces from the viewport context menu, with Alt+click cycling through candidates by body.
 - nuke-cad: lattice feature replicates a solid feature over a rectangular grid or hexagonal ring with per-cell labels for DAGMC groups.
 - nuke-cad: staged DAGMC export with a reported stage log, sense errors naming surface + volumes, and a grouped diagnostics box.
 - nuke-cad: tag bodies with material names from the Feature Tree; tags merge into manifest volumes and reach openmc-studio as links.
@@ -29,7 +32,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-cad: mesh repair ops for DAGMC prep (duplicate facets, hole fill, Laplacian smooth, decimate) with per-op counts in the report.
 - nuke-cad: pinnable 3D measurements persist in the document, survive rebuilds, and ride undo/redo.
 - nuke-cad: per-body Appearance dialog sets display-only color and opacity overrides that persist in the document and never rebuild geometry.
+- nuke-cad: Appearance dialog adds user presets (save/apply/delete) and applies an appearance to every body in a multi-body selection.
 - nuke-cad: saved named views capture the current camera, restore from the Model Outline, and persist with the document.
+- nuke-cad: world-origin axis triad in the viewport with per-axis X/Y/Z eye toggles in a Model Outline Origin section.
 - nuke-cad: undo/redo over committed document mutations with toolbar buttons and Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y.
 - nuke-cad: multi-part assemblies with instances, connector-frame mates, BOM panel, STEP-assembly export, and placed-solid DAGMC export.
 - nuke-cad: single-sheet 2D drawings (A4/A3) with base/projected/section/detail views and SVG + DXF export.

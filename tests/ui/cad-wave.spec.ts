@@ -203,6 +203,45 @@ test('document settings summarize metadata and set units', async ({ page }) => {
     expect(bad, `unexpected severe errors:\n${bad.join('\n')}`).toEqual([]);
 });
 
+test('origin axes section toggles per-axis visibility', async ({ page }) => {
+    const errors = collectErrors(page);
+    await page.goto('/');
+    await waitForWorkbench(page);
+
+    const { viewport, outline } = await openCadDocument(page);
+    const section = outline.locator('.origin-section');
+    await expect(section).toBeVisible({ timeout: 30_000 });
+    await expect(section.locator('.category-header')).toContainText('Origin');
+
+    const rows = section.locator('.origin-axis-row');
+    await expect(rows).toHaveCount(3);
+    for (const [index, label] of ['X', 'Y', 'Z'].entries()) {
+        await expect(rows.nth(index).locator('.origin-axis-label')).toHaveText(label);
+    }
+
+    // Each eye toggle reflects its axis preference. X starts visible (schema
+    // default) and flips through the same user-scoped preference the viewport
+    // subscribes to.
+    const xToggle = rows.nth(0).locator('.origin-axis-toggle');
+    await expect(xToggle).toHaveAttribute('aria-pressed', 'true');
+    await expect(xToggle).toHaveAttribute('aria-label', 'Hide X axis');
+    await xToggle.click();
+    await expect(xToggle).toHaveAttribute('aria-pressed', 'false');
+    await expect(xToggle).toHaveAttribute('aria-label', 'Show X axis');
+    await expect(rows.nth(1).locator('.origin-axis-toggle')).toHaveAttribute('aria-pressed', 'true');
+    await expect(rows.nth(2).locator('.origin-axis-toggle')).toHaveAttribute('aria-pressed', 'true');
+
+    // Restore all axes before the reference screenshot.
+    await xToggle.click();
+    await expect(xToggle).toHaveAttribute('aria-pressed', 'true');
+    await expect(xToggle).toHaveAttribute('aria-label', 'Hide X axis');
+    await expect(viewport.locator('.cad-viewport-error-banner')).toBeHidden();
+    await viewport.screenshot({ path: 'test-results/cad-origin-axes.png' });
+
+    const bad = severe(errors);
+    expect(bad, `unexpected severe errors:\n${bad.join('\n')}`).toEqual([]);
+});
+
 test('pinned measurement survives a rebuild with its label', async ({ page }) => {
     const errors = collectErrors(page);
     await page.goto('/');

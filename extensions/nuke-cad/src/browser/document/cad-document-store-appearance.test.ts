@@ -48,6 +48,17 @@ function minimalDoc(): NukeCadDocument {
     };
 }
 
+function multiBodyDoc(): NukeCadDocument {
+    return {
+        ...minimalDoc(),
+        bodies: [
+            { id: 'body-1', name: 'Body 1' },
+            { id: 'body-2', name: 'Body 2' },
+            { id: 'body-3', name: 'Body 3' }
+        ]
+    };
+}
+
 function storeWithDoc(doc: NukeCadDocument = minimalDoc()): CadDocumentStore {
     const store = new CadDocumentStore();
     const loaded = store.loadDocument(doc);
@@ -224,5 +235,92 @@ describe('body appearance store mutations', () => {
         const withAppearance = minimalDoc();
         withAppearance.bodies[0].appearance = { color: '#ff8800', opacity: 0.5 };
         expect(computeResultCacheKeys(withAppearance, versions)).toEqual(computeResultCacheKeys(minimalDoc(), versions));
+    });
+});
+
+describe('multi-body appearance store mutations', () => {
+    it('sets every body in one commit and one undo step', () => {
+        const store = storeWithDoc(multiBodyDoc());
+        let changes = 0;
+        store.onChange(() => {
+            changes += 1;
+        });
+        expect(store.setBodiesAppearance(['body-1', 'body-3'], { color: '#ff8800', opacity: 0.5 }).success).toBe(true);
+        expect(changes).toBe(1);
+        expect(store.document!.bodies[0].appearance).toEqual({ color: '#ff8800', opacity: 0.5 });
+        expect(store.document!.bodies[1].appearance).toBeUndefined();
+        expect(store.document!.bodies[2].appearance).toEqual({ color: '#ff8800', opacity: 0.5 });
+
+        expect(store.undo().success).toBe(true);
+        expect(store.document!.bodies[0].appearance).toBeUndefined();
+        expect(store.document!.bodies[2].appearance).toBeUndefined();
+        expect(store.canUndo).toBe(false);
+
+        expect(store.redo().success).toBe(true);
+        expect(store.document!.bodies[0].appearance).toEqual({ color: '#ff8800', opacity: 0.5 });
+        expect(store.document!.bodies[2].appearance).toEqual({ color: '#ff8800', opacity: 0.5 });
+    });
+
+    it('dedupes body ids before committing', () => {
+        const store = storeWithDoc(multiBodyDoc());
+        let changes = 0;
+        store.onChange(() => {
+            changes += 1;
+        });
+        expect(store.setBodiesAppearance(['body-1', 'body-1', 'body-1'], { opacity: 0.25 }).success).toBe(true);
+        expect(changes).toBe(1);
+        expect(store.document!.bodies[0].appearance).toEqual({ opacity: 0.25 });
+        expect(store.document!.bodies[1].appearance).toBeUndefined();
+        expect(store.document!.bodies[2].appearance).toBeUndefined();
+    });
+
+    it('removes overrides from every selected body in one commit', () => {
+        const store = storeWithDoc(multiBodyDoc());
+        expect(store.setBodiesAppearance(['body-1', 'body-2'], { color: '#ff8800' }).success).toBe(true);
+        expect(store.setBodiesAppearance(['body-1', 'body-2'], undefined).success).toBe(true);
+        expect(store.document!.bodies[0].appearance).toBeUndefined();
+        expect(store.document!.bodies[1].appearance).toBeUndefined();
+        expect(store.undo().success).toBe(true);
+        expect(store.document!.bodies[0].appearance).toEqual({ color: '#ff8800' });
+        expect(store.document!.bodies[1].appearance).toEqual({ color: '#ff8800' });
+    });
+
+    it('rejects unknown ids without touching any body or history', () => {
+        const store = storeWithDoc(multiBodyDoc());
+        const result = store.setBodiesAppearance(['body-1', 'body-missing'], { color: '#ff8800' });
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('body-missing');
+        expect(store.document!.bodies[0].appearance).toBeUndefined();
+        expect(store.dirty).toBe(false);
+        expect(store.canUndo).toBe(false);
+    });
+
+    it('rejects an empty body list', () => {
+        const store = storeWithDoc(multiBodyDoc());
+        const result = store.setBodiesAppearance([], { color: '#ff8800' });
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('at least one body');
+        expect(store.canUndo).toBe(false);
+    });
+
+    it('rejects invalid overrides without touching any body or history', () => {
+        const store = storeWithDoc(multiBodyDoc());
+        for (const appearance of [{}, { color: '#12345' }, { opacity: -0.1 }, { opacity: Number.NaN }]) {
+            const result = store.setBodiesAppearance(['body-1', 'body-2'], appearance);
+            expect(result.success).toBe(false);
+            expect(result.issues?.length ?? 0).toBeGreaterThan(0);
+        }
+        expect(store.document!.bodies[0].appearance).toBeUndefined();
+        expect(store.document!.bodies[1].appearance).toBeUndefined();
+        expect(store.dirty).toBe(false);
+        expect(store.canUndo).toBe(false);
+    });
+
+    it('keeps the single-body wrapper behavior unchanged', () => {
+        const store = storeWithDoc(multiBodyDoc());
+        expect(store.setBodyAppearance('body-2', { color: '#00ff00' }).success).toBe(true);
+        expect(store.document!.bodies[1].appearance).toEqual({ color: '#00ff00' });
+        expect(store.document!.bodies[0].appearance).toBeUndefined();
+        expect(store.document!.bodies[2].appearance).toBeUndefined();
     });
 });

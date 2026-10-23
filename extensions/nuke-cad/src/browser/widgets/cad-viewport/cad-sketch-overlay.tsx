@@ -38,6 +38,7 @@ import * as React from '@theia/core/shared/react';
 import { type MessageService } from '@theia/core/lib/common/message-service';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
 import {
+    NukeCheckbox,
     NukeDialog,
     NukeFormRow,
     NukePanel,
@@ -93,6 +94,7 @@ import {
     clampPanelPosition
 } from './draggable-panel';
 import { type DocumentTemplate } from '../../../common/document-templates';
+import { type DressUpPickMode } from './dress-up-pick';
 import { CadCommandSearch, CAD_COMMAND_SEARCH_TRIGGER_ATTRIBUTE } from './cad-command-search';
 import { type CadCommandSearchAction } from './cad-command-search-model';
 import { validRelations, type SketchEntityType } from './constraint-relations';
@@ -138,10 +140,16 @@ interface CadSketchOverlayProps {
     readonly featureCreationBodyId?: string;
     readonly editFeature?: FeatureDef;
     readonly facePickMode?: 'sketchDatum' | 'externalGeometry';
-    readonly dressUpPickMode?: { readonly type: FeatureType; readonly selecting: 'edge' | 'face' };
+    readonly dressUpPickMode?: DressUpPickMode;
     readonly holePickMode?: boolean;
     readonly shortcutBar?: { readonly mode: 'document' | 'sketch'; readonly anchor: { readonly x: number; readonly y: number } };
     readonly sketchAutoDimension: boolean;
+    /** Show text under ribbon action icons; false renders compact icon buttons. */
+    readonly ribbonLabels: boolean;
+    /** Command ids pinned inline in their ribbon section. */
+    readonly ribbonPins: readonly string[];
+    /** Toggle a command's inline pin state. */
+    readonly onToggleRibbonPin: (commandId: string) => void;
     readonly templates: ReadonlyArray<DocumentTemplate>;
     readonly onEnterSketch: (kind: DatumKind, offset: number) => void;
     /** Receives the full validated new-kind datum draft plus the picker offset. */
@@ -161,7 +169,12 @@ interface CadSketchOverlayProps {
     readonly onStartFacePick: (offset: number) => void;
     readonly onStartExternalGeometryPick: (featureId: string) => void;
     readonly onCancelFacePick: () => void;
-    readonly onStartDressUpPick: (type: FeatureType, selecting: 'edge' | 'face', callback: (ref: TopologyRef) => void) => void;
+    readonly onStartDressUpPick: (
+        type: FeatureType,
+        selecting: 'edge' | 'face',
+        callback: (ref: TopologyRef) => void,
+        tangentChain?: boolean
+    ) => void;
     readonly onDressUpPickCancel: () => void;
     readonly onStartHolePick: (callback: (ref: TopologyRef, uv: [number, number]) => void) => void;
     readonly onHolePickCancel: () => void;
@@ -270,6 +283,9 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
         holePickMode,
         shortcutBar,
         sketchAutoDimension,
+        ribbonLabels,
+        ribbonPins,
+        onToggleRibbonPin,
         onEnterSketch,
         onEnterSketchDraft,
         onExitSketch,
@@ -586,6 +602,9 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
                     documentStore={documentStore}
                     sketchSetupActive={setupVisible}
                     sketchEditing={sketchEditing}
+                    ribbonLabels={ribbonLabels}
+                    ribbonPins={ribbonPins}
+                    onToggleRibbonPin={onToggleRibbonPin}
                     searchShortcutBlocked={
                         setupVisible ||
                         featureCreationType !== undefined ||
@@ -1209,6 +1228,12 @@ interface DocumentModeToolbarProps {
     readonly documentStore: CadDocumentStore;
     readonly sketchSetupActive: boolean;
     readonly sketchEditing: boolean;
+    /** Show text under ribbon action icons; false forces compact icon buttons. */
+    readonly ribbonLabels: boolean;
+    /** Command ids pinned inline in their ribbon section. */
+    readonly ribbonPins: readonly string[];
+    /** Toggle a command's inline pin state. */
+    readonly onToggleRibbonPin: (commandId: string) => void;
     /**
      * True while a task panel/dialog/pick/measure session owns the keyboard:
      * the `/` search shortcut stays inert then. The `/` handler itself only
@@ -1435,27 +1460,38 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
         }
     };
 
-    const groups: Array<{ label: string; actions: NukeRibbonItem[]; promoted: number }> = CAD_RIBBON_GROUPS.map((group) => ({
-        label: group.label,
-        promoted: group.promoted,
-        actions: commands
-            .filter((command) => command.group === group.id)
-            .map((command) => ({
-                id: command.id,
-                label: command.label,
-                shortLabel: command.shortLabel,
-                icon: command.icon,
-                disabled: !isCommandEnabled(command),
-                disabledReason: commandDisabledReason(command),
-                // Sketch setup is a toggle: keep aria-pressed present (true/false),
-                // while other ribbon actions only expose it when active.
-                active:
-                    command.id === 'newSketch' || command.id === 'editSketch'
-                        ? isCommandActive(command.id)
-                        : isCommandActive(command.id) || undefined,
-                onClick: command.run
-            }))
-    }));
+    const pinnedIds = new Set(props.ribbonPins);
+    const groups: Array<{ label: string; actions: NukeRibbonItem[]; promoted: number; promotedIds: string[] }> = CAD_RIBBON_GROUPS.map(
+        (group) => {
+            const actions = commands.filter((command) => command.group === group.id);
+            return {
+                label: group.label,
+                promoted: group.promoted,
+                promotedIds: actions.filter((command) => pinnedIds.has(command.id)).map((command) => command.id),
+                actions: actions.map((command) => ({
+                    id: command.id,
+                    label: command.label,
+                    shortLabel: command.shortLabel,
+                    icon: command.icon,
+                    disabled: !isCommandEnabled(command),
+                    disabledReason: commandDisabledReason(command),
+                    // Sketch setup is a toggle: keep aria-pressed present (true/false),
+                    // while other ribbon actions only expose it when active.
+                    active:
+                        command.id === 'newSketch' || command.id === 'editSketch'
+                            ? isCommandActive(command.id)
+                            : isCommandActive(command.id) || undefined,
+                    pinned: pinnedIds.has(command.id),
+                    onTogglePin: () => props.onToggleRibbonPin(command.id),
+                    onClick: command.run
+                }))
+            };
+        }
+    );
+
+    // `ribbonLabels: false` swaps tile captions for the compact icon row; the
+    // width-selected icons/menus densities are unchanged.
+    const effectiveDensity: NukeRibbonDensity = ribbonDensity === 'tiles' && !props.ribbonLabels ? 'icons' : ribbonDensity;
 
     // The search consumes exactly the same specs (promoted + caret-menu tails).
     const searchActions: CadCommandSearchAction[] = commands.map((command) => ({
@@ -1496,9 +1532,15 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
                 </Tooltip>
             </div>
             <div className="cad-document-toolbar-actions">
-                <NukeRibbon density={ribbonDensity} className="cad-document-toolbar-ribbon">
+                <NukeRibbon density={effectiveDensity} className="cad-document-toolbar-ribbon">
                     {groups.map((group) => (
-                        <NukeRibbonSection key={group.label} label={group.label} items={group.actions} promoted={group.promoted} />
+                        <NukeRibbonSection
+                            key={group.label}
+                            label={group.label}
+                            items={group.actions}
+                            promoted={group.promoted}
+                            promotedIds={group.promotedIds}
+                        />
                     ))}
                 </NukeRibbon>
                 <div className="cad-document-toolbar-search-anchor">
@@ -2363,12 +2405,17 @@ interface FeatureCreationDialogProps {
     readonly initialBodyId?: string;
     readonly sketchId?: string;
     readonly documentStore: CadDocumentStore;
-    readonly dressUpPickMode?: { readonly type: FeatureType; readonly selecting: 'edge' | 'face' };
+    readonly dressUpPickMode?: DressUpPickMode;
     readonly holePickMode?: boolean;
     readonly onCancel: () => void;
     readonly onConfirm: (type: FeatureType, params: FeatureParams) => void;
     readonly onEditFeature?: (id: string, params: FeatureParams) => void;
-    readonly onStartDressUpPick: (type: FeatureType, selecting: 'edge' | 'face', callback: (ref: TopologyRef) => void) => void;
+    readonly onStartDressUpPick: (
+        type: FeatureType,
+        selecting: 'edge' | 'face',
+        callback: (ref: TopologyRef) => void,
+        tangentChain?: boolean
+    ) => void;
     readonly onDressUpPickCancel: () => void;
     readonly onStartHolePick: (callback: (ref: TopologyRef, uv: [number, number]) => void) => void;
     readonly onHolePickCancel: () => void;
@@ -2425,6 +2472,7 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
         return bodies.length > 0 ? bodies[0].id : '';
     });
     const [refs, setRefs] = React.useState<TopologyRef[]>([]);
+    const [tangentChain, setTangentChain] = React.useState(false);
     const [filletRadius, setFilletRadius] = React.useState('1');
     const [chamferMode, setChamferMode] = React.useState<ChamferMode>('symmetric');
     const [chamferDistance, setChamferDistance] = React.useState('1');
@@ -3570,6 +3618,13 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                     </div>
                 ))}
             </div>
+            {selecting === 'edge' && (
+                <Tooltip content="Select every edge tangent to the picked edge">
+                    <NukeCheckbox checked={tangentChain} onChange={setTangentChain} ariaLabel="Tangent chain">
+                        Tangent chain
+                    </NukeCheckbox>
+                </Tooltip>
+            )}
             <div className="cad-feature-dialog-actions">
                 <button
                     className={`theia-button secondary ${isPicking ? 'active' : ''}`}
@@ -3577,7 +3632,7 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                         if (isPicking) {
                             props.onDressUpPickCancel();
                         } else {
-                            props.onStartDressUpPick(type, selecting, addRef);
+                            props.onStartDressUpPick(type, selecting, addRef, selecting === 'edge' ? tangentChain : undefined);
                         }
                     }}
                 >

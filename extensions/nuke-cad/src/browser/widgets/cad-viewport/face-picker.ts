@@ -60,6 +60,24 @@ export interface FacePickHit {
 }
 
 /**
+ * One distinct face under the pointer, ordered by ray distance.
+ *
+ * Used by Select Other: a ray through nested or overlapping solids hits many
+ * faces, and only the solidId/faceId pair identifies a candidate (one face can
+ * be hit twice — entering and exiting a shell).
+ */
+export interface FacePickCandidate {
+    readonly solidId: number;
+    readonly faceId: number;
+    readonly bodyId?: string;
+    /** Ray distance from the camera to this hit, in world units. */
+    readonly distance: number;
+    /** World-space intersection point on the face, when available. */
+    readonly point?: THREE.Vector3;
+    readonly mesh: THREE.Mesh;
+}
+
+/**
  * Build a TopologyRef for a picked face.
  *
  * The reference points at the current tip feature of the body that owns the
@@ -132,6 +150,70 @@ export function raycastFace(
         fingerprint: data.fingerprint,
         point: first.point.clone()
     };
+}
+
+/**
+ * Collapse candidate hits to distinct `solidId:faceId` faces.
+ *
+ * Keeps the nearest hit per face, orders the result by distance, and caps the
+ * list at `limit` (default 16). Pure: unit tests pass fakes.
+ */
+export function dedupeFaceCandidates(candidates: readonly FacePickCandidate[], limit = 16): FacePickCandidate[] {
+    const ordered = [...candidates].sort((a, b) => a.distance - b.distance);
+    const seen = new Set<string>();
+    const result: FacePickCandidate[] = [];
+    for (const candidate of ordered) {
+        if (result.length >= limit) {
+            break;
+        }
+        const key = `${candidate.solidId}:${candidate.faceId}`;
+        if (seen.has(key)) {
+            continue;
+        }
+        seen.add(key);
+        result.push(candidate);
+    }
+    return result;
+}
+
+/**
+ * Raycast against the viewport face meshes and return every distinct face
+ * under the pointer, nearest first.
+ *
+ * `meshes` is the same pick pool as {@link raycastFace}. Intersections with
+ * invalid (missing or non-numeric) `solidId`/`faceId` userData are ignored so a
+ * helper mesh can never become a Select Other candidate.
+ */
+export function raycastFaceCandidates(
+    meshes: readonly THREE.Mesh[],
+    raycaster: THREE.Raycaster,
+    ndc: { x: number; y: number },
+    camera: THREE.Camera,
+    limit = 16
+): FacePickCandidate[] {
+    raycaster.setFromCamera(new THREE.Vector2(ndc.x, ndc.y), camera);
+    const intersects = raycaster.intersectObjects([...meshes], false);
+    const candidates: FacePickCandidate[] = [];
+    for (const intersection of intersects) {
+        const object = intersection.object;
+        const data = object.userData as {
+            solidId?: number;
+            faceId?: number;
+            bodyId?: string;
+        };
+        if (typeof data.solidId !== 'number' || typeof data.faceId !== 'number') {
+            continue;
+        }
+        candidates.push({
+            solidId: data.solidId,
+            faceId: data.faceId,
+            bodyId: data.bodyId,
+            distance: intersection.distance,
+            point: intersection.point.clone(),
+            mesh: object as THREE.Mesh
+        });
+    }
+    return dedupeFaceCandidates(candidates, limit);
 }
 
 function _normalized(v: [number, number, number]): [number, number, number] {

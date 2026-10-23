@@ -470,6 +470,12 @@ export function cadCommandGroupLabel(group: CadCommandGroup): string {
 }
 
 /**
+ * Every registered command id, including commands hidden by the current
+ * context (e.g. Edit Selected Sketch). Pin state validates against this set.
+ */
+export const CAD_COMMAND_IDS: ReadonlySet<string> = new Set(CAD_COMMAND_DEFINITIONS.map((definition) => definition.id));
+
+/**
  * Resolve the ordered command table for the current document state.
  *
  * The returned specs keep today's ribbon order (including caret-menu tails)

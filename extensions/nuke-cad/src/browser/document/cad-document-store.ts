@@ -1637,26 +1637,50 @@ export class CadDocumentStore {
     /**
      * Set or clear the display-only appearance override of an existing body.
      *
-     * Appearance state is viewport-only (color + opacity). Like
-     * `setBodyMaterial` it rides the normal commit path — schema validation,
-     * snapshot undo/redo, dirty flag, change event — but callers must never
-     * schedule a rebuild: the geometry backend never reads it. `undefined`
-     * removes the override; the schema rejects an empty `{}`.
+     * Thin single-body wrapper over {@link setBodiesAppearance}.
      */
     setBodyAppearance(id: string, appearance: BodyAppearance | undefined): DocumentMutationResult {
+        return this.setBodiesAppearance([id], appearance);
+    }
+
+    /**
+     * Set or clear the display-only appearance override of several bodies in
+     * one commit (a single undo entry / change event).
+     *
+     * Ids are deduped; every id must exist. Appearance state is viewport-only
+     * (color + opacity): like `setBodyAppearance` it rides the normal commit
+     * path — schema validation, snapshot undo/redo, dirty flag, change event —
+     * but callers must never schedule a rebuild: the geometry backend never
+     * reads it. `undefined` removes the override; the schema rejects `{}`.
+     */
+    setBodiesAppearance(bodyIds: readonly string[], appearance: BodyAppearance | undefined): DocumentMutationResult {
         const check = this.requireDocument();
         if (!check.success) {
             return { success: false, error: check.error, issues: check.issues };
         }
-        const doc = cloneDocument(check.value!);
-        const body = doc.bodies.find((b) => b.id === id);
-        if (body === undefined) {
-            return { success: false, error: `Body '${id}' not found` };
+        const ids = Array.from(new Set(bodyIds));
+        if (ids.length === 0) {
+            return { success: false, error: 'Select at least one body' };
         }
-        if (appearance === undefined) {
-            delete body.appearance;
-        } else {
-            body.appearance = { ...appearance };
+        const doc = cloneDocument(check.value!);
+        const known = new Set(doc.bodies.map((body) => body.id));
+        const unknown = ids.filter((id) => !known.has(id));
+        if (unknown.length > 0) {
+            return {
+                success: false,
+                error: `Body${unknown.length > 1 ? 's' : ''} '${unknown.join("', '")}' not found`
+            };
+        }
+        const selected = new Set(ids);
+        for (const body of doc.bodies) {
+            if (!selected.has(body.id)) {
+                continue;
+            }
+            if (appearance === undefined) {
+                delete body.appearance;
+            } else {
+                body.appearance = { ...appearance };
+            }
         }
         return this.commit(doc);
     }

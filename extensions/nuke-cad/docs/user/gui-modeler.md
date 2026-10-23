@@ -57,6 +57,15 @@ Disabled toolbar actions stay visible and explain themselves: hover a disabled
 button for `<action> — <reason>`, or open its section's caret menu to read that
 reason as a muted second line under the action.
 
+Ribbon buttons show text under their icons by default. Turn off **Show text
+under ribbon icons** (`nukeCad.ribbonLabels`) to render compact icon-only
+buttons; sections still collapse to caption menus when the toolbar is narrow.
+Every section's caret menu lists all of its commands, including the ones
+already inline. Use the pin button next to a row to **Pin to toolbar** (render
+it inline in that section) or **Unpin from toolbar** (return it to the menu).
+Pins persist in `nukeCad.ribbonPins`; a section renders at most eight inline
+buttons, defaults included.
+
 You can also create a `.nuke-cad` file directly in the Explorer; double-clicking
 it opens it in the CAD viewport by default.
 
@@ -118,6 +127,13 @@ it opens it in the CAD viewport by default.
   model.
 - **Canvas background** (`nukeCad.viewportBackground` setting): `theme`
   (default, follows the active Theia theme), `dark`, `light`, or `gradient`.
+- **Origin axes** (Model Outline → **Origin**): the viewport draws the
+  world-origin triad in X red, Y green, and Z blue, scaled to the model so it
+  stays legible at any size. The three eye buttons hide or show one axis at a
+  time and remember the choice as user preferences
+  (`nukeCad.showOriginX` / `showOriginY` / `showOriginZ`, all on by default).
+  The axes are display-only — they never change geometry, builds, exports, or
+  the exported script — and disappear while you sketch (setup or session).
 - **Orientation cube** (top-right, below the toolbar, shared with the native VTK viewers): mirrors the current camera
   orientation; click an axis knob (or its opposite) to snap to that view.
 - **View badge** (top-left, below the toolbar, shared with the native VTK viewers): shows the active view
@@ -144,6 +160,17 @@ it opens it in the CAD viewport by default.
   **Section View** toggle, and **Reset Explode** (disabled at 0%). Shortcut
   hints appear only for real bindings. It closes on a click elsewhere or `Esc`;
   with no menu open, `Esc` clears the current selection.
+- **Select Other**: when more than one face lies under the pointer (nested or
+  overlapping solids), the context menu adds **Select Other…**. It opens a
+  candidate list at the pointer with each face's body, face index, and ray
+  distance (nearest first); picking a row selects that face. **Alt+click**
+  cycles the same candidates without opening the menu — each Alt+click moves
+  from the current face to the next one, starting at the nearest when the
+  current selection is not under the pointer, and wrapping at the end.
+  Candidates are distinct faces, so a ray that enters and exits the same shell
+  is listed once. Alt+click applies only to normal document selection (not
+  during sketch, measure, or a pick mode), and `Ctrl`/`Cmd`-click stays the
+  additive multi-select gesture.
 - **Multi-select**: `Ctrl`/`Cmd`-click solids in the viewport (or rows in the
   Model Outline BODIES section) to accumulate a selection; `Ctrl`/`Cmd`-click
   again to drop one, or `Ctrl`/`Cmd`-drag a rectangle to add every solid whose
@@ -392,6 +419,15 @@ look without changing its geometry:
 - **Color** — the solid fill color (`#rrggbb`, picked from the shared palette
   or typed as hex).
 - **Opacity** — 0–100% in 5% steps, set with the slider or the number field.
+- **Preset** — pick a saved appearance to fill the draft, **Save preset…** to
+  store the current color/opacity under a name, or the trash button to delete
+  the selected preset. Presets are user settings (they follow the IDE profile,
+  not the document) and saving under an existing name replaces it.
+
+With more than one body selected (Ctrl/Cmd-click solids), the dialog also
+offers **Apply to all selected bodies**. Leave it off to change only the body
+you opened the dialog for; check it to write the same color/opacity to every
+selected body. The update is one undoable document change.
 
 **OK** stores the override in the document (it survives save/reopen and rides
 undo/redo); **Remove override** returns the body to the theme-adaptive default;
@@ -474,13 +510,16 @@ They are available from the document toolbar and the Feature Tree **Add** menu.
 1. Select the target body.
 2. Click **Pick edges** and select one or more edges in the viewport. Hover
    highlights the candidate edge; click adds it to the list. Use the remove
-   button next to a listed edge to delete it.
+   button next to a listed edge to delete it. Enable **Tangent chain** before
+   picking to add every edge of the same solid that continues tangent to the
+   picked edge (15° tolerance), instead of only the clicked edge.
 3. Enter a **Radius**.
 4. Click **Create** to add the fillet feature.
 
 ### Chamfer
 
-1. Select the target body and pick edges the same way as fillet.
+1. Select the target body and pick edges the same way as fillet, including the
+   optional **Tangent chain** expansion for edge picks.
 2. Choose a mode:
    - **Symmetric** — one **Distance** applied to both sides of the edge.
    - **Two distances** — two values (`distances[0]` and `distances[1]`).

@@ -48,6 +48,7 @@ import {
     PreferenceSchema,
     PreferenceContribution
 } from '@theia/core/lib/common/preferences';
+import type { AppearancePreset } from './widgets/cad-viewport/body-appearance';
 
 /** Preference schema for Nuke CAD settings. */
 export const NukeCadPreferenceSchema: PreferenceSchema = {
@@ -135,6 +136,52 @@ export const NukeCadPreferenceSchema: PreferenceSchema = {
             minimum: 0,
             maximum: 6,
             description: 'Maximum decimal places for angle readouts (measurement labels). Values are rounded; trailing zeros stay trimmed.'
+        },
+        'nukeCad.ribbonLabels': {
+            type: 'boolean',
+            default: true,
+            description:
+                'Show text under ribbon action icons. Off uses compact icon buttons ' +
+                '(sections still collapse to menus when the toolbar is narrow).'
+        },
+        'nukeCad.ribbonPins': {
+            type: 'array',
+            default: [],
+            uniqueItems: true,
+            items: { type: 'string' },
+            description: 'Command ids pinned inline in their ribbon section.'
+        },
+        'nukeCad.appearancePresets': {
+            type: 'array',
+            default: [],
+            items: {
+                type: 'object',
+                properties: {
+                    name: { type: 'string', minLength: 1 },
+                    color: { type: 'string', pattern: '^#[0-9a-fA-F]{6}$' },
+                    opacity: { type: 'number', minimum: 0, maximum: 1 }
+                },
+                required: ['name', 'color', 'opacity'],
+                additionalProperties: false
+            },
+            description:
+                'User-level appearance presets for the body Appearance dialog (color and opacity). ' +
+                'Names are trimmed and deduplicated in app code; applying a preset only fills the dialog draft.'
+        },
+        'nukeCad.showOriginX': {
+            type: 'boolean',
+            default: true,
+            description: 'Show the world-origin X axis in the CAD viewport.'
+        },
+        'nukeCad.showOriginY': {
+            type: 'boolean',
+            default: true,
+            description: 'Show the world-origin Y axis in the CAD viewport.'
+        },
+        'nukeCad.showOriginZ': {
+            type: 'boolean',
+            default: true,
+            description: 'Show the world-origin Z axis in the CAD viewport.'
         }
     }
 };
@@ -161,6 +208,18 @@ export interface NukeCadConfiguration {
     'nukeCad.lengthDecimals': number;
     /** Maximum decimal places for angle readouts (measurement labels). */
     'nukeCad.angleDecimals': number;
+    /** Show text under ribbon action icons; false renders compact icon buttons. */
+    'nukeCad.ribbonLabels': boolean;
+    /** Command ids pinned inline in their ribbon section. */
+    'nukeCad.ribbonPins': string[];
+    /** User-level appearance presets (trimmed unique names; preference-scoped, never document data). */
+    'nukeCad.appearancePresets': AppearancePreset[];
+    /** Show the world-origin X axis in the CAD viewport. */
+    'nukeCad.showOriginX': boolean;
+    /** Show the world-origin Y axis in the CAD viewport. */
+    'nukeCad.showOriginY': boolean;
+    /** Show the world-origin Z axis in the CAD viewport. */
+    'nukeCad.showOriginZ': boolean;
 }
 
 /** Symbol used to bind the {@link PreferenceContribution} for Nuke CAD. */

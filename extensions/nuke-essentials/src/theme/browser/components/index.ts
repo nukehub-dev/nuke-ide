@@ -53,8 +53,10 @@ export type { NukeRibbonDensity, NukeRibbonItem, NukeRibbonProps, NukeRibbonSect
 export {
     RIBBON_DENSITY_HYSTERESIS,
     RIBBON_ICONS_MIN_WIDTH,
+    RIBBON_INLINE_PIN_CAP,
     RIBBON_TILES_MIN_WIDTH,
     selectRibbonDensity,
+    splitRibbonByPromotion,
     splitRibbonItems
 } from './nuke-ribbon-model';
 export type { RibbonItemSplit } from './nuke-ribbon-model';

@@ -498,6 +498,67 @@
     border-color: var(--theia-focusBorder);
 }
 
+/* Origin: three 24 px world-axis rows with colored dots and eye toggles. */
+.origin-axis-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 2px 8px 4px;
+}
+
+.origin-axis-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 24px;
+    padding-right: 2px;
+    border-radius: 4px;
+}
+
+.origin-axis-row:hover {
+    background: var(--theia-list-hoverBackground);
+}
+
+.origin-axis-row.hidden .origin-axis-label {
+    opacity: 0.5;
+}
+
+.origin-axis-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.origin-axis-dot-x {
+    background: #e05252;
+}
+
+.origin-axis-dot-y {
+    background: #4caf50;
+}
+
+.origin-axis-dot-z {
+    background: #3b82f6;
+}
+
+.origin-axis-label {
+    flex: 1;
+    min-width: 0;
+    font-size: 13px;
+}
+
+.origin-axis-toggle {
+    min-width: 0;
+    margin-left: auto;
+    padding: 1px 3px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    line-height: 1;
+}
+
 /* V10: spreadsheet table view */
 .outline-table {
     border: 1px solid var(--theia-panel-border);

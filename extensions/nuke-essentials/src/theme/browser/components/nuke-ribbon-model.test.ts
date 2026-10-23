@@ -34,12 +34,15 @@ import { describe, expect, it } from 'vitest';
 import {
     RIBBON_DENSITY_HYSTERESIS,
     RIBBON_ICONS_MIN_WIDTH,
+    RIBBON_INLINE_PIN_CAP,
     RIBBON_TILES_MIN_WIDTH,
     selectRibbonDensity,
+    splitRibbonByPromotion,
     splitRibbonItems
 } from './nuke-ribbon-model';
 
 const ITEMS = ['new', 'save', 'undo', 'redo'] as const;
+const OBJECT_ITEMS = ITEMS.map((id) => ({ id }));
 
 describe('splitRibbonItems', () => {
     it('splits after the promoted count in order', () => {
@@ -73,6 +76,59 @@ describe('splitRibbonItems', () => {
         expect(split.promoted[0]).toBe(items[0]);
         expect(split.menu[0]).toBe(items[1]);
         expect(items).toHaveLength(2);
+    });
+});
+
+describe('splitRibbonByPromotion', () => {
+    it('keeps the default promoted prefix without pins', () => {
+        const split = splitRibbonByPromotion(OBJECT_ITEMS, 2);
+        expect(split.promoted.map((item) => item.id)).toEqual(['new', 'save']);
+        expect(split.menu.map((item) => item.id)).toEqual(['undo', 'redo']);
+    });
+
+    it('adds pinned ids inline while preserving section order', () => {
+        const split = splitRibbonByPromotion(OBJECT_ITEMS, 2, ['redo', 'undo']);
+        expect(split.promoted.map((item) => item.id)).toEqual(['new', 'save', 'undo', 'redo']);
+        expect(split.menu).toEqual([]);
+    });
+
+    it('places a single pin after the defaults regardless of pin-list order', () => {
+        const split = splitRibbonByPromotion(OBJECT_ITEMS, 2, ['redo']);
+        expect(split.promoted.map((item) => item.id)).toEqual(['new', 'save', 'redo']);
+        expect(split.menu.map((item) => item.id)).toEqual(['undo']);
+    });
+
+    it('ignores unknown pinned ids', () => {
+        const split = splitRibbonByPromotion(OBJECT_ITEMS, 2, ['missing']);
+        expect(split.promoted.map((item) => item.id)).toEqual(['new', 'save']);
+        expect(split.menu.map((item) => item.id)).toEqual(['undo', 'redo']);
+    });
+
+    it('dedupes pins that already sit in the default promotion', () => {
+        const split = splitRibbonByPromotion(OBJECT_ITEMS, 2, ['save', 'save']);
+        expect(split.promoted.map((item) => item.id)).toEqual(['new', 'save']);
+        expect(split.menu.map((item) => item.id)).toEqual(['undo', 'redo']);
+    });
+
+    it('caps the inline set at eight items in section order', () => {
+        expect(RIBBON_INLINE_PIN_CAP).toBe(8);
+        const many = Array.from({ length: 12 }, (_, index) => ({ id: `c${index}` }));
+        const split = splitRibbonByPromotion(many, 6, ['c9', 'c8', 'c7', 'c6']);
+        expect(split.promoted.map((item) => item.id)).toEqual(['c0', 'c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7']);
+        expect(split.menu.map((item) => item.id)).toEqual(['c8', 'c9', 'c10', 'c11']);
+    });
+
+    it('honors an explicit cap before later pins', () => {
+        const split = splitRibbonByPromotion(OBJECT_ITEMS, 2, ['redo'], 2);
+        expect(split.promoted.map((item) => item.id)).toEqual(['new', 'save']);
+        expect(split.menu.map((item) => item.id)).toEqual(['undo', 'redo']);
+    });
+
+    it('preserves object identity and leaves the input untouched', () => {
+        const split = splitRibbonByPromotion(OBJECT_ITEMS, 1, ['redo']);
+        expect(split.promoted[0]).toBe(OBJECT_ITEMS[0]);
+        expect(split.promoted[1]).toBe(OBJECT_ITEMS[3]);
+        expect(OBJECT_ITEMS).toHaveLength(4);
     });
 });
 

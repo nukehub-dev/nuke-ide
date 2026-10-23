@@ -82,3 +82,58 @@ describe('NukeCadPreferenceSchema display precision', () => {
         }
     });
 });
+
+describe('NukeCadPreferenceSchema ribbon customization', () => {
+    it('shows ribbon labels by default', () => {
+        const prop = NukeCadPreferenceSchema.properties['nukeCad.ribbonLabels'];
+        expect(prop.type).toBe('boolean');
+        expect(prop.default).toBe(true);
+    });
+
+    it('defaults to no pinned commands and keeps the id list unique', () => {
+        const prop = NukeCadPreferenceSchema.properties['nukeCad.ribbonPins'];
+        expect(prop.type).toBe('array');
+        expect(prop.default).toEqual([]);
+        expect(prop.uniqueItems).toBe(true);
+        expect((prop.items as { type?: string }).type).toBe('string');
+    });
+});
+
+describe('NukeCadPreferenceSchema appearance presets', () => {
+    it('defaults to an empty preset library', () => {
+        const prop = NukeCadPreferenceSchema.properties['nukeCad.appearancePresets'];
+        expect(prop.type).toBe('array');
+        expect(prop.default).toEqual([]);
+    });
+
+    it('describes the preset item shape', () => {
+        const items = NukeCadPreferenceSchema.properties['nukeCad.appearancePresets'].items as {
+            type?: string;
+            required?: string[];
+            properties?: Record<string, { type?: string; minLength?: number; pattern?: string; minimum?: number; maximum?: number }>;
+        };
+        expect(items.type).toBe('object');
+        expect(items.required).toEqual(['name', 'color', 'opacity']);
+        expect(items.properties?.name.type).toBe('string');
+        expect(items.properties?.name.minLength).toBe(1);
+        expect(items.properties?.color.pattern).toBe('^#[0-9a-fA-F]{6}$');
+        expect(items.properties?.opacity.minimum).toBe(0);
+        expect(items.properties?.opacity.maximum).toBe(1);
+    });
+});
+
+describe('NukeCadPreferenceSchema origin axes', () => {
+    it('shows all three world-origin axes by default', () => {
+        for (const name of ['nukeCad.showOriginX', 'nukeCad.showOriginY', 'nukeCad.showOriginZ']) {
+            const prop = NukeCadPreferenceSchema.properties[name];
+            expect(prop.type).toBe('boolean');
+            expect(prop.default).toBe(true);
+        }
+    });
+
+    it('describes each axis in its own setting', () => {
+        expect(NukeCadPreferenceSchema.properties['nukeCad.showOriginX'].description).toContain('X axis');
+        expect(NukeCadPreferenceSchema.properties['nukeCad.showOriginY'].description).toContain('Y axis');
+        expect(NukeCadPreferenceSchema.properties['nukeCad.showOriginZ'].description).toContain('Z axis');
+    });
+});

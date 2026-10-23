@@ -85,6 +85,51 @@ describe('buildViewportContextMenu', () => {
         expect(items[7].action).toEqual({ kind: 'isolateSolid', solidId: 3 });
     });
 
+    it('offers Select Other… only when more than one face is under the pointer, with the Alt+click hint', () => {
+        const none = buildViewportContextMenu({ solid: { solidId: 3, featureId: 'pad-1' }, explodeFactor: 0 });
+        expect(labels(none)).not.toContain('Select Other…');
+
+        const single = buildViewportContextMenu({
+            solid: { solidId: 3, featureId: 'pad-1' },
+            explodeFactor: 0,
+            selectOtherCount: 1
+        });
+        expect(labels(single)).not.toContain('Select Other…');
+
+        const multiple = buildViewportContextMenu({
+            solid: { solidId: 3, featureId: 'pad-1', bodyId: 'body-a' },
+            explodeFactor: 0,
+            selectOtherCount: 3
+        });
+        expect(labels(multiple)).toEqual([
+            'Edit Feature…',
+            'Find in Feature Tree',
+            'Select Other…',
+            'Appearance…',
+            'Measure Distance',
+            'Measure Angle',
+            'Measure Radius',
+            'Fit to Solid',
+            'Hide Solid',
+            'Isolate Solid'
+        ]);
+        const selectOther = multiple[2];
+        expect(selectOther.icon).toBe('codicon-layers');
+        expect(selectOther.hint).toBe('Alt+click');
+        expect(selectOther.separatorAbove).toBeUndefined();
+        expect(selectOther.action).toEqual({ kind: 'selectOther' });
+        // After Find in Feature Tree and before Measure.
+        expect(labels(multiple).indexOf('Select Other…')).toBe(labels(multiple).indexOf('Find in Feature Tree') + 1);
+        expect(labels(multiple).indexOf('Select Other…')).toBeLessThan(labels(multiple).indexOf('Measure Distance'));
+    });
+
+    it('offers Select Other… after Edit Feature on solids without feature attribution', () => {
+        const items = buildViewportContextMenu({ solid: { solidId: 3 }, explodeFactor: 0, selectOtherCount: 2 });
+        expect(labels(items)[0]).toBe('Edit Feature…');
+        expect(labels(items)[1]).toBe('Select Other…');
+        expect(labels(items)).not.toContain('Find in Feature Tree');
+    });
+
     it('offers Appearance… for a body, after Find in Feature Tree and before Measure', () => {
         const items = buildViewportContextMenu({
             solid: { solidId: 3, featureId: 'pad-1', bodyId: 'body-a' },

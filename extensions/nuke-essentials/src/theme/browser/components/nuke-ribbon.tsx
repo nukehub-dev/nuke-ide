@@ -29,9 +29,10 @@
  * Shared ribbon toolbar: one non-wrapping row of labelled action sections.
  *
  * Every section keeps `role="group"` + `aria-label`, shows a visible caption
- * under its buttons, and opens a portal menu for the actions that do not fit
- * inline. The host owns the action table and the measured density; the pure
- * promotion/density model lives in `nuke-ribbon-model.ts`.
+ * under its buttons, and opens a portal menu listing every action in the
+ * section (inline ones included) with a per-row pin toggle. The host owns the
+ * action table, pinned ids, and measured density; the pure promotion/density
+ * model lives in `nuke-ribbon-model.ts`.
  *
  * The legacy `NukeToolbar`/`NukeToolbarGroup` remain untouched for consumers
  * that still want the wrapping group layout.
@@ -39,7 +40,7 @@
 
 import * as React from '@theia/core/shared/react';
 import * as ReactDOM from '@theia/core/shared/react-dom';
-import { splitRibbonItems, type NukeRibbonDensity } from './nuke-ribbon-model';
+import { splitRibbonByPromotion, type NukeRibbonDensity } from './nuke-ribbon-model';
 import { Tooltip } from './tooltip';
 
 export type { NukeRibbonDensity } from './nuke-ribbon-model';
@@ -57,6 +58,10 @@ export interface NukeRibbonItem {
     /** Concise explanation shown in the disabled tooltip and menu second line. */
     disabledReason?: string;
     active?: boolean;
+    /** True when the command is pinned inline by the host's user pins. */
+    pinned?: boolean;
+    /** Toggles the pin state; renders the menu row's pin/unpin button. */
+    onTogglePin?: () => void;
     onClick: () => void;
 }
 
@@ -74,8 +79,10 @@ export interface NukeRibbonSectionProps {
     label: string;
     /** All actions in the section, in render order. */
     items: readonly NukeRibbonItem[];
-    /** Inline count in tiles/icons density; the rest live in the caret menu. */
+    /** Inline count in tiles/icons density before user pins are added. */
     promoted: number;
+    /** Command ids pinned inline in addition to the first `promoted` items. */
+    promotedIds?: readonly string[];
     /** Override the ribbon's density for this section. */
     density?: NukeRibbonDensity;
     /** Extra class on the section. */
@@ -91,6 +98,8 @@ const MENU_MARGIN = 8;
 /** Fallback menu size before the portal has been measured. */
 const MENU_ESTIMATED_WIDTH = 220;
 const MENU_ESTIMATED_HEIGHT = 240;
+/** Row actions plus the per-row pin toggle participate in arrow-key navigation. */
+const MENU_FOCUSABLE = '[role="menuitem"]:not(:disabled), [role="menuitemcheckbox"]:not(:disabled)';
 
 interface RibbonMenuProps {
     readonly label: string;
@@ -146,7 +155,7 @@ function RibbonMenu(props: RibbonMenuProps): React.ReactElement | null {
         placeMenu();
         if (!focusedRef.current) {
             focusedRef.current = true;
-            menuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')?.focus();
+            menuRef.current?.querySelector<HTMLButtonElement>(MENU_FOCUSABLE)?.focus();
         }
     });
 
@@ -171,7 +180,7 @@ function RibbonMenu(props: RibbonMenuProps): React.ReactElement | null {
                 props.onClose(false);
                 return;
             }
-            const items = menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)');
+            const items = menuRef.current?.querySelectorAll<HTMLButtonElement>(MENU_FOCUSABLE);
             if (items === undefined || items.length === 0) {
                 return;
             }
@@ -212,29 +221,49 @@ function RibbonMenu(props: RibbonMenuProps): React.ReactElement | null {
             style={{ position: 'fixed', left: coords.x, top: coords.y }}
         >
             {props.items.map((item) => (
-                <button
-                    key={item.id}
-                    type="button"
-                    role="menuitem"
-                    className={`nuke-ribbon-menu-item${item.active === true ? ' nuke-ribbon-menu-item-active' : ''}`}
-                    disabled={item.disabled === true}
-                    aria-disabled={item.disabled === true}
-                    onClick={() => {
-                        if (item.disabled === true) {
-                            return;
-                        }
-                        props.onClose(true);
-                        item.onClick();
-                    }}
-                >
-                    <span className={`codicon ${item.icon}`} />
-                    <span className="nuke-ribbon-menu-item-text">
-                        <span className="nuke-ribbon-menu-item-label">{item.label}</span>
-                        {item.disabled === true && item.disabledReason !== undefined && (
-                            <span className="nuke-ribbon-menu-item-reason">{item.disabledReason}</span>
-                        )}
-                    </span>
-                </button>
+                <div key={item.id} className="nuke-ribbon-menu-row" role="none">
+                    <button
+                        type="button"
+                        role="menuitem"
+                        className={`nuke-ribbon-menu-item${item.active === true ? ' nuke-ribbon-menu-item-active' : ''}`}
+                        disabled={item.disabled === true}
+                        aria-disabled={item.disabled === true}
+                        onClick={() => {
+                            if (item.disabled === true) {
+                                return;
+                            }
+                            props.onClose(true);
+                            item.onClick();
+                        }}
+                    >
+                        <span className={`codicon ${item.icon}`} />
+                        <span className="nuke-ribbon-menu-item-text">
+                            <span className="nuke-ribbon-menu-item-label">{item.label}</span>
+                            {item.disabled === true && item.disabledReason !== undefined && (
+                                <span className="nuke-ribbon-menu-item-reason">{item.disabledReason}</span>
+                            )}
+                        </span>
+                    </button>
+                    {item.onTogglePin !== undefined && (
+                        <Tooltip content={item.pinned === true ? 'Unpin from toolbar' : 'Pin to toolbar'} position="left">
+                            <button
+                                type="button"
+                                role="menuitemcheckbox"
+                                className="nuke-ribbon-menu-pin"
+                                aria-checked={item.pinned === true}
+                                aria-label={item.pinned === true ? 'Unpin from toolbar' : 'Pin to toolbar'}
+                                onClick={(event) => {
+                                    // Pin state is independent of the row action:
+                                    // never close the menu or run the command.
+                                    event.stopPropagation();
+                                    item.onTogglePin?.();
+                                }}
+                            >
+                                <span className={`codicon ${item.pinned === true ? 'codicon-pinned' : 'codicon-pin'}`} />
+                            </button>
+                        </Tooltip>
+                    )}
+                </div>
             ))}
         </div>,
         document.body
@@ -256,12 +285,13 @@ export const NukeRibbon: React.FC<NukeRibbonProps> = ({ density = 'tiles', class
 /**
  * One labelled ribbon section.
  *
- * In `tiles`/`icons` density the first `promoted` actions render as buttons
- * with a caption row beneath; the remaining actions open from the caret. In
+ * In `tiles`/`icons` density the first `promoted` actions plus any pinned
+ * `promotedIds` render as buttons with a caption row beneath; the caret menu
+ * lists every action (inline ones included) with a per-row pin toggle. In
  * `menus` density the section collapses to a single `caption ▾` button that
  * lists every action.
  */
-export const NukeRibbonSection: React.FC<NukeRibbonSectionProps> = ({ label, items, promoted, density, className }) => {
+export const NukeRibbonSection: React.FC<NukeRibbonSectionProps> = ({ label, items, promoted, promotedIds, density, className }) => {
     const inheritedDensity = React.useContext(NukeRibbonDensityContext);
     const effectiveDensity = density ?? inheritedDensity;
     const [menuOpen, setMenuOpen] = React.useState(false);
@@ -272,8 +302,10 @@ export const NukeRibbonSection: React.FC<NukeRibbonSectionProps> = ({ label, ite
             triggerRef.current?.focus();
         }
     }, []);
-    const split = React.useMemo(() => splitRibbonItems(items, promoted), [items, promoted]);
-    const menuItems = effectiveDensity === 'menus' ? items : split.menu;
+    const split = React.useMemo(() => splitRibbonByPromotion(items, promoted, promotedIds), [items, promoted, promotedIds]);
+    // The menu is the complete command list: pinning moves a row inline, it
+    // never hides the row from the menu.
+    const menuItems = items;
 
     const trigger = (
         <button

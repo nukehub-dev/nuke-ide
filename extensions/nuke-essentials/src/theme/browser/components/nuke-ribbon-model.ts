@@ -48,11 +48,14 @@ export const RIBBON_ICONS_MIN_WIDTH = 930;
  */
 export const RIBBON_DENSITY_HYSTERESIS = 40;
 
+/** Hard cap on inline buttons per section, including user-pinned commands. */
+export const RIBBON_INLINE_PIN_CAP = 8;
+
 /** Split of a section's actions into inline buttons and the caret-menu tail. */
 export interface RibbonItemSplit<T> {
     /** Actions rendered inline (first `promoted` entries). */
     readonly promoted: readonly T[];
-    /** Remaining actions, rendered in the section menu. */
+    /** Remaining actions (the component menu lists every item, inline included). */
     readonly menu: readonly T[];
 }
 
@@ -67,6 +70,36 @@ export function splitRibbonItems<T>(items: readonly T[], promoted: number): Ribb
         promoted: items.slice(0, inlineCount),
         menu: items.slice(inlineCount)
     };
+}
+
+/**
+ * Split `items` into the inline set (first `promoted` defaults plus every item
+ * whose id appears in `promotedIds`) and the rest, preserving input order.
+ *
+ * Pinned ids are deduped against the defaults and unknown ids are ignored. The
+ * inline set never exceeds `cap` entries; items beyond the cap stay in the
+ * menu. Pins are user state, so a pin for an item that is currently filtering
+ * out of the section is simply unused until it appears again.
+ */
+export function splitRibbonByPromotion<T extends { readonly id: string }>(
+    items: readonly T[],
+    promoted: number,
+    promotedIds: readonly string[] = [],
+    cap: number = RIBBON_INLINE_PIN_CAP
+): RibbonItemSplit<T> {
+    const inlineCount = Math.min(Math.max(Math.trunc(promoted), 0), items.length);
+    const limit = Number.isFinite(cap) ? Math.max(Math.trunc(cap), 0) : 0;
+    const pinned = new Set(promotedIds);
+    const inline: T[] = [];
+    const menu: T[] = [];
+    for (const [index, item] of items.entries()) {
+        if (inline.length < limit && (index < inlineCount || pinned.has(item.id))) {
+            inline.push(item);
+        } else {
+            menu.push(item);
+        }
+    }
+    return { promoted: inline, menu };
 }
 
 /**

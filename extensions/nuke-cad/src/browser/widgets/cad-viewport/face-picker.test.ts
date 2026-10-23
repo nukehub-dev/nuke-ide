@@ -27,7 +27,14 @@
 
 import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
-import { buildTopologyRef, pointerToNdc, projectHitToFaceUv } from './face-picker';
+import {
+    buildTopologyRef,
+    dedupeFaceCandidates,
+    pointerToNdc,
+    projectHitToFaceUv,
+    raycastFaceCandidates,
+    type FacePickCandidate
+} from './face-picker';
 
 function makeRect(x: number, y: number, width: number, height: number): DOMRect {
     return {
@@ -174,6 +181,103 @@ describe('face-picker', () => {
                 }
             };
             expect(projectHitToFaceUv(hit)).toEqual([-1, 2]);
+        });
+    });
+
+    describe('raycastFaceCandidates', () => {
+        const camera = {} as THREE.Camera;
+        const ndc = { x: 0, y: 0 };
+
+        const mesh = (userData: Record<string, unknown>): THREE.Mesh => ({ userData }) as unknown as THREE.Mesh;
+
+        const raycasterOf = (intersections: readonly { object: THREE.Mesh; distance: number; point: THREE.Vector3 }[]): THREE.Raycaster =>
+            ({
+                setFromCamera: () => undefined,
+                intersectObjects: () => intersections
+            }) as unknown as THREE.Raycaster;
+
+        it('maps valid hits in distance order and skips invalid userData', () => {
+            const near = mesh({ solidId: 1, faceId: 2, bodyId: 'body-a' });
+            const badType = mesh({ solidId: '1', faceId: 2 });
+            const missing = mesh({});
+            const far = mesh({ solidId: 3, faceId: 4 });
+            const result = raycastFaceCandidates(
+                [near, far],
+                raycasterOf([
+                    { object: near, distance: 1.25, point: new THREE.Vector3(0, 0, 1) },
+                    { object: badType, distance: 2, point: new THREE.Vector3(0, 0, 2) },
+                    { object: missing, distance: 3, point: new THREE.Vector3(0, 0, 3) },
+                    { object: far, distance: 4.5, point: new THREE.Vector3(0, 0, 4) }
+                ]),
+                ndc,
+                camera
+            );
+
+            expect(result.map((entry) => `${entry.solidId}:${entry.faceId}`)).toEqual(['1:2', '3:4']);
+            expect(result[0].bodyId).toBe('body-a');
+            expect(result[0].distance).toBe(1.25);
+            expect(result[0].point?.toArray()).toEqual([0, 0, 1]);
+            expect(result[1].bodyId).toBeUndefined();
+        });
+
+        it('dedupes a face hit twice (entering and exiting a shell), keeping the nearest', () => {
+            const shell = mesh({ solidId: 2, faceId: 7, bodyId: 'body-b' });
+            const cap = mesh({ solidId: 2, faceId: 8 });
+            const result = raycastFaceCandidates(
+                [shell, cap],
+                raycasterOf([
+                    { object: shell, distance: 1, point: new THREE.Vector3(0, 0, 1) },
+                    { object: cap, distance: 2, point: new THREE.Vector3(0, 0, 2) },
+                    { object: shell, distance: 5, point: new THREE.Vector3(0, 0, 5) }
+                ]),
+                ndc,
+                camera
+            );
+
+            expect(result.map((entry) => `${entry.solidId}:${entry.faceId}`)).toEqual(['2:7', '2:8']);
+            expect(result[0].distance).toBe(1);
+        });
+
+        it('caps the list at the limit', () => {
+            const meshes = [1, 2, 3, 4].map((faceId) => mesh({ solidId: 1, faceId }));
+            const result = raycastFaceCandidates(
+                meshes,
+                raycasterOf(meshes.map((object, index) => ({ object, distance: index + 1, point: new THREE.Vector3() }))),
+                ndc,
+                camera,
+                2
+            );
+
+            expect(result.map((entry) => entry.faceId)).toEqual([1, 2]);
+        });
+
+        it('returns no candidates when the ray misses', () => {
+            expect(raycastFaceCandidates([], raycasterOf([]), ndc, camera)).toEqual([]);
+        });
+    });
+
+    describe('dedupeFaceCandidates', () => {
+        const mesh = {} as THREE.Mesh;
+        const candidate = (solidId: number, faceId: number, distance: number): FacePickCandidate => ({
+            solidId,
+            faceId,
+            distance,
+            mesh
+        });
+
+        it('sorts unsorted input by distance', () => {
+            const result = dedupeFaceCandidates([candidate(1, 1, 5), candidate(2, 2, 1), candidate(3, 3, 3)]);
+            expect(result.map((entry) => entry.distance)).toEqual([1, 3, 5]);
+        });
+
+        it('keeps the nearest hit per solid/face and drops later duplicates', () => {
+            const result = dedupeFaceCandidates([candidate(1, 1, 4), candidate(1, 1, 2), candidate(1, 2, 3)]);
+            expect(result.map((entry) => `${entry.solidId}:${entry.faceId}:${entry.distance}`)).toEqual(['1:1:2', '1:2:3']);
+        });
+
+        it('returns an empty list for a non-positive limit', () => {
+            expect(dedupeFaceCandidates([candidate(1, 1, 1)], 0)).toEqual([]);
+            expect(dedupeFaceCandidates([candidate(1, 1, 1)], -1)).toEqual([]);
         });
     });
 });

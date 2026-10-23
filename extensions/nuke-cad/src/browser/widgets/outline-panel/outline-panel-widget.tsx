@@ -90,6 +90,14 @@ import { NukeSelect } from 'nuke-essentials/lib/theme/browser/components';
 import { Tooltip, useTooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
 import './outline-panel.css';
 
+/** World-origin axes with user-scoped display preferences. */
+type OriginAxis = 'x' | 'y' | 'z';
+const ORIGIN_AXIS_PREFERENCE_NAMES: Record<OriginAxis, 'nukeCad.showOriginX' | 'nukeCad.showOriginY' | 'nukeCad.showOriginZ'> = {
+    x: 'nukeCad.showOriginX',
+    y: 'nukeCad.showOriginY',
+    z: 'nukeCad.showOriginZ'
+};
+
 @injectable()
 export class CadOutlinePanelWidget extends ReactWidget {
     static readonly ID = 'nuke-cad-outline-panel-widget';
@@ -167,10 +175,17 @@ export class CadOutlinePanelWidget extends ReactWidget {
             })
         );
         // Display precision only changes rendered text: re-render the outline,
-        // no document mutation or rebuild is involved.
+        // no document mutation or rebuild is involved. Origin-axis visibility
+        // is the same kind of rendering-only user preference.
         this.toDispose.push(
             this.preferenceService.onPreferenceChanged((event) => {
-                if (event.preferenceName === 'nukeCad.lengthDecimals' || event.preferenceName === 'nukeCad.angleDecimals') {
+                if (
+                    event.preferenceName === 'nukeCad.lengthDecimals' ||
+                    event.preferenceName === 'nukeCad.angleDecimals' ||
+                    event.preferenceName === 'nukeCad.showOriginX' ||
+                    event.preferenceName === 'nukeCad.showOriginY' ||
+                    event.preferenceName === 'nukeCad.showOriginZ'
+                ) {
                     this.update();
                 }
             })
@@ -286,8 +301,12 @@ export class CadOutlinePanelWidget extends ReactWidget {
                 onSetUnits={(units) => this.handleSetUnits(units)}
                 lengthDecimals={this.readDisplayDecimals('nukeCad.lengthDecimals', 2)}
                 angleDecimals={this.readDisplayDecimals('nukeCad.angleDecimals', 1)}
+                showOriginX={this.readOriginAxisVisible('x')}
+                showOriginY={this.readOriginAxisVisible('y')}
+                showOriginZ={this.readOriginAxisVisible('z')}
                 onSetLengthDecimals={(decimals) => this.handleSetLengthDecimals(decimals)}
                 onSetAngleDecimals={(decimals) => this.handleSetAngleDecimals(decimals)}
+                onToggleOriginAxis={(axis) => this.handleToggleOriginAxis(axis)}
                 onExportBomCsv={() => void this.handleExportBomCsv()}
                 onSaveNamedView={() => void this.commandService.executeCommand(NukeCadCommands.SAVE_NAMED_VIEW.id)}
                 onRestoreNamedView={(id) => void this.commandService.executeCommand(NukeCadCommands.RESTORE_NAMED_VIEW.id, id)}
@@ -367,6 +386,20 @@ export class CadOutlinePanelWidget extends ReactWidget {
 
     private readDisplayDecimals(name: 'nukeCad.lengthDecimals' | 'nukeCad.angleDecimals', fallback: number): number {
         return clampDecimals(this.preferenceService.get<number>(name, fallback));
+    }
+
+    /**
+     * Origin-axis toggles are user preferences, not document state: the
+     * viewport observes the same keys and updates axis visibility in place.
+     */
+    protected handleToggleOriginAxis(axis: OriginAxis): void {
+        const name = ORIGIN_AXIS_PREFERENCE_NAMES[axis];
+        const visible = this.readOriginAxisVisible(axis);
+        void this.preferenceService.set(name, !visible, PreferenceScope.User);
+    }
+
+    private readOriginAxisVisible(axis: OriginAxis): boolean {
+        return this.preferenceService.get<boolean>(ORIGIN_AXIS_PREFERENCE_NAMES[axis], true);
     }
 
     /**
@@ -522,6 +555,11 @@ interface CadOutlinePanelComponentProps {
     readonly angleDecimals: number;
     readonly onSetLengthDecimals: (decimals: number) => void;
     readonly onSetAngleDecimals: (decimals: number) => void;
+    /** World-origin axis visibility (display-only user preferences). */
+    readonly showOriginX: boolean;
+    readonly showOriginY: boolean;
+    readonly showOriginZ: boolean;
+    readonly onToggleOriginAxis: (axis: OriginAxis) => void;
     readonly onExportBomCsv: () => void;
     /** Named Views: save the current camera, restore a row, or delete it by id. */
     readonly onSaveNamedView: () => void;
@@ -793,6 +831,13 @@ function CadOutlinePanelComponent(props: CadOutlinePanelComponentProps): React.R
                             onSetAngleDecimals={props.onSetAngleDecimals}
                         />
                     )}
+
+                    <OriginSection
+                        showX={props.showOriginX}
+                        showY={props.showOriginY}
+                        showZ={props.showOriginZ}
+                        onToggle={props.onToggleOriginAxis}
+                    />
 
                     {props.document !== undefined && (
                         <NamedViewsSection
@@ -1085,6 +1130,63 @@ function DocumentSettingsSection(props: DocumentSettingsSectionProps): React.Rea
                         <span className="document-settings-label">Schema</span>
                         <span className="document-settings-value">{`v${document.version}`}</span>
                     </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
+const ORIGIN_AXIS_ROWS: ReadonlyArray<{ readonly axis: OriginAxis; readonly label: string }> = [
+    { axis: 'x', label: 'X' },
+    { axis: 'y', label: 'Y' },
+    { axis: 'z', label: 'Z' }
+];
+
+interface OriginSectionProps {
+    readonly showX: boolean;
+    readonly showY: boolean;
+    readonly showZ: boolean;
+    readonly onToggle: (axis: OriginAxis) => void;
+}
+
+/**
+ * Origin section: per-axis world-origin visibility toggles. The viewport draws
+ * the colored triad; these switches only hide/show individual axes and write
+ * user-scoped preferences, so they never touch the document or rebuild geometry.
+ */
+function OriginSection(props: OriginSectionProps): React.ReactElement {
+    const [collapsed, setCollapsed] = React.useState(false);
+    const visible: Record<OriginAxis, boolean> = { x: props.showX, y: props.showY, z: props.showZ };
+
+    return (
+        <div className="outline-section origin-section">
+            <div className="category-header" onClick={() => setCollapsed(!collapsed)}>
+                <i className={`codicon codicon-chevron-${collapsed ? 'right' : 'down'}`} />
+                <i className="codicon codicon-nuke-cad-datum" />
+                <span>Origin</span>
+            </div>
+            {!collapsed && (
+                <div className="origin-axis-rows">
+                    {ORIGIN_AXIS_ROWS.map(({ axis, label }) => {
+                        const shown = visible[axis];
+                        const action = shown ? 'Hide' : 'Show';
+                        return (
+                            <div key={axis} className={`origin-axis-row${shown ? '' : ' hidden'}`}>
+                                <span className={`origin-axis-dot origin-axis-dot-${axis}`} />
+                                <span className="origin-axis-label">{label}</span>
+                                <Tooltip content={`${action} ${label} axis`} position="left">
+                                    <button
+                                        className="theia-button secondary origin-axis-toggle"
+                                        aria-pressed={shown}
+                                        aria-label={`${action} ${label} axis`}
+                                        onClick={() => props.onToggle(axis)}
+                                    >
+                                        <i className={`codicon ${shown ? 'codicon-eye' : 'codicon-eye-closed'}`} />
+                                    </button>
+                                </Tooltip>
+                            </div>
+                        );
+                    })}
                 </div>
             )}
         </div>

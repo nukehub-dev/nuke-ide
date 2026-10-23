@@ -27,7 +27,12 @@
 
 import { describe, expect, it } from 'vitest';
 import { NUKE_CAD_SCHEMA_VERSION, type NukeCadDocument } from '../../../common/cad-document';
-import { BODY_APPEARANCE_DEFAULT_COLOR, BODY_APPEARANCE_DEFAULT_OPACITY, resolveBodyAppearance } from './body-appearance';
+import {
+    BODY_APPEARANCE_DEFAULT_COLOR,
+    BODY_APPEARANCE_DEFAULT_OPACITY,
+    normalizeAppearancePresets,
+    resolveBodyAppearance
+} from './body-appearance';
 
 function docWithAppearance(appearance: { color?: string; opacity?: number } | undefined): NukeCadDocument {
     return {
@@ -78,5 +83,58 @@ describe('resolveBodyAppearance', () => {
     it('exposes the dialog defaults', () => {
         expect(BODY_APPEARANCE_DEFAULT_COLOR).toBe('#c4c7cc');
         expect(BODY_APPEARANCE_DEFAULT_OPACITY).toBe(1);
+    });
+});
+
+describe('normalizeAppearancePresets', () => {
+    it('returns an empty list for a missing or non-array preference value', () => {
+        expect(normalizeAppearancePresets(undefined)).toEqual([]);
+        expect(normalizeAppearancePresets(null)).toEqual([]);
+        expect(normalizeAppearancePresets('Highlight')).toEqual([]);
+        expect(normalizeAppearancePresets({ name: 'Highlight' })).toEqual([]);
+    });
+
+    it('trims names and drops empty/non-string/duplicate names (first wins)', () => {
+        expect(
+            normalizeAppearancePresets([
+                { name: '  Highlight  ', color: '#FF8800', opacity: 0.5 },
+                { name: 'highlight', color: '#00ff00', opacity: 0.25 },
+                { name: 'Highlight', color: '#0000ff', opacity: 1 },
+                { name: '   ', color: '#00ff00', opacity: 1 },
+                { name: 42, color: '#00ff00', opacity: 1 }
+            ])
+        ).toEqual([
+            { name: 'Highlight', color: '#ff8800', opacity: 0.5 },
+            { name: 'highlight', color: '#00ff00', opacity: 0.25 }
+        ]);
+    });
+
+    it('clamps opacity into 0–1 and lower-cases hex colors', () => {
+        expect(
+            normalizeAppearancePresets([
+                { name: 'Bright', color: '#ABCDEF', opacity: 4 },
+                { name: 'Ghost', color: '#aBcDeF', opacity: -0.5 }
+            ])
+        ).toEqual([
+            { name: 'Bright', color: '#abcdef', opacity: 1 },
+            { name: 'Ghost', color: '#abcdef', opacity: 0 }
+        ]);
+    });
+
+    it('drops malformed entries', () => {
+        expect(
+            normalizeAppearancePresets([
+                null,
+                'Highlight',
+                [],
+                { name: 'Missing color', opacity: 0.5 },
+                { name: 'Bad color', color: '#12345', opacity: 0.5 },
+                { name: 'Alpha color', color: '#ff8800aa', opacity: 0.5 },
+                { name: 'Missing opacity', color: '#ff8800' },
+                { name: 'NaN opacity', color: '#ff8800', opacity: Number.NaN },
+                { name: 'Infinite opacity', color: '#ff8800', opacity: Number.POSITIVE_INFINITY },
+                { name: 'String opacity', color: '#ff8800', opacity: '0.5' }
+            ])
+        ).toEqual([]);
     });
 });

@@ -52,7 +52,59 @@ export interface ResolvedBodyAppearance {
     readonly opacity?: number;
 }
 
+/**
+ * One user-level appearance preset (`nukeCad.appearancePresets`).
+ *
+ * Presets are preferences, never document data: applying one only stages its
+ * values in the dialog, and the document stores the resulting per-body
+ * override. Names are unique after trimming in app code (the preference
+ * schema cannot enforce per-item uniqueness).
+ */
+export interface AppearancePreset {
+    readonly name: string;
+    readonly color: string;
+    readonly opacity: number;
+}
+
 const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
+
+/**
+ * Normalize a raw preference value into usable appearance presets.
+ *
+ * Tolerates hand-edited preferences: trims names, drops empty/non-string
+ * names, drops entries with a malformed color or non-finite opacity, clamps
+ * opacity to 0–1, lower-cases hex colors, and dedupes by name (first entry
+ * wins, preserving order). Never throws.
+ */
+export function normalizeAppearancePresets(value: unknown): AppearancePreset[] {
+    if (!Array.isArray(value)) {
+        return [];
+    }
+    const presets: AppearancePreset[] = [];
+    const seen = new Set<string>();
+    for (const entry of value) {
+        if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+            continue;
+        }
+        const { name, color, opacity } = entry as { name?: unknown; color?: unknown; opacity?: unknown };
+        if (typeof name !== 'string') {
+            continue;
+        }
+        const trimmed = name.trim();
+        if (trimmed.length === 0 || seen.has(trimmed)) {
+            continue;
+        }
+        if (typeof color !== 'string' || !HEX_COLOR.test(color)) {
+            continue;
+        }
+        if (typeof opacity !== 'number' || !Number.isFinite(opacity)) {
+            continue;
+        }
+        seen.add(trimmed);
+        presets.push({ name: trimmed, color: color.toLowerCase(), opacity: Math.min(1, Math.max(0, opacity)) });
+    }
+    return presets;
+}
 
 /**
  * Resolve the appearance override for one body.

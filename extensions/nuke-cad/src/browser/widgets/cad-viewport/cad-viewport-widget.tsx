@@ -59,7 +59,7 @@ import * as THREE from 'three';
 import { NukeCadBackendService, GeometryBuildResult } from '../../../common/nuke-cad-protocol';
 import { NukeCadStateManager, CadModel, CadSelection } from '../../state/nuke-cad-state-manager';
 import { buildSolidSummaries } from '../outline-panel/solid-summaries';
-import { addSolidsToSelection, toggleSolidSelection } from '../outline-panel/outline-interactions';
+import { addSolidsToSelection, selectionSolidIds, toggleSolidSelection } from '../outline-panel/outline-interactions';
 import { NukeCadCommands } from '../../commands';
 import { LoadingAnimations } from 'nuke-essentials/lib/theme/browser/components/loading-spinner';
 import { NukeEmptyState, NukeLoadingOverlay } from 'nuke-essentials/lib/theme/browser/components';
@@ -96,6 +96,9 @@ import {
     shouldUsePartialPlan
 } from '../../document/cad-document-store';
 import { NukeCadPreferences } from '../../nuke-cad-preferences';
+import { CAD_COMMAND_IDS } from '../../cad-command-registry';
+import { PreferenceScope, PreferenceService } from '@theia/core/lib/common/preferences';
+import { QuickInputService } from '@theia/core/lib/browser/quick-input';
 import { DOCUMENT_TEMPLATES } from '../../../common/document-templates';
 import {
     type SketchDef,
@@ -107,7 +110,16 @@ import {
     type BodyAppearance
 } from '../../../common/cad-document';
 import { type TopologyRef } from '../../../common/topology-refs';
-import { FaceHighlighter, type FacePickHit, buildTopologyRef, pointerToNdc, projectHitToFaceUv, raycastFace } from './face-picker';
+import {
+    FaceHighlighter,
+    type FacePickCandidate,
+    type FacePickHit,
+    buildTopologyRef,
+    pointerToNdc,
+    projectHitToFaceUv,
+    raycastFace,
+    raycastFaceCandidates
+} from './face-picker';
 import { cadViewportColors, resolveViewportBackground, type ViewportBackgroundStyle } from './viewport-colors';
 import { applyNavigationStyle, type NavigationStyle } from './navigation-styles';
 import {
@@ -123,6 +135,8 @@ import {
     publishDrawingDimensionEdgeHit,
     type DrawingDimensionPickRequest
 } from './edge-picker';
+import { type DressUpPickMode, dressUpPickRequest } from './dress-up-pick';
+import { expandTangentEdgeChain } from './tangent-edge-chain';
 import {
     DEFAULT_GHOST_OPACITY,
     GHOST_OPACITY_MAX,
@@ -189,11 +203,18 @@ import {
 } from './assembly-view';
 import { MateDialog, type MateDraft } from './mate-dialog';
 import { BodyAppearanceDialog, type BodyAppearanceTarget } from './body-appearance-dialog';
-import { resolveBodyAppearance } from './body-appearance';
+import {
+    BODY_APPEARANCE_DEFAULT_COLOR,
+    BODY_APPEARANCE_DEFAULT_OPACITY,
+    normalizeAppearancePresets,
+    resolveBodyAppearance,
+    type AppearancePreset
+} from './body-appearance';
 import { AssemblyInstanceList } from './assembly-instance-list';
 import { faceReuseKey, planFaceReuse, type ParsedTessCurve, type ParsedTessData } from './tess-reuse';
 import { parseTessellationAsync } from './tess-parse-client';
 import { attributeBodyToFeature, buildViewportContextMenu, openViewportContextMenu } from './viewport-context-menu';
+import { buildSelectOtherRows, openSelectOtherMenu } from './select-other-menu';
 import './cad-viewport.css';
 import './cad-icons.css';
 
@@ -262,6 +283,12 @@ export class CadViewportWidget extends ReactWidget {
     @inject(NukeCadPreferences)
     protected readonly preferences: NukeCadPreferences;
 
+    @inject(PreferenceService)
+    protected readonly preferenceService: PreferenceService;
+
+    @inject(QuickInputService)
+    protected readonly quickInput: QuickInputService;
+
     private tessData?: TessData;
     private loading = false;
     private loadingMessage = 'Loading CAD model...';
@@ -320,7 +347,7 @@ export class CadViewportWidget extends ReactWidget {
     /** Feature id used for external-geometry references (the producing feature). */
     private facePickFeatureId?: string;
     /** Active dress-up pick mode and the callback that receives the next pick. */
-    private dressUpPickMode?: { type: FeatureType; selecting: 'edge' | 'face' };
+    private dressUpPickMode?: DressUpPickMode;
     private dressUpPickCallback?: (ref: TopologyRef) => void;
     /** Active hole face-pick mode and the callback that receives the picked face. */
     private holePickMode?: { callback: (ref: TopologyRef, uv: [number, number]) => void };
@@ -356,6 +383,8 @@ export class CadViewportWidget extends ReactWidget {
     private sectionActive = false;
     /** Body targeted by the Appearance dialog (display-only color/opacity override). */
     private appearanceTarget?: BodyAppearanceTarget;
+    /** Distinct body ids owning the viewport selection when the Appearance dialog opened. */
+    private appearanceSelectionBodyIds: readonly string[] = [];
 
     /** Toggle viewport section mode (nav-cluster button). */
     protected readonly handleSetSectionActive = (active: boolean): void => {
@@ -457,6 +486,33 @@ export class CadViewportWidget extends ReactWidget {
         void this.commandService.executeCommand(NukeCadCommands.OPEN_FEATURE_TREE.id);
     };
 
+    /**
+     * Distinct body ids owning the current viewport selection, in selection
+     * order. Solids without a body mapping (script/STEP models) and stale
+     * body ids are skipped; the result drives the dialog's
+     * "Apply to all selected bodies" action.
+     */
+    protected selectedBodyIdsForAppearance(): readonly string[] {
+        const document = this.documentStore.document;
+        if (document === undefined) {
+            return [];
+        }
+        const knownBodies = new Set(document.bodies.map((body) => body.id));
+        const bodyIds = new Set<string>();
+        for (const solidId of selectionSolidIds(this.stateManager.selection)) {
+            const bodyId = this.stateManager.solidSummaries.find((summary) => summary.solidId === solidId)?.bodyId;
+            if (bodyId !== undefined && knownBodies.has(bodyId)) {
+                bodyIds.add(bodyId);
+            }
+        }
+        return Array.from(bodyIds);
+    }
+
+    /** Normalized user appearance presets from the preference store. */
+    protected appearancePresets(): readonly AppearancePreset[] {
+        return normalizeAppearancePresets(this.preferences['nukeCad.appearancePresets']);
+    }
+
     /** Context-menu Appearance…: open the per-body color/opacity dialog. */
     protected readonly handleOpenAppearance = (bodyId: string): void => {
         const body = this.documentStore.document?.bodies.find((b) => b.id === bodyId);
@@ -465,11 +521,13 @@ export class CadViewportWidget extends ReactWidget {
         }
         const label = body.label !== undefined && body.label.length > 0 ? `${body.name} · ${body.label}` : body.name;
         this.appearanceTarget = { bodyId, label };
+        this.appearanceSelectionBodyIds = this.selectedBodyIdsForAppearance();
         this.update();
     };
 
     protected readonly handleCloseAppearance = (): void => {
         this.appearanceTarget = undefined;
+        this.appearanceSelectionBodyIds = [];
         this.update();
     };
 
@@ -485,6 +543,19 @@ export class CadViewportWidget extends ReactWidget {
             return;
         }
         this.appearanceTarget = undefined;
+        this.appearanceSelectionBodyIds = [];
+        this.update();
+    };
+
+    /** Appearance dialog OK with "Apply to all selected bodies": one store commit. */
+    protected readonly handleApplyAppearanceToBodies = (bodyIds: readonly string[], appearance: BodyAppearance): void => {
+        const result = this.documentStore.setBodiesAppearance(bodyIds, appearance);
+        if (!result.success) {
+            this.messageService.error(result.error || 'Failed to set the body appearance.');
+            return;
+        }
+        this.appearanceTarget = undefined;
+        this.appearanceSelectionBodyIds = [];
         this.update();
     };
 
@@ -495,7 +566,66 @@ export class CadViewportWidget extends ReactWidget {
             return;
         }
         this.appearanceTarget = undefined;
+        this.appearanceSelectionBodyIds = [];
         this.update();
+    };
+
+    /** Remove override with "Apply to all selected bodies": one store commit. */
+    protected readonly handleRemoveAppearanceFromBodies = (bodyIds: readonly string[]): void => {
+        const result = this.documentStore.setBodiesAppearance(bodyIds, undefined);
+        if (!result.success) {
+            this.messageService.error(result.error || 'Failed to remove the body appearance.');
+            return;
+        }
+        this.appearanceTarget = undefined;
+        this.appearanceSelectionBodyIds = [];
+        this.update();
+    };
+
+    /**
+     * "Save preset…": prompt for a name and write the draft appearance to the
+     * user-scoped preset library. Same trimmed name replaces the existing
+     * entry; the resolved name feeds the dialog's preset selection.
+     */
+    protected readonly handleSaveAppearancePreset = async (appearance: BodyAppearance): Promise<string | undefined> => {
+        const name = await this.quickInput.input({
+            title: 'Save Appearance Preset',
+            prompt: 'Name this appearance preset',
+            placeHolder: 'Preset name'
+        });
+        if (name === undefined) {
+            return undefined;
+        }
+        const trimmed = name.trim();
+        if (trimmed.length === 0) {
+            return undefined;
+        }
+        const presets = this.appearancePresets().filter((preset) => preset.name !== trimmed);
+        const next = normalizeAppearancePresets([
+            ...presets,
+            {
+                name: trimmed,
+                color: appearance.color ?? BODY_APPEARANCE_DEFAULT_COLOR,
+                opacity: appearance.opacity ?? BODY_APPEARANCE_DEFAULT_OPACITY
+            }
+        ]);
+        try {
+            await this.preferenceService.set('nukeCad.appearancePresets', next, PreferenceScope.User);
+        } catch (error) {
+            this.messageService.error(`Failed to save the appearance preset: ${error}`);
+            return undefined;
+        }
+        return trimmed;
+    };
+
+    /** Delete one user appearance preset by name. */
+    protected readonly handleDeleteAppearancePreset = async (name: string): Promise<void> => {
+        const next = this.appearancePresets().filter((preset) => preset.name !== name);
+        try {
+            await this.preferenceService.set('nukeCad.appearancePresets', next, PreferenceScope.User);
+        } catch (error) {
+            this.messageService.error(`Failed to delete the appearance preset: ${error}`);
+        }
     };
 
     protected readonly subscribeHiddenSolids = (listener: (ids: readonly number[]) => void): Disposable => {
@@ -831,9 +961,10 @@ export class CadViewportWidget extends ReactWidget {
     protected readonly handleStartDressUpPick = (
         type: FeatureType,
         selecting: 'edge' | 'face',
-        callback: (ref: TopologyRef) => void
+        callback: (ref: TopologyRef) => void,
+        tangentChain?: boolean
     ): void => {
-        this.dressUpPickMode = { type, selecting };
+        this.dressUpPickMode = dressUpPickRequest(type, selecting, tangentChain);
         this.dressUpPickCallback = callback;
         this.update();
     };
@@ -844,7 +975,11 @@ export class CadViewportWidget extends ReactWidget {
         this.update();
     };
 
-    protected readonly handleEdgePick = (hit: EdgePickHit): void => {
+    protected readonly handleEdgePick = (hit: EdgePickHit, edgeLines?: readonly THREE.Line[]): void => {
+        if (this.dressUpPickMode?.selecting === 'edge' && this.dressUpPickMode.tangentChain === true) {
+            this.handleTangentChainEdgePick(hit, edgeLines);
+            return;
+        }
         const ref = buildEdgeTopologyRef(String(hit.solidId), hit, (bodyId) => this.resolveBodyTipFeature(bodyId));
         if (ref === undefined) {
             this.messageService.error('Selected edge has no geometric fingerprint; rebuild the model first.');
@@ -855,6 +990,49 @@ export class CadViewportWidget extends ReactWidget {
         this.dressUpPickCallback = undefined;
         this.update();
     };
+
+    /**
+     * Expand one picked edge to its tangent-connected run on the same solid.
+     *
+     * Each chained line becomes its own fingerprint-backed ref and the dialog
+     * callback fires once per ref (its list appends). Refs are deduped by
+     * producing feature + fingerprint so a chain cannot add the same geometry
+     * twice; edges without a fingerprint are skipped with one warning.
+     */
+    private handleTangentChainEdgePick(hit: EdgePickHit, edgeLines: readonly THREE.Line[] | undefined): void {
+        const hits = edgeLines === undefined ? [hit] : expandTangentEdgeChain(hit, edgeLines);
+        const refs: TopologyRef[] = [];
+        const seen = new Set<string>();
+        let missingFingerprints = 0;
+        for (const candidate of hits) {
+            const ref = buildEdgeTopologyRef(String(candidate.solidId), candidate, (bodyId) => this.resolveBodyTipFeature(bodyId));
+            if (ref === undefined) {
+                missingFingerprints++;
+                continue;
+            }
+            const key = `${ref.featureId}\u0000${JSON.stringify(ref.fingerprint)}`;
+            if (seen.has(key)) {
+                continue;
+            }
+            seen.add(key);
+            refs.push(ref);
+        }
+        if (refs.length === 0) {
+            this.messageService.error('Selected edge has no geometric fingerprint; rebuild the model first.');
+            return;
+        }
+        if (missingFingerprints > 0) {
+            this.messageService.warn(
+                `${missingFingerprints} tangent-chain edge(s) have no geometric fingerprint and were skipped; rebuild the model first.`
+            );
+        }
+        for (const ref of refs) {
+            this.dressUpPickCallback?.(ref);
+        }
+        this.dressUpPickMode = undefined;
+        this.dressUpPickCallback = undefined;
+        this.update();
+    }
 
     protected readonly handleFacePickDressUp = (hit: FacePickHit): void => {
         const ref = buildTopologyRef(String(hit.solidId), hit, (bodyId) => this.resolveBodyTipFeature(bodyId));
@@ -1152,6 +1330,24 @@ export class CadViewportWidget extends ReactWidget {
 
     protected readonly handleRebuildDocument = (): Promise<void> => this.rebuildDocument();
 
+    /**
+     * Pin/unpin a ribbon command inline. Writes the whole user-scoped array
+     * with known ids only; unknown pins and duplicates never persist.
+     */
+    protected readonly handleToggleRibbonPin = (commandId: string): void => {
+        if (!CAD_COMMAND_IDS.has(commandId)) {
+            return;
+        }
+        const current = this.preferences['nukeCad.ribbonPins'] ?? [];
+        const next = new Set(current.filter((id) => CAD_COMMAND_IDS.has(id)));
+        if (next.has(commandId)) {
+            next.delete(commandId);
+        } else {
+            next.add(commandId);
+        }
+        void this.preferenceService.set('nukeCad.ribbonPins', Array.from(next), PreferenceScope.User);
+    };
+
     @postConstruct()
     protected init(): void {
         this.id = CadViewportWidget.ID;
@@ -1165,10 +1361,21 @@ export class CadViewportWidget extends ReactWidget {
         this.toDispose.push(Disposable.create(this.documentStore.onChange(() => this.onDocumentChange())));
         // Display precision is a rendering-only preference: re-render the React
         // chrome (measure popover props) and let the mounted scene refresh its
-        // overlay labels through `setMeasurementDecimals`.
+        // overlay labels through `setMeasurementDecimals`. Ribbon labels/pins
+        // and world-origin axis visibility are pure React/scene chrome, so the
+        // same subscription re-renders them.
         this.toDispose.push(
             this.preferences.onPreferenceChanged((event) => {
-                if (event.preferenceName === 'nukeCad.lengthDecimals' || event.preferenceName === 'nukeCad.angleDecimals') {
+                if (
+                    event.preferenceName === 'nukeCad.lengthDecimals' ||
+                    event.preferenceName === 'nukeCad.angleDecimals' ||
+                    event.preferenceName === 'nukeCad.ribbonLabels' ||
+                    event.preferenceName === 'nukeCad.ribbonPins' ||
+                    event.preferenceName === 'nukeCad.appearancePresets' ||
+                    event.preferenceName === 'nukeCad.showOriginX' ||
+                    event.preferenceName === 'nukeCad.showOriginY' ||
+                    event.preferenceName === 'nukeCad.showOriginZ'
+                ) {
                     this.update();
                 }
             })
@@ -2047,10 +2254,16 @@ export class CadViewportWidget extends ReactWidget {
                 documentStore={this.documentStore}
                 templatePickerOpen={this.templatePickerOpen}
                 sketchAutoDimension={this.preferences['nukeCad.sketchAutoDimension']}
+                ribbonLabels={this.preferences['nukeCad.ribbonLabels']}
+                ribbonPins={this.preferences['nukeCad.ribbonPins'] ?? []}
+                onToggleRibbonPin={this.handleToggleRibbonPin}
                 viewportBackground={this.preferences['nukeCad.viewportBackground'] as ViewportBackgroundStyle}
                 navigationStyle={this.preferences['nukeCad.navigationStyle'] as NavigationStyle}
                 lengthDecimals={this.preferences['nukeCad.lengthDecimals']}
                 angleDecimals={this.preferences['nukeCad.angleDecimals']}
+                showOriginX={this.preferences['nukeCad.showOriginX']}
+                showOriginY={this.preferences['nukeCad.showOriginY']}
+                showOriginZ={this.preferences['nukeCad.showOriginZ']}
                 rebuildOnEdit={this.preferences['nukeCad.rebuildOnEdit']}
                 buildStale={this.buildStale}
                 templates={DOCUMENT_TEMPLATES}
@@ -2129,10 +2342,16 @@ export class CadViewportWidget extends ReactWidget {
                 onClearSelection={this.handleClearSelection}
                 onRevealFeature={this.handleRevealFeature}
                 appearanceTarget={this.appearanceTarget}
+                appearancePresets={this.appearancePresets()}
+                appearanceSelectionBodyIds={this.appearanceSelectionBodyIds}
                 onOpenAppearance={this.handleOpenAppearance}
                 onCloseAppearance={this.handleCloseAppearance}
                 onApplyAppearance={this.handleApplyAppearance}
+                onApplyAppearanceToBodies={this.handleApplyAppearanceToBodies}
                 onRemoveAppearance={this.handleRemoveAppearance}
+                onRemoveAppearanceFromBodies={this.handleRemoveAppearanceFromBodies}
+                onSaveAppearancePreset={this.handleSaveAppearancePreset}
+                onDeleteAppearancePreset={this.handleDeleteAppearancePreset}
                 messageService={this.messageService}
             />
         );
@@ -2158,7 +2377,7 @@ interface CadViewportComponentProps {
     readonly featureCreationBodyId?: string;
     readonly editingFeatureId?: string;
     readonly facePickMode?: 'sketchDatum' | 'externalGeometry';
-    readonly dressUpPickMode?: { readonly type: FeatureType; readonly selecting: 'edge' | 'face' };
+    readonly dressUpPickMode?: DressUpPickMode;
     readonly holePickMode?: boolean;
     readonly selectedCurveId?: string;
     readonly sectionActive: boolean;
@@ -2166,12 +2385,22 @@ interface CadViewportComponentProps {
     readonly messageService: MessageService;
     readonly templatePickerOpen: boolean;
     readonly sketchAutoDimension: boolean;
+    /** Show text under ribbon action icons; false renders compact icon buttons. */
+    readonly ribbonLabels: boolean;
+    /** Command ids pinned inline in their ribbon section. */
+    readonly ribbonPins: readonly string[];
+    /** Toggle a command's inline pin state. */
+    readonly onToggleRibbonPin: (commandId: string) => void;
     readonly viewportBackground: ViewportBackgroundStyle;
     readonly navigationStyle: NavigationStyle;
     /** Maximum decimal places for length readouts (measure labels + popover rows). */
     readonly lengthDecimals: number;
     /** Maximum decimal places for angle readouts (measure labels + popover rows). */
     readonly angleDecimals: number;
+    /** World-origin axis visibility preferences (display-only). */
+    readonly showOriginX: boolean;
+    readonly showOriginY: boolean;
+    readonly showOriginZ: boolean;
     readonly rebuildOnEdit: 'auto' | 'manual';
     readonly buildStale: boolean;
     readonly templates: ReadonlyArray<import('../../../common/document-templates').DocumentTemplate>;
@@ -2205,9 +2434,14 @@ interface CadViewportComponentProps {
     readonly onStartExternalGeometryPick: (featureId: string) => void;
     readonly onFacePick: (hit: FacePickHit) => void;
     readonly onFacePickCancel: () => void;
-    readonly onStartDressUpPick: (type: FeatureType, selecting: 'edge' | 'face', callback: (ref: TopologyRef) => void) => void;
+    readonly onStartDressUpPick: (
+        type: FeatureType,
+        selecting: 'edge' | 'face',
+        callback: (ref: TopologyRef) => void,
+        tangentChain?: boolean
+    ) => void;
     readonly onDressUpPickCancel: () => void;
-    readonly onEdgePick: (hit: EdgePickHit) => void;
+    readonly onEdgePick: (hit: EdgePickHit, edgeLines?: readonly THREE.Line[]) => void;
     readonly onFacePickDressUp: (hit: FacePickHit) => void;
     readonly onStartHolePick: (callback: (ref: TopologyRef, uv: [number, number]) => void) => void;
     readonly onHolePick: (hit: FacePickHit) => void;
@@ -2256,11 +2490,19 @@ interface CadViewportComponentProps {
     readonly onRevealFeature: (featureId: string) => void;
     /** Per-body Appearance dialog target; undefined when the dialog is closed. */
     readonly appearanceTarget?: BodyAppearanceTarget;
+    /** Normalized user appearance presets (preference-scoped). */
+    readonly appearancePresets: readonly AppearancePreset[];
+    /** Distinct body ids owning the viewport selection when the dialog opened. */
+    readonly appearanceSelectionBodyIds: readonly string[];
     /** Viewport context menu Appearance…: open the dialog for a body. */
     readonly onOpenAppearance: (bodyId: string) => void;
     readonly onCloseAppearance: () => void;
     readonly onApplyAppearance: (bodyId: string, appearance: BodyAppearance) => void;
+    readonly onApplyAppearanceToBodies: (bodyIds: readonly string[], appearance: BodyAppearance) => void;
     readonly onRemoveAppearance: (bodyId: string) => void;
+    readonly onRemoveAppearanceFromBodies: (bodyIds: readonly string[]) => void;
+    readonly onSaveAppearancePreset: (appearance: BodyAppearance) => Promise<string | undefined>;
+    readonly onDeleteAppearancePreset: (name: string) => Promise<void>;
 }
 
 function CadViewportComponent(props: CadViewportComponentProps): React.ReactElement {
@@ -2319,7 +2561,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
         updateModel?: (tessData?: TessData) => void;
         updateSelectedCurve?: (curveId: string | undefined) => void;
         setFacePickMode?: (mode?: 'sketchDatum' | 'externalGeometry') => void;
-        setDressUpPickMode?: (mode?: { type: FeatureType; selecting: 'edge' | 'face' }) => void;
+        setDressUpPickMode?: (mode?: DressUpPickMode) => void;
         setHolePickMode?: (active: boolean) => void;
         setCurvePickMode?: (active: boolean) => void;
         setDrawingDimensionPickMode?: (active: boolean) => void;
@@ -2336,6 +2578,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
         setNavigationStyle?: (style: NavigationStyle) => void;
         setSection?: (section?: SectionState) => void;
         setExplodeFactor?: (factor: number) => void;
+        setOriginAxes?: (axes: OriginAxesVisibility, suppressed?: boolean) => void;
         updateMeasureState?: (state: MeasureViewState) => void;
         setMeasurementDecimals?: (decimals: MeasurementDecimals) => void;
         setAutoDimensionEnabled?: (enabled: boolean) => void;
@@ -2627,6 +2870,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                 props.viewportBackground,
                 props.navigationStyle,
                 { length: props.lengthDecimals, angle: props.angleDecimals },
+                { x: props.showOriginX, y: props.showOriginY, z: props.showOriginZ },
                 () => sectionActiveRef.current,
                 handleClosePopover,
                 handleToggleSection,
@@ -2666,6 +2910,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             viewportApi.current.setNavigationStyle = api.setNavigationStyle;
             viewportApi.current.setSection = api.setSection;
             viewportApi.current.setExplodeFactor = api.setExplodeFactor;
+            viewportApi.current.setOriginAxes = api.setOriginAxes;
             viewportApi.current.updateMeasureState = api.updateMeasureState;
             viewportApi.current.setMeasurementDecimals = api.setMeasurementDecimals;
             viewportApi.current.setAutoDimensionEnabled = api.setAutoDimensionEnabled;
@@ -2703,6 +2948,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             viewportApi.current.setNavigationStyle = undefined;
             viewportApi.current.setSection = undefined;
             viewportApi.current.setExplodeFactor = undefined;
+            viewportApi.current.setOriginAxes = undefined;
             viewportApi.current.updateMeasureState = undefined;
             viewportApi.current.setMeasurementDecimals = undefined;
             viewportApi.current.setAutoDimensionEnabled = undefined;
@@ -2800,6 +3046,17 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
     React.useEffect(() => {
         viewportApi.current.setMeasurementDecimals?.({ length: props.lengthDecimals, angle: props.angleDecimals });
     }, [props.lengthDecimals, props.angleDecimals, controller]);
+
+    // Origin axes are display-only: preference changes update line visibility
+    // in place, never re-initialize the scene. Sketch setup/entering suppresses
+    // the whole group with the rest of the document chrome; an active sketch
+    // session is hidden inside the scene itself.
+    React.useEffect(() => {
+        viewportApi.current.setOriginAxes?.(
+            { x: props.showOriginX, y: props.showOriginY, z: props.showOriginZ },
+            props.sketchSetupVisible || props.sketchEntering
+        );
+    }, [props.showOriginX, props.showOriginY, props.showOriginZ, props.sketchSetupVisible, props.sketchEntering, controller]);
 
     React.useEffect(() => {
         if (props.warnings.length > 0) {
@@ -2916,6 +3173,9 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             holePickMode={props.holePickMode}
             shortcutBar={shortcutBar}
             sketchAutoDimension={props.sketchAutoDimension}
+            ribbonLabels={props.ribbonLabels}
+            ribbonPins={props.ribbonPins}
+            onToggleRibbonPin={props.onToggleRibbonPin}
             templates={props.templates}
             onEnterSketch={props.onEnterSketch}
             onEnterSketchDraft={props.onEnterSketchDraft}
@@ -3278,8 +3538,14 @@ function BodyAppearanceDialogHost(props: CadViewportComponentProps): React.React
             key={target.bodyId}
             target={target}
             appearance={appearance}
+            presets={props.appearancePresets}
+            selectionBodyIds={props.appearanceSelectionBodyIds}
             onApply={(next) => props.onApplyAppearance(target.bodyId, next)}
+            onApplyToBodies={props.onApplyAppearanceToBodies}
             onRemove={() => props.onRemoveAppearance(target.bodyId)}
+            onRemoveFromBodies={props.onRemoveAppearanceFromBodies}
+            onSavePreset={props.onSaveAppearancePreset}
+            onDeletePreset={props.onDeleteAppearancePreset}
             onClose={props.onCloseAppearance}
         />
     );
@@ -3443,19 +3709,26 @@ function MeasureListPopover(props: MeasureListPopoverProps): React.ReactElement 
     );
 }
 
+interface OriginAxesVisibility {
+    readonly x: boolean;
+    readonly y: boolean;
+    readonly z: boolean;
+}
+
 interface ViewportApi {
     readonly controller: SketchModeController;
     readonly cleanup: () => void;
     readonly updateModel: (tessData?: TessData) => void;
     readonly updateSelectedCurve: (curveId: string | undefined) => void;
     readonly setFacePickMode: (mode?: 'sketchDatum' | 'externalGeometry') => void;
-    readonly setDressUpPickMode: (mode?: { type: FeatureType; selecting: 'edge' | 'face' }) => void;
+    readonly setDressUpPickMode: (mode?: DressUpPickMode) => void;
     readonly setHolePickMode: (active: boolean) => void;
     readonly setCurvePickMode: (active: boolean) => void;
     readonly setDrawingDimensionPickMode: (active: boolean) => void;
     readonly setConnectorPickMode: (active: boolean) => void;
     readonly setConnectorTriads: (triads: readonly ConnectorTriad[]) => void;
     readonly setPreviewTessellation: (tessData?: TessData) => void;
+    readonly setOriginAxes: (axes: OriginAxesVisibility, suppressed?: boolean) => void;
     readonly fitView: () => void;
     readonly zoomView: (factor: number) => void;
     readonly setStandardView: (view: 'iso' | 'top' | 'front' | 'right') => void;
@@ -3484,7 +3757,7 @@ function initViewport(
     onControllerReady: (controller: SketchModeController, camera: THREE.PerspectiveCamera) => void,
     onFacePick: (hit: FacePickHit) => void,
     onFacePickCancel: () => void,
-    onEdgePick: (hit: EdgePickHit) => void,
+    onEdgePick: (hit: EdgePickHit, edgeLines?: readonly THREE.Line[]) => void,
     onFacePickDressUp: (hit: FacePickHit) => void,
     onDressUpPickCancel: () => void,
     onStartHolePick: (callback: (ref: TopologyRef, uv: [number, number]) => void) => void,
@@ -3526,6 +3799,7 @@ function initViewport(
     initialViewportBackground: ViewportBackgroundStyle,
     initialNavigationStyle: NavigationStyle,
     initialMeasurementDecimals: MeasurementDecimals,
+    initialOriginAxes: OriginAxesVisibility,
     isSectionActive: () => boolean,
     onClosePopover: () => void,
     onToggleSection: () => void,
@@ -3680,7 +3954,7 @@ function initViewport(
     // every new model (solid indices are positional and can shuffle).
     let hiddenSolidIds = new Set<number>();
     let activeFacePickMode: 'sketchDatum' | 'externalGeometry' | undefined;
-    let activeDressUpPickMode: { type: FeatureType; selecting: 'edge' | 'face' } | undefined;
+    let activeDressUpPickMode: DressUpPickMode | undefined;
     let activeHolePickMode = initialHolePickMode;
     let activeCurvePickMode = initialCurvePickMode;
     let activeDrawingDimensionPickMode = initialDrawingDimensionPickMode;
@@ -3689,6 +3963,45 @@ function initViewport(
     let curvePickHoverId: string | undefined;
     let lastCenter = new THREE.Vector3();
     let lastDiag = 10;
+    // Display-only world-origin triad: three RGB lines at the scene origin,
+    // each parented to `origin-axes` so per-axis visibility is one flag per
+    // line. Scale follows the model diagonal so it stays legible at tokamak
+    // scale; never document state, never a build/export input.
+    const ORIGIN_AXIS_COLORS = ['#e05252', '#4caf50', '#3b82f6'] as const;
+    const ORIGIN_AXIS_NAMES = ['x', 'y', 'z'] as const;
+    const originAxesGroup = new THREE.Group();
+    originAxesGroup.name = 'origin-axes';
+    scene.add(originAxesGroup);
+    /** Sketch setup/entering hides the whole group on top of the controller check. */
+    let originAxesSuppressed = false;
+    const originAxisLines = ORIGIN_AXIS_NAMES.map((axis, index) => {
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
+        const material = new THREE.LineBasicMaterial({
+            color: ORIGIN_AXIS_COLORS[index],
+            depthTest: false,
+            transparent: true,
+            opacity: 0.9,
+            toneMapped: false
+        });
+        const line = new THREE.Line(geometry, material);
+        line.name = `origin-axis-${axis}`;
+        line.renderOrder = 990;
+        // Axes stay visible over geometry; skip frustum culling because the
+        // geometry grows with the model without a recomputed bounding sphere.
+        line.frustumCulled = false;
+        originAxesGroup.add(line);
+        return line;
+    });
+    const applyOriginAxesLength = (length: number): void => {
+        ORIGIN_AXIS_NAMES.forEach((axis, index) => {
+            const position = originAxisLines[index].geometry.getAttribute('position') as THREE.BufferAttribute;
+            position.setXYZ(0, 0, 0, 0);
+            position.setXYZ(1, axis === 'x' ? length : 0, axis === 'y' ? length : 0, axis === 'z' ? length : 0);
+            position.needsUpdate = true;
+        });
+    };
+    applyOriginAxesLength(5);
     // Declared before buildModel runs: applyShading reads both immediately.
     let shading: ShadingMode = 'shaded';
     let ghostOpacity = DEFAULT_GHOST_OPACITY;
@@ -4194,6 +4507,9 @@ function initViewport(
     let controller: SketchModeController;
     const renderScene = (): void => {
         const cam = controller.getActiveCamera();
+        // World-origin axes are document-mode chrome: a sketch session hides
+        // the group and exiting restores it on the next render.
+        originAxesGroup.visible = !controller.isActive && !originAxesSuppressed;
         // Clip planes follow the scene scale on every render (build, fit,
         // dolly, orbit, zoom): a fixed far plane clips any model larger than
         // ~5.8 km (the tokamak's 6.4 km diagonal) and a fixed 1e6 near/far
@@ -4223,6 +4539,15 @@ function initViewport(
         mainCamera: camera
     });
     onControllerReady(controller, camera);
+
+    const setOriginAxes = (axes: OriginAxesVisibility, suppressed = false): void => {
+        originAxesSuppressed = suppressed;
+        originAxisLines[0].visible = axes.x;
+        originAxisLines[1].visible = axes.y;
+        originAxisLines[2].visible = axes.z;
+        renderScene();
+    };
+    setOriginAxes(initialOriginAxes);
 
     const applyCurveHighlight = (): void => {
         for (const line of curveLines) {
@@ -4559,7 +4884,23 @@ function initViewport(
         }
     };
 
+    // Right-click overlays anchored over the canvas. Their contents reference
+    // scene meshes, so a model change (or unmount) must dismiss them. The
+    // candidate list is captured from the last context-menu raycast for the
+    // Select Other action and cleared whenever the menu is dismissed.
+    let closeContextMenu: (() => void) | undefined;
+    let closeSelectOtherMenu: (() => void) | undefined;
+    let contextMenuCandidates: readonly FacePickCandidate[] = [];
+    const closeViewportOverlays = (): void => {
+        closeContextMenu?.();
+        closeContextMenu = undefined;
+        closeSelectOtherMenu?.();
+        closeSelectOtherMenu = undefined;
+        contextMenuCandidates = [];
+    };
+
     const buildModel = (data?: TessData): void => {
+        closeViewportOverlays();
         const t0 = PROFILE_TESSELLATION_LOAD ? performance.now() : 0;
         currentTessData = data;
         // Edge lines and curves are small (profiled ~50 ms at tokamak scale
@@ -4582,6 +4923,7 @@ function initViewport(
             disposePooledMeshes();
             disposeBodyAppearanceMaterials();
             explodeCentroids = undefined;
+            applyOriginAxesLength(5);
             applyExplode();
             applyShading();
             return;
@@ -4592,6 +4934,7 @@ function initViewport(
         const diag = new THREE.Vector3(bbox.max[0] - bbox.min[0], bbox.max[1] - bbox.min[1], bbox.max[2] - bbox.min[2]).length();
         lastCenter.copy(center);
         lastDiag = diag;
+        applyOriginAxesLength(Math.max(lastDiag * 0.08, 1));
         camera.position.copy(center.clone().add(new THREE.Vector3(diag, diag, diag)));
         camera.lookAt(center);
         controls.target.copy(center);
@@ -5191,7 +5534,7 @@ function initViewport(
                 const hit = raycastEdge(pickableEdgeLines(), raycaster, ndc, camera);
                 if (hit !== undefined) {
                     edgeHighlighter.clear();
-                    onEdgePick(hit);
+                    onEdgePick(hit, activeDressUpPickMode.tangentChain === true ? edgeLines : undefined);
                 }
             } else {
                 // Faces are hidden under edges-only shading; face picking no-ops.
@@ -5257,6 +5600,22 @@ function initViewport(
                 onFacePick(hit);
             }
             return;
+        }
+        // Alt+click cycles overlapping faces without any pick, measure, or
+        // sketch mode active (all of those returned above). One or zero
+        // candidates fall through to the normal click path. Ctrl/Cmd additive
+        // picks are untouched whenever Alt is not held.
+        if (event.altKey) {
+            const candidates = raycastFaceCandidates(pickableMeshes(), raycaster, ndc, camera);
+            if (candidates.length > 1) {
+                documentStore.selectCurve(undefined);
+                const currentIndex = candidates.findIndex(
+                    (candidate) => candidate.solidId === currentSelection.solidId && candidate.faceId === currentSelection.faceId
+                );
+                const next = candidates[(currentIndex + 1) % candidates.length];
+                onSelect({ solidId: next.solidId, faceId: next.faceId });
+                return;
+            }
         }
         pointer.x = ndc.x;
         pointer.y = ndc.y;
@@ -5421,7 +5780,6 @@ function initViewport(
     };
     renderer.domElement.addEventListener('pointermove', onPickPointerMove);
 
-    let closeContextMenu: (() => void) | undefined;
     const onContextMenu = (event: MouseEvent): void => {
         if (
             activeFacePickMode === undefined &&
@@ -5438,10 +5796,15 @@ function initViewport(
                 return;
             }
             event.preventDefault();
-            closeContextMenu?.();
+            closeViewportOverlays();
             const rect = renderer.domElement.getBoundingClientRect();
             const ndc = pointerToNdc(event.clientX, event.clientY, rect);
-            const hit = raycastFace(pickableMeshes(), raycaster, ndc, camera);
+            const pickable = pickableMeshes();
+            const hit = raycastFace(pickable, raycaster, ndc, camera);
+            // Every distinct face under the pointer feeds Select Other; the
+            // nearest one is the normal menu's solid/feature target.
+            const candidates = raycastFaceCandidates(pickable, raycaster, ndc, camera);
+            contextMenuCandidates = candidates;
             // Attribution: instance → feature via the source body id
             // (`body:<bodyId>` same-document parts); plain faces use bodyId.
             const instanceId = (hit?.mesh.userData as { instanceId?: unknown } | undefined)?.instanceId;
@@ -5455,7 +5818,8 @@ function initViewport(
             }
             const featureId = attributeBodyToFeature(bodyId, documentStore.document?.features);
             const containerRect = container.getBoundingClientRect();
-            closeContextMenu = openViewportContextMenu(
+            const anchor = { x: event.clientX - containerRect.left, y: event.clientY - containerRect.top };
+            const menu = openViewportContextMenu(
                 container,
                 buildViewportContextMenu({
                     solid: hit !== undefined ? { solidId: hit.solidId, featureId, bodyId } : undefined,
@@ -5463,10 +5827,14 @@ function initViewport(
                     hiddenCount: hiddenSolidIds.size,
                     sectionActive: isSectionActive(),
                     selectedIds: currentSelection.solidIds ?? (currentSelection.solidId !== undefined ? [currentSelection.solidId] : []),
-                    hasSelection: hasViewportSelection()
+                    hasSelection: hasViewportSelection(),
+                    selectOtherCount: candidates.length
                 }),
-                { x: event.clientX - containerRect.left, y: event.clientY - containerRect.top },
+                anchor,
                 (action) => {
+                    if (action.kind !== 'selectOther') {
+                        contextMenuCandidates = [];
+                    }
                     switch (action.kind) {
                         case 'editFeature':
                             onEditFeatureRequest(action.featureId);
@@ -5507,19 +5875,36 @@ function initViewport(
                         case 'revealFeature':
                             onRevealFeature(action.featureId);
                             break;
+                        case 'selectOther': {
+                            const rows = buildSelectOtherRows(contextMenuCandidates, documentStore.document, measurementDecimals.length);
+                            contextMenuCandidates = [];
+                            closeSelectOtherMenu?.();
+                            closeSelectOtherMenu = openSelectOtherMenu(container, rows, anchor, (pick) => {
+                                // Mirror the normal click path: a viewport pick
+                                // clears any curve selection.
+                                documentStore.selectCurve(undefined);
+                                onSelect({ solidId: pick.solidId, faceId: pick.faceId });
+                            });
+                            break;
+                        }
                         case 'appearance':
                             onOpenBodyAppearance(action.bodyId);
                             break;
                         case 'noop':
                             break;
                     }
+                },
+                () => {
+                    // Outside/Escape/cleanup dismissals end the candidate
+                    // session; an item dispatch clears it after use.
+                    contextMenuCandidates = [];
                 }
             );
+            closeContextMenu = menu;
             return;
         }
         event.preventDefault();
-        closeContextMenu?.();
-        closeContextMenu = undefined;
+        closeViewportOverlays();
         faceHighlighter.clear();
         edgeHighlighter.clear();
         if (activeDressUpPickMode !== undefined) {
@@ -5714,7 +6099,9 @@ function initViewport(
             // search run their own window-capture handlers, and NukeDialog
             // listens on document capture, which this handler's
             // stopPropagation() would swallow.
-            container.querySelector('.cad-viewport-context-menu, .cad-shortcut-bar, .cad-command-search-popover, [role="dialog"]') === null
+            container.querySelector(
+                '.cad-viewport-context-menu, .cad-select-other-menu, .cad-shortcut-bar, .cad-command-search-popover, [role="dialog"]'
+            ) === null
         ) {
             const target = event.target;
             const isTextField =
@@ -6048,6 +6435,7 @@ function initViewport(
         },
         setConnectorTriads,
         setPreviewTessellation,
+        setOriginAxes,
         fitView,
         zoomView,
         setStandardView,
@@ -6085,8 +6473,7 @@ function initViewport(
             renderScene();
         },
         cleanup: () => {
-            closeContextMenu?.();
-            closeContextMenu = undefined;
+            closeViewportOverlays();
             container.classList.remove('cad-viewport-gradient');
             measureLabelLayer.remove();
             scene.remove(measureGroup);
@@ -6168,6 +6555,11 @@ function initViewport(
             previewGhostMaterial.dispose();
             previewMeshes = [];
             scene.remove(previewGroup);
+            for (const line of originAxisLines) {
+                line.geometry.dispose();
+                (line.material as THREE.Material).dispose();
+            }
+            scene.remove(originAxesGroup);
         }
     };
 }

@@ -190,6 +190,42 @@ test('document toolbar collapses to section menus without wrapping at narrow wid
     await expect(toolbar.locator('.cad-document-toolbar-search')).toBeVisible();
     await toolbar.screenshot({ path: 'test-results/cad-ribbon-tiles.png' });
 
+    // Ribbon customization: pinning a caret-menu command renders it inline in
+    // its section. The menu keeps listing every command with a pin toggle.
+    const documentGroup = toolbar.locator('[role="group"][aria-label="Document"]').first();
+    const documentTiles = documentGroup.locator('.nuke-ribbon-item');
+    const sectionMenu = page.locator('.nuke-ribbon-menu');
+    await expect(documentTiles).toHaveCount(5);
+    await documentGroup.locator('.nuke-ribbon-menu-trigger').click();
+    await expect(sectionMenu).toBeVisible({ timeout: 10_000 });
+    // The menu lists every Document command, inline ones included.
+    await expect(sectionMenu.locator('[role="menuitem"]')).toHaveCount(6);
+    const exportRow = sectionMenu.locator('.nuke-ribbon-menu-row', { hasText: 'Export as Python' }).first();
+    await expect(exportRow.locator('[role="menuitem"]')).toContainText('Export as Python');
+    await exportRow.locator('button[aria-label="Pin to toolbar"]').click();
+    // Pinning never closes the menu or runs the command.
+    await expect(sectionMenu).toBeVisible();
+    await expect(exportRow.locator('button[aria-label="Unpin from toolbar"]')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(sectionMenu).toBeHidden();
+
+    // Export Python now sits inline after the five default Document tiles.
+    await expect(documentTiles).toHaveCount(6);
+    const exportTile = documentGroup.locator('.nuke-ribbon-item:has(.codicon-code)');
+    await expect(exportTile).toBeVisible();
+    await expect(exportTile).toContainText('Export as Python');
+
+    // Reopening offers the inverse toggle; unpinning restores the defaults.
+    await documentGroup.locator('.nuke-ribbon-menu-trigger').click();
+    await expect(sectionMenu).toBeVisible({ timeout: 10_000 });
+    await expect(exportRow.locator('button[aria-label="Unpin from toolbar"]')).toBeVisible();
+    await exportRow.locator('button[aria-label="Unpin from toolbar"]').click();
+    await expect(sectionMenu).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(sectionMenu).toBeHidden();
+    await expect(documentTiles).toHaveCount(5);
+    await expect(exportTile).toHaveCount(0);
+
     // Narrow the window: the bar must switch to caption menus, not wrap.
     await page.setViewportSize({ width: 900, height: 800 });
     await expect(toolbar.locator('.nuke-ribbon-menus')).toBeVisible({ timeout: 10_000 });

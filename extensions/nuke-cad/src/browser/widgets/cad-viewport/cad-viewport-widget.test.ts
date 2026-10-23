@@ -40,6 +40,7 @@ import type { NukeCadPreferences } from '../../nuke-cad-preferences';
 // existing pure-logic suites), so the real partial funnel still runs.
 vi.mock('@theia/core/lib/browser/widgets/react-widget', () => ({ ReactWidget: class {} }));
 vi.mock('@theia/core/lib/browser', () => ({ Message: class {}, WidgetManager: class {} }));
+vi.mock('@theia/core/lib/browser/quick-input', () => ({ QuickInputService: class {} }));
 vi.mock('@theia/core/lib/browser/theming', () => ({ ThemeService: class {} }));
 vi.mock('@theia/filesystem/lib/browser/file-service', () => ({ FileService: class {} }));
 vi.mock('@theia/filesystem/lib/browser/file-dialog', () => ({ FileDialogService: class {} }));

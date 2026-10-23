@@ -80,6 +80,8 @@ export type ViewportContextMenuAction =
     | { readonly kind: 'toggleSection' }
     | { readonly kind: 'clearSelection' }
     | { readonly kind: 'revealFeature'; readonly featureId: string }
+    /** Open the anchored candidate list for overlapping faces under the pointer. */
+    | { readonly kind: 'selectOther' }
     /** Open the per-body Appearance dialog (display-only color/opacity override). */
     | { readonly kind: 'appearance'; readonly bodyId: string }
     /** Only ever on disabled items (the Edit Feature placeholder). */
@@ -119,6 +121,11 @@ export interface ViewportContextMenuInput {
     readonly selectedIds?: readonly number[];
     /** Whether the viewport has a selection; gates Clear Selection. Defaults to false. */
     readonly hasSelection?: boolean;
+    /**
+     * Distinct faces under the context-menu pointer. Select Other… appears
+     * only when more than one candidate exists. Defaults to 0.
+     */
+    readonly selectOtherCount?: number;
 }
 
 /** Hit-test-dependent menu contents; solid menu vs empty-space menu. */
@@ -128,6 +135,7 @@ export function buildViewportContextMenu(input: ViewportContextMenuInput): reado
         const { solidId, featureId, bodyId } = input.solid;
         const selectedIds = (input.selectedIds ?? []).filter((id, index, all) => all.indexOf(id) === index);
         const bulkIds = selectedIds.length > 1 && selectedIds.includes(solidId) ? selectedIds : undefined;
+        const selectOtherCount = input.selectOtherCount ?? 0;
         return [
             {
                 label: 'Edit Feature…',
@@ -143,6 +151,18 @@ export function buildViewportContextMenu(input: ViewportContextMenuInput): reado
                           icon: 'codicon-list-tree',
                           separatorAbove: true,
                           action: { kind: 'revealFeature', featureId } as const
+                      }
+                  ]
+                : []),
+            // Select Other belongs to the pick group: it disambiguates the
+            // faces under the pointer, independent of feature attribution.
+            ...(selectOtherCount > 1
+                ? [
+                      {
+                          label: 'Select Other…',
+                          icon: 'codicon-layers',
+                          hint: 'Alt+click',
+                          action: { kind: 'selectOther' } as const
                       }
                   ]
                 : []),
@@ -264,20 +284,24 @@ export function buildViewportContextMenu(input: ViewportContextMenuInput): reado
  * toggleSection -> onSetSectionActive(!sectionActive)
  * clearSelection -> onClearSelection() (document selection + viewport highlight)
  * revealFeature -> onRevealFeature(featureId) (select in the tree, then open its panel)
+ * selectOther -> open the anchored candidate popover for the right-click ray
  */
 
 /**
  * Render the menu at a container-relative anchor and invoke `onAction` for the
  * chosen item. Clamps the panel inside the container. Closes on any window
  * pointerdown outside the menu or on Escape; returns the close function so the
- * viewport cleanup can dismiss it too. Choosing an item hands focus back to
+ * viewport cleanup can dismiss it too. `onClose` fires for those dismissals and
+ * for external `close()` calls, but not for an item dispatch, whose action may
+ * still need data captured at open time. Choosing an item hands focus back to
  * the container, since the pressed button leaves the DOM with the menu.
  */
 export function openViewportContextMenu(
     container: HTMLElement,
     items: readonly ViewportContextMenuItem[],
     anchor: { readonly x: number; readonly y: number },
-    onAction: (action: ViewportContextMenuAction) => void
+    onAction: (action: ViewportContextMenuAction) => void,
+    onClose?: () => void
 ): () => void {
     const menu = document.createElement('div');
     menu.className = 'cad-viewport-context-menu';
@@ -308,7 +332,7 @@ export function openViewportContextMenu(
             button.setAttribute('aria-keyshortcuts', item.hint === 'Esc' ? 'Escape' : item.hint);
         }
         button.addEventListener('click', () => {
-            close();
+            close(false);
             if (item.disabled !== true) {
                 onAction(item.action);
                 // The pressed button leaves the DOM with the menu, dropping
@@ -332,12 +356,12 @@ export function openViewportContextMenu(
         if (event.target instanceof Node && menu.contains(event.target)) {
             return;
         }
-        close();
+        close(true);
     };
     const onKeyDown = (event: KeyboardEvent): void => {
         if (event.key === 'Escape') {
             event.stopPropagation();
-            close();
+            close(true);
         }
     };
     // The menu outlives a pointer gesture: pointerdown (not click) closes, and
@@ -346,10 +370,13 @@ export function openViewportContextMenu(
     window.addEventListener('pointerdown', onWindowPointerDown);
     window.addEventListener('keydown', onKeyDown, true);
 
-    function close(): void {
+    function close(dismiss: boolean): void {
         window.removeEventListener('pointerdown', onWindowPointerDown);
         window.removeEventListener('keydown', onKeyDown, true);
         menu.remove();
+        if (dismiss) {
+            onClose?.();
+        }
     }
-    return close;
+    return () => close(true);
 }

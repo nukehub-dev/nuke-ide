@@ -39,11 +39,12 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   `TopologyRef`s (`topology-refs.ts` types, Python scoring/resolver,
   `matched`/`ambiguous`/`unmatched` with fingerprint-identity repair). See
   `docs/dev/features-patterns.md`.
-- Dress-ups (fillet/chamfer/draft/shell on the accumulated B-rep via pick modes),
+- Dress-ups (fillet/chamfer/draft/shell on the accumulated B-rep via pick modes;
+  fillet/chamfer edge picks optionally expand to a same-solid tangent chain, 15° / 256-edge cap),
   patterns/mirror/lattice (2500-cell cap)/multiTransform over same-body sources with
   union-fuse semantics, and the hole wizard (face ref + `[u, v]`, blind/through,
   counterbore/countersink/counterdrill mutex, ISO `modeled` threads) with `defeature`.
-  See `docs/dev/features-patterns.md`.
+  See `docs/dev/features-patterns.md` and `docs/dev/viewport-outline.md`.
 - Sweep/pipe (curve path, `frenet`/`fixedBinormal`, additive-only, closed-spine
   station lofts), loft (ordered `sectionSketchIds`, `ruled`), helicalSweep (analytic
   helix, optional `subtractive`); every dialog offers debounced ghost preview
@@ -68,17 +69,23 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
 - Viewport: purpose-built three.js widget (active-camera rule, scene-scaled
   `clip-planes.ts` near/far, `ViewerNavBar` children, scoped keys with capture phase,
   toolbar command search (`/`) over the shared `cad-command-registry.ts` table
-  (ribbon + search, disabled reasons) with text/pick/dialog guards, `ViewCube`/`ViewBadge` below the toolbar, theme-adaptive colors), worker-parsed
+  (ribbon + search, disabled reasons, pinned commands + label-free density) with text/pick/dialog guards,
+  `ViewCube`/`ViewBadge` below the toolbar, theme-adaptive colors), worker-parsed
   tessellation with content-keyed reuse that rebuilds invalidate, single-authority
   shading, visual-only section, measure (distance/angle/radius + pinnable `measurements`
-  block), saved named views (`views` block + camera API), per-solid explode, hidden-set picking filters. See `docs/dev/viewport-outline.md`.
+  block), saved named views (`views` block + camera API), per-solid explode, hidden-set picking filters,
+  overlapping-face Select Other (context-menu candidate popover + Alt+click cycling), and a
+  display-only world-origin triad with per-axis `nukeCad.showOriginX/Y/Z` visibility (Model Outline Origin section).
+  See `docs/dev/viewport-outline.md`.
 - Per-body appearance overrides (`BodyDef.appearance`: `color` `#rrggbb` + `opacity` 0–1,
   display-only, no rebuild) use one cloned material per overridden body; selection keeps
-  the shared highlight and xray wins opacity. See `docs/dev/viewport-outline.md`.
+  the shared highlight and xray wins opacity. `nukeCad.appearancePresets` is a user-level
+  preset library (normalized in `body-appearance.ts`); multi-body apply commits once via
+  `setBodiesAppearance`. See `docs/dev/viewport-outline.md`.
 - Model Outline (read-only manifest + Document Settings/Properties/Table/Parameters/BOM/warnings-Fuse)
   and Feature Tree (ordered bodies/datums/sketches/features/curves, suppression,
   reorder/delete guards, repair popover) with mask-based `codicon-nuke-cad-*` icons
-  and `nuke-cad-preferences.ts` (faceting/display/background/navigation/rebuild/cache/precision).
+  and `nuke-cad-preferences.ts` (faceting/display/background/navigation/rebuild/cache/precision/origin axes/ribbon labels+pins).
   See `docs/dev/viewport-outline.md`.
 - Curves (`points`/`parametric`/`fourier` via `expression.ts` + units, closed-repeat
   convention, `curve_builder.py` wires), drawings (additive block, HLR

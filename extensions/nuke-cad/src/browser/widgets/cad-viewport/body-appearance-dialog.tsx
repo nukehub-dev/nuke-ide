@@ -39,8 +39,16 @@
 
 import * as React from '@theia/core/shared/react';
 import type { BodyAppearance } from '../../../common/cad-document';
-import { ColorPicker, NukeDialog, NukeFormRow, NukeSlider } from 'nuke-essentials/lib/theme/browser/components';
-import { BODY_APPEARANCE_DEFAULT_COLOR, BODY_APPEARANCE_DEFAULT_OPACITY } from './body-appearance';
+import {
+    ColorPicker,
+    NukeCheckbox,
+    NukeDialog,
+    NukeFormRow,
+    NukeSelect,
+    NukeSlider,
+    Tooltip
+} from 'nuke-essentials/lib/theme/browser/components';
+import { BODY_APPEARANCE_DEFAULT_COLOR, BODY_APPEARANCE_DEFAULT_OPACITY, type AppearancePreset } from './body-appearance';
 
 export interface BodyAppearanceTarget {
     readonly bodyId: string;
@@ -52,10 +60,23 @@ export interface BodyAppearanceDialogProps {
     readonly target: BodyAppearanceTarget;
     /** Current document override, or undefined when the body follows the theme. */
     readonly appearance?: BodyAppearance;
+    /** User-level presets (already normalized by the widget). */
+    readonly presets: readonly AppearancePreset[];
+    /** Every distinct body id owning the current viewport selection. */
+    readonly selectionBodyIds?: readonly string[];
     readonly onApply: (appearance: BodyAppearance) => void;
+    /** OK with "Apply to all selected bodies" checked. */
+    readonly onApplyToBodies?: (bodyIds: readonly string[], appearance: BodyAppearance) => void;
     readonly onRemove: () => void;
+    /** Remove override with "Apply to all selected bodies" checked. */
+    readonly onRemoveFromBodies?: (bodyIds: readonly string[]) => void;
+    /** Ask for a name and persist the given appearance as a user preset; resolves to the saved name. */
+    readonly onSavePreset?: (appearance: BodyAppearance) => Promise<string | undefined>;
+    readonly onDeletePreset?: (name: string) => Promise<void>;
     readonly onClose: () => void;
 }
+
+const NO_PRESET = '';
 
 function clampPercent(value: number): number {
     return Math.min(100, Math.max(0, Math.round(value)));
@@ -66,11 +87,67 @@ export function BodyAppearanceDialog(props: BodyAppearanceDialogProps): React.Re
     const [opacityPercent, setOpacityPercent] = React.useState(
         clampPercent((props.appearance?.opacity ?? BODY_APPEARANCE_DEFAULT_OPACITY) * 100)
     );
+    const [selectedPreset, setSelectedPreset] = React.useState(NO_PRESET);
+    const [applyToSelection, setApplyToSelection] = React.useState(false);
     const hasOverride = props.appearance !== undefined;
+    const selectionBodyIds = props.selectionBodyIds ?? [];
+    const canApplyToSelection = selectionBodyIds.length > 1;
+    const activePreset =
+        selectedPreset !== NO_PRESET && props.presets.some((preset) => preset.name === selectedPreset) ? selectedPreset : NO_PRESET;
+
+    const draftAppearance = (): BodyAppearance => ({ color, opacity: opacityPercent / 100 });
+
+    const selectPreset = (name: string): void => {
+        setSelectedPreset(name);
+        if (name === NO_PRESET) {
+            return;
+        }
+        const preset = props.presets.find((entry) => entry.name === name);
+        if (preset !== undefined) {
+            setColor(preset.color);
+            setOpacityPercent(clampPercent(preset.opacity * 100));
+        }
+    };
+
+    const savePreset = async (): Promise<void> => {
+        if (props.onSavePreset === undefined) {
+            return;
+        }
+        const saved = await props.onSavePreset(draftAppearance());
+        if (saved !== undefined) {
+            setSelectedPreset(saved);
+        }
+    };
+
+    const deletePreset = async (): Promise<void> => {
+        if (activePreset === NO_PRESET || props.onDeletePreset === undefined) {
+            return;
+        }
+        await props.onDeletePreset(activePreset);
+        setSelectedPreset(NO_PRESET);
+    };
 
     const submit = (): void => {
-        props.onApply({ color, opacity: opacityPercent / 100 });
+        const appearance = draftAppearance();
+        if (applyToSelection && canApplyToSelection && props.onApplyToBodies !== undefined) {
+            props.onApplyToBodies(selectionBodyIds, appearance);
+            return;
+        }
+        props.onApply(appearance);
     };
+
+    const remove = (): void => {
+        if (applyToSelection && canApplyToSelection && props.onRemoveFromBodies !== undefined) {
+            props.onRemoveFromBodies(selectionBodyIds);
+            return;
+        }
+        props.onRemove();
+    };
+
+    const presetOptions = [
+        { value: NO_PRESET, label: 'None' },
+        ...props.presets.map((preset) => ({ value: preset.name, label: preset.name }))
+    ];
 
     return (
         <NukeDialog
@@ -85,7 +162,7 @@ export function BodyAppearanceDialog(props: BodyAppearanceDialogProps): React.Re
             footer={
                 <>
                     {hasOverride && (
-                        <button className="theia-button secondary cad-body-appearance-remove" onClick={props.onRemove}>
+                        <button className="theia-button secondary cad-body-appearance-remove" onClick={remove}>
                             <span className="codicon codicon-discard" /> Remove override
                         </button>
                     )}
@@ -98,6 +175,36 @@ export function BodyAppearanceDialog(props: BodyAppearanceDialogProps): React.Re
                 </>
             }
         >
+            <NukeFormRow label="Preset">
+                <div className="cad-body-appearance-preset">
+                    <NukeSelect
+                        value={activePreset}
+                        options={presetOptions}
+                        onChange={selectPreset}
+                        ariaLabel="Appearance preset"
+                        placeholder="None"
+                        style={{ flex: '1 1 auto', minWidth: 0 }}
+                    />
+                    <button
+                        className="theia-button secondary cad-body-appearance-preset-save"
+                        onClick={() => void savePreset()}
+                        disabled={props.onSavePreset === undefined}
+                        title="Save the current color and opacity as a preset"
+                    >
+                        Save preset…
+                    </button>
+                    <Tooltip content="Delete preset" position="left">
+                        <button
+                            className="theia-button secondary cad-body-appearance-preset-delete"
+                            onClick={() => void deletePreset()}
+                            disabled={activePreset === NO_PRESET || props.onDeletePreset === undefined}
+                            aria-label="Delete preset"
+                        >
+                            <span className="codicon codicon-trash" />
+                        </button>
+                    </Tooltip>
+                </div>
+            </NukeFormRow>
             <NukeFormRow label="Color">
                 <ColorPicker value={color} onChange={setColor} />
             </NukeFormRow>
@@ -129,6 +236,13 @@ export function BodyAppearanceDialog(props: BodyAppearanceDialogProps): React.Re
                     <span className="cad-body-appearance-percent-unit">%</span>
                 </div>
             </NukeFormRow>
+            {canApplyToSelection && (
+                <NukeFormRow checkbox>
+                    <NukeCheckbox checked={applyToSelection} onChange={setApplyToSelection} ariaLabel="Apply to all selected bodies">
+                        Apply to all selected bodies
+                    </NukeCheckbox>
+                </NukeFormRow>
+            )}
         </NukeDialog>
     );
 }
