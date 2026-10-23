@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - build: optional extensions selectable at build time via `NUKE_EXTENSIONS` allow-list / `NUKE_EXCLUDE_EXTENSIONS` deny-list.
+- nuke-cad: assembly panel is draggable and collapsible with an instance-count badge, a labelled part field, and an Instance action disabled until a part is entered.
 - nuke-cad: disabled toolbar and command-search actions now explain why they cannot run, in the tooltip, section menu, and search row.
 - nuke-cad: Fillet and Chamfer offer an opt-in Tangent chain pick that expands one edge click to every tangent-connected edge on the same solid.
 - nuke-cad: Document section in the Model Outline shows units (editable), parameter count, name, source, body count, and schema version.

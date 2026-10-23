@@ -950,6 +950,16 @@ mates between named connector frames:
 4. **Ground** exactly one instance; mates solve outward from ground in
    closed form. Ungrounded, unmated instances keep their stored placement.
 
+The **Assembly** card floats over the viewport under the document toolbar. Drag
+its header to move it; double-click or right-click the header to return it to
+the default spot. The chevron collapses the card to its header (the instance
+count stays visible) and expands it again without losing the dragged position.
+Type a part source in the **Part** field — `body:<id>` for a body in this
+document, `./bracket.nuke-cad` for another parametric document, or a
+`.step`/`.stp`/`.iges`/`.brep` file path — then press Enter or **Instance**. The
+button stays disabled while the field is empty; **Mate…** appears beside it once
+the assembly has an instance.
+
 The **BOM** panel (`CAD Studio → BOM`) lists instance, part source, mate
 type, and DOF contribution; clicking a row selects the instance in the
 viewport. Assembly STEP export keeps one product per instance; DAGMC export

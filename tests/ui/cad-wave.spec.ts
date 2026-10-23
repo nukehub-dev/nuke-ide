@@ -3,8 +3,9 @@ import { collectErrors, waitForWorkbench, openFileByQuickOpen, closeAllEditors, 
 
 /**
  * Wave C CAD chrome: the Model Outline parameter spreadsheet (edit-in-place
- * with validator reasons, rebuild scheduling) and saved-measurement pins
- * (pin → rebuild → label survives).
+ * with validator reasons, rebuild scheduling), saved-measurement pins
+ * (pin → rebuild → label survives), and the draggable/collapsible assembly
+ * panel with its gated add-instance action.
  *
  * Uses the tiny committed `cad-pincell.nuke-cad` fixture (3-cylinder
  * pincell with `fuelRadius`/`cladRadius`/`pitch` parameters bound to sketch
@@ -114,6 +115,66 @@ async function resolveColorToken(page: Page, token: string): Promise<string> {
         return color;
     }, token);
 }
+
+test('assembly panel drags, collapses, and gates the instance action', async ({ page }) => {
+    const errors = collectErrors(page);
+    await page.goto('/');
+    await waitForWorkbench(page);
+
+    await openCadDocument(page);
+
+    const panel = page.locator('.cad-assembly-panel').first();
+    await expect(panel).toBeVisible({ timeout: 30_000 });
+    const header = panel.locator('.cad-assembly-header');
+    await expect(header).toContainText('Assembly');
+    await expect(panel.locator('.cad-assembly-count')).toHaveText('0 instances');
+    await expect(panel.locator('.cad-assembly-empty-title')).toHaveText('No instances yet.');
+
+    // The Instance action is inert until a non-empty part source exists.
+    const partInput = panel.getByLabel('Assembly part');
+    const addButton = panel.getByRole('button', { name: 'Instance' });
+    await expect(addButton).toBeDisabled();
+    await partInput.fill('./bracket.nuke-cad');
+    await expect(addButton).toBeEnabled();
+
+    // The header is the drag handle (the collapse button is excluded), so a
+    // 40 px pointer drag moves the card and keeps the new spot.
+    const before = await panel.boundingBox();
+    const headerBox = await header.boundingBox();
+    if (!before || !headerBox) {
+        throw new Error('assembly panel needs laid-out boxes');
+    }
+    await page.mouse.move(headerBox.x + headerBox.width / 2, headerBox.y + headerBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(headerBox.x + headerBox.width / 2 + 40, headerBox.y + headerBox.height / 2 + 40, { steps: 6 });
+    await page.mouse.up();
+    const after = await panel.boundingBox();
+    if (!after) {
+        throw new Error('assembly panel needs a box after dragging');
+    }
+    expect(after.x - before.x).toBeGreaterThanOrEqual(30);
+    expect(after.y - before.y).toBeGreaterThanOrEqual(30);
+
+    // Collapse keeps the header (and its dragged position) while the body,
+    // including the part input, is hidden; expand restores the typed value.
+    await panel.getByRole('button', { name: 'Collapse assembly panel' }).click();
+    const expandButton = panel.getByRole('button', { name: 'Expand assembly panel' });
+    await expect(expandButton).toHaveAttribute('aria-expanded', 'false');
+    await expect(partInput).toBeHidden();
+    const collapsedBox = await panel.boundingBox();
+    if (!collapsedBox) {
+        throw new Error('assembly panel needs a box while collapsed');
+    }
+    expect(collapsedBox.y).toBeCloseTo(after.y, 0);
+    await expandButton.click();
+    await expect(partInput).toBeVisible();
+    await expect(partInput).toHaveValue('./bracket.nuke-cad');
+
+    await panel.screenshot({ path: 'test-results/cad-assembly-panel.png' });
+
+    const bad = severe(errors);
+    expect(bad, `unexpected severe errors:\n${bad.join('\n')}`).toEqual([]);
+});
 
 test('parameter spreadsheet rejects invalid input and rebuilds on valid edit', async ({ page }) => {
     const errors = collectErrors(page);
