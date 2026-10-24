@@ -385,6 +385,53 @@ test('DAGMC outline sidebar lists volumes and toggles visibility', async ({ page
     expect(bad, `unexpected severe errors:\n${bad.join('\n')}`).toEqual([]);
 });
 
+test('DAGMC canvas menu hides, isolates, and restores the selected volume', async ({ page }) => {
+    const errors = collectErrors(page);
+    await page.goto('/');
+    await waitForWorkbench(page);
+
+    const container = await openViewer(page, 'native-volumes.vtm');
+    await expect(container.locator('.openmc-output-viewer-status.error')).toHaveCount(0);
+    const canvas = container.locator('.openmc-output-viewer-viewarea canvas');
+    await expect(canvas).toBeVisible({ timeout: 30_000 });
+
+    // The outline auto-opens with the viewer; selecting a row gives the menu
+    // its selectedVolumeId.
+    const panel = page.locator('.dagmc-outline-panel');
+    await expect(panel).toBeVisible({ timeout: 30_000 });
+    const rows = panel.locator('.dagmc-outline-volume-row');
+    await expect(rows).toHaveCount(2);
+    await rows.nth(0).click();
+    await expect(rows.nth(0)).toHaveClass(/selected/);
+
+    const box = await canvas.boundingBox();
+    if (!box) {
+        throw new Error('DAGMC menu test needs a laid-out canvas');
+    }
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, { button: 'right' });
+    const menu = page.locator('.viewer-context-menu');
+    await expect(menu).toBeVisible({ timeout: 30_000 });
+    const hide = menu.locator('.viewer-context-menu-item').filter({ hasText: /^Hide Volume \d+$/ });
+    const isolate = menu.locator('.viewer-context-menu-item').filter({ hasText: /^Isolate Volume \d+$/ });
+    const showAll = menu.locator('.viewer-context-menu-item').filter({ hasText: 'Show All Volumes' });
+    await expect(hide).toBeEnabled();
+    await expect(isolate).toBeEnabled();
+    await expect(showAll).toBeDisabled();
+
+    await hide.click();
+    await expect(menu).toBeHidden();
+    await expect(container.getByText('1 of 2 volumes').first()).toBeVisible({ timeout: 30_000 });
+
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, { button: 'right' });
+    await expect(menu).toBeVisible({ timeout: 30_000 });
+    await expect(menu.locator('.viewer-context-menu-item').filter({ hasText: 'Show All Volumes' })).toBeEnabled();
+    await menu.locator('.viewer-context-menu-item').filter({ hasText: 'Show All Volumes' }).click();
+    await expect(container.getByText('2 of 2 volumes').first()).toBeVisible({ timeout: 30_000 });
+
+    const bad = severe(errors);
+    expect(bad, `unexpected severe errors:\n${bad.join('\n')}`).toEqual([]);
+});
+
 test('DAGMC viewer auto-opens the outline and row click selects the volume', async ({ page }) => {
     const errors = collectErrors(page);
     await page.goto('/');

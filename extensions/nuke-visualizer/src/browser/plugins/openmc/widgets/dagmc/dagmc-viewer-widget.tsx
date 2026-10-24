@@ -106,7 +106,7 @@ import {
     type MeasurePoint3D,
     type MeasureState
 } from '../../../../viewer-core/measure-model';
-import { buildViewerContextMenuItems, isViewerContextMenuClick, openViewerContextMenu } from '../../../../viewer-core/viewer-context-menu';
+import { isViewerContextMenuClick, openViewerContextMenu } from '../../../../viewer-core/viewer-context-menu';
 import {
     DEFAULT_VIEWER_SHADING_MODE,
     ViewerShadingMode,
@@ -157,6 +157,7 @@ import {
     toggleDagmcMaterial,
     toggleDagmcVolume
 } from './dagmc-toggle-model';
+import { buildDagmcContextMenuItems } from './dagmc-context-menu';
 import { ViewerMeasureLabel, type ViewerMeasureHandle } from '../viewer-measure';
 import {
     DagmcIsolateActions,
@@ -2726,7 +2727,12 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
         this.contextMenuClose?.();
         this.contextMenuClose = openViewerContextMenu(
             { x: clientX, y: clientY },
-            buildViewerContextMenuItems({ shading: this.shading, clipChecked: anyClipEnabled(this.clip) }),
+            buildDagmcContextMenuItems({
+                shading: this.shading,
+                clipChecked: anyClipEnabled(this.clip),
+                selectedVolumeId: this.selectedVolumeId,
+                hasHiddenVolumes: this.blocks.some((block) => !this.isBlockVisible(block))
+            }),
             (id) => this.handleContextMenuAction(id)
         );
     }
@@ -2738,6 +2744,12 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
             this.saveScreenshot();
         } else if (id === 'clip') {
             this.applyProps({ clip: setAllClipEnabled(this.clip, !anyClipEnabled(this.clip)) });
+        } else if (id === 'hide-volume') {
+            this.excludeSelectedVolume();
+        } else if (id === 'isolate-volume') {
+            this.isolateSelectedVolume();
+        } else if (id === 'show-all-volumes') {
+            this.setVisibility(showAllDagmc(this.visibility));
         } else if (id.startsWith('shading:')) {
             const mode = id.slice('shading:'.length);
             if (isViewerShadingMode(mode)) {

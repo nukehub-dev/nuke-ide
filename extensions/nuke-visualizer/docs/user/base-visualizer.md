@@ -45,6 +45,11 @@ The visualizer supports **multi-instance** tabs. Each file gets its own tab with
 
 Once the file loads, the visualization panel shows an interactive 3D view with a control sidebar:
 
+Right-click the 3D canvas for **Fit to View**, **Save Screenshot**, **Clip
+Planes**, and the shading modes. In a DAGMC viewer with a volume selected, the
+same menu adds **Hide Volume N** / **Isolate Volume N**, plus **Show All
+Volumes** when any volume, material, or group is hidden.
+
 **Viewer Settings** is a narrow sidebar panel built like the CAD outline:
 every row reserves a visible label column, so **Background**, **Point size**,
 **Line width**, and **Opacity** keep their full text at the default 250 px

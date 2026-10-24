@@ -126,6 +126,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-visualizer: distance measure in native 3D viewers captures two surface points with an in-scene label.
 - nuke-visualizer: Viewer Settings sidebar binds color, shading, clip, measure, and view snaps to the active viewer tab.
 - nuke-visualizer: DAGMC Outline sidebar with volume/material/group trees, Graveyard toggle, Show all, and search.
+- nuke-visualizer: DAGMC canvas menu adds Hide/Isolate selected volume and Show All Volumes.
 - nuke-visualizer: two-way DAGMC Outline selection sync with auto-reveal that never steals focus.
 - nuke-visualizer: DAGMC viewer tabs open instantly with a loading overlay while conversion runs.
 - nuke-visualizer: orbit/pan/zoom camera with damping plus shading and clip-plane controls in all native viewers.

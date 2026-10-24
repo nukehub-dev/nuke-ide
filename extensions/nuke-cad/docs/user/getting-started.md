@@ -36,6 +36,12 @@ model = Box(10, 10, 10) - Cylinder(3, 10)
    mesh export are skipped for STEP imports to keep loading fast — only
    script builds produce `.h5m`/`.msh` artifacts by default.
 
+A STEP/STP import is a display build: it does not create or modify a
+`.nuke-cad` document, so it cannot be saved as a feature tree. To keep an
+external STEP/IGES/BREP file inside a document, add it as an assembly instance
+(see [Assemblies](gui-modeler.md#assemblies)). H5M/DAGMC files are mesh
+datasets and can only be inspected in the visualizer.
+
 ## Region manifest
 
 Assign materials and names by creating a sidecar file named
