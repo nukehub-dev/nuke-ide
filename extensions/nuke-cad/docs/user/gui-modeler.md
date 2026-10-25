@@ -21,18 +21,59 @@ Studio the same way you would a script build.
 
 1. Run **New CAD Document** from the Command Palette or the Nuke Tools sidebar
    (`CAD Studio → Geometry`).
-2. Pick a template in the dialog:
+2. Pick a starting point in the dialog. The **Start blank** section holds
+   parameter presets:
    - **Empty document** — the default, no preset parameters.
    - **Pincell starter (cm)** — pre-fills `fuelRadius`, `cladRadius`,
      and `pitch` for a lattice pincell.
    - **Tokamak starter (cm)** — pre-fills `major_radius` and `minor_radius`.
+
+   The **Example projects** section holds complete sample documents instead of
+   presets:
+
+   | Example project           | What you get                                                                                                           | Badge       |
+   | ------------------------- | ---------------------------------------------------------------------------------------------------------------------- | ----------- |
+   | **Pincell demo**          | Three labeled bodies (fuel, clad, moderator) with parametric sketch dimensions.                                        | Fast        |
+   | **Tokamak with divertor** | 23-body sector with PF/TF coils, blankets, first walls, plasma, and a lower divertor.                                  | Large model |
+   | **Full W7-X stellarator** | ~47 MB MIT-licensed reactor-scaled Proxima Fusion STEP, downloaded or chosen locally and stored in the project folder. | External    |
+
+   Choosing a bundled example first asks where to save the new `.nuke-cad`
+   file, writes an editable copy there, and opens it. The full W7-X card opens
+   a choice instead: **Download 47 MB** first asks where to save the
+   `.nuke-cad` project, then fetches the STEP through the NukeIDE backend (so
+   browser CORS/proxy/content-blocker rules cannot block it) from
+   `proximafusion/open_stellarator_models` (MIT); **Choose local STEP…** uses a
+   file you already have. Either route stores the STEP in a
+   `<document-stem>.parts/` folder beside the saved `.nuke-cad` and records a
+   relative reference, so the project folder is self-contained and portable.
+   A stale `<document-stem>.regions.json` left by an older document at the same
+   path is moved to trash, so its old selectors do not leak into the new
+   sample. Cancelling any dialog creates nothing. The built-in samples are never
+   modified; edits apply only to your copy (you can save it again anywhere).
+
+   The tokamak sample's first build can take a while: its 23 bodies are
+   revolved, patterned, and boolean-clipped. The full W7-X STEP is deliberately
+   not bundled: it is ~47 MB and not part of the repository. The download goes
+   to the project folder, so the full device renders as an assembly without
+   shipping tessellation or cache data. That imported document uses a 0.1
+   display tolerance (55 solids) so its display mesh stays within the viewport
+   read budget; export/FEM tolerances are unaffected.
+
 3. Save the new document with **Save CAD Document As...** to give it a name and
-   location.
+   location (skipped for example projects, which are saved on creation).
 4. The empty document contains three canonical datum planes: XY, YZ, and XZ.
 
-An empty document shows a centered **Empty document** card with **Create Sketch**
-and **Open CAD Model…** actions instead of a blank canvas; the ribbon stays
-available above it.
+The tokamak sample re-authors the Paramak
+`tokamak_with_pf_tf_magnets_divertor` reference model as GUI features and trims
+its known cross-body overlaps with four cleanup cuts. The full W7-X stellarator
+is not bundled; its card downloads the MIT-licensed Proxima Fusion STEP (or
+takes a local copy) and stores it in the saved project's `.parts` folder. See
+`src/common/samples/README.md` for bundled-sample provenance, sizes, and
+attribution.
+
+An empty document shows a centered **Empty document** card with **Create Sketch**,
+**Open CAD Model…**, and **Import CAD…** actions instead of a blank canvas; the
+ribbon stays available above it.
 
 The document toolbar carries a **Units** dropdown (`Unitless`, `mm`, `cm`,
 `m`). Declared units tag future numeric inputs (curve expressions may then
@@ -970,7 +1011,20 @@ current build.
 
 An assembly instantiates parts — bodies of the same document, other
 `.nuke-cad` documents, or STEP/IGES/BREP files — and positions them with
-mates between named connector frames:
+mates between named connector frames.
+
+**Import CAD…** on either empty-state card (and **Import CAD as Assembly…** in
+the Document ribbon or command search) wraps an external STEP/STP/IGES/IGS/BREP
+file in one step: pick the CAD file, confirm where the `.nuke-cad` lives when
+needed, and the file appears as a grounded instance in the Assembly card. An
+open document is saved in place; a new document is created at the chosen path.
+The first instance is grounded automatically so the import builds and renders
+immediately. The instance stores a document-relative path when the file is in
+or below the document folder (`./model.step`, `./sub/model.step`) and an
+absolute path otherwise, so keep external parts with the document when moving
+or sharing it. The full W7-X example is the exception: it downloads or copies
+the STEP into `<document-stem>.parts/` first and stores a relative path, making
+the saved project folder self-contained.
 
 1. Add an **Instance** for each part (same-document body, document path, or
    CAD file path).
@@ -1044,6 +1098,10 @@ sketch. Undo and redo rebuild exactly like a normal edit.
   the model stale until **Rebuild CAD Geometry** runs. Suppressing an expensive
   pattern/mirror feature in the Feature Tree has the same effect for that
   subtree and composes with either mode.
+- **Per-document display detail:** a document may carry a positive
+  `displayTolerance` to override the viewport faceting tolerance without
+  changing export/FEM settings. The built-in tokamak sample uses 0.015 so its
+  cut-trimmed tessellation remains under the browser read budget.
 - **Result cache:** a full build stores per-feature B-reps plus a doc-level
   tessellation blob in a `<stem>.nuke-cache.zip` sidecar next to the document.
   Later edits rebuild only the dirty closure, and reopening a document restores
@@ -1056,8 +1114,9 @@ sketch. Undo and redo rebuild exactly like a normal edit.
 ## Demo model: tokamak with divertor
 
 A complete `.nuke-cad` demo model is maintained at
-`tests/e2e/assets/tokamak_with_divertor.nuke-cad`. It rebuilds the paramak
-`tokamak_with_pf_tf_magnets_divertor` STEP as a GUI-authored document:
+`tests/e2e/assets/tokamak_with_divertor.nuke-cad` and is also available from
+**New CAD Document → Example projects → Tokamak with divertor**. It rebuilds the
+paramak `tokamak_with_pf_tf_magnets_divertor` STEP as a GUI-authored document:
 
 - 22 labeled bodies: TF coils, PF coils and cases, center column, inboard/outboard
   blankets and first walls, plasma, divertor, and six TF inner legs.

@@ -66,6 +66,7 @@ import {
 } from '../../common/cad-document';
 import { clampSheetPosition, lockProjectedViewPosition, sheetDimensions, snapDrawingPosition } from '../../common/cad-drawing';
 import { applyDocumentTemplate, createEmptyNukeCadDocument } from '../../common/document-templates';
+import { createSampleDocument as createSampleProjectDocument } from '../../common/sample-projects';
 import {
     coerceToQuantity,
     convertQuantity,
@@ -1025,6 +1026,31 @@ export class CadDocumentStore {
      */
     createDocument(name: string, templateId?: string): DocumentMutationResult {
         const document = applyDocumentTemplate(createEmptyNukeCadDocument(name), templateId ?? 'empty');
+        return this.installDocument(document, false);
+    }
+
+    /**
+     * Create a new document from a built-in example project.
+     *
+     * The sample document is deep-cloned with the supplied name and installed
+     * through the same validation/reset path as {@link createDocument}. The new
+     * document has no backing URI and is marked dirty, so the caller can save
+     * the copy to a file the user chooses.
+     */
+    createSampleDocument(name: string, sampleId: string): DocumentMutationResult {
+        const document = createSampleProjectDocument(sampleId, name);
+        if (document === undefined) {
+            return { success: false, error: `Unknown example project '${sampleId}'` };
+        }
+        return this.installDocument(document, true);
+    }
+
+    /**
+     * Validate and install a fresh document, resetting per-document derived
+     * state (history, selection, build outputs, drawing counter) and emitting
+     * one change event.
+     */
+    private installDocument(document: NukeCadDocument, dirty: boolean): DocumentMutationResult {
         const validation = validateNukeCadDocument(document);
         if (!validation.valid) {
             return { success: false, error: formatIssues(validation.issues), issues: validation.issues };
@@ -1034,7 +1060,7 @@ export class CadDocumentStore {
         this.state = {
             document,
             uri: undefined,
-            dirty: false,
+            dirty,
             selection: {},
             featureResults: new Map<string, FeatureResult>(),
             projectedPrimitives: new Map<string, Record<string, unknown>[]>(),
@@ -1065,24 +1091,7 @@ export class CadDocumentStore {
                 issues: [{ path: 'version', message }]
             };
         }
-        const validation = validateNukeCadDocument(document);
-        if (!validation.valid) {
-            return { success: false, error: formatIssues(validation.issues), issues: validation.issues };
-        }
-        this.undoStack = [];
-        this.redoStack = [];
-        this.state = {
-            document,
-            uri: undefined,
-            dirty: false,
-            selection: {},
-            featureResults: new Map<string, FeatureResult>(),
-            projectedPrimitives: new Map<string, Record<string, unknown>[]>(),
-            referenceResults: [],
-            drawingVersion: 0
-        };
-        this.emitChange();
-        return { success: true };
+        return this.installDocument(document, false);
     }
 
     /**
@@ -1539,6 +1548,32 @@ export class CadDocumentStore {
             delete doc.units;
         } else {
             doc.units = units;
+        }
+        return this.commit(doc);
+    }
+
+    /**
+     * Set or clear the document's display-only faceting tolerance override.
+     *
+     * This is viewport-only presentation state: it never affects export or FEM
+     * tolerances and callers must not schedule a rebuild solely for it.
+     */
+    setDisplayTolerance(tolerance: number | undefined): DocumentMutationResult {
+        const check = this.requireDocument();
+        if (!check.success) {
+            return { success: false, error: check.error, issues: check.issues };
+        }
+        if (tolerance !== undefined && (!Number.isFinite(tolerance) || tolerance <= 0)) {
+            return { success: false, error: 'Display tolerance must be a positive finite number' };
+        }
+        if ((check.value!.displayTolerance ?? undefined) === tolerance) {
+            return { success: true };
+        }
+        const doc = cloneDocument(check.value!);
+        if (tolerance === undefined) {
+            delete doc.displayTolerance;
+        } else {
+            doc.displayTolerance = tolerance;
         }
         return this.commit(doc);
     }

@@ -4,6 +4,13 @@ Nuke CAD has two authoring modes: script-based `.py` files and GUI-edited
 `.nuke-cad` documents. This guide covers scripts and STEP imports; the
 [GUI parametric modeler guide](gui-modeler.md) covers the document workflow.
 
+For a ready-made starting point, run **New CAD Document** and pick one of the
+**Example projects** (a pincell, a tokamak, or the full W7-X stellarator via
+its external STEP); each saves an editable copy you can modify. The W7-X card
+downloads the MIT-licensed STEP (or takes a local copy) and stores it in a
+`.parts` folder beside the saved document so the project folder stays
+self-contained.
+
 ## Quick start
 
 ### From a script
@@ -28,6 +35,8 @@ model = Box(10, 10, 10) - Cylinder(3, 10)
 
 ### From a STEP file
 
+**View only (no document):**
+
 1. Double-click any `.step`, `.stp`, or `.brep` file in the Explorer — it opens
    in nuke-cad by default.
 2. Or open the **CAD Viewport** and click **Open CAD Model...** to browse for a
@@ -36,11 +45,33 @@ model = Box(10, 10, 10) - Cylinder(3, 10)
    mesh export are skipped for STEP imports to keep loading fast — only
    script builds produce `.h5m`/`.msh` artifacts by default.
 
-A STEP/STP import is a display build: it does not create or modify a
-`.nuke-cad` document, so it cannot be saved as a feature tree. To keep an
-external STEP/IGES/BREP file inside a document, add it as an assembly instance
-(see [Assemblies](gui-modeler.md#assemblies)). H5M/DAGMC files are mesh
-datasets and can only be inspected in the visualizer.
+A view-only STEP/STP import is a display build: it does not create or modify a
+`.nuke-cad` document, so it cannot be saved as a feature tree.
+
+**Import into an assembly document:**
+
+1. Open the **CAD Viewport** (the welcome card) or an existing `.nuke-cad`
+   document, then click **Import CAD…**. The same action is in the Document
+   ribbon as **Import CAD as Assembly…** and in the toolbar command search.
+2. Pick a `.step`, `.stp`, `.iges`, `.igs`, or `.brep` file. Cancelling this
+   picker changes nothing.
+3. If the viewport has no saved document, choose where to save the
+   `.nuke-cad` (the suggested name is the CAD file stem). Cancelling the save
+   prompt changes nothing; with no document open, the document is created only
+   after you confirm.
+4. The file becomes a grounded assembly instance and the assembly rebuilds.
+   An open document is saved in place; a new one is saved to the path you
+   chose.
+
+The imported CAD file is referenced, not converted into an editable feature
+tree. The `.nuke-cad` stores a path relative to itself when the part sits in
+the document folder or a subfolder (`./model.step`, `./sub/model.step`);
+outside that folder it stores an absolute path. Keep the external file
+alongside the `.nuke-cad` (or in a subfolder) when you move or share the
+project, otherwise the assembly instance cannot resolve. The full W7-X example
+downloads or copies its STEP into `<document-stem>.parts/` automatically, so
+that sample project is self-contained. H5M/DAGMC files are mesh datasets and can
+only be inspected in the visualizer.
 
 ## Region manifest
 

@@ -669,6 +669,13 @@ export interface NukeCadDocument {
      * Absent means legacy unitless (unit syntax stays rejected, no suffix shown).
      */
     units?: DocumentUnits;
+    /**
+     * Optional display-only faceting tolerance override. Large demo documents
+     * use a coarser value to keep the tessellation under the frontend read
+     * budget; exports and FEM meshing keep their own tolerance preferences.
+     * Absent means the normal `nukeCad.displayFacetingTolerance` path.
+     */
+    displayTolerance?: number;
     parameters: Record<string, number>;
     datums: DatumPlane[];
     bodies: BodyDef[];
@@ -1841,6 +1848,9 @@ export function validateNukeCadDocument(doc: NukeCadDocument): ValidationResult 
     }
     if (doc.units !== undefined && doc.units !== 'mm' && doc.units !== 'cm' && doc.units !== 'm') {
         issue(ctx, 'units', `unknown document units '${doc.units}' (expected 'mm', 'cm' or 'm')`);
+    }
+    if (doc.displayTolerance !== undefined && (!isFiniteNumber(doc.displayTolerance) || doc.displayTolerance <= 0)) {
+        issue(ctx, 'displayTolerance', 'displayTolerance must be a positive finite number when present');
     }
     if (!isPlainObject(doc.parameters)) {
         issue(ctx, 'parameters', 'parameters must be an object');

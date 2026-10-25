@@ -27,8 +27,17 @@
 
 import { describe, it, expect } from 'vitest';
 import * as fs from 'fs';
+import * as http from 'http';
+import type { AddressInfo } from 'net';
+import * as os from 'os';
 import * as path from 'path';
-import { buildGeometryArgs, buildDocumentArgs, buildFeaturesPartialArgs } from './nuke-cad-backend-service';
+import {
+    buildGeometryArgs,
+    buildDocumentArgs,
+    buildFeaturesPartialArgs,
+    isAllowedDownloadUrl,
+    NukeCadBackendServiceImpl
+} from './nuke-cad-backend-service';
 import type { GeometryBuildRequest, BuildDocumentRequest, BuildFeaturesPartialRequest } from '../common/nuke-cad-protocol';
 
 const SCRIPT_PATH = '/tmp/geometry_service.py';
@@ -264,6 +273,73 @@ describe('buildFeaturesPartialArgs CLI parity with geometry_service.py', () => {
         );
         for (const flag of emittedFlags) {
             expect(declaredFlags.has(flag), `${flag} is not declared in geometry_service.py`).toBe(true);
+        }
+    });
+});
+
+describe('backend sample download', () => {
+    it('allows HTTPS and loopback HTTP only', () => {
+        expect(isAllowedDownloadUrl(new URL('https://example.com/model.step'))).toBe(true);
+        expect(isAllowedDownloadUrl(new URL('http://127.0.0.1:8080/model.step'))).toBe(true);
+        expect(isAllowedDownloadUrl(new URL('http://localhost/model.step'))).toBe(true);
+        expect(isAllowedDownloadUrl(new URL('http://example.com/model.step'))).toBe(false);
+        expect(isAllowedDownloadUrl(new URL('ftp://example.com/model.step'))).toBe(false);
+    });
+
+    it('downloads through the backend, follows redirects, and creates parent folders', async () => {
+        const payload = Buffer.from('ISO-10303-21;\nbackend download test\n');
+        const server = http.createServer((request, response) => {
+            if (request.url === '/redirect') {
+                response.writeHead(302, { Location: '/model.step' });
+                response.end();
+                return;
+            }
+            response.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Length': payload.length });
+            response.end(payload);
+        });
+        await new Promise<void>((resolve, reject) => {
+            server.once('error', reject);
+            server.listen(0, '127.0.0.1', resolve);
+        });
+        const address = server.address() as AddressInfo;
+        const directory = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'nuke-cad-download-'));
+        const target = path.join(directory, 'nested', 'model.step');
+        try {
+            const result = await new NukeCadBackendServiceImpl().downloadFile({
+                url: `http://127.0.0.1:${address.port}/redirect`,
+                targetPath: target
+            });
+            expect(result).toEqual({ success: true, path: target, bytes: payload.length });
+            expect(await fs.promises.readFile(target)).toEqual(payload);
+        } finally {
+            await new Promise<void>((resolve) => server.close(() => resolve()));
+            await fs.promises.rm(directory, { recursive: true, force: true });
+        }
+    });
+
+    it('reports an HTTP failure without creating the target', async () => {
+        const server = http.createServer((_request, response) => {
+            response.writeHead(404, { 'Content-Type': 'text/plain' });
+            response.end('not found');
+        });
+        await new Promise<void>((resolve, reject) => {
+            server.once('error', reject);
+            server.listen(0, '127.0.0.1', resolve);
+        });
+        const address = server.address() as AddressInfo;
+        const directory = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'nuke-cad-download-fail-'));
+        const target = path.join(directory, 'model.step');
+        try {
+            const result = await new NukeCadBackendServiceImpl().downloadFile({
+                url: `http://127.0.0.1:${address.port}/missing.step`,
+                targetPath: target
+            });
+            expect(result.success).toBe(false);
+            expect(result.error).toContain('HTTP 404');
+            expect(fs.existsSync(target)).toBe(false);
+        } finally {
+            await new Promise<void>((resolve) => server.close(() => resolve()));
+            await fs.promises.rm(directory, { recursive: true, force: true });
         }
     });
 });

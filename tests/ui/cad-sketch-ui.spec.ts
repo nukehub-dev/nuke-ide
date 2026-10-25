@@ -136,3 +136,28 @@ test('sketch constraint chips, solver badges, grid toggle, and palette groups', 
     const severe = errors.filter((e) => !e.includes('l10n') && !e.includes('localization bundles'));
     expect(severe, `unexpected severe errors:\n${severe.join('\n')}`).toEqual([]);
 });
+
+test('New Sketch opens the datum picker after reopening the CAD viewport', async ({ page }) => {
+    const errors = collectErrors(page);
+    await page.goto('/');
+    await waitForWorkbench(page);
+    await closeAllEditors(page);
+
+    await runCommand(page, 'Open CAD Viewport');
+    const viewport = page.locator('.cad-viewport').first();
+    await expect(viewport).toBeVisible({ timeout: 30_000 });
+
+    // Close and reopen the viewport; New Sketch must not stop at an empty
+    // document while the controller's lazy mount is still pending.
+    await closeAllEditors(page);
+    await runCommand(page, 'Open CAD Viewport');
+    await expect(viewport).toBeVisible({ timeout: 30_000 });
+    await runCommand(page, 'New Sketch');
+
+    await expect(viewport.locator('.cad-sketch-datum-picker')).toBeVisible({ timeout: 90_000 });
+    await expect(viewport.locator('.cad-viewport-document-empty')).toBeHidden();
+    await expect(viewport.locator('.nuke-empty-state')).toBeHidden();
+
+    const severe = errors.filter((e) => !e.includes('l10n') && !e.includes('localization bundles'));
+    expect(severe, `unexpected severe errors:\n${severe.join('\n')}`).toEqual([]);
+});

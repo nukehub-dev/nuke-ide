@@ -450,10 +450,16 @@ def test_relative_document_part_and_step_part(tmp_path: Path) -> None:
     # Reuse the written STEP as an exchange-file instance source.
     step_source = Path(result["stepPath"])
     doc2 = _box_doc("main2", [("base", "base-solid", 10.0)])
+    parts_dir = tmp_path / "asm2.parts"
+    parts_dir.mkdir()
     doc2["assembly"] = {
         "instances": [
             {"id": "base", "part": "body:base", "placement": _placement([0.0, 0.0, 0.0])},
-            {"id": "imp", "part": step_source.name, "placement": _placement([100.0, 0.0, 0.0])},
+            {
+                "id": "imp",
+                "part": f"asm2.parts/{step_source.name}",
+                "placement": _placement([100.0, 0.0, 0.0]),
+            },
         ],
         "connectors": [],
         "mates": [],
@@ -461,7 +467,7 @@ def test_relative_document_part_and_step_part(tmp_path: Path) -> None:
     }
     path2 = tmp_path / "asm2.nuke-cad"
     path2.write_text(json.dumps(doc2))
-    step_copy = tmp_path / step_source.name
+    step_copy = parts_dir / step_source.name
     step_copy.write_bytes(step_source.read_bytes())
     result2 = gs.build_assembly(
         str(path2), output_dir=str(tmp_path / "out2"), export_dagmc=False, export_mesh=False
@@ -513,6 +519,104 @@ def test_absent_assembly_builds_byte_identical(tmp_path: Path) -> None:
         Path(via_assembly["stepPath"]).read_bytes() == Path(via_document["stepPath"]).read_bytes()
     )
     assert via_assembly["solidCount"] == via_document["solidCount"]
+
+
+def test_build_document_dispatches_grounded_assembly_minimal(tmp_path: Path, monkeypatch) -> None:
+    """Routing is light enough to verify without OCP/build123d."""
+    import geometry_service as gs
+
+    (tmp_path / "model.step").write_text("dummy", encoding="utf-8")
+    doc = {
+        "version": 3,
+        "name": "imported",
+        "parameters": {},
+        "datums": [{"id": "datum-xy", "kind": "XY", "name": "XY"}],
+        "bodies": [],
+        "sketches": [],
+        "features": [],
+        "curves": [],
+        "assembly": {
+            "instances": [
+                {
+                    "id": "instance-1",
+                    "part": "./model.step",
+                    "placement": {"position": [0.0, 0.0, 0.0], "orientation": [0.0, 0.0, 0.0, 1.0]},
+                }
+            ],
+            "connectors": [],
+            "mates": [],
+            "groundedInstanceId": "instance-1",
+        },
+    }
+    path = tmp_path / "imported.nuke-cad"
+    path.write_text(json.dumps(doc), encoding="utf-8")
+
+    calls: list[str] = []
+
+    def fake_assembly(*_args, **_kwargs):
+        calls.append("assembly")
+        return {"success": True, "routed": "assembly"}
+
+    monkeypatch.setattr(gs, "build_assembly", fake_assembly)
+    assert (
+        gs.build_document(
+            str(path), output_dir=str(tmp_path / "full"), export_dagmc=False, export_mesh=False
+        )["routed"]
+        == "assembly"
+    )
+    assert (
+        gs.build_document_partial(
+            str(path),
+            [],
+            output_dir=str(tmp_path / "partial"),
+            export_dagmc=False,
+            export_mesh=False,
+        )["routed"]
+        == "assembly"
+    )
+    assert calls == ["assembly", "assembly"]
+
+
+def test_build_document_dispatches_grounded_assembly(tmp_path: Path) -> None:
+    _require_full_profile()
+    import geometry_service as gs
+
+    doc = _box_doc("asm", [("base", "base-solid", 10.0)])
+    doc["assembly"] = {
+        "instances": [
+            {"id": "base", "part": "body:base", "placement": _placement([0.0, 0.0, 0.0])}
+        ],
+        "connectors": [],
+        "mates": [],
+        "groundedInstanceId": "base",
+    }
+    path = tmp_path / "asm.nuke-cad"
+    path.write_text(json.dumps(doc))
+    # The viewport's `--from-document` path (build_document) must route a
+    # grounded assembly through the instance builder, or imported assemblies
+    # would build as empty single-part documents.
+    via_document = gs.build_document(
+        str(path), output_dir=str(tmp_path / "out-doc"), export_dagmc=False, export_mesh=False
+    )
+    via_assembly = gs.build_assembly(
+        str(path), output_dir=str(tmp_path / "out-asm"), export_dagmc=False, export_mesh=False
+    )
+    assert via_document["success"] is True, via_document.get("error")
+    assert via_assembly["success"] is True, via_assembly.get("error")
+    assert via_document["solidInstanceIds"] == ["base"]
+    assert via_document["selectorMap"] == via_assembly["selectorMap"] == {"base/base-solid": [1]}
+
+    # The open-after-restart path uses the partial RPC with an empty dirty set;
+    # it must also fall back to the assembly pipeline.
+    via_partial = gs.build_document_partial(
+        str(path),
+        [],
+        output_dir=str(tmp_path / "out-partial"),
+        export_dagmc=False,
+        export_mesh=False,
+    )
+    assert via_partial["success"] is True, via_partial.get("error")
+    assert via_partial["solidInstanceIds"] == ["base"]
 
 
 def test_v3_round_trip_and_from_assembly_cli(tmp_path: Path) -> None:

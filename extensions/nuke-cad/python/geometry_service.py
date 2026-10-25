@@ -2417,8 +2417,10 @@ def _process_shape(
     if manifest is not None:
         unknown = manifest.unknown_selectors(set(selector_map.keys()))
         if unknown:
+            manifest_name = source_file.with_suffix(".regions.json").name
             result["warnings"].append(
-                f"Region manifest references unknown selectors: {', '.join(unknown)}"
+                f"Region manifest references unknown selectors: {', '.join(unknown)} "
+                f"({manifest_name}; update or remove this sidecar for the current document)"
             )
         result["regionManifest"] = manifest.to_dict()
         result["selectorMap"] = selector_map
@@ -3317,6 +3319,10 @@ def build_document(
     to a cache-disabled build). A cache-enabled build primes BOTH the
     doc-level tessellation blob and every feature's B-rep blob, so the next
     edit can restore clean predecessors instead of rebuilding everything.
+
+    A document with a grounded assembly section delegates to
+    :func:`build_assembly`; absent/ungrounded assembly documents keep the
+    single-part path byte-identically.
     """
     document_file = Path(document_path).resolve()
     if not document_file.exists():
@@ -3340,6 +3346,9 @@ def build_document(
     out_dir.mkdir(parents=True, exist_ok=True)
 
     _print_progress(f"Loading document: {document_file}")
+    # build_document (--from-document) is the viewport's document build path.
+    # It must honor a grounded assembly section, otherwise imported assemblies
+    # would be built as empty single-part documents.
     try:
         with document_file.open("r", encoding="utf-8") as fh:
             document = json.load(fh)
@@ -3380,6 +3389,27 @@ def build_document(
     ref_error = _validate_document_refs(document, document_file)
     if ref_error is not None:
         return ref_error
+
+    assembly = document.get("assembly")
+    if isinstance(assembly, dict) and assembly.get("groundedInstanceId"):
+        # Grounded assembly documents build through the instance pipeline;
+        # build_assembly delegates back here for absent/ungrounded documents.
+        return build_assembly(
+            document_path,
+            output_dir=output_dir,
+            tolerance=tolerance,
+            export_dagmc=export_dagmc,
+            add_graveyard=add_graveyard,
+            export_mesh=export_mesh,
+            mesh_engine=mesh_engine,
+            mesh_size=mesh_size,
+            mesh_min_size=mesh_min_size,
+            mesh_max_size=mesh_max_size,
+            mesh_order=mesh_order,
+            length_scale=length_scale,
+            cache_dir=cache_dir,
+            size_cap_mb=size_cap_mb,
+        )
 
     curves = document.get("curves", [])
     has_curves = isinstance(curves, list) and len(curves) > 0
@@ -3761,6 +3791,10 @@ def build_document_partial(
     (``<stem>.nuke-cache.zip``); without a usable dir every feature executes.
     Returns the stdout-JSON result dict with the unified
     tessellation and per-feature results.
+
+    A grounded assembly section delegates to :func:`build_assembly` (its
+    placed instances are not feature-cache addressable), so opening and
+    editing an assembly document still renders the assembly.
     """
     document_file = Path(document_path).resolve()
     if not document_file.exists():
@@ -3824,6 +3858,28 @@ def build_document_partial(
     ref_error = _validate_document_refs(document, document_file)
     if ref_error is not None:
         return ref_error
+
+    assembly = document.get("assembly")
+    if isinstance(assembly, dict) and assembly.get("groundedInstanceId"):
+        # Assembly documents cannot use per-feature cache blobs; rebuild the
+        # placed instances through the assembly pipeline instead of returning
+        # an empty single-part result.
+        return build_assembly(
+            document_path,
+            output_dir=output_dir,
+            tolerance=tolerance,
+            export_dagmc=export_dagmc,
+            add_graveyard=add_graveyard,
+            export_mesh=export_mesh,
+            mesh_engine=mesh_engine,
+            mesh_size=mesh_size,
+            mesh_min_size=mesh_min_size,
+            mesh_max_size=mesh_max_size,
+            mesh_order=mesh_order,
+            length_scale=length_scale,
+            cache_dir=cache_dir,
+            size_cap_mb=size_cap_mb,
+        )
 
     curves = document.get("curves", [])
     has_curves = isinstance(curves, list) and len(curves) > 0

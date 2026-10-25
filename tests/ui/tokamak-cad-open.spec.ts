@@ -294,7 +294,7 @@ test('document toolbar collapses to section menus without wrapping at narrow wid
     await documentGroup.locator('.nuke-ribbon-menu-trigger').click();
     await expect(sectionMenu).toBeVisible({ timeout: 10_000 });
     // The menu lists every Document command, inline ones included.
-    await expect(sectionMenu.locator('[role="menuitem"]')).toHaveCount(6);
+    await expect(sectionMenu.locator('[role="menuitem"]')).toHaveCount(7);
     const exportRow = sectionMenu.locator('.nuke-ribbon-menu-row', { hasText: 'Export as Python' }).first();
     await expect(exportRow.locator('[role="menuitem"]')).toContainText('Export as Python');
     await exportRow.locator('button[aria-label="Pin to toolbar"]').click();

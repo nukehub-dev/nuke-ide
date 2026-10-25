@@ -31,6 +31,10 @@ coverage.xml
 *.nuke-cache.zip
 *.step
 
+# nuke-cad example-project JSON is generated from the canonical e2e .nuke-cad
+# fixtures by scripts/copy-cad-samples.js during the build; do not commit copies
+extensions/nuke-cad/src/common/samples/*.json
+
 # Docker compose workspace volume
 applications/docker/workspace/
 

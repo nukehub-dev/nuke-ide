@@ -39,8 +39,12 @@ import { resolvePythonScript } from 'nuke-core/lib/node/utils/script-resolver';
 import { NukeCoreBackendService, NukeCoreBackendServiceInterface } from 'nuke-core/lib/common';
 import type { ChildProcess } from 'child_process';
 import * as fs from 'fs';
+import * as http from 'http';
+import * as https from 'https';
 import * as os from 'os';
 import * as path from 'path';
+import { Transform } from 'stream';
+import { pipeline } from 'stream/promises';
 
 import {
     NukeCadBackendService,
@@ -48,6 +52,8 @@ import {
     GeometryBuildResult,
     BuildDocumentRequest,
     BuildFeaturesPartialRequest,
+    DownloadFileRequest,
+    DownloadFileResult,
     FemRunRequest,
     FemRunResult,
     FemMaterial,
@@ -240,6 +246,77 @@ interface RunningCadJob {
     timedOut: boolean;
 }
 
+/** Hard cap for a backend sample download (the W7-X STEP is ~47 MB). */
+const MAX_DOWNLOAD_BYTES = 256 * 1024 * 1024;
+/** Default timeout for a backend-side sample download. */
+const DEFAULT_DOWNLOAD_TIMEOUT_SECONDS = 300;
+/** Maximum redirects followed while downloading a sample source. */
+const MAX_DOWNLOAD_REDIRECTS = 5;
+
+/**
+ * Accept HTTPS sources and loopback HTTP only.
+ *
+ * Loopback HTTP keeps the backend download testable with a local test server;
+ * production sample metadata always uses HTTPS.
+ */
+export function isAllowedDownloadUrl(url: URL): boolean {
+    if (url.protocol === 'https:') {
+        return true;
+    }
+    return url.protocol === 'http:' && (url.hostname === '127.0.0.1' || url.hostname === 'localhost');
+}
+
+/** Resolve a download response, following redirects within the URL policy. */
+function getDownloadResponse(url: URL, redirectsLeft: number, timeoutMs: number): Promise<http.IncomingMessage> {
+    return new Promise<http.IncomingMessage>((resolve, reject) => {
+        const client = url.protocol === 'https:' ? https : http;
+        const request = client.get(
+            url,
+            {
+                headers: {
+                    'User-Agent': 'NukeIDE CAD sample downloader',
+                    Accept: 'application/octet-stream, */*'
+                }
+            },
+            (response) => {
+                const status = response.statusCode ?? 0;
+                const locationHeader = response.headers.location;
+                const location = Array.isArray(locationHeader) ? locationHeader[0] : locationHeader;
+                if (status >= 300 && status < 400 && location !== undefined) {
+                    response.resume();
+                    if (redirectsLeft <= 0) {
+                        reject(new Error('Too many download redirects.'));
+                        return;
+                    }
+                    let next: URL;
+                    try {
+                        next = new URL(location, url);
+                    } catch {
+                        reject(new Error(`Invalid download redirect: ${location}`));
+                        return;
+                    }
+                    if (!isAllowedDownloadUrl(next)) {
+                        reject(new Error(`Download redirect is not allowed: ${next.toString()}`));
+                        return;
+                    }
+                    resolve(getDownloadResponse(next, redirectsLeft - 1, timeoutMs));
+                    return;
+                }
+                if (status !== 200) {
+                    response.resume();
+                    reject(new Error(`HTTP ${status} ${response.statusMessage ?? ''}`.trim()));
+                    return;
+                }
+                resolve(response);
+            }
+        );
+        request.setTimeout(timeoutMs, () => {
+            request.destroy(new Error(`Download timed out after ${Math.round(timeoutMs / 1000)} seconds.`));
+        });
+        request.on('error', reject);
+    });
+}
+
 @injectable()
 export class NukeCadBackendServiceImpl implements NukeCadBackendService {
     /** Default backend process timeout: one hour (ccx/gmsh runs can be long). */
@@ -368,6 +445,60 @@ export class NukeCadBackendServiceImpl implements NukeCadBackendService {
 
         const args = buildDrawingArgs(request, scriptPath);
         return this._spawnJsonService<DrawingBuildResult>(pythonCommand, args, path.dirname(request.scriptPath));
+    }
+
+    /**
+     * Download a remote sample/source file through the Node host network and
+     * write it to `targetPath`.
+     *
+     * The browser renderer can be behind a proxy, content blocker, or a CORS
+     * policy that rejects a direct `fetch`; the backend avoids all three. The
+     * response is streamed through a size limiter into a temporary file and
+     * copied into place only after the transfer completes.
+     */
+    async downloadFile(request: DownloadFileRequest): Promise<DownloadFileResult> {
+        let url: URL;
+        try {
+            url = new URL(request.url);
+        } catch {
+            return { success: false, error: `Invalid download URL: ${request.url}` };
+        }
+        if (!isAllowedDownloadUrl(url)) {
+            return { success: false, error: 'Download URL must use HTTPS (HTTP is allowed for loopback only).' };
+        }
+        if (!path.isAbsolute(request.targetPath)) {
+            return { success: false, error: 'Download target must be an absolute path.' };
+        }
+        const target = path.normalize(request.targetPath);
+        const temp = `${target}.download-${process.pid}-${Date.now()}`;
+        const timeoutMs = Math.max(1, request.timeoutSeconds ?? DEFAULT_DOWNLOAD_TIMEOUT_SECONDS) * 1000;
+        try {
+            await fs.promises.mkdir(path.dirname(target), { recursive: true });
+            const response = await getDownloadResponse(url, MAX_DOWNLOAD_REDIRECTS, timeoutMs);
+            const declaredLength = Number(response.headers['content-length']);
+            if (Number.isFinite(declaredLength) && declaredLength > MAX_DOWNLOAD_BYTES) {
+                response.destroy();
+                throw new Error(`Download is too large (${declaredLength} bytes; limit ${MAX_DOWNLOAD_BYTES}).`);
+            }
+            let bytes = 0;
+            const limiter = new Transform({
+                transform(chunk: Buffer, _encoding, callback): void {
+                    bytes += chunk.length;
+                    if (bytes > MAX_DOWNLOAD_BYTES) {
+                        callback(new Error(`Download exceeds the ${MAX_DOWNLOAD_BYTES}-byte limit.`));
+                        return;
+                    }
+                    callback(null, chunk);
+                }
+            });
+            await pipeline(response, limiter, fs.createWriteStream(temp));
+            await fs.promises.copyFile(temp, target);
+            await fs.promises.rm(temp, { force: true });
+            return { success: true, path: target, bytes };
+        } catch (error) {
+            await fs.promises.rm(temp, { force: true }).catch(() => undefined);
+            return { success: false, error: error instanceof Error ? error.message : String(error) };
+        }
     }
 
     /**

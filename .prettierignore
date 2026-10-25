@@ -22,6 +22,7 @@ applications/electron/dist
 
 # Generated files
 resources/preload.html
+extensions/nuke-cad/src/common/samples/*.json
 
 # Caches and logs
 **/.electron-cache

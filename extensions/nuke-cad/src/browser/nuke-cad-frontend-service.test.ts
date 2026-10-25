@@ -70,6 +70,7 @@ function makeProxy(capture: { requests: CapturedRequest[] }): NukeCadBackendServ
         buildFoamCase: async () => ({ success: true, caseDir: '', solver: 'icoFoam', files: [] }),
         exportFoamStl: async () => ({ success: true, outputDir: '', stlFiles: [] }),
         listFoamSolvers: async () => [],
+        downloadFile: async () => ({ success: false, error: 'not stubbed' }),
         checkCadEnvironment: async () => ({ ready: true, missing: [], missingOptional: [] })
     };
 }

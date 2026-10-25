@@ -2292,6 +2292,25 @@
     min-width: 320px;
 }
 
+.cad-template-section {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.cad-template-section-title {
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size0);
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.cad-template-section-hint {
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size0);
+}
+
 .cad-template-list {
     display: flex;
     flex-direction: column;
@@ -2334,9 +2353,54 @@
     font-variant-numeric: tabular-nums;
 }
 
+.cad-template-sample-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    justify-content: space-between;
+    width: 100%;
+}
+
+.cad-template-badge {
+    flex: none;
+    padding: 1px 7px;
+    border: 1px solid transparent;
+    border-radius: 10px;
+    background: var(--theia-activityBarBadge-background);
+    color: var(--theia-activityBarBadge-foreground);
+    font-size: var(--theia-ui-font-size0);
+    font-weight: 600;
+    line-height: 1.5;
+}
+
+.cad-template-badge-large {
+    background: transparent;
+    border-color: var(--theia-editorWarning-foreground);
+    color: var(--theia-editorWarning-foreground);
+}
+
+.cad-template-badge-experimental,
+.cad-template-badge-external {
+    background: transparent;
+    border-color: var(--theia-focusBorder);
+    color: var(--theia-focusBorder);
+}
+
+.cad-template-warning {
+    display: flex;
+    align-items: flex-start;
+    gap: 4px;
+    color: var(--theia-editorWarning-foreground);
+    font-size: var(--theia-ui-font-size0);
+    line-height: 1.4;
+    text-align: left;
+}
+
 .cad-template-picker-actions {
     display: flex;
+    flex-wrap: wrap;
     justify-content: flex-end;
+    gap: 6px;
 }
 
 /* Explode slider (inside the navigation cluster) */

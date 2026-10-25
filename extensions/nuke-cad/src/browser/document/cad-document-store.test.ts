@@ -2314,6 +2314,25 @@ describe('assembly mutations (Wave B2)', () => {
         expect(assemblyDof(store.document!)).toBe(0);
         void b;
     });
+
+    it('persists an imported exchange part and its grounding through JSON', () => {
+        const store = assemblyStore();
+        const added = store.addInstance('./parts/model.step');
+        expect(added.success).toBe(true);
+        const instanceId = added.value!;
+        // One-click import grounds the first instance so the assembly builds.
+        expect(store.setGrounded(instanceId).success).toBe(true);
+        const round = JSON.parse(store.toJson()!) as NukeCadDocument;
+        expect(round.assembly?.instances).toEqual([
+            {
+                id: instanceId,
+                part: './parts/model.step',
+                placement: { position: [0, 0, 0], orientation: [0, 0, 0, 1] }
+            }
+        ]);
+        expect(round.assembly?.groundedInstanceId).toBe(instanceId);
+        expect(validateNukeCadDocument(round).valid).toBe(true);
+    });
 });
 
 describe('undo/redo history', () => {
@@ -2462,5 +2481,47 @@ describe('undo/redo history', () => {
         expect(store.canUndo).toBe(false);
         expect(store.redo().success).toBe(true);
         expect(store.document?.bodies).toHaveLength(1);
+    });
+});
+
+describe('CadDocumentStore example projects', () => {
+    it('installs a sample as a dirty, unsaved document that validates', () => {
+        const store = new CadDocumentStore();
+        const result = store.createSampleDocument('My pincell', 'pincell-demo');
+        expect(result.success).toBe(true);
+        expect(store.document?.name).toBe('My pincell');
+        expect(store.document?.bodies).toHaveLength(3);
+        expect(store.dirty).toBe(true);
+        expect(store.uri).toBeUndefined();
+        expect(validateNukeCadDocument(store.document!).valid).toBe(true);
+        expect(store.canUndo).toBe(false);
+        expect(store.canRedo).toBe(false);
+    });
+
+    it('keeps a blank createDocument clean', () => {
+        const store = new CadDocumentStore();
+        expect(store.createDocument('Blank').success).toBe(true);
+        expect(store.dirty).toBe(false);
+        expect(store.uri).toBeUndefined();
+    });
+
+    it('stores a positive display tolerance and rejects invalid values', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('Large model');
+        expect(store.setDisplayTolerance(0.1).success).toBe(true);
+        expect(store.document?.displayTolerance).toBe(0.1);
+        expect(store.setDisplayTolerance(0).success).toBe(false);
+        expect(JSON.parse(store.toJson()!).displayTolerance).toBe(0.1);
+        expect(store.setDisplayTolerance(undefined).success).toBe(true);
+        expect(store.document?.displayTolerance).toBeUndefined();
+    });
+
+    it('rejects an unknown sample id without replacing the active document', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('Keep me');
+        const result = store.createSampleDocument('Nope', 'missing');
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('missing');
+        expect(store.document?.name).toBe('Keep me');
     });
 });

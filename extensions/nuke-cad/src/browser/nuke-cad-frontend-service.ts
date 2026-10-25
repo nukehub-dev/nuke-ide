@@ -47,6 +47,8 @@ import {
     FoamCaseResult,
     FoamStlExportRequest,
     FoamStlExportResult,
+    DownloadFileRequest,
+    DownloadFileResult,
     CadBoundingBox
 } from '../common/nuke-cad-protocol';
 import { DrawingBuildRequest, DrawingBuildResult } from '../common/cad-drawing';
@@ -111,6 +113,10 @@ export class NukeCadFrontendService implements NukeCadBackendService {
 
     listFoamSolvers(): Promise<string[]> {
         return this.proxy.listFoamSolvers();
+    }
+
+    downloadFile(request: DownloadFileRequest): Promise<DownloadFileResult> {
+        return this.proxy.downloadFile(request);
     }
 
     checkCadEnvironment(): Promise<{ ready: boolean; missing: string[]; missingOptional: string[] }> {

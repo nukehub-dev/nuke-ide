@@ -52,6 +52,7 @@ import { ThemeService } from '@theia/core/lib/browser/theming';
 import { FileService } from '@theia/filesystem/lib/browser/file-service';
 import { FileDialogService } from '@theia/filesystem/lib/browser/file-dialog';
 import { URI } from '@theia/core/lib/common/uri';
+import { WorkspaceService } from '@theia/workspace/lib/browser/workspace-service';
 import { MonacoWorkspace } from '@theia/monaco/lib/browser/monaco-workspace';
 import { MonacoEditorModel } from '@theia/monaco/lib/browser/monaco-editor-model';
 import * as THREE from 'three';
@@ -78,6 +79,7 @@ import {
 } from '../../sketch/sketch-math';
 import { createSnapConfig, snap } from '../../sketch/snap';
 import { ensureNukeCadExtension } from './cad-save-path';
+import { documentRelativeAssemblyPart, importedPartStorage, projectPartPath } from './cad-import-path';
 import { CadSketchOverlay, DocumentTemplatePicker, type DatumDraft } from './cad-sketch-overlay';
 import { CadDocumentStore, createSketchId, computeDependsOn, getAssemblySection, uniqueFeatureId } from '../../document/cad-document-store';
 import type { DocumentMutationResult } from '../../document/cad-document-store';
@@ -100,6 +102,7 @@ import { CAD_COMMAND_IDS } from '../../cad-command-registry';
 import { PreferenceScope, PreferenceService } from '@theia/core/lib/common/preferences';
 import { QuickInputService } from '@theia/core/lib/browser/quick-input';
 import { DOCUMENT_TEMPLATES } from '../../../common/document-templates';
+import { SAMPLE_PROJECTS, getSampleProject, type SampleProject } from '../../../common/sample-projects';
 import {
     type SketchDef,
     type FeatureDef,
@@ -246,6 +249,20 @@ function isFiniteCameraVector(value: unknown): value is CurvePoint {
  */
 const PROFILE_TESSELLATION_LOAD = typeof localStorage !== 'undefined' && localStorage.getItem('nuke-cad-profile') === '1';
 
+/**
+ * One shared lazy chunk for the viewport controller. Warming it at module load
+ * makes reopening the viewport and immediately asking for a sketch setup much
+ * faster than paying the cold dynamic import then.
+ */
+const orbitControlsPromise: Promise<{ OrbitControls: new (...args: any[]) => any }> =
+    import('three/examples/jsm/controls/OrbitControls.js').catch((error) => {
+        console.warn('[CAD] OrbitControls preload failed:', error);
+        throw error;
+    });
+function loadOrbitControls(): Promise<{ OrbitControls: new (...args: any[]) => any }> {
+    return orbitControlsPromise;
+}
+
 @injectable()
 export class CadViewportWidget extends ReactWidget {
     static readonly ID = 'nuke-cad-viewport-widget';
@@ -268,6 +285,14 @@ export class CadViewportWidget extends ReactWidget {
 
     @inject(FileDialogService)
     protected readonly fileDialogService: FileDialogService;
+
+    /**
+     * Theia's file dialogs resolve their root through the workspace. Waiting
+     * for it prevents an early sample/import click from silently returning
+     * `undefined` while the workspace is still initializing.
+     */
+    @inject(WorkspaceService)
+    protected readonly workspaceService: WorkspaceService;
 
     @inject(NukeCadBackendService)
     protected readonly backendService: NukeCadBackendService;
@@ -706,6 +731,69 @@ export class CadViewportWidget extends ReactWidget {
         this.update();
     };
 
+    /**
+     * Create a new document from an example project.
+     *
+     * The picker only supplies the sample id; the user first chooses where the
+     * editable copy should live, so cancelling the save dialog leaves the
+     * current document untouched. A confirmed path installs the cloned sample,
+     * writes it as JSON, and rebuilds it in both rebuild modes so the sample
+     * renders immediately.
+     */
+    protected readonly handleCreateSample = async (sampleId: string): Promise<void> => {
+        const sample = getSampleProject(sampleId);
+        if (sample === undefined) {
+            this.messageService.error(`Unknown example project '${sampleId}'.`);
+            return;
+        }
+        // The picker is a modal NukeDialog; close it before opening Theia's
+        // file dialog, otherwise the save dialog is blocked behind the modal.
+        this.templatePickerOpen = false;
+        this.update();
+        if (sample.external === true) {
+            // The full W7-X STEP is far too large to bundle; reuse the CAD
+            // import flow and let the user select their local copy. Its
+            // 55-solid display mesh needs the coarser sample tolerance.
+            await this.importCadAsAssembly({
+                displayTolerance: sample.displayTolerance,
+                forceNewDocument: true,
+                copySource: sample.copySource === true,
+                clearStaleRegionManifest: true
+            });
+            return;
+        }
+        await this.workspaceService.ready;
+        const requested = await this.fileDialogService.showSaveDialog({
+            title: 'Save Example Project',
+            inputValue: `${sample.name}.nuke-cad`,
+            filters: { 'CAD Document': ['nuke-cad'] }
+        });
+        if (requested === undefined) {
+            return;
+        }
+        const uri = requested.withPath(ensureNukeCadExtension(requested.path.toString()));
+        const documentName = uri.path.name.length > 0 ? uri.path.name : sample.name;
+        const result = this.documentStore.createSampleDocument(documentName, sampleId);
+        if (!result.success) {
+            this.messageService.error(result.error || 'Failed to create the example project.');
+            return;
+        }
+        this.clearSaveRebuildTimer();
+        this.documentStore.setUri(uri.toString());
+        this.editingSketchId = undefined;
+        this.sketchSetupVisible = false;
+        this.buildStale = false;
+        this.rebuildTracker.reset();
+        this.update();
+        try {
+            await this.saveDocument(false);
+            await this.rebuildDocument();
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            this.messageService.error(`Failed to save the example project: ${message}`);
+        }
+    };
+
     protected readonly handleCancelTemplatePicker = (): void => {
         this.templatePickerOpen = false;
         this.update();
@@ -714,6 +802,242 @@ export class CadViewportWidget extends ReactWidget {
     protected readonly handleSaveDocument = (): Promise<void> => this.saveDocument(false);
 
     protected readonly handleSaveDocumentAs = (): Promise<void> => this.saveDocument(true);
+
+    protected readonly handleImportCad = (): Promise<void> => this.importCadAsAssembly();
+
+    /**
+     * Download an external example source from its public URL into the saved
+     * project's `<document-stem>.parts/` folder, then import it as a grounded
+     * assembly. The W7-X STEP is MIT-licensed and too large to bundle.
+     */
+    async handleDownloadSample(sampleId: string): Promise<void> {
+        const sample = getSampleProject(sampleId);
+        if (sample?.download === undefined) {
+            this.messageService.error(`Example project '${sampleId}' has no downloadable source.`);
+            return;
+        }
+        const download = sample.download;
+        // The picker is a modal NukeDialog; close it before any Theia dialog.
+        this.templatePickerOpen = false;
+        this.update();
+        await this.workspaceService.ready;
+        const targetUri = await this.chooseImportTarget(download.fileName, true, {
+            title: 'Save W7-X Project',
+            inputValue: 'w7x-stellarator.nuke-cad'
+        });
+        if (targetUri === undefined) {
+            return;
+        }
+        const destination = targetUri.withPath(projectPartPath(targetUri.path.toString(), download.fileName));
+        this.setLoading(true, `Downloading ${download.fileName} (${download.sizeLabel})...`);
+        try {
+            // Use the Node backend instead of renderer `fetch`: browser CORS,
+            // proxy, and content-blocker policies can reject the 47 MB source
+            // even when the host itself can reach it.
+            const result = await this.backendService.downloadFile({
+                url: download.url,
+                targetPath: destination.path.toString(),
+                timeoutSeconds: 300
+            });
+            if (!result.success) {
+                throw new Error(result.error ?? 'download failed');
+            }
+        } catch (error) {
+            this.setLoading(false);
+            const message = error instanceof Error ? error.message : String(error);
+            this.messageService.error(`Failed to download '${download.fileName}': ${message}. Choose a local copy instead.`);
+            return;
+        }
+        this.setLoading(false);
+        await this.completeImportedDocument(targetUri, destination, {
+            displayTolerance: sample.displayTolerance,
+            forceNewDocument: true,
+            clearStaleRegionManifest: true
+        });
+    }
+
+    /**
+     * One-click exchange-file import: wrap a STEP/STP/IGES/IGS/BREP file as a
+     * grounded assembly instance inside a real `.nuke-cad` document.
+     *
+     * The file is referenced, never converted into an editable feature tree.
+     * The target document is the active one when it has a URI; otherwise the
+     * user first chooses where to save it (a fresh document is created only
+     * after that save prompt is confirmed). Cancelling either dialog leaves
+     * the current document untouched. The first instance is grounded so the
+     * assembly builder engages and the import renders immediately.
+     *
+     * With `copySource`, a file from outside the document folder is copied
+     * into `<document-stem>.parts/` first, so the saved project is portable.
+     */
+    async importCadAsAssembly(options?: {
+        displayTolerance?: number;
+        forceNewDocument?: boolean;
+        copySource?: boolean;
+        clearStaleRegionManifest?: boolean;
+    }): Promise<void> {
+        // The template/sample picker is a modal NukeDialog; Theia's file
+        // dialogs would open behind it. Close it before asking for any file.
+        this.templatePickerOpen = false;
+        this.update();
+        await this.workspaceService.ready;
+        let imported: URI | undefined;
+        try {
+            imported = await this.fileDialogService.showOpenDialog({
+                title: 'Import CAD as Assembly',
+                canSelectFiles: true,
+                canSelectFolders: false,
+                canSelectMany: false,
+                filters: {
+                    'CAD Exchange Files': ['step', 'stp', 'iges', 'igs', 'brep']
+                }
+            });
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            this.messageService.error(`Failed to open the CAD file picker: ${message}`);
+            return;
+        }
+        if (imported === undefined) {
+            return;
+        }
+        const targetUri = await this.chooseImportTarget(imported.path.name, options?.forceNewDocument === true);
+        if (targetUri === undefined) {
+            return;
+        }
+        await this.completeImportedDocument(targetUri, imported, options);
+    }
+
+    /** Ask where a new imported document should live, or reuse the active one. */
+    private async chooseImportTarget(
+        fileName: string,
+        forceNewDocument: boolean,
+        save?: { title: string; inputValue: string }
+    ): Promise<URI | undefined> {
+        if (!forceNewDocument && this.documentStore.uri !== undefined) {
+            return new URI(this.documentStore.uri);
+        }
+        const stem = fileName.replace(/\.(step|stp|iges|igs|brep)$/i, '') || 'assembly';
+        try {
+            const requested = await this.fileDialogService.showSaveDialog({
+                title: save?.title ?? 'Save CAD Document',
+                inputValue: save?.inputValue ?? `${stem}.nuke-cad`,
+                filters: { 'CAD Document': ['nuke-cad'] }
+            });
+            return requested?.withPath(ensureNukeCadExtension(requested.path.toString()));
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            this.messageService.error(`Failed to open the CAD save dialog: ${message}`);
+            return undefined;
+        }
+    }
+
+    /**
+     * Install one exchange-file source into a document: optionally copy it
+     * into the project folder, create the document, ground the instance, set
+     * the display tolerance, save, and rebuild. Shared by the file-picker and
+     * download paths so both produce identical documents.
+     */
+    private async completeImportedDocument(
+        targetUri: URI,
+        imported: URI,
+        options?: {
+            displayTolerance?: number;
+            forceNewDocument?: boolean;
+            copySource?: boolean;
+            clearStaleRegionManifest?: boolean;
+        }
+    ): Promise<void> {
+        let partSource = imported;
+        if (options?.copySource === true) {
+            const storage = importedPartStorage(targetUri.path.toString(), imported.path.toString());
+            if (storage.copy && storage.folder !== undefined) {
+                const folder = targetUri.withPath(storage.folder);
+                const destination = targetUri.withPath(storage.target);
+                try {
+                    if (!(await this.fileService.exists(folder))) {
+                        await this.fileService.createFolder(folder);
+                    }
+                    await this.fileService.copy(imported, destination, { overwrite: true });
+                    partSource = destination;
+                    this.messageService.info(
+                        `Stored ${imported.path.base} in ${folder.path.toString()} so the project folder is self-contained.`
+                    );
+                } catch (error) {
+                    const message = error instanceof Error ? error.message : String(error);
+                    this.messageService.error(`Failed to copy '${imported.path.base}' into the project folder: ${message}`);
+                    return;
+                }
+            }
+        }
+
+        if (options?.clearStaleRegionManifest === true) {
+            // A new external sample can reuse the name of an older document.
+            // The old document's material sidecar then references selectors
+            // that do not exist in the new assembly; move it to trash instead
+            // of surfacing a misleading build warning.
+            const manifestPath = `${targetUri.path.toString().replace(/\.[^/.]*$/, '')}.regions.json`;
+            const manifestUri = targetUri.withPath(manifestPath);
+            try {
+                if (await this.fileService.exists(manifestUri)) {
+                    await this.fileService.delete(manifestUri, { useTrash: true });
+                    this.messageService.warn(`Removed stale region manifest ${manifestUri.path.base} from the previous document.`);
+                }
+            } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                this.messageService.warn(`Could not remove stale region manifest ${manifestUri.path.base}: ${message}`);
+            }
+        }
+
+        if (options?.forceNewDocument === true || this.documentStore.document === undefined) {
+            const name = targetUri.path.name.length > 0 ? targetUri.path.name : imported.path.name;
+            const created = this.documentStore.createDocument(name);
+            if (!created.success) {
+                this.messageService.error(created.error || 'Failed to create the CAD document.');
+                return;
+            }
+        }
+
+        const part = documentRelativeAssemblyPart(targetUri.path.toString(), partSource.path.toString());
+        const added = this.documentStore.addInstance(part);
+        if (!added.success) {
+            this.messageService.error(`Failed to add '${imported.path.base}' as an assembly instance: ${added.error || 'unknown error'}`);
+            return;
+        }
+        const instanceId = added.value!;
+        const assembly = this.documentStore.document !== undefined ? getAssemblySection(this.documentStore.document) : undefined;
+        if (assembly !== undefined && assembly.groundedInstanceId === '') {
+            const grounded = this.documentStore.setGrounded(instanceId);
+            if (!grounded.success) {
+                this.messageService.error(`Failed to ground the imported assembly instance: ${grounded.error || 'unknown error'}`);
+                return;
+            }
+        }
+        if (options?.displayTolerance !== undefined) {
+            const tolerance = this.documentStore.setDisplayTolerance(options.displayTolerance);
+            if (!tolerance.success) {
+                this.messageService.error(`Failed to set the import display tolerance: ${tolerance.error || 'unknown error'}`);
+                return;
+            }
+        }
+        this.documentStore.setUri(targetUri.toString());
+        try {
+            await this.saveDocument(false);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            this.messageService.error(`Failed to save the CAD document: ${message}`);
+            return;
+        }
+        this.clearSaveRebuildTimer();
+        this.buildStale = false;
+        this.rebuildTracker.reset();
+        this.update();
+        try {
+            await this.rebuildDocument();
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            this.messageService.error(`Failed to build the imported assembly: ${message}`);
+        }
+    }
 
     protected readonly handleEditFeature = (id: string, params: FeatureParams): void => {
         const result = this.documentStore.updateFeatureParams(id, params);
@@ -1290,7 +1614,11 @@ export class CadViewportWidget extends ReactWidget {
         try {
             await this.fileService.write(uri, JSON.stringify(previewDoc));
             // Preview documents are transient: never write a cache sidecar.
-            const result = await this.backendService.buildDocument({ scriptPath: uri.path.toString(), useCache: false });
+            const result = await this.backendService.buildDocument({
+                scriptPath: uri.path.toString(),
+                useCache: false,
+                tolerance: previewDoc.displayTolerance
+            });
             if (!result.success || result.tessPath === undefined) {
                 throw new Error(result.error ?? 'Preview build produced no tessellation.');
             }
@@ -1614,10 +1942,14 @@ export class CadViewportWidget extends ReactWidget {
             }
         }
         const filePath = new URI(this.documentStore.uri).path.toString();
-        if (doc.features.length === 0 && doc.curves.length === 0) {
+        const displayTolerance = doc.displayTolerance;
+        const assembly = getAssemblySection(doc);
+        const hasGroundedAssembly = assembly !== undefined && assembly.groundedInstanceId !== '';
+        if (doc.features.length === 0 && doc.curves.length === 0 && !hasGroundedAssembly) {
             // Nothing to build yet (e.g. a fresh document with only sketches):
             // skip the backend round-trip — it reports "produced no solids" —
-            // and present the empty state instead of a failure.
+            // and present the empty state instead of a failure. A grounded
+            // assembly is buildable even when it has no features or curves.
             this.buildWarnings = [];
             this.dismissBuildError();
             this.documentStore.setFeatureResults([]);
@@ -1658,10 +1990,10 @@ export class CadViewportWidget extends ReactWidget {
         this.invalidateTessellation();
         try {
             const result = usePartial
-                ? await this.buildPartialWithFallback(filePath, plan!)
+                ? await this.buildPartialWithFallback(filePath, plan!, displayTolerance)
                 : restoreAll
-                  ? await this.buildPartialWithFallback(filePath, [])
-                  : await this.backendService.buildDocument({ scriptPath: filePath });
+                  ? await this.buildPartialWithFallback(filePath, [], displayTolerance)
+                  : await this.backendService.buildDocument({ scriptPath: filePath, tolerance: displayTolerance });
             if (token !== this.rebuildToken) {
                 // Cancelled or superseded while in flight: keep the attempted
                 // ids dirty so the next rebuild retries them.
@@ -1708,7 +2040,11 @@ export class CadViewportWidget extends ReactWidget {
      * caller set a "N of M" message optimistically, so a fallback must say
      * that every feature is rebuilding (once per viewport instance warned).
      */
-    private async buildPartialWithFallback(filePath: string, featureIds: string[]): Promise<GeometryBuildResult> {
+    private async buildPartialWithFallback(
+        filePath: string,
+        featureIds: string[],
+        displayTolerance?: number
+    ): Promise<GeometryBuildResult> {
         const jobId = `cad-partial-${Date.now()}-${this.partialJobCounter++}`;
         this.pendingPartialJobId = jobId;
         try {
@@ -1722,7 +2058,8 @@ export class CadViewportWidget extends ReactWidget {
                 featureIds,
                 cacheDir: partialCacheDirForDocument(filePath),
                 sizeCapMB: this.preferences['nukeCad.resultCacheSizeMB'],
-                jobId
+                jobId,
+                tolerance: displayTolerance
             });
         } catch (error) {
             const doc = this.documentStore?.document;
@@ -1737,7 +2074,7 @@ export class CadViewportWidget extends ReactWidget {
                 this.setLoading(true, `Rebuilding all ${featureCount} features (cache unavailable)`);
             }
             this.pendingPartialJobId = undefined;
-            return this.backendService.buildDocument({ scriptPath: filePath });
+            return this.backendService.buildDocument({ scriptPath: filePath, tolerance: displayTolerance });
         }
     }
 
@@ -2272,6 +2609,7 @@ export class CadViewportWidget extends ReactWidget {
                 rebuildOnEdit={this.preferences['nukeCad.rebuildOnEdit']}
                 buildStale={this.buildStale}
                 templates={DOCUMENT_TEMPLATES}
+                samples={SAMPLE_PROJECTS}
                 onDismissError={this.dismissBuildError}
                 onDismissWarnings={this.dismissBuildWarnings}
                 onSelect={this.handleViewportSelect}
@@ -2279,8 +2617,11 @@ export class CadViewportWidget extends ReactWidget {
                 subscribeHiddenSolids={this.subscribeHiddenSolids}
                 subscribeThemeChange={this.subscribeThemeChange}
                 onOpenModel={() => this.openModelFromDialog()}
+                onImportCad={() => void this.handleImportCad()}
                 onNewDocument={this.handleNewDocument}
                 onCreateDocument={this.handleCreateDocument}
+                onSelectSample={this.handleCreateSample}
+                onDownloadSample={(id) => void this.handleDownloadSample(id)}
                 onCancelTemplatePicker={this.handleCancelTemplatePicker}
                 onSaveDocument={this.handleSaveDocument}
                 onRebuildDocument={this.handleRebuildDocument}
@@ -2412,6 +2753,8 @@ interface CadViewportComponentProps {
     readonly rebuildOnEdit: 'auto' | 'manual';
     readonly buildStale: boolean;
     readonly templates: ReadonlyArray<import('../../../common/document-templates').DocumentTemplate>;
+    /** Complete example-project documents offered under the blank presets. */
+    readonly samples: ReadonlyArray<SampleProject>;
     readonly onDismissError: () => void;
     readonly onDismissWarnings: () => void;
     readonly onSelect: (selection: CadSelection) => void;
@@ -2419,8 +2762,14 @@ interface CadViewportComponentProps {
     readonly subscribeHiddenSolids: (listener: (ids: readonly number[]) => void) => Disposable;
     readonly subscribeThemeChange: (listener: () => void) => Disposable;
     readonly onOpenModel: () => void;
+    /** Import a STEP/STP/IGES/IGS/BREP file as an assembly instance in a saved document. */
+    readonly onImportCad: () => void;
     readonly onNewDocument: () => void;
     readonly onCreateDocument: (templateId: string) => void;
+    /** Create and save an editable copy of a built-in example project. */
+    readonly onSelectSample: (sampleId: string) => void;
+    /** Download an external example source into the project folder. */
+    readonly onDownloadSample: (sampleId: string) => void;
     readonly onCancelTemplatePicker: () => void;
     readonly onSaveDocument: () => void;
     readonly onRebuildDocument: () => void;
@@ -2835,7 +3184,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
         let cleanup: (() => void) | undefined;
 
         (async () => {
-            const [{ OrbitControls }] = await Promise.all([import('three/examples/jsm/controls/OrbitControls.js')]);
+            const { OrbitControls } = await loadOrbitControls();
             if (disposed) {
                 return;
             }
@@ -3220,6 +3569,13 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
     const documentEmpty = props.tessData === undefined && props.documentStore.hasDocument && !props.loading && !sketchActive;
     const noDocument = props.tessData === undefined && !props.documentStore.hasDocument && !props.loading;
     const dirtyMarker = props.dirty ? <span className="cad-viewport-dirty-marker" title="Unsaved changes" /> : null;
+    // New Sketch can create the document before the viewport controller's lazy
+    // chunk has loaded. Show progress instead of a dead-looking empty document;
+    // the datum picker mounts as soon as the controller publishes.
+    const setupPending = props.sketchSetupVisible && controller === undefined;
+    const setupPendingOverlay = setupPending ? (
+        <NukeLoadingOverlay message="Preparing sketch tools..." subMessage="Loading the sketch editor" />
+    ) : undefined;
 
     const sketchOverlay = controller !== undefined && (
         <CadSketchOverlay
@@ -3249,6 +3605,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             sketchEditing={props.sketchEditing}
             onStartSketchSetup={props.onStartSketchSetup}
             onExportPython={props.onExportPython}
+            onImportCad={props.onImportCad}
             onNewDocument={props.onNewDocument}
             onSaveDocument={props.onSaveDocument}
             onRebuildDocument={props.onRebuildDocument}
@@ -3276,8 +3633,17 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
     const templatePicker = props.templatePickerOpen ? (
         <DocumentTemplatePicker
             templates={props.templates}
+            samples={props.samples}
             onSelect={(id) => {
                 props.onCreateDocument(id);
+                setShortcutBar(undefined);
+            }}
+            onSelectSample={(id) => {
+                props.onSelectSample(id);
+                setShortcutBar(undefined);
+            }}
+            onDownloadSample={(id) => {
+                props.onDownloadSample(id);
                 setShortcutBar(undefined);
             }}
             onCancel={props.onCancelTemplatePicker}
@@ -3485,6 +3851,8 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             <div ref={containerRef} tabIndex={-1} className="cad-viewport empty">
                 {banners}
                 {dirtyMarker}
+                {setupPendingOverlay}
+                {props.loading && <NukeLoadingOverlay message={props.loadingMessage} />}
                 <LoadingAnimations />
                 <div className="cad-viewport-empty-wrapper">
                     <NukeEmptyState
@@ -3499,6 +3867,9 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                         <button className="theia-button secondary open-cad-model-button" onClick={props.onOpenModel}>
                             <span className="codicon codicon-folder-opened" /> Open CAD Model...
                         </button>
+                        <button className="theia-button secondary import-cad-assembly-button" onClick={props.onImportCad}>
+                            <span className="codicon codicon-cloud-upload" /> Import CAD…
+                        </button>
                     </NukeEmptyState>
                 </div>
                 {sketchOverlay}
@@ -3512,6 +3883,8 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             <div ref={containerRef} tabIndex={-1} className="cad-viewport empty">
                 {banners}
                 {dirtyMarker}
+                {setupPendingOverlay}
+                {props.loading && <NukeLoadingOverlay message={props.loadingMessage} />}
                 <div className="cad-viewport-empty-wrapper">
                     <div className="cad-viewport-document-empty">
                         <span className="codicon codicon-nuke-cad-sketch cad-viewport-document-empty-icon" />
@@ -3524,6 +3897,9 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                             </button>
                             <button className="theia-button secondary open-cad-model-button" onClick={props.onOpenModel}>
                                 <span className="codicon codicon-folder-opened" /> Open CAD Model…
+                            </button>
+                            <button className="theia-button secondary import-cad-assembly-button" onClick={props.onImportCad}>
+                                <span className="codicon codicon-cloud-upload" /> Import CAD…
                             </button>
                         </div>
                     </div>
@@ -3539,6 +3915,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             {banners}
             {dirtyMarker}
             {props.loading && <NukeLoadingOverlay message={props.loadingMessage} />}
+            {setupPendingOverlay}
             {navCluster}
             {viewCube}
             {viewBadge}

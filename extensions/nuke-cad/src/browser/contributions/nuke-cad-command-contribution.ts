@@ -170,8 +170,11 @@ export class NukeCadCommandContribution implements CommandContribution {
                     widget = await this.widgetManager.getOrCreateWidget<CadViewportWidget>(CadViewportWidget.ID);
                     await this.shell.addWidget(widget, { area: 'main' });
                 }
-                await this.shell.activateWidget(widget.id);
+                // Start the document/pending setup before activation: activation
+                // can wait on the first render, and waiting made New Sketch look
+                // like it had opened an empty document with no dialog.
                 widget.startSketchSetup();
+                await this.shell.activateWidget(widget.id);
             }
         });
 

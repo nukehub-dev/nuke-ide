@@ -478,6 +478,31 @@ export interface BuildFeaturesPartialRequest {
     readonly jobId?: string;
 }
 
+/**
+ * Request a backend-side download of a sample or external source file.
+ *
+ * Browser-side `fetch` is subject to CORS, proxy, and content-blocker policy;
+ * the Node backend uses the host network instead and writes the file directly.
+ */
+export interface DownloadFileRequest {
+    /** HTTPS source URL (HTTP is accepted only for loopback test servers). */
+    readonly url: string;
+    /** Absolute destination path on the host filesystem. */
+    readonly targetPath: string;
+    /** Download timeout in seconds; defaults to 300. */
+    readonly timeoutSeconds?: number;
+}
+
+/** Result of a backend-side download. */
+export interface DownloadFileResult {
+    readonly success: boolean;
+    /** Absolute path written on success. */
+    readonly path?: string;
+    /** Number of bytes written on success. */
+    readonly bytes?: number;
+    readonly error?: string;
+}
+
 /** Backend service exposed via JSON-RPC. */
 export interface NukeCadBackendService {
     /**
@@ -559,6 +584,14 @@ export interface NukeCadBackendService {
      * Return the built-in set of OpenFOAM solver templates.
      */
     listFoamSolvers(): Promise<string[]>;
+
+    /**
+     * Download a remote sample/source file through the backend network and
+     * write it to `targetPath`. The backend creates parent directories and
+     * writes via a temporary file so a failed transfer never leaves a partial
+     * destination.
+     */
+    downloadFile(request: DownloadFileRequest): Promise<DownloadFileResult>;
 
     /**
      * Check whether the active Python environment has the CAD toolchain.

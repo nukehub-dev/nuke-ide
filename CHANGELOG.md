@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - build: optional extensions selectable at build time via `NUKE_EXTENSIONS` allow-list / `NUKE_EXCLUDE_EXTENSIONS` deny-list.
+- nuke-cad: one-click STEP/IGES/BREP import as a grounded assembly instance inside a saved `.nuke-cad` document.
 - nuke-cad: assembly panel is draggable and collapsible with an instance-count badge, a labelled part field, and an Instance action disabled until a part is entered.
 - nuke-cad: disabled toolbar and command-search actions now explain why they cannot run, in the tooltip, section menu, and search row.
 - nuke-cad: Fillet and Chamfer offer an opt-in Tangent chain pick that expands one edge click to every tangent-connected edge on the same solid.
@@ -82,6 +83,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-cad: Ctrl+click two sketch entities for a popover of valid geometric relations.
 - nuke-cad: `nukeCad.sketchAutoDimension` opens an inline dimension input right after entity creation.
 - nuke-cad: New Document templates (Empty, Pincell starter, Tokamak starter) merged over the empty document.
+- nuke-cad: New Document offers an Example projects gallery with editable pincell and overlap-trimmed tokamak samples.
+- nuke-cad: the full W7-X example downloads its MIT-licensed STEP (or takes a local copy) into the saved project's `.parts` folder.
+- nuke-cad: documents can set a per-document display faceting tolerance; the tokamak example uses it to stay loadable and warning-free.
 - nuke-cad: 3D curves (points, parametric, Fourier) render in the viewport, rebuild headless, and export to Python.
 - nuke-cad: multi-body documents with booleanFuse/Cut/Common features, Bodies section, and v1-to-v2 migration.
 - nuke-cad: feature reorder with dependency validation, cascade delete, inline rename, edit-parameters, and reference repair.
@@ -238,6 +242,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - app: startup splash tracks real loading progress and never blanks out on slow connections.
 - CI: vitest job compiles extensions first; conda pin no longer requests an unsatisfiable Python.
 - docker: image Python env ships working build123d with the OCP 7.9 shim and a CI version guard.
+- nuke-cad: W7-X sample downloads use the IDE backend, bypassing browser CORS/proxy failures for the 47 MB STEP.
+- nuke-cad: new W7-X samples discard a stale `.regions.json` sidecar, so old `coil` selectors no longer trigger a manifest warning.
 - nuke-cad: build warnings render as a compact badge below the document toolbar, with the list in an anchored popover clear of sketch chrome.
 - nuke-cad: the unsaved-changes dot sits beside Finish Sketch instead of underneath it.
 - nuke-cad: Measurements popover opens below the document toolbar at every ribbon density, and feature-dialog inputs/selects stay inside the dialog padding.

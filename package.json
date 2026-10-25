@@ -27,7 +27,7 @@
     "test:python": "python -m pytest",
     "test:python:full": "${NUKE_TEST_PYTHON:-python} -m pytest",
     "test:python:cov": "python -m pytest --cov --cov-report=term-missing --cov-report=xml",
-    "test:ts": "vitest run",
+    "test:ts": "node scripts/copy-cad-samples.js && vitest run",
     "test:ui": "playwright test",
     "docker:build": "docker compose -f applications/docker/compose.yml build",
     "docker:up": "docker compose -f applications/docker/compose.yml up",

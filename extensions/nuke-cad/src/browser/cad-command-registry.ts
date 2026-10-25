@@ -89,6 +89,7 @@ export interface CadCommandHandlers {
     readonly onSaveDocument?: () => void;
     readonly onRebuildDocument?: () => void;
     readonly onExportPython?: () => void;
+    readonly onImportCad?: () => void;
     readonly onStartSketchSetup: () => void;
     readonly onEditSketch: (sketchId: string) => void;
     readonly onStartFeatureCreation: (type: FeatureType) => void;
@@ -129,7 +130,7 @@ export const CAD_COMMAND_REASONS = {
     unavailable: 'Not available in this view.'
 } as const;
 
-type OptionalHandlerKey = 'onNewDocument' | 'onSaveDocument' | 'onRebuildDocument' | 'onExportPython';
+type OptionalHandlerKey = 'onNewDocument' | 'onSaveDocument' | 'onRebuildDocument' | 'onExportPython' | 'onImportCad';
 
 interface CadCommandDefinition {
     readonly id: string;
@@ -217,6 +218,16 @@ const CAD_COMMAND_DEFINITIONS: readonly CadCommandDefinition[] = [
         requiresHandler: 'onExportPython',
         isEnabled: alwaysEnabled,
         run: (handlers) => handlers.onExportPython?.()
+    },
+    {
+        id: 'importCad',
+        label: 'Import CAD as Assembly…',
+        shortLabel: 'Import',
+        icon: 'codicon-cloud-upload',
+        group: 'document',
+        requiresHandler: 'onImportCad',
+        isEnabled: alwaysEnabled,
+        run: (handlers) => handlers.onImportCad?.()
     },
     {
         id: 'newSketch',

@@ -35,6 +35,10 @@ process group (used by the FEM panel's **Stop** button); remaining jobs are
 killed when the backend stops. STEP-source imports and `.nuke-cad` document
 opens/rebuilds are always spawned with `--no-dagmc`/`--no-mesh` — DAGMC and FEM
 mesh export only run when explicitly requested (see `backend-pipeline.md`).
+The backend also exposes `downloadFile(url, targetPath)` for external sample
+sources: it uses the host network (HTTPS; loopback HTTP in tests), streams
+through a size-limited temporary file, and avoids renderer CORS, proxy, and
+content-blocker failures that can break a direct browser `fetch`.
 
 The frontend receives the result, caches the active `CadModel` in
 `NukeCadStateManager`, and renders `model.tess.json` in a three.js viewport.

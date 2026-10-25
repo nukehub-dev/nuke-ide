@@ -26,6 +26,13 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   dirty/selection/feature results, sketch-param merging, dependent-guarded deletes,
   and depth-100 snapshot undo/redo; Export Python (`python-codegen.ts`) is a lossy
   one-way starter. See `docs/dev/document-schema.md`.
+- Example projects (`src/common/sample-projects.ts` + generated JSON) clone complete
+  documents into a dirty unsaved store via `CadDocumentStore.createSampleDocument`;
+  the full W7-X entry downloads (or takes a local) MIT-licensed STEP and stores it
+  in `<document>.parts/` (never bundled). See `docs/user/gui-modeler.md` and `samples/README.md`.
+- `src/common/samples/*.json` are generated from the canonical `tests/e2e/assets/*.nuke-cad`
+  fixtures by `scripts/copy-cad-samples.js` during `yarn build`; never edit the generated
+  copies. The fixture remains the single source of truth.
 - The sketch solver is client-side only: `sketch-solver.ts` is the sole planegcs
   importer (pinned exact, WASM fallback documented); curve-level constraints stay
   lines/circles/arcs, ellipses/B-splines take point-level ones; evaluation lives in
@@ -100,7 +107,9 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   `drawing_service.py`, SVG + optional DXF, fingerprint dimensions,
   `nuke-cad-drawing-widget`), and assemblies (frozen mate-connector spec,
   `assembly_builder.py` BFS placements, per-instance shared-geometry viewport, BOM
-  panel, `fastener_data.py` threads). See `docs/dev/drawings-assemblies.md`.
+  panel, `fastener_data.py` threads, one-click exchange import with
+  document-relative part paths, backend-routed external sample downloads).
+  See `docs/dev/drawings-assemblies.md`.
 - Manifest materials (`meshSize`, `materialId`/`parentId` links, `materials` cards,
   `BodyDef.material` tags → `<stem>.regions.json`), gmsh/netgen mesh parity (imprinted
   BREP, tetra10 remap), CalculiX FEM (`fem_service.py`, manifest-first cards),

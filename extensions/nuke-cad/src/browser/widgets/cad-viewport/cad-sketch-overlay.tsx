@@ -94,6 +94,7 @@ import {
     clampPanelPosition
 } from './draggable-panel';
 import { type DocumentTemplate } from '../../../common/document-templates';
+import { type SampleProject } from '../../../common/sample-projects';
 import { type DressUpPickMode } from './dress-up-pick';
 import { CadCommandSearch, CAD_COMMAND_SEARCH_TRIGGER_ATTRIBUTE } from './cad-command-search';
 import { type CadCommandSearchAction } from './cad-command-search-model';
@@ -162,6 +163,7 @@ interface CadSketchOverlayProps {
     readonly sketchEditing: boolean;
     readonly onStartSketchSetup: () => void;
     readonly onExportPython?: () => void;
+    readonly onImportCad?: () => void;
     readonly onNewDocument?: () => void;
     readonly onSaveDocument?: () => void;
     readonly onRebuildDocument?: () => void;
@@ -301,6 +303,7 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
         sketchEditing,
         onStartSketchSetup,
         onExportPython,
+        onImportCad,
         onNewDocument,
         onSaveDocument,
         onRebuildDocument,
@@ -627,6 +630,7 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
                     onEditSketch={onEditSketch}
                     onStartFeatureCreation={onStartFeatureCreation}
                     onExportPython={onExportPython}
+                    onImportCad={onImportCad}
                     onNewDocument={onNewDocument}
                     onSaveDocument={onSaveDocument}
                     onRebuildDocument={onRebuildDocument}
@@ -1324,6 +1328,7 @@ interface DocumentModeToolbarProps {
     readonly onEditSketch: (sketchId: string) => void;
     readonly onStartFeatureCreation: (type: FeatureType) => void;
     readonly onExportPython?: () => void;
+    readonly onImportCad?: () => void;
     readonly onNewDocument?: () => void;
     readonly onSaveDocument?: () => void;
     readonly onRebuildDocument?: () => void;
@@ -1509,6 +1514,7 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
         onSaveDocument: props.onSaveDocument,
         onRebuildDocument: props.onRebuildDocument,
         onExportPython: props.onExportPython,
+        onImportCad: props.onImportCad,
         onStartSketchSetup: props.onStartSketchSetup,
         onEditSketch: props.onEditSketch,
         onStartFeatureCreation: props.onStartFeatureCreation,
@@ -6078,30 +6084,140 @@ function ContextShortcutBar(props: ContextShortcutBarProps): React.ReactElement 
 
 interface DocumentTemplatePickerProps {
     readonly templates: ReadonlyArray<DocumentTemplate>;
+    readonly samples?: ReadonlyArray<SampleProject>;
     readonly onSelect: (templateId: string) => void;
+    readonly onSelectSample?: (sampleId: string) => void;
+    readonly onDownloadSample?: (sampleId: string) => void;
     readonly onCancel: () => void;
 }
 
+/** CSS modifier for a sample badge; every badge value has one. */
+function sampleBadgeClass(badge: SampleProject['badge']): string {
+    switch (badge) {
+        case 'Fast':
+            return 'cad-template-badge-fast';
+        case 'Large model':
+            return 'cad-template-badge-large';
+        case 'External':
+            return 'cad-template-badge-external';
+        default:
+            return '';
+    }
+}
+
 export function DocumentTemplatePicker(props: DocumentTemplatePickerProps): React.ReactElement {
-    const { templates, onSelect, onCancel } = props;
+    const { templates, samples, onSelect, onSelectSample, onDownloadSample, onCancel } = props;
+    const [pendingExternal, setPendingExternal] = React.useState<SampleProject | undefined>(undefined);
+
+    if (pendingExternal !== undefined) {
+        const download = pendingExternal.download;
+        return (
+            <NukeDialog
+                title={pendingExternal.name}
+                onClose={() => setPendingExternal(undefined)}
+                footer={
+                    <div className="cad-template-picker-actions">
+                        {download !== undefined && onDownloadSample !== undefined && (
+                            <button
+                                className="theia-button"
+                                onClick={() => {
+                                    onDownloadSample(pendingExternal.id);
+                                    setPendingExternal(undefined);
+                                }}
+                            >
+                                <span className="codicon codicon-cloud-download" /> Download {download.sizeLabel}
+                            </button>
+                        )}
+                        <button
+                            className="theia-button secondary"
+                            onClick={() => {
+                                onSelectSample?.(pendingExternal.id);
+                                setPendingExternal(undefined);
+                            }}
+                        >
+                            Choose local STEP…
+                        </button>
+                        <button className="theia-button secondary" onClick={() => setPendingExternal(undefined)}>
+                            Back
+                        </button>
+                    </div>
+                }
+            >
+                <div className="cad-template-picker">
+                    <div className="cad-template-description">{pendingExternal.description}</div>
+                    {download !== undefined && (
+                        <div className="cad-template-section-hint">
+                            {download.sizeLabel} · {download.license} license · Proxima Fusion open stellarator models
+                        </div>
+                    )}
+                    <div className="cad-template-section-hint">
+                        Next, choose where to save the .nuke-cad project; the STEP downloads into a .parts folder beside it. Or choose a
+                        local copy.
+                    </div>
+                </div>
+            </NukeDialog>
+        );
+    }
+
     return (
         <NukeDialog title="New Document" onClose={onCancel}>
             <div className="cad-template-picker">
-                <div className="cad-template-list">
-                    {templates.map((template) => (
-                        <button key={template.id} className="cad-template-item" onClick={() => onSelect(template.id)}>
-                            <span className="cad-template-name">{template.name}</span>
-                            <span className="cad-template-description">{template.description}</span>
-                            {Object.keys(template.parameters).length > 0 && (
-                                <span className="cad-template-params">
-                                    {Object.entries(template.parameters)
-                                        .map(([name, value]) => `${name}=${value}`)
-                                        .join(', ')}
-                                </span>
-                            )}
-                        </button>
-                    ))}
+                <div className="cad-template-section">
+                    <div className="cad-template-section-title">Start blank</div>
+                    <div className="cad-template-list">
+                        {templates.map((template) => (
+                            <button key={template.id} className="cad-template-item" onClick={() => onSelect(template.id)}>
+                                <span className="cad-template-name">{template.name}</span>
+                                <span className="cad-template-description">{template.description}</span>
+                                {Object.keys(template.parameters).length > 0 && (
+                                    <span className="cad-template-params">
+                                        {Object.entries(template.parameters)
+                                            .map(([name, value]) => `${name}=${value}`)
+                                            .join(', ')}
+                                    </span>
+                                )}
+                            </button>
+                        ))}
+                    </div>
                 </div>
+                {samples !== undefined && samples.length > 0 && onSelectSample !== undefined && (
+                    <div className="cad-template-section">
+                        <div className="cad-template-section-title">Example projects</div>
+                        <div className="cad-template-section-hint">
+                            Bundled projects open a new editable copy; the external W7-X entry downloads or copies its STEP into the project
+                            folder.
+                        </div>
+                        <div className="cad-template-list">
+                            {samples.map((sample) => (
+                                <button
+                                    key={sample.id}
+                                    className="cad-template-item cad-template-sample"
+                                    onClick={() => {
+                                        if (sample.external === true) {
+                                            setPendingExternal(sample);
+                                        } else {
+                                            onSelectSample(sample.id);
+                                        }
+                                    }}
+                                >
+                                    <span className="cad-template-sample-header">
+                                        <span className="cad-template-name">{sample.name}</span>
+                                        {sample.badge !== undefined && (
+                                            <span className={`cad-template-badge ${sampleBadgeClass(sample.badge)}`}>{sample.badge}</span>
+                                        )}
+                                    </span>
+                                    <span className="cad-template-description">{sample.description}</span>
+                                    {sample.warning !== undefined && (
+                                        <span className="cad-template-warning">
+                                            <span className="codicon codicon-warning" aria-hidden="true" />
+                                            <span>{sample.warning}</span>
+                                        </span>
+                                    )}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                )}
                 <div className="cad-template-picker-actions">
                     <button className="theia-button secondary" onClick={onCancel}>
                         Cancel

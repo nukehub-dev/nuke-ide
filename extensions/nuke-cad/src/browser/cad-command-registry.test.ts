@@ -110,6 +110,7 @@ describe('buildCadCommands', () => {
             'redo',
             'rebuild',
             'exportPython',
+            'importCad',
             'newSketch',
             'pad',
             'pocket',
@@ -244,20 +245,39 @@ describe('buildCadCommands', () => {
         }
     });
 
-    it('marks export and rebuild unavailable without their optional handlers', () => {
+    it('marks export, rebuild, and import unavailable without their optional handlers', () => {
         const ctx = context();
         const commands = buildCadCommands(ctx, handlers());
         expect(disabledReason(commands, 'exportPython', ctx)).toBe('Not available in this view.');
         expect(disabledReason(commands, 'rebuild', ctx)).toBe('Not available in this view.');
+        expect(disabledReason(commands, 'importCad', ctx)).toBe('Not available in this view.');
     });
 
-    it('enables export and rebuild when the host supplies their handlers', () => {
+    it('enables export, rebuild, and import when the host supplies their handlers', () => {
         const ctx = context();
-        const commands = buildCadCommands(ctx, handlers({ onExportPython: vi.fn(), onRebuildDocument: vi.fn() }));
+        const commands = buildCadCommands(ctx, handlers({ onExportPython: vi.fn(), onRebuildDocument: vi.fn(), onImportCad: vi.fn() }));
         expect(command(commands, 'exportPython').isEnabled(ctx)).toBe(true);
         expect(command(commands, 'exportPython').disabledReason?.(ctx)).toBeUndefined();
         expect(command(commands, 'rebuild').isEnabled(ctx)).toBe(true);
         expect(command(commands, 'rebuild').disabledReason?.(ctx)).toBeUndefined();
+        expect(command(commands, 'importCad').isEnabled(ctx)).toBe(true);
+        expect(command(commands, 'importCad').disabledReason?.(ctx)).toBeUndefined();
+    });
+
+    it('describes Import CAD as Assembly as an always-enabled Document action', () => {
+        const ctx = context({ hasDocument: false });
+        const onImportCad = vi.fn();
+        const commands = buildCadCommands(ctx, handlers({ onImportCad }));
+        const spec = command(commands, 'importCad');
+        expect(spec.label).toBe('Import CAD as Assembly…');
+        expect(spec.shortLabel).toBe('Import');
+        expect(spec.icon).toBe('codicon-cloud-upload');
+        expect(spec.group).toBe('document');
+        expect(spec.isEnabled(ctx)).toBe(true);
+        expect(spec.isEnabled(context({ hasDocument: true }))).toBe(true);
+        expect(spec.disabledReason?.(ctx)).toBeUndefined();
+        spec.run();
+        expect(onImportCad).toHaveBeenCalledTimes(1);
     });
 
     it('resolves the Measurements label with the live count', () => {
@@ -270,6 +290,7 @@ describe('buildCadCommands', () => {
         const onSaveDocument = vi.fn();
         const onRebuildDocument = vi.fn();
         const onExportPython = vi.fn();
+        const onImportCad = vi.fn();
         const onStartSketchSetup = vi.fn();
         const onEditSketch = vi.fn();
         const onStartFeatureCreation = vi.fn();
@@ -283,6 +304,7 @@ describe('buildCadCommands', () => {
             onSaveDocument,
             onRebuildDocument,
             onExportPython,
+            onImportCad,
             onStartSketchSetup,
             onEditSketch,
             onStartFeatureCreation,
@@ -292,7 +314,18 @@ describe('buildCadCommands', () => {
             onToggleMeasureList
         });
 
-        for (const id of ['newDocument', 'saveDocument', 'rebuild', 'exportPython', 'newSketch', 'editSketch', 'undo', 'redo', 'measure']) {
+        for (const id of [
+            'newDocument',
+            'saveDocument',
+            'rebuild',
+            'exportPython',
+            'importCad',
+            'newSketch',
+            'editSketch',
+            'undo',
+            'redo',
+            'measure'
+        ]) {
             command(commands, id).run();
         }
         for (const id of ['pad', 'booleanCommon', 'lattice']) {
@@ -304,6 +337,7 @@ describe('buildCadCommands', () => {
         expect(onSaveDocument).toHaveBeenCalledTimes(1);
         expect(onRebuildDocument).toHaveBeenCalledTimes(1);
         expect(onExportPython).toHaveBeenCalledTimes(1);
+        expect(onImportCad).toHaveBeenCalledTimes(1);
         expect(onStartSketchSetup).toHaveBeenCalledTimes(1);
         expect(onEditSketch).toHaveBeenCalledWith('sketch-1');
         expect(onUndo).toHaveBeenCalledTimes(1);
