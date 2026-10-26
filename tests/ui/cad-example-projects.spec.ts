@@ -91,7 +91,7 @@ test('New CAD Document picker lists example projects and cancels cleanly', async
 
     // Cancelling the picker never installs a document or opens the save dialog.
     await expect(viewport.locator('.cad-viewport-document-empty')).toBeHidden();
-    await expect(viewport.locator('.nuke-empty-state')).toBeVisible();
+    await expect(viewport.locator('.cad-viewport-welcome')).toBeVisible();
 
     const severe = errors.filter((e) => !e.includes('l10n') && !e.includes('localization bundles'));
     expect(severe, `unexpected severe errors:\n${severe.join('\n')}`).toEqual([]);
@@ -109,6 +109,13 @@ test('Create W7-X Generator is searchable from the document toolbar', async ({ p
     const picker = page.locator('.cad-template-picker').first();
     await expect(picker).toBeVisible({ timeout: 10_000 });
     await picker.locator('button', { hasText: 'Empty document' }).first().click();
+
+    // The empty template opens the Create Sketch plane picker directly;
+    // dismiss it before driving the document toolbar.
+    const autoPicker = viewport.locator('.cad-sketch-datum-picker').first();
+    await expect(autoPicker).toBeVisible({ timeout: 30_000 });
+    await autoPicker.locator('button[aria-label="Cancel sketch setup"]').click();
+    await expect(autoPicker).toBeHidden();
 
     const toolbar = viewport.locator('.cad-document-toolbar').first();
     await expect(toolbar).toBeVisible({ timeout: 60_000 });
@@ -218,6 +225,10 @@ test('Pincell example saves a copy under test-results and builds it', async ({ p
         const newPicker = page.locator('.cad-template-picker').first();
         await expect(newPicker).toBeVisible({ timeout: 15_000 });
         await newPicker.locator('button', { hasText: 'Empty document' }).first().click();
+        const autoPicker = reopened.locator('.cad-sketch-datum-picker').first();
+        await expect(autoPicker).toBeVisible({ timeout: 30_000 });
+        await autoPicker.locator('button[aria-label="Cancel sketch setup"]').click();
+        await expect(autoPicker).toBeHidden();
         await expect(reopened.locator('.cad-viewport-document-empty')).toBeVisible({ timeout: 15_000 });
         await expect(reopened.locator('.cad-viewport-explode input[type=range]')).toHaveCount(0);
         await expect(reopened.locator('.nuke-loading-overlay')).toHaveCount(0);

@@ -23,7 +23,7 @@ test('Import CAD is offered on empty states and wired into command search', asyn
     await expect(viewport).toBeVisible({ timeout: 30_000 });
 
     // Welcome card (no document).
-    const welcome = viewport.locator('.nuke-empty-state');
+    const welcome = viewport.locator('.cad-viewport-welcome');
     await expect(welcome).toBeVisible({ timeout: 10_000 });
     await expect(welcome.locator('button', { hasText: 'Import CAD…' })).toBeVisible();
     await expect(welcome.locator('button', { hasText: 'Import CAD as Body…' })).toBeVisible();
@@ -33,6 +33,13 @@ test('Import CAD is offered on empty states and wired into command search', asyn
     const picker = page.locator('.cad-template-picker').first();
     await expect(picker).toBeVisible({ timeout: 10_000 });
     await picker.locator('button', { hasText: 'Empty document' }).first().click();
+
+    // The empty template opens the Create Sketch plane picker directly;
+    // cancel it to inspect the launcher that backs the panel.
+    const datumPicker = viewport.locator('.cad-sketch-datum-picker').first();
+    await expect(datumPicker).toBeVisible({ timeout: 30_000 });
+    await datumPicker.locator('button[aria-label="Cancel sketch setup"]').click();
+    await expect(datumPicker).toBeHidden();
 
     const emptyCard = viewport.locator('.cad-viewport-document-empty').first();
     await expect(emptyCard).toBeVisible({ timeout: 10_000 });

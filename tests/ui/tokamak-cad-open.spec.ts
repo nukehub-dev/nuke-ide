@@ -173,10 +173,17 @@ test('document-mode header toolbar renders with grouped actions and hides welcom
     await expect(templatePicker).toBeVisible({ timeout: 10_000 });
     await templatePicker.locator('button', { hasText: 'Empty document' }).first().click();
 
+    // The empty template opens Create Sketch directly; cancel it to inspect
+    // the empty-document launcher behind the panel.
+    const autoPicker = viewport.locator('.cad-sketch-datum-picker').first();
+    await expect(autoPicker).toBeVisible({ timeout: 30_000 });
+    await autoPicker.locator('button[aria-label="Cancel sketch setup"]').click();
+    await expect(autoPicker).toBeHidden();
+
     // After creating a document the welcome card should be hidden and the
     // empty-document card should be shown instead (never the welcome
-    // `.nuke-empty-state`).
-    await expect(viewport.locator('.nuke-empty-state')).toBeHidden();
+    // shared welcome launcher).
+    await expect(viewport.locator('.cad-viewport-welcome')).toBeHidden();
     const emptyCard = viewport.locator('.cad-viewport-document-empty').first();
     await expect(emptyCard).toBeVisible({ timeout: 10_000 });
     await expect(emptyCard.locator('.cad-viewport-document-empty-title')).toHaveText('Start a model');
@@ -266,6 +273,11 @@ test('document toolbar collapses to section menus without wrapping at narrow wid
     const templatePicker = page.locator('.cad-template-picker').first();
     await expect(templatePicker).toBeVisible({ timeout: 10_000 });
     await templatePicker.locator('button', { hasText: 'Empty document' }).first().click();
+
+    const autoPicker = viewport.locator('.cad-sketch-datum-picker').first();
+    await expect(autoPicker).toBeVisible({ timeout: 30_000 });
+    await autoPicker.locator('button[aria-label="Cancel sketch setup"]').click();
+    await expect(autoPicker).toBeHidden();
 
     const toolbar = page.locator('.cad-document-toolbar').first();
     await expect(toolbar).toBeVisible({ timeout: 60_000 });
@@ -371,6 +383,10 @@ test('Q shortcut bar opens in document mode and closes on Escape', async ({ page
     const templatePicker = page.locator('.cad-template-picker').first();
     await expect(templatePicker).toBeVisible({ timeout: 10_000 });
     await templatePicker.locator('button', { hasText: 'Empty document' }).first().click();
+    const autoPicker = viewport.locator('.cad-sketch-datum-picker').first();
+    await expect(autoPicker).toBeVisible({ timeout: 30_000 });
+    await autoPicker.locator('button[aria-label="Cancel sketch setup"]').click();
+    await expect(autoPicker).toBeHidden();
     await expect(viewport.locator('.cad-viewport-document-empty')).toBeVisible({ timeout: 10_000 });
     // Overlay chrome mounts only after the controller's cold dynamic import
     // (~20 s fresh); wait for the toolbar before driving overlay UI.
@@ -414,15 +430,13 @@ test('Q shortcut bar opens in sketch mode and closes on Escape', async ({ page }
     const templatePicker = page.locator('.cad-template-picker').first();
     await expect(templatePicker).toBeVisible({ timeout: 10_000 });
     await templatePicker.locator('button', { hasText: 'Empty document' }).first().click();
-    await expect(viewport.locator('.cad-viewport-document-empty')).toBeVisible({ timeout: 10_000 });
     // Overlay chrome mounts only after the controller's cold dynamic import
     // (~20 s fresh); wait for the toolbar before driving overlay UI.
     await expect(viewport.locator('.cad-document-toolbar').first()).toBeVisible({ timeout: 60_000 });
 
-    // Start a new sketch on the XY plane.
-    await runCommand(page, 'New Sketch');
+    // The empty template already opened the Create Sketch plane picker.
     const datumPicker = viewport.locator('.cad-sketch-datum-picker').first();
-    await expect(datumPicker).toBeVisible({ timeout: 10_000 });
+    await expect(datumPicker).toBeVisible({ timeout: 30_000 });
     await datumPicker.locator('button', { hasText: 'Start Sketch' }).first().click();
     await expect(viewport.locator('.cad-sketch-finish-button')).toBeVisible({ timeout: 30_000 });
 

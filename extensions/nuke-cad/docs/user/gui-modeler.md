@@ -74,11 +74,14 @@ generator cards download or copy the MIT-licensed Proxima Fusion STEP into the
 saved project's `.parts` folder. See `src/common/samples/README.md` for
 bundled-sample provenance, sizes, and attribution.
 
-An empty document shows a centered **Start a model** launcher with a primary
-**Create Sketch** tile and compact **Open CAD Model…**, **Import CAD…**, and
-**Import CAD as Body…** rows instead of a blank canvas. The launcher stacks when
-the editor is narrow and drops its supporting copy on very narrow widths; the
-ribbon stays available above it.
+The CAD viewport starts on a centered **Start a model** launcher instead of a
+blank canvas. Without a document its primary action is **New Document**; inside
+an empty document it becomes **Create Sketch**. Choosing **Empty document** in
+the New Document picker installs the document and opens the Create Sketch plane
+picker immediately; cancelling that picker reveals the launcher. Both variants
+offer compact **Open CAD Model…**, **Import CAD…**, and **Import CAD as Body…**
+rows. The launcher stacks when the editor is narrow and drops its supporting
+copy on very narrow widths; the ribbon stays available above it.
 
 The document toolbar carries a **Units** dropdown (`Unitless`, `mm`, `cm`,
 `m`). Declared units tag future numeric inputs (curve expressions may then

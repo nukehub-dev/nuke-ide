@@ -25,13 +25,11 @@ test('sketch constraint chips, solver badges, grid toggle, and palette groups', 
     const templatePicker = page.locator('.cad-template-picker').first();
     await expect(templatePicker).toBeVisible({ timeout: 10_000 });
     await templatePicker.locator('button', { hasText: 'Empty document' }).first().click();
-    await expect(viewport.locator('.cad-viewport-document-empty')).toBeVisible({ timeout: 10_000 });
+    // The empty template opens the Create Sketch plane picker directly.
+    const datumPicker = viewport.locator('.cad-sketch-datum-picker').first();
+    await expect(datumPicker).toBeVisible({ timeout: 30_000 });
     // The overlay mounts after the viewport's cold controller import.
     await expect(viewport.locator('.cad-document-toolbar').first()).toBeVisible({ timeout: 60_000 });
-
-    await runCommand(page, 'New Sketch');
-    const datumPicker = viewport.locator('.cad-sketch-datum-picker').first();
-    await expect(datumPicker).toBeVisible({ timeout: 10_000 });
     await datumPicker.locator('button', { hasText: 'Start Sketch' }).first().click();
     await expect(viewport.locator('.cad-sketch-finish-button')).toBeVisible({ timeout: 30_000 });
 
@@ -156,7 +154,7 @@ test('New Sketch opens the datum picker after reopening the CAD viewport', async
 
     await expect(viewport.locator('.cad-sketch-datum-picker')).toBeVisible({ timeout: 90_000 });
     await expect(viewport.locator('.cad-viewport-document-empty')).toBeHidden();
-    await expect(viewport.locator('.nuke-empty-state')).toBeHidden();
+    await expect(viewport.locator('.cad-viewport-welcome')).toBeHidden();
 
     const severe = errors.filter((e) => !e.includes('l10n') && !e.includes('localization bundles'));
     expect(severe, `unexpected severe errors:\n${severe.join('\n')}`).toEqual([]);

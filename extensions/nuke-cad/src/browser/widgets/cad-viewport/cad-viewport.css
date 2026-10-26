@@ -929,11 +929,13 @@
 /*
  * Owns the top-center chrome slot (the Finish Sketch pill moved to the
  * top-right anchor); the sketch toolbar's default spot starts below this row.
+ * Bias the bar left of true center so its right edge always clears the
+ * unsaved dot that sits immediately left of the Finish Sketch pill.
  */
 .cad-sketch-constraint-bar {
     position: absolute;
     top: 8px;
-    left: 50%;
+    left: calc(50% - 20px);
     transform: translateX(-50%);
     display: flex;
     flex-wrap: wrap;
@@ -1443,13 +1445,13 @@
 
 /* A faint dot grid makes the empty document read as a CAD canvas rather than
    a blank editor page. The welcome card keeps the plain background. */
-.cad-viewport.empty:has(.cad-viewport-document-empty) {
+.cad-viewport.empty:has(.cad-viewport-start-model) {
     background-image: radial-gradient(circle, var(--theia-panel-border) 1px, transparent 1.2px);
     background-position: center;
     background-size: 24px 24px;
 }
 
-.cad-viewport-document-empty {
+.cad-viewport-start-model {
     display: flex;
     flex-direction: column;
     align-items: stretch;
@@ -1573,6 +1575,7 @@
 .cad-viewport-document-empty-primary-icon .codicon {
     width: 22px;
     height: 22px;
+    font-size: 22px;
     -webkit-mask-size: 22px 22px;
     mask-size: 22px 22px;
 }

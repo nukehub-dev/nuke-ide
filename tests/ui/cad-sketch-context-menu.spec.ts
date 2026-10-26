@@ -23,12 +23,10 @@ test('sketch context menu is selection-aware and the dirty dot clears Finish Ske
     const templatePicker = page.locator('.cad-template-picker').first();
     await expect(templatePicker).toBeVisible({ timeout: 10_000 });
     await templatePicker.locator('button', { hasText: 'Empty document' }).first().click();
-    await expect(viewport.locator('.cad-viewport-document-empty')).toBeVisible({ timeout: 10_000 });
-    await expect(viewport.locator('.cad-document-toolbar').first()).toBeVisible({ timeout: 60_000 });
-
-    await runCommand(page, 'New Sketch');
+    // The empty template opens the Create Sketch plane picker directly.
     const datumPicker = viewport.locator('.cad-sketch-datum-picker').first();
-    await expect(datumPicker).toBeVisible({ timeout: 10_000 });
+    await expect(datumPicker).toBeVisible({ timeout: 30_000 });
+    await expect(viewport.locator('.cad-document-toolbar').first()).toBeVisible({ timeout: 60_000 });
     await datumPicker.locator('button', { hasText: 'Start Sketch' }).first().click();
     const finish = viewport.locator('.cad-sketch-finish-button');
     await expect(finish).toBeVisible({ timeout: 30_000 });

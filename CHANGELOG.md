@@ -233,7 +233,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-cad: DAGMC surface-sense verification is now a hard error; watertightness and overlap stay reported diagnostics.
 - nuke-cad: DAGMC export accepts `--no-auto-tolerance` so thin shell layers keep a fine faceting tolerance instead of being coarsened to diagonal/200.
 - nuke-cad: cache-hit document rebuilds reuse the existing canonical STEP instead of rewriting it.
-- nuke-cad: empty-document viewport becomes a Start a model launcher with a primary sketch tile, compact import rows, and a narrow-width fallback.
+- nuke-cad: no-document and empty-document viewports share a Start a model launcher with a primary action tile, compact import rows, and a narrow-width fallback.
+- nuke-cad: choosing the Empty document template opens the Create Sketch plane picker directly; cancelling it reveals the Start a model launcher.
 - nuke-cad: saving a script-source model rebuilds the viewport (STEP-source models unaffected).
 - nuke-cad: viewport context menu gains Find in Feature Tree, Clear Selection (Esc), and shortcut hints.
 - nuke-core: spec-aware dependency installs with a canonical package registry and a drift-failing consistency test.
@@ -263,7 +264,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-cad: W7-X sample downloads use the IDE backend, bypassing browser CORS/proxy failures for the 47 MB STEP.
 - nuke-cad: new W7-X samples discard a stale `.regions.json` sidecar, so old `coil` selectors no longer trigger a manifest warning.
 - nuke-cad: build warnings render as a compact badge below the document toolbar, with the list in an anchored popover clear of sketch chrome.
-- nuke-cad: the unsaved-changes dot sits beside Finish Sketch instead of underneath it.
+- nuke-cad: the unsaved-changes dot sits beside Finish Sketch and clears the centered constraint bar at narrow widths.
 - nuke-cad: Measurements popover opens below the document toolbar at every ribbon density, and feature-dialog inputs/selects stay inside the dialog padding.
 - nuke-cad: sketch palette clears the status line, scrolls under a fixed header, and labels Draw & edit, Reference, Inspect, and Transform.
 - nuke-cad: Copy sketch icon renders both offset squares (the standard mask declaration dropped the back square).

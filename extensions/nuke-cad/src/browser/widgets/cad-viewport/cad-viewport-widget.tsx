@@ -68,7 +68,7 @@ import { buildSolidSummaries } from '../outline-panel/solid-summaries';
 import { addSolidsToSelection, selectionSolidIds, toggleSolidSelection } from '../outline-panel/outline-interactions';
 import { NukeCadCommands } from '../../commands';
 import { LoadingAnimations } from 'nuke-essentials/lib/theme/browser/components/loading-spinner';
-import { NukeEmptyState, NukeLoadingOverlay } from 'nuke-essentials/lib/theme/browser/components';
+import { NukeLoadingOverlay } from 'nuke-essentials/lib/theme/browser/components';
 import { ViewBadge, ViewerNavBar, ViewCube } from 'nuke-essentials/lib/theme/browser/components';
 import type { ViewCubeHandle, ViewerNavAction } from 'nuke-essentials/lib/theme/browser/components';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
@@ -877,6 +877,13 @@ export class CadViewportWidget extends ReactWidget {
         // A fresh document has no build to be stale against.
         this.buildStale = false;
         this.update();
+        // A blank document has no geometry to inspect, so choosing the empty
+        // template goes straight to the Create Sketch plane picker. The
+        // launcher still backs this panel and reappears when it is cancelled
+        // or when an empty document is reopened.
+        if (templateId === 'empty') {
+            this.startSketchSetup();
+        }
     };
 
     /**
@@ -4218,6 +4225,78 @@ interface CadViewportComponentProps {
     readonly onDeleteAppearancePreset: (name: string) => Promise<void>;
 }
 
+interface StartModelLauncherProps {
+    /** Extra root class for the welcome/document flavor. */
+    readonly variant: string;
+    readonly eyebrow: string;
+    readonly message: string;
+    readonly hint: string;
+    readonly primaryLabel: string;
+    readonly primaryDescription: string;
+    readonly primaryIcon: string;
+    readonly onPrimary: () => void;
+    readonly onOpenModel: () => void;
+    readonly onImportCad: () => void;
+    readonly onImportCadBody: () => void;
+}
+
+/** Shared launcher for the no-document welcome and the empty-document state. */
+function StartModelLauncher(props: StartModelLauncherProps): React.ReactElement {
+    return (
+        <div className={`cad-viewport-start-model ${props.variant}`}>
+            <div className="cad-viewport-document-empty-header">
+                <span className="cad-viewport-document-empty-icon-tile" aria-hidden="true">
+                    <span className="codicon codicon-nuke-cad-cube cad-viewport-document-empty-icon" />
+                </span>
+                <div className="cad-viewport-document-empty-heading">
+                    <div className="cad-viewport-document-empty-eyebrow">{props.eyebrow}</div>
+                    <div className="cad-viewport-document-empty-title">Start a model</div>
+                    <div className="cad-viewport-document-empty-message">{props.message}</div>
+                </div>
+            </div>
+            <div className="cad-viewport-document-empty-actions">
+                <button className="cad-viewport-document-empty-primary" onClick={props.onPrimary}>
+                    <span className="cad-viewport-document-empty-primary-icon" aria-hidden="true">
+                        <span className={`codicon codicon-${props.primaryIcon}`} />
+                    </span>
+                    <span className="cad-viewport-document-empty-action-copy">
+                        <span className="cad-viewport-document-empty-action-label">{props.primaryLabel}</span>
+                        <span className="cad-viewport-document-empty-action-desc">{props.primaryDescription}</span>
+                    </span>
+                    <span className="codicon codicon-chevron-right cad-viewport-document-empty-chevron" aria-hidden="true" />
+                </button>
+                <div className="cad-viewport-document-empty-secondary">
+                    <button className="cad-viewport-document-empty-action open-cad-model-button" onClick={props.onOpenModel}>
+                        <span className="codicon codicon-folder-opened cad-viewport-document-empty-action-icon" aria-hidden="true" />
+                        <span className="cad-viewport-document-empty-action-copy">
+                            <span className="cad-viewport-document-empty-action-label">Open CAD Model…</span>
+                            <span className="cad-viewport-document-empty-action-desc">.nuke-cad, .py, .step, .brep</span>
+                        </span>
+                    </button>
+                    <button className="cad-viewport-document-empty-action import-cad-assembly-button" onClick={props.onImportCad}>
+                        <span className="codicon codicon-cloud-upload cad-viewport-document-empty-action-icon" aria-hidden="true" />
+                        <span className="cad-viewport-document-empty-action-copy">
+                            <span className="cad-viewport-document-empty-action-label">Import CAD…</span>
+                            <span className="cad-viewport-document-empty-action-desc">Place a STEP/IGES/BREP as an assembly</span>
+                        </span>
+                    </button>
+                    <button className="cad-viewport-document-empty-action import-cad-body-button" onClick={props.onImportCadBody}>
+                        <span className="codicon codicon-file-symlink-file cad-viewport-document-empty-action-icon" aria-hidden="true" />
+                        <span className="cad-viewport-document-empty-action-copy">
+                            <span className="cad-viewport-document-empty-action-label">Import CAD as Body…</span>
+                            <span className="cad-viewport-document-empty-action-desc">Edit imported solids as bodies</span>
+                        </span>
+                    </button>
+                </div>
+            </div>
+            <div className="cad-viewport-document-empty-hint">
+                <span className="codicon codicon-info" aria-hidden="true" />
+                <span>{props.hint}</span>
+            </div>
+        </div>
+    );
+}
+
 function CadViewportComponent(props: CadViewportComponentProps): React.ReactElement {
     const containerRef = React.useRef<HTMLDivElement>(null);
     const [controller, setController] = React.useState<SketchModeController | undefined>();
@@ -5265,25 +5344,19 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                 {props.loading && <NukeLoadingOverlay message={props.loadingMessage} />}
                 <LoadingAnimations />
                 <div className="cad-viewport-empty-wrapper">
-                    <NukeEmptyState
-                        icon="globe"
-                        title="CAD Viewport"
-                        message="Open a build123d/CadQuery script, a STEP/STP/BREP file, or a .nuke-cad document to view and inspect geometry."
+                    <StartModelLauncher
+                        variant="cad-viewport-welcome"
+                        eyebrow="CAD viewport"
+                        message="Create a new document, open an existing model, or import CAD geometry."
                         hint="Supported formats: .py, .step, .stp, .brep, .nuke-cad"
-                    >
-                        <button className="theia-button" onClick={props.onNewDocument}>
-                            <span className="codicon codicon-new-file" /> New Document
-                        </button>
-                        <button className="theia-button secondary open-cad-model-button" onClick={props.onOpenModel}>
-                            <span className="codicon codicon-folder-opened" /> Open CAD Model...
-                        </button>
-                        <button className="theia-button secondary import-cad-assembly-button" onClick={props.onImportCad}>
-                            <span className="codicon codicon-cloud-upload" /> Import CAD…
-                        </button>
-                        <button className="theia-button secondary import-cad-body-button" onClick={props.onImportCadBody}>
-                            <span className="codicon codicon-file-symlink-file" /> Import CAD as Body…
-                        </button>
-                    </NukeEmptyState>
+                        primaryLabel="New Document"
+                        primaryDescription="Start blank or choose an example project"
+                        primaryIcon="new-file"
+                        onPrimary={props.onNewDocument}
+                        onOpenModel={props.onOpenModel}
+                        onImportCad={props.onImportCad}
+                        onImportCadBody={props.onImportCadBody}
+                    />
                 </div>
                 {sketchOverlay}
                 {templatePicker}
@@ -5302,76 +5375,19 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                 {setupPendingOverlay}
                 {props.loading && <NukeLoadingOverlay message={props.loadingMessage} />}
                 <div className="cad-viewport-empty-wrapper">
-                    <div className="cad-viewport-document-empty">
-                        <div className="cad-viewport-document-empty-header">
-                            <span className="cad-viewport-document-empty-icon-tile" aria-hidden="true">
-                                <span className="codicon codicon-nuke-cad-cube cad-viewport-document-empty-icon" />
-                            </span>
-                            <div className="cad-viewport-document-empty-heading">
-                                <div className="cad-viewport-document-empty-eyebrow">New document</div>
-                                <div className="cad-viewport-document-empty-title">Start a model</div>
-                                <div className="cad-viewport-document-empty-message">
-                                    Sketch a profile, open an existing model, or import CAD geometry.
-                                </div>
-                            </div>
-                        </div>
-                        <div className="cad-viewport-document-empty-actions">
-                            <button className="cad-viewport-document-empty-primary" onClick={props.onStartSketchSetup}>
-                                <span className="cad-viewport-document-empty-primary-icon" aria-hidden="true">
-                                    <span className="codicon codicon-nuke-cad-sketch" />
-                                </span>
-                                <span className="cad-viewport-document-empty-action-copy">
-                                    <span className="cad-viewport-document-empty-action-label">Create Sketch</span>
-                                    <span className="cad-viewport-document-empty-action-desc">Start on a datum plane or a planar face</span>
-                                </span>
-                                <span className="codicon codicon-chevron-right cad-viewport-document-empty-chevron" aria-hidden="true" />
-                            </button>
-                            <div className="cad-viewport-document-empty-secondary">
-                                <button className="cad-viewport-document-empty-action open-cad-model-button" onClick={props.onOpenModel}>
-                                    <span
-                                        className="codicon codicon-folder-opened cad-viewport-document-empty-action-icon"
-                                        aria-hidden="true"
-                                    />
-                                    <span className="cad-viewport-document-empty-action-copy">
-                                        <span className="cad-viewport-document-empty-action-label">Open CAD Model…</span>
-                                        <span className="cad-viewport-document-empty-action-desc">.nuke-cad, .py, .step, .brep</span>
-                                    </span>
-                                </button>
-                                <button
-                                    className="cad-viewport-document-empty-action import-cad-assembly-button"
-                                    onClick={props.onImportCad}
-                                >
-                                    <span
-                                        className="codicon codicon-cloud-upload cad-viewport-document-empty-action-icon"
-                                        aria-hidden="true"
-                                    />
-                                    <span className="cad-viewport-document-empty-action-copy">
-                                        <span className="cad-viewport-document-empty-action-label">Import CAD…</span>
-                                        <span className="cad-viewport-document-empty-action-desc">
-                                            Place a STEP/IGES/BREP as an assembly
-                                        </span>
-                                    </span>
-                                </button>
-                                <button
-                                    className="cad-viewport-document-empty-action import-cad-body-button"
-                                    onClick={props.onImportCadBody}
-                                >
-                                    <span
-                                        className="codicon codicon-file-symlink-file cad-viewport-document-empty-action-icon"
-                                        aria-hidden="true"
-                                    />
-                                    <span className="cad-viewport-document-empty-action-copy">
-                                        <span className="cad-viewport-document-empty-action-label">Import CAD as Body…</span>
-                                        <span className="cad-viewport-document-empty-action-desc">Edit imported solids as bodies</span>
-                                    </span>
-                                </button>
-                            </div>
-                        </div>
-                        <div className="cad-viewport-document-empty-hint">
-                            <span className="codicon codicon-info" aria-hidden="true" />
-                            <span>Sketches start on a datum plane or a planar face.</span>
-                        </div>
-                    </div>
+                    <StartModelLauncher
+                        variant="cad-viewport-document-empty"
+                        eyebrow="New document"
+                        message="Sketch a profile, open an existing model, or import CAD geometry."
+                        hint="Sketches start on a datum plane or a planar face."
+                        primaryLabel="Create Sketch"
+                        primaryDescription="Start on a datum plane or a planar face"
+                        primaryIcon="nuke-cad-sketch"
+                        onPrimary={props.onStartSketchSetup}
+                        onOpenModel={props.onOpenModel}
+                        onImportCad={props.onImportCad}
+                        onImportCadBody={props.onImportCadBody}
+                    />
                 </div>
                 {sketchOverlay}
                 {templatePicker}
