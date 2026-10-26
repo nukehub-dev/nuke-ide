@@ -62,7 +62,11 @@ import {
     FoamCaseRequest,
     FoamCaseResult,
     FoamStlExportRequest,
-    FoamStlExportResult
+    FoamStlExportResult,
+    InspectImportSourceRequest,
+    InspectImportSourceResult,
+    ImportSolidInfo,
+    ImportSourceFormat
 } from '../common/nuke-cad-protocol';
 import { CAD_HEALTH_PACKAGES } from '../common/packages';
 import type { DrawingBuildRequest, DrawingBuildResult } from '../common/cad-drawing';
@@ -216,6 +220,29 @@ export function buildDrawingArgs(request: DrawingBuildRequest, scriptPath: strin
 }
 
 /**
+ * Build the argument list for ``python/geometry_service.py --inspect-import``.
+ *
+ * Inspection is a read-only metadata pass: the source travels as the
+ * positional input, the optional unit overrides and solid cap travel as flags,
+ * and no output/artifact flags are ever emitted.
+ *
+ * Exported for unit testing; callers should use {@link NukeCadBackendServiceImpl.inspectImportSource}.
+ */
+export function inspectImportArgs(request: InspectImportSourceRequest, scriptPath: string): string[] {
+    const args = [scriptPath, request.sourcePath, '--inspect-import'];
+    if (request.sourceUnit) {
+        args.push('--source-unit', request.sourceUnit);
+    }
+    if (request.targetUnits) {
+        args.push('--target-units', request.targetUnits);
+    }
+    if (request.maxSolids !== undefined) {
+        args.push('--max-solids', String(request.maxSolids));
+    }
+    return args;
+}
+
+/**
  * Maximum characters of a service's stdout/stderr kept in memory, mirroring
  * openmc-studio's runner. The stdout-JSON services print their one small JSON
  * summary line last, so keeping only the trailing 1 MB preserves the backwards
@@ -317,6 +344,128 @@ function getDownloadResponse(url: URL, redirectsLeft: number, timeoutMs: number)
     });
 }
 
+/** Raw JSON record returned by the Python inspection CLI (before normalization). */
+type RawInspectRecord = Record<string, unknown>;
+
+function asInspectRecord(value: unknown): RawInspectRecord | undefined {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+        return undefined;
+    }
+    return value as RawInspectRecord;
+}
+
+function pickString(record: RawInspectRecord, ...keys: string[]): string | undefined {
+    for (const key of keys) {
+        const value = record[key];
+        if (typeof value === 'string' && value.length > 0) {
+            return value;
+        }
+    }
+    return undefined;
+}
+
+function pickNumber(record: RawInspectRecord, ...keys: string[]): number | undefined {
+    for (const key of keys) {
+        const value = record[key];
+        if (typeof value === 'number' && Number.isFinite(value)) {
+            return value;
+        }
+    }
+    return undefined;
+}
+
+function pickNumberArray(record: RawInspectRecord, ...keys: string[]): number[] | undefined {
+    for (const key of keys) {
+        const value = record[key];
+        if (Array.isArray(value) && value.every((entry) => typeof entry === 'number' && Number.isFinite(entry))) {
+            return value as number[];
+        }
+    }
+    return undefined;
+}
+
+function pickStringArray(record: RawInspectRecord, ...keys: string[]): string[] | undefined {
+    for (const key of keys) {
+        const value = record[key];
+        if (Array.isArray(value)) {
+            return value.filter((entry): entry is string => typeof entry === 'string');
+        }
+    }
+    return undefined;
+}
+
+const IMPORT_SOURCE_FORMATS: readonly ImportSourceFormat[] = ['step', 'iges', 'brep'];
+
+function toImportSourceFormat(value: string | undefined): ImportSourceFormat | undefined {
+    const normalized = value?.toLowerCase();
+    return IMPORT_SOURCE_FORMATS.find((format) => format === normalized);
+}
+
+/** Normalize one Python/exchange-reader solid record to the RPC shape. */
+function normalizeImportSolid(value: unknown, fallbackIndex: number): ImportSolidInfo | undefined {
+    const record = asInspectRecord(value);
+    if (!record) {
+        return undefined;
+    }
+    const name = pickString(record, 'name');
+    return {
+        index: pickNumber(record, 'index') ?? fallbackIndex,
+        ...(name !== undefined ? { name } : {}),
+        faceCount: pickNumber(record, 'faceCount', 'face_count') ?? 0,
+        volume: pickNumber(record, 'volume') ?? 0,
+        bboxMin: pickNumberArray(record, 'bboxMin', 'bbox_min') ?? [],
+        bboxMax: pickNumberArray(record, 'bboxMax', 'bbox_max') ?? [],
+        center: pickNumberArray(record, 'center') ?? []
+    };
+}
+
+/**
+ * Normalize the Python inspection payload to {@link InspectImportSourceResult}.
+ *
+ * The CLI contract is camelCase, matching the existing geometry-service JSON
+ * results. The snake_case aliases mirror ``exchange_reader.ImportSource`` /
+ * ``ImportSolidInfo`` field names so the RPC stays usable while the TS and
+ * Python halves of the import feature land independently.
+ */
+export function normalizeInspectImportResult(raw: unknown, fallbackSourcePath: string): InspectImportSourceResult {
+    const record = asInspectRecord(raw);
+    if (!record) {
+        return { success: false, error: 'Import inspection returned an invalid response.', sourcePath: fallbackSourcePath };
+    }
+    const error = pickString(record, 'error');
+    const solidsRaw = record.solids;
+    const solids = Array.isArray(solidsRaw)
+        ? solidsRaw
+              .map((solid, index) => normalizeImportSolid(solid, index + 1))
+              .filter((solid): solid is ImportSolidInfo => solid !== undefined)
+        : undefined;
+    const sourceFormat = toImportSourceFormat(pickString(record, 'sourceFormat', 'source_format', 'format'));
+    const sourcePath = pickString(record, 'sourcePath', 'source_path', 'path') ?? fallbackSourcePath;
+    const sourceHash = pickString(record, 'sourceHash', 'source_hash', 'digest', 'hash');
+    const sourceSize = pickNumber(record, 'sourceSize', 'source_size', 'size');
+    const fileUnit = pickString(record, 'fileUnit', 'file_unit');
+    const effectiveUnit = pickString(record, 'effectiveUnit', 'effective_unit');
+    const unitScaleFactor = pickNumber(record, 'unitScaleFactor', 'unitScale', 'unit_scale', 'scale');
+    const unitsMessage = pickString(record, 'unitsMessage', 'units_message');
+    const solidCount = pickNumber(record, 'solidCount', 'solid_count') ?? solids?.length;
+    const warnings = pickStringArray(record, 'warnings');
+    return {
+        success: record.success === undefined ? error === undefined : record.success === true,
+        ...(error !== undefined ? { error } : {}),
+        sourcePath,
+        ...(sourceFormat !== undefined ? { sourceFormat } : {}),
+        ...(sourceHash !== undefined ? { sourceHash } : {}),
+        ...(sourceSize !== undefined ? { sourceSize } : {}),
+        ...(fileUnit !== undefined ? { fileUnit } : {}),
+        ...(effectiveUnit !== undefined ? { effectiveUnit } : {}),
+        ...(unitScaleFactor !== undefined ? { unitScaleFactor } : {}),
+        ...(unitsMessage !== undefined ? { unitsMessage } : {}),
+        ...(solidCount !== undefined ? { solidCount } : {}),
+        ...(solids !== undefined ? { solids } : {}),
+        ...(warnings !== undefined ? { warnings } : {})
+    };
+}
+
 @injectable()
 export class NukeCadBackendServiceImpl implements NukeCadBackendService {
     /** Default backend process timeout: one hour (ccx/gmsh runs can be long). */
@@ -324,6 +473,9 @@ export class NukeCadBackendServiceImpl implements NukeCadBackendService {
 
     /** Timeout for quick metadata spawns (material/solver lists). */
     protected static readonly LIST_TIMEOUT_SECONDS = 30;
+
+    /** Timeout for import-source inspection (reads and measures every source solid). */
+    protected static readonly INSPECT_TIMEOUT_SECONDS = 300;
 
     /** Disambiguates temp request files from concurrent calls. */
     private static tempFileCounter = 0;
@@ -445,6 +597,39 @@ export class NukeCadBackendServiceImpl implements NukeCadBackendService {
 
         const args = buildDrawingArgs(request, scriptPath);
         return this._spawnJsonService<DrawingBuildResult>(pythonCommand, args, path.dirname(request.scriptPath));
+    }
+
+    /**
+     * Inspect an external STEP/IGES/BREP source without building it.
+     *
+     * The Python service streams the source hash/size, resolves the file and
+     * target units, and enumerates explorer-order solids (name, faces, volume,
+     * bbox, center). Nothing is written: no STEP/tessellation/DAGMC artifacts.
+     */
+    async inspectImportSource(request: InspectImportSourceRequest): Promise<InspectImportSourceResult> {
+        const scriptPath = resolvePythonScript({ packageName: 'nuke-cad', scriptName: 'geometry_service.py' });
+        if (!scriptPath) {
+            return { success: false, error: 'Geometry service script not found.', sourcePath: request.sourcePath };
+        }
+
+        const pythonCommand = await this.nukeCoreService.getPythonCommand();
+        if (!pythonCommand) {
+            return {
+                success: false,
+                error: 'No Python interpreter configured. Set a Python environment in Settings → Nuke Utils.',
+                sourcePath: request.sourcePath
+            };
+        }
+
+        const args = inspectImportArgs(request, scriptPath);
+        const result = await this._spawnJsonService<InspectImportSourceResult>(
+            pythonCommand,
+            args,
+            path.dirname(request.sourcePath),
+            request.sourcePath,
+            { timeoutSeconds: NukeCadBackendServiceImpl.INSPECT_TIMEOUT_SECONDS }
+        );
+        return normalizeInspectImportResult(result, request.sourcePath);
     }
 
     /**

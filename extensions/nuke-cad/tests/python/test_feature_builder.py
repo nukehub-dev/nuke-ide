@@ -1631,6 +1631,68 @@ def test_cross_body_overlap_without_boolean_records_warning() -> None:
     assert any("overlap" in w for w in result.get("warnings", [])), result.get("warnings", [])
 
 
+def test_overlap_check_flag_rides_the_build_state() -> None:
+    """The document gate defaults to enabled and only an explicit false disables it."""
+    assert fb._prepare_build_state(_document([])).overlap_check is True
+    doc = _document([])
+    doc["overlapCheck"] = False
+    assert fb._prepare_build_state(doc).overlap_check is False
+    doc["overlapCheck"] = True
+    assert fb._prepare_build_state(doc).overlap_check is True
+
+
+def test_cross_body_overlap_skipped_when_overlap_check_disabled() -> None:
+    """``overlapCheck: false`` drops the exact cross-body boolean pass.
+
+    A validated large assembly (the W7-X generator) resolves its own
+    intentional contacts; the O(n^2) warning pass would otherwise dominate the
+    build. The default stays enabled, and only warnings change.
+    """
+
+    def overlapping_doc() -> dict:
+        return _document(
+            [
+                {
+                    "id": "left",
+                    "name": "left",
+                    "type": "pad",
+                    "body": "body-left",
+                    "sketchId": "rect",
+                    "params": {"length": 5},
+                    "dependsOn": [],
+                    "suppressed": False,
+                },
+                {
+                    "id": "right",
+                    "name": "right",
+                    "type": "pad",
+                    "body": "body-right",
+                    "sketchId": "rect",
+                    "params": {"length": 5},
+                    "dependsOn": [],
+                    "suppressed": False,
+                },
+            ],
+            sketches=[_rect_sketch(width=10.0, height=10.0)],
+            bodies=[
+                {"id": "body-left", "name": "left"},
+                {"id": "body-right", "name": "right"},
+            ],
+        )
+
+    pytest.importorskip("build123d", reason="build123d not installed")
+    enabled = fb.build_document_shape(overlapping_doc())
+    assert any("overlap" in w for w in enabled.get("warnings", [])), enabled.get("warnings", [])
+
+    disabled_doc = overlapping_doc()
+    disabled_doc["overlapCheck"] = False
+    disabled = fb.build_document_shape(disabled_doc)
+    assert disabled["shape"] is not None
+    assert not [w for w in disabled.get("warnings", []) if "overlap" in w]
+    # Same geometry: both bodies still contribute their solids.
+    assert len(disabled["solidBodyIds"]) == 2
+
+
 def test_reference_resolves_against_body_state_after_pocket() -> None:
     """A face reference on a body resolves against the post-pocket body state."""
     pytest.importorskip("build123d", reason="build123d not installed")

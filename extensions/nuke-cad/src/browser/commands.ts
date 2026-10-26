@@ -164,6 +164,11 @@ export namespace NukeCadCommands {
         label: nls.localize('nuke/cad/addFeature/helicalSweep', 'Add Helical Sweep Feature')
     };
 
+    export const ADD_FEATURE_COIL_SWEEP: Command = {
+        id: 'nuke.cad.addFeature.coilSweep',
+        label: nls.localize('nuke/cad/addFeature/coilSweep', 'Add Coil Sweep Feature')
+    };
+
     export const EDIT_FEATURE: Command = {
         id: 'nuke.cad.editFeature',
         label: nls.localize('nuke/cad/editFeature', 'Edit Feature Parameters')
@@ -172,5 +177,30 @@ export namespace NukeCadCommands {
     export const EXPORT_PYTHON: Command = {
         id: 'nuke.cad.exportPython',
         label: nls.localize('nuke/cad/exportPython', 'Export CAD Document as Python')
+    };
+
+    export const IMPORT_CAD_BODY: Command = {
+        id: 'nuke.cad.importCadBody',
+        label: nls.localize('nuke/cad/importCadBody', 'Import CAD as Body…')
+    };
+
+    export const REFRESH_IMPORT_SOURCES: Command = {
+        id: 'nuke.cad.refreshImportSources',
+        label: nls.localize('nuke/cad/refreshImportSources', 'Refresh Import Sources')
+    };
+
+    export const CREATE_W7X_GENERATOR: Command = {
+        id: 'nuke.cad.createW7xGenerator',
+        label: nls.localize('nuke/cad/createW7xGenerator', 'Create W7-X Generator…')
+    };
+
+    export const CREATE_W7X_COIL_STUDY: Command = {
+        id: 'nuke.cad.createW7xCoilStudy',
+        label: nls.localize('nuke/cad/createW7xCoilStudy', 'Create W7-X Coil Study…')
+    };
+
+    export const CREATE_W7X_SHAPE_STUDY: Command = {
+        id: 'nuke.cad.createW7xShapeStudy',
+        label: nls.localize('nuke/cad/createW7xShapeStudy', 'Create W7-X Coil Shape Study…')
     };
 }

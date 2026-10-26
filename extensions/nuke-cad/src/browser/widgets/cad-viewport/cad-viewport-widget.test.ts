@@ -31,16 +31,19 @@ import type {
     BuildDocumentRequest,
     BuildFeaturesPartialRequest,
     GeometryBuildResult,
+    ImportSolidInfo,
+    InspectImportSourceResult,
     NukeCadBackendService
 } from '../../../common/nuke-cad-protocol';
 import type { NukeCadPreferences } from '../../nuke-cad-preferences';
+import { W7X_BODY_LABELS, W7X_GEOMETRY_ASSET, W7X_GROUNDED_INSTANCE_ID } from '../../../common/w7x-generator';
 
 // The widget module pulls Theia browser/monaco modules (CSS imports, DOM at
 // import time) that the node test environment cannot load. Mock exactly those
 // direct imports; every transitive local module is node-safe (proven by the
 // existing pure-logic suites), so the real partial funnel still runs.
 vi.mock('@theia/core/lib/browser/widgets/react-widget', () => ({ ReactWidget: class {} }));
-vi.mock('@theia/core/lib/browser', () => ({ Message: class {}, WidgetManager: class {} }));
+vi.mock('@theia/core/lib/browser', () => ({ ApplicationShell: class {}, Message: class {}, WidgetManager: class {} }));
 vi.mock('@theia/core/lib/browser/quick-input', () => ({ QuickInputService: class {} }));
 vi.mock('@theia/core/lib/browser/theming', () => ({ ThemeService: class {} }));
 vi.mock('@theia/filesystem/lib/browser/file-service', () => ({ FileService: class {} }));
@@ -166,12 +169,19 @@ function makeWidget(m: WidgetModule, backend: NukeCadBackendService, sizeCapMB: 
  */
 function makeImportWidget(
     m: WidgetModule,
-    options: { document?: unknown; uri?: string; open?: URI; save?: URI }
+    options: { document?: unknown; uri?: string; open?: URI; save?: URI; inspection?: InspectImportSourceResult }
 ): {
     widget: any;
     addInstance: ReturnType<typeof vi.fn>;
     showSaveDialog: ReturnType<typeof vi.fn>;
     downloadFile: ReturnType<typeof vi.fn>;
+    inspectImportSource: ReturnType<typeof vi.fn>;
+    addImportBodies: ReturnType<typeof vi.fn>;
+    addAssemblyInstances: ReturnType<typeof vi.fn>;
+    setUnits: ReturnType<typeof vi.fn>;
+    setOverlapCheck: ReturnType<typeof vi.fn>;
+    refreshImportSource: ReturnType<typeof vi.fn>;
+    createDocument: ReturnType<typeof vi.fn>;
     fileService: {
         exists: ReturnType<typeof vi.fn>;
         createFolder: ReturnType<typeof vi.fn>;
@@ -188,7 +198,9 @@ function makeImportWidget(
         showSaveDialog: vi.fn().mockResolvedValue(options.save)
     };
     const downloadFile = vi.fn().mockResolvedValue({ success: true, path: '', bytes: 0 });
-    widget.backendService = { downloadFile };
+    const inspectImportSource = vi.fn().mockResolvedValue(options.inspection);
+    widget.backendService = { downloadFile, inspectImportSource };
+    widget.setLoading = vi.fn();
     const fileService = {
         exists: vi.fn().mockResolvedValue(false),
         createFolder: vi.fn().mockResolvedValue(undefined),
@@ -197,17 +209,48 @@ function makeImportWidget(
     };
     widget.fileService = fileService;
     widget.workspaceService = { ready: Promise.resolve() };
+    const addImportBodies = vi.fn().mockReturnValue({
+        success: true,
+        value: { bodyIds: ['body-imported'], featureIds: ['feature-imported'] }
+    });
+    const refreshImportSource = vi.fn().mockReturnValue({ success: true, value: { featureIds: ['feature-imported'] } });
+    const createDocument = vi.fn().mockReturnValue({ success: true });
+    const setUnits = vi.fn().mockReturnValue({ success: true });
+    const setOverlapCheck = vi.fn().mockReturnValue({ success: true });
+    const addAssemblyInstances = vi.fn().mockImplementation((drafts: readonly { id?: string }[]) => ({
+        success: true,
+        value: drafts.map((draft, index) => draft.id ?? `instance-${index + 1}`)
+    }));
     widget.documentStore = {
         document: options.document,
         uri: options.uri,
         addInstance,
-        createDocument: vi.fn().mockReturnValue({ success: true }),
+        addImportBodies,
+        addAssemblyInstances,
+        refreshImportSource,
+        createDocument,
+        setUnits,
+        setOverlapCheck,
         setDisplayTolerance: vi.fn().mockReturnValue({ success: true }),
+        setDesignStudy: vi.fn().mockReturnValue({ success: true }),
         setUri: vi.fn(),
         setGrounded: vi.fn().mockReturnValue({ success: true })
     };
     widget.messageService = { error: vi.fn(), info: vi.fn(), warn: vi.fn() };
-    return { widget, addInstance, showSaveDialog: widget.fileDialogService.showSaveDialog, downloadFile, fileService };
+    return {
+        widget,
+        addInstance,
+        showSaveDialog: widget.fileDialogService.showSaveDialog,
+        downloadFile,
+        inspectImportSource,
+        addImportBodies,
+        addAssemblyInstances,
+        setUnits,
+        setOverlapCheck,
+        refreshImportSource,
+        createDocument,
+        fileService
+    };
 }
 
 describe('CadViewportWidget partial size-cap threading', () => {
@@ -252,6 +295,84 @@ function stubImportCompletion(widget: any): void {
     widget.rebuildDocument = vi.fn().mockResolvedValue(undefined);
     widget.clearSaveRebuildTimer = vi.fn();
     widget.rebuildTracker = { reset: vi.fn() };
+}
+
+function inspectionResult(overrides: Partial<InspectImportSourceResult> = {}): InspectImportSourceResult {
+    return {
+        success: true,
+        sourcePath: '/work/project/assembly.parts/coil.step',
+        sourceFormat: 'step',
+        sourceHash: 'b'.repeat(64),
+        sourceSize: 4096,
+        fileUnit: 'mm',
+        effectiveUnit: 'mm',
+        unitsMessage: 'Source declares millimetres; scaled to document units.',
+        solidCount: 2,
+        solids: [
+            {
+                index: 1,
+                name: 'Coil 1',
+                faceCount: 12,
+                volume: 100,
+                bboxMin: [0, 0, 0],
+                bboxMax: [1, 2, 3],
+                center: [0.5, 1, 1.5]
+            },
+            {
+                index: 2,
+                name: 'Coil 2',
+                faceCount: 14,
+                volume: 200,
+                bboxMin: [0, 0, 0],
+                bboxMax: [2, 2, 3],
+                center: [1, 1, 1.5]
+            }
+        ],
+        ...overrides
+    };
+}
+
+function w7xInspectionResult(overrides: Partial<InspectImportSourceResult> = {}): InspectImportSourceResult {
+    const solids: ImportSolidInfo[] = [];
+    // The real reference STEP reports the assembly root product name for every
+    // solid (OCCT does not expose per-solid product names here); the generator
+    // must validate geometry by index/face-count/volume, not by that name.
+    const inheritedProductName = 'Simplified Stellarator based on reactor scaled W7X. Model made by Proxima Fusion';
+    for (const shape of W7X_GEOMETRY_ASSET.coilShapes) {
+        for (const transform of shape.transforms) {
+            solids.push({
+                index: transform.index,
+                name: inheritedProductName,
+                faceCount: shape.signature.faceCount,
+                volume: shape.signature.volume,
+                bboxMin: [0, 0, 0],
+                bboxMax: [1, 1, 1],
+                center: [0.5, 0.5, 0.5]
+            });
+        }
+    }
+    for (const shell of W7X_GEOMETRY_ASSET.shells) {
+        solids.push({
+            index: shell.index,
+            name: inheritedProductName,
+            faceCount: shell.signature.faceCount,
+            volume: shell.signature.volume,
+            bboxMin: [0, 0, 0],
+            bboxMax: [1, 1, 1],
+            center: [0.5, 0.5, 0.5]
+        });
+    }
+    solids.sort((a, b) => a.index - b.index);
+    return inspectionResult({
+        sourcePath: '/work/project/w7x-generator.parts/scaled_w7x_stellarator.step',
+        sourceHash: W7X_GEOMETRY_ASSET.source.sourceHash,
+        sourceSize: W7X_GEOMETRY_ASSET.source.sourceSize,
+        fileUnit: 'mm',
+        effectiveUnit: 'm',
+        solidCount: 55,
+        solids,
+        ...overrides
+    });
 }
 
 describe('CadViewportWidget one-click CAD import', () => {
@@ -418,5 +539,948 @@ describe('CadViewportWidget one-click CAD import', () => {
         expect(addInstance).not.toHaveBeenCalled();
         expect(widget.messageService.error).toHaveBeenCalledWith(expect.stringContaining('Failed to download'));
         expect(widget.setLoading).toHaveBeenLastCalledWith(false);
+    });
+});
+
+describe('CadViewportWidget W7-X generator', () => {
+    let widgetModule: WidgetModule;
+
+    beforeAll(async () => {
+        widgetModule = await loadWidget();
+    });
+
+    const storeBodyIds = (): string[] => W7X_BODY_LABELS.map((label, index) => `generated-${index + 1}-${label}`);
+
+    it('copies, validates, and commits the 15 bodies and 55 placed instances in one flow', async () => {
+        const { widget, inspectImportSource, addImportBodies, addAssemblyInstances, setUnits, setOverlapCheck } = makeImportWidget(
+            widgetModule,
+            {
+                document: { name: 'w7x', units: 'm', bodies: [], features: [], curves: [] },
+                save: new URI('file:///work/project/w7x-generator.nuke-cad'),
+                inspection: w7xInspectionResult()
+            }
+        );
+        stubImportCompletion(widget);
+        const ids = storeBodyIds();
+        addImportBodies.mockReturnValue({
+            success: true,
+            value: { bodyIds: ids, featureIds: ids.map((id) => `feature-${id}`) }
+        });
+
+        await widget.completeW7xGenerator(
+            new URI('file:///work/project/w7x-generator.nuke-cad'),
+            new URI('file:///work/shared/scaled_w7x_stellarator.step')
+        );
+
+        expect(widget.fileService.createFolder.mock.calls[0][0].toString()).toBe('file:///work/project/w7x-generator.parts');
+        expect(widget.fileService.copy.mock.calls[0][1].toString()).toBe(
+            'file:///work/project/w7x-generator.parts/scaled_w7x_stellarator.step'
+        );
+        expect(inspectImportSource).toHaveBeenCalledWith({
+            sourcePath: '/work/project/w7x-generator.parts/scaled_w7x_stellarator.step',
+            sourceUnit: 'm',
+            targetUnits: 'm',
+            maxSolids: 100
+        });
+
+        expect(addImportBodies).toHaveBeenCalledTimes(1);
+        const drafts = addImportBodies.mock.calls[0][0].bodies;
+        expect(drafts).toHaveLength(15);
+        expect(drafts.map((draft: { name: string }) => draft.name)).toEqual(W7X_BODY_LABELS);
+        expect(drafts.map((draft: { label: string }) => draft.label)).toEqual(W7X_BODY_LABELS);
+        expect(drafts[0].params).toMatchObject({
+            sourcePath: './w7x-generator.parts/scaled_w7x_stellarator.step',
+            sourceHash: W7X_GEOMETRY_ASSET.source.sourceHash,
+            sourceSize: W7X_GEOMETRY_ASSET.source.sourceSize,
+            sourceFormat: 'step',
+            sourceUnit: 'm',
+            maxSolids: 100,
+            selection: {
+                mode: 'solids',
+                solids: [{ index: 1, signature: W7X_GEOMETRY_ASSET.coilShapes[0].signature }]
+            }
+        });
+        expect(drafts[14].params.selection).toEqual({
+            mode: 'solids',
+            solids: [{ index: 55, signature: W7X_GEOMETRY_ASSET.shells[4].signature }]
+        });
+
+        expect(widget.documentStore.createDocument).toHaveBeenCalledWith('w7x-generator');
+        expect(setUnits).toHaveBeenCalledWith('m');
+        expect(widget.documentStore.setDisplayTolerance).toHaveBeenCalledWith(0.1);
+        expect(setOverlapCheck).toHaveBeenCalledWith(false);
+
+        expect(addAssemblyInstances).toHaveBeenCalledTimes(1);
+        const instances = addAssemblyInstances.mock.calls[0][0];
+        expect(instances).toHaveLength(55);
+        expect(addAssemblyInstances).toHaveBeenCalledWith(instances, W7X_GROUNDED_INSTANCE_ID);
+        expect(instances.filter((instance: { id: string }) => instance.id.endsWith('_m4'))).toHaveLength(10);
+        expect(instances.find((instance: { id: string }) => instance.id === 'coil_01_m0')?.part).toBe(`body:${ids[0]}`);
+        expect(instances.find((instance: { id: string }) => instance.id === 'coil_01_m4')?.part).toBe(`body:${ids[0]}`);
+        expect(instances.find((instance: { id: string }) => instance.id === 'coil_10_m4')?.part).toBe(`body:${ids[9]}`);
+        expect(instances.find((instance: { id: string }) => instance.id === 'plasma')?.part).toBe(`body:${ids[10]}`);
+        expect(instances.find((instance: { id: string }) => instance.id === 'vessel')?.part).toBe(`body:${ids[14]}`);
+        const rotated = instances.find((instance: { id: string }) => instance.id === 'coil_01_m1');
+        expect(rotated?.placement.position).toEqual([0, 0, 0]);
+        expect(rotated?.placement.orientation[2]).toBeCloseTo(Math.sin(Math.PI / 5), 12);
+        expect(rotated?.placement.orientation[3]).toBeCloseTo(Math.cos(Math.PI / 5), 12);
+
+        expect(widget.documentStore.setUri).toHaveBeenCalledWith('file:///work/project/w7x-generator.nuke-cad');
+        expect(widget.saveDocument).toHaveBeenCalledWith(false);
+        expect(widget.rebuildDocument).toHaveBeenCalledWith(false, 'Building W7-X generator (55 instances)…');
+        expect(widget.setLoading).toHaveBeenCalledWith(true, 'Building W7-X generator (55 instances)…');
+        expect(widget.messageService.info).toHaveBeenCalledWith(expect.stringContaining('15 imported bodies and 55 instances'));
+        expect(widget.messageService.info).toHaveBeenCalledWith(expect.stringContaining('50 coils'));
+        expect(widget.messageService.error).not.toHaveBeenCalled();
+    });
+
+    it('fails before creating a document when the source inventory does not match', async () => {
+        const mismatch = w7xInspectionResult();
+        const broken = mismatch.solids?.find((solid) => solid.index === 7);
+        expect(broken).toBeDefined();
+        if (broken !== undefined) {
+            (broken as { faceCount: number }).faceCount = 3;
+        }
+        const { widget, inspectImportSource, addImportBodies, addAssemblyInstances, setUnits, setOverlapCheck, createDocument } =
+            makeImportWidget(widgetModule, {
+                document: { name: 'w7x', units: 'm', bodies: [], features: [], curves: [] },
+                save: new URI('file:///work/project/w7x-generator.nuke-cad'),
+                inspection: mismatch
+            });
+        stubImportCompletion(widget);
+
+        await widget.completeW7xGenerator(
+            new URI('file:///work/project/w7x-generator.nuke-cad'),
+            new URI('file:///work/shared/scaled_w7x_stellarator.step')
+        );
+
+        expect(inspectImportSource).toHaveBeenCalledTimes(1);
+        expect(createDocument).not.toHaveBeenCalled();
+        expect(setUnits).not.toHaveBeenCalled();
+        expect(setOverlapCheck).not.toHaveBeenCalled();
+        expect(addImportBodies).not.toHaveBeenCalled();
+        expect(addAssemblyInstances).not.toHaveBeenCalled();
+        expect(widget.documentStore.setDisplayTolerance).not.toHaveBeenCalled();
+        expect(widget.documentStore.setUri).not.toHaveBeenCalled();
+        expect(widget.saveDocument).not.toHaveBeenCalled();
+        expect(widget.rebuildDocument).not.toHaveBeenCalled();
+        expect(widget.messageService.error).toHaveBeenCalledWith(
+            expect.stringMatching(/does not match the validated W7-X reference inventory/)
+        );
+        expect(widget.messageService.error).toHaveBeenCalledWith(expect.stringMatching(/Source solid 7.*expected 4 faces, found 3/));
+        expect(widget.setLoading).toHaveBeenLastCalledWith(false);
+    });
+
+    it('removes a stale region manifest before replacing a same-name document', async () => {
+        const { widget, fileService } = makeImportWidget(widgetModule, {
+            document: { name: 'w7x', units: 'm', bodies: [], features: [], curves: [] },
+            save: new URI('file:///work/project/w7x-generator.nuke-cad'),
+            inspection: w7xInspectionResult()
+        });
+        stubImportCompletion(widget);
+        fileService.exists.mockResolvedValue(true);
+
+        await widget.completeW7xGenerator(
+            new URI('file:///work/project/w7x-generator.nuke-cad'),
+            new URI('file:///work/shared/scaled_w7x_stellarator.step')
+        );
+
+        expect(fileService.delete.mock.calls[0][0].toString()).toBe('file:///work/project/w7x-generator.regions.json');
+        expect(fileService.delete.mock.calls[0][1]).toEqual({ useTrash: true });
+        expect(widget.messageService.warn).toHaveBeenCalledWith(expect.stringContaining('Removed stale region manifest'));
+    });
+
+    it('routes the generator sample card into the import flow with its display tolerance', async () => {
+        const { widget } = makeImportWidget(widgetModule, {});
+        const importCadAsAssembly = vi.fn().mockResolvedValue(undefined);
+        widget.importCadAsAssembly = importCadAsAssembly;
+
+        await widget.handleCreateSample('w7x-generator');
+
+        expect(widget.templatePickerOpen).toBe(false);
+        expect(importCadAsAssembly).toHaveBeenCalledWith(
+            expect.objectContaining({
+                displayTolerance: 0.1,
+                forceNewDocument: true,
+                copySource: true,
+                clearStaleRegionManifest: true,
+                generator: 'w7x'
+            })
+        );
+
+        importCadAsAssembly.mockClear();
+        await widget.handleCreateSample('w7x-full');
+        expect(importCadAsAssembly).toHaveBeenCalledTimes(1);
+        expect(importCadAsAssembly.mock.calls[0][0]).not.toHaveProperty('generator');
+    });
+
+    it('routes the generator assembly flow through completeW7xGenerator', async () => {
+        const { widget, addInstance, showSaveDialog } = makeImportWidget(widgetModule, {
+            open: new URI('file:///work/shared/scaled_w7x_stellarator.step'),
+            save: new URI('file:///work/project/w7x-generator.nuke-cad')
+        });
+        const complete = vi.fn().mockResolvedValue(undefined);
+        widget.completeW7xGenerator = complete;
+
+        await widget.importCadAsAssembly({ generator: 'w7x' });
+
+        expect(showSaveDialog).toHaveBeenCalledWith(
+            expect.objectContaining({ title: 'Save W7-X Generator', inputValue: 'w7x-generator.nuke-cad' })
+        );
+        expect(complete).toHaveBeenCalledWith(
+            expect.objectContaining({ path: expect.anything() }),
+            expect.objectContaining({ path: expect.anything() }),
+            expect.objectContaining({ generator: 'w7x' })
+        );
+        expect(addInstance).not.toHaveBeenCalled();
+    });
+
+    it('routes the generator download flow through completeW7xGenerator', async () => {
+        const { widget, downloadFile, showSaveDialog } = makeImportWidget(widgetModule, {
+            document: { name: 'w7x', units: 'm', bodies: [], features: [], curves: [] },
+            save: new URI('file:///work/project/w7x-generator.nuke-cad')
+        });
+        const complete = vi.fn().mockResolvedValue(undefined);
+        widget.completeW7xGenerator = complete;
+
+        await widget.handleDownloadSample('w7x-generator');
+
+        expect(showSaveDialog).toHaveBeenCalledWith(
+            expect.objectContaining({ title: 'Save W7-X Generator', inputValue: 'w7x-generator.nuke-cad' })
+        );
+        expect(downloadFile).toHaveBeenCalledWith(
+            expect.objectContaining({ targetPath: '/work/project/w7x-generator.parts/scaled_w7x_stellarator.step' })
+        );
+        expect(complete).toHaveBeenCalledWith(
+            expect.objectContaining({ path: expect.anything() }),
+            expect.objectContaining({ path: expect.anything() }),
+            expect.objectContaining({ forceNewDocument: true, clearStaleRegionManifest: true })
+        );
+    });
+});
+
+describe('CadViewportWidget W7-X coil study', () => {
+    let widgetModule: WidgetModule;
+
+    beforeAll(async () => {
+        widgetModule = await loadWidget();
+    });
+
+    const storeBodyIds = (): string[] => W7X_BODY_LABELS.map((label, index) => `study-${index + 1}-${label}`);
+
+    const createStudyWidget = (inspection: InspectImportSourceResult = w7xInspectionResult()): ReturnType<typeof makeImportWidget> => {
+        const result = makeImportWidget(widgetModule, {
+            document: { name: 'w7x', units: 'm', bodies: [], features: [], curves: [] },
+            save: new URI('file:///work/project/w7x-coil-study.nuke-cad'),
+            open: new URI('file:///work/shared/scaled_w7x_stellarator.step'),
+            inspection
+        });
+        stubImportCompletion(result.widget);
+        const ids = storeBodyIds();
+        result.addImportBodies.mockReturnValue({
+            success: true,
+            value: { bodyIds: ids, featureIds: ids.map((id) => `feature-${id}`) }
+        });
+        return result;
+    };
+
+    it('copies, inspects, pins, and shows the 4/5/6-module report dialog before committing', async () => {
+        const { widget, inspectImportSource, addImportBodies, fileService } = createStudyWidget();
+
+        await widget.createW7xCoilStudy();
+
+        expect(fileService.createFolder.mock.calls[0][0].toString()).toBe('file:///work/project/w7x-coil-study.parts');
+        expect(fileService.copy.mock.calls[0][1].toString()).toBe('file:///work/project/w7x-coil-study.parts/scaled_w7x_stellarator.step');
+        expect(inspectImportSource).toHaveBeenCalledWith({
+            sourcePath: '/work/project/w7x-coil-study.parts/scaled_w7x_stellarator.step',
+            sourceUnit: 'm',
+            targetUnits: 'm',
+            maxSolids: 100
+        });
+        expect(addImportBodies).not.toHaveBeenCalled();
+        expect(widget.w7xStudyDialog).toMatchObject({
+            sourceLabel: 'scaled_w7x_stellarator.step',
+            relativeSourcePath: './w7x-coil-study.parts/scaled_w7x_stellarator.step',
+            sourceHash: W7X_GEOMETRY_ASSET.source.sourceHash,
+            sourceSize: W7X_GEOMETRY_ASSET.source.sourceSize
+        });
+        expect(widget.w7xStudyDialog.reports[4].valid).toBe(false);
+        expect(widget.w7xStudyDialog.reports[5].valid).toBe(true);
+        expect(widget.w7xStudyDialog.reports[6].valid).toBe(false);
+        expect(widget.messageService.error).not.toHaveBeenCalled();
+    });
+
+    it('commits a 4-module study with 15 bodies, 40 coils + 5 shells, and design-study metadata', async () => {
+        const { widget, addImportBodies, addAssemblyInstances, setUnits, setOverlapCheck, createDocument } = createStudyWidget();
+
+        await widget.createW7xCoilStudy();
+        await widget.handleW7xStudyConfirm(4);
+
+        expect(createDocument).toHaveBeenCalledWith('w7x-coil-study');
+        expect(setUnits).toHaveBeenCalledWith('m');
+        expect(widget.documentStore.setDisplayTolerance).toHaveBeenCalledWith(0.1);
+        expect(setOverlapCheck).toHaveBeenCalledWith(false);
+
+        const study = widget.documentStore.setDesignStudy.mock.calls[0][0];
+        expect(study.kind).toBe('w7x-coil-study');
+        expect(study.report.moduleCount).toBe(4);
+        expect(study.report.valid).toBe(false);
+        expect(study.report.uncoveredSectorDeg).toBeCloseTo(24.6598, 4);
+        expect(study.report.coilShellOverlaps).toHaveLength(5);
+
+        expect(addImportBodies).toHaveBeenCalledTimes(1);
+        const drafts = addImportBodies.mock.calls[0][0].bodies;
+        expect(drafts).toHaveLength(15);
+        expect(drafts.map((draft: { name: string }) => draft.name)).toEqual(W7X_BODY_LABELS);
+        expect(drafts[0].params).toMatchObject({
+            sourcePath: './w7x-coil-study.parts/scaled_w7x_stellarator.step',
+            sourceHash: W7X_GEOMETRY_ASSET.source.sourceHash,
+            sourceSize: W7X_GEOMETRY_ASSET.source.sourceSize,
+            sourceFormat: 'step',
+            sourceUnit: 'm',
+            maxSolids: 100
+        });
+
+        expect(addAssemblyInstances).toHaveBeenCalledTimes(1);
+        const instances = addAssemblyInstances.mock.calls[0][0];
+        expect(instances).toHaveLength(45);
+        expect(addAssemblyInstances).toHaveBeenCalledWith(instances, W7X_GROUNDED_INSTANCE_ID);
+        expect(instances.filter((instance: { id: string }) => instance.id.endsWith('_m3'))).toHaveLength(10);
+        expect(instances.filter((instance: { id: string }) => instance.id.endsWith('_m4'))).toHaveLength(0);
+        expect(instances.find((instance: { id: string }) => instance.id === 'coil_01_m1')?.placement.orientation[2]).toBeCloseTo(
+            Math.sin(Math.PI / 4),
+            12
+        );
+
+        expect(widget.documentStore.setUri).toHaveBeenCalledWith('file:///work/project/w7x-coil-study.nuke-cad');
+        expect(widget.saveDocument).toHaveBeenCalledWith(false);
+        expect(widget.rebuildDocument).toHaveBeenCalledWith(false, 'Building W7-X coil study (4 modules)…');
+        expect(widget.messageService.info).toHaveBeenCalledWith(expect.stringContaining('45 instances'));
+        expect(widget.messageService.info).toHaveBeenCalledWith(expect.stringContaining('40 coils + 5 shells'));
+        expect(widget.messageService.info).toHaveBeenCalledWith(expect.stringContaining('simulation export is disabled'));
+        expect(widget.messageService.error).not.toHaveBeenCalled();
+        expect(widget.w7xStudyDialog).toBeUndefined();
+    });
+
+    it('commits a 6-module study with 65 instances and the six-module report', async () => {
+        const { widget, addAssemblyInstances } = createStudyWidget();
+
+        await widget.createW7xCoilStudy();
+        await widget.handleW7xStudyConfirm(6);
+
+        const study = widget.documentStore.setDesignStudy.mock.calls[0][0];
+        expect(study.report.moduleCount).toBe(6);
+        expect(study.report.moduleOverlapDeg).toBeCloseTo(5.3402, 4);
+        expect(study.report.coilCoilOverlaps).toHaveLength(3);
+
+        const instances = addAssemblyInstances.mock.calls[0][0];
+        expect(instances).toHaveLength(65);
+        expect(addAssemblyInstances).toHaveBeenCalledWith(instances, W7X_GROUNDED_INSTANCE_ID);
+        expect(instances.filter((instance: { id: string }) => instance.id.endsWith('_m5'))).toHaveLength(10);
+        expect(widget.rebuildDocument).toHaveBeenCalledWith(false, 'Building W7-X coil study (6 modules)…');
+        expect(widget.messageService.info).toHaveBeenCalledWith(expect.stringContaining('60 coils + 5 shells'));
+    });
+
+    it('rejects a source with the right inventory but the wrong pinned hash without creating a document', async () => {
+        const { widget, createDocument, addImportBodies, addAssemblyInstances, setUnits, setOverlapCheck } = createStudyWidget(
+            w7xInspectionResult({ sourceHash: 'f'.repeat(64) })
+        );
+
+        await widget.createW7xCoilStudy();
+
+        expect(widget.w7xStudyDialog).toBeUndefined();
+        expect(createDocument).not.toHaveBeenCalled();
+        expect(setUnits).not.toHaveBeenCalled();
+        expect(setOverlapCheck).not.toHaveBeenCalled();
+        expect(widget.documentStore.setDesignStudy).not.toHaveBeenCalled();
+        expect(addImportBodies).not.toHaveBeenCalled();
+        expect(addAssemblyInstances).not.toHaveBeenCalled();
+        expect(widget.documentStore.setUri).not.toHaveBeenCalled();
+        expect(widget.saveDocument).not.toHaveBeenCalled();
+        expect(widget.rebuildDocument).not.toHaveBeenCalled();
+        expect(widget.messageService.error).toHaveBeenCalledWith(expect.stringMatching(/pinned reference STEP/));
+        expect(widget.setLoading).toHaveBeenLastCalledWith(false);
+    });
+
+    it('leaves the document untouched when the selected-step inspection fails', async () => {
+        const { widget, createDocument, addImportBodies, addAssemblyInstances } = createStudyWidget({
+            success: false,
+            error: 'not a STEP file'
+        });
+
+        await widget.createW7xCoilStudy();
+
+        expect(widget.w7xStudyDialog).toBeUndefined();
+        expect(createDocument).not.toHaveBeenCalled();
+        expect(addImportBodies).not.toHaveBeenCalled();
+        expect(addAssemblyInstances).not.toHaveBeenCalled();
+        expect(widget.saveDocument).not.toHaveBeenCalled();
+        expect(widget.messageService.error).toHaveBeenCalledWith('not a STEP file');
+    });
+});
+
+describe('CadViewportWidget W7-X coil shape study', () => {
+    let widgetModule: WidgetModule;
+
+    beforeAll(async () => {
+        widgetModule = await loadWidget();
+    });
+
+    function makeShapeWidget(options: { save?: URI; loadResult?: { success: boolean; error?: string } } = {}): {
+        widget: any;
+        showSaveDialog: ReturnType<typeof vi.fn>;
+        loadDocument: ReturnType<typeof vi.fn>;
+        setUri: ReturnType<typeof vi.fn>;
+    } {
+        const widget = Object.create(widgetModule.CadViewportWidget.prototype);
+        widget.update = vi.fn();
+        widget.templatePickerOpen = true;
+        const showSaveDialog = vi.fn().mockResolvedValue(options.save);
+        widget.fileDialogService = { showSaveDialog };
+        widget.workspaceService = { ready: Promise.resolve() };
+        widget.setLoading = vi.fn();
+        const loadDocument = vi.fn().mockReturnValue(options.loadResult ?? { success: true });
+        const setUri = vi.fn();
+        widget.documentStore = {
+            document: { name: 'current', units: 'm', bodies: [], features: [], curves: [] },
+            uri: 'file:///work/project/current.nuke-cad',
+            loadDocument,
+            setUri
+        };
+        widget.messageService = { error: vi.fn(), info: vi.fn(), warn: vi.fn() };
+        widget.saveDocument = vi.fn().mockResolvedValue(undefined);
+        widget.rebuildDocument = vi.fn().mockResolvedValue(undefined);
+        widget.clearSaveRebuildTimer = vi.fn();
+        widget.rebuildTracker = { reset: vi.fn() };
+        return { widget, showSaveDialog, loadDocument, setUri };
+    }
+
+    it('asks for the destination first and opens the config dialog without touching the document', async () => {
+        const { widget, showSaveDialog, loadDocument } = makeShapeWidget({
+            save: new URI('file:///work/project/w7x-coil-shape-study.nuke-cad')
+        });
+
+        await widget.createW7xShapeStudy();
+
+        expect(showSaveDialog).toHaveBeenCalledWith({
+            title: 'Save W7-X Coil Shape Study',
+            inputValue: 'w7x-coil-shape-study.nuke-cad',
+            filters: { 'CAD Document': ['nuke-cad'] }
+        });
+        expect(widget.w7xShapeStudyDialog).toMatchObject({ targetUri: expect.anything() });
+        expect(widget.w7xShapeStudyDialog.targetUri.toString()).toBe('file:///work/project/w7x-coil-shape-study.nuke-cad');
+        expect(loadDocument).not.toHaveBeenCalled();
+        expect(widget.saveDocument).not.toHaveBeenCalled();
+        expect(widget.rebuildDocument).not.toHaveBeenCalled();
+    });
+
+    it('changes nothing when the destination dialog is cancelled', async () => {
+        const { widget, loadDocument } = makeShapeWidget({ save: undefined });
+
+        await widget.createW7xShapeStudy();
+
+        expect(widget.w7xShapeStudyDialog).toBeUndefined();
+        expect(loadDocument).not.toHaveBeenCalled();
+        expect(widget.documentStore.setUri).not.toHaveBeenCalled();
+        expect(widget.saveDocument).not.toHaveBeenCalled();
+        expect(widget.rebuildDocument).not.toHaveBeenCalled();
+    });
+
+    it('installs the planned document atomically, saves, and rebuilds once', async () => {
+        const { widget, loadDocument, setUri } = makeShapeWidget({
+            save: new URI('file:///work/project/w7x-coil-shape-study.nuke-cad')
+        });
+        const config = { width: 0.4, height: 0.3, tiltDeg: 10, twistDeg: 0, stations: 80 };
+
+        await widget.createW7xShapeStudy();
+        await widget.handleW7xShapeStudyConfirm(config);
+
+        expect(loadDocument).toHaveBeenCalledTimes(1);
+        const document = loadDocument.mock.calls[0][0];
+        expect(document.name).toBe('w7x-coil-shape-study');
+        expect(document.bodies).toHaveLength(10);
+        expect(document.curves).toHaveLength(10);
+        expect(document.features).toHaveLength(10);
+        expect(document.features.every((feature: { type: string }) => feature.type === 'coilSweep')).toBe(true);
+        expect(document.features[0].params).toMatchObject(config);
+        expect(document.assembly.instances).toHaveLength(50);
+        expect(document.designStudy.kind).toBe('w7x-coil-shape-study');
+        expect(document.designStudy.report.bodyCount).toBe(10);
+        expect(document.designStudy.report.coilCount).toBe(50);
+
+        expect(setUri).toHaveBeenCalledWith('file:///work/project/w7x-coil-shape-study.nuke-cad');
+        expect(widget.saveDocument).toHaveBeenCalledWith(false);
+        expect(widget.rebuildDocument).toHaveBeenCalledWith(false, 'Building W7-X coil shape study (50 native coils)…');
+        expect(widget.messageService.info).toHaveBeenCalledWith(expect.stringContaining('10 native coil bodies'));
+        expect(widget.messageService.info).toHaveBeenCalledWith(expect.stringContaining('50 instances'));
+        expect(widget.messageService.info).toHaveBeenCalledWith(expect.stringContaining('simulation export is disabled'));
+        expect(widget.messageService.error).not.toHaveBeenCalled();
+        expect(widget.w7xShapeStudyDialog).toBeUndefined();
+    });
+
+    it('leaves the current document untouched when planning fails before load', async () => {
+        const { widget, loadDocument, setUri } = makeShapeWidget({
+            save: new URI('file:///work/project/w7x-coil-shape-study.nuke-cad')
+        });
+
+        await widget.createW7xShapeStudy();
+        await widget.handleW7xShapeStudyConfirm({ width: 0, height: 0.3, tiltDeg: 10, twistDeg: 0, stations: 80 });
+
+        expect(loadDocument).not.toHaveBeenCalled();
+        expect(setUri).not.toHaveBeenCalled();
+        expect(widget.saveDocument).not.toHaveBeenCalled();
+        expect(widget.rebuildDocument).not.toHaveBeenCalled();
+        expect(widget.messageService.error).toHaveBeenCalledWith(expect.stringMatching(/No document was created/));
+        // The dialog survives a failed commit so the user can retry.
+        expect(widget.w7xShapeStudyDialog).toBeDefined();
+    });
+
+    it('does not save or rebuild when loadDocument rejects the planned document', async () => {
+        const { widget, loadDocument, setUri } = makeShapeWidget({
+            save: new URI('file:///work/project/w7x-coil-shape-study.nuke-cad'),
+            loadResult: { success: false, error: 'invalid document' }
+        });
+
+        await widget.createW7xShapeStudy();
+        await widget.handleW7xShapeStudyConfirm({ width: 0.37, height: 0.37, tiltDeg: 8.6, twistDeg: 0, stations: 60 });
+
+        expect(loadDocument).toHaveBeenCalledTimes(1);
+        expect(setUri).not.toHaveBeenCalled();
+        expect(widget.saveDocument).not.toHaveBeenCalled();
+        expect(widget.rebuildDocument).not.toHaveBeenCalled();
+        expect(widget.messageService.error).toHaveBeenCalledWith(expect.stringContaining('invalid document'));
+    });
+
+    it('routes the native sample card into the shape-study flow', async () => {
+        const { widget } = makeShapeWidget({ save: undefined });
+        const create = vi.fn().mockResolvedValue(undefined);
+        widget.createW7xShapeStudy = create;
+
+        await widget.handleCreateSample('w7x-coil-shape');
+
+        expect(create).toHaveBeenCalledTimes(1);
+        expect(widget.saveDocument).not.toHaveBeenCalled();
+        expect(widget.rebuildDocument).not.toHaveBeenCalled();
+    });
+});
+
+describe('CadViewportWidget viewport reopen restore', () => {
+    let widgetModule: WidgetModule;
+
+    beforeAll(async () => {
+        widgetModule = await loadWidget();
+    });
+
+    function makeRestoreWidget(model?: unknown): any {
+        const widget = Object.create(widgetModule.CadViewportWidget.prototype);
+        widget.tessData = undefined;
+        widget.loading = false;
+        widget.loadingMessage = '';
+        widget.rebuildPromise = undefined;
+        widget.tessLoadInFlight = false;
+        widget.tessLoadToken = 0;
+        widget.update = vi.fn();
+        widget.messageService = { error: vi.fn(), info: vi.fn(), warn: vi.fn() };
+        widget.stateManager = { model };
+        widget.documentStore = {
+            document: { name: 'shape', units: 'm', bodies: [], features: [], curves: [] },
+            uri: 'file:///work/project/shape.nuke-cad'
+        };
+        widget.rebuildDocument = vi.fn().mockResolvedValue(undefined);
+        widget.setLoading = vi.fn();
+        widget.loadTessellation = vi.fn().mockImplementation(async () => {
+            widget.tessData = { solids: [] };
+            widget.loading = false;
+        });
+        return widget;
+    }
+
+    it('restores the existing tessellation without a backend rebuild', async () => {
+        const widget = makeRestoreWidget({
+            scriptPath: 'file:///work/project/shape.nuke-cad',
+            result: { tessPath: 'file:///work/project/shape.tess.json' }
+        });
+
+        await widget.restoreViewportModel();
+
+        expect(widget.loadTessellation).toHaveBeenCalledWith('file:///work/project/shape.tess.json', 1);
+        expect(widget.rebuildDocument).not.toHaveBeenCalled();
+    });
+
+    it('falls back to a cached document rebuild when no model is available', async () => {
+        const widget = makeRestoreWidget(undefined);
+
+        await widget.restoreViewportModel();
+
+        expect(widget.loadTessellation).not.toHaveBeenCalled();
+        expect(widget.rebuildDocument).toHaveBeenCalledWith(true);
+        expect(widget.setLoading).toHaveBeenCalledWith(true, 'Restoring CAD viewport…');
+        expect(widget.setLoading).toHaveBeenCalledWith(false);
+    });
+
+    it('does nothing when geometry is already on screen', async () => {
+        const widget = makeRestoreWidget(undefined);
+        widget.tessData = { solids: [] };
+
+        await widget.restoreViewportModel();
+
+        expect(widget.loadTessellation).not.toHaveBeenCalled();
+        expect(widget.rebuildDocument).not.toHaveBeenCalled();
+    });
+
+    it('skips the restore while the New Document picker is open', async () => {
+        const widget = makeRestoreWidget({
+            scriptPath: 'file:///work/project/shape.nuke-cad',
+            result: { tessPath: 'file:///work/project/shape.tess.json' }
+        });
+        widget.templatePickerOpen = true;
+
+        await widget.restoreViewportModel();
+
+        expect(widget.loadTessellation).not.toHaveBeenCalled();
+        expect(widget.rebuildDocument).not.toHaveBeenCalled();
+    });
+
+    it('clears the previous model and invalidates late build results for a new document', () => {
+        const widget = makeRestoreWidget({
+            scriptPath: 'file:///work/project/shape.nuke-cad',
+            result: { tessPath: 'file:///work/project/shape.tess.json' }
+        });
+        widget.tessData = { solids: [{ solidId: 1 }] };
+        widget.loadedTessPath = 'file:///work/project/shape.tess.json';
+        widget.stateManager.setModel = vi.fn();
+        widget.stateManager.setSolidSummaries = vi.fn();
+        widget.clearSaveRebuildTimer = vi.fn();
+        widget.rebuildTracker = { reset: vi.fn() };
+        widget.rebuildToken = 4;
+        widget.viewportGeneration = 2;
+
+        (widget as { clearViewportModel: () => void }).clearViewportModel();
+
+        expect(widget.stateManager.setModel).toHaveBeenCalledWith(undefined);
+        expect(widget.stateManager.setSolidSummaries).toHaveBeenCalledWith([]);
+        expect(widget.tessData).toBeUndefined();
+        expect(widget.loadedTessPath).toBeUndefined();
+        expect(widget.rebuildToken).toBe(5);
+        expect(widget.viewportGeneration).toBe(3);
+        expect(widget.rebuildPromise).toBeUndefined();
+        expect(widget.rebuildTracker.reset).toHaveBeenCalled();
+    });
+});
+
+describe('CadViewportWidget import CAD as body', () => {
+    let widgetModule: WidgetModule;
+
+    beforeAll(async () => {
+        widgetModule = await loadWidget();
+    });
+
+    it('leaves everything untouched when the file picker is cancelled', async () => {
+        const { widget, createDocument, addImportBodies, inspectImportSource, fileService } = makeImportWidget(widgetModule, {
+            open: undefined
+        });
+
+        await widget.importCadAsBody();
+
+        expect(widget.templatePickerOpen).toBe(false);
+        expect(createDocument).not.toHaveBeenCalled();
+        expect(addImportBodies).not.toHaveBeenCalled();
+        expect(inspectImportSource).not.toHaveBeenCalled();
+        expect(fileService.copy).not.toHaveBeenCalled();
+    });
+
+    it('leaves the document untouched when the save prompt is cancelled', async () => {
+        const { widget, createDocument, addImportBodies, inspectImportSource, fileService, showSaveDialog } = makeImportWidget(
+            widgetModule,
+            {
+                open: new URI('file:///work/shared/coil.step'),
+                save: undefined
+            }
+        );
+
+        await widget.importCadAsBody();
+
+        expect(showSaveDialog).toHaveBeenCalledTimes(1);
+        expect(createDocument).not.toHaveBeenCalled();
+        expect(addImportBodies).not.toHaveBeenCalled();
+        expect(inspectImportSource).not.toHaveBeenCalled();
+        expect(fileService.copy).not.toHaveBeenCalled();
+    });
+
+    it('copies the source, inspects on the copied path, and commits the confirmed batch', async () => {
+        const { widget, inspectImportSource, addImportBodies, fileService } = makeImportWidget(widgetModule, {
+            document: { name: 'assembly', units: 'mm', bodies: [], features: [], curves: [] },
+            uri: 'file:///work/project/assembly.nuke-cad',
+            open: new URI('file:///work/shared/coil.step'),
+            inspection: inspectionResult()
+        });
+        stubImportCompletion(widget);
+
+        await widget.importCadAsBody();
+
+        expect(fileService.createFolder.mock.calls[0][0].toString()).toBe('file:///work/project/assembly.parts');
+        expect(fileService.copy.mock.calls[0][1].toString()).toBe('file:///work/project/assembly.parts/coil.step');
+        expect(inspectImportSource).toHaveBeenCalledWith({
+            sourcePath: '/work/project/assembly.parts/coil.step',
+            maxSolids: 500,
+            targetUnits: 'mm'
+        });
+        expect(addImportBodies).not.toHaveBeenCalled();
+        expect(widget.importBodyDialog).toMatchObject({
+            sourceLabel: 'coil',
+            relativeSourcePath: './assembly.parts/coil.step',
+            createDocument: false
+        });
+
+        await widget.handleImportBodyConfirm({ strategy: 'single', label: 'coil', solidIndexes: [1, 2] });
+
+        expect(inspectImportSource).toHaveBeenCalledTimes(1);
+        expect(addImportBodies).toHaveBeenCalledTimes(1);
+        expect(addImportBodies.mock.calls[0][0]).toEqual({
+            bodies: [
+                {
+                    name: 'coil',
+                    params: {
+                        sourcePath: './assembly.parts/coil.step',
+                        sourceHash: 'b'.repeat(64),
+                        sourceSize: 4096,
+                        sourceFormat: 'step',
+                        maxSolids: 500,
+                        selection: {
+                            mode: 'solids',
+                            solids: [
+                                { index: 1, signature: { faceCount: 12, volume: 100 } },
+                                { index: 2, signature: { faceCount: 14, volume: 200 } }
+                            ]
+                        }
+                    }
+                }
+            ]
+        });
+        expect(widget.saveDocument).toHaveBeenCalledWith(false);
+        expect(widget.rebuildDocument).toHaveBeenCalledTimes(1);
+        expect(widget.importBodyDialog).toBeUndefined();
+        expect(widget.messageService.info).toHaveBeenCalledWith(expect.stringContaining('Imported 1 body'));
+    });
+
+    it('creates the document only after a confirmed unitless import and re-inspects a source-unit override', async () => {
+        const initial = inspectionResult({
+            sourcePath: '/work/project/scale.parts/scale.step',
+            sourceHash: 'c'.repeat(64),
+            sourceSize: 2048
+        });
+        const reinspected = inspectionResult({
+            sourcePath: '/work/project/scale.parts/scale.step',
+            sourceHash: 'd'.repeat(64),
+            sourceSize: 2048,
+            fileUnit: 'mm',
+            effectiveUnit: 'm'
+        });
+        const { widget, inspectImportSource, addImportBodies, createDocument } = makeImportWidget(widgetModule, {
+            open: new URI('file:///work/shared/scale.step'),
+            save: new URI('file:///work/project/scale.nuke-cad'),
+            inspection: initial
+        });
+        inspectImportSource.mockResolvedValueOnce(initial).mockResolvedValueOnce(reinspected);
+        stubImportCompletion(widget);
+
+        await widget.importCadAsBody();
+
+        expect(createDocument).not.toHaveBeenCalled();
+        expect(inspectImportSource).toHaveBeenCalledWith({
+            sourcePath: '/work/project/scale.parts/scale.step',
+            maxSolids: 500
+        });
+        expect(widget.importBodyDialog.documentUnits).toBeUndefined();
+
+        await widget.handleImportBodyConfirm({
+            strategy: 'perSolid',
+            label: 'Shell',
+            sourceUnit: 'm',
+            solidIndexes: [1, 2]
+        });
+
+        expect(inspectImportSource).toHaveBeenLastCalledWith({
+            sourcePath: '/work/project/scale.parts/scale.step',
+            maxSolids: 500,
+            sourceUnit: 'm'
+        });
+        expect(createDocument).toHaveBeenCalledTimes(1);
+        expect(widget.documentStore.setUri).toHaveBeenCalledWith('file:///work/project/scale.nuke-cad');
+        const drafts = addImportBodies.mock.calls[0][0].bodies;
+        expect(drafts.map((draft: { name: string }) => draft.name)).toEqual(['Coil 1', 'Coil 2']);
+        expect(drafts[0].params.sourceHash).toBe('d'.repeat(64));
+        expect(drafts[0].params.sourceUnit).toBe('m');
+        expect(drafts[0].params.sourcePath).toBe('./scale.parts/scale.step');
+        expect(drafts[1].params.selection).toEqual({
+            mode: 'solids',
+            solids: [{ index: 2, signature: { faceCount: 14, volume: 200 } }]
+        });
+        expect(widget.saveDocument).toHaveBeenCalledWith(false);
+        expect(widget.rebuildDocument).toHaveBeenCalledTimes(1);
+    });
+
+    it('reports inspection failures without mutating the document', async () => {
+        const { widget, addImportBodies, createDocument, inspectImportSource } = makeImportWidget(widgetModule, {
+            document: { name: 'assembly', units: 'mm', bodies: [], features: [], curves: [] },
+            uri: 'file:///work/project/assembly.nuke-cad',
+            open: new URI('file:///work/shared/coil.step'),
+            inspection: { success: false, error: 'not a STEP file' }
+        });
+        stubImportCompletion(widget);
+
+        await widget.importCadAsBody();
+
+        expect(inspectImportSource).toHaveBeenCalledTimes(1);
+        expect(addImportBodies).not.toHaveBeenCalled();
+        expect(createDocument).not.toHaveBeenCalled();
+        expect(widget.importBodyDialog).toBeUndefined();
+        expect(widget.messageService.error).toHaveBeenCalledWith('not a STEP file');
+        expect(widget.saveDocument).not.toHaveBeenCalled();
+        expect(widget.rebuildDocument).not.toHaveBeenCalled();
+    });
+
+    it('keeps the dialog open when the confirmed selection is stale after re-inspection', async () => {
+        const initial = inspectionResult();
+        const reinspected = inspectionResult({ solids: [inspectionResult().solids![0]] });
+        const { widget, inspectImportSource, addImportBodies } = makeImportWidget(widgetModule, {
+            document: { name: 'assembly', units: 'mm', bodies: [], features: [], curves: [] },
+            uri: 'file:///work/project/assembly.nuke-cad',
+            open: new URI('file:///work/shared/coil.step'),
+            inspection: initial
+        });
+        inspectImportSource.mockResolvedValueOnce(initial).mockResolvedValueOnce(reinspected);
+        stubImportCompletion(widget);
+
+        await widget.importCadAsBody();
+        await widget.handleImportBodyConfirm({ strategy: 'single', label: 'coil', sourceUnit: 'cm', solidIndexes: [1, 2] });
+
+        expect(addImportBodies).not.toHaveBeenCalled();
+        expect(widget.importBodyDialog).toBeDefined();
+        expect(widget.importBodyBusy).toBe(false);
+        expect(widget.messageService.error).toHaveBeenCalledWith(expect.stringContaining('Source solid 2 is no longer present'));
+    });
+
+    it('leaves the document unchanged when the atomic store batch rejects the drafts', async () => {
+        const { widget, addImportBodies } = makeImportWidget(widgetModule, {
+            document: { name: 'assembly', units: 'mm', bodies: [], features: [], curves: [] },
+            uri: 'file:///work/project/assembly.nuke-cad',
+            open: new URI('file:///work/shared/coil.step'),
+            inspection: inspectionResult()
+        });
+        addImportBodies.mockReturnValue({ success: false, error: 'rejected batch' });
+        stubImportCompletion(widget);
+
+        await widget.importCadAsBody();
+        await widget.handleImportBodyConfirm({ strategy: 'single', label: 'coil', solidIndexes: [1] });
+
+        expect(addImportBodies).toHaveBeenCalledTimes(1);
+        expect(widget.documentStore.setUri).not.toHaveBeenCalled();
+        expect(widget.saveDocument).not.toHaveBeenCalled();
+        expect(widget.rebuildDocument).not.toHaveBeenCalled();
+        expect(widget.importBodyDialog).toBeDefined();
+        expect(widget.messageService.error).toHaveBeenCalledWith('rejected batch');
+    });
+});
+
+describe('CadViewportWidget refresh import sources', () => {
+    let widgetModule: WidgetModule;
+
+    beforeAll(async () => {
+        widgetModule = await loadWidget();
+    });
+
+    const importFeature = (id: string, sourcePath: string, sourceHash: string, sourceSize: number): unknown => ({
+        id,
+        name: id,
+        type: 'import',
+        body: 'body-1',
+        params: { sourcePath, sourceHash, sourceSize, selection: { mode: 'all' } },
+        suppressed: false,
+        dependsOn: []
+    });
+
+    it('re-inspects every unique source and refreshes changed identities in one pass', async () => {
+        const document = {
+            name: 'w7x',
+            units: 'm',
+            bodies: [],
+            features: [
+                importFeature('f1', './w7x.parts/coil.step', '0'.repeat(64), 10),
+                importFeature('f2', './w7x.parts/coil.step', '0'.repeat(64), 10),
+                importFeature('f3', '/work/shared/shell.brep', '1'.repeat(64), 20)
+            ],
+            curves: []
+        };
+        const { widget, inspectImportSource, refreshImportSource } = makeImportWidget(widgetModule, {
+            document,
+            uri: 'file:///work/project/w7x.nuke-cad'
+        });
+        inspectImportSource.mockImplementation(async ({ sourcePath }: { sourcePath: string }) =>
+            sourcePath.endsWith('coil.step')
+                ? inspectionResult({ sourceHash: '2'.repeat(64), sourceSize: 11 })
+                : inspectionResult({ sourceHash: '3'.repeat(64), sourceSize: 21 })
+        );
+        stubImportCompletion(widget);
+
+        await widget.refreshImportSources();
+
+        expect(inspectImportSource.mock.calls.map((call) => (call[0] as { sourcePath: string }).sourcePath)).toEqual([
+            '/work/project/w7x.parts/coil.step',
+            '/work/shared/shell.brep'
+        ]);
+        expect(refreshImportSource.mock.calls).toEqual([
+            ['./w7x.parts/coil.step', '2'.repeat(64), 11],
+            ['/work/shared/shell.brep', '3'.repeat(64), 21]
+        ]);
+        expect(widget.saveDocument).toHaveBeenCalledWith(false);
+        expect(widget.rebuildDocument).toHaveBeenCalledTimes(1);
+        expect(widget.messageService.info).toHaveBeenCalledWith(expect.stringContaining('Refreshed 2 import sources'));
+    });
+
+    it('does nothing when every source hash and size is current', async () => {
+        const document = {
+            name: 'w7x',
+            units: 'm',
+            bodies: [],
+            features: [importFeature('f1', './w7x.parts/coil.step', '2'.repeat(64), 11)],
+            curves: []
+        };
+        const { widget, inspectImportSource, refreshImportSource } = makeImportWidget(widgetModule, {
+            document,
+            uri: 'file:///work/project/w7x.nuke-cad'
+        });
+        inspectImportSource.mockResolvedValue(inspectionResult({ sourceHash: '2'.repeat(64), sourceSize: 11 }));
+        stubImportCompletion(widget);
+
+        await widget.refreshImportSources();
+
+        expect(refreshImportSource).not.toHaveBeenCalled();
+        expect(widget.saveDocument).not.toHaveBeenCalled();
+        expect(widget.rebuildDocument).not.toHaveBeenCalled();
+        expect(widget.messageService.info).toHaveBeenCalledWith('Import sources are up to date.');
+    });
+
+    it('warns without mutating when a source cannot be inspected', async () => {
+        const document = {
+            name: 'w7x',
+            units: 'm',
+            bodies: [],
+            features: [importFeature('f1', './w7x.parts/coil.step', '0'.repeat(64), 10)],
+            curves: []
+        };
+        const { widget, inspectImportSource, refreshImportSource } = makeImportWidget(widgetModule, {
+            document,
+            uri: 'file:///work/project/w7x.nuke-cad'
+        });
+        inspectImportSource.mockResolvedValue({ success: false, error: 'missing file' });
+        stubImportCompletion(widget);
+
+        await widget.refreshImportSources();
+
+        expect(refreshImportSource).not.toHaveBeenCalled();
+        expect(widget.saveDocument).not.toHaveBeenCalled();
+        expect(widget.rebuildDocument).not.toHaveBeenCalled();
+        expect(widget.messageService.warn).toHaveBeenCalledWith(expect.stringContaining('missing file'));
     });
 });

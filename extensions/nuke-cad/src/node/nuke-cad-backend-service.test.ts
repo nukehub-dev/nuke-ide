@@ -35,10 +35,17 @@ import {
     buildGeometryArgs,
     buildDocumentArgs,
     buildFeaturesPartialArgs,
+    inspectImportArgs,
+    normalizeInspectImportResult,
     isAllowedDownloadUrl,
     NukeCadBackendServiceImpl
 } from './nuke-cad-backend-service';
-import type { GeometryBuildRequest, BuildDocumentRequest, BuildFeaturesPartialRequest } from '../common/nuke-cad-protocol';
+import type {
+    GeometryBuildRequest,
+    BuildDocumentRequest,
+    BuildFeaturesPartialRequest,
+    InspectImportSourceRequest
+} from '../common/nuke-cad-protocol';
 
 const SCRIPT_PATH = '/tmp/geometry_service.py';
 const MODEL_PATH = '/tmp/model.nuke-cad';
@@ -274,6 +281,189 @@ describe('buildFeaturesPartialArgs CLI parity with geometry_service.py', () => {
         for (const flag of emittedFlags) {
             expect(declaredFlags.has(flag), `${flag} is not declared in geometry_service.py`).toBe(true);
         }
+    });
+});
+
+describe('inspectImportArgs', () => {
+    it('passes the source positionally with --inspect-import and no optional flags', () => {
+        const request: InspectImportSourceRequest = { sourcePath: STEP_PATH };
+        expect(inspectImportArgs(request, SCRIPT_PATH)).toEqual([SCRIPT_PATH, STEP_PATH, '--inspect-import']);
+    });
+
+    it('passes the unit overrides and solid cap when provided', () => {
+        const request: InspectImportSourceRequest = {
+            sourcePath: STEP_PATH,
+            sourceUnit: 'm',
+            targetUnits: 'mm',
+            maxSolids: 50
+        };
+        expect(inspectImportArgs(request, SCRIPT_PATH)).toEqual([
+            SCRIPT_PATH,
+            STEP_PATH,
+            '--inspect-import',
+            '--source-unit',
+            'm',
+            '--target-units',
+            'mm',
+            '--max-solids',
+            '50'
+        ]);
+    });
+
+    it('keeps only the source-unit override', () => {
+        const request: InspectImportSourceRequest = { sourcePath: STEP_PATH, sourceUnit: 'cm' };
+        expect(inspectImportArgs(request, SCRIPT_PATH)).toEqual([SCRIPT_PATH, STEP_PATH, '--inspect-import', '--source-unit', 'cm']);
+    });
+
+    it('never emits build/artifact flags', () => {
+        const args = inspectImportArgs({ sourcePath: STEP_PATH, maxSolids: 5 }, SCRIPT_PATH);
+        for (const flag of [
+            '--output-dir',
+            '--from-step',
+            '--from-document',
+            '--from-drawing',
+            '--cache-dir',
+            '--dagmc',
+            '--no-dagmc',
+            '--mesh',
+            '--no-mesh'
+        ]) {
+            expect(args).not.toContain(flag);
+        }
+    });
+});
+
+describe('normalizeInspectImportResult', () => {
+    const HASH = 'a'.repeat(64);
+
+    const canonical = {
+        success: true,
+        sourcePath: STEP_PATH,
+        sourceFormat: 'step' as const,
+        sourceHash: HASH,
+        sourceSize: 1234,
+        fileUnit: 'mm',
+        effectiveUnit: 'm',
+        unitScaleFactor: 0.001,
+        unitsMessage: 'Unit override: m',
+        solidCount: 1,
+        solids: [
+            {
+                index: 1,
+                name: 'coil',
+                faceCount: 12,
+                volume: 3.5,
+                bboxMin: [0, 0, 0],
+                bboxMax: [1, 2, 3],
+                center: [0.5, 1, 1.5]
+            }
+        ],
+        warnings: ['one warning']
+    };
+
+    it('passes a canonical camelCase payload through', () => {
+        expect(normalizeInspectImportResult(canonical, STEP_PATH)).toEqual(canonical);
+    });
+
+    it('maps the exchange-reader snake_case payload to the RPC shape', () => {
+        const raw = {
+            success: true,
+            source_path: STEP_PATH,
+            source_format: 'STEP',
+            digest: HASH,
+            size: 99,
+            file_unit: 'mm',
+            effective_unit: 'mm',
+            unit_scale: 1,
+            units_message: 'Detected mm',
+            solid_count: 2,
+            solids: [
+                {
+                    index: 1,
+                    name: 'body-a',
+                    face_count: 6,
+                    volume: 1,
+                    bbox_min: [0, 0, 0],
+                    bbox_max: [1, 1, 1],
+                    center: [0.5, 0.5, 0.5]
+                },
+                { index: 2, face_count: 8, volume: 2, bbox_min: [1, 0, 0], bbox_max: [2, 1, 1], center: [1.5, 0.5, 0.5] }
+            ],
+            warnings: ['w']
+        };
+        expect(normalizeInspectImportResult(raw, STEP_PATH)).toEqual({
+            success: true,
+            sourcePath: STEP_PATH,
+            sourceFormat: 'step',
+            sourceHash: HASH,
+            sourceSize: 99,
+            fileUnit: 'mm',
+            effectiveUnit: 'mm',
+            unitScaleFactor: 1,
+            unitsMessage: 'Detected mm',
+            solidCount: 2,
+            solids: [
+                {
+                    index: 1,
+                    name: 'body-a',
+                    faceCount: 6,
+                    volume: 1,
+                    bboxMin: [0, 0, 0],
+                    bboxMax: [1, 1, 1],
+                    center: [0.5, 0.5, 0.5]
+                },
+                { index: 2, faceCount: 8, volume: 2, bboxMin: [1, 0, 0], bboxMax: [2, 1, 1], center: [1.5, 0.5, 0.5] }
+            ],
+            warnings: ['w']
+        });
+    });
+
+    it('falls back to the requested source path and derives the solid count', () => {
+        const result = normalizeInspectImportResult(
+            {
+                solids: [
+                    { face_count: 6, volume: 1 },
+                    { face_count: 8, volume: 2 }
+                ]
+            },
+            STEP_PATH
+        );
+        expect(result.success).toBe(true);
+        expect(result.sourcePath).toBe(STEP_PATH);
+        expect(result.solidCount).toBe(2);
+        expect(result.solids?.map((solid) => solid.index)).toEqual([1, 2]);
+    });
+
+    it('preserves Python failures and their error message', () => {
+        expect(normalizeInspectImportResult({ success: false, error: 'Too many solids (700 > 500).' }, STEP_PATH)).toEqual({
+            success: false,
+            error: 'Too many solids (700 > 500).',
+            sourcePath: STEP_PATH
+        });
+    });
+
+    it('treats an error payload without a success flag as a failure', () => {
+        const result = normalizeInspectImportResult({ error: 'Unsupported format.' }, STEP_PATH);
+        expect(result.success).toBe(false);
+        expect(result.error).toBe('Unsupported format.');
+        expect(result.solids).toBeUndefined();
+    });
+
+    it('rejects a non-object payload', () => {
+        const result = normalizeInspectImportResult('not json', STEP_PATH);
+        expect(result.success).toBe(false);
+        expect(result.sourcePath).toBe(STEP_PATH);
+        expect(result.error).toContain('invalid response');
+    });
+
+    it('drops malformed solid entries and ignores unknown formats', () => {
+        const result = normalizeInspectImportResult(
+            { success: true, source_format: 'gltf', solids: ['nope', { index: 3, face_count: 4, volume: 2 }] },
+            STEP_PATH
+        );
+        expect(result.sourceFormat).toBeUndefined();
+        expect(result.solidCount).toBe(1);
+        expect(result.solids).toEqual([{ index: 3, faceCount: 4, volume: 2, bboxMin: [], bboxMax: [], center: [] }]);
     });
 });
 

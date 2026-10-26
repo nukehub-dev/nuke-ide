@@ -44,13 +44,13 @@ describe('example projects', () => {
     });
 
     it('ships unique, described samples', () => {
-        expect(SAMPLE_PROJECTS).toHaveLength(3);
+        expect(SAMPLE_PROJECTS).toHaveLength(5);
         expect(new Set(SAMPLE_PROJECTS.map((sample) => sample.id)).size).toBe(SAMPLE_PROJECTS.length);
         for (const sample of SAMPLE_PROJECTS) {
             expect(sample.name.length).toBeGreaterThan(0);
             expect(sample.description.length).toBeGreaterThan(0);
         }
-        expect(SAMPLE_PROJECTS.map((sample) => sample.badge)).toEqual(['Fast', 'Large model', 'External']);
+        expect(SAMPLE_PROJECTS.map((sample) => sample.badge)).toEqual(['Fast', 'Large model', 'External', 'External', 'Fast']);
     });
 
     it('validates every bundled sample against the current schema', () => {
@@ -93,6 +93,7 @@ describe('example projects', () => {
         const sample = getSampleProject('w7x-full')!;
         expect(sample.badge).toBe('External');
         expect(sample.external).toBe(true);
+        expect(sample.generator).toBeUndefined();
         expect(sample.document).toBeUndefined();
         expect(sample.name).toContain('Full W7-X');
         expect(sample.warning?.toLowerCase()).toContain('not bundled');
@@ -105,9 +106,48 @@ describe('example projects', () => {
         expect(createSampleDocument('w7x-full', 'nope')).toBeUndefined();
     });
 
+    it('offers the parametric W7-X generator with the pinned external source', () => {
+        const reference = getSampleProject('w7x-full')!;
+        const sample = getSampleProject('w7x-generator')!;
+        expect(sample.name).toBe('W7-X generator (parametric)');
+        expect(sample.badge).toBe('External');
+        expect(sample.external).toBe(true);
+        expect(sample.generator).toBe('w7x');
+        expect(sample.document).toBeUndefined();
+        expect(sample.description).toContain('10 exact coil bodies');
+        expect(sample.description).toContain('5 modules');
+        expect(sample.description).toContain('55 assembly instances');
+        expect(sample.warning).toBe('Requires the ~47 MB STEP; validated 5-module layout only (50 coils)');
+        expect(sample.displayTolerance).toBe(0.1);
+        expect(sample.copySource).toBe(true);
+        expect(sample.download).toEqual(reference.download);
+        expect(sample.download?.url).toContain('af86bcaee80301e02a099f9fcecaf5849b053231');
+        // The reference card keeps its existing identity and one-instance flow.
+        expect(reference.name).toBe('Full W7-X stellarator');
+        expect(SAMPLE_PROJECTS.filter((candidate) => candidate.external === true)).toHaveLength(2);
+        expect(createSampleDocument('w7x-generator', 'nope')).toBeUndefined();
+    });
+
     it('returns undefined for an unknown sample id', () => {
         expect(getSampleProject('missing')).toBeUndefined();
         expect(createSampleDocument('missing', 'Nope')).toBeUndefined();
+    });
+
+    it('offers the native W7-X coil shape study without a source STEP', () => {
+        const sample = getSampleProject('w7x-coil-shape')!;
+        expect(sample.name).toBe('W7-X coil shape study (native)');
+        expect(sample.description).toBe(
+            '10 editable native coil sweeps × 5 modules, no external STEP; adjust section, tilt, twist, and path.'
+        );
+        expect(sample.badge).toBe('Fast');
+        expect(sample.warning).toBe('Approximate native sweeps, not the reference B-rep; simulation export disabled.');
+        expect(sample.generator).toBe('w7x-shape');
+        expect(sample.displayTolerance).toBe(0.1);
+        expect(sample.external).toBeUndefined();
+        expect(sample.document).toBeUndefined();
+        expect(sample.download).toBeUndefined();
+        expect(sample.copySource).toBeUndefined();
+        expect(createSampleDocument('w7x-coil-shape', 'nope')).toBeUndefined();
     });
 
     it('clones a sample with the supplied name without mutating the shared sample', () => {

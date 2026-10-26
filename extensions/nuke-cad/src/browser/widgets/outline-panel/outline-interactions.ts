@@ -199,6 +199,7 @@ const SOLID_FEATURE_TYPES: readonly FeatureDef['type'][] = [
     'pocket',
     'revolve',
     'groove',
+    'coilSweep',
     'fillet',
     'chamfer',
     'draft',
@@ -210,7 +211,8 @@ const SOLID_FEATURE_TYPES: readonly FeatureDef['type'][] = [
     'translate',
     'booleanFuse',
     'booleanCut',
-    'booleanCommon'
+    'booleanCommon',
+    'import'
 ];
 
 /** Last non-suppressed solid-producing feature targeting ``bodyId``. */

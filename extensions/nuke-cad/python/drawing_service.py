@@ -1093,7 +1093,7 @@ def _load_model_shape(script_path: str) -> tuple[Any, list[str]]:
                 raise DrawingError(f"Curve build failed: {exc}") from exc
         try:
             build_result = feature_builder.build_document_shape(
-                document, curve_results=curve_results
+                document, curve_results=curve_results, document_dir=source.parent
             )
         except Exception as exc:
             raise DrawingError(f"Document build failed: {exc}") from exc

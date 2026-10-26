@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - build: optional extensions selectable at build time via `NUKE_EXTENSIONS` allow-list / `NUKE_EXCLUDE_EXTENSIONS` deny-list.
 - nuke-cad: one-click STEP/IGES/BREP import as a grounded assembly instance inside a saved `.nuke-cad` document.
+- nuke-cad: Import CAD as Body creates editable STEP/IGES/BREP bodies with source-hash identity, solid selection, and a unit override.
+- nuke-cad: W7-X generator builds 10 exact coil bodies across 5 modules plus 5 shells as 55 assembly instances in about 25 s.
+- nuke-cad: experimental W7-X coil study builds 4/5/6-module layouts with measured interference reports and blocks simulation export.
+- nuke-cad: native coil sweep builds editable rectangular-section coils with section tilt, progressive twist, and pattern/assembly support.
+- nuke-cad: W7-X coil shape study builds 10 editable native coils across 5 modules without the external STEP; simulation export is disabled.
+- nuke-cad: validated large assemblies can set `overlapCheck: false` to skip cross-body and instance overlap warnings for a faster build.
 - nuke-cad: assembly panel is draggable and collapsible with an instance-count badge, a labelled part field, and an Instance action disabled until a part is entered.
 - nuke-cad: disabled toolbar and command-search actions now explain why they cannot run, in the tooltip, section menu, and search row.
 - nuke-cad: Fillet and Chamfer offer an opt-in Tangent chain pick that expands one edge click to every tangent-connected edge on the same solid.
@@ -242,6 +248,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - app: startup splash tracks real loading progress and never blanks out on slow connections.
 - CI: vitest job compiles extensions first; conda pin no longer requests an unsatisfiable Python.
 - docker: image Python env ships working build123d with the OCP 7.9 shim and a CI version guard.
+- nuke-cad: `displayTolerance` survives later document mutations instead of being dropped by the next edit.
+- nuke-cad: closing and reopening the CAD viewport restores the active model, and shape-study dialog inputs follow the active theme.
+- nuke-cad: W7-X generator and coil study accept the reference STEP when its solids inherit the assembly root name instead of failing inventory validation.
+- nuke-cad: opening the viewport restores the Feature Tree and Model Outline panels, with panel actions in the Inspect ribbon and command search.
+- nuke-cad: New Document clears the previous viewport model and cancels its background restore instead of rebuilding it behind the picker.
+- nuke-cad: assembly-panel hover help uses the shared Nuke tooltip instead of native browser titles.
 - nuke-cad: W7-X sample downloads use the IDE backend, bypassing browser CORS/proxy failures for the 47 MB STEP.
 - nuke-cad: new W7-X samples discard a stale `.regions.json` sidecar, so old `coil` selectors no longer trigger a manifest warning.
 - nuke-cad: build warnings render as a compact badge below the document toolbar, with the list in an anchored popover clear of sketch chrome.

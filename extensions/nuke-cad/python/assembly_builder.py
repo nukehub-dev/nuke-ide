@@ -523,8 +523,15 @@ def classify_instance_source(
     return ("missing", None)
 
 
-def _build_single_doc_shape(doc_dict: dict[str, Any]) -> dict[str, Any]:
-    """Build one single-part document dict to a feature-builder result."""
+def _build_single_doc_shape(
+    doc_dict: dict[str, Any], document_dir: str | Path | None = None
+) -> dict[str, Any]:
+    """Build one single-part document dict to a feature-builder result.
+
+    ``document_dir`` is the containing directory of the ``.nuke-cad`` document
+    that owns ``doc_dict``; import features resolve document-relative source
+    paths against it. ``None`` keeps the legacy working-directory fallback.
+    """
     if not HAS_FEATURE_BUILDER or feature_builder is None:
         raise AssemblyBuildError("assembly build requires build123d, which is not available")
     raw_curves = doc_dict.get("curves", [])
@@ -539,7 +546,9 @@ def _build_single_doc_shape(doc_dict: dict[str, Any]) -> dict[str, Any]:
         except ValueError as exc:
             raise AssemblyBuildError(f"assembly part curve build failed: {exc}") from exc
     try:
-        return feature_builder.build_document_shape(doc_dict, curve_results=curve_results)
+        return feature_builder.build_document_shape(
+            doc_dict, curve_results=curve_results, document_dir=document_dir
+        )
     except AssemblyBuildError:
         raise
     except ValueError as exc:
@@ -766,7 +775,8 @@ def build_assembly_shape(
         ``placements``
             Solved ``instanceId -> Mat4`` map (computed, never written back).
         ``warnings``
-            Non-fatal issues (over-constraint, overlaps).
+            Non-fatal issues (over-constraint, overlaps). Instance-overlap
+            warnings are skipped when the document sets ``overlapCheck: false``.
     """
     if not isinstance(doc, dict):
         raise AssemblyBuildError(".nuke-cad document must be a JSON object")
@@ -826,7 +836,7 @@ def build_assembly_shape(
         try:
             if kind == "body":
                 if own_build is None:
-                    own_build = _build_single_doc_shape(doc)
+                    own_build = _build_single_doc_shape(doc, base_dir)
                 labeled_solids = _solids_of_body(own_build, target or "", own_labels)
                 if not labeled_solids:
                     raise AssemblyBuildError(
@@ -837,7 +847,7 @@ def build_assembly_shape(
                 assert target is not None
                 sub_path = Path(target)
                 sub_doc = _load_document_dict(sub_path, instance_id, part)
-                sub_build = _build_single_doc_shape(sub_doc)
+                sub_build = _build_single_doc_shape(sub_doc, sub_path.parent)
                 labeled_solids = _solids_of_document(sub_build, _body_labels(sub_doc))
                 if not labeled_solids:
                     raise AssemblyBuildError(
@@ -881,7 +891,11 @@ def build_assembly_shape(
             builder.Add(compound, solid)
         placed.append({"instanceId": instance_id, "shape": compound, "transform": list(transform)})
 
-    warnings.extend(_instance_overlap_warnings(overlap_groups))
+    # Document-level gate for a known-valid large assembly: the pairwise exact
+    # booleans over placed instance solids dominate the build and are
+    # suppressed, never turned into errors. Default (absent) keeps the check.
+    if doc.get("overlapCheck") is not False:
+        warnings.extend(_instance_overlap_warnings(overlap_groups))
 
     combined: object | None = None
     if placed_solids_all:

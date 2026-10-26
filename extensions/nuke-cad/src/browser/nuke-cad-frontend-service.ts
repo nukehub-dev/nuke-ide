@@ -49,6 +49,8 @@ import {
     FoamStlExportResult,
     DownloadFileRequest,
     DownloadFileResult,
+    InspectImportSourceRequest,
+    InspectImportSourceResult,
     CadBoundingBox
 } from '../common/nuke-cad-protocol';
 import { DrawingBuildRequest, DrawingBuildResult } from '../common/cad-drawing';
@@ -85,6 +87,11 @@ export class NukeCadFrontendService implements NukeCadBackendService {
 
     buildDrawing(request: DrawingBuildRequest): Promise<DrawingBuildResult> {
         return this.proxy.buildDrawing(request);
+    }
+
+    inspectImportSource(request: InspectImportSourceRequest): Promise<InspectImportSourceResult> {
+        // Read-only metadata pass: no tolerance injection or result post-processing.
+        return this.proxy.inspectImportSource(request);
     }
 
     runFem(request: FemRunRequest): Promise<FemRunResult> {

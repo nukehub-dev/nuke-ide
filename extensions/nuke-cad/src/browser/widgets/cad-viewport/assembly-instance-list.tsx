@@ -38,9 +38,35 @@
  */
 
 import * as React from '@theia/core/shared/react';
+import { Tooltip, useTooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
 import type { AssemblySection } from '../../document/cad-document-store';
 import { assemblyDofRemaining } from './assembly-view';
 import { headerRegionTarget, useDraggablePanel } from './draggable-panel';
+
+/** Inline text with the shared viewport-aware tooltip (no native `title`). */
+function TooltippedText(props: {
+    readonly content: string;
+    readonly className?: string;
+    readonly children: React.ReactNode;
+    readonly onClick?: () => void;
+    readonly onDoubleClick?: () => void;
+}): React.ReactElement {
+    const tooltip = useTooltip(props.content, 'top');
+    return (
+        <>
+            <span
+                className={props.className}
+                onMouseEnter={tooltip.onMouseEnter}
+                onMouseLeave={tooltip.onMouseLeave}
+                onClick={props.onClick}
+                onDoubleClick={props.onDoubleClick}
+            >
+                {props.children}
+            </span>
+            {tooltip.tooltipElement}
+        </>
+    );
+}
 
 interface AssemblyInstanceListProps {
     readonly assembly: AssemblySection | undefined;
@@ -63,6 +89,8 @@ export function AssemblyInstanceList(props: AssemblyInstanceListProps): React.Re
     const [collapsed, setCollapsed] = React.useState(false);
     const partInputId = React.useId();
     const drag = useDraggablePanel({ canDrag: ASSEMBLY_HEADER_TARGET, canResetFrom: ASSEMBLY_HEADER_TARGET });
+    const headerTooltip = useTooltip('Drag to move; double-click or right-click to reset position', 'bottom');
+    const partTooltip = useTooltip(ASSEMBLY_PART_TITLE, 'top');
     const assembly = props.assembly;
     const instances = assembly !== undefined ? assembly.instances : [];
     const instanceCount = instances.length;
@@ -87,26 +115,36 @@ export function AssemblyInstanceList(props: AssemblyInstanceListProps): React.Re
             role="region"
             aria-label="Assembly"
         >
-            <div className="cad-assembly-header" title="Drag to move; double-click or right-click to reset position" {...drag.handleProps}>
+            <div
+                className="cad-assembly-header"
+                onMouseEnter={headerTooltip.onMouseEnter}
+                onMouseLeave={headerTooltip.onMouseLeave}
+                {...drag.handleProps}
+            >
                 <i className="codicon codicon-nuke-cad-assembly" />
                 <span className="cad-assembly-title">Assembly</span>
                 <span className="cad-assembly-count">{instanceCount} instances</span>
                 <span className="cad-assembly-spacer" />
                 {hasInstances && (
-                    <span className="cad-assembly-dof" title="Remaining rigid-body DOFs: 6 per ungrounded instance minus constrained DOFs">
+                    <TooltippedText
+                        className="cad-assembly-dof"
+                        content="Remaining rigid-body DOFs: 6 per ungrounded instance minus constrained DOFs"
+                    >
                         {dof} DOF
-                    </span>
+                    </TooltippedText>
                 )}
-                <button
-                    type="button"
-                    className="theia-button secondary cad-assembly-collapse"
-                    aria-expanded={!collapsed}
-                    aria-label={collapsed ? 'Expand assembly panel' : 'Collapse assembly panel'}
-                    title={collapsed ? 'Expand assembly panel' : 'Collapse assembly panel'}
-                    onClick={() => setCollapsed((value) => !value)}
-                >
-                    <span className={`codicon ${collapsed ? 'codicon-chevron-right' : 'codicon-chevron-down'}`} />
-                </button>
+                <Tooltip content={collapsed ? 'Expand assembly panel' : 'Collapse assembly panel'}>
+                    <button
+                        type="button"
+                        className="theia-button secondary cad-assembly-collapse"
+                        aria-expanded={!collapsed}
+                        aria-label={collapsed ? 'Expand assembly panel' : 'Collapse assembly panel'}
+                        onClick={() => setCollapsed((value) => !value)}
+                    >
+                        <span className={`codicon ${collapsed ? 'codicon-chevron-right' : 'codicon-chevron-down'}`} />
+                    </button>
+                </Tooltip>
+                {headerTooltip.tooltipElement}
             </div>
             {!collapsed && (
                 <div className="cad-assembly-body">
@@ -143,9 +181,9 @@ export function AssemblyInstanceList(props: AssemblyInstanceListProps): React.Re
                                                 onBlur={() => setRenamingId(undefined)}
                                             />
                                         ) : (
-                                            <span
+                                            <TooltippedText
                                                 className="cad-assembly-label"
-                                                title={`${instance.part}${grounded ? ' (grounded)' : ''} — click to select, double-click to rename`}
+                                                content={`${instance.part}${grounded ? ' (grounded)' : ''} — click to select, double-click to rename`}
                                                 onClick={() => props.onSelect(instance.id)}
                                                 onDoubleClick={() => {
                                                     setRenamingId(instance.id);
@@ -153,37 +191,39 @@ export function AssemblyInstanceList(props: AssemblyInstanceListProps): React.Re
                                                 }}
                                             >
                                                 {instance.id}
-                                            </span>
+                                            </TooltippedText>
                                         )}
-                                        <span className="cad-assembly-part" title={instance.part}>
+                                        <TooltippedText className="cad-assembly-part" content={instance.part}>
                                             {instance.part}
-                                        </span>
+                                        </TooltippedText>
                                         {grounded ? (
-                                            <span
+                                            <TooltippedText
                                                 className="cad-assembly-grounded-badge"
-                                                title="Grounded instance (fixed in assembly space)"
+                                                content="Grounded instance (fixed in assembly space)"
                                             >
                                                 grounded
-                                            </span>
+                                            </TooltippedText>
                                         ) : (
+                                            <Tooltip content="Ground here — fix this instance in assembly space">
+                                                <button
+                                                    type="button"
+                                                    className="theia-button secondary cad-assembly-action"
+                                                    onClick={() => props.onGround(instance.id)}
+                                                >
+                                                    Ground here
+                                                </button>
+                                            </Tooltip>
+                                        )}
+                                        <Tooltip content="Delete instance (cascades to its connectors and mates)">
                                             <button
                                                 type="button"
-                                                className="theia-button secondary cad-assembly-action"
-                                                title="Ground here — fix this instance in assembly space"
-                                                onClick={() => props.onGround(instance.id)}
+                                                className="theia-button secondary cad-assembly-action cad-assembly-delete"
+                                                aria-label={`Delete instance ${instance.id}`}
+                                                onClick={() => props.onDelete(instance.id)}
                                             >
-                                                Ground here
+                                                <span className="codicon codicon-trash" />
                                             </button>
-                                        )}
-                                        <button
-                                            type="button"
-                                            className="theia-button secondary cad-assembly-action cad-assembly-delete"
-                                            title="Delete instance (cascades to its connectors and mates)"
-                                            aria-label={`Delete instance ${instance.id}`}
-                                            onClick={() => props.onDelete(instance.id)}
-                                        >
-                                            <span className="codicon codicon-trash" />
-                                        </button>
+                                        </Tooltip>
                                     </div>
                                 );
                             })}
@@ -200,15 +240,17 @@ export function AssemblyInstanceList(props: AssemblyInstanceListProps): React.Re
                                 type="text"
                                 aria-label="Assembly part"
                                 placeholder="./part.nuke-cad, .step, or body:<id>"
-                                title={ASSEMBLY_PART_TITLE}
                                 value={part}
                                 onChange={(e) => setPart(e.target.value)}
+                                onMouseEnter={partTooltip.onMouseEnter}
+                                onMouseLeave={partTooltip.onMouseLeave}
                                 onKeyDown={(e) => {
                                     if (e.key === 'Enter') {
                                         submitAdd();
                                     }
                                 }}
                             />
+                            {partTooltip.tooltipElement}
                         </div>
                         <div className="cad-assembly-add-actions">
                             {hasInstances && (

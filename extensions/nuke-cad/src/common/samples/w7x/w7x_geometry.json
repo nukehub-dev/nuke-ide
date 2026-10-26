@@ -1,0 +1,359 @@
+{
+  "source": {
+    "fileName": "scaled_w7x_stellarator.step",
+    "license": "MIT",
+    "sourceHash": "384d025207b7d6ccc00bef364611526ef0c3093b091f6f4005fb8586ae4f34e3",
+    "sourceSize": 48795157,
+    "sourceUnit": "m",
+    "documentUnits": "m",
+    "displayTolerance": 0.1,
+    "overlapCheck": false
+  },
+  "moduleCount": 5,
+  "moduleAngleDeg": 72,
+  "expectedSolidCount": 55,
+  "coilShapes": [
+    {
+      "id": "coil_01",
+      "representativeIndex": 1,
+      "signature": {
+        "faceCount": 4,
+        "volume": 2.7874774986709525
+      },
+      "transforms": [
+        {
+          "index": 1,
+          "rotationDeg": 0
+        },
+        {
+          "index": 11,
+          "rotationDeg": 72
+        },
+        {
+          "index": 21,
+          "rotationDeg": 144
+        },
+        {
+          "index": 31,
+          "rotationDeg": 216
+        },
+        {
+          "index": 41,
+          "rotationDeg": 288
+        }
+      ]
+    },
+    {
+      "id": "coil_02",
+      "representativeIndex": 2,
+      "signature": {
+        "faceCount": 4,
+        "volume": 2.768814942790038
+      },
+      "transforms": [
+        {
+          "index": 2,
+          "rotationDeg": 0
+        },
+        {
+          "index": 12,
+          "rotationDeg": 72
+        },
+        {
+          "index": 22,
+          "rotationDeg": 144
+        },
+        {
+          "index": 32,
+          "rotationDeg": 216
+        },
+        {
+          "index": 42,
+          "rotationDeg": 288
+        }
+      ]
+    },
+    {
+      "id": "coil_03",
+      "representativeIndex": 3,
+      "signature": {
+        "faceCount": 4,
+        "volume": 2.744234309451654
+      },
+      "transforms": [
+        {
+          "index": 3,
+          "rotationDeg": 0
+        },
+        {
+          "index": 13,
+          "rotationDeg": 72
+        },
+        {
+          "index": 23,
+          "rotationDeg": 144
+        },
+        {
+          "index": 33,
+          "rotationDeg": 216
+        },
+        {
+          "index": 43,
+          "rotationDeg": 288
+        }
+      ]
+    },
+    {
+      "id": "coil_04",
+      "representativeIndex": 4,
+      "signature": {
+        "faceCount": 4,
+        "volume": 2.7466608203846024
+      },
+      "transforms": [
+        {
+          "index": 4,
+          "rotationDeg": 0
+        },
+        {
+          "index": 14,
+          "rotationDeg": 72
+        },
+        {
+          "index": 24,
+          "rotationDeg": 144
+        },
+        {
+          "index": 34,
+          "rotationDeg": 216
+        },
+        {
+          "index": 44,
+          "rotationDeg": 288
+        }
+      ]
+    },
+    {
+      "id": "coil_05",
+      "representativeIndex": 5,
+      "signature": {
+        "faceCount": 4,
+        "volume": 2.739938518567987
+      },
+      "transforms": [
+        {
+          "index": 5,
+          "rotationDeg": 0
+        },
+        {
+          "index": 15,
+          "rotationDeg": 72
+        },
+        {
+          "index": 25,
+          "rotationDeg": 144
+        },
+        {
+          "index": 35,
+          "rotationDeg": 216
+        },
+        {
+          "index": 45,
+          "rotationDeg": 288
+        }
+      ]
+    },
+    {
+      "id": "coil_06",
+      "representativeIndex": 6,
+      "signature": {
+        "faceCount": 4,
+        "volume": 2.747058021956086
+      },
+      "transforms": [
+        {
+          "index": 6,
+          "rotationDeg": 0
+        },
+        {
+          "index": 16,
+          "rotationDeg": 72
+        },
+        {
+          "index": 26,
+          "rotationDeg": 144
+        },
+        {
+          "index": 36,
+          "rotationDeg": 216
+        },
+        {
+          "index": 46,
+          "rotationDeg": 288
+        }
+      ]
+    },
+    {
+      "id": "coil_07",
+      "representativeIndex": 7,
+      "signature": {
+        "faceCount": 4,
+        "volume": 2.7580355964580683
+      },
+      "transforms": [
+        {
+          "index": 7,
+          "rotationDeg": 0
+        },
+        {
+          "index": 17,
+          "rotationDeg": 72
+        },
+        {
+          "index": 27,
+          "rotationDeg": 144
+        },
+        {
+          "index": 37,
+          "rotationDeg": 216
+        },
+        {
+          "index": 47,
+          "rotationDeg": 288
+        }
+      ]
+    },
+    {
+      "id": "coil_08",
+      "representativeIndex": 8,
+      "signature": {
+        "faceCount": 4,
+        "volume": 2.7532155225308585
+      },
+      "transforms": [
+        {
+          "index": 8,
+          "rotationDeg": 0
+        },
+        {
+          "index": 18,
+          "rotationDeg": 72
+        },
+        {
+          "index": 28,
+          "rotationDeg": 144
+        },
+        {
+          "index": 38,
+          "rotationDeg": 216
+        },
+        {
+          "index": 48,
+          "rotationDeg": 288
+        }
+      ]
+    },
+    {
+      "id": "coil_09",
+      "representativeIndex": 9,
+      "signature": {
+        "faceCount": 4,
+        "volume": 2.774817338505324
+      },
+      "transforms": [
+        {
+          "index": 9,
+          "rotationDeg": 0
+        },
+        {
+          "index": 19,
+          "rotationDeg": 72
+        },
+        {
+          "index": 29,
+          "rotationDeg": 144
+        },
+        {
+          "index": 39,
+          "rotationDeg": 216
+        },
+        {
+          "index": 49,
+          "rotationDeg": 288
+        }
+      ]
+    },
+    {
+      "id": "coil_10",
+      "representativeIndex": 10,
+      "signature": {
+        "faceCount": 4,
+        "volume": 2.788251847057275
+      },
+      "transforms": [
+        {
+          "index": 10,
+          "rotationDeg": 0
+        },
+        {
+          "index": 20,
+          "rotationDeg": 72
+        },
+        {
+          "index": 30,
+          "rotationDeg": 144
+        },
+        {
+          "index": 40,
+          "rotationDeg": 216
+        },
+        {
+          "index": 50,
+          "rotationDeg": 288
+        }
+      ]
+    }
+  ],
+  "shells": [
+    {
+      "label": "plasma",
+      "index": 51,
+      "signature": {
+        "faceCount": 1,
+        "volume": 467.2701874526777
+      }
+    },
+    {
+      "label": "gap",
+      "index": 52,
+      "signature": {
+        "faceCount": 2,
+        "volume": 44.40839875069065
+      }
+    },
+    {
+      "label": "firstwall",
+      "index": 53,
+      "signature": {
+        "faceCount": 2,
+        "volume": 18.19782335675012
+      }
+    },
+    {
+      "label": "blanket",
+      "index": 54,
+      "signature": {
+        "faceCount": 2,
+        "volume": 591.5151859067528
+      }
+    },
+    {
+      "label": "vessel",
+      "index": 55,
+      "signature": {
+        "faceCount": 2,
+        "volume": 49.97831687987991
+      }
+    }
+  ]
+}

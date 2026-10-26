@@ -119,6 +119,30 @@ export class NukeCadToolsContribution implements NukeToolsContribution {
         });
 
         registry.registerItem({
+            id: 'nuke.cad.importCadBody',
+            label: 'Import CAD as Body',
+            commandId: NukeCadCommands.IMPORT_CAD_BODY.id,
+            category: ['CAD Studio', 'Geometry'],
+            sectionOrder: 'b',
+            categoryOrder: 'a',
+            order: 'a4',
+            icon: 'file-symlink-file',
+            description: 'Import a STEP/IGES/BREP source as editable body features.'
+        });
+
+        registry.registerItem({
+            id: 'nuke.cad.refreshImportSources',
+            label: 'Refresh Import Sources',
+            commandId: NukeCadCommands.REFRESH_IMPORT_SOURCES.id,
+            category: ['CAD Studio', 'Geometry'],
+            sectionOrder: 'b',
+            categoryOrder: 'a',
+            order: 'a5',
+            icon: 'sync',
+            description: 'Re-hash imported sources and rebuild when a source file changed.'
+        });
+
+        registry.registerItem({
             id: 'nuke.cad.rebuild',
             label: 'Rebuild Geometry',
             commandId: NukeCadCommands.REBUILD_GEOMETRY.id,

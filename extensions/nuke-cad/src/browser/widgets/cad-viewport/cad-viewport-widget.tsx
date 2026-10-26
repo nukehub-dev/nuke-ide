@@ -44,7 +44,7 @@
 import * as React from '@theia/core/shared/react';
 import { injectable, inject, postConstruct } from '@theia/core/shared/inversify';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
-import { Message, WidgetManager } from '@theia/core/lib/browser';
+import { ApplicationShell, Message, WidgetManager } from '@theia/core/lib/browser';
 import { MessageService } from '@theia/core/lib/common/message-service';
 import { CommandService } from '@theia/core/lib/common/command';
 import { Disposable } from '@theia/core/lib/common/disposable';
@@ -57,7 +57,12 @@ import { MonacoWorkspace } from '@theia/monaco/lib/browser/monaco-workspace';
 import { MonacoEditorModel } from '@theia/monaco/lib/browser/monaco-editor-model';
 import * as THREE from 'three';
 
-import { NukeCadBackendService, GeometryBuildResult } from '../../../common/nuke-cad-protocol';
+import {
+    NukeCadBackendService,
+    GeometryBuildResult,
+    type InspectImportSourceRequest,
+    type InspectImportSourceResult
+} from '../../../common/nuke-cad-protocol';
 import { NukeCadStateManager, CadModel, CadSelection } from '../../state/nuke-cad-state-manager';
 import { buildSolidSummaries } from '../outline-panel/solid-summaries';
 import { addSolidsToSelection, selectionSolidIds, toggleSolidSelection } from '../outline-panel/outline-interactions';
@@ -104,13 +109,38 @@ import { QuickInputService } from '@theia/core/lib/browser/quick-input';
 import { DOCUMENT_TEMPLATES } from '../../../common/document-templates';
 import { SAMPLE_PROJECTS, getSampleProject, type SampleProject } from '../../../common/sample-projects';
 import {
+    W7X_GEOMETRY_ASSET,
+    W7X_IMPORT_MAX_SOLIDS,
+    mapW7xBodyIds,
+    mapW7xPlanToImports,
+    mapW7xPlanToInstances,
+    planW7xGenerator,
+    validateW7xInspection
+} from '../../../common/w7x-generator';
+import {
+    W7X_STUDY_MODULE_COUNTS,
+    planW7xCoilStudy,
+    type W7xCoilStudy,
+    type W7xCoilStudyReport,
+    type W7xStudyModuleCount
+} from '../../../common/w7x-study';
+import {
+    W7X_SHAPE_BODY_COUNT,
+    W7X_SHAPE_DEFAULT_NAME,
+    W7X_SHAPE_INSTANCE_COUNT,
+    createW7xShapeStudyDocument,
+    type W7xShapeStudyConfig
+} from '../../../common/w7x-shape-study';
+import {
     type SketchDef,
     type FeatureDef,
     type FeatureType,
     type FeatureParams,
     type CurvePoint,
     type NukeCadDocument,
-    type BodyAppearance
+    type BodyAppearance,
+    type DocumentUnits,
+    type ImportSourceFormat
 } from '../../../common/cad-document';
 import { type TopologyRef } from '../../../common/topology-refs';
 import {
@@ -206,6 +236,17 @@ import {
 } from './assembly-view';
 import { MateDialog, type MateDraft } from './mate-dialog';
 import { BodyAppearanceDialog, type BodyAppearanceTarget } from './body-appearance-dialog';
+import { ImportBodyDialog } from './import-body-dialog';
+import { W7xDesignStudyBanner, W7xStudyDialog } from './w7x-study-dialog';
+import { W7xShapeStudyDialog } from './w7x-shape-study-dialog';
+import { type W7xStudyReportSet } from './w7x-study-model';
+import {
+    defaultImportBodyLabel,
+    importSourceBaseName,
+    inferImportSourceFormat,
+    planImportBodies,
+    type ImportBodyChoice
+} from './import-body';
 import {
     BODY_APPEARANCE_DEFAULT_COLOR,
     BODY_APPEARANCE_DEFAULT_OPACITY,
@@ -240,6 +281,81 @@ export interface CadCameraApi {
 
 function isFiniteCameraVector(value: unknown): value is CurvePoint {
     return Array.isArray(value) && value.length === 3 && value.every((v) => typeof v === 'number' && Number.isFinite(v));
+}
+
+/**
+ * Pending “Import CAD as Body…” dialog state. The source was already copied
+ * and inspected; the dialog choice is committed on confirm so cancelling never
+ * mutates the document.
+ */
+interface ImportBodyDialogState {
+    readonly inspection: InspectImportSourceResult;
+    /** Absolute path that inspection and confirm-time re-inspection read. */
+    readonly sourcePath: string;
+    /** Document-relative path stored on the import feature. */
+    readonly relativeSourcePath: string;
+    /** Default body label (source file stem). */
+    readonly sourceLabel: string;
+    /** Document units at flow start; undefined for a unitless document. */
+    readonly documentUnits?: DocumentUnits;
+    /** Confirmed save path backing the document. */
+    readonly targetUri: URI;
+    /** True when no document existed and one must be created on confirm. */
+    readonly createDocument: boolean;
+}
+
+/** Save-dialog defaults for the valid-only W7-X generator. */
+const W7X_GENERATOR_DIALOG_TITLE = 'Save W7-X Generator';
+const W7X_GENERATOR_DEFAULT_NAME = 'w7x-generator.nuke-cad';
+/** Loading text kept stable while the 15-body / 55-instance project builds. */
+const W7X_GENERATOR_LOADING_MESSAGE = 'Building W7-X generator (55 instances)…';
+/** Expected imported-body count for the committed reference asset. */
+const W7X_GENERATOR_BODY_COUNT = W7X_GEOMETRY_ASSET.coilShapes.length + W7X_GEOMETRY_ASSET.shells.length;
+/** Expected placed-instance count for the committed reference asset. */
+const W7X_GENERATOR_INSTANCE_COUNT =
+    W7X_GEOMETRY_ASSET.coilShapes.length * W7X_GEOMETRY_ASSET.moduleCount + W7X_GEOMETRY_ASSET.shells.length;
+
+/** Save-dialog defaults for the experimental W7-X coil-count study. */
+const W7X_STUDY_DIALOG_TITLE = 'Save W7-X Coil Study';
+const W7X_STUDY_DEFAULT_NAME = 'w7x-coil-study.nuke-cad';
+/** The study reuses the generator's fifteen imported source bodies. */
+const W7X_STUDY_BODY_COUNT = W7X_GENERATOR_BODY_COUNT;
+/** Loading text for the study inspection pass. */
+const W7X_STUDY_INSPECTING_MESSAGE = 'Inspecting W7-X coil-study source…';
+
+/** Save-dialog defaults for the self-contained native coil shape study. */
+const W7X_SHAPE_STUDY_DIALOG_TITLE = 'Save W7-X Coil Shape Study';
+const W7X_SHAPE_STUDY_DEFAULT_NAME = 'w7x-coil-shape-study.nuke-cad';
+const W7X_SHAPE_STUDY_LOADING_MESSAGE = 'Building W7-X coil shape study (50 native coils)…';
+
+/**
+ * Pending “Create W7-X Coil Study” dialog state. The STEP has already been
+ * copied and validated against the pinned reference; the study is committed
+ * only after the user confirms a module count.
+ */
+interface W7xStudyDialogState {
+    /** Confirmed save path backing the study document. */
+    readonly targetUri: URI;
+    /** Absolute copied source path; confirmation re-inspects are not needed. */
+    readonly sourcePath: string;
+    /** Document-relative path stored on every import feature. */
+    readonly relativeSourcePath: string;
+    readonly sourceHash: string;
+    readonly sourceSize: number;
+    readonly sourceFormat?: ImportSourceFormat;
+    /** Copied source basename shown in the dialog subtitle. */
+    readonly sourceLabel: string;
+    /** Committed measured reports for 4/5/6 modules. */
+    readonly reports: W7xStudyReportSet;
+}
+
+/**
+ * Pending “Create W7-X Coil Shape Study” dialog state: only the confirmed
+ * destination exists, because the shape-study document is planned entirely
+ * from committed metadata after the user confirms the section parameters.
+ */
+interface W7xShapeStudyDialogState {
+    readonly targetUri: URI;
 }
 
 /**
@@ -306,6 +422,9 @@ export class CadViewportWidget extends ReactWidget {
     @inject(WidgetManager)
     protected readonly widgetManager: WidgetManager;
 
+    @inject(ApplicationShell)
+    protected readonly shell: ApplicationShell;
+
     @inject(NukeCadPreferences)
     protected readonly preferences: NukeCadPreferences;
 
@@ -344,6 +463,8 @@ export class CadViewportWidget extends ReactWidget {
     private readonly rebuildTracker = new PartialRebuildTracker();
     /** Monotonically increasing token; superseded/cancelled rebuilds drop their results. */
     private rebuildToken = 0;
+    /** Invalidates the attach-time restore when a new document is created. */
+    private viewportGeneration = 0;
     /** Job id of the in-flight partial rebuild, for cancellation. */
     private pendingPartialJobId?: string;
     private partialJobCounter = 0;
@@ -411,6 +532,18 @@ export class CadViewportWidget extends ReactWidget {
     private appearanceTarget?: BodyAppearanceTarget;
     /** Distinct body ids owning the viewport selection when the Appearance dialog opened. */
     private appearanceSelectionBodyIds: readonly string[] = [];
+    /** Pending “Import CAD as Body…” dialog; undefined when closed. */
+    private importBodyDialog?: ImportBodyDialogState;
+    /** True while the import confirmation re-inspects or commits a batch. */
+    private importBodyBusy = false;
+    /** Pending “Create W7-X Coil Study” dialog; undefined when closed. */
+    private w7xStudyDialog?: W7xStudyDialogState;
+    /** True while the study confirmation creates and saves the document. */
+    private w7xStudyBusy = false;
+    /** Pending “Create W7-X Coil Shape Study” dialog; undefined when closed. */
+    private w7xShapeStudyDialog?: W7xShapeStudyDialogState;
+    /** True while the shape-study confirmation plans, installs, saves, and rebuilds. */
+    private w7xShapeStudyBusy = false;
 
     /** Toggle viewport section mode (nav-cluster button). */
     protected readonly handleSetSectionActive = (active: boolean): void => {
@@ -510,6 +643,16 @@ export class CadViewportWidget extends ReactWidget {
     protected readonly handleRevealFeature = (featureId: string): void => {
         this.documentStore.selectFeature(featureId);
         void this.commandService.executeCommand(NukeCadCommands.OPEN_FEATURE_TREE.id);
+    };
+
+    /** Ribbon/search shortcut for the Feature Tree panel. */
+    protected readonly handleOpenFeatureTree = (): void => {
+        void this.commandService.executeCommand(NukeCadCommands.OPEN_FEATURE_TREE.id);
+    };
+
+    /** Ribbon/search shortcut for the Model Outline panel. */
+    protected readonly handleOpenModelOutline = (): void => {
+        void this.commandService.executeCommand(NukeCadCommands.OPEN_OUTLINE_PANEL.id);
     };
 
     /**
@@ -722,12 +865,17 @@ export class CadViewportWidget extends ReactWidget {
     };
 
     protected readonly handleCreateDocument = (templateId: string): void => {
+        // The document store survives closing the viewport, so this flow can
+        // arrive with the previous model still on screen and a restore/build
+        // in flight. Drop that model and its late result before installing the
+        // new document; otherwise the old geometry/lists flash over the new
+        // empty document.
+        this.clearViewportModel();
         this.documentStore.createDocument('Untitled', templateId);
         this.editingSketchId = undefined;
         this.templatePickerOpen = false;
         // A fresh document has no build to be stale against.
         this.buildStale = false;
-        this.rebuildTracker.reset();
         this.update();
     };
 
@@ -740,7 +888,7 @@ export class CadViewportWidget extends ReactWidget {
      * writes it as JSON, and rebuilds it in both rebuild modes so the sample
      * renders immediately.
      */
-    protected readonly handleCreateSample = async (sampleId: string): Promise<void> => {
+    protected async handleCreateSample(sampleId: string): Promise<void> {
         const sample = getSampleProject(sampleId);
         if (sample === undefined) {
             this.messageService.error(`Unknown example project '${sampleId}'.`);
@@ -758,8 +906,15 @@ export class CadViewportWidget extends ReactWidget {
                 displayTolerance: sample.displayTolerance,
                 forceNewDocument: true,
                 copySource: sample.copySource === true,
-                clearStaleRegionManifest: true
+                clearStaleRegionManifest: true,
+                ...(sample.generator === 'w7x' ? { generator: sample.generator } : {})
             });
+            return;
+        }
+        if (sample.generator === 'w7x-shape') {
+            // Committed centerlines, no external source: the shape-study flow
+            // owns its save target and config dialog.
+            await this.createW7xShapeStudy();
             return;
         }
         await this.workspaceService.ready;
@@ -773,6 +928,7 @@ export class CadViewportWidget extends ReactWidget {
         }
         const uri = requested.withPath(ensureNukeCadExtension(requested.path.toString()));
         const documentName = uri.path.name.length > 0 ? uri.path.name : sample.name;
+        this.clearViewportModel();
         const result = this.documentStore.createSampleDocument(documentName, sampleId);
         if (!result.success) {
             this.messageService.error(result.error || 'Failed to create the example project.');
@@ -792,7 +948,7 @@ export class CadViewportWidget extends ReactWidget {
             const message = error instanceof Error ? error.message : String(error);
             this.messageService.error(`Failed to save the example project: ${message}`);
         }
-    };
+    }
 
     protected readonly handleCancelTemplatePicker = (): void => {
         this.templatePickerOpen = false;
@@ -805,10 +961,13 @@ export class CadViewportWidget extends ReactWidget {
 
     protected readonly handleImportCad = (): Promise<void> => this.importCadAsAssembly();
 
+    protected readonly handleImportCadBody = (): Promise<void> => this.importCadAsBody();
+
     /**
      * Download an external example source from its public URL into the saved
      * project's `<document-stem>.parts/` folder, then import it as a grounded
-     * assembly. The W7-X STEP is MIT-licensed and too large to bundle.
+     * assembly or build the parametric W7-X generator from it. The W7-X STEP
+     * is MIT-licensed and too large to bundle.
      */
     async handleDownloadSample(sampleId: string): Promise<void> {
         const sample = getSampleProject(sampleId);
@@ -817,13 +976,14 @@ export class CadViewportWidget extends ReactWidget {
             return;
         }
         const download = sample.download;
+        const generator = sample.generator === 'w7x';
         // The picker is a modal NukeDialog; close it before any Theia dialog.
         this.templatePickerOpen = false;
         this.update();
         await this.workspaceService.ready;
         const targetUri = await this.chooseImportTarget(download.fileName, true, {
-            title: 'Save W7-X Project',
-            inputValue: 'w7x-stellarator.nuke-cad'
+            title: generator ? W7X_GENERATOR_DIALOG_TITLE : 'Save W7-X Project',
+            inputValue: generator ? W7X_GENERATOR_DEFAULT_NAME : 'w7x-stellarator.nuke-cad'
         });
         if (targetUri === undefined) {
             return;
@@ -846,6 +1006,16 @@ export class CadViewportWidget extends ReactWidget {
             this.setLoading(false);
             const message = error instanceof Error ? error.message : String(error);
             this.messageService.error(`Failed to download '${download.fileName}': ${message}. Choose a local copy instead.`);
+            return;
+        }
+        if (generator) {
+            // Keep the spinner up: the generator re-inspects, validates, and
+            // creates the 15-body / 55-instance project next.
+            await this.completeW7xGenerator(targetUri, destination, {
+                displayTolerance: sample.displayTolerance,
+                forceNewDocument: true,
+                clearStaleRegionManifest: true
+            });
             return;
         }
         this.setLoading(false);
@@ -875,6 +1045,8 @@ export class CadViewportWidget extends ReactWidget {
         forceNewDocument?: boolean;
         copySource?: boolean;
         clearStaleRegionManifest?: boolean;
+        /** Build the valid-only W7-X generator instead of a single imported instance. */
+        generator?: 'w7x';
     }): Promise<void> {
         // The template/sample picker is a modal NukeDialog; Theia's file
         // dialogs would open behind it. Close it before asking for any file.
@@ -900,11 +1072,789 @@ export class CadViewportWidget extends ReactWidget {
         if (imported === undefined) {
             return;
         }
-        const targetUri = await this.chooseImportTarget(imported.path.name, options?.forceNewDocument === true);
+        const generator = options?.generator === 'w7x';
+        // A generator always owns a fresh document, so reusing the active
+        // document path is not offered even when forceNewDocument is unset.
+        const targetUri = await this.chooseImportTarget(
+            imported.path.name,
+            options?.forceNewDocument === true || generator,
+            generator ? { title: W7X_GENERATOR_DIALOG_TITLE, inputValue: W7X_GENERATOR_DEFAULT_NAME } : undefined
+        );
         if (targetUri === undefined) {
             return;
         }
+        if (generator) {
+            await this.completeW7xGenerator(targetUri, imported, options);
+            return;
+        }
         await this.completeImportedDocument(targetUri, imported, options);
+    }
+
+    /**
+     * Import an exchange file as editable body feature(s) instead of a frozen
+     * assembly instance.
+     *
+     * The flow is copy → inspect → dialog → atomic commit: the source is
+     * copied into `<document-stem>.parts/` (when it lives outside the document
+     * folder), inspected without writing geometry artifacts, and only a
+     * confirmed dialog calls `addImportBodies` (one undo entry), saves, and
+     * rebuilds. Cancelling the picker, save prompt, dialog, or any failed step
+     * leaves the document untouched. A document is created only after the save
+     * path is confirmed and the import dialog is accepted; a unitless document
+     * omits `targetUnits` so the source keeps its native numbers.
+     */
+    async importCadAsBody(): Promise<void> {
+        this.templatePickerOpen = false;
+        this.update();
+        await this.workspaceService.ready;
+        let imported: URI | undefined;
+        try {
+            imported = await this.fileDialogService.showOpenDialog({
+                title: 'Import CAD as Body',
+                canSelectFiles: true,
+                canSelectFolders: false,
+                canSelectMany: false,
+                filters: {
+                    'CAD Exchange Files': ['step', 'stp', 'iges', 'igs', 'brep']
+                }
+            });
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            this.messageService.error(`Failed to open the CAD file picker: ${message}`);
+            return;
+        }
+        if (imported === undefined) {
+            return;
+        }
+
+        // Reuse the assembly save-path decision: keep an active document's URI
+        // or ask where the document should live. No document is created yet, so
+        // cancelling the prompt leaves the current document untouched.
+        const targetUri = await this.chooseImportTarget(imported.path.name, false);
+        if (targetUri === undefined) {
+            return;
+        }
+        const hadDocument = this.documentStore.document !== undefined;
+        const documentUnits = this.documentStore.document?.units;
+
+        this.setLoading(true, `Inspecting ${imported.path.base}...`);
+        let sourceUri: URI;
+        let inspection: InspectImportSourceResult;
+        try {
+            sourceUri = await this.prepareImportBodySource(targetUri, imported);
+            inspection = await this.inspectImportSourceForDialog(sourceUri.path.toString(), undefined, documentUnits);
+        } catch (error) {
+            this.setLoading(false);
+            const message = error instanceof Error ? error.message : String(error);
+            this.messageService.error(`Failed to prepare '${imported.path.base}' for import: ${message}`);
+            return;
+        }
+        this.setLoading(false);
+        if (!inspection.success) {
+            this.messageService.error(inspection.error || `Failed to inspect '${imported.path.base}'.`);
+            return;
+        }
+        if (inspection.solids === undefined || inspection.solids.length === 0) {
+            this.messageService.error(`'${imported.path.base}' contains no solids to import.`);
+            return;
+        }
+        if (inspection.sourceHash === undefined) {
+            this.messageService.error(`The inspection of '${imported.path.base}' did not return a source hash.`);
+            return;
+        }
+        this.importBodyDialog = {
+            inspection,
+            sourcePath: sourceUri.path.toString(),
+            relativeSourcePath: documentRelativeAssemblyPart(targetUri.path.toString(), sourceUri.path.toString()),
+            sourceLabel: defaultImportBodyLabel(imported.path.base),
+            documentUnits,
+            targetUri,
+            createDocument: !hadDocument
+        };
+        this.update();
+    }
+
+    /**
+     * Build the valid-only, five-module W7-X generator project.
+     *
+     * Discoverability entry point for the command palette and CAD menu; the
+     * example-project card is the primary route. Reuses the assembly picker
+     * and forces a fresh document because the generator owns its complete
+     * fifteen-body / fifty-five-instance project.
+     */
+    async createW7xGenerator(): Promise<void> {
+        await this.importCadAsAssembly({ generator: 'w7x', forceNewDocument: true, copySource: true });
+    }
+
+    /**
+     * Experimental W7-X coil-count study entry point.
+     *
+     * Reuses the generator's local-STEP source flow but never downloads: the
+     * user chooses a local reference STEP, the study owns a fresh document,
+     * and a modal report dialog decides the module count. Nothing is committed
+     * until the dialog is confirmed.
+     */
+    async createW7xCoilStudy(): Promise<void> {
+        this.templatePickerOpen = false;
+        this.update();
+        await this.workspaceService.ready;
+        let imported: URI | undefined;
+        try {
+            imported = await this.fileDialogService.showOpenDialog({
+                title: 'Create W7-X Coil Study',
+                canSelectFiles: true,
+                canSelectFolders: false,
+                canSelectMany: false,
+                filters: {
+                    'CAD Exchange Files': ['step', 'stp']
+                }
+            });
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            this.messageService.error(`Failed to open the CAD file picker: ${message}`);
+            return;
+        }
+        if (imported === undefined) {
+            return;
+        }
+        const targetUri = await this.chooseImportTarget(imported.path.name, true, {
+            title: W7X_STUDY_DIALOG_TITLE,
+            inputValue: W7X_STUDY_DEFAULT_NAME
+        });
+        if (targetUri === undefined) {
+            return;
+        }
+        await this.prepareW7xCoilStudy(targetUri, imported);
+    }
+
+    /** Copy, inspect, and validate a source, then show the study report dialog. */
+    private async prepareW7xCoilStudy(targetUri: URI, imported: URI): Promise<void> {
+        this.setLoading(true, W7X_STUDY_INSPECTING_MESSAGE);
+        let partSource: URI;
+        let inspection: InspectImportSourceResult;
+        try {
+            partSource = await this.prepareImportBodySource(targetUri, imported);
+            inspection = await this.backendService.inspectImportSource({
+                sourcePath: partSource.path.toString(),
+                sourceUnit: 'm',
+                targetUnits: 'm',
+                maxSolids: W7X_IMPORT_MAX_SOLIDS
+            });
+        } catch (error) {
+            this.setLoading(false);
+            const message = error instanceof Error ? error.message : String(error);
+            this.messageService.error(`Failed to prepare '${imported.path.base}' for the W7-X coil study: ${message}`);
+            return;
+        }
+
+        if (inspection.success === false) {
+            this.setLoading(false);
+            this.messageService.error(
+                inspection.error || `Failed to inspect '${imported.path.base}' for the W7-X coil study. No document was created.`
+            );
+            return;
+        }
+        const validation = validateW7xInspection(inspection, W7X_GEOMETRY_ASSET);
+        if (!validation.valid) {
+            this.setLoading(false);
+            const details = validation.mismatches
+                .slice(0, 8)
+                .map((mismatch) => mismatch.message)
+                .join(' ');
+            const remaining = validation.mismatches.length - 8;
+            const suffix = remaining > 0 ? ` (+${remaining} more mismatch${remaining === 1 ? '' : 'es'})` : '';
+            this.messageService.error(
+                `This STEP does not match the validated W7-X reference inventory; no document was created. ${details}${suffix}`
+            );
+            return;
+        }
+        if (inspection.sourceHash === undefined || inspection.sourceSize === undefined) {
+            this.setLoading(false);
+            this.messageService.error(
+                `The W7-X inspection of '${imported.path.base}' did not return a source hash and size. No document was created.`
+            );
+            return;
+        }
+        if (
+            inspection.sourceHash !== W7X_GEOMETRY_ASSET.source.sourceHash ||
+            inspection.sourceSize !== W7X_GEOMETRY_ASSET.source.sourceSize
+        ) {
+            this.setLoading(false);
+            this.messageService.error(
+                `The W7-X coil study requires the pinned reference STEP ` +
+                    `(SHA-256 ${W7X_GEOMETRY_ASSET.source.sourceHash}, ${W7X_GEOMETRY_ASSET.source.sourceSize} bytes); ` +
+                    `this source has SHA-256 ${inspection.sourceHash}, ${inspection.sourceSize} bytes. No document was created.`
+            );
+            return;
+        }
+
+        const source = {
+            sourcePath: documentRelativeAssemblyPart(targetUri.path.toString(), partSource.path.toString()),
+            sourceHash: inspection.sourceHash,
+            sourceSize: inspection.sourceSize,
+            sourceFormat: inspection.sourceFormat ?? inferImportSourceFormat(partSource.path.toString()),
+            sourceUnit: 'm' as const
+        };
+        const reports = {} as Record<W7xStudyModuleCount, W7xCoilStudyReport>;
+        try {
+            for (const moduleCount of W7X_STUDY_MODULE_COUNTS) {
+                const plan = planW7xCoilStudy(source, moduleCount);
+                const planError = this.w7xStudyPlanError(plan, moduleCount);
+                if (planError !== undefined) {
+                    throw new Error(planError);
+                }
+                reports[moduleCount] = plan.designStudy.report;
+            }
+        } catch (error) {
+            this.setLoading(false);
+            const message = error instanceof Error ? error.message : String(error);
+            this.messageService.error(`The committed W7-X coil-study report is inconsistent: ${message}. No document was created.`);
+            return;
+        }
+
+        this.w7xStudyDialog = {
+            targetUri,
+            sourcePath: partSource.path.toString(),
+            relativeSourcePath: source.sourcePath,
+            sourceHash: source.sourceHash,
+            sourceSize: source.sourceSize,
+            sourceFormat: source.sourceFormat,
+            sourceLabel: imported.path.base,
+            reports
+        };
+        this.setLoading(false);
+        this.update();
+    }
+
+    /** Validate one study plan's inventory before any store mutation. */
+    private w7xStudyPlanError(plan: ReturnType<typeof planW7xCoilStudy>, moduleCount: W7xStudyModuleCount): string | undefined {
+        const expectedCoils = W7X_GEOMETRY_ASSET.coilShapes.length * moduleCount;
+        const expectedShells = W7X_GEOMETRY_ASSET.shells.length;
+        const coilInstances = plan.instances.filter((instance) => instance.kind === 'coil').length;
+        const shellInstances = plan.instances.length - coilInstances;
+        const bodyLabels = new Set(plan.bodies.map((body) => body.label));
+        const instanceIds = new Set(plan.instances.map((instance) => instance.id));
+        if (plan.bodies.length !== W7X_STUDY_BODY_COUNT) {
+            return `expected ${W7X_STUDY_BODY_COUNT} bodies, planned ${plan.bodies.length}`;
+        }
+        if (bodyLabels.size !== plan.bodies.length) {
+            return 'planned bodies contain duplicate labels';
+        }
+        if (coilInstances !== expectedCoils || shellInstances !== expectedShells) {
+            return `expected ${expectedCoils} coil + ${expectedShells} shell instances, planned ${coilInstances} + ${shellInstances}`;
+        }
+        if (instanceIds.size !== plan.instances.length) {
+            return 'planned instances contain duplicate ids';
+        }
+        if (plan.designStudy.report.moduleCount !== moduleCount) {
+            return `report is for ${plan.designStudy.report.moduleCount} modules, expected ${moduleCount}`;
+        }
+        return undefined;
+    }
+
+    /** Close the study dialog without touching the document. */
+    protected readonly handleCancelW7xStudy = (): void => {
+        if (this.w7xStudyBusy) {
+            return;
+        }
+        this.w7xStudyDialog = undefined;
+        this.update();
+    };
+
+    /**
+     * Commit a confirmed study: create the document, mark it as a design study,
+     * add the fifteen bodies and 40/50/60 coil + 5 shell instances, then save
+     * and rebuild once. Every validation failure returns before the document is
+     * created; dialog state survives a failed commit so the user can retry.
+     */
+    protected async handleW7xStudyConfirm(moduleCount: W7xStudyModuleCount): Promise<void> {
+        const dialog = this.w7xStudyDialog;
+        if (dialog === undefined || this.w7xStudyBusy) {
+            return;
+        }
+        this.w7xStudyBusy = true;
+        this.update();
+        const loadingMessage = `Building W7-X coil study (${moduleCount} modules)…`;
+        this.setLoading(true, loadingMessage);
+        try {
+            const plan = planW7xCoilStudy(
+                {
+                    sourcePath: dialog.relativeSourcePath,
+                    sourceHash: dialog.sourceHash,
+                    sourceSize: dialog.sourceSize,
+                    ...(dialog.sourceFormat !== undefined ? { sourceFormat: dialog.sourceFormat } : {}),
+                    sourceUnit: 'm'
+                },
+                moduleCount
+            );
+            const planError = this.w7xStudyPlanError(plan, moduleCount);
+            if (planError !== undefined) {
+                this.messageService.error(`The W7-X coil-study plan is inconsistent: ${planError}. No document was created.`);
+                return;
+            }
+
+            // A study can reuse the name of an older document; its material
+            // sidecar would reference selectors the new assembly does not have.
+            await this.removeStaleRegionManifest(dialog.targetUri);
+
+            const documentName = dialog.targetUri.path.name.length > 0 ? dialog.targetUri.path.name : W7X_STUDY_DEFAULT_NAME;
+            this.clearViewportModel();
+            const created = this.documentStore.createDocument(documentName);
+            if (!created.success) {
+                this.messageService.error(created.error || 'Failed to create the W7-X coil-study document.');
+                return;
+            }
+            const units = this.documentStore.setUnits('m');
+            if (!units.success) {
+                this.messageService.error(`Failed to set the W7-X coil-study units: ${units.error || 'unknown error'}`);
+                return;
+            }
+            const tolerance = this.documentStore.setDisplayTolerance(W7X_GEOMETRY_ASSET.source.displayTolerance);
+            if (!tolerance.success) {
+                this.messageService.error(`Failed to set the W7-X coil-study display tolerance: ${tolerance.error || 'unknown error'}`);
+                return;
+            }
+            const overlap = this.documentStore.setOverlapCheck(false);
+            if (!overlap.success) {
+                this.messageService.error(`Failed to configure the W7-X coil-study overlap gate: ${overlap.error || 'unknown error'}`);
+                return;
+            }
+            const designStudy: W7xCoilStudy = plan.designStudy;
+            const study = this.documentStore.setDesignStudy(designStudy);
+            if (!study.success) {
+                this.messageService.error(`Failed to mark the W7-X coil-study document: ${study.error || 'unknown error'}`);
+                return;
+            }
+
+            const added = this.documentStore.addImportBodies({ bodies: mapW7xPlanToImports(plan) });
+            if (!added.success) {
+                this.messageService.error(`Failed to add the W7-X coil-study bodies: ${added.error || 'unknown error'}`);
+                return;
+            }
+            let instanceDrafts;
+            try {
+                const bodyIdsByLabel = mapW7xBodyIds(plan, added.value?.bodyIds ?? []);
+                instanceDrafts = mapW7xPlanToInstances(plan, bodyIdsByLabel);
+            } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                this.messageService.error(`Failed to map the W7-X coil-study instances: ${message}`);
+                return;
+            }
+            const instances = this.documentStore.addAssemblyInstances(instanceDrafts, plan.groundedInstanceId);
+            if (!instances.success) {
+                this.messageService.error(`Failed to add the W7-X coil-study instances: ${instances.error || 'unknown error'}`);
+                return;
+            }
+
+            this.documentStore.setUri(dialog.targetUri.toString());
+            this.w7xStudyDialog = undefined;
+            this.clearSaveRebuildTimer();
+            this.buildStale = false;
+            this.rebuildTracker.reset();
+            this.update();
+
+            try {
+                await this.saveDocument(false);
+            } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                this.messageService.error(`Failed to save the W7-X coil-study document: ${message}`);
+                return;
+            }
+            try {
+                await this.rebuildDocument(false, loadingMessage);
+            } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                this.messageService.error(`Failed to build the W7-X coil study: ${message}`);
+                return;
+            }
+            if (this.buildError === undefined) {
+                const coilCount = plan.instances.filter((instance) => instance.kind === 'coil').length;
+                const shellCount = plan.instances.length - coilCount;
+                this.messageService.info(
+                    `W7-X coil study ready: ${plan.bodies.length} imported bodies and ${plan.instances.length} instances ` +
+                        `(${coilCount} coils + ${shellCount} shells) across ${moduleCount} modules. ` +
+                        'Design study: simulation export is disabled.'
+                );
+            }
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            this.messageService.error(`Failed to create the W7-X coil study: ${message}`);
+        } finally {
+            this.w7xStudyBusy = false;
+            this.setLoading(false);
+            this.update();
+        }
+    }
+
+    /**
+     * Create the self-contained W7-X native coil shape study.
+     *
+     * No source file is read: ten committed reference centerlines become ten
+     * editable `coilSweep` bodies, replicated across the five locked modules.
+     * The user first chooses where the `.nuke-cad` lives, then confirms the
+     * section parameters; cancelling either step changes nothing.
+     */
+    async createW7xShapeStudy(): Promise<void> {
+        this.templatePickerOpen = false;
+        this.update();
+        await this.workspaceService.ready;
+        const targetUri = await this.chooseImportTarget(W7X_SHAPE_STUDY_DEFAULT_NAME, true, {
+            title: W7X_SHAPE_STUDY_DIALOG_TITLE,
+            inputValue: W7X_SHAPE_STUDY_DEFAULT_NAME
+        });
+        if (targetUri === undefined) {
+            return;
+        }
+        this.w7xShapeStudyDialog = { targetUri };
+        this.update();
+    }
+
+    /** Close the shape-study dialog without touching the document. */
+    protected readonly handleCancelW7xShapeStudy = (): void => {
+        if (this.w7xShapeStudyBusy) {
+            return;
+        }
+        this.w7xShapeStudyDialog = undefined;
+        this.update();
+    };
+
+    /**
+     * Commit a confirmed shape study: plan the complete document from the
+     * committed asset (nothing is mutated yet), install it atomically with
+     * `loadDocument`, point it at the chosen save target, then save and rebuild
+     * once. A planning/validation failure returns before the active document is
+     * touched.
+     */
+    protected async handleW7xShapeStudyConfirm(config: W7xShapeStudyConfig): Promise<void> {
+        const dialog = this.w7xShapeStudyDialog;
+        if (dialog === undefined || this.w7xShapeStudyBusy) {
+            return;
+        }
+        this.w7xShapeStudyBusy = true;
+        this.update();
+        this.setLoading(true, W7X_SHAPE_STUDY_LOADING_MESSAGE);
+        try {
+            const documentName = dialog.targetUri.path.name.length > 0 ? dialog.targetUri.path.name : W7X_SHAPE_DEFAULT_NAME;
+            const document = createW7xShapeStudyDocument(documentName, config);
+            const planError = this.w7xShapeStudyPlanError(document);
+            if (planError !== undefined) {
+                this.messageService.error(`The W7-X coil shape-study plan is inconsistent: ${planError}. No document was created.`);
+                return;
+            }
+
+            this.clearViewportModel();
+            const loaded = this.documentStore.loadDocument(document);
+            if (!loaded.success) {
+                this.messageService.error(
+                    `Failed to install the W7-X coil shape-study document: ${loaded.error || 'validation failed'}. No document was created.`
+                );
+                return;
+            }
+            this.documentStore.setUri(dialog.targetUri.toString());
+            this.w7xShapeStudyDialog = undefined;
+            this.clearSaveRebuildTimer();
+            this.buildStale = false;
+            this.rebuildTracker.reset();
+            this.update();
+
+            try {
+                await this.saveDocument(false);
+            } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                this.messageService.error(`Failed to save the W7-X coil shape-study document: ${message}`);
+                return;
+            }
+            try {
+                await this.rebuildDocument(false, W7X_SHAPE_STUDY_LOADING_MESSAGE);
+            } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                this.messageService.error(`Failed to build the W7-X coil shape study: ${message}`);
+                return;
+            }
+            if (this.buildError === undefined) {
+                this.messageService.info(
+                    `W7-X coil shape study ready: ${W7X_SHAPE_BODY_COUNT} native coil bodies and ${W7X_SHAPE_INSTANCE_COUNT} ` +
+                        'instances across 5 modules. Native sweeps approximate the reference B-rep; simulation export is disabled.'
+                );
+            }
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            this.messageService.error(`Failed to create the W7-X coil shape study: ${message}. No document was created.`);
+        } finally {
+            this.w7xShapeStudyBusy = false;
+            this.setLoading(false);
+            this.update();
+        }
+    }
+
+    /** Validate the planned shape-study inventory before installing it. */
+    private w7xShapeStudyPlanError(document: NukeCadDocument): string | undefined {
+        if (document.designStudy?.kind !== 'w7x-coil-shape-study') {
+            return 'missing the w7x-coil-shape-study design marker';
+        }
+        if (document.bodies.length !== W7X_SHAPE_BODY_COUNT) {
+            return `expected ${W7X_SHAPE_BODY_COUNT} bodies, planned ${document.bodies.length}`;
+        }
+        if (document.curves.length !== W7X_SHAPE_BODY_COUNT) {
+            return `expected ${W7X_SHAPE_BODY_COUNT} centerline curves, planned ${document.curves.length}`;
+        }
+        if (document.features.length !== W7X_SHAPE_BODY_COUNT) {
+            return `expected ${W7X_SHAPE_BODY_COUNT} coil sweeps, planned ${document.features.length}`;
+        }
+        if (document.features.some((feature) => feature.type !== 'coilSweep')) {
+            return 'planned features must all be coilSweep';
+        }
+        const instances = document.assembly?.instances ?? [];
+        if (instances.length !== W7X_SHAPE_INSTANCE_COUNT) {
+            return `expected ${W7X_SHAPE_INSTANCE_COUNT} coil instances, planned ${instances.length}`;
+        }
+        if (new Set(instances.map((instance) => instance.id)).size !== instances.length) {
+            return 'planned instances contain duplicate ids';
+        }
+        return undefined;
+    }
+
+    /**
+     * Copy an imported exchange source into `<document-stem>.parts/` when it
+     * lives outside the document folder. Path planning is shared with the
+     * assembly importer (`importedPartStorage`/`projectPartPath`); a source
+     * already inside the document folder is referenced in place.
+     */
+    private async prepareImportBodySource(targetUri: URI, imported: URI): Promise<URI> {
+        const storage = importedPartStorage(targetUri.path.toString(), imported.path.toString());
+        if (!storage.copy || storage.folder === undefined) {
+            return imported;
+        }
+        const folder = targetUri.withPath(storage.folder);
+        const destination = targetUri.withPath(storage.target);
+        if (!(await this.fileService.exists(folder))) {
+            await this.fileService.createFolder(folder);
+        }
+        await this.fileService.copy(imported, destination, { overwrite: true });
+        return destination;
+    }
+
+    /** Inspect a source with the body-import caps; unit fields are omitted when absent. */
+    private inspectImportSourceForDialog(
+        sourcePath: string,
+        sourceUnit: 'mm' | 'cm' | 'm' | undefined,
+        targetUnits: DocumentUnits | undefined
+    ): Promise<InspectImportSourceResult> {
+        const request: InspectImportSourceRequest = {
+            sourcePath,
+            maxSolids: 500,
+            ...(sourceUnit !== undefined ? { sourceUnit } : {}),
+            ...(targetUnits !== undefined ? { targetUnits } : {})
+        };
+        return this.backendService.inspectImportSource(request);
+    }
+
+    /** Close the import-body dialog without touching the document. */
+    protected readonly handleCancelImportBody = (): void => {
+        if (this.importBodyBusy) {
+            return;
+        }
+        this.importBodyDialog = undefined;
+        this.update();
+    };
+
+    /**
+     * Commit the import-body dialog choice: re-inspect on a source-unit
+     * override (so signatures match the builder's effective unit), build the
+     * atomic draft batch, create the document only when needed, and save /
+     * rebuild once. A failed step leaves the document unmutated.
+     */
+    protected async handleImportBodyConfirm(choice: ImportBodyChoice): Promise<void> {
+        const dialog = this.importBodyDialog;
+        if (dialog === undefined || this.importBodyBusy) {
+            return;
+        }
+        this.importBodyBusy = true;
+        this.update();
+        try {
+            let inspection = dialog.inspection;
+            if (choice.sourceUnit !== undefined) {
+                inspection = await this.inspectImportSourceForDialog(dialog.sourcePath, choice.sourceUnit, dialog.documentUnits);
+                if (!inspection.success) {
+                    this.messageService.error(inspection.error || 'Failed to re-inspect the import source with the selected source unit.');
+                    return;
+                }
+            }
+            const sourceFormat = inspection.sourceFormat ?? inferImportSourceFormat(dialog.sourcePath);
+            const plan = planImportBodies(
+                {
+                    sourcePath: dialog.relativeSourcePath,
+                    sourceHash: inspection.sourceHash ?? '',
+                    sourceSize: inspection.sourceSize,
+                    sourceFormat,
+                    maxSolids: 500
+                },
+                choice,
+                inspection.solids ?? [],
+                this.documentStore.document?.bodies.map((body) => body.name) ?? []
+            );
+            if (!plan.ok) {
+                this.messageService.error(plan.error);
+                return;
+            }
+            if (dialog.createDocument) {
+                const name = dialog.targetUri.path.name.length > 0 ? dialog.targetUri.path.name : dialog.sourceLabel;
+                this.clearViewportModel();
+                const created = this.documentStore.createDocument(name);
+                if (!created.success) {
+                    this.messageService.error(created.error || 'Failed to create the CAD document.');
+                    return;
+                }
+            }
+            const added = this.documentStore.addImportBodies({ bodies: plan.drafts });
+            if (!added.success) {
+                this.messageService.error(added.error || 'Failed to add the imported bodies.');
+                return;
+            }
+            if (this.documentStore.uri !== dialog.targetUri.toString()) {
+                this.documentStore.setUri(dialog.targetUri.toString());
+            }
+            const bodyCount = added.value?.bodyIds.length ?? plan.drafts.length;
+
+            this.importBodyDialog = undefined;
+            this.clearSaveRebuildTimer();
+            this.buildStale = false;
+            this.rebuildTracker.reset();
+            this.update();
+
+            try {
+                await this.saveDocument(false);
+            } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                this.messageService.error(`Failed to save the CAD document: ${message}`);
+                return;
+            }
+            try {
+                await this.rebuildDocument();
+            } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                this.messageService.error(`Failed to build the imported body: ${message}`);
+                return;
+            }
+            this.messageService.info(`Imported ${bodyCount} bod${bodyCount === 1 ? 'y' : 'ies'} from ${dialog.sourceLabel}.`);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            this.messageService.error(`Failed to import the CAD body: ${message}`);
+        } finally {
+            this.importBodyBusy = false;
+            this.update();
+        }
+    }
+
+    /**
+     * Manual freshness pass for imported sources (Phase 1 has no watcher).
+     *
+     * Every unique `sourcePath` is re-inspected; a changed SHA-256/size calls
+     * `refreshImportSource` (which updates all features sharing that source in
+     * one commit), then the document saves and rebuilds once. Multiple unique
+     * sources produce one store commit per source because the store's refresh
+     * mutation is per-source; unchanged sources stay untouched.
+     */
+    async refreshImportSources(): Promise<void> {
+        const doc = this.documentStore.document;
+        if (doc === undefined) {
+            this.messageService.warn('Open a CAD document before refreshing imported sources.');
+            return;
+        }
+        if (this.documentStore.uri === undefined) {
+            this.messageService.warn('Save the CAD document before refreshing imported sources.');
+            return;
+        }
+        const sources = new Map<string, { sourcePath: string; hash?: string; size?: number }>();
+        for (const feature of doc.features) {
+            if (feature.type !== 'import') {
+                continue;
+            }
+            const params = feature.params as { sourcePath?: unknown; sourceHash?: unknown; sourceSize?: unknown };
+            if (typeof params.sourcePath !== 'string' || params.sourcePath.length === 0) {
+                continue;
+            }
+            const hash = typeof params.sourceHash === 'string' ? params.sourceHash : undefined;
+            const size = typeof params.sourceSize === 'number' ? params.sourceSize : undefined;
+            const existing = sources.get(params.sourcePath);
+            if (existing === undefined) {
+                sources.set(params.sourcePath, { sourcePath: params.sourcePath, hash, size });
+            } else if (existing.hash !== hash || existing.size !== size) {
+                // Same source recorded with different identities: always refresh.
+                sources.set(params.sourcePath, { sourcePath: params.sourcePath });
+            }
+        }
+        if (sources.size === 0) {
+            this.messageService.warn('This document has no imported CAD sources to refresh.');
+            return;
+        }
+        const documentUri = new URI(this.documentStore.uri);
+        const failures: string[] = [];
+        let changedSources = 0;
+        let changedFeatures = 0;
+        for (const source of sources.values()) {
+            const base = importSourceBaseName(source.sourcePath);
+            const absolute = this.resolveImportSourcePath(documentUri, source.sourcePath);
+            if (absolute === undefined) {
+                failures.push(`${base}: relative source without a document path`);
+                continue;
+            }
+            try {
+                const inspection = await this.backendService.inspectImportSource({ sourcePath: absolute, maxSolids: 500 });
+                if (!inspection.success || inspection.sourceHash === undefined || inspection.sourceSize === undefined) {
+                    failures.push(`${base}: ${inspection.error ?? 'inspection returned no hash/size'}`);
+                    continue;
+                }
+                if (inspection.sourceHash === source.hash && inspection.sourceSize === source.size) {
+                    continue;
+                }
+                const refreshed = this.documentStore.refreshImportSource(source.sourcePath, inspection.sourceHash, inspection.sourceSize);
+                if (!refreshed.success) {
+                    failures.push(`${base}: ${refreshed.error ?? 'refresh failed'}`);
+                    continue;
+                }
+                changedSources += 1;
+                changedFeatures += refreshed.value?.featureIds.length ?? 0;
+            } catch (error) {
+                failures.push(`${base}: ${error instanceof Error ? error.message : String(error)}`);
+            }
+        }
+        if (changedSources > 0) {
+            try {
+                await this.saveDocument(false);
+            } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                this.messageService.error(`Failed to save the refreshed CAD document: ${message}`);
+                return;
+            }
+            try {
+                await this.rebuildDocument();
+            } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                this.messageService.error(`Failed to rebuild the refreshed CAD document: ${message}`);
+                return;
+            }
+            this.messageService.info(
+                `Refreshed ${changedSources} import source${changedSources === 1 ? '' : 's'} (${changedFeatures} feature${
+                    changedFeatures === 1 ? '' : 's'
+                }).`
+            );
+        } else if (failures.length === 0) {
+            this.messageService.info('Import sources are up to date.');
+        }
+        if (failures.length > 0) {
+            this.messageService.warn(
+                `Could not refresh ${failures.length} import source${failures.length === 1 ? '' : 's'}: ${failures.join('; ')}`
+            );
+        }
+    }
+
+    /** Resolve a stored source path against the saved document directory. */
+    private resolveImportSourcePath(documentUri: URI, sourcePath: string): string | undefined {
+        if (sourcePath.startsWith('./') || sourcePath.startsWith('../')) {
+            return documentUri.parent.resolve(sourcePath).normalizePath().path.toString();
+        }
+        return documentUri.withPath(sourcePath).normalizePath().path.toString();
     }
 
     /** Ask where a new imported document should live, or reuse the active one. */
@@ -928,6 +1878,209 @@ export class CadViewportWidget extends ReactWidget {
             const message = error instanceof Error ? error.message : String(error);
             this.messageService.error(`Failed to open the CAD save dialog: ${message}`);
             return undefined;
+        }
+    }
+
+    /**
+     * Build the valid-only W7-X generator document from a reference STEP.
+     *
+     * Copy → inspect on the metre source unit → validate every index, face
+     * count, and volume against the committed inventory → only then
+     * create a fresh document. A mismatched source (or a failed inspection)
+     * returns before any document is created or mutated, so there is never
+     * partial geometry. The fifteen imported bodies and fifty-five assembly
+     * instances commit in two store batches, then the project saves and
+     * rebuilds once. The module count is locked to the validated five-module
+     * asset; `options` mirrors {@link completeImportedDocument} for the sample
+     * routes but the generator always owns units, display tolerance, and the
+     * overlap gate.
+     */
+    private async completeW7xGenerator(
+        targetUri: URI,
+        imported: URI,
+        options?: {
+            displayTolerance?: number;
+            forceNewDocument?: boolean;
+            copySource?: boolean;
+            clearStaleRegionManifest?: boolean;
+        }
+    ): Promise<void> {
+        this.setLoading(true, W7X_GENERATOR_LOADING_MESSAGE);
+        let partSource: URI;
+        let inspection: InspectImportSourceResult;
+        try {
+            partSource = await this.prepareImportBodySource(targetUri, imported);
+            inspection = await this.backendService.inspectImportSource({
+                sourcePath: partSource.path.toString(),
+                sourceUnit: 'm',
+                targetUnits: 'm',
+                maxSolids: W7X_IMPORT_MAX_SOLIDS
+            });
+        } catch (error) {
+            this.setLoading(false);
+            const message = error instanceof Error ? error.message : String(error);
+            this.messageService.error(`Failed to prepare '${imported.path.base}' for the W7-X generator: ${message}`);
+            return;
+        }
+
+        if (inspection.success === false) {
+            this.setLoading(false);
+            this.messageService.error(
+                inspection.error || `Failed to inspect '${imported.path.base}' for the W7-X generator. No document was created.`
+            );
+            return;
+        }
+        const validation = validateW7xInspection(inspection, W7X_GEOMETRY_ASSET);
+        if (!validation.valid) {
+            this.setLoading(false);
+            const details = validation.mismatches
+                .slice(0, 8)
+                .map((mismatch) => mismatch.message)
+                .join(' ');
+            const remaining = validation.mismatches.length - 8;
+            const suffix = remaining > 0 ? ` (+${remaining} more mismatch${remaining === 1 ? '' : 'es'})` : '';
+            this.messageService.error(
+                `This STEP does not match the validated W7-X reference inventory; no document was created. ${details}${suffix}`
+            );
+            return;
+        }
+        if (inspection.sourceHash === undefined || inspection.sourceSize === undefined) {
+            this.setLoading(false);
+            this.messageService.error(
+                `The W7-X inspection of '${imported.path.base}' did not return a source hash and size. No document was created.`
+            );
+            return;
+        }
+
+        const plan = planW7xGenerator({
+            sourcePath: documentRelativeAssemblyPart(targetUri.path.toString(), partSource.path.toString()),
+            sourceHash: inspection.sourceHash,
+            sourceSize: inspection.sourceSize,
+            sourceFormat: inspection.sourceFormat ?? inferImportSourceFormat(partSource.path.toString()),
+            sourceUnit: 'm'
+        });
+        const bodyLabels = new Set(plan.bodies.map((body) => body.label));
+        const instanceIds = new Set(plan.instances.map((instance) => instance.id));
+        if (
+            plan.bodies.length !== W7X_GENERATOR_BODY_COUNT ||
+            plan.instances.length !== W7X_GENERATOR_INSTANCE_COUNT ||
+            bodyLabels.size !== plan.bodies.length ||
+            instanceIds.size !== plan.instances.length
+        ) {
+            this.setLoading(false);
+            this.messageService.error(
+                `The committed W7-X inventory produced ${plan.bodies.length} bodies and ${plan.instances.length} instances ` +
+                    `(expected ${W7X_GENERATOR_BODY_COUNT} and ${W7X_GENERATOR_INSTANCE_COUNT} with unique ids). No document was created.`
+            );
+            return;
+        }
+
+        // A new generator can reuse the name of an older document. Its
+        // material sidecar would reference selectors that the new assembly
+        // does not have, so clear it before writing the replacement.
+        await this.removeStaleRegionManifest(targetUri);
+
+        const documentName = targetUri.path.name.length > 0 ? targetUri.path.name : W7X_GENERATOR_DEFAULT_NAME;
+        this.clearViewportModel();
+        const created = this.documentStore.createDocument(documentName);
+        if (!created.success) {
+            this.setLoading(false);
+            this.messageService.error(created.error || 'Failed to create the W7-X generator document.');
+            return;
+        }
+        const units = this.documentStore.setUnits('m');
+        if (!units.success) {
+            this.setLoading(false);
+            this.messageService.error(`Failed to set the W7-X generator units: ${units.error || 'unknown error'}`);
+            return;
+        }
+        const tolerance = this.documentStore.setDisplayTolerance(W7X_GEOMETRY_ASSET.source.displayTolerance);
+        if (!tolerance.success) {
+            this.setLoading(false);
+            this.messageService.error(`Failed to set the W7-X generator display tolerance: ${tolerance.error || 'unknown error'}`);
+            return;
+        }
+        const overlap = this.documentStore.setOverlapCheck(false);
+        if (!overlap.success) {
+            this.setLoading(false);
+            this.messageService.error(`Failed to configure the W7-X generator overlap gate: ${overlap.error || 'unknown error'}`);
+            return;
+        }
+
+        const added = this.documentStore.addImportBodies({ bodies: mapW7xPlanToImports(plan) });
+        if (!added.success) {
+            this.setLoading(false);
+            this.messageService.error(`Failed to add the W7-X generator bodies: ${added.error || 'unknown error'}`);
+            return;
+        }
+        let instanceDrafts;
+        try {
+            const bodyIdsByLabel = mapW7xBodyIds(plan, added.value?.bodyIds ?? []);
+            instanceDrafts = mapW7xPlanToInstances(plan, bodyIdsByLabel);
+        } catch (error) {
+            this.setLoading(false);
+            const message = error instanceof Error ? error.message : String(error);
+            this.messageService.error(`Failed to map the W7-X generator instances: ${message}`);
+            return;
+        }
+        const instances = this.documentStore.addAssemblyInstances(instanceDrafts, plan.groundedInstanceId);
+        if (!instances.success) {
+            this.setLoading(false);
+            this.messageService.error(`Failed to add the W7-X generator instances: ${instances.error || 'unknown error'}`);
+            return;
+        }
+
+        this.documentStore.setUri(targetUri.toString());
+        this.clearSaveRebuildTimer();
+        this.buildStale = false;
+        this.rebuildTracker.reset();
+        this.update();
+
+        try {
+            await this.saveDocument(false);
+        } catch (error) {
+            this.setLoading(false);
+            const message = error instanceof Error ? error.message : String(error);
+            this.messageService.error(`Failed to save the W7-X generator document: ${message}`);
+            return;
+        }
+        try {
+            await this.rebuildDocument(false, W7X_GENERATOR_LOADING_MESSAGE);
+        } catch (error) {
+            this.setLoading(false);
+            const message = error instanceof Error ? error.message : String(error);
+            this.messageService.error(`Failed to build the W7-X generator: ${message}`);
+            return;
+        }
+        if (this.buildError === undefined) {
+            const coilCount = plan.instances.filter((instance) => instance.kind === 'coil').length;
+            const shellCount = plan.instances.length - coilCount;
+            this.messageService.info(
+                `W7-X generator ready: ${plan.bodies.length} imported bodies and ${plan.instances.length} instances ` +
+                    `(${coilCount} coils + ${shellCount} shells) across ${plan.moduleCount} modules. ` +
+                    'Module count is fixed to the validated 5-module layout.'
+            );
+        }
+    }
+
+    /**
+     * Remove a material sidecar left by an older document at the same path.
+     *
+     * Used before a fresh external sample replaces a document with the same
+     * stem; the old selectors would otherwise produce a misleading build
+     * warning. Failures are warnings because the new geometry still builds.
+     */
+    private async removeStaleRegionManifest(targetUri: URI): Promise<void> {
+        const manifestPath = `${targetUri.path.toString().replace(/\.[^/.]*$/, '')}.regions.json`;
+        const manifestUri = targetUri.withPath(manifestPath);
+        try {
+            if (await this.fileService.exists(manifestUri)) {
+                await this.fileService.delete(manifestUri, { useTrash: true });
+                this.messageService.warn(`Removed stale region manifest ${manifestUri.path.base} from the previous document.`);
+            }
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            this.messageService.warn(`Could not remove stale region manifest ${manifestUri.path.base}: ${message}`);
         }
     }
 
@@ -971,25 +2124,12 @@ export class CadViewportWidget extends ReactWidget {
         }
 
         if (options?.clearStaleRegionManifest === true) {
-            // A new external sample can reuse the name of an older document.
-            // The old document's material sidecar then references selectors
-            // that do not exist in the new assembly; move it to trash instead
-            // of surfacing a misleading build warning.
-            const manifestPath = `${targetUri.path.toString().replace(/\.[^/.]*$/, '')}.regions.json`;
-            const manifestUri = targetUri.withPath(manifestPath);
-            try {
-                if (await this.fileService.exists(manifestUri)) {
-                    await this.fileService.delete(manifestUri, { useTrash: true });
-                    this.messageService.warn(`Removed stale region manifest ${manifestUri.path.base} from the previous document.`);
-                }
-            } catch (error) {
-                const message = error instanceof Error ? error.message : String(error);
-                this.messageService.warn(`Could not remove stale region manifest ${manifestUri.path.base}: ${message}`);
-            }
+            await this.removeStaleRegionManifest(targetUri);
         }
 
         if (options?.forceNewDocument === true || this.documentStore.document === undefined) {
             const name = targetUri.path.name.length > 0 ? targetUri.path.name : imported.path.name;
+            this.clearViewportModel();
             const created = this.documentStore.createDocument(name);
             if (!created.success) {
                 this.messageService.error(created.error || 'Failed to create the CAD document.');
@@ -1059,7 +2199,14 @@ export class CadViewportWidget extends ReactWidget {
         const isBoolean = type === 'booleanFuse' || type === 'booleanCut' || type === 'booleanCommon';
         const isDressUp = type === 'fillet' || type === 'chamfer' || type === 'draft' || type === 'shell';
         const isPatternOrMirrorOrHole = type === 'linearPattern' || type === 'circularPattern' || type === 'mirror' || type === 'hole';
-        const sketchFree = isBoolean || isDressUp || isPatternOrMirrorOrHole || type === 'pipe' || type === 'loft' || type === 'translate';
+        const sketchFree =
+            isBoolean ||
+            isDressUp ||
+            isPatternOrMirrorOrHole ||
+            type === 'pipe' ||
+            type === 'loft' ||
+            type === 'translate' ||
+            type === 'coilSweep';
         const sketchId = sketchFree ? undefined : this.documentStore.selection.selectedSketchId;
         if (!sketchFree && sketchId === undefined) {
             this.messageService.warn('Select a closed sketch before adding a solid feature.');
@@ -1074,7 +2221,13 @@ export class CadViewportWidget extends ReactWidget {
         }
 
         const isAdditive =
-            type === 'pad' || type === 'revolve' || type === 'sweep' || type === 'pipe' || type === 'loft' || type === 'helicalSweep';
+            type === 'pad' ||
+            type === 'revolve' ||
+            type === 'sweep' ||
+            type === 'pipe' ||
+            type === 'loft' ||
+            type === 'helicalSweep' ||
+            type === 'coilSweep';
         if (bodyId === undefined && isAdditive) {
             // Create a new body for the additive feature.
             const label = typeof paramsRecord.label === 'string' ? paramsRecord.label : undefined;
@@ -1207,6 +2360,7 @@ export class CadViewportWidget extends ReactWidget {
             'groove',
             'sweep',
             'pipe',
+            'coilSweep',
             'fillet',
             'chamfer',
             'draft',
@@ -1221,7 +2375,8 @@ export class CadViewportWidget extends ReactWidget {
             'translate',
             'booleanFuse',
             'booleanCut',
-            'booleanCommon'
+            'booleanCommon',
+            'import'
         ];
         for (let i = doc.features.length - 1; i >= 0; i--) {
             const feature = doc.features[i];
@@ -1717,6 +2872,132 @@ export class CadViewportWidget extends ReactWidget {
         this.update();
     }
 
+    /**
+     * Restore the current model when this widget is re-attached.
+     *
+     * Closing the CAD viewport disposes its scene, but the document store and
+     * state manager survive. A newly created viewport therefore starts with no
+     * `tessData`; without this hook it renders the empty-document card over a
+     * still-open document. Prefer the existing model's tessellation (no
+     * backend spawn), then fall back to a cached document rebuild.
+     */
+    protected override onAfterAttach(msg: Message): void {
+        super.onAfterAttach(msg);
+        // The New Document command creates and attaches this widget, then
+        // immediately opens the template picker. Defer one turn so that flow
+        // can set `templatePickerOpen` and skip restoring the previous model
+        // in the background.
+        window.setTimeout(() => {
+            if (!this.templatePickerOpen) {
+                void this.restoreViewportModel();
+            }
+        }, 0);
+        void this.revealCompanionPanels();
+    }
+
+    /** Re-open the Feature Tree and Model Outline beside the viewport. */
+    private async revealCompanionPanels(): Promise<void> {
+        for (const id of ['nuke-cad-outline-panel-widget', 'nuke-cad-feature-tree-widget']) {
+            try {
+                const panel = await this.widgetManager.getOrCreateWidget(id);
+                if (!panel.isAttached) {
+                    await this.shell.addWidget(panel, { area: 'right' });
+                } else {
+                    this.shell.revealWidget(panel.id);
+                }
+            } catch (error) {
+                console.warn(`[CadViewport] Failed to reveal companion panel '${id}':`, error);
+            }
+        }
+        // Adding/revealing a widget does not expand a collapsed side panel or
+        // select its tab. Expand, select the Feature Tree, then return focus to
+        // the viewport so its keyboard shortcuts stay live.
+        this.shell.expandPanel('right');
+        await this.shell.activateWidget('nuke-cad-feature-tree-widget');
+        await this.shell.activateWidget(this.id);
+    }
+
+    /**
+     * Drop the rendered model and any pending restore/build when a new
+     * document replaces the current one. The document store is session-wide,
+     * so without this the previous geometry and its late build result can
+     * flash over the new empty document.
+     */
+    private clearViewportModel(): void {
+        this.viewportGeneration++;
+        this.rebuildToken++;
+        this.rebuildPending = false;
+        this.rebuildPromise = undefined;
+        this.pendingPartialJobId = undefined;
+        this.clearSaveRebuildTimer();
+        // Partial test doubles may omit the state manager entirely; the real
+        // singleton always provides both methods.
+        this.stateManager?.setModel?.(undefined);
+        this.stateManager?.setSolidSummaries?.([]);
+        this.tessData = undefined;
+        this.loadedTessPath = undefined;
+        this.loading = false;
+        this.tessLoadInFlight = false;
+        this.buildError = undefined;
+        this.buildWarnings = [];
+        this.rebuildTracker.reset();
+        this.update();
+    }
+
+    /** Re-render the active model/document after a viewport close/reopen. */
+    async restoreViewportModel(): Promise<void> {
+        if (
+            this.templatePickerOpen ||
+            this.tessData !== undefined ||
+            this.loading ||
+            this.rebuildPromise !== undefined ||
+            this.tessLoadInFlight
+        ) {
+            return;
+        }
+        const generation = this.viewportGeneration;
+        const model = this.stateManager.model;
+        const activeUri = this.documentStore.uri;
+        const modelMatches = model !== undefined && (activeUri === undefined || model.scriptPath === activeUri);
+        const tessPath = modelMatches ? model?.result.tessPath : undefined;
+        if (tessPath !== undefined) {
+            this.loading = true;
+            this.loadingMessage = 'Restoring CAD viewport…';
+            this.update();
+            const token = ++this.tessLoadToken;
+            try {
+                await this.loadTessellation(tessPath, token);
+            } catch (error) {
+                // The tessellation may have been deleted between sessions; fall
+                // through to the document rebuild below instead of stranding
+                // the viewport on an error.
+                if (token === this.tessLoadToken) {
+                    this.tessLoadInFlight = false;
+                    this.loading = false;
+                    this.buildError = undefined;
+                    this.update();
+                }
+            }
+            if (this.tessData !== undefined) {
+                return;
+            }
+        }
+        if (generation !== this.viewportGeneration) {
+            return;
+        }
+        if (this.documentStore.document === undefined || this.documentStore.uri === undefined) {
+            return;
+        }
+        this.setLoading(true, 'Restoring CAD viewport…');
+        try {
+            await this.rebuildDocument(true);
+        } finally {
+            if (generation === this.viewportGeneration) {
+                this.setLoading(false);
+            }
+        }
+    }
+
     /** Show the datum-plane picker and prepare to enter sketch mode. */
     readonly startSketchSetup = (): void => {
         if (!this.documentStore.hasDocument) {
@@ -1780,6 +3061,19 @@ export class CadViewportWidget extends ReactWidget {
         this.cameraApi.setCameraState({ position: view.position, target: view.target, up: view.up });
     }
 
+    /**
+     * Mark the next viewport attachment as a New Document flow.
+     *
+     * The `NEW_DOCUMENT` command creates and attaches this widget before
+     * calling {@link newDocument}; setting the picker flag first prevents the
+     * attach hook from restoring the previous session document in the
+     * background while the template picker is open.
+     */
+    prepareForNewDocument(): void {
+        this.templatePickerOpen = true;
+        this.update();
+    }
+
     /** Create a new document and open the viewport. */
     newDocument(): void {
         this.handleNewDocument();
@@ -1833,6 +3127,7 @@ export class CadViewportWidget extends ReactWidget {
             type !== 'pipe' &&
             type !== 'loft' &&
             type !== 'translate' &&
+            type !== 'coilSweep' &&
             this.documentStore.selection.selectedSketchId === undefined
         ) {
             this.messageService.warn('Select a closed sketch in the feature tree before adding a solid feature.');
@@ -1862,6 +3157,10 @@ export class CadViewportWidget extends ReactWidget {
         const feature = doc.features.find((f) => f.id === id);
         if (feature === undefined) {
             this.messageService.warn('Feature not found.');
+            return;
+        }
+        if (feature.type === 'import') {
+            this.messageService.warn('Imported bodies are edited by refreshing or re-importing the source, not in the feature dialog.');
             return;
         }
         this.editingFeatureId = id;
@@ -1911,25 +3210,33 @@ export class CadViewportWidget extends ReactWidget {
      * otherwise-full build goes through the partial RPC with an empty dirty
      * set instead: clean features restore from the zip sidecar and only
      * tessellation runs, with per-feature fallback to execution on any miss.
+     * `loadingMessage` overrides the generic spinner text for a long, known
+     * build (e.g. the W7-X generator).
      */
-    async rebuildDocument(restoreFromCache = false): Promise<void> {
+    async rebuildDocument(restoreFromCache = false, loadingMessage?: string): Promise<void> {
         if (this.rebuildPromise !== undefined) {
             this.rebuildPending = true;
             return;
         }
-        this.rebuildPromise = this.doRebuildDocument(restoreFromCache);
+        const promise = this.doRebuildDocument(restoreFromCache, loadingMessage);
+        this.rebuildPromise = promise;
         try {
-            await this.rebuildPromise;
+            await promise;
         } finally {
-            this.rebuildPromise = undefined;
-            if (this.rebuildPending) {
-                this.rebuildPending = false;
-                this.scheduleDocumentRebuild();
+            // A new document can invalidate this build and start another one
+            // while the old RPC is still winding down; never clear the newer
+            // promise or its queued follow-up from this older call.
+            if (this.rebuildPromise === promise) {
+                this.rebuildPromise = undefined;
+                if (this.rebuildPending) {
+                    this.rebuildPending = false;
+                    this.scheduleDocumentRebuild();
+                }
             }
         }
     }
 
-    private async doRebuildDocument(restoreFromCache = false): Promise<void> {
+    private async doRebuildDocument(restoreFromCache = false, loadingMessage?: string): Promise<void> {
         const doc = this.documentStore.document;
         if (doc === undefined) {
             this.messageService.warn('No CAD document is active.');
@@ -1978,11 +3285,12 @@ export class CadViewportWidget extends ReactWidget {
         const token = ++this.rebuildToken;
         this.setLoading(
             true,
-            usePartial
-                ? `Rebuilding ${plan!.length} of ${doc.features.length} features...`
-                : restoreAll
-                  ? 'Restoring cached geometry...'
-                  : 'Rebuilding CAD geometry...'
+            loadingMessage ??
+                (usePartial
+                    ? `Rebuilding ${plan!.length} of ${doc.features.length} features...`
+                    : restoreAll
+                      ? 'Restoring cached geometry...'
+                      : 'Rebuilding CAD geometry...')
         );
         // The backend rewrites <stem>.tess.json at the same path, so a rebuild
         // must not trust the path-equality check in handleModelChange. Keep
@@ -2618,9 +3926,27 @@ export class CadViewportWidget extends ReactWidget {
                 subscribeThemeChange={this.subscribeThemeChange}
                 onOpenModel={() => this.openModelFromDialog()}
                 onImportCad={() => void this.handleImportCad()}
+                onImportCadBody={() => void this.handleImportCadBody()}
+                onCreateW7xGenerator={() => void this.createW7xGenerator()}
+                onCreateW7xCoilStudy={() => void this.createW7xCoilStudy()}
+                onCreateW7xShapeStudy={() => void this.createW7xShapeStudy()}
+                onOpenFeatureTree={this.handleOpenFeatureTree}
+                onOpenModelOutline={this.handleOpenModelOutline}
+                importBodyDialog={this.importBodyDialog}
+                importBodyBusy={this.importBodyBusy}
+                onImportBodyConfirm={(choice) => void this.handleImportBodyConfirm(choice)}
+                onCancelImportBody={this.handleCancelImportBody}
+                w7xStudyDialog={this.w7xStudyDialog}
+                w7xStudyBusy={this.w7xStudyBusy}
+                onW7xStudyConfirm={(moduleCount) => void this.handleW7xStudyConfirm(moduleCount)}
+                onCancelW7xStudy={this.handleCancelW7xStudy}
+                w7xShapeStudyDialog={this.w7xShapeStudyDialog}
+                w7xShapeStudyBusy={this.w7xShapeStudyBusy}
+                onW7xShapeStudyConfirm={(config) => void this.handleW7xShapeStudyConfirm(config)}
+                onCancelW7xShapeStudy={this.handleCancelW7xShapeStudy}
                 onNewDocument={this.handleNewDocument}
                 onCreateDocument={this.handleCreateDocument}
-                onSelectSample={this.handleCreateSample}
+                onSelectSample={(id) => void this.handleCreateSample(id)}
                 onDownloadSample={(id) => void this.handleDownloadSample(id)}
                 onCancelTemplatePicker={this.handleCancelTemplatePicker}
                 onSaveDocument={this.handleSaveDocument}
@@ -2764,6 +4090,36 @@ interface CadViewportComponentProps {
     readonly onOpenModel: () => void;
     /** Import a STEP/STP/IGES/IGS/BREP file as an assembly instance in a saved document. */
     readonly onImportCad: () => void;
+    /** Import a STEP/STP/IGES/IGS/BREP file as editable body feature(s). */
+    readonly onImportCadBody: () => void;
+    /** Create the valid-only, five-module W7-X generator project. */
+    readonly onCreateW7xGenerator: () => void;
+    /** Create the experimental W7-X coil-count study project. */
+    readonly onCreateW7xCoilStudy: () => void;
+    /** Create the self-contained W7-X native coil shape study. */
+    readonly onCreateW7xShapeStudy: () => void;
+    /** Reveal the Feature Tree panel. */
+    readonly onOpenFeatureTree: () => void;
+    /** Reveal the Model Outline panel. */
+    readonly onOpenModelOutline: () => void;
+    /** Pending import-body dialog state, or undefined when closed. */
+    readonly importBodyDialog?: ImportBodyDialogState;
+    /** True while the import-body confirmation is busy. */
+    readonly importBodyBusy: boolean;
+    readonly onImportBodyConfirm: (choice: ImportBodyChoice) => void;
+    readonly onCancelImportBody: () => void;
+    /** Pending W7-X coil-study report dialog, or undefined when closed. */
+    readonly w7xStudyDialog?: W7xStudyDialogState;
+    /** True while the study confirmation creates/saves the document. */
+    readonly w7xStudyBusy: boolean;
+    readonly onW7xStudyConfirm: (moduleCount: W7xStudyModuleCount) => void;
+    readonly onCancelW7xStudy: () => void;
+    /** Pending W7-X native coil shape-study configuration dialog, or undefined when closed. */
+    readonly w7xShapeStudyDialog?: W7xShapeStudyDialogState;
+    /** True while the shape-study confirmation installs/saves the document. */
+    readonly w7xShapeStudyBusy: boolean;
+    readonly onW7xShapeStudyConfirm: (config: W7xShapeStudyConfig) => void;
+    readonly onCancelW7xShapeStudy: () => void;
     readonly onNewDocument: () => void;
     readonly onCreateDocument: (templateId: string) => void;
     /** Create and save an editable copy of a built-in example project. */
@@ -3548,9 +4904,13 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             </div>
         ) : undefined;
 
+    const designStudy = props.documentStore.document?.designStudy;
+    const designStudyBanner = designStudy !== undefined ? <W7xDesignStudyBanner study={designStudy} /> : undefined;
+
     const banners =
-        errorBanner !== undefined || warningStrip !== undefined || staleBanner !== undefined ? (
+        designStudyBanner !== undefined || errorBanner !== undefined || warningStrip !== undefined || staleBanner !== undefined ? (
             <div className="cad-viewport-banners">
+                {designStudyBanner}
                 {errorBanner}
                 {warningStrip}
                 {staleBanner}
@@ -3606,6 +4966,12 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             onStartSketchSetup={props.onStartSketchSetup}
             onExportPython={props.onExportPython}
             onImportCad={props.onImportCad}
+            onImportCadBody={props.onImportCadBody}
+            onCreateW7xGenerator={props.onCreateW7xGenerator}
+            onCreateW7xCoilStudy={props.onCreateW7xCoilStudy}
+            onCreateW7xShapeStudy={props.onCreateW7xShapeStudy}
+            onOpenFeatureTree={props.onOpenFeatureTree}
+            onOpenModelOutline={props.onOpenModelOutline}
             onNewDocument={props.onNewDocument}
             onSaveDocument={props.onSaveDocument}
             onRebuildDocument={props.onRebuildDocument}
@@ -3626,6 +4992,9 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             measureListOpen={measureListOpen}
             onToggleMeasure={handleToggleMeasure}
             onToggleMeasureList={handleToggleMeasureList}
+            importDialogOpen={props.importBodyDialog !== undefined}
+            w7xStudyDialogOpen={props.w7xStudyDialog !== undefined}
+            w7xShapeStudyDialogOpen={props.w7xShapeStudyDialog !== undefined}
             onCloseShortcutBar={closeShortcutBar}
         />
     );
@@ -3649,6 +5018,41 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             onCancel={props.onCancelTemplatePicker}
         />
     ) : undefined;
+
+    const importBodyDialog =
+        props.importBodyDialog !== undefined ? (
+            <ImportBodyDialog
+                key={`${props.importBodyDialog.sourcePath}:${props.importBodyDialog.inspection.sourceHash ?? ''}`}
+                inspection={props.importBodyDialog.inspection}
+                sourceLabel={props.importBodyDialog.sourceLabel}
+                documentUnits={props.importBodyDialog.documentUnits}
+                busy={props.importBodyBusy}
+                onConfirm={props.onImportBodyConfirm}
+                onCancel={props.onCancelImportBody}
+            />
+        ) : undefined;
+
+    const w7xStudyDialog =
+        props.w7xStudyDialog !== undefined ? (
+            <W7xStudyDialog
+                key={`${props.w7xStudyDialog.sourcePath}:${props.w7xStudyDialog.sourceHash}`}
+                sourceLabel={props.w7xStudyDialog.sourceLabel}
+                reports={props.w7xStudyDialog.reports}
+                busy={props.w7xStudyBusy}
+                onConfirm={props.onW7xStudyConfirm}
+                onCancel={props.onCancelW7xStudy}
+            />
+        ) : undefined;
+
+    const w7xShapeStudyDialog =
+        props.w7xShapeStudyDialog !== undefined ? (
+            <W7xShapeStudyDialog
+                key={props.w7xShapeStudyDialog.targetUri.toString()}
+                busy={props.w7xShapeStudyBusy}
+                onConfirm={props.onW7xShapeStudyConfirm}
+                onCancel={props.onCancelW7xShapeStudy}
+            />
+        ) : undefined;
 
     const activeShading = SHADING_MODES.find((mode) => mode.id === shadingMode) ?? SHADING_MODES[0];
     const sectionLabel = sectionStatusLabel({ axis: sectionAxis, flip: sectionFlip, fraction: sectionFraction });
@@ -3841,6 +5245,9 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                 {props.sketchEntering && <NukeLoadingOverlay message="Starting sketch solver..." />}
                 {sketchOverlay}
                 {templatePicker}
+                {importBodyDialog}
+                {w7xStudyDialog}
+                {w7xShapeStudyDialog}
                 {measureListPopover}
             </div>
         );
@@ -3870,10 +5277,16 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                         <button className="theia-button secondary import-cad-assembly-button" onClick={props.onImportCad}>
                             <span className="codicon codicon-cloud-upload" /> Import CAD…
                         </button>
+                        <button className="theia-button secondary import-cad-body-button" onClick={props.onImportCadBody}>
+                            <span className="codicon codicon-file-symlink-file" /> Import CAD as Body…
+                        </button>
                     </NukeEmptyState>
                 </div>
                 {sketchOverlay}
                 {templatePicker}
+                {importBodyDialog}
+                {w7xStudyDialog}
+                {w7xShapeStudyDialog}
             </div>
         );
     }
@@ -3901,11 +5314,17 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                             <button className="theia-button secondary import-cad-assembly-button" onClick={props.onImportCad}>
                                 <span className="codicon codicon-cloud-upload" /> Import CAD…
                             </button>
+                            <button className="theia-button secondary import-cad-body-button" onClick={props.onImportCadBody}>
+                                <span className="codicon codicon-file-symlink-file" /> Import CAD as Body…
+                            </button>
                         </div>
                     </div>
                 </div>
                 {sketchOverlay}
                 {templatePicker}
+                {importBodyDialog}
+                {w7xStudyDialog}
+                {w7xShapeStudyDialog}
             </div>
         );
     }
@@ -3922,6 +5341,9 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             {measureListPopover}
             {sketchOverlay}
             {templatePicker}
+            {importBodyDialog}
+            {w7xStudyDialog}
+            {w7xShapeStudyDialog}
             {props.connectorPickMode !== undefined && (
                 <div className="cad-sketch-face-pick-banner">
                     <span>

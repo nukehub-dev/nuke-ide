@@ -398,3 +398,14 @@
 .cad-curve-dialog-load {
     align-self: flex-start;
 }
+
+/* Imported-body source chip: basename of the document-relative source file. */
+.feature-tree-import-source {
+    flex: 0 1 auto;
+    max-width: 160px;
+    overflow: hidden;
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size0);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}

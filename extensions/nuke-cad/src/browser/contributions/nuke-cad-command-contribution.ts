@@ -206,6 +206,11 @@ export class NukeCadCommandContribution implements CommandContribution {
                 let widget = await this.widgetManager.getWidget<CadViewportWidget>(CadViewportWidget.ID);
                 if (widget === undefined) {
                     widget = await this.widgetManager.getOrCreateWidget<CadViewportWidget>(CadViewportWidget.ID);
+                }
+                // Mark the flow before attachment so the viewport's restore hook
+                // cannot rebuild the previous document behind the picker.
+                widget.prepareForNewDocument();
+                if (!widget.isAttached) {
                     await this.shell.addWidget(widget, { area: 'main' });
                 }
                 await this.shell.activateWidget(widget.id);
@@ -314,7 +319,7 @@ export class NukeCadCommandContribution implements CommandContribution {
         });
 
         const addFeature = async (
-            type: 'pad' | 'pocket' | 'revolve' | 'groove' | 'sweep' | 'pipe' | 'loft' | 'helicalSweep'
+            type: 'pad' | 'pocket' | 'revolve' | 'groove' | 'sweep' | 'pipe' | 'loft' | 'helicalSweep' | 'coilSweep'
         ): Promise<void> => {
             const widget = await this.widgetManager.getWidget<CadViewportWidget>(CadViewportWidget.ID);
             widget?.startFeatureCreation(type);
@@ -344,6 +349,9 @@ export class NukeCadCommandContribution implements CommandContribution {
         commands.registerCommand(NukeCadCommands.ADD_FEATURE_HELICAL_SWEEP, {
             execute: () => void addFeature('helicalSweep')
         });
+        commands.registerCommand(NukeCadCommands.ADD_FEATURE_COIL_SWEEP, {
+            execute: () => void addFeature('coilSweep')
+        });
 
         commands.registerCommand(NukeCadCommands.EDIT_FEATURE, {
             execute: async (featureId?: string) => {
@@ -371,6 +379,65 @@ export class NukeCadCommandContribution implements CommandContribution {
                     return;
                 }
                 await widget.exportPython();
+            }
+        });
+
+        commands.registerCommand(NukeCadCommands.IMPORT_CAD_BODY, {
+            execute: async () => {
+                let widget = await this.widgetManager.getWidget<CadViewportWidget>(CadViewportWidget.ID);
+                if (widget === undefined) {
+                    widget = await this.widgetManager.getOrCreateWidget<CadViewportWidget>(CadViewportWidget.ID);
+                    await this.shell.addWidget(widget, { area: 'main' });
+                }
+                await this.shell.activateWidget(widget.id);
+                await widget.importCadAsBody();
+            }
+        });
+
+        commands.registerCommand(NukeCadCommands.REFRESH_IMPORT_SOURCES, {
+            execute: async () => {
+                const widget = await this.widgetManager.getWidget<CadViewportWidget>(CadViewportWidget.ID);
+                if (widget === undefined) {
+                    this.messageService.warn('Open the CAD viewport before refreshing imported sources.');
+                    return;
+                }
+                await widget.refreshImportSources();
+            }
+        });
+
+        commands.registerCommand(NukeCadCommands.CREATE_W7X_GENERATOR, {
+            execute: async () => {
+                let widget = await this.widgetManager.getWidget<CadViewportWidget>(CadViewportWidget.ID);
+                if (widget === undefined) {
+                    widget = await this.widgetManager.getOrCreateWidget<CadViewportWidget>(CadViewportWidget.ID);
+                    await this.shell.addWidget(widget, { area: 'main' });
+                }
+                await this.shell.activateWidget(widget.id);
+                await widget.createW7xGenerator();
+            }
+        });
+
+        commands.registerCommand(NukeCadCommands.CREATE_W7X_COIL_STUDY, {
+            execute: async () => {
+                let widget = await this.widgetManager.getWidget<CadViewportWidget>(CadViewportWidget.ID);
+                if (widget === undefined) {
+                    widget = await this.widgetManager.getOrCreateWidget<CadViewportWidget>(CadViewportWidget.ID);
+                    await this.shell.addWidget(widget, { area: 'main' });
+                }
+                await this.shell.activateWidget(widget.id);
+                await widget.createW7xCoilStudy();
+            }
+        });
+
+        commands.registerCommand(NukeCadCommands.CREATE_W7X_SHAPE_STUDY, {
+            execute: async () => {
+                let widget = await this.widgetManager.getWidget<CadViewportWidget>(CadViewportWidget.ID);
+                if (widget === undefined) {
+                    widget = await this.widgetManager.getOrCreateWidget<CadViewportWidget>(CadViewportWidget.ID);
+                    await this.shell.addWidget(widget, { area: 'main' });
+                }
+                await this.shell.activateWidget(widget.id);
+                await widget.createW7xShapeStudy();
             }
         });
     }

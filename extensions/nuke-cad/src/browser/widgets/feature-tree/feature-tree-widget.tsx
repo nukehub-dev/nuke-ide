@@ -63,6 +63,7 @@ import { type DocumentSelection } from '../../document/cad-document-store';
 import { type TopologyRef } from '../../../common/topology-refs';
 import { Tooltip, useTooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
 import { CurveDialog } from './curve-dialog';
+import { featureTreeCommand, featureTreeIcon } from './feature-tree-model';
 import './feature-tree.css';
 
 /**
@@ -180,7 +181,7 @@ export class CadFeatureTreeWidget extends ReactWidget {
                 onDeleteCurve={(id) => this.handleDeleteCurve(id)}
                 onSelectCurve={(id) => this.handleSelectCurve(id)}
                 onStartFeatureCreation={(type) => {
-                    const command = commandForFeatureType(type);
+                    const command = featureTreeCommand(type);
                     if (command !== undefined) {
                         void this.commandService.executeCommand(command.id);
                     }
@@ -940,6 +941,9 @@ function FeatureRow(props: FeatureRowProps): React.ReactElement {
     const params = feature.params as Record<string, unknown>;
     const targetBody = isBoolean && typeof params.targetBody === 'string' ? params.targetBody : undefined;
     const toolBodies = isBoolean && Array.isArray(params.toolBodies) ? (params.toolBodies as string[]) : [];
+    const importSourcePath =
+        feature.type === 'import' && typeof params.sourcePath === 'string' && params.sourcePath.length > 0 ? params.sourcePath : undefined;
+    const importSourceName = importSourcePath !== undefined ? (importSourcePath.split(/[\\/]/).pop() ?? importSourcePath) : undefined;
     const [renaming, setRenaming] = React.useState(false);
     const [editName, setEditName] = React.useState(feature.name);
 
@@ -959,7 +963,7 @@ function FeatureRow(props: FeatureRowProps): React.ReactElement {
     return (
         <>
             <div className={`feature-tree-row feature${props.selected ? ' selected' : ''} ${statusClass}`} onClick={props.onSelect}>
-                <span className={`codicon ${iconForFeature(feature.type)} feature-tree-icon`} />
+                <span className={`codicon ${featureTreeIcon(feature.type)} feature-tree-icon`} />
                 {renaming ? (
                     <InlineRename value={editName} onChange={setEditName} onCommit={commitRename} onCancel={cancelRename} />
                 ) : (
@@ -975,6 +979,11 @@ function FeatureRow(props: FeatureRowProps): React.ReactElement {
                 <span className="feature-tree-body-chip" title="Target body">
                     {bodyNameMap.get(feature.body) ?? feature.body}
                 </span>
+                {importSourceName !== undefined && (
+                    <span className="feature-tree-import-source" title={`Source: ${importSourcePath}`}>
+                        {importSourceName}
+                    </span>
+                )}
                 {isBoolean && (
                     <span className="feature-tree-boolean-hint">
                         {targetBody !== undefined && `→ ${bodyNameMap.get(targetBody) ?? targetBody}`}
@@ -1033,7 +1042,7 @@ function FeatureRow(props: FeatureRowProps): React.ReactElement {
                         <span className="codicon codicon-arrow-down" />
                     </button>
                 </Tooltip>
-                {!renaming && (
+                {!renaming && feature.type !== 'import' && (
                     <Tooltip content="Edit Parameters" position="left">
                         <button
                             className="theia-button secondary feature-tree-action"
@@ -1177,76 +1186,6 @@ function RepairPopover(props: RepairPopoverProps): React.ReactElement {
             })}
         </div>
     );
-}
-
-function iconForFeature(type: string): string {
-    switch (type) {
-        case 'pad':
-            return 'codicon-nuke-cad-pad';
-        case 'pocket':
-            return 'codicon-nuke-cad-pocket';
-        case 'revolve':
-            return 'codicon-nuke-cad-revolve';
-        case 'groove':
-            return 'codicon-nuke-cad-groove';
-        case 'sweep':
-            return 'codicon-nuke-cad-sweep';
-        case 'pipe':
-            return 'codicon-nuke-cad-pipe';
-        case 'loft':
-            return 'codicon-nuke-cad-loft';
-        case 'helicalSweep':
-            return 'codicon-nuke-cad-helix';
-        case 'fillet':
-            return 'codicon-nuke-cad-fillet';
-        case 'chamfer':
-            return 'codicon-nuke-cad-chamfer';
-        case 'draft':
-            return 'codicon-nuke-cad-draft';
-        case 'shell':
-            return 'codicon-nuke-cad-shell';
-        case 'linearPattern':
-            return 'codicon-nuke-cad-linear-pattern';
-        case 'circularPattern':
-            return 'codicon-nuke-cad-circular-pattern';
-        case 'mirror':
-            return 'codicon-nuke-cad-mirror';
-        case 'hole':
-            return 'codicon-nuke-cad-hole';
-        case 'translate':
-            return 'codicon-nuke-cad-move';
-        case 'booleanFuse':
-            return 'codicon-nuke-cad-boolean-fuse';
-        case 'booleanCut':
-            return 'codicon-nuke-cad-boolean-cut';
-        case 'booleanCommon':
-            return 'codicon-nuke-cad-boolean-common';
-        default:
-            return 'codicon-symbol-method';
-    }
-}
-
-function commandForFeatureType(type: FeatureDef['type']): import('@theia/core/lib/common/command').Command | undefined {
-    switch (type) {
-        case 'pad':
-            return NukeCadCommands.ADD_FEATURE_PAD;
-        case 'pocket':
-            return NukeCadCommands.ADD_FEATURE_POCKET;
-        case 'revolve':
-            return NukeCadCommands.ADD_FEATURE_REVOLVE;
-        case 'groove':
-            return NukeCadCommands.ADD_FEATURE_GROOVE;
-        case 'sweep':
-            return NukeCadCommands.ADD_FEATURE_SWEEP;
-        case 'pipe':
-            return NukeCadCommands.ADD_FEATURE_PIPE;
-        case 'loft':
-            return NukeCadCommands.ADD_FEATURE_LOFT;
-        case 'helicalSweep':
-            return NukeCadCommands.ADD_FEATURE_HELICAL_SWEEP;
-        default:
-            return undefined;
-    }
 }
 
 function bodyLabelText(body: BodyDef): string {

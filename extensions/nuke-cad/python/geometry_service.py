@@ -43,6 +43,10 @@ _SCRIPT_DIR = Path(__file__).parent.resolve()
 if str(_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR))
 
+# Exchange-file reader for imported bodies (STEP/IGES/BREP inspection and the
+# feature builder's `import` execution). Pure stdlib at import time; OCP is
+# deferred inside its reader functions.
+import exchange_reader  # noqa: E402
 from ocp_compat import (  # noqa: E402
     brep_bnd_lib_add,
     brep_tool_triangulation,
@@ -644,67 +648,11 @@ def _read_step(step_path: Path) -> object:
 def _read_step_names(step_path: Path, solid_count: int) -> dict[int, str]:
     """Best-effort per-solid STEP product names keyed by 1-based solid index.
 
-    FreeCAD AppImportPy pattern adapted to the readers already in use: the
-    CAF reader (name mode) maps free product labels — in file order — onto
-    consecutive explorer-order solids. Returns {} whenever OCAF is
-    unavailable, the file carries no names, or the label/solid counts do not
-    line up. Never raises.
+    Delegates to :func:`exchange_reader.read_product_names` (the shared OCAF
+    free-product walk). Returns {} whenever OCAF is unavailable, the file
+    carries no names, or the label/solid counts do not line up. Never raises.
     """
-    try:
-        from OCP.STEPCAFControl import STEPCAFControl_Reader
-        from OCP.TCollection import TCollection_ExtendedString
-        from OCP.TDataStd import TDataStd_Name
-        from OCP.TDocStd import TDocStd_Document
-        from OCP.TopAbs import TopAbs_SOLID
-        from OCP.TopExp import TopExp_Explorer
-        from OCP.XCAFDoc import XCAFDoc_DocumentTool
-
-        reader = STEPCAFControl_Reader()
-        reader.SetNameMode(True)
-        reader.SetColorMode(True)
-        if reader.ReadFile(str(step_path)) != 1:
-            return {}
-        doc = TDocStd_Document(TCollection_ExtendedString("nuke-cad-import"))
-        if not reader.Transfer(doc):
-            return {}
-
-        from OCP.TDF import TDF_LabelSequence
-
-        shape_tool = XCAFDoc_DocumentTool.ShapeTool_s(doc.Main())
-        free_shapes = TDF_LabelSequence()
-        shape_tool.GetFreeShapes(free_shapes)
-
-        names: dict[int, str] = {}
-        next_index = 1
-        total = 0
-        for i in range(1, free_shapes.Length() + 1):
-            label = free_shapes.Value(i)
-            product = shape_tool.GetShape_s(label)
-            count = 0
-            exp = TopExp_Explorer(product, TopAbs_SOLID)
-            while exp.More():
-                count += 1
-                exp.Next()
-            name_attr = TDataStd_Name()
-            name: str | None = None
-            if label.FindAttribute(TDataStd_Name.GetID_s(), name_attr):
-                try:
-                    candidate = name_attr.Get().ToExtString()
-                    if candidate:
-                        name = candidate
-                except Exception:
-                    name = None
-            for _ in range(count):
-                if name:
-                    names[next_index] = name
-                next_index += 1
-            total += count
-
-        if total != solid_count:
-            return {}
-        return names
-    except Exception:
-        return {}
+    return exchange_reader.read_product_names(step_path, "step", solid_count)
 
 
 # ---------------------------------------------------------------------------
@@ -730,86 +678,18 @@ def _read_step_names(step_path: Path, solid_count: int) -> dict[int, str]:
 # ---------------------------------------------------------------------------
 
 
-#: Millimetres per length unit, keyed by canonical unit name.
-_MM_PER_LENGTH_UNIT: dict[str, float] = {
-    "mm": 1.0,
-    "cm": 10.0,
-    "dm": 100.0,
-    "m": 1000.0,
-    "km": 1000000.0,
-    "um": 0.001,
-    "inch": 25.4,
-    "foot": 304.8,
-    "yard": 914.4,
-    "mile": 1609344.0,
-    "mil": 0.0254,
-    "microinch": 0.0000254,
-}
-
-#: Alternate spellings (STEP FileUnits SI names, IGES short names) to canonical.
-_LENGTH_UNIT_ALIASES: dict[str, str] = {
-    "millimetre": "mm",
-    "millimeter": "mm",
-    "centimetre": "cm",
-    "centimeter": "cm",
-    "decimetre": "dm",
-    "decimeter": "dm",
-    "metre": "m",
-    "meter": "m",
-    "kilometre": "km",
-    "kilometer": "km",
-    "micrometre": "um",
-    "micrometer": "um",
-    "micron": "um",
-    "in": "inch",
-    "inches": "inch",
-    "ft": "foot",
-    "feet": "foot",
-    "yd": "yard",
-    "yards": "yard",
-    "mi": "mile",
-    "miles": "mile",
-    "uin": "microinch",
-    "mils": "mil",
-    "microinches": "microinch",
-}
-
-#: IGES global-section units flag (param 14) to (canonical name, mm per unit).
-_IGES_UNITS_FLAG_MM: dict[int, tuple[str, float]] = {
-    1: ("inch", 25.4),
-    2: ("mm", 1.0),
-    4: ("foot", 304.8),
-    5: ("mile", 1609344.0),
-    6: ("m", 1000.0),
-    7: ("km", 1000000.0),
-    8: ("mil", 0.0254),
-    9: ("um", 0.001),
-    10: ("cm", 10.0),
-    11: ("microinch", 0.0000254),
-}
-
-
-def _canonical_length_unit(name: object) -> str | None:
-    """Canonicalize a length-unit name (``INCH`` -> ``inch``).
-
-    Returns None for blank/non-string input. Unknown names pass through
-    lowercased (so callers can still report them); use
-    :func:`_mm_per_length_unit` to check convertibility.
-    """
-    if not isinstance(name, str):
-        return None
-    key = name.strip().lower()
-    if not key:
-        return None
-    return _LENGTH_UNIT_ALIASES.get(key, key)
-
-
-def _mm_per_length_unit(name: object) -> float | None:
-    """Return millimetres per unit for a length-unit name, else None."""
-    canonical = _canonical_length_unit(name)
-    if canonical is None:
-        return None
-    return _MM_PER_LENGTH_UNIT.get(canonical)
+# The pure unit tables/parsers live in ``exchange_reader`` (shared with the
+# imported-body reader) and stay aliased here so existing callers keep working.
+_MM_PER_LENGTH_UNIT = exchange_reader.MM_PER_LENGTH_UNIT
+_LENGTH_UNIT_ALIASES = exchange_reader.LENGTH_UNIT_ALIASES
+_IGES_UNITS_FLAG_MM = exchange_reader.IGES_UNITS_FLAG_MM
+_canonical_length_unit = exchange_reader.canonical_length_unit
+_mm_per_length_unit = exchange_reader.mm_per_length_unit
+_split_iges_global_params = exchange_reader.split_iges_global_params
+_normalize_target_units = exchange_reader.normalize_target_units
+_resolve_import_unit_scale = exchange_reader.resolve_import_unit_scale
+_scale_shape_uniform = exchange_reader.scale_shape_uniform
+_read_step_raw = exchange_reader.read_step_raw
 
 
 def _ocp_step_length_names(step_path: Path) -> list[str] | None:
@@ -818,28 +698,7 @@ def _ocp_step_length_names(step_path: Path) -> list[str] | None:
     Returns None when OCP is unavailable or the file does not parse. Isolated
     from :func:`_detect_step_file_unit` so tests can inject canned names.
     """
-    try:
-        from OCP.STEPControl import STEPControl_Reader
-        from OCP.TColStd import TColStd_SequenceOfAsciiString
-    except ImportError:
-        return None
-    try:
-        from OCP.IFSelect import IFSelect_RetDone
-
-        reader = STEPControl_Reader()
-        if reader.ReadFile(str(step_path)) != IFSelect_RetDone:
-            return None
-        length = TColStd_SequenceOfAsciiString()
-        angles = TColStd_SequenceOfAsciiString()
-        solid_angles = TColStd_SequenceOfAsciiString()
-        reader.FileUnits(length, angles, solid_angles)
-        names: list[str] = []
-        for i in range(length.Length()):
-            raw = length.Value(i + 1).ToCString()
-            names.append(raw.decode("ascii") if isinstance(raw, bytes) else str(raw))
-        return names
-    except Exception:
-        return None
+    return exchange_reader.ocp_step_length_names(step_path)
 
 
 def _detect_step_file_unit(step_path: Path) -> tuple[str | None, float | None]:
@@ -849,104 +708,31 @@ def _detect_step_file_unit(step_path: Path) -> tuple[str | None, float | None]:
     is unitless, declares an unrecognized unit, or OCP is unavailable.
     Mixed-unit files are pathological: the first non-blank length name wins.
     """
-    names = _ocp_step_length_names(step_path)
-    if not names:
-        return None, None
-    for name in names:
-        canonical = _canonical_length_unit(name)
-        if canonical:
-            return canonical, _MM_PER_LENGTH_UNIT.get(canonical)
-    return None, None
+    return exchange_reader.detect_step_unit_from_names(_ocp_step_length_names(step_path))
 
 
 def _split_iges_global_params(section: str) -> list[str]:
-    """Split an IGES global section into top-level params.
-
-    Hollerith strings (``nH<chars>``) may embed commas and semicolons, so the
-    section is tokenized char-by-char and the ``nH`` prefix itself is dropped
-    (only the string content is kept). Pure stdlib; no OCP needed.
-    """
-    params: list[str] = []
-    current = ""
-    i = 0
-    n = len(section)
-    while i < n:
-        char = section[i]
-        if char == "," or char == ";":
-            params.append(current)
-            current = ""
-            if char == ";":
-                break
-            i += 1
-            continue
-        if char.isdigit():
-            j = i
-            while j < n and section[j].isdigit():
-                j += 1
-            if j < n and section[j] == "H":
-                count = int(section[i:j])
-                start = j + 1
-                current += section[start : start + count]
-                i = start + count
-                continue
-        current += char
-        i += 1
-    return params
+    """Split an IGES global section into top-level params (see ``exchange_reader``)."""
+    return exchange_reader.split_iges_global_params(section)
 
 
 def _detect_iges_file_unit(iges_path: Path) -> tuple[str | None, float | None]:
     """Detect an IGES file's length unit from its global section.
 
-    Uses the units flag (0-based param 13, right after the model-space scale)
-    with the units name (param 14) as fallback for flag 3 ("see name") and
-    unknown flags. Returns ``(None, None)`` when the section is missing or
-    unrecognized. Pure text parse; no OCP needed.
+    Delegates to :func:`exchange_reader.detect_iges_file_unit` (same parser and
+    flag-first lookup as the pre-shared-helper implementation).
     """
-    try:
-        text = iges_path.read_text(encoding="utf-8", errors="replace")
-    except Exception:
-        return None, None
-    # Fixed-format lines: 72 content columns, section id in column 73.
-    # Trailing blanks are insignificant outside Hollerith strings.
-    section = "".join(line[:72].rstrip() for line in text.splitlines() if line[72:73] == "G")
-    if not section:
-        return None, None
-    params = _split_iges_global_params(section)
-    if len(params) < 15:
-        return None, None
-    flag, name = params[13].strip(), params[14].strip()
-    try:
-        flag_value: int | None = int(flag)
-    except ValueError:
-        flag_value = None
-    if flag_value in _IGES_UNITS_FLAG_MM:
-        canonical, mm = _IGES_UNITS_FLAG_MM[flag_value]
-        return canonical, mm
-    canonical = _canonical_length_unit(name)
-    if canonical is not None:
-        return canonical, _MM_PER_LENGTH_UNIT.get(canonical)
-    return None, None
+    return exchange_reader.detect_iges_file_unit(iges_path)
 
 
 def _detect_brep_file_unit(_brep_path: Path) -> tuple[str | None, float | None]:
     """BREP carries no length-unit metadata; always ``(None, None)``."""
-    return None, None
+    return exchange_reader.detect_brep_file_unit(_brep_path)
 
 
 def _normalize_target_units(target_units: str | None) -> str | None:
-    """Canonicalize a target document unit; None stays None.
-
-    Raises ValueError for unknown names.
-    """
-    if target_units is None:
-        return None
-    canonical = _canonical_length_unit(target_units)
-    if canonical is None or canonical not in _MM_PER_LENGTH_UNIT:
-        raise ValueError(
-            f"Unknown target units {target_units!r}; "
-            "expected mm, cm, m (or another known length unit)"
-        )
-    return canonical
+    """Canonicalize a target document unit; None stays None (see ``exchange_reader``)."""
+    return exchange_reader.normalize_target_units(target_units)
 
 
 def _resolve_import_unit_scale(
@@ -954,20 +740,9 @@ def _resolve_import_unit_scale(
 ) -> tuple[str | None, float, bool]:
     """Resolve the effective target unit, exact scale factor, and adopt flag.
 
-    Cases: (unitless file, unset target) -> no-op legacy ``(None, 1.0,
-    False)``; (known file unit, unset target) -> the new document adopts the
-    file unit ``(file_unit, 1.0, True)``; (known file unit, set target) ->
-    exact file-to-target factor ``(target, file_mm / target_mm, False)``;
-    (unknown file unit, set target) -> keep native numbers ``(target, 1.0,
-    False)`` since no exact factor exists.
+    Legacy adopt/scale/passthrough policy shared with ``exchange_reader``.
     """
-    if target_units is None and file_mm is None:
-        return None, 1.0, False
-    if target_units is None:
-        return file_unit, 1.0, True
-    if file_mm is None:
-        return target_units, 1.0, False
-    return target_units, file_mm / _MM_PER_LENGTH_UNIT[target_units], False
+    return exchange_reader.resolve_import_unit_scale(file_unit, file_mm, target_units)
 
 
 def _scale_shape_uniform(shape: object, factor: float) -> object:
@@ -975,39 +750,12 @@ def _scale_shape_uniform(shape: object, factor: float) -> object:
 
     A factor of exactly 1.0 returns the shape unchanged (no B-rep rewrite).
     """
-    if factor == 1.0:
-        return shape
-    from OCP.BRepBuilderAPI import BRepBuilderAPI_Transform
-    from OCP.gp import gp_Pnt, gp_Trsf
-
-    transform = gp_Trsf()
-    transform.SetScale(gp_Pnt(0.0, 0.0, 0.0), float(factor))
-    operation = BRepBuilderAPI_Transform(shape, transform, True)
-    if not operation.IsDone():
-        raise RuntimeError(f"Uniform scaling by {factor:g} failed")
-    return operation.Shape()
+    return exchange_reader.scale_shape_uniform(shape, factor)
 
 
 def _read_step_raw(step_path: Path, system_unit_mm: float) -> object:
-    """Read a STEP file preserving raw file numbers.
-
-    ``SetSystemLengthUnit`` suppresses OCCT's automatic file-unit to
-    millimetre scaling so the caller can apply the exact file-to-target
-    factor exactly once via :func:`_scale_shape_uniform`.
-    """
-    from OCP.IFSelect import IFSelect_RetDone
-    from OCP.STEPControl import STEPControl_Reader
-
-    reader = STEPControl_Reader()
-    status = reader.ReadFile(str(step_path))
-    if status != IFSelect_RetDone:
-        raise RuntimeError(f"STEP reader returned status {status} for {step_path}")
-    reader.SetSystemLengthUnit(float(system_unit_mm))
-    reader.TransferRoots()
-    shape = reader.OneShape()
-    if shape is None:
-        raise RuntimeError(f"No shape transferred from {step_path}")
-    return shape
+    """Read a STEP file preserving raw file numbers (see ``exchange_reader``)."""
+    return exchange_reader.read_step_raw(step_path, system_unit_mm)
 
 
 def _apply_import_units(
@@ -1230,75 +978,19 @@ def _read_iges(iges_path: Path) -> object:
 def _xcaf_free_shape_names(doc_main: object, solid_count: int) -> dict[int, str]:
     """Map free product labels of an XCAF document onto explorer-order solids.
 
-    Shared walk for the IGESCAF reader (the STEP reader keeps its own inline
-    copy): labels in file order map onto consecutive 1-based solid indices.
-    Returns {} whenever the label/solid counts do not line up. Never raises.
+    Thin alias of :func:`exchange_reader.xcaf_free_shape_names` for callers
+    that still import the private geometry-service helper.
     """
-    from OCP.TDataStd import TDataStd_Name
-    from OCP.TDF import TDF_LabelSequence
-    from OCP.XCAFDoc import XCAFDoc_DocumentTool
-
-    shape_tool = XCAFDoc_DocumentTool.ShapeTool_s(doc_main)
-    free_shapes = TDF_LabelSequence()
-    shape_tool.GetFreeShapes(free_shapes)
-
-    names: dict[int, str] = {}
-    next_index = 1
-    total = 0
-    for i in range(1, free_shapes.Length() + 1):
-        label = free_shapes.Value(i)
-        product = shape_tool.GetShape_s(label)
-        count = len(_solids_in_explorer_order(product))
-        if count == 0:
-            # IGES products arrive as loose faces; sew them the same way the
-            # reader does so per-label solid counts line up.
-            try:
-                count = len(_solids_in_explorer_order(_sew_faces_to_solids(product)))
-            except Exception:
-                count = 0
-        name_attr = TDataStd_Name()
-        name: str | None = None
-        if label.FindAttribute(TDataStd_Name.GetID_s(), name_attr):
-            try:
-                candidate = name_attr.Get().ToExtString()
-                if candidate:
-                    name = candidate
-            except Exception:
-                name = None
-        for _ in range(count):
-            if name:
-                names[next_index] = name
-            next_index += 1
-        total += count
-
-    if total != solid_count:
-        return {}
-    return names
+    return exchange_reader.xcaf_free_shape_names(doc_main, solid_count)
 
 
 def _read_iges_names(iges_path: Path, solid_count: int) -> dict[int, str]:
     """Best-effort per-solid IGES product names keyed by 1-based solid index.
 
-    Same OCAF stack pattern as :func:`_read_step_names`. Returns {} whenever
-    OCAF is unavailable, the file carries no names, or the label/solid counts
-    do not line up. Never raises.
+    Delegates to :func:`exchange_reader.read_product_names` (the shared OCAF
+    free-product walk). Never raises; counts that do not line up return {}.
     """
-    try:
-        from OCP.IGESCAFControl import IGESCAFControl_Reader
-        from OCP.TCollection import TCollection_ExtendedString
-        from OCP.TDocStd import TDocStd_Document
-
-        reader = IGESCAFControl_Reader()
-        reader.SetNameMode(True)
-        reader.SetColorMode(True)
-        if reader.ReadFile(str(iges_path)) != 1:
-            return {}
-        doc = TDocStd_Document(TCollection_ExtendedString("nuke-cad-import"))
-        if not reader.Transfer(doc):
-            return {}
-        return _xcaf_free_shape_names(doc.Main(), solid_count)
-    except Exception:
-        return {}
+    return exchange_reader.read_product_names(iges_path, "iges", solid_count)
 
 
 def import_iges_file(
@@ -2769,6 +2461,13 @@ def _validate_document_refs(document: dict[str, Any], source_file: Path) -> dict
     feature set and required-parameter checks so the Python builder fails fast
     with a clear message instead of an unwrapped OCCT traceback.
     """
+    if "overlapCheck" in document and not isinstance(document["overlapCheck"], bool):
+        return {
+            "success": False,
+            "error": "Document field 'overlapCheck' must be a boolean when present",
+            "scriptPath": str(source_file),
+        }
+
     datum_ids = {d.get("id") for d in document.get("datums", []) if isinstance(d, dict)}
     body_ids = {b.get("id") for b in document.get("bodies", []) if isinstance(b, dict)}
     sketch_ids = {s.get("id") for s in document.get("sketches", []) if isinstance(s, dict)}
@@ -2800,6 +2499,7 @@ def _validate_document_refs(document: dict[str, Any], source_file: Path) -> dict
             "pipe",
             "loft",
             "helicalSweep",
+            "coilSweep",
             "fillet",
             "chamfer",
             "draft",
@@ -2810,6 +2510,7 @@ def _validate_document_refs(document: dict[str, Any], source_file: Path) -> dict
             "hole",
             "lattice",
             "primitive",
+            "import",
             "multiTransform",
             "defeature",
             "translate",
@@ -2860,6 +2561,17 @@ def _validate_document_refs(document: dict[str, Any], source_file: Path) -> dict
                         "error": f"Feature '{fid}' references unknown tool body '{tool}' at toolBodies[{j}]",
                         "scriptPath": str(source_file),
                     }
+            continue
+
+        if feature_type == "import":
+            params = feature.get("params", {}) if isinstance(feature.get("params"), dict) else {}
+            import_error = exchange_reader.validate_import_params(params)
+            if import_error is not None:
+                return {
+                    "success": False,
+                    "error": f"Feature '{fid}' (import): {import_error}",
+                    "scriptPath": str(source_file),
+                }
             continue
 
         if feature_type in ("fillet", "chamfer", "draft", "shell"):
@@ -3107,6 +2819,74 @@ def _validate_document_refs(document: dict[str, Any], source_file: Path) -> dict
                     }
                 continue
 
+        if feature_type == "coilSweep":
+            # Coil sweeps own their rectangular section: only the path curve and
+            # the section parameters are validated, and no sketch is required.
+            params = feature.get("params", {}) if isinstance(feature.get("params"), dict) else {}
+            path_curve_id = params.get("pathCurveId")
+            if not isinstance(path_curve_id, str) or not path_curve_id:
+                return {
+                    "success": False,
+                    "error": f"Feature '{fid}' (coilSweep) requires a pathCurveId",
+                    "scriptPath": str(source_file),
+                }
+            if path_curve_id not in curve_ids:
+                return {
+                    "success": False,
+                    "error": f"Feature '{fid}' references unknown curve '{path_curve_id}'",
+                    "scriptPath": str(source_file),
+                }
+            for name in ("width", "height"):
+                value = params.get(name)
+                if (
+                    not isinstance(value, (int, float))
+                    or isinstance(value, bool)
+                    or not math.isfinite(value)
+                    or value <= 0
+                ):
+                    return {
+                        "success": False,
+                        "error": f"Feature '{fid}' (coilSweep) requires a positive {name}",
+                        "scriptPath": str(source_file),
+                    }
+            tilt = params.get("tiltDeg", 0.0)
+            if (
+                not isinstance(tilt, (int, float))
+                or isinstance(tilt, bool)
+                or not math.isfinite(tilt)
+                or tilt < -89.0
+                or tilt > 89.0
+            ):
+                return {
+                    "success": False,
+                    "error": f"Feature '{fid}' (coilSweep) requires tiltDeg in [-89, 89] degrees",
+                    "scriptPath": str(source_file),
+                }
+            twist = params.get("twistDeg", 0.0)
+            if (
+                not isinstance(twist, (int, float))
+                or isinstance(twist, bool)
+                or not math.isfinite(twist)
+            ):
+                return {
+                    "success": False,
+                    "error": f"Feature '{fid}' (coilSweep) requires a finite twistDeg",
+                    "scriptPath": str(source_file),
+                }
+            stations = params.get("stations", 60)
+            if (
+                not isinstance(stations, int)
+                or isinstance(stations, bool)
+                or stations < 8
+                or stations > 720
+            ):
+                return {
+                    "success": False,
+                    "error": f"Feature '{fid}' (coilSweep) requires stations in [8, 720]",
+                    "scriptPath": str(source_file),
+                }
+            continue
+
         sketch_id = feature.get("sketchId")
         if not isinstance(sketch_id, str) or not sketch_id:
             return {
@@ -3290,6 +3070,37 @@ def _write_merged_sidecar(document_file: Path, manifest: RegionManifest | None) 
     sidecar.write_text(json.dumps(manifest.to_dict(), indent=2) + "\n", encoding="utf-8")
 
 
+DESIGN_STUDY_EXPORT_ERROR = (
+    "Design study document: simulation export is disabled. "
+    "Use the valid 5-module W7-X generator for simulation-ready geometry."
+)
+
+
+def _design_study_export_block(
+    document: dict[str, Any],
+    source_file: Path,
+    export_dagmc: bool,
+    export_mesh: bool,
+) -> dict | None:
+    """Reject simulation exports from an explicitly experimental design study.
+
+    A ``designStudy`` block marks a layout the author has declared experimental
+    (W7-X coil-count studies): display builds with both export flags off still
+    work, and STEP export is not blocked, but DAGMC and FEM mesh export are
+    denied with a clear error. Valid documents have no such block and are
+    unaffected.
+    """
+    if not (export_dagmc or export_mesh):
+        return None
+    if document.get("designStudy") is None:
+        return None
+    return {
+        "success": False,
+        "error": DESIGN_STUDY_EXPORT_ERROR,
+        "scriptPath": str(source_file),
+    }
+
+
 def build_document(
     document_path: str,
     output_dir: str | None = None,
@@ -3390,6 +3201,10 @@ def build_document(
     if ref_error is not None:
         return ref_error
 
+    design_error = _design_study_export_block(document, document_file, export_dagmc, export_mesh)
+    if design_error is not None:
+        return design_error
+
     assembly = document.get("assembly")
     if isinstance(assembly, dict) and assembly.get("groundedInstanceId"):
         # Grounded assembly documents build through the instance pipeline;
@@ -3483,6 +3298,7 @@ def build_document(
                         cache_path=tess_cache_path,
                         size_cap_bytes=_size_cap_bytes(size_cap_mb),
                         cache=cache_batch,
+                        document_dir=document_file.parent,
                     )
                 except Exception as exc:
                     # Priming must never make a document unbuildable. Fall
@@ -3495,11 +3311,15 @@ def build_document(
                     )
                     cache_batch = None
                     build_result = feature_builder.build_document_shape(
-                        document, curve_results=curve_results
+                        document,
+                        curve_results=curve_results,
+                        document_dir=document_file.parent,
                     )
             else:
                 build_result = feature_builder.build_document_shape(
-                    document, curve_results=curve_results
+                    document,
+                    curve_results=curve_results,
+                    document_dir=document_file.parent,
                 )
         except (feature_builder.FeatureBuilderError, sketch_builder.SketchError) as exc:
             return {
@@ -3650,6 +3470,10 @@ def build_assembly(
     ref_error = _validate_document_refs(document, document_file)
     if ref_error is not None:
         return ref_error
+
+    design_error = _design_study_export_block(document, document_file, export_dagmc, export_mesh)
+    if design_error is not None:
+        return design_error
 
     assembly = document.get("assembly")
     if not isinstance(assembly, dict) or not assembly.get("groundedInstanceId"):
@@ -3859,6 +3683,10 @@ def build_document_partial(
     if ref_error is not None:
         return ref_error
 
+    design_error = _design_study_export_block(document, document_file, export_dagmc, export_mesh)
+    if design_error is not None:
+        return design_error
+
     assembly = document.get("assembly")
     if isinstance(assembly, dict) and assembly.get("groundedInstanceId"):
         # Assembly documents cannot use per-feature cache blobs; rebuild the
@@ -3948,6 +3776,7 @@ def build_document_partial(
                 cache_path=cache_path,
                 size_cap_bytes=capacity,
                 cache=cache_batch,
+                document_dir=document_file.parent,
             )
         except (feature_builder.FeatureBuilderError, sketch_builder.SketchError) as exc:
             return {
@@ -4017,6 +3846,44 @@ def build_document_partial(
         return result
 
 
+def inspect_import_source(
+    source_path: str,
+    source_unit: str | None = None,
+    target_units: str | None = None,
+    max_solids: int | None = None,
+) -> dict:
+    """Inspect an exchange source without building or writing artifacts.
+
+    Read-only metadata pass for the import dialog: streams the source SHA-256
+    and size, resolves the file/target units, and reports explorer-order solids
+    (index, name, face count, volume, bbox, centre of mass). Returns the
+    stdout-JSON result dict; ``success`` is False for missing/unreadable sources
+    and malformed unit/cap inputs.
+    """
+    resolved_path = Path(source_path).resolve()
+    try:
+        source = exchange_reader.read_import_source(
+            resolved_path,
+            source_unit=source_unit,
+            target_unit=target_units,
+            max_solids=exchange_reader.DEFAULT_MAX_SOLIDS if max_solids is None else max_solids,
+        )
+    except exchange_reader.ExchangeReadError as exc:
+        return {"success": False, "error": str(exc), "sourcePath": str(resolved_path)}
+    except ValueError as exc:
+        # Unknown units / invalid maxSolids surface as clear validation errors.
+        return {"success": False, "error": str(exc), "sourcePath": str(resolved_path)}
+    except Exception as exc:
+        return {
+            "success": False,
+            "error": f"Import inspection failed: {exc}",
+            "traceback": traceback.format_exc(),
+            "sourcePath": str(resolved_path),
+        }
+    result = {"success": True, **source.to_dict(), "warnings": []}
+    return result
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="nuke-cad geometry service")
     parser.add_argument(
@@ -4043,6 +3910,25 @@ def main() -> None:
         "--sheet-id",
         default=None,
         help="Drawing sheet id for --from-drawing (defaults to the first sheet)",
+    )
+    parser.add_argument(
+        "--inspect-import",
+        action="store_true",
+        help=(
+            "Inspect the positional STEP/IGES/BREP source and report hash/size/units/solids; "
+            "writes no artifacts"
+        ),
+    )
+    parser.add_argument(
+        "--source-unit",
+        default=None,
+        help="Override the source file unit for --inspect-import (mm/cm/m)",
+    )
+    parser.add_argument(
+        "--max-solids",
+        type=int,
+        default=None,
+        help="Safety cap for --inspect-import solid counts (default: 500)",
     )
     parser.add_argument("--output-dir", default=None, help="Directory for output artifacts")
     parser.add_argument(
@@ -4121,7 +4007,10 @@ def main() -> None:
     parser.add_argument(
         "--target-units",
         default=None,
-        help="Document length units for --from-step imports (mm/cm/m; unset adopts the file unit)",
+        help=(
+            "Target length units for --from-step imports and --inspect-import "
+            "(mm/cm/m; unset adopts the file unit)"
+        ),
     )
     parser.add_argument(
         "--script-timeout",
@@ -4140,7 +4029,14 @@ def main() -> None:
     if args.script is None:
         parser.error("the following arguments are required: script")
 
-    if args.from_step:
+    if args.inspect_import:
+        result = inspect_import_source(
+            args.script,
+            source_unit=args.source_unit,
+            target_units=args.target_units,
+            max_solids=args.max_solids,
+        )
+    elif args.from_step:
         # STEP imports skip DAGMC/mesh export unless explicitly requested.
         result = import_step_file(
             args.script,

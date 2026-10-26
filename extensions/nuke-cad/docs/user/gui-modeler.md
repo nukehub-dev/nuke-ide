@@ -31,33 +31,37 @@ Studio the same way you would a script build.
    The **Example projects** section holds complete sample documents instead of
    presets:
 
-   | Example project           | What you get                                                                                                           | Badge       |
-   | ------------------------- | ---------------------------------------------------------------------------------------------------------------------- | ----------- |
-   | **Pincell demo**          | Three labeled bodies (fuel, clad, moderator) with parametric sketch dimensions.                                        | Fast        |
-   | **Tokamak with divertor** | 23-body sector with PF/TF coils, blankets, first walls, plasma, and a lower divertor.                                  | Large model |
-   | **Full W7-X stellarator** | ~47 MB MIT-licensed reactor-scaled Proxima Fusion STEP, downloaded or chosen locally and stored in the project folder. | External    |
+   | Example project                 | What you get                                                                                                                                                           | Badge       |
+   | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
+   | **Pincell demo**                | Three labeled bodies (fuel, clad, moderator) with parametric sketch dimensions.                                                                                        | Fast        |
+   | **Tokamak with divertor**       | 23-body sector with PF/TF coils, blankets, first walls, plasma, and a lower divertor.                                                                                  | Large model |
+   | **Full W7-X stellarator**       | ~47 MB MIT-licensed reactor-scaled Proxima Fusion STEP, downloaded or chosen locally and stored in the project folder as one frozen assembly reference.                | External    |
+   | **W7-X generator (parametric)** | 15 editable imported bodies (10 exact coil shapes + 5 shells) placed as 55 assembly instances; needs the same external STEP and the validated five-module layout only. | External    |
+   | **W7-X coil shape study**       | 10 editable native `coilSweep` bodies × 5 modules (50 instances) from committed centerlines; no STEP, approximate reference geometry, simulation export disabled.      | Fast        |
 
    Choosing a bundled example first asks where to save the new `.nuke-cad`
-   file, writes an editable copy there, and opens it. The full W7-X card opens
-   a choice instead: **Download 47 MB** first asks where to save the
+   file, writes an editable copy there, and opens it. The two external W7-X
+   cards open a choice instead: **Download 47 MB** first asks where to save the
    `.nuke-cad` project, then fetches the STEP through the NukeIDE backend (so
    browser CORS/proxy/content-blocker rules cannot block it) from
    `proximafusion/open_stellarator_models` (MIT); **Choose local STEP…** uses a
    file you already have. Either route stores the STEP in a
    `<document-stem>.parts/` folder beside the saved `.nuke-cad` and records a
    relative reference, so the project folder is self-contained and portable.
-   A stale `<document-stem>.regions.json` left by an older document at the same
-   path is moved to trash, so its old selectors do not leak into the new
-   sample. Cancelling any dialog creates nothing. The built-in samples are never
-   modified; edits apply only to your copy (you can save it again anywhere).
+   The full W7-X card imports that STEP as one frozen assembly instance; the
+   generator card inspects it against the committed inventory and builds the
+   parametric project instead. A stale `<document-stem>.regions.json` left by
+   an older document at the same path is moved to trash, so its old selectors
+   do not leak into the new sample. Cancelling any dialog creates nothing. The
+   built-in samples are never modified; edits apply only to your copy (you can
+   save it again anywhere).
 
    The tokamak sample's first build can take a while: its 23 bodies are
    revolved, patterned, and boolean-clipped. The full W7-X STEP is deliberately
-   not bundled: it is ~47 MB and not part of the repository. The download goes
-   to the project folder, so the full device renders as an assembly without
-   shipping tessellation or cache data. That imported document uses a 0.1
-   display tolerance (55 solids) so its display mesh stays within the viewport
-   read budget; export/FEM tolerances are unaffected.
+   not bundled: it is ~47 MB and not part of the repository. Both W7-X documents
+   use a 0.1 display tolerance (55 solids) so their display meshes stay within
+   the viewport read budget; export/FEM tolerances are unaffected. The
+   generator's first build takes about 25 s.
 
 3. Save the new document with **Save CAD Document As...** to give it a name and
    location (skipped for example projects, which are saved on creation).
@@ -65,15 +69,14 @@ Studio the same way you would a script build.
 
 The tokamak sample re-authors the Paramak
 `tokamak_with_pf_tf_magnets_divertor` reference model as GUI features and trims
-its known cross-body overlaps with four cleanup cuts. The full W7-X stellarator
-is not bundled; its card downloads the MIT-licensed Proxima Fusion STEP (or
-takes a local copy) and stores it in the saved project's `.parts` folder. See
-`src/common/samples/README.md` for bundled-sample provenance, sizes, and
-attribution.
+its known cross-body overlaps with four cleanup cuts. The full W7-X reference and
+generator cards download or copy the MIT-licensed Proxima Fusion STEP into the
+saved project's `.parts` folder. See `src/common/samples/README.md` for
+bundled-sample provenance, sizes, and attribution.
 
 An empty document shows a centered **Empty document** card with **Create Sketch**,
-**Open CAD Model…**, and **Import CAD…** actions instead of a blank canvas; the
-ribbon stays available above it.
+**Open CAD Model…**, **Import CAD…**, and **Import CAD as Body…** actions instead
+of a blank canvas; the ribbon stays available above it.
 
 The document toolbar carries a **Units** dropdown (`Unitless`, `mm`, `cm`,
 `m`). Declared units tag future numeric inputs (curve expressions may then
@@ -489,6 +492,39 @@ separate `clad`, `fuel`, and `moderator` bodies that touch but remain distinct
 solids. Bodies that overlap in space must be merged with a boolean feature; the
 builder raises an error if two non-consumed bodies occupy the same volume.
 
+### Importing CAD as a body
+
+**Import CAD as Body…** turns a STEP/STP, IGES/IGS, or BREP file into editable
+body features instead of a frozen assembly reference. Find it on the welcome
+card, the empty-document card, in the Document ribbon group, in the CAD Studio
+menu, or through command search.
+
+1. Pick the exchange file; with no saved document, choose where the `.nuke-cad`
+   should live next. Cancelling any dialog changes nothing.
+2. The source is copied into `<document-stem>.parts/` when it lives outside the
+   document folder, then inspected. The dialog lists each source solid with its
+   index, product name, face count, volume, and bounding box.
+3. Select all solids or individual rows, then choose **One body for selected
+   solids** (default) or **One body per selected solid**. The footer previews
+   how many bodies and import features the choice creates.
+4. Name the body and, when the file header lies about its unit, override
+   **Source unit**. Numbers scale to the document unit; a unitless document
+   keeps the native source numbers.
+5. **Import Body** commits the bodies and import features in one undo entry,
+   saves, and rebuilds.
+
+The import is a B-rep snapshot: downstream booleans, dress-ups
+(fillet/chamfer/draft/shell), Move, patterns, mirror, lattices, suppression,
+and assembly instances all work on the body, and imported bodies are valid
+pattern/mirror sources. The raw source surfaces are not editable — replacing
+the source file and refreshing is the way to change them; imported features
+have no parameter-edit dialog and no ghost preview. The feature stores the
+source's SHA-256 hash, so a changed file fails the build with a clear refresh
+message instead of silently using new geometry. **Refresh Import Sources**
+(CAD Studio → Geometry or the Command Palette) re-hashes changed sources and
+updates every feature sharing one source in one commit per source. Export
+Python writes a manual TODO for imported bodies.
+
 ### Appearance
 
 Right-click a solid and choose **Appearance…** to override that body's display
@@ -565,12 +601,12 @@ commands in the Feature Tree:
   in the document toolbar's **Dress-up** group (no sketch or edit mode needed):
   the target body arrives pre-selected from the viewport selection, the dialog
   previews the move ghosted, and later features chain through it.
-- **Linear Pattern** — replicate a sketch-based solid feature along `X`, `Y`, or
+- **Linear Pattern** — replicate a solid-producing feature along `X`, `Y`, or
   `Z`.
-- **Circular Pattern** — replicate a sketch-based solid feature around a global
+- **Circular Pattern** — replicate a solid-producing feature around a global
   axis or a datum axis (including two-point line datums).
-- **Mirror** — mirror a sketch-based solid feature across a coordinate plane or
-  a datum plane.
+- **Mirror** — mirror a solid-producing feature across a coordinate plane or a
+  datum plane.
 - **Multi-Transform** — chain two pattern/mirror features on the same body.
 - **Hole** — place a simple, counterbore, countersink, or counterdrill hole
   on a planar face, with optional taper, drill-point angle, and a cosmetic
@@ -647,15 +683,15 @@ reports `ambiguous` or `unmatched` status in the Feature Tree if it cannot.
 ## Patterns
 
 Patterns replicate an existing solid feature (`pad`, `pocket`, `revolve`,
-`groove`, `sweep`, `pipe`, `loft`, `helicalSweep`, or `primitive`) on the same
-body. The source feature must be earlier in the document order, and the
-pattern feature itself targets the source's body. A per-instance **Scale**
-scales each copy about its own center (`1` = unchanged).
+`groove`, `sweep`, `pipe`, `loft`, `helicalSweep`, `primitive`, or an imported
+body feature) on the same body. The source feature must be earlier in the
+document order, and the pattern feature itself targets the source's body. A
+per-instance **Scale** scales each copy about its own center (`1` = unchanged).
 
 ### Linear pattern
 
 1. Select the target body.
-2. Choose the **Source feature** (the sketch-based solid feature to replicate).
+2. Choose the **Source feature** (the solid-producing feature to replicate).
 3. Enter **Count** (total number of occurrences, including the original) and
    **Spacing**.
 4. Pick the **Axis** (`X`, `Y`, or `Z`) or a **Datum axis** (two-point line
@@ -704,8 +740,8 @@ sources, but not nested inside another lattice.
 3. Click **Create**.
 
 The mirrored copy is appended for additive sources
-(`pad`/`revolve`/`sweep`/`pipe`/`loft`/`helicalSweep`) or cut for subtractive
-sources
+(`pad`/`revolve`/`sweep`/`pipe`/`loft`/`helicalSweep`/imported bodies) or cut for
+subtractive sources
 (`pocket`/`groove`). Overlapping mirror copies of additive
 sources fail with the same clear overlap error as overlapping additive features.
 
@@ -771,6 +807,21 @@ Pipe is a sweep with a circular section — no sketch needed.
 2. Enter the **Radius**.
 3. Choose the **Orientation** as for sweep.
 4. Click **Create**.
+
+### Coil sweep
+
+**Add Coil Sweep Feature** (Additive ribbon or command search) sweeps a
+rectangular section along a document curve. Pick the path curve, then set:
+
+- **Width** and **height** of the rectangle.
+- **Tilt** — rotates the section out of the tangent-normal plane (`-89..89°`).
+- **Twist** — rotates the section progressively around the tangent from start
+  to end.
+- **Stations** — loft resolution (`8..720`, default 60).
+
+Coil sweeps need no sketch and work as pattern, mirror, and lattice sources and
+as assembly bodies. They have no live preview in this release. For circular
+sections use **Pipe**; for a sketch section use **Sweep**.
 
 ## Loft and helical sweep
 
@@ -877,6 +928,10 @@ needs to be visualized and exported.
 
 ## Feature tree
 
+Reopening the CAD viewport restores the active model and re-opens the Feature
+Tree and Model Outline panels. Both panels are also available as **Feature
+Tree** and **Model Outline** buttons in the Inspect ribbon and command search.
+
 The **Feature Tree** panel shows four sections:
 
 - **Bodies** — one row per body; click to select (the body's solids highlight
@@ -890,8 +945,8 @@ The **Feature Tree** panel shows four sections:
   body's solids in the viewport. Status markers from the last rebuild
   (`built`, `stale`, or `failed`) and reference-resolution badges when
   topological references are ambiguous or unmatched. Each row has actions for
-  suppress, move up/down, edit parameters, and delete — including boolean
-  features.
+  suppress, move up/down, edit parameters (not imported features, which show
+  their source file instead), and delete — including boolean features.
 
 ### Editing a feature
 
@@ -1022,9 +1077,10 @@ The first instance is grounded automatically so the import builds and renders
 immediately. The instance stores a document-relative path when the file is in
 or below the document folder (`./model.step`, `./sub/model.step`) and an
 absolute path otherwise, so keep external parts with the document when moving
-or sharing it. The full W7-X example is the exception: it downloads or copies
-the STEP into `<document-stem>.parts/` first and stores a relative path, making
-the saved project folder self-contained.
+or sharing it. The two W7-X examples are the exception: they download or copy
+the STEP into `<document-stem>.parts/` first and store a relative path, making
+the saved project folder self-contained. For editable bodies instead of a
+frozen instance, use **Import CAD as Body…** (see [Bodies](#bodies)).
 
 1. Add an **Instance** for each part (same-document body, document path, or
    CAD file path).
@@ -1049,6 +1105,56 @@ type, and DOF contribution; clicking a row selects the instance in the
 viewport. Assembly STEP export keeps one product per instance; DAGMC export
 imprints the placed solids (overlap stays a warning — assemblies overlap
 intentionally).
+
+### W7-X generator (parametric)
+
+The **W7-X generator (parametric)** example card and the **Create W7-X
+Generator…** command build the validated five-module device from the same
+MIT-licensed reference STEP. The card offers download or local copy; the command
+opens the file picker. Both ask for a destination (default
+`w7x-generator.nuke-cad`), verify the STEP against the committed inventory,
+then create 15 imported bodies — 10 exact coil shapes plus plasma, gap,
+firstwall, blanket, and vessel — and place 55 assembly instances: 50 coils
+(10 shapes × 5 modules at 72° steps) plus 5 shells. The first build takes about
+25 s at a 0.1 display tolerance.
+
+The coil bodies are editable like any imported body, and editing one updates
+all five of its module instances because they reference `body:<id>`. The
+generator is valid-only: it always builds 5 modules / 50 coils and offers no
+module-count control; that is the physically valid W7-X. The full W7-X
+reference card remains the single frozen STEP assembly.
+
+### W7-X coil-count study (experimental)
+
+**Create W7-X Coil Study…** (Document ribbon or command search) builds the same
+15 imported bodies as a 4-, 5-, or 6-module study, with 40/50/60 coil instances
+plus the five shells. Pick a local reference STEP, choose the destination, then
+choose the module count in the study dialog. The dialog reports the measured
+module pitch, module span, uncovered sector or overlap, minimum adjacent coil
+clearance, and coil/coil and coil/shell intersection volumes.
+
+These layouts are design studies, not W7-X configurations. Four modules leave a
+24.66° uncovered sector and drive the shifted coils through every shell; six
+modules overlap adjacent modules by 5.34° and produce coil/coil interference.
+Only five modules is valid. A study document carries a persistent banner with
+the measured summary and **Simulation export disabled**; DAGMC and FEM mesh
+export are rejected by the backend, while display builds and STEP export still
+work. Use the valid five-module generator for simulation-ready geometry.
+
+### W7-X coil shape study (native, experimental)
+
+The **W7-X coil shape study (native)** card and **Create W7-X Coil Shape
+Study…** command build a self-contained editable device without the 47 MB STEP:
+10 native coil-sweep bodies across the five valid modules (50 instances). The
+dialog sets section width/height (default 0.37 m), section tilt (8.6°), twist,
+and stations (60). Each body is a normal **Coil Sweep** feature, so editing its
+width, height, tilt, twist, or path updates all five module instances.
+
+The native sweeps approximate the reference B-reps (about 0.55% total volume
+at defaults, with per-coil deviations under ~1.1%). The document carries a
+persistent **Approximate coils** banner and blocks DAGMC/FEM export. Use the
+imported-body generator when exact reference geometry is required, and the
+coil-count study when comparing 4/5/6 modules.
 
 ## Materials
 

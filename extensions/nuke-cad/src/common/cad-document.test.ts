@@ -32,7 +32,11 @@ import {
     migrateNukeCadDocument,
     type NukeCadDocument,
     type ValidationIssue,
-    type DimensionKind
+    type DimensionKind,
+    type FeatureDef,
+    type W7xCoilStudy,
+    type W7xCoilShapeStudy,
+    validateW7xDesignStudy
 } from './cad-document';
 import { type Point3, type TopologyRef } from './topology-refs';
 
@@ -1277,6 +1281,122 @@ describe('sweep and pipe validation', () => {
     });
 });
 
+describe('coilSweep validation (additive v3)', () => {
+    function makeBaseDocument(): NukeCadDocument {
+        return {
+            version: NUKE_CAD_SCHEMA_VERSION,
+            name: 'coil-sweep',
+            parameters: {},
+            datums: [{ id: 'xy', kind: 'XY', name: 'XY' }],
+            bodies: [{ id: 'body-1', name: 'Body 1' }],
+            sketches: [],
+            features: [],
+            curves: [
+                {
+                    id: 'coil-path',
+                    name: 'Coil path',
+                    source: { kind: 'points' },
+                    samples: [
+                        [0, 0, 0],
+                        [1, 0, 0],
+                        [1, 1, 0],
+                        [0, 1, 0],
+                        [0, 0, 0]
+                    ]
+                }
+            ]
+        };
+    }
+
+    function coilFeature(params: Record<string, unknown>): FeatureDef {
+        return {
+            id: 'coil1',
+            name: 'Coil sweep',
+            type: 'coilSweep',
+            body: 'body-1',
+            params,
+            suppressed: false,
+            dependsOn: []
+        };
+    }
+
+    function documentWith(params: Record<string, unknown>): NukeCadDocument {
+        const doc = makeBaseDocument();
+        doc.features.push(coilFeature(params));
+        return doc;
+    }
+
+    function issuePaths(params: Record<string, unknown>): string[] {
+        return validateNukeCadDocument(documentWith(params)).issues.map((i) => i.path);
+    }
+
+    it('accepts a minimal coil sweep without a sketch', () => {
+        const doc = documentWith({ pathCurveId: 'coil-path', width: 0.37, height: 0.37 });
+        const result = validateNukeCadDocument(doc);
+        expect(result.valid).toBe(true);
+        expect(result.issues).toHaveLength(0);
+        expect(doc.version).toBe(NUKE_CAD_SCHEMA_VERSION);
+        expect(migrateNukeCadDocument(doc).migratedFrom).toBeUndefined();
+    });
+
+    it('accepts tilt, twist, and station boundaries', () => {
+        for (const [tiltDeg, twistDeg, stations] of [
+            [-89, 0, 8],
+            [0, 0, 60],
+            [89, -720, 720],
+            [8.6, 1080, 240]
+        ]) {
+            expect(issuePaths({ pathCurveId: 'coil-path', width: 0.37, height: 0.37, tiltDeg, twistDeg, stations })).toEqual([]);
+        }
+    });
+
+    it('round-trips through JSON', () => {
+        const doc = documentWith({ pathCurveId: 'coil-path', width: 0.37, height: 0.2, tiltDeg: 8.6, twistDeg: 90, stations: 120 });
+        const round = JSON.parse(JSON.stringify(doc)) as NukeCadDocument;
+        expect(validateNukeCadDocument(round).valid).toBe(true);
+        expect(round.features[0].params).toEqual(doc.features[0].params);
+    });
+
+    it('requires a non-empty known path curve', () => {
+        expect(issuePaths({ width: 0.37, height: 0.37 })).toContain('features[0].params.pathCurveId');
+        expect(issuePaths({ pathCurveId: '', width: 0.37, height: 0.37 })).toContain('features[0].params.pathCurveId');
+        expect(issuePaths({ pathCurveId: 7, width: 0.37, height: 0.37 })).toContain('features[0].params.pathCurveId');
+        expect(issuePaths({ pathCurveId: 'nope', width: 0.37, height: 0.37 })).toContain('features[0].params.pathCurveId');
+    });
+
+    it('requires positive finite width and height', () => {
+        for (const value of [0, -1, Number.NaN, Number.POSITIVE_INFINITY, '0.37', null]) {
+            expect(issuePaths({ pathCurveId: 'coil-path', width: value, height: 0.37 }), String(value)).toContain(
+                'features[0].params.width'
+            );
+            expect(issuePaths({ pathCurveId: 'coil-path', width: 0.37, height: value }), String(value)).toContain(
+                'features[0].params.height'
+            );
+        }
+    });
+
+    it('rejects tilt outside [-89, 89] and non-finite tilt', () => {
+        for (const value of [-90, 90, Number.NaN, Number.POSITIVE_INFINITY, '8.6']) {
+            expect(issuePaths({ pathCurveId: 'coil-path', width: 0.37, height: 0.37, tiltDeg: value }), String(value)).toContain(
+                'features[0].params.tiltDeg'
+            );
+        }
+    });
+
+    it('rejects non-finite twist and malformed stations', () => {
+        for (const value of [Number.NaN, Number.NEGATIVE_INFINITY, '90']) {
+            expect(issuePaths({ pathCurveId: 'coil-path', width: 0.37, height: 0.37, twistDeg: value }), String(value)).toContain(
+                'features[0].params.twistDeg'
+            );
+        }
+        for (const value of [7, 721, 8.5, '60', null]) {
+            expect(issuePaths({ pathCurveId: 'coil-path', width: 0.37, height: 0.37, stations: value }), String(value)).toContain(
+                'features[0].params.stations'
+            );
+        }
+    });
+});
+
 describe('v2 to v3 migration', () => {
     it('adds an empty curves array to a v2 document', () => {
         const v2 = {
@@ -2341,6 +2461,114 @@ describe('wave A2 additive params (revolve ends, upToBody, subtractive, linear d
     });
 });
 
+describe('import feature validation (additive v3)', () => {
+    const SOURCE_HASH = 'a'.repeat(64);
+
+    function importParams(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+        return {
+            sourcePath: './w7x.parts/source.step',
+            sourceHash: SOURCE_HASH,
+            sourceSize: 1024,
+            selection: { mode: 'all' },
+            ...overrides
+        };
+    }
+
+    function importDocument(overrides: Record<string, unknown> = {}): NukeCadDocument {
+        const doc = makeDocument();
+        doc.features.push({
+            id: 'imp1',
+            name: 'Imported Coil',
+            type: 'import',
+            body: 'body-1',
+            params: importParams(overrides) as unknown as NukeCadDocument['features'][number]['params'],
+            suppressed: false,
+            dependsOn: ['pad1']
+        });
+        return doc;
+    }
+
+    it('accepts a hand-written v3 import feature and round-trips it through JSON', () => {
+        expect(NUKE_CAD_SCHEMA_VERSION).toBe(3);
+        const doc = importDocument();
+        expect(validateNukeCadDocument(doc).valid).toBe(true);
+
+        const round = JSON.parse(JSON.stringify(doc)) as NukeCadDocument;
+        const result = validateNukeCadDocument(round);
+        expect(result.valid).toBe(true);
+        expect(round.features[1].params).toEqual(doc.features[1].params);
+        expect(round.features[1].type).toBe('import');
+        expect(migrateNukeCadDocument(round).migratedFrom).toBeUndefined();
+    });
+
+    it('accepts the full optional surface (selection, placement, format, unit, cap)', () => {
+        const doc = importDocument({
+            sourcePath: '/absolute/coils.step',
+            sourceFormat: 'step',
+            sourceUnit: 'm',
+            maxSolids: 50,
+            selection: {
+                mode: 'solids',
+                solids: [{ index: 1, signature: { faceCount: 24, volume: 3.5 } }, { index: 3 }]
+            },
+            placement: { translate: [1, 2, 3], rotateDegrees: [0, 45, 90] }
+        });
+        expect(validateNukeCadDocument(doc).issues).toEqual([]);
+    });
+
+    it('rejects malformed import params with a precise path', () => {
+        const cases: Array<[string, Record<string, unknown>, string]> = [
+            ['empty sourcePath', { sourcePath: '' }, 'features[1].params.sourcePath'],
+            ['non-string sourcePath', { sourcePath: 3 }, 'features[1].params.sourcePath'],
+            ['uppercase hash', { sourceHash: 'A'.repeat(64) }, 'features[1].params.sourceHash'],
+            ['short hash', { sourceHash: 'abc' }, 'features[1].params.sourceHash'],
+            ['zero size', { sourceSize: 0 }, 'features[1].params.sourceSize'],
+            ['fractional size', { sourceSize: 1.5 }, 'features[1].params.sourceSize'],
+            ['unknown format', { sourceFormat: 'stl' }, 'features[1].params.sourceFormat'],
+            ['unknown unit', { sourceUnit: 'in' }, 'features[1].params.sourceUnit'],
+            ['unknown selection mode', { selection: { mode: 'some' } }, 'features[1].params.selection.mode'],
+            ['empty solids', { selection: { mode: 'solids', solids: [] } }, 'features[1].params.selection.solids'],
+            ['zero index', { selection: { mode: 'solids', solids: [{ index: 0 }] } }, 'features[1].params.selection.solids[0].index'],
+            [
+                'duplicate index',
+                { selection: { mode: 'solids', solids: [{ index: 2 }, { index: 2 }] } },
+                'features[1].params.selection.solids[1].index'
+            ],
+            [
+                'zero face count',
+                { selection: { mode: 'solids', solids: [{ index: 1, signature: { faceCount: 0, volume: 1 } }] } },
+                'features[1].params.selection.solids[0].signature.faceCount'
+            ],
+            [
+                'non-finite volume',
+                { selection: { mode: 'solids', solids: [{ index: 1, signature: { faceCount: 4, volume: Infinity } }] } },
+                'features[1].params.selection.solids[0].signature.volume'
+            ],
+            ['short translate', { placement: { translate: [1, 2] } }, 'features[1].params.placement.translate'],
+            ['non-finite rotation', { placement: { rotateDegrees: [0, 0, Number.NaN] } }, 'features[1].params.placement.rotateDegrees'],
+            ['zero maxSolids', { maxSolids: 0 }, 'features[1].params.maxSolids'],
+            ['fractional maxSolids', { maxSolids: 2.5 }, 'features[1].params.maxSolids']
+        ];
+        for (const [label, overrides, path] of cases) {
+            const result = validateNukeCadDocument(importDocument(overrides));
+            expect(result.valid, label).toBe(false);
+            expect(
+                result.issues.map((issue) => issue.path),
+                label
+            ).toContain(path);
+        }
+    });
+
+    it('requires a selection block', () => {
+        const doc = importDocument();
+        const params = doc.features[1].params as Record<string, unknown>;
+        delete params.selection;
+        const result = validateNukeCadDocument(doc);
+        expect(result.valid).toBe(false);
+        expect(result.issues.some((i) => i.path === 'features[1].params.selection')).toBe(true);
+    });
+});
+
 describe('assembly section (additive v3)', () => {
     function makeAssemblyDocument(): NukeCadDocument {
         const doc = makeDocument();
@@ -2401,5 +2629,309 @@ describe('assembly section (additive v3)', () => {
         const result = validateNukeCadDocument(doc);
         expect(result.valid).toBe(false);
         expect(result.issues.some((i) => i.path === 'assembly.mates[1]')).toBe(true);
+    });
+});
+
+describe('overlap check gate (additive v3)', () => {
+    it('defaults to enabled and accepts explicit booleans', () => {
+        const doc = makeDocument();
+        expect(doc.overlapCheck).toBeUndefined();
+        expect(validateNukeCadDocument(doc).valid).toBe(true);
+        expect(validateNukeCadDocument({ ...doc, overlapCheck: true }).valid).toBe(true);
+        expect(validateNukeCadDocument({ ...doc, overlapCheck: false }).valid).toBe(true);
+        // Additive: no version bump and no migration step.
+        expect(migrateNukeCadDocument({ ...doc, overlapCheck: false }).migratedFrom).toBeUndefined();
+    });
+
+    it('round-trips through JSON with the document', () => {
+        const doc = { ...makeDocument(), overlapCheck: false };
+        const round = JSON.parse(JSON.stringify(doc)) as NukeCadDocument;
+        expect(round.overlapCheck).toBe(false);
+        expect(validateNukeCadDocument(round).valid).toBe(true);
+    });
+
+    it('rejects non-boolean values at the top-level field path', () => {
+        for (const value of ['false', 0, 1, null, {}]) {
+            const doc = { ...makeDocument(), overlapCheck: value } as unknown as NukeCadDocument;
+            const result = validateNukeCadDocument(doc);
+            expect(result.valid, String(value)).toBe(false);
+            expect(result.issues.map((i) => i.path)).toContain('overlapCheck');
+        }
+    });
+});
+
+describe('W7-X coil design study (additive v3)', () => {
+    function makeDesignStudy(moduleCount: 4 | 5 | 6 = 4): W7xCoilStudy {
+        return {
+            kind: 'w7x-coil-study',
+            report: {
+                moduleCount,
+                valid: moduleCount === 5,
+                pitchDeg: 360 / moduleCount,
+                moduleSpanDeg: 65.3402,
+                uncoveredSectorDeg: moduleCount === 4 ? 24.6598 : 0,
+                moduleOverlapDeg: moduleCount === 6 ? 5.3402 : 0,
+                ...(moduleCount === 5 ? { minCoilClearanceM: 0.102807 } : {}),
+                coilCoilOverlaps:
+                    moduleCount === 6
+                        ? [
+                              { a: 'coil_0', b: 'coil_7', volumeM3: 0.072756 },
+                              { a: 'coil_0', b: 'coil_8', volumeM3: 0.01984 }
+                          ]
+                        : [],
+                coilShellOverlaps:
+                    moduleCount === 4
+                        ? [
+                              { coil: 'coil_0', shell: 'plasma', volumeM3: 0.072624 },
+                              { coil: 'coil_0', shell: 'vessel', volumeM3: 0.022858 }
+                          ]
+                        : [],
+                summary: `${moduleCount}-module W7-X coil-count study`
+            }
+        };
+    }
+
+    function studyDocument(moduleCount: 4 | 5 | 6 = 4): NukeCadDocument {
+        const doc = makeDocument();
+        doc.designStudy = makeDesignStudy(moduleCount);
+        return doc;
+    }
+
+    function reportOf(doc: NukeCadDocument): Record<string, unknown> {
+        return doc.designStudy!.report as unknown as Record<string, unknown>;
+    }
+
+    it('accepts 4-, 5-, and 6-module studies without a version bump or migration', () => {
+        for (const moduleCount of [4, 5, 6] as const) {
+            const doc = makeDocument();
+            doc.designStudy = makeDesignStudy(moduleCount);
+            expect(doc.version).toBe(NUKE_CAD_SCHEMA_VERSION);
+            expect(validateNukeCadDocument(doc).valid, String(moduleCount)).toBe(true);
+            expect(migrateNukeCadDocument(doc).migratedFrom).toBeUndefined();
+        }
+    });
+
+    it('accepts an absent designStudy as a normal document', () => {
+        expect(makeDocument().designStudy).toBeUndefined();
+        expect(validateNukeCadDocument(makeDocument()).valid).toBe(true);
+    });
+
+    it('round-trips the nested report through JSON', () => {
+        const doc = studyDocument();
+        const round = JSON.parse(JSON.stringify(doc)) as NukeCadDocument;
+        expect(validateNukeCadDocument(round).valid).toBe(true);
+        expect(round.designStudy).toEqual(doc.designStudy);
+        expect((round.designStudy as W7xCoilStudy).report.coilShellOverlaps[1]).toEqual({
+            coil: 'coil_0',
+            shell: 'vessel',
+            volumeM3: 0.022858
+        });
+    });
+
+    it('rejects an unknown kind and non-object blocks', () => {
+        for (const value of [null, 'w7x-coil-study', [], {}]) {
+            const doc = makeDocument();
+            doc.designStudy = value as unknown as W7xCoilStudy;
+            const result = validateNukeCadDocument(doc);
+            expect(result.valid, String(value)).toBe(false);
+            expect(result.issues.some((i) => i.path === 'designStudy' || i.path.startsWith('designStudy.'))).toBe(true);
+        }
+        const wrongKind = studyDocument();
+        (wrongKind.designStudy as unknown as Record<string, unknown>).kind = 'w7x-study';
+        expect(validateNukeCadDocument(wrongKind).issues.map((i) => i.path)).toContain('designStudy.kind');
+    });
+
+    it('rejects module counts outside 4/5/6', () => {
+        for (const moduleCount of [3, 7, 4.5, '4', null]) {
+            const doc = studyDocument();
+            reportOf(doc).moduleCount = moduleCount;
+            const result = validateNukeCadDocument(doc);
+            expect(result.valid, String(moduleCount)).toBe(false);
+            expect(result.issues.map((i) => i.path)).toContain('designStudy.report.moduleCount');
+        }
+    });
+
+    it('rejects non-finite report numbers and a non-boolean validity flag', () => {
+        for (const field of ['pitchDeg', 'moduleSpanDeg', 'uncoveredSectorDeg', 'moduleOverlapDeg'] as const) {
+            const doc = studyDocument();
+            reportOf(doc)[field] = Number.POSITIVE_INFINITY;
+            const result = validateNukeCadDocument(doc);
+            expect(result.valid, field).toBe(false);
+            expect(result.issues.map((i) => i.path)).toContain(`designStudy.report.${field}`);
+        }
+        const clearance = studyDocument();
+        reportOf(clearance).minCoilClearanceM = Number.NaN;
+        expect(validateNukeCadDocument(clearance).issues.map((i) => i.path)).toContain('designStudy.report.minCoilClearanceM');
+        // Optional clearance may be absent.
+        const noClearance = studyDocument();
+        delete reportOf(noClearance).minCoilClearanceM;
+        expect(validateNukeCadDocument(noClearance).valid).toBe(true);
+        const valid = studyDocument();
+        reportOf(valid).valid = 'yes';
+        expect(validateNukeCadDocument(valid).issues.map((i) => i.path)).toContain('designStudy.report.valid');
+    });
+
+    it('rejects malformed overlap arrays and entries', () => {
+        const notArray = studyDocument();
+        reportOf(notArray).coilCoilOverlaps = {};
+        expect(validateNukeCadDocument(notArray).issues.map((i) => i.path)).toContain('designStudy.report.coilCoilOverlaps');
+
+        const missingB = studyDocument(6);
+        const coilEntries = reportOf(missingB).coilCoilOverlaps as Record<string, unknown>[];
+        delete coilEntries[0].b;
+        expect(validateNukeCadDocument(missingB).issues.map((i) => i.path)).toContain('designStudy.report.coilCoilOverlaps[0].b');
+
+        const badVolume = studyDocument();
+        const shellEntries = reportOf(badVolume).coilShellOverlaps as Record<string, unknown>[];
+        shellEntries[0].volumeM3 = 'big';
+        expect(validateNukeCadDocument(badVolume).issues.map((i) => i.path)).toContain('designStudy.report.coilShellOverlaps[0].volumeM3');
+
+        const notObject = studyDocument();
+        (reportOf(notObject).coilShellOverlaps as unknown[])[1] = 7;
+        expect(validateNukeCadDocument(notObject).issues.map((i) => i.path)).toContain('designStudy.report.coilShellOverlaps[1]');
+    });
+
+    it('requires a non-empty summary string', () => {
+        for (const summary of ['', '   ', 42]) {
+            const doc = studyDocument();
+            reportOf(doc).summary = summary;
+            const result = validateNukeCadDocument(doc);
+            expect(result.valid, String(summary)).toBe(false);
+            expect(result.issues.map((i) => i.path)).toContain('designStudy.report.summary');
+        }
+    });
+});
+
+describe('W7-X native coil shape study (additive v3)', () => {
+    function makeShapeStudy(): W7xCoilShapeStudy {
+        return {
+            kind: 'w7x-coil-shape-study',
+            report: {
+                moduleCount: 5,
+                coilCount: 50,
+                bodyCount: 10,
+                sectionWidthM: 0.37,
+                sectionHeightM: 0.37,
+                sectionTiltDeg: 8.6,
+                twistDeg: 0,
+                stations: 60,
+                referenceVolumeM3: 27.608505577,
+                summary: '10 native sweep bodies x 5 modules; approximate reference B-reps; simulation export disabled.'
+            }
+        };
+    }
+
+    function shapeStudyDocument(): NukeCadDocument {
+        const doc = makeDocument();
+        doc.designStudy = makeShapeStudy();
+        return doc;
+    }
+
+    function reportOf(doc: NukeCadDocument): Record<string, unknown> {
+        return doc.designStudy!.report as unknown as Record<string, unknown>;
+    }
+
+    it('accepts the marker without a version bump or migration', () => {
+        const doc = shapeStudyDocument();
+        expect(doc.version).toBe(NUKE_CAD_SCHEMA_VERSION);
+        expect(validateNukeCadDocument(doc).valid).toBe(true);
+        expect(migrateNukeCadDocument(doc).migratedFrom).toBeUndefined();
+    });
+
+    it('accepts either design-study kind on the same document type', () => {
+        const countStudy: W7xCoilStudy = {
+            kind: 'w7x-coil-study',
+            report: {
+                moduleCount: 5,
+                valid: true,
+                pitchDeg: 72,
+                moduleSpanDeg: 65.3402,
+                uncoveredSectorDeg: 0,
+                moduleOverlapDeg: 0,
+                minCoilClearanceM: 0.102807,
+                coilCoilOverlaps: [],
+                coilShellOverlaps: [],
+                summary: '5-module W7-X coil-count study'
+            }
+        };
+        const countDoc = makeDocument();
+        countDoc.designStudy = countStudy;
+        expect(validateNukeCadDocument(countDoc).valid).toBe(true);
+        expect(validateW7xDesignStudy(countStudy).valid).toBe(true);
+        expect(validateW7xDesignStudy(makeShapeStudy()).valid).toBe(true);
+    });
+
+    it('round-trips through JSON', () => {
+        const doc = shapeStudyDocument();
+        const round = JSON.parse(JSON.stringify(doc)) as NukeCadDocument;
+        expect(validateNukeCadDocument(round).valid).toBe(true);
+        expect(round.designStudy).toEqual(doc.designStudy);
+    });
+
+    it('requires the locked 5 modules / 50 coils / 10 bodies counts', () => {
+        const cases: [string, unknown, string][] = [
+            ['moduleCount', 4, 'designStudy.report.moduleCount'],
+            ['coilCount', 45, 'designStudy.report.coilCount'],
+            ['bodyCount', 9, 'designStudy.report.bodyCount']
+        ];
+        for (const [field, value, path] of cases) {
+            const doc = shapeStudyDocument();
+            reportOf(doc)[field] = value;
+            const result = validateNukeCadDocument(doc);
+            expect(result.valid, field).toBe(false);
+            expect(result.issues.map((i) => i.path)).toContain(path);
+        }
+    });
+
+    it('requires positive finite section dimensions and reference volume', () => {
+        for (const field of ['sectionWidthM', 'sectionHeightM', 'referenceVolumeM3'] as const) {
+            for (const value of [0, -1, Number.NaN, Number.POSITIVE_INFINITY, '0.37']) {
+                const doc = shapeStudyDocument();
+                reportOf(doc)[field] = value;
+                const result = validateNukeCadDocument(doc);
+                expect(result.valid, `${field}=${String(value)}`).toBe(false);
+                expect(result.issues.map((i) => i.path)).toContain(`designStudy.report.${field}`);
+            }
+        }
+    });
+
+    it('requires finite tilt/twist and integer stations in [8, 720]', () => {
+        for (const field of ['sectionTiltDeg', 'twistDeg'] as const) {
+            const doc = shapeStudyDocument();
+            reportOf(doc)[field] = Number.NaN;
+            expect(validateNukeCadDocument(doc).issues.map((i) => i.path)).toContain(`designStudy.report.${field}`);
+        }
+        for (const stations of [7, 721, 8.5, '60', null]) {
+            const doc = shapeStudyDocument();
+            reportOf(doc).stations = stations;
+            const result = validateNukeCadDocument(doc);
+            expect(result.valid, String(stations)).toBe(false);
+            expect(result.issues.map((i) => i.path)).toContain('designStudy.report.stations');
+        }
+    });
+
+    it('requires a non-empty summary and rejects an unknown kind', () => {
+        for (const summary of ['', '   ', 42]) {
+            const doc = shapeStudyDocument();
+            reportOf(doc).summary = summary;
+            const result = validateNukeCadDocument(doc);
+            expect(result.valid, String(summary)).toBe(false);
+            expect(result.issues.map((i) => i.path)).toContain('designStudy.report.summary');
+        }
+        const wrongKind = shapeStudyDocument();
+        (wrongKind.designStudy as unknown as Record<string, unknown>).kind = 'w7x-shape-study';
+        expect(validateNukeCadDocument(wrongKind).issues.map((i) => i.path)).toContain('designStudy.kind');
+        expect(validateW7xDesignStudy({ kind: 'w7x-shape-study', report: {} }).valid).toBe(false);
+    });
+
+    it('rejects malformed shape-study blocks without weakening the count-study check', () => {
+        for (const value of [null, 'w7x-coil-shape-study', [], {}]) {
+            const doc = makeDocument();
+            doc.designStudy = value as unknown as W7xCoilShapeStudy;
+            expect(validateNukeCadDocument(doc).valid, String(value)).toBe(false);
+        }
+        const countDoc = makeDocument();
+        countDoc.designStudy = { kind: 'w7x-coil-study', report: { moduleCount: 7 } } as unknown as W7xCoilStudy;
+        expect(validateNukeCadDocument(countDoc).issues.map((i) => i.path)).toContain('designStudy.report.moduleCount');
     });
 });

@@ -59,6 +59,31 @@ export class NukeCadMenuContribution implements MenuContribution {
             label: 'Rebuild Geometry',
             order: 'c'
         });
+        menus.registerMenuAction(NukeCadMenus.CAD_GEOMETRY, {
+            commandId: NukeCadCommands.IMPORT_CAD_BODY.id,
+            label: 'Import CAD as Body…',
+            order: 'd'
+        });
+        menus.registerMenuAction(NukeCadMenus.CAD_GEOMETRY, {
+            commandId: NukeCadCommands.REFRESH_IMPORT_SOURCES.id,
+            label: 'Refresh Import Sources',
+            order: 'e'
+        });
+        menus.registerMenuAction(NukeCadMenus.CAD_GEOMETRY, {
+            commandId: NukeCadCommands.CREATE_W7X_GENERATOR.id,
+            label: 'Create W7-X Generator…',
+            order: 'f'
+        });
+        menus.registerMenuAction(NukeCadMenus.CAD_GEOMETRY, {
+            commandId: NukeCadCommands.CREATE_W7X_COIL_STUDY.id,
+            label: 'Create W7-X Coil Study…',
+            order: 'g'
+        });
+        menus.registerMenuAction(NukeCadMenus.CAD_GEOMETRY, {
+            commandId: NukeCadCommands.CREATE_W7X_SHAPE_STUDY.id,
+            label: 'Create W7-X Coil Shape Study…',
+            order: 'h'
+        });
 
         menus.registerMenuAction(NukeCadMenus.CAD_PANELS, {
             commandId: NukeCadCommands.OPEN_OUTLINE_PANEL.id,

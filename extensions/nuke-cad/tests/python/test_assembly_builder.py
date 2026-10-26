@@ -676,3 +676,32 @@ def test_negative_dof_overconstrained_build_warns(tmp_path: Path) -> None:
     )
     assert result["success"] is True, result.get("error")
     assert any("over-constrained" in warning for warning in result["warnings"])
+
+
+def test_instance_overlap_skipped_when_overlap_check_disabled() -> None:
+    """``overlapCheck: false`` skips the pairwise instance-overlap booleans.
+
+    The validated W7-X layout has 55 deliberately contacting instances (1485
+    exact instance pairs); the default keeps reporting those warnings, and the
+    opt-out changes warnings only — the placed solids are identical.
+    """
+    _require_full_profile()
+
+    doc = _box_doc("instance-gate", [("coil", "coil-solid", 10.0)])
+    doc["assembly"] = {
+        "instances": [
+            {"id": "m0", "part": "body:coil", "placement": _placement([0.0, 0.0, 0.0])},
+            {"id": "m1", "part": "body:coil", "placement": _placement([5.0, 0.0, 0.0])},
+        ],
+        "connectors": [],
+        "mates": [],
+        "groundedInstanceId": "m0",
+    }
+    enabled = ab.build_assembly_shape(doc)
+    assert any("overlap" in w for w in enabled["warnings"]), enabled["warnings"]
+    assert enabled["solidInstanceIds"] == ["m0", "m1"]
+
+    disabled_doc = dict(doc, overlapCheck=False)
+    disabled = ab.build_assembly_shape(disabled_doc)
+    assert not [w for w in disabled["warnings"] if "overlap" in w], disabled["warnings"]
+    assert disabled["solidInstanceIds"] == ["m0", "m1"]

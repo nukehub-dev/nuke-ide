@@ -113,6 +113,7 @@ import {
     type FeaturePreviewRequest,
     type HelixAxis
 } from './sweep-pipe';
+import { coilSweepDraftFromParams, defaultCoilSweepDraft, validateCoilSweepDraft } from './coil-sweep-dialog';
 
 /** Presses on the sketch toolbar's header pick it up; the collapsed toggle doubles as a handle. */
 const TOOLBAR_DRAG_TARGET: DragTargetFilter = (target) => {
@@ -164,6 +165,12 @@ interface CadSketchOverlayProps {
     readonly onStartSketchSetup: () => void;
     readonly onExportPython?: () => void;
     readonly onImportCad?: () => void;
+    readonly onImportCadBody?: () => void;
+    readonly onCreateW7xGenerator?: () => void;
+    readonly onCreateW7xCoilStudy?: () => void;
+    readonly onCreateW7xShapeStudy?: () => void;
+    readonly onOpenFeatureTree?: () => void;
+    readonly onOpenModelOutline?: () => void;
     readonly onNewDocument?: () => void;
     readonly onSaveDocument?: () => void;
     readonly onRebuildDocument?: () => void;
@@ -189,6 +196,12 @@ interface CadSketchOverlayProps {
     readonly measureListOpen?: boolean;
     readonly onToggleMeasure?: () => void;
     readonly onToggleMeasureList?: () => void;
+    /** A modal import dialog owns the keyboard (the `/` search stays inert). */
+    readonly importDialogOpen?: boolean;
+    /** The W7-X coil-study dialog owns the keyboard (the `/` search stays inert). */
+    readonly w7xStudyDialogOpen?: boolean;
+    /** The W7-X coil shape-study dialog owns the keyboard (the `/` search stays inert). */
+    readonly w7xShapeStudyDialogOpen?: boolean;
     readonly onCloseShortcutBar: () => void;
 }
 
@@ -250,7 +263,19 @@ const SNAP_RADIUS_PRESETS: ReadonlyArray<{ label: string; px: number }> = [
     { label: 'L', px: 24 }
 ];
 
-const SOLID_PRODUCERS: FeatureType[] = ['pad', 'pocket', 'revolve', 'groove', 'sweep', 'pipe', 'loft', 'helicalSweep', 'primitive'];
+const SOLID_PRODUCERS: FeatureType[] = [
+    'pad',
+    'pocket',
+    'revolve',
+    'groove',
+    'sweep',
+    'pipe',
+    'loft',
+    'helicalSweep',
+    'coilSweep',
+    'primitive',
+    'import'
+];
 
 /** Primary constraint chips: the icon-row affordance the sketch toolbar exposes first. */
 const PRIMARY_CONSTRAINT_CHIPS: ReadonlyArray<{ kind: ConstraintKind; label: string; glyph: string }> = [
@@ -304,6 +329,12 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
         onStartSketchSetup,
         onExportPython,
         onImportCad,
+        onImportCadBody,
+        onCreateW7xGenerator,
+        onCreateW7xCoilStudy,
+        onCreateW7xShapeStudy,
+        onOpenFeatureTree,
+        onOpenModelOutline,
         onNewDocument,
         onSaveDocument,
         onRebuildDocument,
@@ -623,6 +654,9 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
                         holePickMode === true ||
                         curvePickMode === true ||
                         measureActive === true ||
+                        props.importDialogOpen === true ||
+                        props.w7xStudyDialogOpen === true ||
+                        props.w7xShapeStudyDialogOpen === true ||
                         shortcutBar !== undefined
                     }
                     onStartSketchSetup={onStartSketchSetup}
@@ -631,6 +665,12 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
                     onStartFeatureCreation={onStartFeatureCreation}
                     onExportPython={onExportPython}
                     onImportCad={onImportCad}
+                    onImportCadBody={onImportCadBody}
+                    onCreateW7xGenerator={onCreateW7xGenerator}
+                    onCreateW7xCoilStudy={onCreateW7xCoilStudy}
+                    onCreateW7xShapeStudy={onCreateW7xShapeStudy}
+                    onOpenFeatureTree={onOpenFeatureTree}
+                    onOpenModelOutline={onOpenModelOutline}
                     onNewDocument={onNewDocument}
                     onSaveDocument={onSaveDocument}
                     onRebuildDocument={onRebuildDocument}
@@ -1329,6 +1369,12 @@ interface DocumentModeToolbarProps {
     readonly onStartFeatureCreation: (type: FeatureType) => void;
     readonly onExportPython?: () => void;
     readonly onImportCad?: () => void;
+    readonly onImportCadBody?: () => void;
+    readonly onCreateW7xGenerator?: () => void;
+    readonly onCreateW7xCoilStudy?: () => void;
+    readonly onCreateW7xShapeStudy?: () => void;
+    readonly onOpenFeatureTree?: () => void;
+    readonly onOpenModelOutline?: () => void;
     readonly onNewDocument?: () => void;
     readonly onSaveDocument?: () => void;
     readonly onRebuildDocument?: () => void;
@@ -1515,6 +1561,12 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
         onRebuildDocument: props.onRebuildDocument,
         onExportPython: props.onExportPython,
         onImportCad: props.onImportCad,
+        onImportCadBody: props.onImportCadBody,
+        onCreateW7xGenerator: props.onCreateW7xGenerator,
+        onCreateW7xCoilStudy: props.onCreateW7xCoilStudy,
+        onCreateW7xShapeStudy: props.onCreateW7xShapeStudy,
+        onOpenFeatureTree: props.onOpenFeatureTree,
+        onOpenModelOutline: props.onOpenModelOutline,
         onStartSketchSetup: props.onStartSketchSetup,
         onEditSketch: props.onEditSketch,
         onStartFeatureCreation: props.onStartFeatureCreation,
@@ -2546,6 +2598,7 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
     // Newer feature types compare as strings; params flow as
     // Record<string, unknown> through the existing finish() path.
     const typeName = type as string;
+    const isCoilSweep = typeName === 'coilSweep';
     const isPrimitive = typeName === 'primitive';
     const isMultiTransform = typeName === 'multiTransform';
     const isDefeature = typeName === 'defeature';
@@ -2626,6 +2679,15 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
     const [sweepOrientation, setSweepOrientation] = React.useState<'frenet' | 'fixedBinormal'>('frenet');
     const [sweepBinormal, setSweepBinormal] = React.useState<[string, string, string]>(['0', '0', '1']);
     const [pipeRadius, setPipeRadius] = React.useState('1');
+
+    // Coil-sweep state: rectangular section swept along a document curve
+    // (sketch-free; no ghost preview in this tranche).
+    const coilDefaults = defaultCoilSweepDraft();
+    const [coilWidth, setCoilWidth] = React.useState(coilDefaults.width);
+    const [coilHeight, setCoilHeight] = React.useState(coilDefaults.height);
+    const [coilTiltDeg, setCoilTiltDeg] = React.useState(coilDefaults.tiltDeg);
+    const [coilTwistDeg, setCoilTwistDeg] = React.useState(coilDefaults.twistDeg);
+    const [coilStations, setCoilStations] = React.useState(coilDefaults.stations);
 
     // Loft state: ordered section sketch ids picked in-dialog (the feature
     // does not consume the selected sketch).
@@ -2842,6 +2904,15 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
             const binormal = p.binormal as [number, number, number] | undefined;
             setSweepBinormal(binormal !== undefined ? [String(binormal[0]), String(binormal[1]), String(binormal[2])] : ['0', '0', '1']);
             setPipeRadius(p.radius !== undefined ? String(p.radius) : '1');
+        }
+        if (isCoilSweep) {
+            const draft = coilSweepDraftFromParams(p);
+            setPathCurveId(draft.pathCurveId);
+            setCoilWidth(draft.width);
+            setCoilHeight(draft.height);
+            setCoilTiltDeg(draft.tiltDeg);
+            setCoilTwistDeg(draft.twistDeg);
+            setCoilStations(draft.stations);
         }
         if (isLoft) {
             const draft = loftDraftFromParams(p);
@@ -3240,6 +3311,7 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
             !isDressUp &&
             !isPipe &&
             !isLoft &&
+            !isCoilSweep &&
             !isPrimitive &&
             !isMultiTransform &&
             !isDefeature &&
@@ -3418,6 +3490,26 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
             // Thread presets are none/cosmetic/modeled (modeled gated to
             // simple blind holes in the shared validator above).
             finish({ ...holeResult.params, bodyId: holeBodyId, label });
+            return;
+        }
+        if (isCoilSweep) {
+            const result = validateCoilSweepDraft(
+                {
+                    pathCurveId,
+                    width: coilWidth,
+                    height: coilHeight,
+                    tiltDeg: coilTiltDeg,
+                    twistDeg: coilTwistDeg,
+                    stations: coilStations
+                },
+                curves
+            );
+            if (!result.ok) {
+                setError(result.error);
+                return;
+            }
+            const effectiveBodyId = bodyId === NEW_BODY_SENTINEL ? undefined : bodyId;
+            finish({ ...result.params, bodyId: effectiveBodyId, label });
             return;
         }
         if (isCurveSweep) {
@@ -3638,6 +3730,7 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                     type === 'pipe' ||
                     type === 'loft' ||
                     type === 'helicalSweep' ||
+                    isCoilSweep ||
                     isPrimitive
                         ? [{ value: NEW_BODY_SENTINEL, label: 'New body' }]
                         : []),
@@ -3792,10 +3885,11 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
     // or right-click the header to reset; clamping to the viewport comes free
     // because the backdrop's positioned ancestor is the viewport root.
     const drag = useDraggablePanel({ canDrag: NUKE_DIALOG_HEADER_TARGET, canResetFrom: NUKE_DIALOG_HEADER_TARGET });
+    const typeLabel = isCoilSweep ? 'Coil Sweep' : capitalize(type);
 
     return (
         <NukeDialog
-            title={props.editFeature !== undefined ? `Edit ${capitalize(type)}` : capitalize(type)}
+            title={props.editFeature !== undefined ? `Edit ${typeLabel}` : typeLabel}
             onClose={props.onCancel}
             modal={!pickActive}
             closeOnEscape={!pickActive}
@@ -4232,6 +4326,79 @@ function FeatureCreationDialog(props: FeatureCreationDialogProps): React.ReactEl
                             Preview (ghosted build)
                         </label>
                     )}
+                </>
+            )}
+            {isCoilSweep && (
+                <>
+                    <div className="cad-feature-dialog-row vertical">
+                        <span className="cad-feature-dialog-label">
+                            Path curve{' '}
+                            {pathCurveId !== '' ? `(${curves.find((c) => c.id === pathCurveId)?.name ?? pathCurveId})` : '(none)'}
+                        </span>
+                        <div className="cad-feature-dialog-actions">
+                            <NukeSelect
+                                ariaLabel="Path curve"
+                                value={pathCurveId}
+                                options={[{ value: '', label: 'Select a curve…' }, ...curves.map((c) => ({ value: c.id, label: c.name }))]}
+                                onChange={(value) => setPathCurveId(value)}
+                            />
+                            <button
+                                className={`theia-button secondary ${props.curvePickMode === true ? 'active' : ''}`}
+                                onClick={() => {
+                                    if (props.curvePickMode === true) {
+                                        props.onCurvePickCancel();
+                                    } else {
+                                        props.onStartCurvePick((curveId) => setPathCurveId(curveId));
+                                    }
+                                }}
+                            >
+                                <span className="codicon codicon-target" />{' '}
+                                {props.curvePickMode === true ? 'Cancel pick' : 'Pick in viewport'}
+                            </button>
+                        </div>
+                    </div>
+                    <div className="cad-feature-dialog-row">
+                        Section width
+                        <input
+                            type="number"
+                            min={0}
+                            step="any"
+                            value={coilWidth}
+                            onChange={(e) => setCoilWidth(e.target.value)}
+                            autoFocus
+                        />
+                    </div>
+                    <div className="cad-feature-dialog-row">
+                        Section height
+                        <input type="number" min={0} step="any" value={coilHeight} onChange={(e) => setCoilHeight(e.target.value)} />
+                    </div>
+                    <div className="cad-feature-dialog-row">
+                        Tilt (°)
+                        <input
+                            type="number"
+                            min={-89}
+                            max={89}
+                            step="any"
+                            value={coilTiltDeg}
+                            onChange={(e) => setCoilTiltDeg(e.target.value)}
+                        />
+                    </div>
+                    <div className="cad-feature-dialog-row">
+                        Twist (°)
+                        <input type="number" step="any" value={coilTwistDeg} onChange={(e) => setCoilTwistDeg(e.target.value)} />
+                    </div>
+                    <div className="cad-feature-dialog-row">
+                        Stations
+                        <input
+                            type="number"
+                            min={8}
+                            max={720}
+                            step={1}
+                            value={coilStations}
+                            onChange={(e) => setCoilStations(e.target.value)}
+                        />
+                    </div>
+                    <span className="cad-feature-dialog-label">Coil sweeps have no live preview in this release.</span>
                 </>
             )}
             {isLoft && (
@@ -5067,7 +5234,7 @@ function validateLatticeDialogInputs(
     if (sourceFeature === undefined || sourceFeature.suppressed || !SOLID_PRODUCERS.includes(sourceFeature.type)) {
         return {
             ok: false,
-            error: 'Lattice source must be a solid-producing feature (pad/pocket/revolve/groove/sweep/pipe/loft/helicalSweep/primitive).'
+            error: 'Lattice source must be a solid-producing feature (pad/pocket/revolve/groove/sweep/pipe/loft/helicalSweep/primitive/import).'
         };
     }
     let rows = 0;
@@ -6184,8 +6351,9 @@ export function DocumentTemplatePicker(props: DocumentTemplatePickerProps): Reac
                     <div className="cad-template-section">
                         <div className="cad-template-section-title">Example projects</div>
                         <div className="cad-template-section-hint">
-                            Bundled projects open a new editable copy; the external W7-X entry downloads or copies its STEP into the project
-                            folder.
+                            Bundled projects open a new editable copy; the external W7-X entries download or copy their STEP into the
+                            project folder, and the generator card builds the validated 5-module project. The native shape-study card builds
+                            ten editable coil sweeps without a STEP.
                         </div>
                         <div className="cad-template-list">
                             {samples.map((sample) => (

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 
 # Heavy imports are guarded so the module stays importable in the minimal pytest
@@ -29,6 +30,7 @@ except Exception:
     HAS_BUILD123D = False
 
 import curve_builder
+import exchange_reader
 import sketch_builder
 from reference_scoring import DEFAULT_TOLERANCE_SCALE
 from sketch_builder import build_sketch_faces
@@ -1278,12 +1280,19 @@ def _is_solid_producer(feature_type: str) -> bool:
 
     Unlike :func:`_is_sketch_based_solid` this includes ``pipe``, which has no
     sketch (its section is the schema-level circle) but still produces a solid,
-    and ``primitive``, which is an additive datum-placed solid with pad-like
-    body semantics. ``lattice`` is included so downstream patterns/mirrors can
+    ``primitive``, which is an additive datum-placed solid with pad-like
+    body semantics, and ``import``, whose tool shape is the selected external
+    B-rep. ``lattice`` is included so downstream patterns/mirrors can
     replicate a built lattice (its tool shape is the translated instance set);
     a lattice never takes a lattice/pattern/mirror source itself.
     """
-    return _is_sketch_based_solid(feature_type) or feature_type in ("pipe", "primitive", "lattice")
+    return _is_sketch_based_solid(feature_type) or feature_type in (
+        "pipe",
+        "coilSweep",
+        "primitive",
+        "lattice",
+        "import",
+    )
 
 
 def _valid_source_feature(
@@ -1306,7 +1315,8 @@ def _valid_source_feature(
     if not _is_solid_producer(source_type):
         raise FeatureBuilderError(
             f"feature '{feature_id}': source '{source_id}' must be a solid-producing feature "
-            "(pad, pocket, revolve, groove, sweep, pipe, loft, helicalSweep, or primitive)"
+            "(pad, pocket, revolve, groove, sweep, pipe, loft, helicalSweep, coilSweep, "
+            "primitive, lattice, or import)"
         )
     if source.get("body") != body_id:
         raise FeatureBuilderError(
@@ -1892,6 +1902,154 @@ def _build_primitive_tool(
     return tool_shape
 
 
+def _resolve_import_source_path(source_path: str, document_dir: Path | None) -> Path:
+    """Resolve a document-relative import source path to an absolute path.
+
+    Relative paths resolve against ``document_dir`` (the directory of the
+    owning ``.nuke-cad`` document); with no document directory they keep the
+    legacy working-directory fallback. Absolute paths pass through unchanged.
+    """
+    candidate = Path(source_path).expanduser()
+    if not candidate.is_absolute() and document_dir is not None:
+        candidate = Path(document_dir) / candidate
+    return candidate.resolve()
+
+
+def _apply_import_placement(shape: Any, placement: Any, feature_id: str) -> Any:
+    """Apply an import placement (intrinsic XYZ rotation, then translation)."""
+    _require_build123d()
+    assert bd is not None
+    if placement is None:
+        return shape
+    if not isinstance(placement, dict):
+        raise FeatureBuilderError(f"feature '{feature_id}': placement must be an object")
+    rotate = placement.get("rotateDegrees")
+    if rotate is not None:
+        angles = _as_point3(rotate, f"feature '{feature_id}': placement.rotateDegrees")
+        axes = (bd.Axis.X, bd.Axis.Y, bd.Axis.Z)
+        try:
+            # Successive world-axis rotations left-multiply into Rz·Ry·Rx,
+            # i.e. the intrinsic XYZ sequence the schema documents.
+            for axis, angle in zip(axes, angles, strict=True):
+                if angle != 0.0:
+                    shape = shape.rotate(axis, angle)
+        except FeatureBuilderError:
+            raise
+        except Exception as exc:
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': import rotateDegrees failed: {exc}"
+            ) from exc
+    translate = placement.get("translate")
+    if translate is not None:
+        vector = _as_point3(translate, f"feature '{feature_id}': placement.translate")
+        try:
+            shape = shape.moved(bd.Location(vector))
+        except Exception as exc:
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': import translate failed: {exc}"
+            ) from exc
+    return shape
+
+
+def _build_import_tool(feature: dict[str, Any], params: dict[str, Any], state: _BuildState) -> Any:
+    """Build the tool shape of an ``import`` feature from an external source.
+
+    The source is read once per build configuration (path, unit override,
+    explicit format, solid cap) through :mod:`exchange_reader`, which resolves
+    units and enumerates explorer-order solids. The configured selection picks
+    the authored solids (index + faceCount/volume signature) and ``placement``
+    rigidly moves the result. The selected shape is stored in
+    ``state.tool_shapes`` so patterns/mirrors can replicate it.
+
+    ``params.sourceHash`` is the cache/identity anchor: the streamed source
+    digest must match it or the feature fails, so a stale source never builds
+    silently.
+    """
+    _require_build123d()
+    assert bd is not None
+    feature_id = feature["id"]
+
+    validation_error = exchange_reader.validate_import_params(params)
+    if validation_error is not None:
+        raise FeatureBuilderError(f"feature '{feature_id}': {validation_error}")
+
+    source_format = params.get("sourceFormat")
+    source_path = _resolve_import_source_path(params["sourcePath"], state.document_dir)
+    if not source_path.is_file():
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': import source not found: {params['sourcePath']}"
+        )
+    if source_format is None:
+        source_format = exchange_reader.source_format_for_path(source_path)
+        if source_format is None:
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': unsupported import source "
+                f"'{params['sourcePath']}'; expected STEP/IGES/BREP"
+            )
+
+    source_unit = params.get("sourceUnit")
+    max_solids = params.get("maxSolids")
+    if max_solids is None:
+        max_solids = exchange_reader.DEFAULT_MAX_SOLIDS
+    # One read per distinct source configuration per build; the tuple keeps a
+    # stricter maxSolids/format override from silently reusing a looser read.
+    cache_key = (source_path, source_unit, source_format, max_solids)
+    source = state.import_sources.get(cache_key)
+    if source is None:
+        try:
+            source = exchange_reader.read_import_source(
+                source_path,
+                source_unit=source_unit,
+                target_unit=state.document_units,
+                max_solids=max_solids,
+                source_format=source_format,
+            )
+        except exchange_reader.ExchangeReadError as exc:
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': import source "
+                f"'{params['sourcePath']}' could not be read: {exc}"
+            ) from exc
+        except ValueError as exc:
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': import source "
+                f"'{params['sourcePath']}' has invalid units: {exc}"
+            ) from exc
+        except Exception as exc:
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': import source "
+                f"'{params['sourcePath']}' could not be read: {exc}"
+            ) from exc
+        state.import_sources[cache_key] = source
+
+    if source.digest != params["sourceHash"]:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': source hash mismatch for "
+            f"'{params['sourcePath']}' (expected {params['sourceHash']}, "
+            f"found {source.digest}); the source file changed, refresh the import"
+        )
+
+    try:
+        selected = exchange_reader.select_solids(source, params["selection"])
+    except exchange_reader.ExchangeReadError as exc:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': import selection failed: {exc}"
+        ) from exc
+
+    try:
+        if len(selected) == 1:
+            tool_shape: Any = bd.Solid(selected[0])
+        else:
+            tool_shape = bd.Compound(children=[bd.Solid(solid) for solid in selected])
+    except Exception as exc:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': import selection could not be assembled: {exc}"
+        ) from exc
+
+    tool_shape = _apply_import_placement(tool_shape, params.get("placement"), feature_id)
+    state.tool_shapes[feature_id] = tool_shape
+    return tool_shape
+
+
 def _axis_from_datum(
     datum: dict[str, Any],
     feature_id: str,
@@ -2217,8 +2375,10 @@ def _apply_pattern_or_mirror(
         "pipe",
         "loft",
         "helicalSweep",
+        "coilSweep",
         "primitive",
         "lattice",
+        "import",
     ):
         if not source_subtractive:
             if _pattern_instances_are_disjoint(body, instances):
@@ -3633,6 +3793,357 @@ def _build_pipe_tool(
     return tool_shape
 
 
+def _coil_sweep_positive(params: dict[str, Any], name: str, feature_id: str) -> float:
+    """Return a positive finite coilSweep dimension or raise. Pure (no OCP)."""
+    value = params.get(name)
+    if (
+        not isinstance(value, (int, float))
+        or isinstance(value, bool)
+        or not math.isfinite(value)
+        or value <= 0
+    ):
+        raise FeatureBuilderError(f"feature '{feature_id}': coilSweep requires a positive {name}")
+    return float(value)
+
+
+def _coil_sweep_params(params: dict[str, Any], feature_id: str) -> dict[str, Any]:
+    """Validate coilSweep params and apply defaults.
+
+    Pure (no OCP/build123d) so the minimal pytest profile covers the contract:
+    non-empty path curve id, positive finite width/height, tilt in [-89, 89],
+    finite twist, and an integer station count in [8, 720].
+    """
+    if not isinstance(params, dict):
+        raise FeatureBuilderError(f"feature '{feature_id}': coilSweep params must be an object")
+    path_curve_id = params.get("pathCurveId")
+    if not isinstance(path_curve_id, str) or not path_curve_id:
+        raise FeatureBuilderError(f"feature '{feature_id}': coilSweep requires a pathCurveId")
+    width = _coil_sweep_positive(params, "width", feature_id)
+    height = _coil_sweep_positive(params, "height", feature_id)
+    tilt = params.get("tiltDeg", 0.0)
+    if (
+        not isinstance(tilt, (int, float))
+        or isinstance(tilt, bool)
+        or not math.isfinite(tilt)
+        or tilt < -89.0
+        or tilt > 89.0
+    ):
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': coilSweep tiltDeg must be a finite number in [-89, 89] degrees"
+        )
+    twist = params.get("twistDeg", 0.0)
+    if not isinstance(twist, (int, float)) or isinstance(twist, bool) or not math.isfinite(twist):
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': coilSweep twistDeg must be a finite number"
+        )
+    stations = params.get("stations", 60)
+    if (
+        not isinstance(stations, int)
+        or isinstance(stations, bool)
+        or stations < 8
+        or stations > 720
+    ):
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': coilSweep stations must be an integer in [8, 720]"
+        )
+    return {
+        "pathCurveId": path_curve_id,
+        "width": width,
+        "height": height,
+        "tiltDeg": float(tilt),
+        "twistDeg": float(twist),
+        "stations": stations,
+    }
+
+
+def _coil_sweep_cross(
+    a: tuple[float, float, float], b: tuple[float, float, float]
+) -> tuple[float, float, float]:
+    return (
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    )
+
+
+def _coil_sweep_add(
+    a: tuple[float, float, float], b: tuple[float, float, float]
+) -> tuple[float, float, float]:
+    return (a[0] + b[0], a[1] + b[1], a[2] + b[2])
+
+
+def _coil_sweep_sub(
+    a: tuple[float, float, float], b: tuple[float, float, float]
+) -> tuple[float, float, float]:
+    return (a[0] - b[0], a[1] - b[1], a[2] - b[2])
+
+
+def _coil_sweep_scale(a: tuple[float, float, float], factor: float) -> tuple[float, float, float]:
+    return (a[0] * factor, a[1] * factor, a[2] * factor)
+
+
+def _coil_sweep_norm(a: tuple[float, float, float]) -> float:
+    return math.sqrt(a[0] * a[0] + a[1] * a[1] + a[2] * a[2])
+
+
+def _coil_sweep_unit(
+    vector: tuple[float, float, float], feature_id: str, context: str
+) -> tuple[float, float, float]:
+    length = _coil_sweep_norm(vector)
+    if length < 1e-12:
+        raise FeatureBuilderError(f"feature '{feature_id}': coilSweep {context} is degenerate")
+    return (vector[0] / length, vector[1] / length, vector[2] / length)
+
+
+def _coil_sweep_rotate(
+    vector: tuple[float, float, float],
+    axis: tuple[float, float, float],
+    angle: float,
+) -> tuple[float, float, float]:
+    """Rodrigues rotation of ``vector`` around the unit ``axis`` by ``angle`` radians."""
+    cosine = math.cos(angle)
+    sine = math.sin(angle)
+    return _coil_sweep_add(
+        _coil_sweep_add(
+            _coil_sweep_scale(vector, cosine),
+            _coil_sweep_scale(_coil_sweep_cross(axis, vector), sine),
+        ),
+        _coil_sweep_scale(axis, _dot(axis, vector) * (1.0 - cosine)),
+    )
+
+
+def _coil_sweep_stations(
+    wire: Any, stations: int, feature_id: str
+) -> tuple[list[tuple[float, float, float]], list[tuple[float, float, float]]]:
+    """Sample a path wire at ``stations`` arc-length-uniform points with tangents.
+
+    ``GCPnts_UniformAbscissa`` gives true arc-length stations when available;
+    the fallback samples uniformly in the wire parameter and is only reached on
+    an OCP failure. Degenerate (zero-tangent or duplicate) stations are
+    rejected with the feature id.
+    """
+    from OCP.BRepAdaptor import BRepAdaptor_CompCurve
+    from OCP.GCPnts import GCPnts_UniformAbscissa
+    from OCP.gp import gp_Pnt, gp_Vec
+
+    adaptor = BRepAdaptor_CompCurve(wire, False)
+    first = float(adaptor.FirstParameter())
+    last = float(adaptor.LastParameter())
+    if not math.isfinite(first) or not math.isfinite(last) or last <= first:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': coilSweep path curve has an empty parameter range"
+        )
+
+    parameters: list[float] | None = None
+    try:
+        distribution = GCPnts_UniformAbscissa(adaptor, stations)
+        if distribution.IsDone() and distribution.NbPoints() == stations:
+            parameters = [float(distribution.Parameter(i)) for i in range(1, stations + 1)]
+    except Exception:
+        parameters = None
+    if parameters is None:
+        parameters = [first + (last - first) * i / (stations - 1) for i in range(stations)]
+
+    points: list[tuple[float, float, float]] = []
+    tangents: list[tuple[float, float, float]] = []
+    for parameter in parameters:
+        point = gp_Pnt()
+        vector = gp_Vec()
+        adaptor.D1(parameter, point, vector)
+        points.append((float(point.X()), float(point.Y()), float(point.Z())))
+        tangents.append(
+            _coil_sweep_unit(
+                (float(vector.X()), float(vector.Y()), float(vector.Z())),
+                feature_id,
+                "path tangent",
+            )
+        )
+    for index in range(1, len(points)):
+        if _coil_sweep_norm(_coil_sweep_sub(points[index], points[index - 1])) < 1e-9:
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': coilSweep path has degenerate stations at "
+                f"{index - 1} and {index}"
+            )
+    return points, tangents
+
+
+def _coil_sweep_frames(
+    tangents: list[tuple[float, float, float]],
+    closed: bool,
+    feature_id: str,
+) -> tuple[list[tuple[float, float, float]], float]:
+    """Build rotation-minimizing frames and the closed-loop holonomy angle.
+
+    The first x axis is ``global Z x tangent`` (global X fallback); every later
+    x projects the previous x onto the new tangent-normal plane. For a closed
+    path the residual angle between the transported x at the seam and the
+    initial x is returned so the caller can distribute it linearly.
+    """
+    frames: list[tuple[float, float, float]] = []
+    for index, tangent in enumerate(tangents):
+        if index == 0:
+            x_axis = _coil_sweep_cross((0.0, 0.0, 1.0), tangent)
+            if _coil_sweep_norm(x_axis) < 1e-9:
+                x_axis = _coil_sweep_cross((1.0, 0.0, 0.0), tangent)
+        else:
+            previous = frames[-1]
+            x_axis = _coil_sweep_sub(previous, _coil_sweep_scale(tangent, _dot(previous, tangent)))
+            if _coil_sweep_norm(x_axis) < 1e-9:
+                x_axis = _coil_sweep_cross((0.0, 0.0, 1.0), tangent)
+                if _coil_sweep_norm(x_axis) < 1e-9:
+                    x_axis = _coil_sweep_cross((1.0, 0.0, 0.0), tangent)
+        frames.append(_coil_sweep_unit(x_axis, feature_id, "rotation-minimizing frame"))
+
+    holonomy = 0.0
+    if closed:
+        tangent = tangents[0]
+        x_axis = frames[0]
+        y_axis = _coil_sweep_cross(tangent, x_axis)
+        projected = _coil_sweep_sub(
+            frames[-1], _coil_sweep_scale(tangent, _dot(frames[-1], tangent))
+        )
+        if _coil_sweep_norm(projected) >= 1e-9:
+            projected = _coil_sweep_unit(projected, feature_id, "closed-loop frame")
+            holonomy = math.atan2(_dot(projected, y_axis), _dot(projected, x_axis))
+    return frames, holonomy
+
+
+def _coil_sweep_section_wire(
+    point: tuple[float, float, float],
+    x_axis: tuple[float, float, float],
+    tangent: tuple[float, float, float],
+    width: float,
+    height: float,
+    tilt: float,
+    twist: float,
+    feature_id: str,
+) -> Any:
+    """Build one rectangular section wire centered on ``point``.
+
+    ``tilt`` rotates the section plane away from the tangent-normal plane
+    about the local width axis (so a tilted section presents a projected area
+    of ``width * height * cos(tilt)``); ``twist`` then rotates both section axes
+    around the tangent.
+    """
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeEdge, BRepBuilderAPI_MakeWire
+    from OCP.gp import gp_Pnt
+
+    y_axis = _coil_sweep_cross(tangent, x_axis)
+    if tilt != 0.0:
+        y_axis = _coil_sweep_rotate(y_axis, x_axis, tilt)
+    if twist != 0.0:
+        x_axis = _coil_sweep_rotate(x_axis, tangent, twist)
+        y_axis = _coil_sweep_rotate(y_axis, tangent, twist)
+
+    half_width = _coil_sweep_scale(x_axis, width / 2.0)
+    half_height = _coil_sweep_scale(y_axis, height / 2.0)
+    corners = [
+        _coil_sweep_add(_coil_sweep_add(point, half_width), half_height),
+        _coil_sweep_add(_coil_sweep_sub(point, half_width), half_height),
+        _coil_sweep_sub(_coil_sweep_sub(point, half_width), half_height),
+        _coil_sweep_sub(_coil_sweep_add(point, half_width), half_height),
+    ]
+    maker = BRepBuilderAPI_MakeWire()
+    for index, corner in enumerate(corners):
+        nxt = corners[(index + 1) % len(corners)]
+        maker.Add(BRepBuilderAPI_MakeEdge(gp_Pnt(*corner), gp_Pnt(*nxt)).Edge())
+    if not maker.IsDone():
+        raise FeatureBuilderError(f"feature '{feature_id}': coilSweep section wire failed to build")
+    return maker.Wire()
+
+
+def _build_coil_sweep_tool(
+    feature: dict[str, Any],
+    params: dict[str, Any],
+    state: _BuildState,
+) -> Any:
+    """Build a rectangular-section coil sweep along a document curve.
+
+    Unlike ``sweep`` this feature owns its section (no sketch): stations are
+    sampled uniformly by arc length, a rotation-minimizing frame transports the
+    section, the closed-loop holonomy is distributed linearly so the frame
+    closes at the seam, and the station wires are lofted into one solid. The
+    first section is never appended again; the open station list produces the
+    closed solid with two seam caps.
+    """
+    _require_build123d()
+    assert bd is not None
+    from OCP.BRep import BRep_Tool
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeSolid
+    from OCP.BRepCheck import BRepCheck_Analyzer
+    from OCP.BRepOffsetAPI import BRepOffsetAPI_ThruSections
+    from OCP.TopAbs import TopAbs_SHELL, TopAbs_SOLID
+    from OCP.TopExp import TopExp_Explorer
+    from OCP.TopoDS import TopoDS
+
+    feature_id = feature["id"]
+    effective = _coil_sweep_params(params, feature_id)
+    curve_id = effective["pathCurveId"]
+    curve_entry = state.curve_results.get(curve_id)
+    if curve_entry is None:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': coilSweep path curve '{curve_id}' is unavailable"
+        )
+    wire = curve_entry.get("wire")
+    if wire is None:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': coilSweep path curve '{curve_id}' has no wire"
+        )
+
+    stations = int(effective["stations"])
+    points, tangents = _coil_sweep_stations(wire, stations, feature_id)
+    frames, holonomy = _coil_sweep_frames(tangents, bool(BRep_Tool.IsClosed_s(wire)), feature_id)
+    tilt = math.radians(float(effective["tiltDeg"]))
+    twist = math.radians(float(effective["twistDeg"]))
+
+    try:
+        sections = [
+            _coil_sweep_section_wire(
+                point,
+                x_axis,
+                tangent,
+                float(effective["width"]),
+                float(effective["height"]),
+                tilt,
+                (twist - holonomy) * (index / (stations - 1)),
+                feature_id,
+            )
+            for index, (point, tangent, x_axis) in enumerate(
+                zip(points, tangents, frames, strict=True)
+            )
+        ]
+        loft = BRepOffsetAPI_ThruSections(True, False, 1e-6)
+        for section in sections:
+            loft.AddWire(section)
+        loft.Build()
+        if not loft.IsDone():
+            raise FeatureBuilderError(f"feature '{feature_id}': coilSweep loft failed to build")
+        shape = loft.Shape()
+        if shape.ShapeType() == TopAbs_SHELL:
+            shape = BRepBuilderAPI_MakeSolid(TopoDS.Shell_s(shape)).Solid()
+        solids = []
+        explorer = TopExp_Explorer(shape, TopAbs_SOLID)
+        while explorer.More():
+            solids.append(TopoDS.Solid_s(explorer.Current()))
+            explorer.Next()
+        if len(solids) != 1:
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': coilSweep did not produce a single solid"
+            )
+        solid = solids[0]
+        if not BRepCheck_Analyzer(solid).IsValid():
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': coilSweep produced an invalid solid"
+            )
+        tool_shape = bd.Compound(children=[bd.Solid(solid)])
+    except FeatureBuilderError:
+        raise
+    except Exception as exc:
+        raise FeatureBuilderError(f"feature '{feature_id}': coilSweep failed: {exc}") from exc
+    state.tool_shapes[feature_id] = tool_shape
+    return tool_shape
+
+
 def _build_feature_shape(
     feature: dict[str, Any],
     datums: dict[str, dict[str, Any]],
@@ -4619,10 +5130,10 @@ class _BuildState:
     """Mutable per-build state threaded through single-feature execution.
 
     Holds the document-derived maps (``datums``, ``sketches``, ``feature_map``,
-    ``order``, ``body_ids``, ``body_labels``, ``curve_results``) together with
-    the accumulators the feature loop mutates (per-body B-reps, per-feature
-    historical shapes, pattern source tools, result records, the stale/failed
-    set, and the boolean-consumed body set). Both the full build and the
+    ``order``, ``body_ids``, ``body_labels``, ``curve_results``,
+    ``overlap_check``) together with the accumulators the feature loop mutates
+    (per-body B-reps, per-feature historical shapes, pattern source tools,
+    result records, the stale/failed set, and the boolean-consumed body set). Both the full build and the
     partial (P2 cache) build drive the same :func:`_execute_feature` against
     this state; the partial path additionally hydrates entries from cached
     B-rep blobs before executing the dirty closure.
@@ -4639,6 +5150,9 @@ class _BuildState:
         body_ids: list[str],
         body_labels: dict[str, str],
         curve_results: dict[str, dict[str, Any]],
+        document_dir: Path | None = None,
+        document_units: str | None = None,
+        overlap_check: bool = True,
     ) -> None:
         self.datums = datums
         self.sketches = sketches
@@ -4648,6 +5162,11 @@ class _BuildState:
         self.body_ids = body_ids
         self.body_labels = body_labels
         self.curve_results = curve_results
+        self.document_dir = document_dir
+        self.document_units = document_units
+        # Document-level `overlapCheck` gate (absent = True). False skips the
+        # exact O(n^2) cross-body booleans for a known-valid large assembly.
+        self.overlap_check = overlap_check
         self.accumulators: dict[str, Any] = {}
         self.selector_map: dict[str, list[int]] = {}
         self.feature_results: list[dict[str, Any]] = []
@@ -4657,17 +5176,29 @@ class _BuildState:
         self.tool_shapes: dict[str, Any] = {}
         self.consumed_bodies: set[str] = set()
         self.warnings: list[str] = []
+        # One exchange-source read per (resolved path, unit override, explicit
+        # format, solid cap) per build; every import feature naming the same
+        # configuration shares the result.
+        self.import_sources: dict[
+            tuple[Path, str | None, str | None, int], exchange_reader.ImportSource
+        ] = {}
 
 
 def build_document_shape(
     document: dict[str, Any],
     curve_results: dict[str, dict[str, Any]] | None = None,
+    *,
+    document_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     """Build the shape described by a ``.nuke-cad`` document.
 
     ``curve_results`` maps curve ids to the fitted-wire result dicts from
-    ``curve_builder.build_curves``; sweep/pipe features read their path wires
-    from it. Direct callers may omit it (treated as an empty mapping).
+    ``curve_builder.build_curves``; sweep/pipe/coilSweep features read their path
+    wires from it. Direct callers may omit it (treated as an empty mapping).
+
+    ``document_dir`` is the containing directory of the document (its parent);
+    ``import`` features resolve document-relative ``sourcePath`` values
+    against it. Omitted/None keeps the working-directory fallback.
 
     Returns a dict with:
 
@@ -4685,12 +5216,13 @@ def build_document_shape(
             Set of body ids consumed by boolean operations.
         ``warnings``
             Non-fatal issues, e.g. cross-body overlaps reported by
-            ``_check_cross_body_overlap`` (overlap volume included).
+            ``_check_cross_body_overlap`` (overlap volume included); empty for
+            overlap warnings when the document sets ``overlapCheck: false``.
     """
     if bd is None:
         raise FeatureBuilderError("build123d is not available; cannot build document shape")
 
-    state = _prepare_build_state(document, curve_results)
+    state = _prepare_build_state(document, curve_results, document_dir)
 
     for feature_id in state.order:
         _execute_feature(state, feature_id)
@@ -4701,12 +5233,15 @@ def build_document_shape(
 def _prepare_build_state(
     document: dict[str, Any],
     curve_results: dict[str, dict[str, Any]] | None = None,
+    document_dir: str | Path | None = None,
 ) -> _BuildState:
     """Parse a ``.nuke-cad`` document into an empty :class:`_BuildState`.
 
     Injects implied body/boolean/datum dependencies and computes the
     topological order (via :func:`topo_sort_features`). Shared verbatim by the
     full build and the P2 partial build so both plan the same execution order.
+    ``document_dir``/``units`` ride on the state for ``import`` features;
+    ``overlapCheck: false`` rides along as the cross-body warning gate.
     """
     curve_results = curve_results or {}
 
@@ -4748,6 +5283,7 @@ def _prepare_build_state(
         and b["label"]
     }
 
+    units = document.get("units")
     return _BuildState(
         datums=datums,
         sketches=sketches,
@@ -4757,6 +5293,9 @@ def _prepare_build_state(
         body_ids=body_ids,
         body_labels=body_labels,
         curve_results=curve_results,
+        document_dir=Path(document_dir).resolve() if document_dir is not None else None,
+        document_units=units if isinstance(units, str) and units else None,
+        overlap_check=document.get("overlapCheck") is not False,
     )
 
 
@@ -5330,7 +5869,7 @@ def _execute_feature(state: _BuildState, feature_id: str) -> None:
         return
 
     # Sketch-based solid feature (pad/pocket/revolve/groove/sweep/loft/
-    # helicalSweep), pipe, or primitive.
+    # helicalSweep), pipe, coilSweep, or primitive.
     if body_id in consumed_bodies:
         # The body was consumed by a boolean feature; adding to it would be
         # silently excluded from the final assembly.
@@ -5342,6 +5881,9 @@ def _execute_feature(state: _BuildState, feature_id: str) -> None:
         if feature_type == "pipe":
             params = feature.get("params", {}) if isinstance(feature.get("params"), dict) else {}
             tool_shape = _build_pipe_tool(feature, params, curve_results, tool_shapes)
+        elif feature_type == "coilSweep":
+            params = feature.get("params", {}) if isinstance(feature.get("params"), dict) else {}
+            tool_shape = _build_coil_sweep_tool(feature, params, state)
         elif feature_type == "primitive":
             params = feature.get("params", {}) if isinstance(feature.get("params"), dict) else {}
             tool_shape = _build_primitive_tool(
@@ -5353,6 +5895,9 @@ def _execute_feature(state: _BuildState, feature_id: str) -> None:
                 tool_shapes,
                 reference_results,
             )
+        elif feature_type == "import":
+            params = feature.get("params", {}) if isinstance(feature.get("params"), dict) else {}
+            tool_shape = _build_import_tool(feature, params, state)
         else:
             tool_shape = _build_feature_shape(
                 feature,
@@ -5386,7 +5931,9 @@ def _execute_feature(state: _BuildState, feature_id: str) -> None:
             "pipe",
             "loft",
             "helicalSweep",
+            "coilSweep",
             "primitive",
+            "import",
         ):
             if _solid_feature_is_subtractive(feature):
                 # Subtractive primitive / helicalSweep: cut needs an existing
@@ -5447,7 +5994,9 @@ def _assemble_final_shape(
     accumulated feature/reference records. ``overlap_cached`` /
     ``overlap_signatures`` let the partial path reuse exact overlap verdicts
     for body pairs whose content signatures did not change; the fresh verdict
-    map rides back on ``overlapCache``.
+    map rides back on ``overlapCache``. A document-level ``overlapCheck:
+    false`` skips the whole pairwise pass and returns no verdicts, so a
+    validated large assembly keeps its build cost down.
     """
     body_ids = state.body_ids
     consumed_bodies = state.consumed_bodies
@@ -5457,6 +6006,7 @@ def _assemble_final_shape(
     feature_results = state.feature_results
     reference_results = state.reference_results
     overlap_warnings: list[str] = []
+    overlap_verdicts: dict[str, dict[str, Any]] = {}
     # Final assembly: Compound of non-consumed bodies in document body order.
     final_children: list[Any] = []
     active_body_ids: list[str] = []
@@ -5488,9 +6038,10 @@ def _assemble_final_shape(
             "warnings": list(state.warnings),
         }
 
-    overlap_warnings, overlap_verdicts = _check_cross_body_overlap(
-        active_body_shapes, active_body_ids, overlap_cached, overlap_signatures
-    )
+    if state.overlap_check:
+        overlap_warnings, overlap_verdicts = _check_cross_body_overlap(
+            active_body_shapes, active_body_ids, overlap_cached, overlap_signatures
+        )
 
     assembled = (
         final_children[0] if len(final_children) == 1 else bd.Compound(children=final_children)
@@ -5884,6 +6435,8 @@ def build_document_shape_partial(
     cache_path: str | None = None,
     size_cap_bytes: int | None = None,
     cache: Any | None = None,
+    *,
+    document_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     """Build only the dirty closure of a document, restoring the rest from cache.
 
@@ -5916,7 +6469,7 @@ def build_document_shape_partial(
     if bd is None:
         raise FeatureBuilderError("build123d is not available; cannot build document shape")
 
-    state = _prepare_build_state(document, curve_results)
+    state = _prepare_build_state(document, curve_results, document_dir)
 
     dirty = set(dirty_feature_ids or [])
     unknown = sorted(fid for fid in dirty if fid not in state.feature_map)

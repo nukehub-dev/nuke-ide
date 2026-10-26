@@ -2,11 +2,12 @@ import { test, expect } from '@playwright/test';
 import { closeAllEditors, collectErrors, runCommand, waitForWorkbench } from './helpers';
 
 /**
- * One-click CAD import wiring: the Import CAD action is offered on both empty
- * states and the Document command search resolves it. The headless browser
- * does not surface Theia's native file dialog, so the actual file-pick and
- * cancel paths are covered by the pure path/store suites instead of driving a
- * dialog this suite cannot observe.
+ * One-click CAD import wiring: the assembly and imported-body actions are
+ * offered on both empty states and the Document command search resolves both.
+ * The headless browser does not surface Theia's native file dialog, so the
+ * actual file-pick, dialog, and cancel paths are covered by the pure
+ * path/store/widget suites instead of driving a dialog this suite cannot
+ * observe.
  */
 
 test.setTimeout(120_000);
@@ -25,6 +26,7 @@ test('Import CAD is offered on empty states and wired into command search', asyn
     const welcome = viewport.locator('.nuke-empty-state');
     await expect(welcome).toBeVisible({ timeout: 10_000 });
     await expect(welcome.locator('button', { hasText: 'Import CAD…' })).toBeVisible();
+    await expect(welcome.locator('button', { hasText: 'Import CAD as Body…' })).toBeVisible();
 
     // Empty document card keeps Create Sketch / Open CAD Model and adds Import.
     await runCommand(page, 'New CAD Document');
@@ -37,8 +39,9 @@ test('Import CAD is offered on empty states and wired into command search', asyn
     await expect(emptyCard.locator('button', { hasText: 'Create Sketch' })).toBeVisible();
     await expect(emptyCard.locator('button', { hasText: 'Open CAD Model…' })).toBeVisible();
     await expect(emptyCard.locator('button.import-cad-assembly-button')).toHaveText(/Import CAD…/);
+    await expect(emptyCard.locator('button.import-cad-body-button')).toHaveText(/Import CAD as Body…/);
 
-    // The same action resolves through the shared command registry/search.
+    // The same actions resolve through the shared command registry/search.
     const toolbar = viewport.locator('.cad-document-toolbar').first();
     await expect(toolbar).toBeVisible({ timeout: 60_000 });
     await toolbar.locator('.cad-document-toolbar-search').click();
@@ -47,11 +50,12 @@ test('Import CAD is offered on empty states and wired into command search', asyn
     const search = popover.locator('.nuke-search-input-field');
     await search.fill('import cad');
     const rows = popover.locator('.cad-command-search-item');
-    await expect(rows).toHaveCount(1);
-    const row = rows.first();
-    await expect(row).toContainText('Import CAD as Assembly…');
-    await expect(row.locator('.cad-command-search-group')).toHaveText('Document');
-    await expect(row).toBeEnabled();
+    await expect(rows).toHaveCount(2);
+    await expect(rows.nth(0)).toContainText('Import CAD as Assembly…');
+    await expect(rows.nth(0).locator('.cad-command-search-group')).toHaveText('Document');
+    await expect(rows.nth(1)).toContainText('Import CAD as Body…');
+    await expect(rows.nth(1).locator('.cad-command-search-group')).toHaveText('Document');
+    await expect(rows.nth(1)).toBeEnabled();
     await page.keyboard.press('Escape');
     await expect(popover).toBeHidden();
 

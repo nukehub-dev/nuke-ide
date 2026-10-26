@@ -5,11 +5,20 @@ Nuke CAD has two authoring modes: script-based `.py` files and GUI-edited
 [GUI parametric modeler guide](gui-modeler.md) covers the document workflow.
 
 For a ready-made starting point, run **New CAD Document** and pick one of the
-**Example projects** (a pincell, a tokamak, or the full W7-X stellarator via
-its external STEP); each saves an editable copy you can modify. The W7-X card
-downloads the MIT-licensed STEP (or takes a local copy) and stores it in a
+**Example projects** (a pincell, a tokamak, the full W7-X stellarator via its
+external STEP, the parametric W7-X generator, or the native W7-X coil shape
+study); each saves an editable copy you can modify. The external W7-X cards
+download the MIT-licensed STEP (or take a local copy) and store it in a
 `.parts` folder beside the saved document so the project folder stays
-self-contained.
+self-contained. The generator builds 15 imported bodies and 55 assembly
+instances in the validated five-module/50-coil layout (about 25 s); see
+[W7-X generator](gui-modeler.md#w7-x-generator-parametric). An experimental
+**Create W7-X Coil Study…** command builds 4/5/6-module study layouts with
+interference reporting and simulation export disabled; see
+[W7-X coil-count study](gui-modeler.md#w7-x-coil-count-study-experimental).
+The **W7-X coil shape study (native)** card needs no STEP and builds 10
+editable coil sweeps × 5 modules; see
+[native shape study](gui-modeler.md#w7-x-coil-shape-study-native-experimental).
 
 ## Quick start
 
@@ -63,15 +72,33 @@ A view-only STEP/STP import is a display build: it does not create or modify a
    An open document is saved in place; a new one is saved to the path you
    chose.
 
-The imported CAD file is referenced, not converted into an editable feature
-tree. The `.nuke-cad` stores a path relative to itself when the part sits in
-the document folder or a subfolder (`./model.step`, `./sub/model.step`);
-outside that folder it stores an absolute path. Keep the external file
-alongside the `.nuke-cad` (or in a subfolder) when you move or share the
-project, otherwise the assembly instance cannot resolve. The full W7-X example
-downloads or copies its STEP into `<document-stem>.parts/` automatically, so
-that sample project is self-contained. H5M/DAGMC files are mesh datasets and can
-only be inspected in the visualizer.
+The assembly-imported CAD file is referenced, not converted into an editable
+feature tree. The `.nuke-cad` stores a path relative to itself when the part
+sits in the document folder or a subfolder (`./model.step`,
+`./sub/model.step`); outside that folder it stores an absolute path. Keep the
+external file alongside the `.nuke-cad` (or in a subfolder) when you move or
+share the project, otherwise the assembly instance cannot resolve. The W7-X
+cards copy their STEP into `<document-stem>.parts/` automatically, so those
+sample projects are self-contained. H5M/DAGMC files are mesh datasets and can only be
+inspected in the visualizer.
+
+**Import as editable bodies:**
+
+1. Click **Import CAD as Body…** (empty-state card, Document ribbon, CAD Studio
+   menu, or command search) and pick a `.step`/`.stp`, `.iges`/`.igs`, or
+   `.brep` file. With no saved document, choose where the `.nuke-cad` should
+   live next.
+2. In the dialog, select all source solids or individual rows, choose one body
+   for the selection or one body per solid, name the body, and override the
+   source unit if the file header is wrong.
+3. Confirming creates the bodies and import features in one undo entry.
+
+The result is a normal body: downstream booleans, dress-ups, Move, patterns,
+mirror, lattices, and assembly instances work on it. The imported B-rep itself
+is a frozen snapshot, so changing its raw surfaces requires replacing the
+source and running **Refresh Import Sources**. See
+[Importing CAD as a body](gui-modeler.md#importing-cad-as-a-body) for the full
+dialog and limitations.
 
 ## Region manifest
 

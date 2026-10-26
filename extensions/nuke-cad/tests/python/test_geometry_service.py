@@ -416,6 +416,38 @@ def _write_pincell_document(path: Path) -> None:
     path.write_text(json.dumps(doc), encoding="utf-8")
 
 
+def _design_study_block(module_count: int = 4) -> dict:
+    """Minimal schema-valid W7-X coil-study report (values need not be physical)."""
+    return {
+        "kind": "w7x-coil-study",
+        "report": {
+            "moduleCount": module_count,
+            "valid": module_count == 5,
+            "pitchDeg": 360.0 / module_count,
+            "moduleSpanDeg": 65.3402,
+            "uncoveredSectorDeg": 24.6598 if module_count == 4 else 0.0,
+            "moduleOverlapDeg": 5.3402 if module_count == 6 else 0.0,
+            **({"minCoilClearanceM": 0.102807} if module_count == 5 else {}),
+            "coilCoilOverlaps": (
+                [{"a": "coil_0", "b": "coil_7", "volumeM3": 0.072756}] if module_count == 6 else []
+            ),
+            "coilShellOverlaps": (
+                [{"coil": "coil_0", "shell": "plasma", "volumeM3": 0.072624}]
+                if module_count == 4
+                else []
+            ),
+            "summary": f"{module_count}-module W7-X coil-count study",
+        },
+    }
+
+
+def _write_design_study_document(path: Path, module_count: int = 4) -> None:
+    _write_pincell_document(path)
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    doc["designStudy"] = _design_study_block(module_count)
+    path.write_text(json.dumps(doc), encoding="utf-8")
+
+
 def test_build_document_missing_file_returns_error(tmp_path: Path) -> None:
     result = geometry_service.build_document(str(tmp_path / "missing.nuke-cad"))
     assert result["success"] is False
@@ -439,6 +471,113 @@ def test_build_document_pincell(tmp_path: Path) -> None:
     assert result["selectorMap"] == {"clad": [1], "fuel": [2]}
     assert len(result["featureResults"]) == 2
     assert all(r["status"] == "built" for r in result["featureResults"])
+
+
+def test_design_study_export_gate_helper(tmp_path: Path) -> None:
+    """Display builds pass the gate; either simulation export flag is denied."""
+    source = tmp_path / "study.nuke-cad"
+    plain = {"version": 3, "name": "plain"}
+    assert geometry_service._design_study_export_block(plain, source, True, True) is None
+
+    study = {**plain, "designStudy": _design_study_block(4)}
+    assert geometry_service._design_study_export_block(study, source, False, False) is None
+    for export_dagmc, export_mesh in ((True, False), (False, True), (True, True)):
+        blocked = geometry_service._design_study_export_block(
+            study, source, export_dagmc, export_mesh
+        )
+        assert blocked is not None
+        assert blocked["success"] is False
+        assert blocked["error"] == geometry_service.DESIGN_STUDY_EXPORT_ERROR
+        assert "simulation export is disabled" in blocked["error"]
+        assert blocked["scriptPath"] == str(source)
+
+
+@pytest.mark.parametrize("module_count", [4, 6])
+def test_design_study_display_build_works_but_export_is_blocked(
+    tmp_path: Path, module_count: int
+) -> None:
+    """A study document renders with display flags and refuses DAGMC/mesh export."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    doc_path = tmp_path / f"study-{module_count}.nuke-cad"
+    _write_design_study_document(doc_path, module_count)
+
+    display = geometry_service.build_document(
+        str(doc_path),
+        output_dir=str(tmp_path / "display"),
+        export_dagmc=False,
+        export_mesh=False,
+    )
+    assert display["success"] is True, display.get("error", "")
+    assert display["solidCount"] == 2
+    assert Path(display["stepPath"]).exists()
+
+    for export_dagmc, export_mesh in ((True, False), (False, True)):
+        blocked = geometry_service.build_document(
+            str(doc_path),
+            output_dir=str(tmp_path / "blocked"),
+            export_dagmc=export_dagmc,
+            export_mesh=export_mesh,
+        )
+        assert blocked["success"] is False
+        assert blocked["error"] == geometry_service.DESIGN_STUDY_EXPORT_ERROR
+        assert "Design study document" in blocked["error"]
+
+
+def test_design_study_partial_display_build_works_but_export_is_blocked(
+    tmp_path: Path,
+) -> None:
+    """The partial path applies the same design-study export gate."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    doc_path = tmp_path / "study-partial.nuke-cad"
+    _write_design_study_document(doc_path, 4)
+
+    display = geometry_service.build_document_partial(
+        str(doc_path),
+        ["clad", "fuel"],
+        cache_dir=str(tmp_path),
+        output_dir=str(tmp_path / "partial-display"),
+        export_dagmc=False,
+        export_mesh=False,
+    )
+    assert display["success"] is True, display.get("error", "")
+    assert display["solidCount"] == 2
+
+    blocked = geometry_service.build_document_partial(
+        str(doc_path),
+        [],
+        cache_dir=str(tmp_path),
+        output_dir=str(tmp_path / "partial-blocked"),
+        export_dagmc=True,
+        export_mesh=False,
+    )
+    assert blocked["success"] is False
+    assert blocked["error"] == geometry_service.DESIGN_STUDY_EXPORT_ERROR
+
+
+def test_design_study_blocks_direct_assembly_export(tmp_path: Path) -> None:
+    """The direct --from-assembly path refuses study exports before building."""
+    doc_path = tmp_path / "study-assembly.nuke-cad"
+    doc_path.write_text(
+        json.dumps(
+            {
+                "version": 3,
+                "name": "study-assembly",
+                "parameters": {},
+                "datums": [],
+                "bodies": [],
+                "sketches": [],
+                "features": [],
+                "curves": [],
+                "designStudy": _design_study_block(4),
+            }
+        ),
+        encoding="utf-8",
+    )
+    blocked = geometry_service.build_assembly(
+        str(doc_path), output_dir=str(tmp_path), export_dagmc=True, export_mesh=False
+    )
+    assert blocked["success"] is False
+    assert blocked["error"] == geometry_service.DESIGN_STUDY_EXPORT_ERROR
 
 
 def test_build_document_manifest_flow_to_dagmc_groups(tmp_path: Path) -> None:
@@ -1076,3 +1215,28 @@ def test_solid_properties_present_on_every_solid_in_compound(tmp_path: Path) -> 
         assert props["volume"] == pytest.approx(1000.0)
     assert by_id[1]["centerOfMass"] == pytest.approx([0.0, 0.0, 0.0])
     assert by_id[2]["centerOfMass"] == pytest.approx([10.0, 0.0, 0.0])
+
+
+def test_validate_document_refs_gates_overlap_check_boolean() -> None:
+    """The structural gate accepts the additive boolean and rejects impostors."""
+    base = {
+        "version": 3,
+        "name": "gate",
+        "parameters": {},
+        "datums": [],
+        "bodies": [],
+        "sketches": [],
+        "features": [],
+        "curves": [],
+    }
+    source = Path("doc.nuke-cad")
+    assert geometry_service._validate_document_refs(base, source) is None
+    assert geometry_service._validate_document_refs({**base, "overlapCheck": True}, source) is None
+    assert geometry_service._validate_document_refs({**base, "overlapCheck": False}, source) is None
+    error = geometry_service._validate_document_refs({**base, "overlapCheck": "false"}, source)
+    assert error is not None
+    assert error["success"] is False
+    assert "overlapCheck" in error["error"]
+    null_error = geometry_service._validate_document_refs({**base, "overlapCheck": None}, source)
+    assert null_error is not None
+    assert "overlapCheck" in null_error["error"]

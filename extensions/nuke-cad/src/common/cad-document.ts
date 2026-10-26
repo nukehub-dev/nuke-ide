@@ -37,6 +37,11 @@
  * recipe (points, parametric expressions, or Fourier coefficients) plus a dense
  * polyline of samples that the backend consumes directly.
  *
+ * The ``import`` feature type is additive within version 3 (no version bump, no
+ * migration): it turns external STEP/IGES/BREP solids into body shapes. The
+ * ``coilSweep`` feature type is likewise additive v3: it lofts a rectangular
+ * section along a document curve without consuming a sketch.
+ *
  * @module nuke-cad/common
  */
 
@@ -271,6 +276,7 @@ export type FeatureType =
     | 'pipe'
     | 'loft'
     | 'helicalSweep'
+    | 'coilSweep'
     | 'fillet'
     | 'chamfer'
     | 'draft'
@@ -286,7 +292,8 @@ export type FeatureType =
     | 'multiTransform'
     | 'lattice'
     | 'defeature'
-    | 'translate';
+    | 'translate'
+    | 'import';
 
 /** Feature types that create or modify solid geometry. */
 export type SolidFeatureType =
@@ -298,6 +305,7 @@ export type SolidFeatureType =
     | 'pipe'
     | 'loft'
     | 'helicalSweep'
+    | 'coilSweep'
     | 'fillet'
     | 'chamfer'
     | 'draft'
@@ -310,7 +318,8 @@ export type SolidFeatureType =
     | 'booleanCommon'
     | 'primitive'
     | 'lattice'
-    | 'multiTransform';
+    | 'multiTransform'
+    | 'import';
 
 /** Extrusion end condition for pad/pocket. */
 export type ExtrudeEnd = 'blind' | 'upToFirst' | 'upToLast' | 'upToFace' | 'throughAll';
@@ -392,6 +401,22 @@ export interface HelicalSweepParams {
     readonly binormal?: readonly [number, number, number];
     /** When true the swept tool cuts from the body instead of merging (default false). */
     readonly subtractive?: boolean;
+}
+
+/** Parameters for a rectangular-section sweep along a curve (coil geometry). */
+export interface CoilSweepParams {
+    /** Document curve id providing the centerline wire. */
+    readonly pathCurveId: string;
+    /** Section width in document units; positive finite. */
+    readonly width: number;
+    /** Section height in document units; positive finite. */
+    readonly height: number;
+    /** Constant section tilt from the tangent-normal plane at the start, degrees. Default 0. */
+    readonly tiltDeg?: number;
+    /** Additional total twist around the path from start to end, degrees. Default 0. */
+    readonly twistDeg?: number;
+    /** Loft stations along the curve. Default 60, integer in [8, 720]. */
+    readonly stations?: number;
 }
 
 /** Parameters for fillet/chamfer. */
@@ -561,6 +586,68 @@ export interface TranslateParams {
     vector: [number, number, number];
 }
 
+/** External CAD source formats accepted by `import` features. */
+export type ImportSourceFormat = 'step' | 'iges' | 'brep';
+
+/** Units accepted for `import` sources (also the unit override vocabulary). */
+export type ImportSourceUnit = 'mm' | 'cm' | 'm';
+
+/** Accepted external CAD source formats for `import` features. */
+export const IMPORT_SOURCE_FORMATS: readonly ImportSourceFormat[] = ['step', 'iges', 'brep'];
+
+/** Units accepted for `import` source-unit overrides. */
+export const IMPORT_SOURCE_UNITS: readonly ImportSourceUnit[] = ['mm', 'cm', 'm'];
+
+/** Fingerprint of one source solid, captured at inspection time. */
+export interface ImportSolidSignature {
+    /** Face count in the source solid. */
+    readonly faceCount: number;
+    /** Volume in the source file's effective unit. */
+    readonly volume: number;
+}
+
+/** One selected source solid (a hint plus optional fingerprint, never identity). */
+export interface ImportSolidPick {
+    /** 1-based explorer-order index in the source file (a hint, not identity). */
+    readonly index: number;
+    /** Fingerprint captured at inspection; used for repair/validation. */
+    readonly signature?: ImportSolidSignature;
+}
+
+/** Which source solids an `import` feature contributes to its body. */
+export type ImportSelection = { readonly mode: 'all' } | { readonly mode: 'solids'; readonly solids: readonly ImportSolidPick[] };
+
+/** Rigid pre-placement applied to an imported shape before later features. */
+export interface ImportPlacement {
+    /** Translation in document units. */
+    readonly translate?: readonly [number, number, number];
+    /** Intrinsic XYZ rotation in degrees, applied before translation. */
+    readonly rotateDegrees?: readonly [number, number, number];
+}
+
+/** Parameters for an imported-body feature (external STEP/IGES/BREP snapshot). */
+export interface ImportParams {
+    /** Document-relative POSIX path preferred (`./w7x.parts/source.step`). */
+    readonly sourcePath: string;
+    /** Lowercase SHA-256 hex of the source bytes at import time. */
+    readonly sourceHash: string;
+    /** Byte size at import time; advisory freshness probe. */
+    readonly sourceSize?: number;
+    /** Inferred from the extension when absent. */
+    readonly sourceFormat?: ImportSourceFormat;
+    /**
+     * Override the file's declared unit. The W7-X STEP declares millimetres but
+     * stores metre-scale numbers; the generator sets `sourceUnit: 'm'`.
+     */
+    readonly sourceUnit?: ImportSourceUnit;
+    /** Which source solids this feature contributes to its body. */
+    readonly selection: ImportSelection;
+    /** Rigid pre-placement applied to the selected shape before later features. */
+    readonly placement?: ImportPlacement;
+    /** Safety cap; reject source files with more solids. Default 500. */
+    readonly maxSolids?: number;
+}
+
 /** Union of all feature parameter shapes. */
 export type FeatureParams =
     | ExtrudeParams
@@ -569,6 +656,7 @@ export type FeatureParams =
     | PipeParams
     | LoftParams
     | HelicalSweepParams
+    | CoilSweepParams
     | FilletParams
     | ShellParams
     | DraftParams
@@ -582,6 +670,7 @@ export type FeatureParams =
     | MultiTransformParams
     | DefeatureParams
     | TranslateParams
+    | ImportParams
     | Record<string, unknown>;
 
 /** A parametric feature in the model tree. */
@@ -660,6 +749,85 @@ export interface SavedNamedView {
     createdAt: string;
 }
 
+/** One measured coil-to-coil intersection in a W7-X coil-count study report. */
+export interface W7xCoilCoilOverlap {
+    readonly a: string;
+    readonly b: string;
+    readonly volumeM3: number;
+}
+
+/** One measured coil-to-shell intersection in a W7-X coil-count study report. */
+export interface W7xCoilShellOverlap {
+    readonly coil: string;
+    readonly shell: string;
+    readonly volumeM3: number;
+}
+
+/**
+ * Measured interference/gap report for one candidate W7-X module count.
+ *
+ * The numbers come from the pinned STEP asset for the matching module count;
+ * `summary` is the user-facing sentence shown in the design-study banner.
+ */
+export interface W7xCoilStudyReport {
+    readonly moduleCount: 4 | 5 | 6;
+    readonly valid: boolean;
+    readonly pitchDeg: number;
+    readonly moduleSpanDeg: number;
+    readonly uncoveredSectorDeg: number;
+    readonly moduleOverlapDeg: number;
+    readonly minCoilClearanceM?: number;
+    readonly coilCoilOverlaps: readonly W7xCoilCoilOverlap[];
+    readonly coilShellOverlaps: readonly W7xCoilShellOverlap[];
+    readonly summary: string;
+}
+
+/**
+ * Additive v3 design-study marker (no migration): an explicitly experimental
+ * W7-X coil-count layout. Presence means the document is not simulation-ready;
+ * the Python backend still serves display builds but rejects DAGMC/FEM mesh
+ * export. Absent means a normal document.
+ */
+export interface W7xCoilStudy {
+    readonly kind: 'w7x-coil-study';
+    readonly report: W7xCoilStudyReport;
+}
+
+/**
+ * Display/report metadata for the native-coil shape study.
+ *
+ * These are ten editable `coilSweep` bodies replicated across the five valid
+ * W7-X modules (50 instances), approximating the reference B-reps. The
+ * reference volume is the summed reference STEP coil volume for one module;
+ * `summary` is the user-facing sentence shown in the design-study banner.
+ */
+export interface W7xCoilShapeStudyReport {
+    readonly moduleCount: 5;
+    readonly coilCount: 50;
+    readonly bodyCount: 10;
+    readonly sectionWidthM: number;
+    readonly sectionHeightM: number;
+    readonly sectionTiltDeg: number;
+    readonly twistDeg: number;
+    readonly stations: number;
+    readonly referenceVolumeM3: number;
+    readonly summary: string;
+}
+
+/**
+ * Additive v3 design-study marker (no migration): the self-contained native
+ * coil shape study. Presence means the document is not simulation-ready; the
+ * Python backend still serves display builds but rejects DAGMC/FEM mesh
+ * export. Absent means a normal document.
+ */
+export interface W7xCoilShapeStudy {
+    readonly kind: 'w7x-coil-shape-study';
+    readonly report: W7xCoilShapeStudyReport;
+}
+
+/** Union of the explicitly experimental W7-X design-study markers. */
+export type W7xDesignStudy = W7xCoilStudy | W7xCoilShapeStudy;
+
 /** Complete `.nuke-cad` document. */
 export interface NukeCadDocument {
     version: number;
@@ -676,6 +844,18 @@ export interface NukeCadDocument {
      * Absent means the normal `nukeCad.displayFacetingTolerance` path.
      */
     displayTolerance?: number;
+    /**
+     * Optional overlap-warning gate for a known-valid large assembly.
+     *
+     * Absent means `true`: cross-body and assembly-instance overlap checks run
+     * and report warnings. `false` skips both exact-boolean O(n²) passes for a
+     * validated layout (for example the 15-body/55-instance W7-X generator),
+     * where those checks dominate the build and the contacts are intentional.
+     * This is an author assertion about the model, not a display preference:
+     * geometry, selector maps, and codegen are unchanged, and DAGMC export
+     * keeps its own overlap gate.
+     */
+    overlapCheck?: boolean;
     parameters: Record<string, number>;
     datums: DatumPlane[];
     bodies: BodyDef[];
@@ -707,6 +887,14 @@ export interface NukeCadDocument {
      * exists.
      */
     views?: SavedNamedView[];
+    /**
+     * Additive design-study marker (schema v3). Present means the document is
+     * an explicitly experimental W7-X layout (coil-count or native shape
+     * study): display builds work, but the geometry backend rejects DAGMC/FEM
+     * mesh export. Absent means a normal document; no migration step exists and
+     * `cloneDocument` preserves the block.
+     */
+    designStudy?: W7xDesignStudy;
 }
 
 /** A single validation issue. */
@@ -1031,6 +1219,7 @@ function validateFeature(ctx: MutableValidationContext, feature: FeatureDef, ind
         'pipe',
         'loft',
         'helicalSweep',
+        'coilSweep',
         'fillet',
         'chamfer',
         'draft',
@@ -1046,7 +1235,8 @@ function validateFeature(ctx: MutableValidationContext, feature: FeatureDef, ind
         'primitive',
         'multiTransform',
         'defeature',
-        'translate'
+        'translate',
+        'import'
     ];
     if (!knownTypes.includes(feature.type)) {
         issue(ctx, `${path}.type`, `unknown feature type '${feature.type}'`);
@@ -1115,6 +1305,73 @@ function validatePatternScale(ctx: MutableValidationContext, path: string, p: Re
     }
 }
 
+/** Lowercase SHA-256 hex digest, the only form accepted for `sourceHash`. */
+export const IMPORT_SOURCE_HASH_PATTERN = /^[0-9a-f]{64}$/;
+
+/** Validate an import selection: all solids, or a unique non-empty solid list. */
+function validateImportSelection(ctx: MutableValidationContext, path: string, selection: unknown): void {
+    if (!isPlainObject(selection)) {
+        issue(ctx, path, 'selection must be an object');
+        return;
+    }
+    const mode = selection.mode;
+    if (mode === 'all') {
+        return;
+    }
+    if (mode !== 'solids') {
+        issue(ctx, `${path}.mode`, "selection mode must be 'all' or 'solids'");
+        return;
+    }
+    const solids = selection.solids;
+    if (!Array.isArray(solids) || solids.length === 0) {
+        issue(ctx, `${path}.solids`, "selection mode 'solids' requires a non-empty array of solid picks");
+        return;
+    }
+    const seen = new Set<number>();
+    for (const [i, pick] of solids.entries()) {
+        const pickPath = `${path}.solids[${i}]`;
+        if (!isPlainObject(pick)) {
+            issue(ctx, pickPath, 'solid pick must be an object');
+            continue;
+        }
+        const index = pick.index;
+        if (!Number.isInteger(index) || (index as number) < 1) {
+            issue(ctx, `${pickPath}.index`, 'solid index must be a positive integer (1-based)');
+        } else if (seen.has(index as number)) {
+            issue(ctx, `${pickPath}.index`, `duplicate solid index ${index}`);
+        } else {
+            seen.add(index as number);
+        }
+        if (pick.signature !== undefined) {
+            if (!isPlainObject(pick.signature)) {
+                issue(ctx, `${pickPath}.signature`, 'signature must be an object when present');
+            } else {
+                const signature = pick.signature;
+                if (!Number.isInteger(signature.faceCount) || (signature.faceCount as number) < 1) {
+                    issue(ctx, `${pickPath}.signature.faceCount`, 'faceCount must be a positive integer');
+                }
+                if (!isFiniteNumber(signature.volume)) {
+                    issue(ctx, `${pickPath}.signature.volume`, 'volume must be a finite number');
+                }
+            }
+        }
+    }
+}
+
+/** Validate an import placement: each present field is a finite 3-tuple. */
+function validateImportPlacement(ctx: MutableValidationContext, path: string, placement: unknown): void {
+    if (!isPlainObject(placement)) {
+        issue(ctx, path, 'placement must be an object when present');
+        return;
+    }
+    for (const key of ['translate', 'rotateDegrees'] as const) {
+        const vector = placement[key];
+        if (vector !== undefined && !isFinitePoint3(vector)) {
+            issue(ctx, `${path}.${key}`, `${key} must be a [x, y, z] tuple of finite numbers`);
+        }
+    }
+}
+
 function validateFeatureParams(ctx: MutableValidationContext, path: string, type: FeatureType, params: FeatureParams): void {
     const p = params as Record<string, unknown>;
     switch (type) {
@@ -1176,6 +1433,26 @@ function validateFeatureParams(ctx: MutableValidationContext, path: string, type
             }
             validateSweepOrientation(ctx, path, p);
             break;
+        case 'coilSweep': {
+            if (!isString(p.pathCurveId) || p.pathCurveId.length === 0) {
+                issue(ctx, `${path}.pathCurveId`, 'pathCurveId is required and must be a non-empty string');
+            }
+            for (const name of ['width', 'height'] as const) {
+                if (!isFiniteNumber(p[name]) || (p[name] as number) <= 0) {
+                    issue(ctx, `${path}.${name}`, `${name} is required and must be a positive finite number`);
+                }
+            }
+            if (p.tiltDeg !== undefined && (!isFiniteNumber(p.tiltDeg) || p.tiltDeg < -89 || p.tiltDeg > 89)) {
+                issue(ctx, `${path}.tiltDeg`, 'tiltDeg must be a finite number in [-89, 89] degrees when present');
+            }
+            if (p.twistDeg !== undefined && !isFiniteNumber(p.twistDeg)) {
+                issue(ctx, `${path}.twistDeg`, 'twistDeg must be a finite number when present');
+            }
+            if (p.stations !== undefined && (!Number.isInteger(p.stations) || (p.stations as number) < 8 || (p.stations as number) > 720)) {
+                issue(ctx, `${path}.stations`, 'stations must be an integer in [8, 720] when present');
+            }
+            break;
+        }
         case 'pipe':
             if (!isString(p.pathCurveId) || p.pathCurveId.length === 0) {
                 issue(ctx, `${path}.pathCurveId`, 'pathCurveId is required and must be a non-empty string');
@@ -1627,6 +1904,35 @@ function validateFeatureParams(ctx: MutableValidationContext, path: string, type
             }
             break;
         }
+        case 'import': {
+            if (!isString(p.sourcePath) || p.sourcePath.length === 0) {
+                issue(ctx, `${path}.sourcePath`, 'sourcePath is required and must be a non-empty string');
+            }
+            if (!isString(p.sourceHash) || !IMPORT_SOURCE_HASH_PATTERN.test(p.sourceHash)) {
+                issue(ctx, `${path}.sourceHash`, 'sourceHash must be a lowercase SHA-256 hex digest');
+            }
+            if (p.sourceSize !== undefined && (!Number.isInteger(p.sourceSize) || (p.sourceSize as number) < 1)) {
+                issue(ctx, `${path}.sourceSize`, 'sourceSize must be a positive integer when present');
+            }
+            if (p.sourceFormat !== undefined && !IMPORT_SOURCE_FORMATS.includes(p.sourceFormat as ImportSourceFormat)) {
+                issue(ctx, `${path}.sourceFormat`, `unknown import source format '${p.sourceFormat}' (expected step, iges or brep)`);
+            }
+            if (p.sourceUnit !== undefined && !IMPORT_SOURCE_UNITS.includes(p.sourceUnit as ImportSourceUnit)) {
+                issue(ctx, `${path}.sourceUnit`, `unknown import source unit '${p.sourceUnit}' (expected mm, cm or m)`);
+            }
+            if (p.selection === undefined) {
+                issue(ctx, `${path}.selection`, 'selection is required');
+            } else {
+                validateImportSelection(ctx, `${path}.selection`, p.selection);
+            }
+            if (p.placement !== undefined) {
+                validateImportPlacement(ctx, `${path}.placement`, p.placement);
+            }
+            if (p.maxSolids !== undefined && (!Number.isInteger(p.maxSolids) || (p.maxSolids as number) < 1)) {
+                issue(ctx, `${path}.maxSolids`, 'maxSolids must be a positive integer when present');
+            }
+            break;
+        }
     }
 }
 
@@ -1800,6 +2106,142 @@ function validateSavedNamedView(ctx: MutableValidationContext, view: SavedNamedV
     }
 }
 
+/** Accepted module counts for the experimental W7-X coil-count study. */
+const W7X_COIL_STUDY_MODULE_COUNTS: readonly number[] = [4, 5, 6];
+
+function validateW7xCoilOverlapEntry(ctx: MutableValidationContext, path: string, entry: unknown, keyA: string, keyB: string): void {
+    if (!isPlainObject(entry)) {
+        issue(ctx, path, 'overlap entry must be an object');
+        return;
+    }
+    for (const key of [keyA, keyB]) {
+        const value = entry[key];
+        if (!isString(value) || value.trim().length === 0) {
+            issue(ctx, `${path}.${key}`, `${key} must be a non-empty string`);
+        }
+    }
+    if (!isFiniteNumber(entry.volumeM3)) {
+        issue(ctx, `${path}.volumeM3`, 'volumeM3 must be a finite number');
+    }
+}
+
+function validateW7xCoilStudyReport(ctx: MutableValidationContext, path: string, report: unknown): void {
+    if (!isPlainObject(report)) {
+        issue(ctx, path, 'report must be an object');
+        return;
+    }
+    if (typeof report.moduleCount !== 'number' || !W7X_COIL_STUDY_MODULE_COUNTS.includes(report.moduleCount)) {
+        issue(ctx, `${path}.moduleCount`, 'moduleCount must be 4, 5, or 6');
+    }
+    if (typeof report.valid !== 'boolean') {
+        issue(ctx, `${path}.valid`, 'valid must be a boolean');
+    }
+    for (const field of ['pitchDeg', 'moduleSpanDeg', 'uncoveredSectorDeg', 'moduleOverlapDeg'] as const) {
+        if (!isFiniteNumber(report[field])) {
+            issue(ctx, `${path}.${field}`, `${field} must be a finite number`);
+        }
+    }
+    if (report.minCoilClearanceM !== undefined && !isFiniteNumber(report.minCoilClearanceM)) {
+        issue(ctx, `${path}.minCoilClearanceM`, 'minCoilClearanceM must be a finite number when present');
+    }
+    if (!Array.isArray(report.coilCoilOverlaps)) {
+        issue(ctx, `${path}.coilCoilOverlaps`, 'coilCoilOverlaps must be an array');
+    } else {
+        for (const [i, entry] of report.coilCoilOverlaps.entries()) {
+            validateW7xCoilOverlapEntry(ctx, `${path}.coilCoilOverlaps[${i}]`, entry, 'a', 'b');
+        }
+    }
+    if (!Array.isArray(report.coilShellOverlaps)) {
+        issue(ctx, `${path}.coilShellOverlaps`, 'coilShellOverlaps must be an array');
+    } else {
+        for (const [i, entry] of report.coilShellOverlaps.entries()) {
+            validateW7xCoilOverlapEntry(ctx, `${path}.coilShellOverlaps[${i}]`, entry, 'coil', 'shell');
+        }
+    }
+    if (!isString(report.summary) || report.summary.trim().length === 0) {
+        issue(ctx, `${path}.summary`, 'summary must be a non-empty string');
+    }
+}
+
+function validateW7xCoilShapeStudyReport(ctx: MutableValidationContext, path: string, report: unknown): void {
+    if (!isPlainObject(report)) {
+        issue(ctx, path, 'report must be an object');
+        return;
+    }
+    if (report.moduleCount !== 5) {
+        issue(ctx, `${path}.moduleCount`, 'moduleCount must be exactly 5');
+    }
+    if (report.coilCount !== 50) {
+        issue(ctx, `${path}.coilCount`, 'coilCount must be exactly 50');
+    }
+    if (report.bodyCount !== 10) {
+        issue(ctx, `${path}.bodyCount`, 'bodyCount must be exactly 10');
+    }
+    for (const field of ['sectionWidthM', 'sectionHeightM', 'referenceVolumeM3'] as const) {
+        if (!isFiniteNumber(report[field]) || report[field] <= 0) {
+            issue(ctx, `${path}.${field}`, `${field} must be a positive finite number`);
+        }
+    }
+    for (const field of ['sectionTiltDeg', 'twistDeg'] as const) {
+        if (!isFiniteNumber(report[field])) {
+            issue(ctx, `${path}.${field}`, `${field} must be a finite number`);
+        }
+    }
+    if (!isFiniteNumber(report.stations) || !Number.isInteger(report.stations) || report.stations < 8 || report.stations > 720) {
+        issue(ctx, `${path}.stations`, 'stations must be an integer in [8, 720]');
+    }
+    if (!isString(report.summary) || report.summary.trim().length === 0) {
+        issue(ctx, `${path}.summary`, 'summary must be a non-empty string');
+    }
+}
+
+function validateW7xCoilStudyValue(ctx: MutableValidationContext, path: string, study: unknown): void {
+    if (!isPlainObject(study)) {
+        issue(ctx, path, 'designStudy must be an object');
+        return;
+    }
+    if (study.kind !== 'w7x-coil-study') {
+        issue(ctx, `${path}.kind`, "kind must be 'w7x-coil-study'");
+        return;
+    }
+    validateW7xCoilStudyReport(ctx, `${path}.report`, study.report);
+}
+
+function validateW7xDesignStudyValue(ctx: MutableValidationContext, path: string, study: unknown): void {
+    if (!isPlainObject(study)) {
+        issue(ctx, path, 'designStudy must be an object');
+        return;
+    }
+    if (study.kind === 'w7x-coil-study') {
+        validateW7xCoilStudyReport(ctx, `${path}.report`, study.report);
+        return;
+    }
+    if (study.kind === 'w7x-coil-shape-study') {
+        validateW7xCoilShapeStudyReport(ctx, `${path}.report`, study.report);
+        return;
+    }
+    issue(ctx, `${path}.kind`, "kind must be 'w7x-coil-study' or 'w7x-coil-shape-study'");
+}
+
+/**
+ * Validate a W7-X coil-study block on its own (issue paths use `designStudy`).
+ *
+ * The store calls this before cloning so a malformed study is a structured
+ * error instead of a candidate-document validation failure.
+ */
+export function validateW7xCoilStudy(study: unknown): ValidationResult {
+    const ctx: MutableValidationContext = { issues: [], ids: new Set<string>() };
+    validateW7xCoilStudyValue(ctx, 'designStudy', study);
+    return { valid: ctx.issues.length === 0, issues: ctx.issues };
+}
+
+/** Validate either W7-X design-study marker on its own (issue paths use `designStudy`). */
+export function validateW7xDesignStudy(study: unknown): ValidationResult {
+    const ctx: MutableValidationContext = { issues: [], ids: new Set<string>() };
+    validateW7xDesignStudyValue(ctx, 'designStudy', study);
+    return { valid: ctx.issues.length === 0, issues: ctx.issues };
+}
+
 /**
  * Validate the additive assembly section by delegating to the frozen
  * `validateAssemblyDocument` spec on a synthesized root. Absent assembly is
@@ -1851,6 +2293,9 @@ export function validateNukeCadDocument(doc: NukeCadDocument): ValidationResult 
     }
     if (doc.displayTolerance !== undefined && (!isFiniteNumber(doc.displayTolerance) || doc.displayTolerance <= 0)) {
         issue(ctx, 'displayTolerance', 'displayTolerance must be a positive finite number when present');
+    }
+    if (doc.overlapCheck !== undefined && typeof doc.overlapCheck !== 'boolean') {
+        issue(ctx, 'overlapCheck', 'overlapCheck must be a boolean when present');
     }
     if (!isPlainObject(doc.parameters)) {
         issue(ctx, 'parameters', 'parameters must be an object');
@@ -1950,6 +2395,9 @@ export function validateNukeCadDocument(doc: NukeCadDocument): ValidationResult 
             }
         }
     }
+    if (doc.designStudy !== undefined) {
+        validateW7xDesignStudyValue(ctx, 'designStudy', doc.designStudy);
+    }
 
     // Dangling reference pass.
     const datumIds = new Set<string>(doc.datums?.map((d) => (d as DatumPlane).id).filter(isString) ?? []);
@@ -2019,7 +2467,7 @@ export function validateNukeCadDocument(doc: NukeCadDocument): ValidationResult 
                 issue(ctx, `features[${i}].params.planeDatumId`, `unknown datum '${p.planeDatumId}'`);
             }
         }
-        if (f.type === 'sweep' || f.type === 'pipe') {
+        if (f.type === 'sweep' || f.type === 'pipe' || f.type === 'coilSweep') {
             const p = f.params as Record<string, unknown>;
             if (isString(p.pathCurveId) && p.pathCurveId.length > 0 && !curveIds.has(p.pathCurveId)) {
                 issue(ctx, `features[${i}].params.pathCurveId`, `unknown curve '${p.pathCurveId}'`);

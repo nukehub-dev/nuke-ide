@@ -90,7 +90,7 @@ describe('CAD_RIBBON_GROUPS', () => {
             'Pattern',
             'Inspect'
         ]);
-        expect(CAD_RIBBON_GROUPS.map((group) => group.promoted)).toEqual([5, 2, 3, 3, 3, 3, 2]);
+        expect(CAD_RIBBON_GROUPS.map((group) => group.promoted)).toEqual([5, 2, 3, 3, 3, 3, 4]);
     });
 
     it('resolves every group caption', () => {
@@ -111,6 +111,10 @@ describe('buildCadCommands', () => {
             'rebuild',
             'exportPython',
             'importCad',
+            'importCadBody',
+            'createW7xGenerator',
+            'createW7xCoilStudy',
+            'createW7xShapeStudy',
             'newSketch',
             'pad',
             'pocket',
@@ -120,6 +124,7 @@ describe('buildCadCommands', () => {
             'sweep',
             'pipe',
             'helicalSweep',
+            'coilSweep',
             'booleanFuse',
             'booleanCut',
             'booleanCommon',
@@ -134,7 +139,9 @@ describe('buildCadCommands', () => {
             'lattice',
             'hole',
             'measure',
-            'measureList'
+            'measureList',
+            'featureTree',
+            'modelOutline'
         ]);
     });
 
@@ -154,14 +161,35 @@ describe('buildCadCommands', () => {
 
     it('includes every caret-menu tail so command search can reach it', () => {
         const ids = buildCadCommands(context(), handlers()).map((entry) => entry.id);
-        for (const id of ['exportPython', 'groove', 'loft', 'sweep', 'pipe', 'helicalSweep', 'draft', 'translate', 'lattice', 'hole']) {
+        for (const id of [
+            'exportPython',
+            'groove',
+            'loft',
+            'sweep',
+            'pipe',
+            'helicalSweep',
+            'coilSweep',
+            'draft',
+            'translate',
+            'lattice',
+            'hole'
+        ]) {
             expect(ids).toContain(id);
         }
     });
 
     it('explains document-level disabled states', () => {
         const ctx = context();
-        const commands = buildCadCommands(ctx, handlers({ onNewDocument: vi.fn(), onSaveDocument: vi.fn() }));
+        const commands = buildCadCommands(
+            ctx,
+            handlers({
+                onNewDocument: vi.fn(),
+                onSaveDocument: vi.fn(),
+                onCreateW7xGenerator: vi.fn(),
+                onCreateW7xCoilStudy: vi.fn(),
+                onCreateW7xShapeStudy: vi.fn()
+            })
+        );
         expect(disabledReason(commands, 'newDocument', ctx)).toBe('A document is already open.');
         expect(disabledReason(commands, 'saveDocument', ctx)).toBe('No unsaved changes.');
         expect(disabledReason(commands, 'undo', ctx)).toBe('Nothing to undo.');
@@ -251,17 +279,40 @@ describe('buildCadCommands', () => {
         expect(disabledReason(commands, 'exportPython', ctx)).toBe('Not available in this view.');
         expect(disabledReason(commands, 'rebuild', ctx)).toBe('Not available in this view.');
         expect(disabledReason(commands, 'importCad', ctx)).toBe('Not available in this view.');
+        expect(disabledReason(commands, 'importCadBody', ctx)).toBe('Not available in this view.');
+        expect(disabledReason(commands, 'createW7xGenerator', ctx)).toBe('Not available in this view.');
+        expect(disabledReason(commands, 'createW7xCoilStudy', ctx)).toBe('Not available in this view.');
+        expect(disabledReason(commands, 'createW7xShapeStudy', ctx)).toBe('Not available in this view.');
     });
 
     it('enables export, rebuild, and import when the host supplies their handlers', () => {
         const ctx = context();
-        const commands = buildCadCommands(ctx, handlers({ onExportPython: vi.fn(), onRebuildDocument: vi.fn(), onImportCad: vi.fn() }));
+        const commands = buildCadCommands(
+            ctx,
+            handlers({
+                onExportPython: vi.fn(),
+                onRebuildDocument: vi.fn(),
+                onImportCad: vi.fn(),
+                onImportCadBody: vi.fn(),
+                onCreateW7xGenerator: vi.fn(),
+                onCreateW7xCoilStudy: vi.fn(),
+                onCreateW7xShapeStudy: vi.fn()
+            })
+        );
         expect(command(commands, 'exportPython').isEnabled(ctx)).toBe(true);
         expect(command(commands, 'exportPython').disabledReason?.(ctx)).toBeUndefined();
         expect(command(commands, 'rebuild').isEnabled(ctx)).toBe(true);
         expect(command(commands, 'rebuild').disabledReason?.(ctx)).toBeUndefined();
         expect(command(commands, 'importCad').isEnabled(ctx)).toBe(true);
         expect(command(commands, 'importCad').disabledReason?.(ctx)).toBeUndefined();
+        expect(command(commands, 'importCadBody').isEnabled(ctx)).toBe(true);
+        expect(command(commands, 'importCadBody').disabledReason?.(ctx)).toBeUndefined();
+        expect(command(commands, 'createW7xGenerator').isEnabled(ctx)).toBe(true);
+        expect(command(commands, 'createW7xGenerator').disabledReason?.(ctx)).toBeUndefined();
+        expect(command(commands, 'createW7xCoilStudy').isEnabled(ctx)).toBe(true);
+        expect(command(commands, 'createW7xCoilStudy').disabledReason?.(ctx)).toBeUndefined();
+        expect(command(commands, 'createW7xShapeStudy').isEnabled(ctx)).toBe(true);
+        expect(command(commands, 'createW7xShapeStudy').disabledReason?.(ctx)).toBeUndefined();
     });
 
     it('describes Import CAD as Assembly as an always-enabled Document action', () => {
@@ -280,6 +331,85 @@ describe('buildCadCommands', () => {
         expect(onImportCad).toHaveBeenCalledTimes(1);
     });
 
+    it('describes Import CAD as Body as an always-enabled Document action', () => {
+        const ctx = context({ hasDocument: false });
+        const onImportCadBody = vi.fn();
+        const commands = buildCadCommands(ctx, handlers({ onImportCadBody }));
+        const spec = command(commands, 'importCadBody');
+        expect(spec.label).toBe('Import CAD as Body…');
+        expect(spec.shortLabel).toBe('Body');
+        expect(spec.icon).toBe('codicon-file-symlink-file');
+        expect(spec.group).toBe('document');
+        expect(spec.isEnabled(ctx)).toBe(true);
+        expect(spec.isEnabled(context({ hasDocument: true }))).toBe(true);
+        expect(spec.disabledReason?.(ctx)).toBeUndefined();
+        spec.run();
+        expect(onImportCadBody).toHaveBeenCalledTimes(1);
+    });
+
+    it('describes Create W7-X Generator as an always-enabled Document action', () => {
+        const ctx = context({ hasDocument: false });
+        const onCreateW7xGenerator = vi.fn();
+        const commands = buildCadCommands(ctx, handlers({ onCreateW7xGenerator }));
+        const spec = command(commands, 'createW7xGenerator');
+        expect(spec.label).toBe('Create W7-X Generator…');
+        expect(spec.shortLabel).toBe('W7-X');
+        expect(spec.icon).toBe('codicon-globe');
+        expect(spec.group).toBe('document');
+        expect(spec.isEnabled(ctx)).toBe(true);
+        expect(spec.isEnabled(context({ hasDocument: true }))).toBe(true);
+        expect(spec.disabledReason?.(ctx)).toBeUndefined();
+        spec.run();
+        expect(onCreateW7xGenerator).toHaveBeenCalledTimes(1);
+    });
+
+    it('describes Create W7-X Coil Study as an always-enabled searchable Document action', () => {
+        const ctx = context({ hasDocument: false });
+        const onCreateW7xCoilStudy = vi.fn();
+        const commands = buildCadCommands(ctx, handlers({ onCreateW7xCoilStudy }));
+        const spec = command(commands, 'createW7xCoilStudy');
+        expect(spec.label).toBe('Create W7-X Coil Study…');
+        expect(spec.shortLabel).toBe('Study');
+        expect(spec.icon).toBe('codicon-beaker');
+        expect(spec.group).toBe('document');
+        expect(spec.isEnabled(ctx)).toBe(true);
+        expect(spec.isEnabled(context({ hasDocument: true }))).toBe(true);
+        expect(spec.disabledReason?.(ctx)).toBeUndefined();
+        spec.run();
+        expect(onCreateW7xCoilStudy).toHaveBeenCalledTimes(1);
+    });
+
+    it('describes Create W7-X Coil Shape Study as an always-enabled searchable Document action', () => {
+        const ctx = context({ hasDocument: false });
+        const onCreateW7xShapeStudy = vi.fn();
+        const commands = buildCadCommands(ctx, handlers({ onCreateW7xShapeStudy }));
+        const spec = command(commands, 'createW7xShapeStudy');
+        expect(spec.label).toBe('Create W7-X Coil Shape Study…');
+        expect(spec.shortLabel).toBe('Shape');
+        expect(spec.icon).toBe('codicon-nuke-cad-helix');
+        expect(spec.group).toBe('document');
+        expect(spec.isEnabled(ctx)).toBe(true);
+        expect(spec.isEnabled(context({ hasDocument: true }))).toBe(true);
+        expect(spec.disabledReason?.(ctx)).toBeUndefined();
+        spec.run();
+        expect(onCreateW7xShapeStudy).toHaveBeenCalledTimes(1);
+    });
+
+    it('enables Coil Sweep when the document has curves and explains the curve requirement', () => {
+        const onStartFeatureCreation = vi.fn();
+        const withoutCurves = context({ hasCurves: false });
+        const enabledContext = context({ hasCurves: true });
+        const disabledCommands = buildCadCommands(withoutCurves, handlers({ onStartFeatureCreation }));
+        expect(command(disabledCommands, 'coilSweep').group).toBe('additive');
+        expect(command(disabledCommands, 'coilSweep').label).toBe('Coil Sweep (rectangular section along curve)');
+        expect(command(disabledCommands, 'coilSweep').isEnabled(withoutCurves)).toBe(false);
+        expect(disabledReason(disabledCommands, 'coilSweep', withoutCurves)).toBe('Requires sketch curves.');
+        const enabledCommands = buildCadCommands(enabledContext, handlers({ onStartFeatureCreation }));
+        expect(command(enabledCommands, 'coilSweep').isEnabled(enabledContext)).toBe(true);
+        command(enabledCommands, 'coilSweep').run();
+        expect(onStartFeatureCreation).toHaveBeenCalledWith('coilSweep');
+    });
+
     it('resolves the Measurements label with the live count', () => {
         expect(command(buildCadCommands(context(), handlers()), 'measureList').label).toBe('Measurements');
         expect(command(buildCadCommands(context({ measureCount: 3 }), handlers()), 'measureList').label).toBe('Measurements (3)');
@@ -291,6 +421,10 @@ describe('buildCadCommands', () => {
         const onRebuildDocument = vi.fn();
         const onExportPython = vi.fn();
         const onImportCad = vi.fn();
+        const onImportCadBody = vi.fn();
+        const onCreateW7xGenerator = vi.fn();
+        const onCreateW7xCoilStudy = vi.fn();
+        const onCreateW7xShapeStudy = vi.fn();
         const onStartSketchSetup = vi.fn();
         const onEditSketch = vi.fn();
         const onStartFeatureCreation = vi.fn();
@@ -305,6 +439,10 @@ describe('buildCadCommands', () => {
             onRebuildDocument,
             onExportPython,
             onImportCad,
+            onImportCadBody,
+            onCreateW7xGenerator,
+            onCreateW7xCoilStudy,
+            onCreateW7xShapeStudy,
             onStartSketchSetup,
             onEditSketch,
             onStartFeatureCreation,
@@ -320,6 +458,10 @@ describe('buildCadCommands', () => {
             'rebuild',
             'exportPython',
             'importCad',
+            'importCadBody',
+            'createW7xGenerator',
+            'createW7xCoilStudy',
+            'createW7xShapeStudy',
             'newSketch',
             'editSketch',
             'undo',
@@ -338,6 +480,10 @@ describe('buildCadCommands', () => {
         expect(onRebuildDocument).toHaveBeenCalledTimes(1);
         expect(onExportPython).toHaveBeenCalledTimes(1);
         expect(onImportCad).toHaveBeenCalledTimes(1);
+        expect(onImportCadBody).toHaveBeenCalledTimes(1);
+        expect(onCreateW7xGenerator).toHaveBeenCalledTimes(1);
+        expect(onCreateW7xCoilStudy).toHaveBeenCalledTimes(1);
+        expect(onCreateW7xShapeStudy).toHaveBeenCalledTimes(1);
         expect(onStartSketchSetup).toHaveBeenCalledTimes(1);
         expect(onEditSketch).toHaveBeenCalledWith('sketch-1');
         expect(onUndo).toHaveBeenCalledTimes(1);

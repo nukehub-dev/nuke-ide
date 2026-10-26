@@ -32,7 +32,8 @@ import type {
     GeometryBuildResult,
     GeometryBuildRequest,
     BuildDocumentRequest,
-    BuildFeaturesPartialRequest
+    BuildFeaturesPartialRequest,
+    InspectImportSourceRequest
 } from '../common/nuke-cad-protocol';
 import type { NukeCadPreferences } from './nuke-cad-preferences';
 
@@ -63,6 +64,12 @@ function makeProxy(capture: { requests: CapturedRequest[] }): NukeCadBackendServ
             return { ...result, scriptPath: request.scriptPath };
         },
         buildDrawing: async () => ({ success: false, error: 'not stubbed' }),
+        inspectImportSource: async (request: InspectImportSourceRequest) => ({
+            success: true,
+            sourcePath: request.sourcePath,
+            solidCount: 0,
+            solids: []
+        }),
         runFem: async () => ({ success: true }),
         listFemMaterials: async () => [],
         runJob: async () => ({ success: true, artifacts: [] }),
@@ -226,5 +233,22 @@ describe('NukeCadFrontendService', () => {
         const service = new NukeCadFrontendService(proxy, makePreferences());
         const result = await service.buildGeometry({ scriptPath: SCRIPT_PATH });
         expect(result.warnings).toBeUndefined();
+    });
+
+    it('delegates import inspection without injecting build options', async () => {
+        const capture: { requests: CapturedRequest[] } = { requests: [] };
+        const proxy = makeProxy(capture);
+        const seen: InspectImportSourceRequest[] = [];
+        proxy.inspectImportSource = async (request: InspectImportSourceRequest) => {
+            seen.push(request);
+            return { success: true, sourcePath: request.sourcePath, solidCount: 2, solids: [] };
+        };
+        const service = new NukeCadFrontendService(proxy, makePreferences());
+        const request: InspectImportSourceRequest = { sourcePath: STEP_PATH, sourceUnit: 'm', targetUnits: 'mm', maxSolids: 10 };
+        const result = await service.inspectImportSource(request);
+        expect(seen).toHaveLength(1);
+        expect(seen[0]).toBe(request);
+        expect(result).toEqual({ success: true, sourcePath: STEP_PATH, solidCount: 2, solids: [] });
+        expect(capture.requests).toHaveLength(0);
     });
 });

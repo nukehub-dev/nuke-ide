@@ -503,6 +503,69 @@ export interface DownloadFileResult {
     readonly error?: string;
 }
 
+/** External CAD source formats accepted by import-source inspection. */
+export type ImportSourceFormat = 'step' | 'iges' | 'brep';
+
+/** Length unit an imported CAD source may declare or be overridden with. */
+export type ImportSourceUnit = 'mm' | 'cm' | 'm';
+
+/** Per-solid metadata reported by import-source inspection. */
+export interface ImportSolidInfo {
+    /** 1-based explorer-order index in the source file (a hint, not identity). */
+    readonly index: number;
+    /** STEP/IGES product name when the reader could resolve one (best effort). */
+    readonly name?: string;
+    /** Number of faces in the source solid. */
+    readonly faceCount: number;
+    /** Volume in the effective source unit (see {@link InspectImportSourceResult.effectiveUnit}). */
+    readonly volume: number;
+    /** Bounding-box minimum in the effective source unit. */
+    readonly bboxMin: readonly number[];
+    /** Bounding-box maximum in the effective source unit. */
+    readonly bboxMax: readonly number[];
+    /** Center of mass in the effective source unit. */
+    readonly center: readonly number[];
+}
+
+/**
+ * Request metadata for an external STEP/IGES/BREP source without building or
+ * writing geometry artifacts.
+ */
+export interface InspectImportSourceRequest {
+    /** Absolute path to the source file (the UI copies it into `<doc>.parts/` first). */
+    readonly sourcePath: string;
+    /** Override the file's declared unit (e.g. a STEP that declares mm with metre-scale numbers). */
+    readonly sourceUnit?: ImportSourceUnit;
+    /** Document length unit to scale to; native source numbers are kept when omitted. */
+    readonly targetUnits?: ImportSourceUnit;
+    /** Safety cap; the inspection fails when the source has more solids. Default 500. */
+    readonly maxSolids?: number;
+}
+
+/** Result of an import-source inspection. Read-only; no artifacts are written. */
+export interface InspectImportSourceResult {
+    readonly success: boolean;
+    readonly error?: string;
+    /** Absolute path that was inspected (echoed when the backend omits it). */
+    readonly sourcePath?: string;
+    readonly sourceFormat?: ImportSourceFormat;
+    /** Lowercase SHA-256 hex of the source bytes. */
+    readonly sourceHash?: string;
+    /** Source byte size; advisory freshness probe. */
+    readonly sourceSize?: number;
+    /** Unit declared by the source file, when it could be detected. */
+    readonly fileUnit?: string;
+    /** Unit the reported numbers are expressed in (override or detected unit). */
+    readonly effectiveUnit?: string;
+    /** Multiplier applied to native source numbers to reach the target unit. */
+    readonly unitScaleFactor?: number;
+    /** Human-readable note about unit detection/override, shown in the import dialog. */
+    readonly unitsMessage?: string;
+    readonly solidCount?: number;
+    readonly solids?: readonly ImportSolidInfo[];
+    readonly warnings?: readonly string[];
+}
+
 /** Backend service exposed via JSON-RPC. */
 export interface NukeCadBackendService {
     /**
@@ -541,6 +604,16 @@ export interface NukeCadBackendService {
      * --from-drawing``.
      */
     buildDrawing(request: DrawingBuildRequest): Promise<DrawingBuildResult>;
+
+    /**
+     * Inspect an external STEP/IGES/BREP source without building it.
+     *
+     * Returns the source hash/size/units plus the explorer-order solids (index,
+     * name, face count, volume, bbox, center) for the import dialog. The
+     * backend runs ``geometry_service.py <source> --inspect-import`` and writes
+     * no STEP/tessellation/DAGMC artifacts.
+     */
+    inspectImportSource(request: InspectImportSourceRequest): Promise<InspectImportSourceResult>;
 
     /**
      * Set up and optionally run a CalculiX FEM analysis from a gmsh mesh.

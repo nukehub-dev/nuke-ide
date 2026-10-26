@@ -60,8 +60,13 @@ import {
     type SavedMeasurement,
     type SavedMeasurementKind,
     type SavedNamedView,
+    type ImportParams,
+    type W7xCoilStudy,
+    type W7xDesignStudy,
+    IMPORT_SOURCE_HASH_PATTERN,
     NUKE_CAD_SCHEMA_VERSION,
     validateNukeCadDocument,
+    validateW7xDesignStudy,
     migrateNukeCadDocument
 } from '../../common/cad-document';
 import { clampSheetPosition, lockProjectedViewPosition, sheetDimensions, snapDrawingPosition } from '../../common/cad-drawing';
@@ -84,8 +89,10 @@ import { type TopologyRef, type FaceFingerprint, type EdgeFingerprint, validateT
 import { FeatureGraph } from '../../common/feature-graph';
 import {
     MATE_TYPES,
+    ASSEMBLY_SCHEMA_VERSION,
     orthonormalizeConnectorAxes,
     validateAssemblyDocument,
+    type AssemblyInstance,
     type InstancePlacement,
     type Mat4,
     type MateType,
@@ -118,6 +125,41 @@ export interface DocumentSelection {
     readonly selectedBodyId?: string;
     /** Id of the selected curve, if any. */
     readonly selectedCurveId?: string;
+}
+
+/** One body + import feature pair created by {@link CadDocumentStore.addImportBodies}. */
+export interface ImportBodyDraft {
+    /** Body name shown in the feature tree. */
+    readonly name: string;
+    /** Optional region-manifest label carried by the body. */
+    readonly label?: string;
+    /** Optional in-CAD material tag carried by the body. */
+    readonly material?: string;
+    /** Import feature parameters (source path/hash, solid selection, placement). */
+    readonly params: ImportParams;
+}
+
+/** Atomic batch request for {@link CadDocumentStore.addImportBodies}. */
+export interface ImportBodiesRequest {
+    /** Bodies to create; each gets exactly one `import` feature. Must be non-empty. */
+    readonly bodies: readonly ImportBodyDraft[];
+    /** Optional shared feature-name prefix; defaults to each draft's body name. */
+    readonly featureNamePrefix?: string;
+}
+
+/** One instance appended by {@link CadDocumentStore.addAssemblyInstances}. */
+export interface AssemblyInstanceDraft {
+    /**
+     * Requested instance id. Stable readable ids (`coil_01_m0`) are preserved;
+     * a unique `instance-<n>` id is generated when absent.
+     */
+    readonly id?: string;
+    /** Path to the part document or embedded `body:<id>` reference. */
+    readonly part: string;
+    /** Placement in assembly space; defaults to the identity pose. */
+    readonly placement?: InstancePlacement;
+    /** Uniform or per-axis scale (defaults to 1 when omitted). */
+    readonly scale?: number | Vec3;
 }
 
 /** Maximum number of pre-mutation snapshots kept for undo (oldest dropped). */
@@ -295,12 +337,32 @@ function cloneSavedNamedView(view: SavedNamedView): SavedNamedView {
     };
 }
 
+function cloneW7xCoilStudy(study: W7xCoilStudy): W7xCoilStudy {
+    return {
+        kind: study.kind,
+        report: {
+            ...study.report,
+            coilCoilOverlaps: study.report.coilCoilOverlaps.map((entry) => ({ ...entry })),
+            coilShellOverlaps: study.report.coilShellOverlaps.map((entry) => ({ ...entry }))
+        }
+    };
+}
+
+function cloneDesignStudy(study: W7xDesignStudy): W7xDesignStudy {
+    if (study.kind === 'w7x-coil-shape-study') {
+        return { kind: study.kind, report: { ...study.report } };
+    }
+    return cloneW7xCoilStudy(study);
+}
+
 function cloneDocument(doc: NukeCadDocument): NukeCadDocument {
     const assembly = cloneAssemblySection(getAssemblySection(doc));
     return {
         version: doc.version,
         name: doc.name,
         units: doc.units,
+        displayTolerance: doc.displayTolerance,
+        overlapCheck: doc.overlapCheck,
         parameters: { ...doc.parameters },
         datums: doc.datums.map((d) => ({
             ...d,
@@ -325,6 +387,7 @@ function cloneDocument(doc: NukeCadDocument): NukeCadDocument {
         ...(doc.drawings !== undefined ? { drawings: doc.drawings.map((s) => cloneDrawingSheet(s)) } : {}),
         ...(doc.measurements !== undefined ? { measurements: doc.measurements.map((m) => cloneSavedMeasurement(m)) } : {}),
         ...(doc.views !== undefined ? { views: doc.views.map((v) => cloneSavedNamedView(v)) } : {}),
+        ...(doc.designStudy !== undefined ? { designStudy: cloneDesignStudy(doc.designStudy) } : {}),
         ...(assembly !== undefined ? { assembly } : {})
     };
 }
@@ -1579,6 +1642,74 @@ export class CadDocumentStore {
     }
 
     /**
+     * Enable or disable the document's overlap-warning gate (one commit).
+     *
+     * `false` suppresses cross-body and assembly-instance overlap warnings for
+     * a known-valid large assembly; enabling drops the field again so the
+     * document keeps the canonical absent-means-default form. Like the display
+     * tolerance this is an author setting, never a display preference: it
+     * never changes geometry and callers must not schedule a rebuild for it.
+     */
+    setOverlapCheck(enabled: boolean): DocumentMutationResult {
+        if (typeof enabled !== 'boolean') {
+            return { success: false, error: 'Overlap check must be a boolean' };
+        }
+        const check = this.requireDocument();
+        if (!check.success) {
+            return { success: false, error: check.error, issues: check.issues };
+        }
+        const current = check.value!.overlapCheck !== false;
+        if (current === enabled) {
+            return { success: true };
+        }
+        const doc = cloneDocument(check.value!);
+        if (enabled) {
+            delete doc.overlapCheck;
+        } else {
+            doc.overlapCheck = false;
+        }
+        return this.commit(doc);
+    }
+
+    /**
+     * Set or clear the document's design-study marker in one commit.
+     *
+     * Presence means the document is an explicitly experimental layout: the
+     * geometry backend still serves display builds but rejects DAGMC/FEM mesh
+     * export. One mutation = one undo entry and one change event; a study that
+     * is semantically unchanged (canonical JSON comparison) commits nothing,
+     * and `undefined` removes the field. Malformed studies are rejected with
+     * structured validation issues before any candidate document is cloned.
+     */
+    setDesignStudy(study: W7xDesignStudy | undefined): DocumentMutationResult {
+        const check = this.requireDocument();
+        if (!check.success) {
+            return { success: false, error: check.error, issues: check.issues };
+        }
+        if (study !== undefined) {
+            const validation = validateW7xDesignStudy(study);
+            if (!validation.valid) {
+                return { success: false, error: formatIssues(validation.issues), issues: validation.issues };
+            }
+        }
+        const current = check.value!.designStudy;
+        if (study === undefined) {
+            if (current === undefined) {
+                return { success: true };
+            }
+        } else if (current !== undefined && canonicalJson(current) === canonicalJson(study)) {
+            return { success: true };
+        }
+        const doc = cloneDocument(check.value!);
+        if (study === undefined) {
+            delete doc.designStudy;
+        } else {
+            doc.designStudy = cloneDesignStudy(study);
+        }
+        return this.commit(doc);
+    }
+
+    /**
      * Add a body to the document.
      *
      * Generates a collision-free id. Returns the new body id on success.
@@ -1597,6 +1728,115 @@ export class CadDocumentStore {
             return { success: false, error: result.error, issues: result.issues };
         }
         return { success: true, value: id };
+    }
+
+    /**
+     * Add N imported bodies, each with one `import` feature, in a single commit.
+     *
+     * One atomic batch: body/feature ids are generated with the same rules as
+     * {@link addBody}/{@link uniqueFeatureId}, and the whole candidate document
+     * is validated once before commit — so a malformed draft rejects the batch
+     * without creating any bodies or features, and the batch produces one undo
+     * entry and one change event. Feature names use `featureNamePrefix` with a
+     * 1-based suffix when supplied and the draft's body name otherwise. The
+     * first new body is selected.
+     */
+    addImportBodies(request: ImportBodiesRequest): DocumentMutationResult<{ bodyIds: string[]; featureIds: string[] }> {
+        const check = this.requireDocument();
+        if (!check.success) {
+            return { success: false, error: check.error, issues: check.issues };
+        }
+        if (request === undefined || !Array.isArray(request.bodies) || request.bodies.length === 0) {
+            return { success: false, error: 'Select at least one import body' };
+        }
+        const prefix = request.featureNamePrefix;
+        if (prefix !== undefined && (typeof prefix !== 'string' || prefix.length === 0)) {
+            return { success: false, error: 'Feature name prefix must be a non-empty string when present' };
+        }
+        for (const [index, draft] of request.bodies.entries()) {
+            if (draft === null || typeof draft !== 'object') {
+                return { success: false, error: `Import body ${index + 1} must be an object` };
+            }
+            if (typeof draft.name !== 'string' || draft.name.length === 0) {
+                return { success: false, error: `Import body ${index + 1} must have a non-empty name` };
+            }
+        }
+        const doc = cloneDocument(check.value!);
+        const bodyIds: string[] = [];
+        const featureIds: string[] = [];
+        for (const [index, draft] of request.bodies.entries()) {
+            const bodyId = uniqueBodyId(doc);
+            const body: BodyDef = { id: bodyId, name: draft.name, label: draft.label };
+            if (draft.material !== undefined) {
+                body.material = draft.material;
+            }
+            doc.bodies.push(body);
+            const featureId = uniqueFeatureId(doc);
+            doc.features.push({
+                id: featureId,
+                name: prefix !== undefined ? `${prefix} ${index + 1}` : draft.name,
+                type: 'import',
+                body: bodyId,
+                params: { ...draft.params },
+                suppressed: false,
+                dependsOn: []
+            });
+            bodyIds.push(bodyId);
+            featureIds.push(featureId);
+        }
+        const result = this.commit(doc, { selectBody: bodyIds[0] });
+        if (!result.success) {
+            return { success: false, error: result.error, issues: result.issues };
+        }
+        return { success: true, value: { bodyIds, featureIds } };
+    }
+
+    /**
+     * Refresh the content hash/size of every import feature referencing a source.
+     *
+     * Manual freshness hook for Phase 1 (there is no source-file watcher):
+     * every matching `import` feature is updated in one commit and its id is
+     * returned so the caller can trigger a rebuild. Rejects unknown source
+     * paths and malformed hash/size values. A batch already carrying the same
+     * hash and size is a no-op (no undo entry, no change event).
+     */
+    refreshImportSource(sourcePath: string, sourceHash: string, sourceSize: number): DocumentMutationResult<{ featureIds: string[] }> {
+        const check = this.requireDocument();
+        if (!check.success) {
+            return { success: false, error: check.error, issues: check.issues };
+        }
+        if (typeof sourcePath !== 'string' || sourcePath.length === 0) {
+            return { success: false, error: 'Source path must be a non-empty string' };
+        }
+        if (typeof sourceHash !== 'string' || !IMPORT_SOURCE_HASH_PATTERN.test(sourceHash)) {
+            return { success: false, error: 'Source hash must be a lowercase SHA-256 hex digest' };
+        }
+        if (!Number.isInteger(sourceSize) || sourceSize < 1) {
+            return { success: false, error: 'Source size must be a positive integer' };
+        }
+        const doc = cloneDocument(check.value!);
+        const matched = doc.features.filter(
+            (feature) => feature.type === 'import' && (feature.params as { sourcePath?: unknown }).sourcePath === sourcePath
+        );
+        if (matched.length === 0) {
+            return { success: false, error: `No import features reference source '${sourcePath}'` };
+        }
+        const featureIds = matched.map((feature) => feature.id);
+        const unchanged = matched.every((feature) => {
+            const params = feature.params as { sourceHash?: unknown; sourceSize?: unknown };
+            return params.sourceHash === sourceHash && params.sourceSize === sourceSize;
+        });
+        if (unchanged) {
+            return { success: true, value: { featureIds } };
+        }
+        for (const feature of matched) {
+            feature.params = { ...(feature.params as Record<string, unknown>), sourceHash, sourceSize };
+        }
+        const result = this.commit(doc);
+        if (!result.success) {
+            return { success: false, error: result.error, issues: result.issues };
+        }
+        return { success: true, value: { featureIds } };
     }
 
     /**
@@ -2254,6 +2494,95 @@ export class CadDocumentStore {
     }
 
     /**
+     * Append N assembly instances and optionally set grounding in one commit.
+     *
+     * One atomic batch: requested ids are kept when unique (stable readable
+     * ids such as `coil_01_m0`), ids are generated with the same rule as
+     * {@link addInstance} when absent, and every placement/scale is validated
+     * against the frozen assembly spec even while the section is still
+     * ungrounded. The candidate section commits once — one undo entry and one
+     * change event — and the assembly section is created when the document has
+     * none. `groundedInstanceId` omitted leaves existing grounding untouched;
+     * `''` clears it. Returns the instance ids in draft order.
+     */
+    addAssemblyInstances(instances: readonly AssemblyInstanceDraft[], groundedInstanceId?: string): DocumentMutationResult<string[]> {
+        if (!Array.isArray(instances) || instances.length === 0) {
+            return { success: false, error: 'Add at least one assembly instance' };
+        }
+        const withClone = this.withAssemblyClone();
+        if (!withClone.success) {
+            return { success: false, error: withClone.error, issues: withClone.issues };
+        }
+        const { doc, assembly } = withClone.value!;
+        const ids: string[] = [];
+        const taken = new Set(assembly.instances.map((i) => i.id));
+        for (const [index, draft] of instances.entries()) {
+            if (draft === null || typeof draft !== 'object') {
+                return { success: false, error: `Assembly instance ${index + 1} must be an object` };
+            }
+            if (typeof draft.part !== 'string' || draft.part.length === 0) {
+                return { success: false, error: `Assembly instance ${index + 1} must have a non-empty part` };
+            }
+            let id: string;
+            if (draft.id === undefined) {
+                id = uniqueAssemblyId([...taken], 'instance');
+            } else {
+                if (typeof draft.id !== 'string' || draft.id.length === 0) {
+                    return { success: false, error: `Assembly instance ${index + 1} id must be a non-empty string` };
+                }
+                if (taken.has(draft.id)) {
+                    return { success: false, error: `Instance id '${draft.id}' is already in use` };
+                }
+                id = draft.id;
+            }
+            taken.add(id);
+            ids.push(id);
+            const instance: AssemblyInstance = {
+                id,
+                part: draft.part,
+                placement:
+                    draft.placement !== undefined
+                        ? cloneInstancePlacement(draft.placement)
+                        : { position: [0, 0, 0], orientation: [0, 0, 0, 1] }
+            };
+            if (draft.scale !== undefined) {
+                instance.scale = Array.isArray(draft.scale) ? ([draft.scale[0], draft.scale[1], draft.scale[2]] as Vec3) : draft.scale;
+            }
+            assembly.instances.push(instance);
+        }
+        if (groundedInstanceId !== undefined) {
+            const knownIds = new Set(assembly.instances.map((i) => i.id));
+            if (groundedInstanceId !== '' && !knownIds.has(groundedInstanceId)) {
+                return { success: false, error: `Instance '${groundedInstanceId}' not found` };
+            }
+            assembly.groundedInstanceId = groundedInstanceId;
+        }
+        // Validate the appended records even while the section is ungrounded:
+        // commitAssembly's single-part shortcut would skip the frozen spec, so
+        // check against a synthetic grounding (never written back).
+        const check = validateAssemblyDocument({
+            version: ASSEMBLY_SCHEMA_VERSION,
+            name: doc.name,
+            instances: assembly.instances,
+            connectors: assembly.connectors,
+            mates: assembly.mates,
+            groundedInstanceId: assembly.groundedInstanceId || ids[0]
+        });
+        if (!check.valid) {
+            return {
+                success: false,
+                error: check.issues.map((i) => `${i.path || 'assembly'}: ${i.message}`).join('; '),
+                issues: check.issues.map((i) => ({ path: `assembly.${i.path}`, message: i.message }))
+            };
+        }
+        const result = this.commitAssembly(doc, assembly);
+        if (!result.success) {
+            return { success: false, error: result.error, issues: result.issues };
+        }
+        return { success: true, value: ids };
+    }
+
+    /**
      * Delete an instance, cascading to its connectors and every mate touching
      * the instance or its connectors. Clears grounding when it named the
      * deleted instance (back to single-part when nothing remains).
@@ -2853,6 +3182,7 @@ export function computeDependsOn(type: FeatureDef['type'], bodyId: string, featu
         'pipe',
         'loft',
         'helicalSweep',
+        'coilSweep',
         'fillet',
         'chamfer',
         'draft',
@@ -2867,7 +3197,8 @@ export function computeDependsOn(type: FeatureDef['type'], bodyId: string, featu
         'translate',
         'booleanFuse',
         'booleanCut',
-        'booleanCommon'
+        'booleanCommon',
+        'import'
     ];
     if (!solidFeatures.includes(type)) {
         return undefined;

@@ -67,6 +67,8 @@ export interface SampleProject {
     readonly document?: NukeCadDocument;
     /** True when selecting the sample should open the CAD import file picker. */
     readonly external?: boolean;
+    /** Opt-in generator that builds a complete parametric project from the external source or committed metadata. */
+    readonly generator?: 'w7x' | 'w7x-shape';
     /** Display tolerance applied when an external sample creates its document. */
     readonly displayTolerance?: number;
     /** Copy the chosen source into `<document>.parts/` for a self-contained project. */
@@ -155,11 +157,26 @@ const PINCELL_DOCUMENT = decoratePincell(pincellJson as unknown as NukeCadDocume
 const TOKAMAK_DOCUMENT = decorateTokamak(tokamakJson as unknown as NukeCadDocument);
 
 /**
+ * Pinned public reference STEP shared by both external W7-X samples.
+ *
+ * The repository commit keeps the download reproducible; upstream model
+ * changes cannot silently swap the validated inventory.
+ */
+const W7X_DOWNLOAD: SampleDownload = {
+    url: 'https://raw.githubusercontent.com/proximafusion/open_stellarator_models/af86bcaee80301e02a099f9fcecaf5849b053231/scaled_w7x_stellarator.step',
+    fileName: 'scaled_w7x_stellarator.step',
+    sizeLabel: '47 MB',
+    license: 'MIT'
+};
+
+/**
  * Built-in example projects offered with the CAD modeler.
  *
  * The full W7-X stellarator is a ~47 MB external STEP (Proxima Fusion); it is
  * not bundled. Its card routes through the one-click CAD import picker so the
- * full device can be loaded when the user has that file.
+ * full device can be loaded when the user has that file. The generator card
+ * builds the validated five-module project from fifteen imported bodies and
+ * fifty-five assembly instances instead of one frozen STEP instance.
  */
 export const SAMPLE_PROJECTS: ReadonlyArray<SampleProject> = [
     {
@@ -190,14 +207,31 @@ export const SAMPLE_PROJECTS: ReadonlyArray<SampleProject> = [
         // The reference STEP is too large to bundle; copy it into the saved
         // project folder so the resulting .nuke-cad is portable.
         copySource: true,
-        download: {
-            // Pinned to the repository's current main commit so the sample is
-            // reproducible; upstream model changes cannot silently swap it.
-            url: 'https://raw.githubusercontent.com/proximafusion/open_stellarator_models/af86bcaee80301e02a099f9fcecaf5849b053231/scaled_w7x_stellarator.step',
-            fileName: 'scaled_w7x_stellarator.step',
-            sizeLabel: '47 MB',
-            license: 'MIT'
-        }
+        download: W7X_DOWNLOAD
+    },
+    {
+        id: 'w7x-generator',
+        name: 'W7-X generator (parametric)',
+        description:
+            'Parametric W7-X project: 10 exact coil bodies placed across 5 modules plus 5 full-360 shell bodies, as 15 imported B-reps and 55 assembly instances.',
+        badge: 'External',
+        warning: 'Requires the ~47 MB STEP; validated 5-module layout only (50 coils)',
+        external: true,
+        generator: 'w7x',
+        // The 55-instance assembly exceeds the default frontend display budget.
+        displayTolerance: 0.1,
+        // The source STEP stays beside the generated document for portability.
+        copySource: true,
+        download: W7X_DOWNLOAD
+    },
+    {
+        id: 'w7x-coil-shape',
+        name: 'W7-X coil shape study (native)',
+        description: '10 editable native coil sweeps × 5 modules, no external STEP; adjust section, tilt, twist, and path.',
+        badge: 'Fast',
+        warning: 'Approximate native sweeps, not the reference B-rep; simulation export disabled.',
+        generator: 'w7x-shape',
+        displayTolerance: 0.1
     }
 ];
 

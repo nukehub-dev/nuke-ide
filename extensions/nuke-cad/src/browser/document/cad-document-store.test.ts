@@ -51,7 +51,9 @@ import {
     sampleParametricWithUnits,
     sha256Hex,
     shouldUsePartialPlan,
+    type AssemblyInstanceDraft,
     type CachedDocumentResult,
+    type ImportBodyDraft,
     uniqueFeatureId
 } from './cad-document-store';
 import {
@@ -61,9 +63,13 @@ import {
     type CurveDef,
     type DocumentUnits,
     type FeatureDef,
-    type SketchDef
+    type ImportParams,
+    type SketchDef,
+    type W7xCoilStudy,
+    type W7xCoilShapeStudy
 } from '../../common/cad-document';
 import { type TopologyRef } from '../../common/topology-refs';
+import { type Quaternion, type Vec3 } from '../../common/assembly-document';
 
 function minimalDoc(overrides?: Partial<NukeCadDocument>): NukeCadDocument {
     return {
@@ -425,6 +431,250 @@ describe('CadDocumentStore', () => {
     });
 });
 
+describe('import bodies (additive v3)', () => {
+    const SOURCE_A = './w7x.parts/coils.step';
+    const SOURCE_B = './w7x.parts/shells.step';
+    const HASH_A = 'a'.repeat(64);
+    const HASH_B = 'b'.repeat(64);
+    const HASH_C = 'c'.repeat(64);
+    const HASH_D = 'd'.repeat(64);
+
+    function importParams(overrides: Partial<ImportParams> = {}): ImportParams {
+        return {
+            sourcePath: SOURCE_A,
+            sourceHash: HASH_A,
+            sourceSize: 1024,
+            selection: { mode: 'all' },
+            ...overrides
+        };
+    }
+
+    function draft(name: string, params: Partial<ImportParams> = {}, extra: Partial<ImportBodyDraft> = {}): ImportBodyDraft {
+        return { name, params: importParams(params), ...extra };
+    }
+
+    it('creates N bodies and N import features in one commit', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('w7x');
+        const changes: string[] = [];
+        store.onChange(() => changes.push('change'));
+
+        const result = store.addImportBodies({
+            featureNamePrefix: 'Coil',
+            bodies: [
+                draft(
+                    'Coil 1',
+                    {
+                        selection: { mode: 'solids', solids: [{ index: 1, signature: { faceCount: 24, volume: 3.5 } }] },
+                        placement: { translate: [1, 2, 3], rotateDegrees: [0, 0, 45] }
+                    },
+                    { label: 'coil_1', material: 'CuCrZr' }
+                ),
+                draft('Coil 2', { sourceUnit: 'm', maxSolids: 50 }, { label: 'coil_2' })
+            ]
+        });
+
+        expect(result.success).toBe(true);
+        const bodyIds = result.value!.bodyIds;
+        const featureIds = result.value!.featureIds;
+        expect(bodyIds).toHaveLength(2);
+        expect(featureIds).toHaveLength(2);
+        expect(new Set(bodyIds).size).toBe(2);
+        expect(new Set(featureIds).size).toBe(2);
+        expect(changes).toHaveLength(1);
+
+        const doc = store.document!;
+        expect(doc.bodies).toHaveLength(2);
+        expect(doc.bodies[0]).toMatchObject({ id: bodyIds[0], name: 'Coil 1', label: 'coil_1', material: 'CuCrZr' });
+        expect(doc.bodies[1]).toMatchObject({ id: bodyIds[1], name: 'Coil 2', label: 'coil_2' });
+        expect(doc.features.map((f) => f.id)).toEqual(featureIds);
+        expect(doc.features.map((f) => f.type)).toEqual(['import', 'import']);
+        expect(doc.features.map((f) => f.name)).toEqual(['Coil 1', 'Coil 2']);
+        expect(doc.features.map((f) => f.body)).toEqual(bodyIds);
+        expect(doc.features[0].params).toEqual(
+            importParams({
+                selection: { mode: 'solids', solids: [{ index: 1, signature: { faceCount: 24, volume: 3.5 } }] },
+                placement: { translate: [1, 2, 3], rotateDegrees: [0, 0, 45] }
+            })
+        );
+        expect(validateNukeCadDocument(doc).valid).toBe(true);
+        expect(store.selection.selectedBodyId).toBe(bodyIds[0]);
+        expect(store.dirty).toBe(true);
+
+        store.undo();
+        expect(store.document?.bodies).toHaveLength(0);
+        expect(store.document?.features).toHaveLength(0);
+    });
+
+    it('defaults feature names to the draft body name without a prefix', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('w7x');
+        const result = store.addImportBodies({ bodies: [draft('Coil 1'), draft('Coil 2')] });
+        expect(result.success).toBe(true);
+        expect(store.document?.features.map((f) => f.name)).toEqual(['Coil 1', 'Coil 2']);
+    });
+
+    it('rejects a malformed draft atomically with no commit', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('w7x');
+        const changes: string[] = [];
+        store.onChange(() => changes.push('change'));
+
+        const result = store.addImportBodies({ bodies: [draft('Good'), draft('Bad', { sourceHash: 'nope' })] });
+
+        expect(result.success).toBe(false);
+        expect(result.issues?.some((issue) => issue.path === 'features[1].params.sourceHash')).toBe(true);
+        expect(store.document?.bodies).toHaveLength(0);
+        expect(store.document?.features).toHaveLength(0);
+        expect(store.canUndo).toBe(false);
+        expect(changes).toHaveLength(0);
+    });
+
+    it('rejects empty batches and unnamed drafts', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('w7x');
+        expect(store.addImportBodies({ bodies: [] }).success).toBe(false);
+        expect(store.addImportBodies({ bodies: [draft('')] }).success).toBe(false);
+        expect(store.addImportBodies({ bodies: [draft('Coil')], featureNamePrefix: '' }).success).toBe(false);
+        expect(store.document?.bodies).toHaveLength(0);
+    });
+
+    it('round-trips an import document through JSON load', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('w7x');
+        store.addImportBodies({ bodies: [draft('Coil 1', { sourceUnit: 'm' }, { label: 'coil_1' })] });
+        const json = store.toJson();
+        expect(json).toBeDefined();
+
+        const reopened = new CadDocumentStore();
+        const loaded = reopened.loadDocument(JSON.parse(json!));
+        expect(loaded.success).toBe(true);
+        expect(reopened.document?.features).toHaveLength(1);
+        expect(reopened.document?.features[0].type).toBe('import');
+        expect(reopened.document?.features[0].params).toEqual(importParams({ sourceUnit: 'm' }));
+        expect(reopened.document?.bodies[0].label).toBe('coil_1');
+    });
+
+    it('refreshes every import feature sharing a source in one commit', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('w7x');
+        const added = store.addImportBodies({
+            bodies: [draft('Coil 1'), draft('Coil 2', { sourceHash: HASH_B }), draft('Shell', { sourcePath: SOURCE_B, sourceHash: HASH_C })]
+        });
+        expect(added.success).toBe(true);
+        const featureIds = added.value!.featureIds;
+
+        let changes = 0;
+        store.onChange(() => changes++);
+        const refresh = store.refreshImportSource(SOURCE_A, HASH_D, 2048);
+
+        expect(refresh.success).toBe(true);
+        expect(refresh.value!.featureIds).toEqual([featureIds[0], featureIds[1]]);
+        expect(changes).toBe(1);
+        const doc = store.document!;
+        expect((doc.features[0].params as ImportParams).sourceHash).toBe(HASH_D);
+        expect((doc.features[0].params as ImportParams).sourceSize).toBe(2048);
+        expect((doc.features[1].params as ImportParams).sourceHash).toBe(HASH_D);
+        expect((doc.features[1].params as ImportParams).sourceSize).toBe(2048);
+        expect((doc.features[2].params as ImportParams).sourceHash).toBe(HASH_C);
+        expect((doc.features[2].params as ImportParams).sourceSize).toBe(1024);
+
+        store.undo();
+        expect((store.document!.features[0].params as ImportParams).sourceHash).toBe(HASH_A);
+        expect((store.document!.features[1].params as ImportParams).sourceHash).toBe(HASH_B);
+    });
+
+    it('treats an unchanged refresh as a no-op with no change event or undo entry', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('w7x');
+        store.addImportBodies({ bodies: [draft('Coil 1')] });
+        let changes = 0;
+        store.onChange(() => changes++);
+
+        const refresh = store.refreshImportSource(SOURCE_A, HASH_A, 1024);
+        expect(refresh.success).toBe(true);
+        expect(changes).toBe(0);
+
+        store.undo();
+        expect(store.document?.features).toHaveLength(0);
+    });
+
+    it('rejects malformed or unmatched refresh requests', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('w7x');
+        store.addImportBodies({ bodies: [draft('Coil 1')] });
+
+        expect(store.refreshImportSource('', HASH_D, 1).success).toBe(false);
+        expect(store.refreshImportSource(SOURCE_A, 'NOPE', 1).success).toBe(false);
+        expect(store.refreshImportSource(SOURCE_A, HASH_D, 0).success).toBe(false);
+        expect(store.refreshImportSource(SOURCE_B, HASH_D, 1).success).toBe(false);
+        expect(store.canUndo).toBe(true);
+    });
+
+    it('treats import as a solid producer at the body tip', () => {
+        const importFeature: FeatureDef = {
+            id: 'imp1',
+            name: 'Imported',
+            type: 'import',
+            body: 'body-1',
+            params: importParams(),
+            suppressed: false,
+            dependsOn: []
+        };
+        expect(computeDependsOn('import', 'body-1', [])).toBeUndefined();
+        expect(computeDependsOn('import', 'body-1', [importFeature])).toBe('imp1');
+        expect(computeDependsOn('fillet', 'body-1', [importFeature])).toBe('imp1');
+        expect(computeDependsOn('import', 'body-2', [importFeature])).toBeUndefined();
+    });
+
+    it('keys import features by sourceHash and invalidates dependents', () => {
+        const doc = minimalDoc({
+            bodies: [
+                { id: 'body-1', name: 'Body 1' },
+                { id: 'body-2', name: 'Body 2' }
+            ],
+            features: [
+                {
+                    id: 'imp1',
+                    name: 'Imported',
+                    type: 'import',
+                    body: 'body-1',
+                    params: importParams(),
+                    suppressed: false,
+                    dependsOn: []
+                },
+                {
+                    id: 'pocket1',
+                    name: 'Cut',
+                    type: 'pocket',
+                    body: 'body-1',
+                    params: { length: 1 },
+                    suppressed: false,
+                    dependsOn: ['imp1']
+                },
+                {
+                    id: 'pad2',
+                    name: 'Other',
+                    type: 'pad',
+                    body: 'body-2',
+                    params: { length: 1 },
+                    suppressed: false,
+                    dependsOn: []
+                }
+            ]
+        });
+        const versions = { builderVersion: RESULT_CACHE_BUILDER_VERSION, ocpVersion: RESULT_CACHE_OCP_UNKNOWN };
+        const before = computeResultCacheKeys(doc, versions).keys;
+        const changed = JSON.parse(JSON.stringify(doc)) as NukeCadDocument;
+        (changed.features[0].params as Record<string, unknown>).sourceHash = HASH_D;
+        const after = computeResultCacheKeys(changed, versions).keys;
+
+        expect(after['feature:imp1']).not.toBe(before['feature:imp1']);
+        expect(after['feature:pocket1']).not.toBe(before['feature:pocket1']);
+        expect(after['feature:pad2']).toBe(before['feature:pad2']);
+    });
+});
+
 describe('computeDependsOn', () => {
     it('returns undefined for the first additive feature', () => {
         expect(computeDependsOn('pad', 'body-1', [])).toBeUndefined();
@@ -473,6 +723,18 @@ describe('computeDependsOn', () => {
             dependsOn: ['lin1']
         };
         expect(computeDependsOn('fillet', 'body-1', [...features, multi])).toBe('mt1');
+    });
+
+    it('treats coilSweep as a body-tip producer like sweep/pipe', () => {
+        expect(computeDependsOn('coilSweep', 'body-1', [])).toBeUndefined();
+        const features = [feature('pad1', 'pad')];
+        expect(computeDependsOn('coilSweep', 'body-1', features)).toBe('pad1');
+        const coil: FeatureDef = {
+            ...feature('coil1', 'coilSweep', ['pad1']),
+            params: { pathCurveId: 'curve-coil-01', width: 0.37, height: 0.37 }
+        };
+        expect(computeDependsOn('fillet', 'body-1', [...features, coil])).toBe('coil1');
+        expect(computeDependsOn('linearPattern', 'body-1', [...features, coil])).toBe('coil1');
     });
 
     it('returns undefined for defeature (not a solid producer)', () => {
@@ -2332,6 +2594,442 @@ describe('assembly mutations (Wave B2)', () => {
         ]);
         expect(round.assembly?.groundedInstanceId).toBe(instanceId);
         expect(validateNukeCadDocument(round).valid).toBe(true);
+    });
+});
+
+describe('validated large-assembly gates', () => {
+    function gateStore(): CadDocumentStore {
+        const store = new CadDocumentStore();
+        store.createDocument('w7x-generator');
+        return store;
+    }
+
+    it('toggles overlapCheck in one commit and restores the default form when enabled', () => {
+        const store = gateStore();
+        expect(store.document?.overlapCheck).toBeUndefined();
+        let changes = 0;
+        store.onChange(() => changes++);
+        expect(store.setOverlapCheck(false).success).toBe(true);
+        expect(changes).toBe(1);
+        expect(store.document?.overlapCheck).toBe(false);
+        expect(JSON.parse(store.toJson()!).overlapCheck).toBe(false);
+        // No-op toggles commit nothing.
+        expect(store.setOverlapCheck(false).success).toBe(true);
+        expect(changes).toBe(1);
+        // Enabling removes the field so the document keeps the canonical
+        // absent-means-default form.
+        expect(store.setOverlapCheck(true).success).toBe(true);
+        expect(changes).toBe(2);
+        expect(store.document?.overlapCheck).toBeUndefined();
+        expect(store.setOverlapCheck('no' as never).success).toBe(false);
+    });
+
+    it('round-trips overlapCheck through undo/redo with one history entry', () => {
+        const store = gateStore();
+        expect(store.setOverlapCheck(false).success).toBe(true);
+        expect(store.undo().success).toBe(true);
+        expect(store.document?.overlapCheck).toBeUndefined();
+        expect(store.canUndo).toBe(false);
+        expect(store.redo().success).toBe(true);
+        expect(store.document?.overlapCheck).toBe(false);
+    });
+
+    it('keeps overlapCheck and displayTolerance across later mutations (clone fix)', () => {
+        const store = gateStore();
+        expect(store.setDisplayTolerance(0.1).success).toBe(true);
+        expect(store.setOverlapCheck(false).success).toBe(true);
+        // Any further mutation deep-clones the document; both optional fields
+        // must survive (displayTolerance used to be dropped on the next clone).
+        expect(store.addBody('Late body').success).toBe(true);
+        expect(store.setUnits('m').success).toBe(true);
+        expect(store.document?.displayTolerance).toBe(0.1);
+        expect(store.document?.overlapCheck).toBe(false);
+        expect(store.undo().success).toBe(true);
+        expect(store.document?.displayTolerance).toBe(0.1);
+        expect(store.document?.overlapCheck).toBe(false);
+    });
+});
+
+describe('design study marker (W7-X coil-count study)', () => {
+    function studyFixture(moduleCount: 4 | 5 | 6 = 4): W7xCoilStudy {
+        return {
+            kind: 'w7x-coil-study',
+            report: {
+                moduleCount,
+                valid: moduleCount === 5,
+                pitchDeg: 360 / moduleCount,
+                moduleSpanDeg: 65.3402,
+                uncoveredSectorDeg: moduleCount === 4 ? 24.6598 : 0,
+                moduleOverlapDeg: moduleCount === 6 ? 5.3402 : 0,
+                ...(moduleCount === 5 ? { minCoilClearanceM: 0.102807 } : {}),
+                coilCoilOverlaps: moduleCount === 6 ? [{ a: 'coil_0', b: 'coil_7', volumeM3: 0.072756 }] : [],
+                coilShellOverlaps: moduleCount === 4 ? [{ coil: 'coil_0', shell: 'plasma', volumeM3: 0.072624 }] : [],
+                summary: `${moduleCount}-module W7-X coil-count study`
+            }
+        };
+    }
+
+    function studyStore(): CadDocumentStore {
+        const store = new CadDocumentStore();
+        store.createDocument('w7x-study');
+        return store;
+    }
+
+    it('sets the study in one commit and serializes it', () => {
+        const store = studyStore();
+        let changes = 0;
+        store.onChange(() => changes++);
+        expect(store.setDesignStudy(studyFixture(4)).success).toBe(true);
+        expect(changes).toBe(1);
+        expect(store.document?.designStudy?.report.moduleCount).toBe(4);
+        expect(JSON.parse(store.toJson()!).designStudy).toEqual(studyFixture(4));
+        expect(validateNukeCadDocument(store.document!).valid).toBe(true);
+    });
+
+    it('is a no-op for an unchanged study (canonical comparison) and clearing an absent marker', () => {
+        const store = studyStore();
+        expect(store.setDesignStudy(undefined).success).toBe(true);
+        let changes = 0;
+        store.onChange(() => changes++);
+        expect(store.setDesignStudy(studyFixture(5)).success).toBe(true);
+        expect(changes).toBe(1);
+        expect(store.setDesignStudy(studyFixture(5)).success).toBe(true);
+        expect(changes).toBe(1);
+        // Canonical JSON comparison: key order is irrelevant.
+        const reordered = { report: studyFixture(5).report, kind: 'w7x-coil-study' } as W7xCoilStudy;
+        expect(store.setDesignStudy(reordered).success).toBe(true);
+        expect(changes).toBe(1);
+    });
+
+    it('round-trips through undo/redo with one history entry', () => {
+        const store = studyStore();
+        expect(store.setDesignStudy(studyFixture(4)).success).toBe(true);
+        expect(store.undo().success).toBe(true);
+        expect(store.document?.designStudy).toBeUndefined();
+        expect(store.canUndo).toBe(false);
+        expect(store.redo().success).toBe(true);
+        expect(store.document?.designStudy?.report.moduleCount).toBe(4);
+    });
+
+    it('deep-copies the report and survives later clone-based mutations', () => {
+        const store = studyStore();
+        const study = studyFixture(6);
+        expect(store.setDesignStudy(study).success).toBe(true);
+        (study.report.coilCoilOverlaps[0] as { volumeM3: number }).volumeM3 = 99;
+        expect((store.document?.designStudy as W7xCoilStudy).report.coilCoilOverlaps[0].volumeM3).toBe(0.072756);
+        expect(store.addBody('Late body').success).toBe(true);
+        expect(store.setUnits('m').success).toBe(true);
+        expect(store.document?.designStudy?.report.moduleCount).toBe(6);
+        expect(store.undo().success).toBe(true);
+        expect(store.document?.designStudy?.report.moduleCount).toBe(6);
+    });
+
+    it('clears the marker in one commit and restores it through undo', () => {
+        const store = studyStore();
+        expect(store.setDesignStudy(studyFixture(4)).success).toBe(true);
+        let changes = 0;
+        store.onChange(() => changes++);
+        expect(store.setDesignStudy(undefined).success).toBe(true);
+        expect(changes).toBe(1);
+        expect(store.document?.designStudy).toBeUndefined();
+        expect(store.undo().success).toBe(true);
+        expect(store.document?.designStudy?.report.moduleCount).toBe(4);
+    });
+
+    it('rejects a malformed study without mutating or recording history', () => {
+        const store = studyStore();
+        let changes = 0;
+        store.onChange(() => changes++);
+        const before = JSON.stringify(store.document);
+        const invalid = {
+            kind: 'w7x-coil-study',
+            report: { ...studyFixture(4).report, moduleCount: 7 }
+        } as unknown as W7xCoilStudy;
+        const result = store.setDesignStudy(invalid);
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('moduleCount');
+        expect(result.issues?.map((i) => i.path)).toContain('designStudy.report.moduleCount');
+        expect(changes).toBe(0);
+        expect(JSON.stringify(store.document)).toBe(before);
+        expect(store.canUndo).toBe(false);
+
+        const empty = new CadDocumentStore();
+        expect(empty.setDesignStudy(studyFixture(4)).success).toBe(false);
+    });
+
+    it('loads a study document from JSON and treats a re-set as a no-op', () => {
+        const source = studyStore();
+        expect(source.setDesignStudy(studyFixture(4)).success).toBe(true);
+        const loaded = new CadDocumentStore();
+        expect(loaded.loadDocument(JSON.parse(source.toJson()!)).success).toBe(true);
+        expect(loaded.document?.designStudy).toEqual(studyFixture(4));
+        let changes = 0;
+        loaded.onChange(() => changes++);
+        expect(loaded.setDesignStudy(studyFixture(4)).success).toBe(true);
+        expect(changes).toBe(0);
+        expect(loaded.canUndo).toBe(false);
+    });
+
+    function shapeStudyFixture(): W7xCoilShapeStudy {
+        return {
+            kind: 'w7x-coil-shape-study',
+            report: {
+                moduleCount: 5,
+                coilCount: 50,
+                bodyCount: 10,
+                sectionWidthM: 0.37,
+                sectionHeightM: 0.37,
+                sectionTiltDeg: 8.6,
+                twistDeg: 0,
+                stations: 60,
+                referenceVolumeM3: 27.608505577,
+                summary: '10 native sweep bodies x 5 modules; approximate reference B-reps; simulation export disabled.'
+            }
+        };
+    }
+
+    it('stores the native shape-study marker and preserves it through clone-based mutations', () => {
+        const store = studyStore();
+        let changes = 0;
+        store.onChange(() => changes++);
+        const study = shapeStudyFixture();
+        expect(store.setDesignStudy(study).success).toBe(true);
+        expect(changes).toBe(1);
+        expect(store.document?.designStudy?.kind).toBe('w7x-coil-shape-study');
+        expect(JSON.parse(store.toJson()!).designStudy).toEqual(study);
+        expect(validateNukeCadDocument(store.document!).valid).toBe(true);
+
+        (study.report as { stations: number }).stations = 120;
+        expect((store.document?.designStudy?.report as { stations: number }).stations).toBe(60);
+
+        expect(store.addBody('Late body').success).toBe(true);
+        expect(store.setUnits('m').success).toBe(true);
+        expect(store.document?.designStudy?.kind).toBe('w7x-coil-shape-study');
+        expect(store.undo().success).toBe(true);
+        expect(store.undo().success).toBe(true);
+        expect(store.document?.designStudy?.kind).toBe('w7x-coil-shape-study');
+    });
+
+    it('treats an unchanged shape study as a no-op and switches kinds in one commit', () => {
+        const store = studyStore();
+        expect(store.setDesignStudy(shapeStudyFixture()).success).toBe(true);
+        let changes = 0;
+        store.onChange(() => changes++);
+        expect(store.setDesignStudy(shapeStudyFixture()).success).toBe(true);
+        expect(changes).toBe(0);
+        expect(store.setDesignStudy(studyFixture(5)).success).toBe(true);
+        expect(changes).toBe(1);
+        expect(store.document?.designStudy?.kind).toBe('w7x-coil-study');
+        expect(store.setDesignStudy(shapeStudyFixture()).success).toBe(true);
+        expect(store.document?.designStudy?.kind).toBe('w7x-coil-shape-study');
+        expect(changes).toBe(2);
+    });
+
+    it('rejects a malformed shape study without mutating or recording history', () => {
+        const store = studyStore();
+        let changes = 0;
+        store.onChange(() => changes++);
+        const before = JSON.stringify(store.document);
+        const invalid = {
+            ...shapeStudyFixture(),
+            report: { ...shapeStudyFixture().report, coilCount: 45 }
+        } as unknown as W7xCoilShapeStudy;
+        const result = store.setDesignStudy(invalid);
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('coilCount');
+        expect(result.issues?.map((i) => i.path)).toContain('designStudy.report.coilCount');
+        expect(changes).toBe(0);
+        expect(JSON.stringify(store.document)).toBe(before);
+        expect(store.canUndo).toBe(false);
+    });
+
+    it('loads a shape-study document with a coilSweep feature and curve round-trip', () => {
+        const source = studyStore();
+        expect(source.setDesignStudy(shapeStudyFixture()).success).toBe(true);
+        const body = source.addBody('Body 1');
+        expect(body.success).toBe(true);
+        const bodyId = body.value!;
+        const curve: CurveDef = {
+            id: 'curve-coil-01',
+            name: 'coil_01 centerline',
+            source: { kind: 'points' },
+            samples: [
+                [0, 0, 0],
+                [1, 0, 0],
+                [1, 1, 0],
+                [0, 0, 0]
+            ]
+        };
+        expect(source.addCurve(curve).success).toBe(true);
+        expect(
+            source.addFeature({
+                id: 'coil-sweep-01',
+                name: 'coil_01 sweep',
+                type: 'coilSweep',
+                body: bodyId,
+                params: { pathCurveId: 'curve-coil-01', width: 0.37, height: 0.37, tiltDeg: 8.6, twistDeg: 0, stations: 60 },
+                suppressed: false,
+                dependsOn: []
+            }).success
+        ).toBe(true);
+
+        const loaded = new CadDocumentStore();
+        expect(loaded.loadDocument(JSON.parse(source.toJson()!)).success).toBe(true);
+        expect(loaded.document?.designStudy).toEqual(shapeStudyFixture());
+        expect(loaded.document?.curves).toHaveLength(1);
+        expect(loaded.document?.features[0].type).toBe('coilSweep');
+        expect(loaded.document?.features[0].params).toEqual({
+            pathCurveId: 'curve-coil-01',
+            width: 0.37,
+            height: 0.37,
+            tiltDeg: 8.6,
+            twistDeg: 0,
+            stations: 60
+        });
+        expect(featuresConsumingCurve(loaded.document!, 'curve-coil-01')).toEqual(['coil-sweep-01']);
+    });
+});
+
+describe('addAssemblyInstances batch (validated large assemblies)', () => {
+    function batchStore(): CadDocumentStore {
+        const store = new CadDocumentStore();
+        store.createDocument('w7x-generator');
+        return store;
+    }
+
+    function coilDrafts(): AssemblyInstanceDraft[] {
+        return [
+            {
+                id: 'coil_01_m0',
+                part: 'body:body-1',
+                placement: { position: [0, 0, 0], orientation: [0, 0, 0, 1] }
+            },
+            {
+                id: 'coil_01_m1',
+                part: 'body:body-1',
+                placement: { position: [1, 2, 3], orientation: [0, 0, Math.SQRT1_2, Math.SQRT1_2] }
+            }
+        ];
+    }
+
+    it('appends every instance and grounds in one commit (one undo entry, one change event)', () => {
+        const store = batchStore();
+        let changes = 0;
+        store.onChange(() => changes++);
+        const result = store.addAssemblyInstances(coilDrafts(), 'coil_01_m0');
+        expect(result.success).toBe(true);
+        expect(result.value).toEqual(['coil_01_m0', 'coil_01_m1']);
+        expect(changes).toBe(1);
+        const assembly = getAssemblySection(store.document!)!;
+        expect(assembly.instances.map((i) => i.id)).toEqual(['coil_01_m0', 'coil_01_m1']);
+        expect(assembly.instances[1].placement).toEqual({
+            position: [1, 2, 3],
+            orientation: [0, 0, Math.SQRT1_2, Math.SQRT1_2]
+        });
+        expect(assembly.groundedInstanceId).toBe('coil_01_m0');
+        // The whole batch is a single undo step; the section disappears again.
+        expect(store.undo().success).toBe(true);
+        expect(getAssemblySection(store.document!)).toBeUndefined();
+        expect(store.canUndo).toBe(false);
+    });
+
+    it('generates unique ids when absent and never grounds implicitly', () => {
+        const store = batchStore();
+        expect(store.addInstance('./a.nuke-cad').value).toBe('instance-1');
+        const ids = store.addAssemblyInstances([{ part: './b.nuke-cad' }, { part: './c.nuke-cad' }]).value!;
+        expect(ids).toEqual(['instance-2', 'instance-3']);
+        expect(getAssemblySection(store.document!)?.groundedInstanceId).toBe('');
+    });
+
+    it('leaves grounding unchanged when omitted and applies explicit values', () => {
+        const store = batchStore();
+        const first = store.addInstance('./a.nuke-cad').value!;
+        expect(store.setGrounded(first).success).toBe(true);
+        expect(store.addAssemblyInstances([{ id: 'b', part: './b.nuke-cad' }]).success).toBe(true);
+        expect(getAssemblySection(store.document!)?.groundedInstanceId).toBe(first);
+        expect(store.addAssemblyInstances([{ id: 'c', part: './c.nuke-cad' }], 'c').success).toBe(true);
+        expect(getAssemblySection(store.document!)?.groundedInstanceId).toBe('c');
+        expect(store.addAssemblyInstances([{ id: 'd', part: './d.nuke-cad' }], '').success).toBe(true);
+        expect(getAssemblySection(store.document!)?.groundedInstanceId).toBe('');
+    });
+
+    it('deep-copies placements/scales so later draft edits cannot leak in', () => {
+        const store = batchStore();
+        const placement = { position: [9, 9, 9] as Vec3, orientation: [0, 0, 0, 1] as Quaternion };
+        const scale: Vec3 = [2, 2, 2];
+        expect(store.addAssemblyInstances([{ id: 'coil_01_m0', part: 'body:body-1', placement, scale }]).success).toBe(true);
+        placement.position[0] = 42;
+        scale[0] = 7;
+        const instance = getAssemblySection(store.document!)!.instances[0];
+        expect(instance.placement).toEqual({ position: [9, 9, 9], orientation: [0, 0, 0, 1] });
+        expect(instance.scale).toEqual([2, 2, 2]);
+    });
+
+    it('rejects malformed batches without mutating the document', () => {
+        const valid: AssemblyInstanceDraft = { id: 'ok', part: './ok.nuke-cad' };
+        const cases: Array<[string, readonly AssemblyInstanceDraft[], string | undefined, string]> = [
+            ['empty batch', [], undefined, 'at least one'],
+            ['empty part', [{ ...valid, part: '' }], undefined, 'non-empty part'],
+            ['empty id', [{ ...valid, id: '' }], undefined, 'non-empty string'],
+            ['duplicate in batch', [valid, { ...valid }], undefined, 'already in use'],
+            ['unknown grounding', [valid], 'missing', 'not found'],
+            [
+                'zero-length orientation',
+                [{ id: 'bad', part: './bad.nuke-cad', placement: { position: [0, 0, 0], orientation: [0, 0, 0, 0] } }],
+                undefined,
+                'orientation'
+            ],
+            ['non-positive scale', [{ id: 'bad', part: './bad.nuke-cad', scale: 0 }], undefined, 'scale']
+        ];
+        for (const [label, drafts, grounding, message] of cases) {
+            const store = batchStore();
+            const before = JSON.stringify(store.document);
+            const result = store.addAssemblyInstances(drafts, grounding);
+            expect(result.success, label).toBe(false);
+            expect(result.error, label).toContain(message);
+            expect(JSON.stringify(store.document), label).toBe(before);
+            expect(store.canUndo, label).toBe(false);
+        }
+    });
+
+    it('rejects a duplicate of an existing instance id', () => {
+        const store = batchStore();
+        expect(store.addInstance('./a.nuke-cad').value).toBe('instance-1');
+        const result = store.addAssemblyInstances([{ id: 'instance-1', part: './b.nuke-cad' }]);
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('already in use');
+        expect(getAssemblySection(store.document!)?.instances).toHaveLength(1);
+    });
+
+    it('commits a 55-instance W7-X-sized batch in one change event', () => {
+        const store = batchStore();
+        const drafts: AssemblyInstanceDraft[] = [];
+        for (let shape = 1; shape <= 10; shape++) {
+            for (let module = 0; module < 5; module++) {
+                drafts.push({
+                    id: `coil_${String(shape).padStart(2, '0')}_m${module}`,
+                    part: `body:w7x-coil-${String(shape).padStart(2, '0')}`,
+                    placement: { position: [0, 0, 0], orientation: [0, 0, 0, 1] }
+                });
+            }
+        }
+        for (const label of ['plasma', 'gap', 'firstwall', 'blanket', 'vessel']) {
+            drafts.push({ id: label, part: `body:w7x-${label}`, placement: { position: [0, 0, 0], orientation: [0, 0, 0, 1] } });
+        }
+        expect(drafts).toHaveLength(55);
+        let changes = 0;
+        store.onChange(() => changes++);
+        const result = store.addAssemblyInstances(drafts, 'coil_01_m0');
+        expect(result.success).toBe(true);
+        expect(changes).toBe(1);
+        expect(result.value).toHaveLength(55);
+        const assembly = getAssemblySection(store.document!)!;
+        expect(assembly.instances).toHaveLength(55);
+        expect(assembly.groundedInstanceId).toBe('coil_01_m0');
+        // Five module copies of one coil body share the same part reference.
+        expect(assembly.instances.filter((i) => i.part === 'body:w7x-coil-01')).toHaveLength(5);
+        expect(store.undo().success).toBe(true);
+        expect(getAssemblySection(store.document!)).toBeUndefined();
     });
 });
 

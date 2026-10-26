@@ -64,7 +64,7 @@ export const CAD_RIBBON_GROUPS: readonly CadRibbonGroup[] = [
     { id: 'boolean', label: 'Boolean', promoted: 3 },
     { id: 'dressUp', label: 'Dress-up', promoted: 3 },
     { id: 'pattern', label: 'Pattern', promoted: 3 },
-    { id: 'inspect', label: 'Inspect', promoted: 2 }
+    { id: 'inspect', label: 'Inspect', promoted: 4 }
 ];
 
 /** Document state that gates command availability. */
@@ -90,6 +90,12 @@ export interface CadCommandHandlers {
     readonly onRebuildDocument?: () => void;
     readonly onExportPython?: () => void;
     readonly onImportCad?: () => void;
+    readonly onImportCadBody?: () => void;
+    readonly onCreateW7xGenerator?: () => void;
+    readonly onCreateW7xCoilStudy?: () => void;
+    readonly onCreateW7xShapeStudy?: () => void;
+    readonly onOpenFeatureTree?: () => void;
+    readonly onOpenModelOutline?: () => void;
     readonly onStartSketchSetup: () => void;
     readonly onEditSketch: (sketchId: string) => void;
     readonly onStartFeatureCreation: (type: FeatureType) => void;
@@ -130,7 +136,18 @@ export const CAD_COMMAND_REASONS = {
     unavailable: 'Not available in this view.'
 } as const;
 
-type OptionalHandlerKey = 'onNewDocument' | 'onSaveDocument' | 'onRebuildDocument' | 'onExportPython' | 'onImportCad';
+type OptionalHandlerKey =
+    | 'onNewDocument'
+    | 'onSaveDocument'
+    | 'onRebuildDocument'
+    | 'onExportPython'
+    | 'onImportCad'
+    | 'onImportCadBody'
+    | 'onCreateW7xGenerator'
+    | 'onCreateW7xCoilStudy'
+    | 'onCreateW7xShapeStudy'
+    | 'onOpenFeatureTree'
+    | 'onOpenModelOutline';
 
 interface CadCommandDefinition {
     readonly id: string;
@@ -228,6 +245,46 @@ const CAD_COMMAND_DEFINITIONS: readonly CadCommandDefinition[] = [
         requiresHandler: 'onImportCad',
         isEnabled: alwaysEnabled,
         run: (handlers) => handlers.onImportCad?.()
+    },
+    {
+        id: 'importCadBody',
+        label: 'Import CAD as Body…',
+        shortLabel: 'Body',
+        icon: 'codicon-file-symlink-file',
+        group: 'document',
+        requiresHandler: 'onImportCadBody',
+        isEnabled: alwaysEnabled,
+        run: (handlers) => handlers.onImportCadBody?.()
+    },
+    {
+        id: 'createW7xGenerator',
+        label: 'Create W7-X Generator…',
+        shortLabel: 'W7-X',
+        icon: 'codicon-globe',
+        group: 'document',
+        requiresHandler: 'onCreateW7xGenerator',
+        isEnabled: alwaysEnabled,
+        run: (handlers) => handlers.onCreateW7xGenerator?.()
+    },
+    {
+        id: 'createW7xCoilStudy',
+        label: 'Create W7-X Coil Study…',
+        shortLabel: 'Study',
+        icon: 'codicon-beaker',
+        group: 'document',
+        requiresHandler: 'onCreateW7xCoilStudy',
+        isEnabled: alwaysEnabled,
+        run: (handlers) => handlers.onCreateW7xCoilStudy?.()
+    },
+    {
+        id: 'createW7xShapeStudy',
+        label: 'Create W7-X Coil Shape Study…',
+        shortLabel: 'Shape',
+        icon: 'codicon-nuke-cad-helix',
+        group: 'document',
+        requiresHandler: 'onCreateW7xShapeStudy',
+        isEnabled: alwaysEnabled,
+        run: (handlers) => handlers.onCreateW7xShapeStudy?.()
     },
     {
         id: 'newSketch',
@@ -328,6 +385,16 @@ const CAD_COMMAND_DEFINITIONS: readonly CadCommandDefinition[] = [
         isEnabled: (context) => context.selectedSketchId !== undefined,
         disabledReason: (context) => (context.selectedSketchId === undefined ? CAD_COMMAND_REASONS.selectSketch : undefined),
         run: bodyFeature('helicalSweep')
+    },
+    {
+        id: 'coilSweep',
+        label: 'Coil Sweep (rectangular section along curve)',
+        shortLabel: 'Coil',
+        icon: 'codicon-nuke-cad-helix',
+        group: 'additive',
+        isEnabled: (context) => context.hasCurves,
+        disabledReason: (context) => (context.hasCurves ? undefined : CAD_COMMAND_REASONS.sketchCurves),
+        run: bodyFeature('coilSweep')
     },
     {
         id: 'booleanFuse',
@@ -472,6 +539,26 @@ const CAD_COMMAND_DEFINITIONS: readonly CadCommandDefinition[] = [
         group: 'inspect',
         isEnabled: alwaysEnabled,
         run: (handlers) => handlers.onToggleMeasureList?.()
+    },
+    {
+        id: 'featureTree',
+        label: 'Feature Tree',
+        shortLabel: 'Tree',
+        icon: 'codicon-nuke-cad-feature-tree',
+        group: 'inspect',
+        isEnabled: alwaysEnabled,
+        requiresHandler: 'onOpenFeatureTree',
+        run: (handlers) => handlers.onOpenFeatureTree?.()
+    },
+    {
+        id: 'modelOutline',
+        label: 'Model Outline',
+        shortLabel: 'Outline',
+        icon: 'codicon-nuke-cad-outline',
+        group: 'inspect',
+        isEnabled: alwaysEnabled,
+        requiresHandler: 'onOpenModelOutline',
+        run: (handlers) => handlers.onOpenModelOutline?.()
     }
 ];
 

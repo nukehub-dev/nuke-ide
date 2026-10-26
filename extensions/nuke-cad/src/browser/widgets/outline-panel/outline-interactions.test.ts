@@ -129,6 +129,16 @@ describe('bodyTipFeature', () => {
         expect(bodyTipFeature(doc, 'body-1')).toBeUndefined();
         expect(bodyTipFeature(doc, 'body-9')).toBeUndefined();
     });
+
+    it('treats an imported body as a solid producer', () => {
+        const doc = makeDocument([feature('import-1', 'import', 'body-1')]);
+        expect(bodyTipFeature(doc, 'body-1')).toBe('import-1');
+    });
+
+    it('treats a native coil sweep as the current tip', () => {
+        const doc = makeDocument([feature('pad-1', 'pad', 'body-1'), feature('coil-sweep-1', 'coilSweep', 'body-1')]);
+        expect(bodyTipFeature(doc, 'body-1')).toBe('coil-sweep-1');
+    });
 });
 
 describe('buildFuseFeature', () => {

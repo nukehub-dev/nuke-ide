@@ -212,6 +212,95 @@
     word-break: break-word;
 }
 
+/* Persistent W7-X design-study banner: no dismiss control by design. It sits
+   in the banner stack below the measured toolbar, clear of the 320 px assembly
+   card (left) and the 68 px ViewCube (right). */
+.cad-viewport-design-study-banner {
+    box-sizing: border-box;
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    width: min(100%, 720px);
+    padding: 8px 10px;
+    border: 1px solid var(--theia-editorWarning-foreground);
+    border-left-width: 4px;
+    border-radius: 6px;
+    background: var(--theia-editorWidget-background);
+    color: var(--theia-foreground);
+}
+
+.cad-viewport:has(.cad-document-toolbar) .cad-viewport-design-study-banner {
+    width: min(720px, calc(100% - 430px));
+    margin-left: 336px;
+}
+
+.cad-viewport-design-study-banner.invalid {
+    border-color: var(--theia-editorError-foreground);
+}
+
+.cad-viewport-design-study-icon {
+    flex-shrink: 0;
+    color: var(--theia-editorWarning-foreground);
+}
+
+.cad-viewport-design-study-banner.invalid .cad-viewport-design-study-icon {
+    color: var(--theia-editorError-foreground);
+}
+
+.cad-viewport-design-study-body {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+}
+
+.cad-viewport-design-study-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+}
+
+.cad-viewport-design-study-title {
+    font-size: var(--theia-ui-font-size1);
+    font-weight: 600;
+}
+
+.cad-viewport-design-study-status {
+    padding: 0 6px;
+    border: 1px solid currentColor;
+    border-radius: 8px;
+    font-size: 10px;
+    line-height: 15px;
+    white-space: nowrap;
+}
+
+.cad-viewport-design-study-status.valid {
+    color: var(--theia-editorInfo-foreground);
+}
+
+.cad-viewport-design-study-status.invalid {
+    color: var(--theia-editorError-foreground);
+}
+
+.cad-viewport-design-study-summary {
+    font-size: var(--theia-ui-font-size1);
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+}
+
+.cad-viewport-design-study-note {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size0);
+}
+
+.cad-viewport-design-study-note .codicon {
+    flex-shrink: 0;
+}
+
 /* Shared viewer chrome (nuke-essentials ViewCube/ViewBadge): the labeled
    triad cube sits top-right below the document toolbar and the view badge
    top-left, mirroring the native VTK viewers. Knob/pill looks live in
@@ -1722,6 +1811,462 @@
 
 .cad-body-appearance-remove {
     margin-right: auto;
+}
+
+/* “Import CAD as Body…” dialog (shell + rows from NukeDialog/NukeFormRow) */
+
+.cad-import-body-title {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    overflow: hidden;
+}
+
+.cad-import-body-subtitle {
+    overflow: hidden;
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size0);
+    font-weight: 400;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cad-import-body-dialog {
+    width: 100%;
+}
+
+.cad-import-body-dialog .nuke-dialog-body {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.cad-import-body-source {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    font-size: var(--theia-ui-font-size1);
+}
+
+.cad-import-body-source-name {
+    overflow: hidden;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cad-import-body-source-chip {
+    padding: 1px 6px;
+    border-radius: 8px;
+    background: var(--theia-badge-background);
+    color: var(--theia-badge-foreground);
+    font-size: var(--theia-ui-font-size0);
+}
+
+.cad-import-body-note {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size0);
+    line-height: 1.4;
+}
+
+.cad-import-body-warnings {
+    margin: 0;
+    padding-left: 18px;
+    color: var(--theia-editorWarning-foreground);
+    font-size: var(--theia-ui-font-size0);
+}
+
+.cad-import-body-table-wrap {
+    max-height: 260px;
+    overflow: auto;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 2px;
+}
+
+.cad-import-body-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--theia-ui-font-size1);
+}
+
+.cad-import-body-table th,
+.cad-import-body-table td {
+    padding: 4px 8px;
+    border-bottom: 1px solid var(--theia-panel-border);
+    text-align: left;
+    vertical-align: middle;
+}
+
+.cad-import-body-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--theia-editor-background);
+    font-weight: 600;
+}
+
+.cad-import-body-table tbody tr:hover {
+    background: var(--theia-list-hoverBackground);
+}
+
+.cad-import-body-table tbody tr.selected {
+    background: var(--theia-list-activeSelectionBackground);
+    color: var(--theia-list-activeSelectionForeground);
+}
+
+.cad-import-body-table tbody tr.selected .cad-import-body-index-cell,
+.cad-import-body-table tbody tr.selected .cad-import-body-bbox-cell {
+    color: inherit;
+}
+
+.cad-import-body-checkbox-cell {
+    width: 32px;
+}
+
+.cad-import-body-index-cell {
+    width: 40px;
+    color: var(--theia-descriptionForeground);
+}
+
+.cad-import-body-name-cell {
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cad-import-body-number-cell {
+    text-align: right !important;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.cad-import-body-bbox-cell {
+    color: var(--theia-descriptionForeground);
+    white-space: nowrap;
+}
+
+.nuke-form-row-control input.cad-import-body-label-input {
+    width: 100%;
+    padding: 4px 6px;
+    border: 1px solid var(--theia-input-border);
+    border-radius: 2px;
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+}
+
+.nuke-form-row-control input.cad-import-body-label-input:focus {
+    outline: 1px solid var(--theia-focusBorder);
+}
+
+.cad-import-body-strategy {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+}
+
+.cad-import-body-strategy legend {
+    margin-bottom: 4px;
+    padding: 0;
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size0);
+}
+
+.cad-import-body-strategy label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: var(--theia-ui-font-size1);
+}
+
+.cad-import-body-summary {
+    margin-right: auto;
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size0);
+}
+
+.cad-import-body-error {
+    color: var(--theia-editorError-foreground);
+    font-size: var(--theia-ui-font-size0);
+}
+
+/* “Create W7-X Coil Study…” dialog */
+.cad-w7x-study-title {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    overflow: hidden;
+}
+
+.cad-w7x-study-subtitle {
+    overflow: hidden;
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size0);
+    font-weight: 400;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cad-w7x-study-dialog {
+    width: 100%;
+}
+
+.cad-w7x-study-dialog .nuke-dialog-body {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.cad-w7x-study-warning {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 8px 10px;
+    border: 1px solid var(--theia-editorWarning-foreground);
+    border-radius: 6px;
+    background: var(--theia-inputValidation-warningBackground, var(--theia-editorWidget-background));
+    color: var(--theia-editorWarning-foreground);
+    font-size: var(--theia-ui-font-size1);
+    line-height: 1.4;
+}
+
+.cad-w7x-study-warning .codicon {
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+
+.cad-w7x-study-module-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+}
+
+.cad-w7x-study-module-label {
+    margin-right: 2px;
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size0);
+    font-weight: 600;
+}
+
+.cad-w7x-study-module.active {
+    border-color: var(--theia-focusBorder);
+    color: var(--theia-focusBorder);
+}
+
+.cad-w7x-study-report {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editor-background);
+}
+
+.cad-w7x-study-report-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.cad-w7x-study-report-title {
+    font-weight: 600;
+}
+
+.cad-w7x-study-status {
+    padding: 0 8px;
+    border: 1px solid currentColor;
+    border-radius: 8px;
+    font-size: 10px;
+    line-height: 16px;
+    white-space: nowrap;
+}
+
+.cad-w7x-study-status.valid {
+    color: var(--theia-editorInfo-foreground);
+}
+
+.cad-w7x-study-status.invalid {
+    color: var(--theia-editorError-foreground);
+}
+
+.cad-w7x-study-summary {
+    color: var(--theia-foreground);
+    font-size: var(--theia-ui-font-size1);
+    line-height: 1.4;
+}
+
+.cad-w7x-study-metrics {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--theia-ui-font-size1);
+}
+
+.cad-w7x-study-metrics th,
+.cad-w7x-study-metrics td {
+    padding: 4px 8px;
+    border-bottom: 1px solid var(--theia-panel-border);
+    text-align: left;
+}
+
+.cad-w7x-study-metrics tr:last-child th,
+.cad-w7x-study-metrics tr:last-child td {
+    border-bottom: 0;
+}
+
+.cad-w7x-study-metrics th {
+    width: 50%;
+    color: var(--theia-descriptionForeground);
+    font-weight: 400;
+}
+
+.cad-w7x-study-metrics td {
+    font-variant-numeric: tabular-nums;
+}
+
+.cad-w7x-study-collisions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.cad-w7x-study-collision-section {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+.cad-w7x-study-collision-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: var(--theia-ui-font-size1);
+    font-weight: 600;
+}
+
+.cad-w7x-study-count {
+    padding: 0 6px;
+    border-radius: 8px;
+    background: var(--theia-badge-background);
+    color: var(--theia-badge-foreground);
+    font-size: 10px;
+    font-weight: 400;
+    line-height: 16px;
+}
+
+.cad-w7x-study-empty {
+    padding: 6px 8px;
+    border: 1px dashed var(--theia-panel-border);
+    border-radius: 4px;
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size0);
+}
+
+.cad-w7x-study-overlap-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--theia-ui-font-size0);
+}
+
+.cad-w7x-study-overlap-table th,
+.cad-w7x-study-overlap-table td {
+    padding: 3px 6px;
+    border-bottom: 1px solid var(--theia-panel-border);
+    text-align: left;
+    white-space: nowrap;
+}
+
+.cad-w7x-study-overlap-table th:last-child,
+.cad-w7x-study-overlap-table td:last-child {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.cad-w7x-study-footer-note {
+    margin-right: auto;
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size0);
+}
+
+/* Native coil shape-study dialog: locked five-module inventory, five numeric
+   fields, and a display-only reference-volume note. */
+.cad-w7x-study-inventory {
+    align-self: flex-start;
+    padding: 3px 9px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 10px;
+    background: var(--theia-editorWidget-background);
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size0);
+}
+
+.cad-w7x-shape-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px 14px;
+}
+
+/* The shape-study dialog is not inside .cad-sketch-overlay, so its number
+   inputs need the theme-aware treatment explicitly; otherwise the browser
+   defaults to white fields in dark themes. */
+.cad-w7x-shape-grid input[type='number'] {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 4px 6px;
+    border: 1px solid var(--theia-input-border);
+    border-radius: 2px;
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    font-size: var(--theia-ui-font-size1);
+    color-scheme: inherit;
+}
+
+.cad-w7x-shape-grid input[type='number']:focus {
+    outline: 1px solid var(--theia-focusBorder);
+}
+
+.cad-w7x-shape-note {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 8px 10px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editorWidget-background);
+    font-size: var(--theia-ui-font-size1);
+}
+
+.cad-w7x-shape-note strong {
+    font-variant-numeric: tabular-nums;
+}
+
+.cad-w7x-shape-note-muted {
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size0);
+}
+
+.cad-viewport-design-study-banner.approximate .cad-viewport-design-study-status {
+    color: var(--theia-editorWarning-foreground);
+}
+
+@media (max-width: 640px) {
+    .cad-w7x-study-collisions {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .cad-w7x-shape-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
 }
 
 .cad-feature-dialog-row.vertical {
