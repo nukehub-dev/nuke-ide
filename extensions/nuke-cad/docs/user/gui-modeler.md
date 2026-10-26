@@ -74,9 +74,11 @@ generator cards download or copy the MIT-licensed Proxima Fusion STEP into the
 saved project's `.parts` folder. See `src/common/samples/README.md` for
 bundled-sample provenance, sizes, and attribution.
 
-An empty document shows a centered **Empty document** card with **Create Sketch**,
-**Open CAD Model…**, **Import CAD…**, and **Import CAD as Body…** actions instead
-of a blank canvas; the ribbon stays available above it.
+An empty document shows a centered **Start a model** launcher with a primary
+**Create Sketch** tile and compact **Open CAD Model…**, **Import CAD…**, and
+**Import CAD as Body…** rows instead of a blank canvas. The launcher stacks when
+the editor is narrow and drops its supporting copy on very narrow widths; the
+ribbon stays available above it.
 
 The document toolbar carries a **Units** dropdown (`Unitless`, `mm`, `cm`,
 `m`). Declared units tag future numeric inputs (curve expressions may then
@@ -523,7 +525,8 @@ source's SHA-256 hash, so a changed file fails the build with a clear refresh
 message instead of silently using new geometry. **Refresh Import Sources**
 (CAD Studio → Geometry or the Command Palette) re-hashes changed sources and
 updates every feature sharing one source in one commit per source. Export
-Python writes a manual TODO for imported bodies.
+Python emits a runnable source reader that verifies the hash/size, selects the
+same solids, and applies the import placement.
 
 ### Appearance
 
@@ -991,6 +994,33 @@ reference-dependent items (face datums, external geometry, fillet/chamfer edges,
 draft/shell faces, and hole placement faces) are emitted as clearly marked
 `# TODO(manual):` comments so nothing is silently dropped. The export is not
 round-trippable; it is intended as readable output for downstream editing.
+
+Imported bodies are exported as runnable `_import_body(...)` /
+`_place_import(...)` calls: the source is resolved beside the script, its
+SHA-256 and size are checked, the same 1-based solids are selected, and the
+source unit/placement is applied. Grounded assemblies always get the placement
+helper and a final `model` compound, so a W7-X generator export runs directly
+in the script pipeline.
+
+### CAD and DAGMC export
+
+Every document build also writes `<document>.step` beside the `.nuke-cad`
+(assembly STEP keeps one product per instance), so `w7x-generator.step` is the
+exact placed CAD export. A tessellation cache hit reuses an unchanged STEP
+(matching its `.step.key` sidecar) instead of rewriting it. DAGMC `.h5m` is
+an export build, not the viewport's
+display build: run `geometry_service.py <document.nuke-cad> --from-document
+--no-mesh --tolerance 0.01 --no-auto-tolerance` (DAGMC is enabled by default)
+or use the script/export pipeline, then choose **Project → Import from
+nuke-cad...** in OpenMC Studio and select the `.h5m` with its sibling
+`.regions.json`.
+
+Large W7-X assemblies take much longer to imprint than the display build; this
+is a one-time export. Reuse a matching existing `.h5m` instead of re-running it
+after every edit. The thin gap/firstwall/vessel shells need the fine tolerance:
+the default auto-adjust would relax it to `diagonal/200` (about 0.12 m on
+W7-X), which under-resolves those layers and makes a transport mesh lose
+particles.
 
 ## Document section
 

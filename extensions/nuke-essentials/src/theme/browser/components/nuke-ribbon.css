@@ -168,21 +168,27 @@
     font-size: 14px;
 }
 
-/* Menus density: the section collapses to one caption button. */
+/* Menus density: the section collapses to one caption button. Narrow bars
+   need the compact spacing so seven short captions fit without ellipsis. */
 .nuke-ribbon-section-menus {
     flex: 0 1 auto;
+}
+
+.nuke-ribbon-section-menus + .nuke-ribbon-section-menus {
+    margin-left: 2px;
+    padding-left: 2px;
 }
 
 .nuke-ribbon-menus-trigger {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: var(--nuke-space-1);
+    gap: 2px;
     width: 100%;
     min-width: 0;
     height: 26px;
     margin-left: 0;
-    padding: 0 var(--nuke-space-1);
+    padding: 0 3px;
     border: 1px solid var(--theia-panel-border);
     border-radius: 4px;
     background: transparent;

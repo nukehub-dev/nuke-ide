@@ -108,6 +108,11 @@ export function generatePythonScript(doc: NukeCadDocument): string {
         lines.push('');
     }
 
+    if (documentUsesImports(doc)) {
+        lines.push(...importHelperLines());
+        lines.push('');
+    }
+
     const parameterNames = Object.keys(doc.parameters).sort();
     if (parameterNames.length > 0) {
         lines.push('# Parameters');
@@ -209,10 +214,22 @@ export function generatePythonScript(doc: NukeCadDocument): string {
     }
     lines.push('');
 
+    let assemblyVars: string[] = [];
     if (doc.assembly !== undefined && doc.assembly.groundedInstanceId !== '') {
-        lines.push(...emitAssemblySection(doc, bodyVarById, manualFeatures));
+        const section = emitAssemblySection(doc, bodyVarById, manualFeatures);
+        lines.push(...section.lines);
+        assemblyVars = section.instanceVars;
         lines.push('');
     }
+
+    lines.push('# Final model');
+    if (assemblyVars.length > 0) {
+        lines.push(`model = bd.Compound(children=[${assemblyVars.join(', ')}])`);
+    } else {
+        const bodyVars = [...bodyVarById.values()];
+        lines.push(`model = bd.Compound(children=[shape for shape in [${bodyVars.join(', ')}] if shape is not None])`);
+    }
+    lines.push('');
 
     if (manualFeatures.length > 0) {
         lines.push('# -----------------------------------------------------------------------------');
@@ -229,6 +246,21 @@ export function generatePythonScript(doc: NukeCadDocument): string {
 
 function formatNumber(value: number): string {
     return JSON.stringify(value);
+}
+
+/** Exchange format used by an import feature, inferred when absent. */
+function importSourceFormat(format: unknown, path: string): 'step' | 'iges' | 'brep' {
+    if (format === 'step' || format === 'iges' || format === 'brep') {
+        return format;
+    }
+    const extension = path.toLowerCase().split('.').pop() ?? '';
+    if (extension === 'iges' || extension === 'igs') {
+        return 'iges';
+    }
+    if (extension === 'brep') {
+        return 'brep';
+    }
+    return 'step';
 }
 
 /** True when any sketch carries a non-construction B-spline primitive. */
@@ -254,6 +286,11 @@ function documentUsesScaledPattern(doc: NukeCadDocument): boolean {
     });
 }
 
+/** True when the document contains an active imported-body feature. */
+function documentUsesImports(doc: NukeCadDocument): boolean {
+    return doc.features.some((feature) => feature.type === 'import' && !feature.suppressed);
+}
+
 /**
  * Module-level helper emitted once whenever a pattern/mirror feature scales
  * its instances. `bd.scale` scales about the global origin, so each instance
@@ -266,6 +303,98 @@ function scaledPatternHelperLines(): string[] {
         '    """Uniformly scaled copy of a shape about its own bounding-box center."""',
         '    center = shape.bounding_box().center()',
         '    return bd.scale(shape.moved(bd.Location(center * -1)), factor).moved(bd.Location(center))'
+    ];
+}
+
+/**
+ * Module-level helper emitted once whenever the document imports exchange
+ * geometry. It resolves the source relative to the script, verifies the
+ * source hash/size, reads STEP/IGES/BREP, applies the source-unit override,
+ * selects solids by 1-based index + signature, and applies the import
+ * placement. Source files are cached per path/unit/format for the script run.
+ */
+function importHelperLines(): string[] {
+    return [
+        'import hashlib',
+        'from pathlib import Path',
+        '',
+        '_UNIT_TO_M = {"mm": 0.001, "cm": 0.01, "m": 1.0}',
+        '_IMPORT_CACHE = {}',
+        '',
+        '',
+        'def _read_exchange(path, fmt):',
+        '    if fmt == "step":',
+        '        return bd.import_step(path)',
+        '    if fmt == "brep":',
+        '        return bd.import_brep(path)',
+        '    if fmt == "iges":',
+        '        from OCP.IGESControl import IGESControl_Reader',
+        '        reader = IGESControl_Reader()',
+        '        if reader.ReadFile(str(path)) != 1:',
+        '            raise ValueError(f"IGES read failed: {path}")',
+        '        reader.TransferRoots()',
+        '        return bd.Shape.cast(reader.OneShape())',
+        '    raise ValueError(f"unsupported exchange format: {fmt}")',
+        '',
+        '',
+        'def _import_body(path, fmt, source_unit, document_unit, selection, max_solids, source_hash, source_size=None):',
+        '    source = Path(path)',
+        '    if not source.is_absolute():',
+        '        source = Path(__file__).resolve().parent / source',
+        '    key = (str(source), fmt, source_unit, document_unit, int(max_solids))',
+        '    solids = _IMPORT_CACHE.get(key)',
+        '    if solids is None:',
+        '        if not source.is_file():',
+        '            raise FileNotFoundError(f"import source not found: {source}")',
+        '        if source_size is not None and source.stat().st_size != int(source_size):',
+        '            raise ValueError(f"import source size changed: {source}")',
+        '        digest = hashlib.sha256(source.read_bytes()).hexdigest()',
+        '        if digest != source_hash:',
+        '            raise ValueError(f"import source hash changed: {source}")',
+        '        shape = _read_exchange(source, fmt)',
+        '        if source_unit is not None and document_unit is not None:',
+        '            scale = _UNIT_TO_M[source_unit] / _UNIT_TO_M[document_unit]',
+        '            if abs(scale - 1.0) > 1e-12:',
+        '                shape = shape.scale(scale)',
+        '        solids = list(shape.solids())',
+        '        if len(solids) > int(max_solids):',
+        '            raise ValueError(f"import source has {len(solids)} solids, limit is {max_solids}")',
+        '        if not solids:',
+        '            raise ValueError(f"import source has no solids: {source}")',
+        '        _IMPORT_CACHE[key] = solids',
+        '    if selection.get("mode") == "all":',
+        '        picked = list(solids)',
+        '    else:',
+        '        picked = []',
+        '        for choice in selection.get("solids", []):',
+        '            index = int(choice.get("index", 0))',
+        '            if index < 1 or index > len(solids):',
+        '                raise ValueError(f"import solid index {index} is outside 1..{len(solids)}")',
+        '            solid = solids[index - 1]',
+        '            signature = choice.get("signature")',
+        '            if signature is not None:',
+        '                face_count = int(signature.get("faceCount", -1))',
+        '                volume = float(signature.get("volume", float("nan")))',
+        '                tolerance = 1e-6 * max(abs(volume), 1e-12)',
+        '                if len(solid.faces()) != face_count or abs(solid.volume - volume) > tolerance:',
+        '                    matches = [candidate for candidate in solids if len(candidate.faces()) == face_count and abs(candidate.volume - volume) <= tolerance]',
+        '                    if len(matches) != 1:',
+        '                        raise ValueError(f"import solid {index} does not match its signature ({len(solid.faces())} faces, volume {solid.volume})")',
+        '                    solid = matches[0]',
+        '            picked.append(solid)',
+        '    if not picked:',
+        '        raise ValueError("import selection produced no solids")',
+        '    return bd.Compound(children=picked)',
+        '',
+        '',
+        'def _place_import(shape, rotate, translate):',
+        '    if rotate is not None:',
+        '        for axis, angle in ((bd.Axis.X, rotate[0]), (bd.Axis.Y, rotate[1]), (bd.Axis.Z, rotate[2])):',
+        '            if abs(angle) > 1e-12:',
+        '                shape = shape.rotate(axis, angle)',
+        '    if translate is not None:',
+        '        shape = shape.moved(bd.Location(translate))',
+        '    return shape'
     ];
 }
 
@@ -970,6 +1099,28 @@ function emitFeature(
     const bodyVar = bodyVarById.get(feature.body);
     if (bodyVar === undefined) {
         return undefined;
+    }
+
+    if (feature.type === 'import') {
+        const sourcePath = params.sourcePath;
+        const sourceHash = params.sourceHash;
+        const selection = params.selection;
+        if (typeof sourcePath !== 'string' || typeof sourceHash !== 'string' || selection === undefined) {
+            return undefined;
+        }
+        const sourceFormat = importSourceFormat(params.sourceFormat, sourcePath);
+        const sourceUnit = typeof params.sourceUnit === 'string' ? JSON.stringify(params.sourceUnit) : 'None';
+        const documentUnit = doc.units !== undefined ? JSON.stringify(doc.units) : 'None';
+        const maxSolids = typeof params.maxSolids === 'number' ? String(Math.trunc(params.maxSolids)) : '500';
+        const sourceSize = typeof params.sourceSize === 'number' ? String(params.sourceSize) : 'None';
+        const placement = params.placement as { translate?: readonly number[]; rotateDegrees?: readonly number[] } | undefined;
+        const rotate =
+            placement?.rotateDegrees !== undefined ? `[${placement.rotateDegrees.map((value) => formatNumber(value)).join(', ')}]` : 'None';
+        const translate =
+            placement?.translate !== undefined ? `[${placement.translate.map((value) => formatNumber(value)).join(', ')}]` : 'None';
+        const selectionLiteral = JSON.stringify(selection);
+        const read = `_import_body(${JSON.stringify(sourcePath)}, ${JSON.stringify(sourceFormat)}, ${sourceUnit}, ${documentUnit}, ${selectionLiteral}, ${maxSolids}, ${JSON.stringify(sourceHash)}, ${sourceSize})`;
+        return [`${bodyVar} = _place_import(${read}, ${rotate}, ${translate})  # ${feature.name}`];
     }
 
     if (feature.type === 'pad' || feature.type === 'pocket' || feature.type === 'revolve' || feature.type === 'groove') {
@@ -1847,9 +1998,14 @@ function curveSourceComment(source: CurveSource): string | undefined {
  * per-axis scales) — and mates touching them — degrade to `# TODO(manual):`
  * comments, never faked placements.
  */
-function emitAssemblySection(doc: NukeCadDocument, bodyVarById: Map<string, string>, manualFeatures: string[]): string[] {
+function emitAssemblySection(
+    doc: NukeCadDocument,
+    bodyVarById: Map<string, string>,
+    manualFeatures: string[]
+): { lines: string[]; instanceVars: string[] } {
     const assembly = doc.assembly!;
     const lines: string[] = [];
+    const instanceVars: string[] = [];
     lines.push('# Assembly');
     lines.push(`# Grounded instance: "${assembly.groundedInstanceId}"`);
 
@@ -1929,15 +2085,8 @@ function emitAssemblySection(doc: NukeCadDocument, bodyVarById: Map<string, stri
         }
     }
 
-    const needsHelpers = [...solverOf.entries()].some(
-        ([instanceId, mate]) =>
-            plans.get(instanceId)?.buildable === true &&
-            plans.get(mate.instanceA)?.buildable === true &&
-            plans.get(mate.instanceB)?.buildable === true
-    );
-    if (needsHelpers) {
-        lines.push(...mateHelperLines());
-    }
+    // `_mate_place` is used for every instance, not only solved mates.
+    lines.push(...mateHelperLines());
 
     const storedPlacement = (instanceId: string): { pos: string; rot: string } => {
         const instance = assembly.instances.find((candidate) => candidate.id === instanceId)!;
@@ -1978,6 +2127,7 @@ function emitAssemblySection(doc: NukeCadDocument, bodyVarById: Map<string, stri
             );
         }
         lines.push(`${varName} = _mate_place(${plan.sourceExpr}, ${varName}_pos, ${varName}_rot)  # instance "${instanceId}"`);
+        instanceVars.push(varName);
     }
 
     // Mates that solved nothing (both endpoints unreached is impossible from
@@ -1991,7 +2141,7 @@ function emitAssemblySection(doc: NukeCadDocument, bodyVarById: Map<string, stri
             manualFeatures.push(`assembly mate "${mate.id}" (reference-dependent, kept stored placement)`);
         }
     }
-    return lines;
+    return { lines, instanceVars };
 }
 
 /**
@@ -2055,7 +2205,7 @@ function mateHelperLines(): string[] {
         '    trace = rot[0][0] + rot[1][1] + rot[2][2]',
         '    angle = math.degrees(math.acos(max(-1.0, min(1.0, (trace - 1.0) / 2.0))))',
         '    if angle < 1e-9:',
-        '        return shape.moved(pos)',
+        '        return shape.moved(bd.Location(pos))',
         '    if math.pi - math.radians(angle) < 1e-6:',
         '        diag = (rot[0][0], rot[1][1], rot[2][2])',
         '        k = max(range(3), key=lambda i: diag[i])',
@@ -2064,7 +2214,7 @@ function mateHelperLines(): string[] {
         '    else:',
         '        s = 2.0 * math.sin(math.radians(angle))',
         '        axis = ((rot[2][1] - rot[1][2]) / s, (rot[0][2] - rot[2][0]) / s, (rot[1][0] - rot[0][1]) / s)',
-        '    return shape.rotate(bd.Axis((0, 0, 0), axis), angle).moved(pos)'
+        '    return shape.rotate(bd.Axis((0, 0, 0), axis), angle).moved(bd.Location(pos))'
     ];
 }
 

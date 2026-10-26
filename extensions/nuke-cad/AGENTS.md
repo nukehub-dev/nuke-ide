@@ -30,7 +30,8 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
 - The document store (`cad-document-store.ts`) holds validated immutable state,
   dirty/selection/feature results, sketch-param merging, dependent-guarded deletes,
   and depth-100 snapshot undo/redo; Export Python (`python-codegen.ts`) is a lossy
-  one-way starter. See `docs/dev/document-schema.md`.
+  one-way starter that now emits runnable imports, assembly placement helpers, and a
+  final `model`. See `docs/dev/document-schema.md`.
 - Example projects (`src/common/sample-projects.ts` + generated JSON) clone complete
   documents into a dirty unsaved store via `CadDocumentStore.createSampleDocument`;
   the full W7-X entry downloads (or takes a local) MIT-licensed STEP and stores it
@@ -116,6 +117,8 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   a saved document from cache) in `onAfterAttach`; the empty-document card must never
   cover an active document. The same hook re-reveals Feature Tree + Model Outline, and
   New Document clears the old model/tokens before installing (no background restore).
+- Narrow document toolbars wrap the ribbon and use compact section menus; explode groups
+  solids by instance/body and separates centered shells vertically.
 - Assembly-panel hover help uses the shared `Tooltip`/`useTooltip`; no native `title`.
 - Per-body appearance overrides (`BodyDef.appearance`: `color` `#rrggbb` + `opacity` 0–1,
   display-only, no rebuild) use one cloned material per overridden body; selection keeps

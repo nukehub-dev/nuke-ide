@@ -1914,6 +1914,7 @@ def _process_shape(
     selector_map: dict[str, list[int]] | None = None,
     manifest: RegionManifest | None = None,
     length_scale: float = 1.0,
+    auto_adjust_tolerance: bool = True,
     body_ids: list[str] | None = None,
     curve_results: dict[str, dict[str, Any]] | None = None,
     tess_cache_path: str | None = None,
@@ -1983,40 +1984,9 @@ def _process_shape(
     }
 
     # ------------------------------------------------------------------
-    # 1. Write canonical STEP (skip if it would overwrite the input STEP
-    #    or if there is no solid geometry).
-    # ------------------------------------------------------------------
-    if has_solids:
-        try:
-            if paths["step"].resolve() == source_file.resolve():
-                _print_progress(f"Reusing input STEP: {paths['step']}")
-            else:
-                _print_progress(f"Writing STEP: {paths['step']}")
-                solid_names: list[str | None] | None = None
-                try:
-                    solid_total = len(_solids_in_explorer_order(shape))
-                    if step_names is not None:
-                        solid_names = list(step_names)
-                    else:
-                        solid_names = _solid_names_from_selector_map(selector_map, solid_total)
-                except Exception:
-                    solid_names = None
-                step_warning = _write_step(shape, paths["step"], solid_names=solid_names)
-                if step_warning:
-                    result["warnings"].append(step_warning)
-                if solid_names and any(solid_names):
-                    result["stepNames"] = {
-                        str(i + 1): name for i, name in enumerate(solid_names) if name
-                    }
-        except Exception as exc:
-            result["error"] = str(exc)
-            result["traceback"] = traceback.format_exc()
-            return result
-
-    # ------------------------------------------------------------------
-    # 2. Tessellate and write viewport stream (document builds may reuse
-    #    the P2 doc-level tess blob: on a content-hash hit the cached text
-    #    is written verbatim and ONLY the meshing call is skipped).
+    # 1. Look up the tessellation cache first. A content-hash hit means the
+    #    canonical STEP beside it is already current; rewriting a large STEP
+    #    on every cache-hit display build is pure disk churn.
     # ------------------------------------------------------------------
     solids: list[dict] = []
     cached_text: str | None = None
@@ -2040,6 +2010,66 @@ def _process_shape(
                 _print_progress(f"Ignoring cached tessellation ({exc}); re-meshing")
                 cached_text = None
                 solids = []
+
+    # ------------------------------------------------------------------
+    # 2. Write canonical STEP (skip if it would overwrite the input STEP,
+    #    if there is no solid geometry, or if a tess cache hit proves the
+    #    document and its existing STEP are unchanged).
+    # ------------------------------------------------------------------
+    if has_solids:
+        try:
+            step_is_input = paths["step"].resolve() == source_file.resolve()
+            step_exists = False
+            try:
+                step_exists = paths["step"].is_file() and paths["step"].stat().st_size > 0
+            except OSError:
+                step_exists = False
+            step_key_path = paths["step"].with_suffix(paths["step"].suffix + ".key")
+            step_key_matches = False
+            if tess_doc_hash is not None and step_exists:
+                try:
+                    step_key_matches = (
+                        step_key_path.read_text(encoding="utf-8").strip() == tess_doc_hash
+                    )
+                except Exception:
+                    step_key_matches = False
+            solid_names: list[str | None] | None = None
+            try:
+                solid_total = len(_solids_in_explorer_order(shape))
+                if step_names is not None:
+                    solid_names = list(step_names)
+                else:
+                    solid_names = _solid_names_from_selector_map(selector_map, solid_total)
+            except Exception:
+                solid_names = None
+            if step_is_input:
+                _print_progress(f"Reusing input STEP: {paths['step']}")
+            elif cached_text is not None and step_key_matches:
+                _print_progress(f"Reusing unchanged STEP: {paths['step']}")
+            else:
+                _print_progress(f"Writing STEP: {paths['step']}")
+                step_warning = _write_step(shape, paths["step"], solid_names=solid_names)
+                if step_warning:
+                    result["warnings"].append(step_warning)
+                if tess_doc_hash is not None:
+                    try:
+                        _write_text_if_changed(step_key_path, f"{tess_doc_hash}\n")
+                    except Exception as exc:
+                        result["warnings"].append(f"STEP key write skipped: {exc}")
+            if solid_names and any(solid_names):
+                result["stepNames"] = {
+                    str(i + 1): name for i, name in enumerate(solid_names) if name
+                }
+        except Exception as exc:
+            result["error"] = str(exc)
+            result["traceback"] = traceback.format_exc()
+            return result
+
+    # ------------------------------------------------------------------
+    # 3. Tessellate and write viewport stream (document builds may reuse
+    #    the P2 doc-level tess blob: on a content-hash hit the cached text
+    #    is written verbatim and ONLY the meshing call is skipped).
+    # ------------------------------------------------------------------
     if cached_text is None and has_solids:
         _print_progress("Tessellating B-rep")
         try:
@@ -2131,6 +2161,7 @@ def _process_shape(
                     selector_map=selector_map,
                     faceting_tolerance=tolerance,
                     length_scale=length_scale,
+                    auto_adjust_tolerance=auto_adjust_tolerance,
                     add_graveyard=add_graveyard,
                 )
                 result["dagmcSuccess"] = dagmc_result.get("success", False)
@@ -2204,6 +2235,7 @@ def build_geometry(
     mesh_order: int = 1,
     script_timeout: float = DEFAULT_SCRIPT_TIMEOUT,
     length_scale: float = 1.0,
+    auto_adjust_tolerance: bool = True,
 ) -> dict:
     """Execute ``script_path`` and write canonical artifacts.
 
@@ -2249,6 +2281,7 @@ def build_geometry(
         selector_map=selector_map,
         manifest=manifest,
         length_scale=length_scale,
+        auto_adjust_tolerance=auto_adjust_tolerance,
     )
     result["warnings"] = (result.get("warnings") or []) + manifest_warnings
     return result
@@ -2271,6 +2304,7 @@ def import_step_file(
     expand_compound: bool = True,
     one_object_per_solid: bool = True,
     target_units: str | None = None,
+    auto_adjust_tolerance: bool = True,
 ) -> dict:
     """Import an existing STEP file and write canonical artifacts.
 
@@ -2368,6 +2402,7 @@ def import_step_file(
         selector_map=selector_map,
         manifest=None,
         length_scale=length_scale,
+        auto_adjust_tolerance=auto_adjust_tolerance,
     )
     result.update(unit_fields)
     if warnings:
@@ -3116,6 +3151,7 @@ def build_document(
     length_scale: float = 1.0,
     cache_dir: str | None = None,
     size_cap_mb: float | None = None,
+    auto_adjust_tolerance: bool = True,
 ) -> dict:
     """Build geometry from a ``.nuke-cad`` document and write canonical artifacts.
 
@@ -3224,6 +3260,7 @@ def build_document(
             length_scale=length_scale,
             cache_dir=cache_dir,
             size_cap_mb=size_cap_mb,
+            auto_adjust_tolerance=auto_adjust_tolerance,
         )
 
     curves = document.get("curves", [])
@@ -3375,6 +3412,7 @@ def build_document(
         selector_map=build_result.get("selectorMap", {}),
         manifest=manifest,
         length_scale=length_scale,
+        auto_adjust_tolerance=auto_adjust_tolerance,
         body_ids=build_result.get("solidBodyIds"),
         curve_results=curve_results,
         tess_cache_path=tess_cache_path,
@@ -3405,6 +3443,7 @@ def build_assembly(
     length_scale: float = 1.0,
     cache_dir: str | None = None,
     size_cap_mb: float | None = None,
+    auto_adjust_tolerance: bool = True,
 ) -> dict:
     """Build geometry from a ``.nuke-cad`` document's assembly section.
 
@@ -3493,6 +3532,7 @@ def build_assembly(
             length_scale=length_scale,
             cache_dir=cache_dir,
             size_cap_mb=size_cap_mb,
+            auto_adjust_tolerance=auto_adjust_tolerance,
         )
 
     if output_dir is None:
@@ -3559,6 +3599,7 @@ def build_assembly(
         selector_map=selector_map,
         manifest=manifest,
         length_scale=length_scale,
+        auto_adjust_tolerance=auto_adjust_tolerance,
         step_names=step_names,
     )
     result["placements"] = assembly_result.get("placements", {})
@@ -3964,6 +4005,14 @@ def main() -> None:
         help="BRepMesh faceting tolerance (default: 0.001)",
     )
     parser.add_argument(
+        "--no-auto-tolerance",
+        action="store_true",
+        help=(
+            "Keep the requested DAGMC faceting tolerance instead of relaxing it "
+            "to diagonal/200 for large models; use for thin shells"
+        ),
+    )
+    parser.add_argument(
         "--dagmc",
         action="store_true",
         help="Enable DAGMC .h5m export for --from-step imports (off by default there)",
@@ -4052,6 +4101,7 @@ def main() -> None:
             mesh_order=args.mesh_order,
             length_scale=args.length_scale,
             target_units=args.target_units,
+            auto_adjust_tolerance=not args.no_auto_tolerance,
         )
     elif args.from_assembly:
         result = build_assembly(
@@ -4069,6 +4119,7 @@ def main() -> None:
             length_scale=args.length_scale,
             cache_dir=args.cache_dir,
             size_cap_mb=args.size_cap_mb,
+            auto_adjust_tolerance=not args.no_auto_tolerance,
         )
     elif args.from_drawing:
         result = build_drawing(
@@ -4111,6 +4162,7 @@ def main() -> None:
                 mesh_order=args.mesh_order,
                 length_scale=args.length_scale,
                 cache_dir=args.cache_dir,
+                auto_adjust_tolerance=not args.no_auto_tolerance,
             )
     else:
         result = build_geometry(
@@ -4127,6 +4179,7 @@ def main() -> None:
             mesh_order=args.mesh_order,
             script_timeout=args.script_timeout,
             length_scale=args.length_scale,
+            auto_adjust_tolerance=not args.no_auto_tolerance,
         )
     _emit_result(result)
     sys.exit(0 if result.get("success") else 1)

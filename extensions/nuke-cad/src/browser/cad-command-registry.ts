@@ -50,6 +50,8 @@ export type CadCommandGroup = 'document' | 'sketch' | 'additive' | 'boolean' | '
 export interface CadRibbonGroup {
     readonly id: CadCommandGroup;
     readonly label: string;
+    /** Compact caption used by the narrow `menus` density. */
+    readonly shortLabel?: string;
     readonly promoted: number;
 }
 
@@ -58,13 +60,13 @@ export interface CadRibbonGroup {
  * of the caret menu. Promotion is data: change it here, not in the toolbar.
  */
 export const CAD_RIBBON_GROUPS: readonly CadRibbonGroup[] = [
-    { id: 'document', label: 'Document', promoted: 5 },
-    { id: 'sketch', label: 'Sketch', promoted: 2 },
-    { id: 'additive', label: 'Additive', promoted: 3 },
-    { id: 'boolean', label: 'Boolean', promoted: 3 },
-    { id: 'dressUp', label: 'Dress-up', promoted: 3 },
-    { id: 'pattern', label: 'Pattern', promoted: 3 },
-    { id: 'inspect', label: 'Inspect', promoted: 4 }
+    { id: 'document', label: 'Document', shortLabel: 'Doc', promoted: 5 },
+    { id: 'sketch', label: 'Sketch', shortLabel: 'Sketch', promoted: 2 },
+    { id: 'additive', label: 'Additive', shortLabel: 'Add', promoted: 3 },
+    { id: 'boolean', label: 'Boolean', shortLabel: 'Bool', promoted: 3 },
+    { id: 'dressUp', label: 'Dress-up', shortLabel: 'Dress', promoted: 3 },
+    { id: 'pattern', label: 'Pattern', shortLabel: 'Pattern', promoted: 3 },
+    { id: 'inspect', label: 'Inspect', shortLabel: 'Inspect', promoted: 4 }
 ];
 
 /** Document state that gates command availability. */

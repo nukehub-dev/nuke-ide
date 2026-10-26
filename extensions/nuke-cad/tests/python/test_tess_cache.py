@@ -373,6 +373,38 @@ def test_build_caches_and_hits(tmp_path: Path) -> None:
     assert edited_text != first_text
 
 
+def test_cache_hit_reuses_existing_step(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A tess cache hit must not rewrite an unchanged canonical STEP."""
+    pytest.importorskip("build123d", reason="build123d not installed")
+    import geometry_service
+
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+    writes: list[str] = []
+    original = geometry_service._write_step
+
+    def counted(shape: Any, step_path: Path, **kwargs: Any) -> Any:
+        writes.append(str(step_path))
+        return original(shape, step_path, **kwargs)
+
+    monkeypatch.setattr(geometry_service, "_write_step", counted)
+
+    first = _build(_doc(), tmp_path, str(cache_dir))
+    assert first["success"] is True, first.get("error", "")
+    assert len(writes) == 1
+    assert Path(first["stepPath"]).is_file()
+
+    second = _build(_doc(), tmp_path, str(cache_dir))
+    assert second["success"] is True, second.get("error", "")
+    assert second["tessCacheHit"] is True
+    assert len(writes) == 1
+
+    edited = _build(_doc(length=7.0), tmp_path, str(cache_dir))
+    assert edited["success"] is True, edited.get("error", "")
+    assert edited["tessCacheHit"] is False
+    assert len(writes) == 2
+
+
 def test_build_primes_every_feature_for_partial_restore(tmp_path: Path) -> None:
     """A cache-enabled full build stores every feature B-rep.
 

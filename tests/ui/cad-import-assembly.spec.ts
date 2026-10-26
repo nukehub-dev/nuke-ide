@@ -36,6 +36,9 @@ test('Import CAD is offered on empty states and wired into command search', asyn
 
     const emptyCard = viewport.locator('.cad-viewport-document-empty').first();
     await expect(emptyCard).toBeVisible({ timeout: 10_000 });
+    await expect(emptyCard.locator('.cad-viewport-document-empty-title')).toHaveText('Start a model');
+    await expect(emptyCard.locator('.cad-viewport-document-empty-primary')).toContainText('Create Sketch');
+    await expect(emptyCard.locator('.cad-viewport-document-empty-action')).toHaveCount(3);
     await expect(emptyCard.locator('button', { hasText: 'Create Sketch' })).toBeVisible();
     await expect(emptyCard.locator('button', { hasText: 'Open CAD Model…' })).toBeVisible();
     await expect(emptyCard.locator('button.import-cad-assembly-button')).toHaveText(/Import CAD…/);

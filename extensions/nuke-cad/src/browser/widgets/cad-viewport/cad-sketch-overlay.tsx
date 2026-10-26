@@ -1506,7 +1506,13 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
             if (disposed) {
                 return;
             }
-            const next = selectRibbonDensity(width, previous);
+            let next = selectRibbonDensity(width, previous);
+            // Width thresholds cannot see a long document name or a dense
+            // section; when the rendered row overflows, collapse to section
+            // menus instead of clipping captions ("Sk...") or buttons.
+            if (next !== 'menus' && toolbar.scrollWidth > toolbar.clientWidth + 1) {
+                next = 'menus';
+            }
             previous = next;
             setRibbonDensity((current) => (current === next ? current : next));
         };
@@ -1597,11 +1603,12 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
     };
 
     const pinnedIds = new Set(props.ribbonPins);
-    const groups: Array<{ label: string; actions: NukeRibbonItem[]; promoted: number; promotedIds: string[] }> = CAD_RIBBON_GROUPS.map(
-        (group) => {
+    const groups: Array<{ label: string; shortLabel?: string; actions: NukeRibbonItem[]; promoted: number; promotedIds: string[] }> =
+        CAD_RIBBON_GROUPS.map((group) => {
             const actions = commands.filter((command) => command.group === group.id);
             return {
                 label: group.label,
+                shortLabel: group.shortLabel,
                 promoted: group.promoted,
                 promotedIds: actions.filter((command) => pinnedIds.has(command.id)).map((command) => command.id),
                 actions: actions.map((command) => ({
@@ -1622,8 +1629,7 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
                     onClick: command.run
                 }))
             };
-        }
-    );
+        });
 
     // `ribbonLabels: false` swaps tile captions for the compact icon row; the
     // width-selected icons/menus densities are unchanged.
@@ -1673,6 +1679,7 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
                         <NukeRibbonSection
                             key={group.label}
                             label={group.label}
+                            shortLabel={group.shortLabel}
                             items={group.actions}
                             promoted={group.promoted}
                             promotedIds={group.promotedIds}

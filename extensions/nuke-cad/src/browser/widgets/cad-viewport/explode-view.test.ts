@@ -26,7 +26,15 @@
 // *****************************************************************************
 
 import { describe, expect, it } from 'vitest';
-import { clampExplodeFactor, EXPLODE_MAX_SPAN, explodeBoxCenterDiagonal, explodeOffset, planExplodeOffsets } from './explode-view';
+import {
+    clampExplodeFactor,
+    EXPLODE_CENTERED_SPAN,
+    EXPLODE_MAX_SPAN,
+    explodeBoxCenterDiagonal,
+    explodeOffset,
+    planExplodeOffsets,
+    planGroupedExplodeOffsets
+} from './explode-view';
 
 describe('explode-view', () => {
     it('clamps the slider factor into 0..1', () => {
@@ -112,5 +120,39 @@ describe('explode-view', () => {
         const solids = [{ solidId: 7, centroid: [5, 5, 5] as const }];
         const offsets = planExplodeOffsets(solids, { min: [NaN, NaN, NaN], max: [NaN, NaN, NaN] }, 0);
         expect(offsets.get(7)).toEqual([0, 0, 0]);
+    });
+
+    it('spreads centered groups vertically and off-center groups radially', () => {
+        const groups = [
+            { id: 'plasma', centroid: [0, 0, 0] as const, order: 0 },
+            { id: 'blanket', centroid: [0, 0, 0] as const, order: 1 },
+            { id: 'coil_01_m0', centroid: [20, 0, 0] as const, order: 2 }
+        ];
+        const box = { min: [-10, -10, -10], max: [10, 10, 10] };
+        const diagonal = Math.sqrt(1200);
+        const offsets = planGroupedExplodeOffsets(groups, box, 0.5);
+
+        const plasma = offsets.get('plasma')!;
+        const blanket = offsets.get('blanket')!;
+        expect(plasma[0]).toBe(0);
+        expect(plasma[1]).toBe(0);
+        expect(blanket[0]).toBe(0);
+        expect(blanket[1]).toBe(0);
+        expect(blanket[2]).toBeCloseTo(-plasma[2], 12);
+        expect(Math.abs(blanket[2] - plasma[2])).toBeCloseTo(diagonal * 0.5 * EXPLODE_CENTERED_SPAN, 12);
+
+        const coil = offsets.get('coil_01_m0')!;
+        expect(coil[0]).toBeCloseTo(diagonal * 0.5 * EXPLODE_MAX_SPAN, 12);
+        expect(coil[1]).toBe(0);
+        expect(coil[2]).toBe(0);
+    });
+
+    it('leaves a single centered group at the origin (nothing to separate)', () => {
+        const offsets = planGroupedExplodeOffsets(
+            [{ id: 'vessel', centroid: [0, 0, 0] as const, order: 0 }],
+            { min: [-10, -10, -10], max: [10, 10, 10] },
+            1
+        );
+        expect(offsets.get('vessel')).toEqual([0, 0, 0]);
     });
 });

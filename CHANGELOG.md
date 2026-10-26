@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-cad: experimental W7-X coil study builds 4/5/6-module layouts with measured interference reports and blocks simulation export.
 - nuke-cad: native coil sweep builds editable rectangular-section coils with section tilt, progressive twist, and pattern/assembly support.
 - nuke-cad: W7-X coil shape study builds 10 editable native coils across 5 modules without the external STEP; simulation export is disabled.
+- nuke-cad: Export as Python emits runnable imported-body and assembly scripts with a final model, preserving source selection, units, and placements.
 - nuke-cad: validated large assemblies can set `overlapCheck: false` to skip cross-body and instance overlap warnings for a faster build.
 - nuke-cad: assembly panel is draggable and collapsible with an instance-count badge, a labelled part field, and an Instance action disabled until a part is entered.
 - nuke-cad: disabled toolbar and command-search actions now explain why they cannot run, in the tooltip, section menu, and search row.
@@ -230,6 +231,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-cad: viewport chrome redesign with a structured header toolbar, overflow menu, and collapsible sketch panel.
 - nuke-cad: STEP imports skip DAGMC/FEM export by default for fast loads; script builds still export.
 - nuke-cad: DAGMC surface-sense verification is now a hard error; watertightness and overlap stay reported diagnostics.
+- nuke-cad: DAGMC export accepts `--no-auto-tolerance` so thin shell layers keep a fine faceting tolerance instead of being coarsened to diagonal/200.
+- nuke-cad: cache-hit document rebuilds reuse the existing canonical STEP instead of rewriting it.
+- nuke-cad: empty-document viewport becomes a Start a model launcher with a primary sketch tile, compact import rows, and a narrow-width fallback.
 - nuke-cad: saving a script-source model rebuilds the viewport (STEP-source models unaffected).
 - nuke-cad: viewport context menu gains Find in Feature Tree, Clear Selection (Esc), and shortcut hints.
 - nuke-core: spec-aware dependency installs with a canonical package registry and a drift-failing consistency test.
@@ -254,6 +258,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-cad: opening the viewport restores the Feature Tree and Model Outline panels, with panel actions in the Inspect ribbon and command search.
 - nuke-cad: New Document clears the previous viewport model and cancels its background restore instead of rebuilding it behind the picker.
 - nuke-cad: assembly-panel hover help uses the shared Nuke tooltip instead of native browser titles.
+- nuke-cad: narrow CAD toolbars wrap the ribbon and use compact section menus instead of clipping labels.
+- nuke-cad: explode moves assemblies radially by instance and separates centered shells vertically instead of piling them at the origin.
 - nuke-cad: W7-X sample downloads use the IDE backend, bypassing browser CORS/proxy failures for the 47 MB STEP.
 - nuke-cad: new W7-X samples discard a stale `.regions.json` sidecar, so old `coil` selectors no longer trigger a manifest warning.
 - nuke-cad: build warnings render as a compact badge below the document toolbar, with the list in an anchored popover clear of sketch chrome.

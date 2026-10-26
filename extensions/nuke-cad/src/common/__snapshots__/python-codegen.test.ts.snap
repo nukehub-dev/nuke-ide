@@ -59,6 +59,9 @@ for _k in range(1, 3):
 #   center: [0.5,0.5]
 #   diameter: 0.2
 
+# Final model
+model = bd.Compound(children=[shape for shape in [body_Block, body_Pin] if shape is not None])
+
 # -----------------------------------------------------------------------------
 # Features requiring manual repair before the exported script is runnable
 # -----------------------------------------------------------------------------
@@ -123,6 +126,9 @@ body_Transition = body_Transition + bd.sweep(sketch_Spring_section_sk_sec().move
 _helix_helix_frenet = bd.Helix(pitch=1, height=2, radius=2, direction=(0, 1, 0), lefthand=True)
 _sweep_plane_helix_frenet = bd.Plane(_helix_helix_frenet @ 0, z_dir=_helix_helix_frenet.tangent_at(0))
 body_Transition = body_Transition + bd.sweep(sketch_Spring_section_sk_sec().moved(_sweep_plane_helix_frenet.location * datum_XY_xy.location.inverse), path=_helix_helix_frenet) if body_Transition is not None else bd.sweep(sketch_Spring_section_sk_sec().moved(_sweep_plane_helix_frenet.location * datum_XY_xy.location.inverse), path=_helix_helix_frenet)  # Twisted sweep
+
+# Final model
+model = bd.Compound(children=[shape for shape in [body_Transition] if shape is not None])
 "
 `;
 
@@ -168,5 +174,8 @@ _tool_pat_1 = bd.sweep(sketch_Square_sk_sq().moved(_sweep_plane_sw_1.location * 
 for _k in range(1, 4):
     body_Rail = body_Rail + _tool_pat_1.rotate(bd.Axis.Z, _k * 90)
 # Rail pattern
+
+# Final model
+model = bd.Compound(children=[shape for shape in [body_Rail] if shape is not None])
 "
 `;

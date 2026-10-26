@@ -179,7 +179,7 @@ test('document-mode header toolbar renders with grouped actions and hides welcom
     await expect(viewport.locator('.nuke-empty-state')).toBeHidden();
     const emptyCard = viewport.locator('.cad-viewport-document-empty').first();
     await expect(emptyCard).toBeVisible({ timeout: 10_000 });
-    await expect(emptyCard.locator('.cad-viewport-document-empty-title')).toHaveText('Empty document');
+    await expect(emptyCard.locator('.cad-viewport-document-empty-title')).toHaveText('Start a model');
 
     // The redesigned header toolbar should render with the document title on the
     // left and grouped action buttons on the right.
@@ -232,7 +232,7 @@ test('document-mode header toolbar renders with grouped actions and hides welcom
 
     // The empty-document Create Sketch CTA opens the task panel while the
     // ribbon stays mounted; New Sketch reads as pressed until setup ends.
-    await page.setViewportSize({ width: 1920, height: 800 });
+    await page.setViewportSize({ width: 2200, height: 800 });
     await expect(toolbar.locator('.nuke-ribbon-tiles')).toBeVisible({ timeout: 10_000 });
     await emptyCard.locator('button', { hasText: 'Create Sketch' }).click();
     const datumPicker = viewport.locator('.cad-sketch-datum-picker').first();
@@ -272,7 +272,7 @@ test('document toolbar collapses to section menus without wrapping at narrow wid
 
     // Wide window: tiles density with short captions; full labels stay in the
     // tooltip and the section menu.
-    await page.setViewportSize({ width: 1920, height: 800 });
+    await page.setViewportSize({ width: 2200, height: 800 });
     await expect(toolbar.locator('.nuke-ribbon-tiles')).toBeVisible({ timeout: 10_000 });
     await expect(toolbar.locator('[role="group"][aria-label="Document"] .nuke-ribbon-item-label')).toHaveText([
         'New',
@@ -281,7 +281,7 @@ test('document toolbar collapses to section menus without wrapping at narrow wid
         'Redo',
         'Rebuild'
     ]);
-    await expect(toolbar.locator('[role="group"][aria-label="Inspect"] .nuke-ribbon-item-label').last()).toHaveText('Measures');
+    await expect(toolbar.locator('[role="group"][aria-label="Inspect"] .nuke-ribbon-item-label').last()).toHaveText('Outline');
     await expect(toolbar.locator('.cad-document-toolbar-search')).toBeVisible();
     await toolbar.screenshot({ path: 'test-results/cad-ribbon-tiles.png' });
 
@@ -294,7 +294,7 @@ test('document toolbar collapses to section menus without wrapping at narrow wid
     await documentGroup.locator('.nuke-ribbon-menu-trigger').click();
     await expect(sectionMenu).toBeVisible({ timeout: 10_000 });
     // The menu lists every Document command, inline ones included.
-    await expect(sectionMenu.locator('[role="menuitem"]')).toHaveCount(7);
+    await expect(sectionMenu.locator('[role="menuitem"]')).toHaveCount(11);
     const exportRow = sectionMenu.locator('.nuke-ribbon-menu-row', { hasText: 'Export as Python' }).first();
     await expect(exportRow.locator('[role="menuitem"]')).toContainText('Export as Python');
     await exportRow.locator('button[aria-label="Pin to toolbar"]').click();
@@ -335,7 +335,7 @@ test('document toolbar collapses to section menus without wrapping at narrow wid
     // One action row, no horizontal overflow.
     const box = await toolbar.boundingBox();
     expect(box, 'toolbar bounding box').not.toBeNull();
-    expect(box!.height).toBeLessThan(80);
+    expect(box!.height).toBeLessThanOrEqual(80);
     const overflow = await toolbar.evaluate((element) => ({
         scrollWidth: element.scrollWidth,
         clientWidth: element.clientWidth

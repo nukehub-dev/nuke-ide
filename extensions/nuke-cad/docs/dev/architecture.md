@@ -114,6 +114,12 @@ path. It uses gmsh's OpenCASCADE kernel for robust imprint/merge:
    legitimately have incidence 3), and a bbox + `BRepClass3d_SolidClassifier`
    overlap check is reported as `overlapCheck`.
 
+Large models relax the requested faceting tolerance to `diagonal/200` by
+default. That coarsening can erase thin shell layers (the W7-X gap/firstwall/
+vessel stack); pass `--no-auto-tolerance` (or
+`convert_to_dagmc(..., auto_adjust_tolerance=False)`) to keep a fine
+tolerance for transport meshes.
+
 Graveyard detection is opt-in only. The pipeline no longer guesses based on a
 large enclosing solid. Flag existing graveyard volumes by passing
 `existing_graveyard_vol_ids` (1-based) to `convert_to_dagmc`, or by naming the

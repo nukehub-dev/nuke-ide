@@ -1638,4 +1638,57 @@ describe('assembly emission', () => {
         ungrounded.assembly!.groundedInstanceId = '';
         expect(generatePythonScript(ungrounded)).not.toContain('# Assembly');
     });
+
+    it('emits the placement helper and a final model for a mate-free assembly', () => {
+        const doc = assemblyDocument();
+        doc.assembly!.mates = [];
+        doc.assembly!.connectors = [];
+        const script = generatePythonScript(doc);
+        expect(script).toContain('def _mate_place(shape, pos, rot):');
+        expect(script).toContain('model = bd.Compound(children=[asm_base, asm_arm, asm_bracket])');
+    });
+});
+
+describe('import emission', () => {
+    function importDocument(): NukeCadDocument {
+        return {
+            version: NUKE_CAD_SCHEMA_VERSION,
+            name: 'import-test',
+            units: 'm',
+            parameters: {},
+            datums: [{ id: 'datum-xy', kind: 'XY', name: 'XY Plane' }],
+            sketches: [],
+            bodies: [{ id: 'body_coil', name: 'coil', label: 'coil' }],
+            features: [
+                {
+                    id: 'import-coil',
+                    name: 'coil import',
+                    type: 'import',
+                    body: 'body_coil',
+                    params: {
+                        sourcePath: './parts/coil.step',
+                        sourceHash: 'a'.repeat(64),
+                        sourceSize: 1234,
+                        sourceFormat: 'step',
+                        sourceUnit: 'm',
+                        selection: { mode: 'solids', solids: [{ index: 1, signature: { faceCount: 4, volume: 2.5 } }] },
+                        maxSolids: 100
+                    },
+                    suppressed: false,
+                    dependsOn: []
+                }
+            ],
+            curves: []
+        };
+    }
+
+    it('emits a runnable source read/select/placement body instead of a TODO', () => {
+        const script = generatePythonScript(importDocument());
+        expect(script).toContain('def _import_body(');
+        expect(script).toContain('def _place_import(');
+        expect(script).toContain('_import_body("./parts/coil.step", "step", "m", "m",');
+        expect(script).toContain('body_coil = _place_import(');
+        expect(script).not.toContain('TODO(manual): import feature');
+        expect(script).toContain('model = bd.Compound(children=[shape for shape in [body_coil] if shape is not None])');
+    });
 });

@@ -1601,6 +1601,11 @@ if __name__ == "__main__":
     parser.add_argument("step", help="Path to the input STEP file")
     parser.add_argument("--output", default=None, help="Output .h5m file path")
     parser.add_argument("--tolerance", type=float, default=0.001, help="Faceting tolerance")
+    parser.add_argument(
+        "--no-auto-tolerance",
+        action="store_true",
+        help="Keep the requested tolerance instead of relaxing it to diagonal/200",
+    )
     parser.add_argument("--no-graveyard", action="store_true", help="Do not auto-create graveyard")
     args = parser.parse_args()
 
@@ -1608,6 +1613,7 @@ if __name__ == "__main__":
         args.step,
         output_path=args.output,
         faceting_tolerance=args.tolerance,
+        auto_adjust_tolerance=not args.no_auto_tolerance,
         add_graveyard=not args.no_graveyard,
     )
     print(json.dumps(res))

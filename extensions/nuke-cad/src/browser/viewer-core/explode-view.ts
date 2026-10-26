@@ -60,6 +60,10 @@ export const EXPLODE_EPSILON = 1e-9;
 // assemblies such as the tokamak stay in frame instead of flying out of view.
 export const EXPLODE_MAX_SPAN = 0.35;
 
+// Centered groups (full-360 shells, nested parts) have no radial direction;
+// they spread along Z over this fraction of the diagonal instead.
+export const EXPLODE_CENTERED_SPAN = 1.2;
+
 export function clampExplodeFactor(value: number): number {
     if (!Number.isFinite(value)) {
         return 0;
@@ -117,6 +121,75 @@ export function planExplodeOffsets(
     const { center, diagonal } = explodeBoxCenterDiagonal(box);
     for (const solid of solids) {
         offsets.set(solid.solidId, explodeOffset(solid.centroid, center, diagonal, clamped));
+    }
+    return offsets;
+}
+
+/** One body/assembly-instance explode unit. */
+export interface ExplodeGroupCentroid {
+    /** Stable group id (instance id, body id, or `solid:<id>` fallback). */
+    readonly id: string;
+    readonly centroid: ExplodePoint3D;
+    /** Stable document order; centered groups use it for vertical stacking. */
+    readonly order: number;
+}
+
+/**
+ * Plan offsets for whole bodies/instances.
+ *
+ * Radial groups (coils, off-center bodies) move away from the assembly center
+ * exactly like {@link planExplodeOffsets}. Centered groups (full-360 shells or
+ * nested centered bodies) have no meaningful radial direction; they spread
+ * vertically in document order so their layers remain visible instead of
+ * collapsing at the origin.
+ */
+export function planGroupedExplodeOffsets(
+    groups: readonly ExplodeGroupCentroid[],
+    box: ExplodeBoundingBox,
+    factor: number
+): Map<string, ExplodePoint3D> {
+    const offsets = new Map<string, ExplodePoint3D>();
+    const clamped = clampExplodeFactor(factor);
+    if (clamped <= 0) {
+        for (const group of groups) {
+            offsets.set(group.id, [0, 0, 0]);
+        }
+        return offsets;
+    }
+    const { center, diagonal } = explodeBoxCenterDiagonal(box);
+    if (!(diagonal > 0)) {
+        for (const group of groups) {
+            offsets.set(group.id, [0, 0, 0]);
+        }
+        return offsets;
+    }
+
+    const radialScale = diagonal * clamped * EXPLODE_MAX_SPAN;
+    const centered = groups
+        .filter((group) => {
+            const dx = group.centroid[0] - center[0];
+            const dy = group.centroid[1] - center[1];
+            const dz = group.centroid[2] - center[2];
+            return Math.sqrt(dx * dx + dy * dy + dz * dz) < EXPLODE_EPSILON;
+        })
+        .sort((a, b) => a.order - b.order);
+    const spacing = centered.length > 1 ? (diagonal * clamped * EXPLODE_CENTERED_SPAN) / (centered.length - 1) : 0;
+    const centeredOffsets = new Map<string, number>();
+    centered.forEach((group, rank) => {
+        centeredOffsets.set(group.id, (rank - (centered.length - 1) / 2) * spacing);
+    });
+
+    for (const group of groups) {
+        const z = centeredOffsets.get(group.id);
+        if (z !== undefined) {
+            offsets.set(group.id, [0, 0, z]);
+            continue;
+        }
+        const dx = group.centroid[0] - center[0];
+        const dy = group.centroid[1] - center[1];
+        const dz = group.centroid[2] - center[2];
+        const length = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        offsets.set(group.id, [(dx / length) * radialScale, (dy / length) * radialScale, (dz / length) * radialScale]);
     }
     return offsets;
 }

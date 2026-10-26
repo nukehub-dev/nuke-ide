@@ -221,7 +221,7 @@ import {
     type MeasureViewState
 } from './measure-tool';
 import { edgeRadius } from './radius-fit';
-import { clampExplodeFactor, planExplodeOffsets, type ExplodeSolidCentroid } from './explode-view';
+import { clampExplodeFactor, planGroupedExplodeOffsets, type ExplodeGroupCentroid } from './explode-view';
 import { visibleCurveIds, type CurvePathUser } from './curve-visibility';
 import { computeClipPlanes } from './clip-planes';
 import { headerRegionTarget, useDraggablePanel } from './draggable-panel';
@@ -5101,7 +5101,10 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                         </button>
                     </Tooltip>
                     <span className="cad-viewport-nav-divider" />
-                    <Tooltip content="Explode view — moves each solid outward from the model center (viewport only)" position="left">
+                    <Tooltip
+                        content="Explode view — moves bodies/instances outward from the model center; centered shells separate vertically (viewport only)"
+                        position="left"
+                    >
                         <label className="cad-viewport-explode">
                             <span className="cad-viewport-explode-label">Explode</span>
                             <input
@@ -5300,23 +5303,73 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                 {props.loading && <NukeLoadingOverlay message={props.loadingMessage} />}
                 <div className="cad-viewport-empty-wrapper">
                     <div className="cad-viewport-document-empty">
-                        <span className="codicon codicon-nuke-cad-sketch cad-viewport-document-empty-icon" />
-                        <div className="cad-viewport-document-empty-title">Empty document</div>
-                        <div className="cad-viewport-document-empty-message">Create a sketch or open a model to get started.</div>
-                        <div className="cad-viewport-document-empty-hint">Sketches start on a datum plane or a planar face.</div>
+                        <div className="cad-viewport-document-empty-header">
+                            <span className="cad-viewport-document-empty-icon-tile" aria-hidden="true">
+                                <span className="codicon codicon-nuke-cad-cube cad-viewport-document-empty-icon" />
+                            </span>
+                            <div className="cad-viewport-document-empty-heading">
+                                <div className="cad-viewport-document-empty-eyebrow">New document</div>
+                                <div className="cad-viewport-document-empty-title">Start a model</div>
+                                <div className="cad-viewport-document-empty-message">
+                                    Sketch a profile, open an existing model, or import CAD geometry.
+                                </div>
+                            </div>
+                        </div>
                         <div className="cad-viewport-document-empty-actions">
-                            <button className="theia-button" onClick={props.onStartSketchSetup}>
-                                <span className="codicon codicon-nuke-cad-sketch" /> Create Sketch
+                            <button className="cad-viewport-document-empty-primary" onClick={props.onStartSketchSetup}>
+                                <span className="cad-viewport-document-empty-primary-icon" aria-hidden="true">
+                                    <span className="codicon codicon-nuke-cad-sketch" />
+                                </span>
+                                <span className="cad-viewport-document-empty-action-copy">
+                                    <span className="cad-viewport-document-empty-action-label">Create Sketch</span>
+                                    <span className="cad-viewport-document-empty-action-desc">Start on a datum plane or a planar face</span>
+                                </span>
+                                <span className="codicon codicon-chevron-right cad-viewport-document-empty-chevron" aria-hidden="true" />
                             </button>
-                            <button className="theia-button secondary open-cad-model-button" onClick={props.onOpenModel}>
-                                <span className="codicon codicon-folder-opened" /> Open CAD Model…
-                            </button>
-                            <button className="theia-button secondary import-cad-assembly-button" onClick={props.onImportCad}>
-                                <span className="codicon codicon-cloud-upload" /> Import CAD…
-                            </button>
-                            <button className="theia-button secondary import-cad-body-button" onClick={props.onImportCadBody}>
-                                <span className="codicon codicon-file-symlink-file" /> Import CAD as Body…
-                            </button>
+                            <div className="cad-viewport-document-empty-secondary">
+                                <button className="cad-viewport-document-empty-action open-cad-model-button" onClick={props.onOpenModel}>
+                                    <span
+                                        className="codicon codicon-folder-opened cad-viewport-document-empty-action-icon"
+                                        aria-hidden="true"
+                                    />
+                                    <span className="cad-viewport-document-empty-action-copy">
+                                        <span className="cad-viewport-document-empty-action-label">Open CAD Model…</span>
+                                        <span className="cad-viewport-document-empty-action-desc">.nuke-cad, .py, .step, .brep</span>
+                                    </span>
+                                </button>
+                                <button
+                                    className="cad-viewport-document-empty-action import-cad-assembly-button"
+                                    onClick={props.onImportCad}
+                                >
+                                    <span
+                                        className="codicon codicon-cloud-upload cad-viewport-document-empty-action-icon"
+                                        aria-hidden="true"
+                                    />
+                                    <span className="cad-viewport-document-empty-action-copy">
+                                        <span className="cad-viewport-document-empty-action-label">Import CAD…</span>
+                                        <span className="cad-viewport-document-empty-action-desc">
+                                            Place a STEP/IGES/BREP as an assembly
+                                        </span>
+                                    </span>
+                                </button>
+                                <button
+                                    className="cad-viewport-document-empty-action import-cad-body-button"
+                                    onClick={props.onImportCadBody}
+                                >
+                                    <span
+                                        className="codicon codicon-file-symlink-file cad-viewport-document-empty-action-icon"
+                                        aria-hidden="true"
+                                    />
+                                    <span className="cad-viewport-document-empty-action-copy">
+                                        <span className="cad-viewport-document-empty-action-label">Import CAD as Body…</span>
+                                        <span className="cad-viewport-document-empty-action-desc">Edit imported solids as bodies</span>
+                                    </span>
+                                </button>
+                            </div>
+                        </div>
+                        <div className="cad-viewport-document-empty-hint">
+                            <span className="codicon codicon-info" aria-hidden="true" />
+                            <span>Sketches start on a datum plane or a planar face.</span>
                         </div>
                     </div>
                 </div>
@@ -5883,7 +5936,8 @@ function initViewport(
     // re-planned from the new payload after every buildModel; never document
     // state, never geometry edits (the reuse pool is untouched).
     let explodeFactor = 0;
-    let explodeCentroids: ExplodeSolidCentroid[] | undefined;
+    let explodeGroups: ExplodeGroupCentroid[] | undefined;
+    let explodeSolidGroup: Map<number, string> | undefined;
     /** Last pointer position inside the container, used to anchor the Q shortcut bar. */
     let lastPointerPosition = { x: container.clientWidth / 2, y: container.clientHeight / 2 };
 
@@ -6692,18 +6746,21 @@ function initViewport(
     };
 
     /**
-     * Vertex-average approximation of each solid's centroid, one pass over the
-     * tessellated coordinates. Only the explode direction derives from it, so
-     * the vertex average suffices (exact volume centroids would need an
-     * area-weighted pass over every triangle).
+     * Vertex-average centroid per explode unit: assembly instance when
+     * present, else body, else solid. Grouping keeps a multi-solid body or an
+     * instance together; the stable document order drives the vertical
+     * fallback for centered full-360 shells.
      */
-    const computeExplodeCentroids = (data: TessData): ExplodeSolidCentroid[] => {
-        const sums = new Map<number, [number, number, number, number]>();
+    const computeExplodeGroups = (data: TessData): { groups: ExplodeGroupCentroid[]; solidGroup: Map<number, string> } => {
+        const sums = new Map<string, [number, number, number, number]>();
+        const solidGroup = new Map<number, string>();
         for (const face of data.faces) {
-            let entry = sums.get(face.solidId);
+            const id = face.instanceId ?? face.bodyId ?? `solid:${face.solidId}`;
+            solidGroup.set(face.solidId, id);
+            let entry = sums.get(id);
             if (entry === undefined) {
                 entry = [0, 0, 0, 0];
-                sums.set(face.solidId, entry);
+                sums.set(id, entry);
             }
             for (let i = 0; i < face.positions.length; i += 3) {
                 entry[0] += face.positions[i];
@@ -6712,14 +6769,19 @@ function initViewport(
             }
             entry[3] += face.positions.length / 3;
         }
-        const solids: ExplodeSolidCentroid[] = [];
-        for (const [solidId, entry] of sums) {
-            solids.push({
-                solidId,
-                centroid: entry[3] > 0 ? [entry[0] / entry[3], entry[1] / entry[3], entry[2] / entry[3]] : [0, 0, 0]
+        const order = new Map<string, number>();
+        const document = documentStore.document;
+        document?.assembly?.instances.forEach((instance, index) => order.set(instance.id, index));
+        document?.bodies.forEach((body, index) => order.set(body.id, index));
+        const groups: ExplodeGroupCentroid[] = [];
+        for (const [id, entry] of sums) {
+            groups.push({
+                id,
+                centroid: entry[3] > 0 ? [entry[0] / entry[3], entry[1] / entry[3], entry[2] / entry[3]] : [0, 0, 0],
+                order: order.get(id) ?? 0
             });
         }
-        return solids;
+        return { groups, solidGroup };
     };
 
     /**
@@ -6744,16 +6806,20 @@ function initViewport(
             }
             return;
         }
-        if (explodeCentroids === undefined) {
-            explodeCentroids = computeExplodeCentroids(currentTessData);
+        if (explodeGroups === undefined || explodeSolidGroup === undefined) {
+            const computed = computeExplodeGroups(currentTessData);
+            explodeGroups = computed.groups;
+            explodeSolidGroup = computed.solidGroup;
         }
-        const offsets = planExplodeOffsets(explodeCentroids, currentTessData.boundingBox, explodeFactor);
+        const offsets = planGroupedExplodeOffsets(explodeGroups, currentTessData.boundingBox, explodeFactor);
         for (const mesh of meshes) {
-            const offset = offsets.get(mesh.userData.solidId as number);
+            const key = mesh.userData.instanceId ?? mesh.userData.bodyId ?? `solid:${mesh.userData.solidId}`;
+            const offset = offsets.get(key);
             mesh.position.set(offset?.[0] ?? 0, offset?.[1] ?? 0, offset?.[2] ?? 0);
         }
         for (const line of edgeLines) {
-            const offset = offsets.get(line.userData.solidId as number);
+            const key = explodeSolidGroup.get(line.userData.solidId as number);
+            const offset = key !== undefined ? offsets.get(key) : undefined;
             line.position.set(offset?.[0] ?? 0, offset?.[1] ?? 0, offset?.[2] ?? 0);
         }
         for (const line of curveLines) {
@@ -6799,7 +6865,8 @@ function initViewport(
             previousTessData = undefined;
             disposePooledMeshes();
             disposeBodyAppearanceMaterials();
-            explodeCentroids = undefined;
+            explodeGroups = undefined;
+            explodeSolidGroup = undefined;
             applyOriginAxesLength(5);
             applyExplode();
             applyShading();
@@ -6900,7 +6967,8 @@ function initViewport(
             modelGroup.add(line);
             curveLines.push(line);
         }
-        explodeCentroids = undefined;
+        explodeGroups = undefined;
+        explodeSolidGroup = undefined;
         applyExplode();
         applyShading();
         applyCurveHighlight();

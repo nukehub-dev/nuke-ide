@@ -77,6 +77,8 @@ export interface NukeRibbonProps {
 export interface NukeRibbonSectionProps {
     /** Visible caption and `role="group"` accessible name. */
     label: string;
+    /** Compact caption for the `menus` density; defaults to `label`. */
+    shortLabel?: string;
     /** All actions in the section, in render order. */
     items: readonly NukeRibbonItem[];
     /** Inline count in tiles/icons density before user pins are added. */
@@ -291,7 +293,15 @@ export const NukeRibbon: React.FC<NukeRibbonProps> = ({ density = 'tiles', class
  * `menus` density the section collapses to a single `caption ▾` button that
  * lists every action.
  */
-export const NukeRibbonSection: React.FC<NukeRibbonSectionProps> = ({ label, items, promoted, promotedIds, density, className }) => {
+export const NukeRibbonSection: React.FC<NukeRibbonSectionProps> = ({
+    label,
+    shortLabel,
+    items,
+    promoted,
+    promotedIds,
+    density,
+    className
+}) => {
     const inheritedDensity = React.useContext(NukeRibbonDensityContext);
     const effectiveDensity = density ?? inheritedDensity;
     const [menuOpen, setMenuOpen] = React.useState(false);
@@ -317,7 +327,7 @@ export const NukeRibbonSection: React.FC<NukeRibbonSectionProps> = ({ label, ite
             aria-label={`${label} actions`}
             onClick={() => setMenuOpen((open) => !open)}
         >
-            {effectiveDensity === 'menus' && <span className="nuke-ribbon-caption-label">{label}</span>}
+            {effectiveDensity === 'menus' && <span className="nuke-ribbon-caption-label">{shortLabel ?? label}</span>}
             <span className="codicon codicon-chevron-down nuke-ribbon-caret" />
         </button>
     );
