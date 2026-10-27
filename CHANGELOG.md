@@ -256,6 +256,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI: vitest job compiles extensions first; conda pin no longer requests an unsatisfiable Python.
 - docker: image Python env ships working build123d with the OCP 7.9 shim and a CI version guard.
 - nuke-cad: command search moved off the ribbon into a floating bottom-left launcher, so a dense toolbar can no longer hide a section under its button.
+- nuke-cad: Edit Selected Sketch reopens the sketch on its stored datum instead of showing a plane picker that could reorient YZ/XZ sketches.
+- nuke-cad: sketch move/copy/rotate/mirror act on the highlighted selection instead of reporting "needs a selection".
+- nuke-cad: entering a sketch (new or edit) focuses the viewport, so single-key tool shortcuts work immediately.
+- nuke-cad: sketch Select still picks lines and points when snapping is toggled off.
 - nuke-cad: drawing views select and drag from their label or a minimum 36 × 28 mm body area, and a moved view keeps its position instead of snapping back before the next build.
 - nuke-cad: wheel zooming the drawing sheet no longer logs a passive-listener console error.
 - nuke-cad: tiny 1:1 base views (unitless/millimetre models) auto-fit once after their first projection, and Fit measures the naked linework instead of the padded bounds.

@@ -261,13 +261,14 @@ modified to force an export.
 
 1. Open the Feature Tree panel with **Open Feature Tree** (or `CAD Studio →
 Geometry`).
-2. Click **New Sketch** in the document toolbar, or right-click a datum in the
-   feature tree and choose **Edit Sketch**.
-3. The **Create Sketch** task panel appears at the top-right below the
-   toolbar — the ribbon stays visible and **New Sketch** (or **Edit Selected
-   Sketch** when editing) stays pressed. Choose `XY`, `YZ`, or `XZ`, optionally
-   enter an offset, then click **Start Sketch**. To sketch on a face of an
-   existing body, click **On Face…**, then click the desired face in the
+2. Click **New Sketch** in the document toolbar to create a sketch. To edit an
+   existing sketch, select its row in the Feature Tree and click **Edit
+   Selected Sketch** — it reopens directly on its stored plane.
+3. For a new sketch, the **Create Sketch** task panel appears at the top-right
+   below the toolbar — the ribbon stays visible and **New Sketch** (or **Edit
+   Selected Sketch** when editing) stays pressed. Choose `XY`, `YZ`, or `XZ`,
+   optionally enter an offset, then click **Start Sketch**. To sketch on a face
+   of an existing body, click **On Face…**, then click the desired face in the
    viewport. The panel also offers **3-Point** (plane through three
    coordinates), **Midplane** (midway between two picked faces), and
    **Line-2Pt** (an axis through two coordinates, for pattern axes only —

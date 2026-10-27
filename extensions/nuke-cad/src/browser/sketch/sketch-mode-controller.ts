@@ -376,6 +376,7 @@ export class SketchModeController {
         this.selectedIds.add(id);
         this.selectedDimensionId = undefined;
         this.constraintPopover = undefined;
+        this.syncSessionSelection();
         this.renderSelection();
         this.renderDimensions();
         this.emitChange();
@@ -389,6 +390,7 @@ export class SketchModeController {
         this.selectedIds.clear();
         this.selectedDimensionId = undefined;
         this.constraintPopover = undefined;
+        this.syncSessionSelection();
         this.renderSelection();
         this.renderDimensions();
         this.emitChange();
@@ -500,6 +502,7 @@ export class SketchModeController {
         this.selectedDimensionId = id;
         if (id !== undefined) {
             this.selectedIds.clear();
+            this.syncSessionSelection();
             this.renderSelection();
         }
         this.renderDimensions();
@@ -915,6 +918,7 @@ export class SketchModeController {
         this.constraintInput = undefined;
         this.clearHoverHighlight();
         this.session?.setTool(tool);
+        this.syncSessionSelection();
         this.renderPreview();
         this.emitChange();
     }
@@ -1059,6 +1063,7 @@ export class SketchModeController {
             this.selectedIds.delete(id);
         }
         this.constraintPopover = undefined;
+        this.syncSessionSelection();
         this.renderSelection();
         this.renderDimensions();
         this.emitChange();
@@ -1147,7 +1152,10 @@ export class SketchModeController {
         }
         this.lastPointer = sketchPoint;
         this.lastSnap = this.computeSnap(sketchPoint);
-        const snapResult = this.lastSnap;
+        const tool = this.session.getTool();
+        // Picking is not placement: the Select and constraint tools must still
+        // resolve the primitive under the pointer when snapping is toggled off.
+        const snapResult = tool === 'select' || this.constraintInput !== undefined ? this.computeSnap(sketchPoint, true) : this.lastSnap;
 
         // Middle button or shift-left starts a pan; Ctrl/Cmd is reserved for multi-select.
         if (button === 1 || (button === 0 && panModifier)) {
@@ -1165,7 +1173,6 @@ export class SketchModeController {
             return;
         }
 
-        const tool = this.session.getTool();
         if (tool === 'select') {
             // Check for a dimension label hit before geometry drag.
             const labelId = this.dimensionLabelAt(clientX, clientY);
@@ -1329,6 +1336,7 @@ export class SketchModeController {
             this.selectedIds.clear();
             this.selectedIds.add(targetId);
         }
+        this.syncSessionSelection();
         this.updateConstraintPopover(multiSelect);
         this.renderSelection();
         this.emitChange();
@@ -1451,9 +1459,12 @@ export class SketchModeController {
     }
 
     private updateHoverHighlight(): void {
+        // Hover feedback is picking, not placement: force the lookup so lines
+        // still highlight when snapping is off.
+        const pick = this.lastPointer !== undefined ? this.computeSnap(this.lastPointer, true) : this.lastSnap;
         const id =
             this.session !== undefined && this.lastSnap !== undefined && this.session.getTool() === 'select'
-                ? this.hoveredPrimitiveId(this.lastSnap)
+                ? this.hoveredPrimitiveId(pick)
                 : undefined;
         if (id === this.hoverPrimitiveId) {
             return;
@@ -2049,6 +2060,24 @@ export class SketchModeController {
         this.snapMarker.geometry.attributes.position.needsUpdate = true;
         this.snapMarker.visible = true;
         this.renderCallback();
+    }
+
+    /**
+     * Publish the controller selection to the session before a selection-
+     * transform tool runs (move/copy/rotate/mirror read the session set).
+     * Compare first: setSelection() emits a session change, so syncing from a
+     * render path would recurse.
+     */
+    private syncSessionSelection(): void {
+        if (this.session === undefined) {
+            return;
+        }
+        const current = this.session.getSelection();
+        const next = [...this.selectedIds];
+        if (current.length === next.length && next.every((id) => current.includes(id))) {
+            return;
+        }
+        this.session.setSelection(next);
     }
 
     private renderSelection(): void {

@@ -2331,9 +2331,22 @@ export class CadViewportWidget extends ReactWidget {
         if (sketch === undefined || doc === undefined) {
             return;
         }
+        const datum = doc.datums.find((entry) => entry.id === sketch.datumId);
         this.editingSketchId = sketchId;
-        this.sketchSetupVisible = true;
+        if (datum === undefined) {
+            // Unknown/legacy datum: keep the plane picker as a fallback.
+            this.sketchSetupVisible = true;
+            this.update();
+            return;
+        }
+        // Edit the sketch on its own datum. Showing the plane picker here was
+        // misleading: the chosen plane was ignored for the datum id but still
+        // oriented the session, so a YZ/XZ sketch could open on XY geometry.
+        this.sketchSetupVisible = false;
+        this.facePickMode = undefined;
+        this.sketchEntering = true;
         this.update();
+        void this.doEnterSketch(datum.kind, datum.offset ?? 0, datum.reference);
     };
 
     protected readonly handleStartFacePick = (offset: number): void => {
@@ -3528,6 +3541,11 @@ export class CadViewportWidget extends ReactWidget {
                 inheritedParameters,
                 reference
             );
+            // The sketch toolbar replaces the document ribbon, so the button
+            // that started the session is gone. Put focus back on the viewport
+            // or the single-key tool shortcuts stay inert until the first click.
+            const container = this.node.querySelector<HTMLElement>('.cad-viewport') ?? (this.node as HTMLElement);
+            container.focus?.({ preventScroll: true });
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             this.showBuildError(`Failed to start sketch solver: ${message}`);

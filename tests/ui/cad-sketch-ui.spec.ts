@@ -159,3 +159,89 @@ test('New Sketch opens the datum picker after reopening the CAD viewport', async
     const severe = errors.filter((e) => !e.includes('l10n') && !e.includes('localization bundles'));
     expect(severe, `unexpected severe errors:\n${severe.join('\n')}`).toEqual([]);
 });
+
+test('edit sketch re-enters directly and transform tools use the selected geometry', async ({ page }) => {
+    const errors = collectErrors(page);
+    await page.goto('/');
+    await waitForWorkbench(page);
+    await closeAllEditors(page);
+    await runCommand(page, 'New CAD Document');
+    const viewport = page.locator('.cad-viewport').first();
+    await expect(viewport).toBeVisible({ timeout: 30_000 });
+
+    const templatePicker = page.locator('.cad-template-picker').first();
+    await expect(templatePicker).toBeVisible({ timeout: 10_000 });
+    await templatePicker.locator('button', { hasText: 'Empty document' }).first().click();
+    const datumPicker = viewport.locator('.cad-sketch-datum-picker').first();
+    await expect(datumPicker).toBeVisible({ timeout: 30_000 });
+    await expect(viewport.locator('.cad-document-toolbar').first()).toBeVisible({ timeout: 60_000 });
+    await datumPicker.locator('button', { hasText: 'Start Sketch' }).first().click();
+    const finish = viewport.locator('.cad-sketch-finish-button');
+    await expect(finish).toBeVisible({ timeout: 30_000 });
+
+    const viewportBox = await viewport.boundingBox();
+    expect(viewportBox, 'viewport has no bounding box').not.toBeNull();
+    const click = async (x: number, y: number): Promise<void> => {
+        await page.mouse.click(viewportBox!.x + x, viewportBox!.y + y);
+        await page.waitForTimeout(120);
+    };
+    const hint = viewport.locator('.cad-sketch-status-line .cad-sketch-status-hints');
+    // Finishing a sketch on an unsaved document can prompt for a save path
+    // (the rebuild auto-save); the in-memory document is enough for this test.
+    const dismissSaveDialog = async (): Promise<void> => {
+        const shell = page.locator('#theia-dialog-shell');
+        try {
+            await shell.waitFor({ state: 'visible', timeout: 3000 });
+        } catch {
+            return;
+        }
+        await shell.getByRole('button', { name: 'Cancel' }).click();
+        await expect(shell).toBeHidden();
+    };
+
+    // First sketch: one horizontal line.
+    await page.keyboard.press('l');
+    await click(430, 420);
+    await click(760, 420);
+    await finish.click();
+    await expect(viewport.locator('.cad-document-toolbar').first()).toBeVisible({ timeout: 30_000 });
+    await dismissSaveDialog();
+
+    // Edit Selected Sketch must enter directly on the stored datum and put
+    // keyboard focus back on the viewport for the single-key shortcuts.
+    await page.locator('.feature-tree-row.sketch').first().click();
+    await viewport.getByRole('button', { name: 'Edit Selected Sketch' }).click();
+    await expect(finish).toBeVisible({ timeout: 30_000 });
+    await expect(datumPicker).toBeHidden();
+    await page.keyboard.press('l');
+    await expect(viewport.locator('.cad-sketch-toolbar button:has(.codicon-nuke-cad-line).active')).toHaveCount(1);
+    await click(500, 520);
+    await click(700, 520);
+
+    // Snapping off must not break picking: select the first line, move it, then
+    // mirror it across a fresh axis line.
+    const snap = viewport.locator('.cad-sketch-toolbar button:has(.codicon-nuke-cad-snap)');
+    if ((await snap.getAttribute('class'))?.includes('active')) {
+        await snap.click();
+    }
+    await page.keyboard.press('s');
+    await click(600, 420);
+    await page.keyboard.press('v');
+    await click(600, 420);
+    await click(600, 470);
+    await expect(hint).not.toContainText('needs a selection');
+    await page.keyboard.press('l');
+    await click(500, 300);
+    await click(800, 300);
+    await page.keyboard.press('s');
+    await click(600, 470);
+    await page.keyboard.press('n');
+    await click(650, 300);
+    await expect(hint).not.toContainText('needs a selection');
+    await finish.click();
+    await expect(viewport.locator('.cad-document-toolbar').first()).toBeVisible({ timeout: 30_000 });
+    await dismissSaveDialog();
+
+    const severe = errors.filter((e) => !e.includes('l10n') && !e.includes('localization bundles'));
+    expect(severe, `unexpected severe errors:\n${severe.join('\n')}`).toEqual([]);
+});
