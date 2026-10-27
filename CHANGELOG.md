@@ -256,6 +256,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI: vitest job compiles extensions first; conda pin no longer requests an unsatisfiable Python.
 - docker: image Python env ships working build123d with the OCP 7.9 shim and a CI version guard.
 - nuke-cad: command search moved off the ribbon into a floating bottom-left launcher, so a dense toolbar can no longer hide a section under its button.
+- nuke-cad: drawing views select and drag from their label or a minimum 36 × 28 mm body area, and a moved view keeps its position instead of snapping back before the next build.
+- nuke-cad: wheel zooming the drawing sheet no longer logs a passive-listener console error.
+- nuke-cad: tiny 1:1 base views (unitless/millimetre models) auto-fit once after their first projection, and Fit measures the naked linework instead of the padded bounds.
 - nuke-cad: drawing builds use the saved document path and auto-save pending drawing edits before HLR, so sheets build instead of failing with a file-URI/ENOENT error.
 - nuke-cad: the drawing sheet re-reads the shared document when its tab attaches, so opening it during a model load no longer leaves a stale No CAD document panel.
 - nuke-cad: drawing-sheet toolbar toggles use dark inactive icons and white-on-accent active icons so they stay visible in the light theme.

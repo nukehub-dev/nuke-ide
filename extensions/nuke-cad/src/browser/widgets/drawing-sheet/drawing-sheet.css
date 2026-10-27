@@ -767,6 +767,13 @@
     cursor: move;
 }
 
+/* Invisible grab area so tiny 1:1 views (and their labels) stay draggable;
+   the frame is pointer-events:none and the linework alone is too thin. */
+.nuke-cad-drawing-view-hit {
+    fill: transparent;
+    pointer-events: all;
+}
+
 .nuke-cad-drawing-view.dimension-mode {
     cursor: crosshair;
 }

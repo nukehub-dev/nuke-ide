@@ -69,9 +69,9 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   `matched`/`ambiguous`/`unmatched` with fingerprint-identity repair). See
   `docs/dev/features-patterns.md`.
 - Drawing Sheet workspace: grouped toolbar, framed paper + title block, zoom/pan,
-  grid/snap/frame toggles, inspector (views/dimensions/scale/Fit/delete), and
-  Save/Refresh/SVG/DXF; pending edits auto-save before HLR. See
-  `docs/dev/drawings-assemblies.md`.
+  grid/snap/frame toggles, inspector (views/dimensions/scale/Fit/delete), label/body
+  view dragging with a minimum grab area, tiny-1:1 auto-fit, and Save/Refresh/SVG/DXF;
+  pending edits auto-save before HLR. See `docs/dev/drawings-assemblies.md`.
 - Dress-ups (fillet/chamfer/draft/shell on the accumulated B-rep via pick modes;
   fillet/chamfer edge picks optionally expand to a same-solid tangent chain, 15° / 256-edge cap),
   patterns/mirror/lattice (2500-cell cap)/multiTransform over same-body sources with

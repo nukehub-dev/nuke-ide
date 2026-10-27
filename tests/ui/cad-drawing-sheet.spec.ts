@@ -84,6 +84,27 @@ test('drawing sheet workspace creates, builds, and exposes canvas controls', asy
         await zoomLabel.click();
         await expect(zoomLabel).toHaveText('100%');
 
+        // Direct manipulation: the label and the invisible grab area work even
+        // when the projection is tiny, and a committed drag must stick.
+        const viewChip = drawing.locator('.nuke-cad-drawing-view-chip').first();
+        const chipStart = await viewChip.boundingBox();
+        expect(chipStart).not.toBeNull();
+        await page.mouse.click(chipStart!.x + chipStart!.width / 2, chipStart!.y + chipStart!.height / 2);
+        await expect(drawing.locator('.nuke-cad-drawing-view.selected')).toHaveCount(1);
+        await page.mouse.move(chipStart!.x + chipStart!.width / 2, chipStart!.y + chipStart!.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(chipStart!.x + chipStart!.width / 2 + 60, chipStart!.y + chipStart!.height / 2 + 30, { steps: 6 });
+        await page.mouse.up();
+        await expect.poll(async () => (await viewChip.boundingBox())?.x ?? Number.NEGATIVE_INFINITY).toBeGreaterThan(chipStart!.x + 20);
+        await expect.poll(async () => (await status.textContent().catch(() => ''))?.trim(), { timeout: 180_000 }).toMatch(/Up to date/);
+
+        const canvas = drawing.locator('.nuke-cad-drawing-canvas');
+        await canvas.hover();
+        await page.mouse.wheel(0, -120);
+        await expect(zoomLabel).not.toHaveText('100%');
+        await zoomLabel.click();
+        await expect(zoomLabel).toHaveText('100%');
+
         await expect(drawing.getByRole('button', { name: 'Save' })).toBeVisible();
         await expect(drawing.getByRole('button', { name: 'SVG' })).toBeVisible();
         await expect(drawing.getByRole('button', { name: 'DXF' })).toBeVisible();

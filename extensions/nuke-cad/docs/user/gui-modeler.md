@@ -1216,10 +1216,12 @@ for the current document:
    view. Grid and 5 mm snapping have their own toggles.
 4. The right inspector lists the sheet, the selected view, its scale,
    hidden-line toggle, delete actions, all views, and all dimensions. **Fit**
-   chooses a standard scale for the selected view.
-5. Drag views on the sheet (5 mm snap when enabled); projected views stay
-   aligned to their parent. Dimensions stay associative — they recompute from
-   the 3D model on every build and flag `stale` when their reference breaks.
+   chooses a standard scale for the selected view from its linework; a new
+   base view that would sit as a dot at 1:1 auto-fits once.
+5. Drag views by their label or anywhere in their body area (5 mm snap when
+   enabled); projected views stay aligned to their parent. Dimensions stay
+   associative — they recompute from the 3D model on every build and flag
+   `stale` when their reference breaks.
 
 Drawing edits are saved before the linework is rebuilt, so the HLR service
 always reads the current sheet. Export SVG (native) or DXF (visible/hidden/

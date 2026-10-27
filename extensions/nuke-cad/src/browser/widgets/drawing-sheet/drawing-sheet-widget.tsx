@@ -136,6 +136,8 @@ export class DrawingSheetWidget extends ReactWidget {
     private pendingViewId: string | undefined;
     /** Live drag positions (committed to the store on pointer-up). */
     private readonly livePositions = new Map<string, [number, number]>();
+    /** Newly created base view to fit once its first projection lands. */
+    private pendingAutoFitViewId: string | undefined;
     private dragViewId: string | undefined;
     private newSheetSize: DrawingSheetSize = 'A4';
     private newViewOrientation: DrawingViewOrientation = 'front';
@@ -297,6 +299,7 @@ export class DrawingSheetWidget extends ReactWidget {
         } finally {
             this.building = false;
             this.update();
+            this.maybeAutoFitPendingView();
         }
     }
 
@@ -324,6 +327,7 @@ export class DrawingSheetWidget extends ReactWidget {
         }
         this.activeSheetId = sheetId;
         this.selectedViewId = viewResult.value;
+        this.pendingAutoFitViewId = viewResult.value;
         this.update();
         if (this.drawingBackendReady !== true) {
             void this.refreshDrawing();
@@ -392,15 +396,20 @@ export class DrawingSheetWidget extends ReactWidget {
     }
 
     private onViewPointerDown(event: React.PointerEvent, viewId: string): void {
-        if (this.tool === 'dimension' || event.button !== 0) {
+        if (this.tool === 'dimension' || event.button !== 0 || event.altKey) {
             return;
         }
         const point = this.toSheetMm(event);
         if (point === undefined) {
             return;
         }
+        event.preventDefault();
         event.stopPropagation();
-        (event.target as Element).setPointerCapture?.(event.pointerId);
+        // Capture on the view group, not the painted child: the polyline under
+        // the pointer is replaced by the next render, and capture on it would
+        // drop the drag as soon as the pointer leaves the 1 px line.
+        const target = event.currentTarget;
+        target.setPointerCapture?.(event.pointerId);
         this.selectedViewId = viewId;
         this.dragViewId = viewId;
         this.update();
@@ -434,9 +443,12 @@ export class DrawingSheetWidget extends ReactWidget {
         this.update();
     }
 
-    private onViewPointerUp(viewId: string): void {
+    private onViewPointerUp(event: React.PointerEvent, viewId: string): void {
         if (this.dragViewId !== viewId) {
             return;
+        }
+        if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+            event.currentTarget.releasePointerCapture(event.pointerId);
         }
         this.dragViewId = undefined;
         const live = this.livePositions.get(viewId);
@@ -657,6 +669,7 @@ export class DrawingSheetWidget extends ReactWidget {
             return;
         }
         this.selectedViewId = result.value;
+        this.pendingAutoFitViewId = result.value;
         this.update();
         if (this.drawingBackendReady !== true) {
             void this.refreshDrawing();
@@ -674,7 +687,15 @@ export class DrawingSheetWidget extends ReactWidget {
         if (sheet === undefined || view === undefined) {
             return;
         }
-        const bounds = this.viewBounds(view, this.viewOutput(view.id));
+        this.fitView(sheet, view);
+    }
+
+    private fitView(sheet: DrawingSheet, view: DrawingSheet['views'][number]): void {
+        const output = this.viewOutput(view.id);
+        // Fit the naked linework: the padded view bounds add a fixed 6 mm on
+        // every side, which dominates the scale factor for a millimetre-scale
+        // part and pins it to a much smaller drafting scale than it needs.
+        const bounds = this.lineworkBounds(output) ?? this.viewBounds(view, output);
         if (!(bounds.width > 1e-6) || !(bounds.height > 1e-6)) {
             this.messageService.info('Refresh the drawing before fitting this view.');
             return;
@@ -690,6 +711,31 @@ export class DrawingSheetWidget extends ReactWidget {
             this.messageService.error(`Cannot fit view: ${result.error ?? 'unknown error'}`);
         }
         this.update();
+    }
+
+    /**
+     * A new base view on a unitless/millimetre-scale model can project to a dot
+     * at 1:1. Fit it once, after its first build, when the naked linework is
+     * under 20 mm on both axes. The flag is set only on creation, so a scale
+     * the user later picks is never overwritten.
+     */
+    private maybeAutoFitPendingView(): void {
+        const viewId = this.pendingAutoFitViewId;
+        if (viewId === undefined) {
+            return;
+        }
+        this.pendingAutoFitViewId = undefined;
+        const sheet = this.activeSheet();
+        const view = sheet?.views.find((entry) => entry.id === viewId);
+        const output = this.viewOutput(viewId);
+        if (sheet === undefined || view === undefined || output === undefined || view.kind !== 'base' || view.scale !== 1) {
+            return;
+        }
+        const bounds = this.lineworkBounds(output);
+        if (bounds === undefined || Math.max(bounds.width, bounds.height) >= 20) {
+            return;
+        }
+        this.fitView(sheet, view);
     }
 
     private updateSelectedView(patch: { scale?: number; showHidden?: boolean }): void {
@@ -760,12 +806,30 @@ export class DrawingSheetWidget extends ReactWidget {
         this.update();
     }
 
-    private onCanvasWheel(event: React.WheelEvent<HTMLDivElement>): void {
+    private readonly onCanvasWheel = (event: WheelEvent): void => {
         if (!event.ctrlKey && !event.metaKey && Math.abs(event.deltaY) < 1) {
             return;
         }
+        // React's `onWheel` is registered passively at the root, so calling
+        // preventDefault there is ignored and logs a console error. This native
+        // listener is bound with `{ passive: false }` in `bindCanvas`.
         event.preventDefault();
         this.setZoom(this.zoom * (event.deltaY < 0 ? 1.12 : 1 / 1.12));
+    };
+
+    private bindCanvas = (element: HTMLDivElement | null): void => {
+        if (this.canvasRef === element) {
+            return;
+        }
+        this.canvasRef?.removeEventListener('wheel', this.onCanvasWheel);
+        this.canvasRef = element;
+        this.canvasRef?.addEventListener('wheel', this.onCanvasWheel, { passive: false });
+    };
+
+    dispose(): void {
+        this.canvasRef?.removeEventListener('wheel', this.onCanvasWheel);
+        this.canvasRef = null;
+        super.dispose();
     }
 
     private onCanvasPointerDown(event: React.PointerEvent<HTMLDivElement>): void {
@@ -833,10 +897,7 @@ export class DrawingSheetWidget extends ReactWidget {
         return scales.size === 1 ? [...scales][0] : 'AS SHOWN';
     }
 
-    private viewBounds(
-        view: DrawingSheet['views'][number],
-        output: DrawingViewOutput | undefined
-    ): { x: number; y: number; width: number; height: number } {
+    private lineworkBounds(output: DrawingViewOutput | undefined): { x: number; y: number; width: number; height: number } | undefined {
         let minX = Number.POSITIVE_INFINITY;
         let minY = Number.POSITIVE_INFINITY;
         let maxX = Number.NEGATIVE_INFINITY;
@@ -856,9 +917,20 @@ export class DrawingSheetWidget extends ReactWidget {
         for (const loop of output?.hatchLoops ?? []) {
             loop.loop.forEach(include);
         }
-        if (Number.isFinite(minX) && Number.isFinite(minY)) {
+        if (!Number.isFinite(minX) || !Number.isFinite(minY)) {
+            return undefined;
+        }
+        return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+    }
+
+    private viewBounds(
+        view: DrawingSheet['views'][number],
+        output: DrawingViewOutput | undefined
+    ): { x: number; y: number; width: number; height: number } {
+        const raw = this.lineworkBounds(output);
+        if (raw !== undefined) {
             const pad = view.kind === 'section' ? 14 : 6;
-            return { x: minX - pad, y: minY - pad, width: maxX - minX + pad * 2, height: maxY - minY + pad * 2 };
+            return { x: raw.x - pad, y: raw.y - pad, width: raw.width + pad * 2, height: raw.height + pad * 2 };
         }
         const position = this.livePositions.get(view.id) ?? view.position;
         const halfW = view.kind === 'detail' ? 28 : 35;
@@ -910,11 +982,8 @@ export class DrawingSheetWidget extends ReactWidget {
                 {this.renderNotices()}
                 <div className="nuke-cad-drawing-body">
                     <div
-                        ref={(element) => {
-                            this.canvasRef = element;
-                        }}
+                        ref={this.bindCanvas}
                         className="nuke-cad-drawing-canvas"
-                        onWheel={(event) => this.onCanvasWheel(event)}
                         onPointerDown={(event) => this.onCanvasPointerDown(event)}
                         onPointerMove={(event) => this.onCanvasPointerMove(event)}
                         onPointerUp={(event) => this.onCanvasPointerUp(event)}
@@ -1623,9 +1692,14 @@ export class DrawingSheetWidget extends ReactWidget {
      */
     private renderView(view: DrawingSheet['views'][number], sheetWidth: number, sheetHeight: number): React.ReactNode {
         const live = this.livePositions.get(view.id) ?? view.position;
-        const dx = live[0] - view.position[0];
-        const dySvg = -(live[1] - view.position[1]);
         const output = this.viewOutput(view.id);
+        // The built linework is absolute sheet-mm at the *build-time* position.
+        // Translate by the delta from that origin, not from the committed
+        // position, so a drag that commits before the next HLR build keeps its
+        // on-screen offset instead of snapping back to the stale coordinates.
+        const origin = output?.position ?? view.position;
+        const dx = live[0] - origin[0];
+        const dySvg = -(live[1] - origin[1]);
         const selected = this.selectedViewId === view.id;
         const hovered = this.hoveredViewId === view.id;
         const polylines = output?.visible ?? [];
@@ -1639,6 +1713,13 @@ export class DrawingSheetWidget extends ReactWidget {
         const chipWidth = Math.min(86, Math.max(26, chipLabel.length * 1.9 + 6));
         const chipX = Math.max(2, Math.min(bx, sheetWidth - chipWidth - 2));
         const chipY = Math.max(2, by - 7);
+        // Invisible grab area: the linework can be millimetres wide at 1:1, so
+        // a 1 px polyline is not a usable mouse target. Keep a minimum
+        // 36 × 28 mm frame around small views; larger views get 6 mm padding.
+        const hitWidth = Math.max(bounds.width + 12, 36);
+        const hitHeight = Math.max(bounds.height + 12, 28);
+        const hitX = bx - (hitWidth - bounds.width) / 2;
+        const hitY = by - (hitHeight - bounds.height) / 2;
         const toPoints = (points: readonly (readonly [number, number])[]): string =>
             points
                 .map(([px, py]) => {
@@ -1654,7 +1735,7 @@ export class DrawingSheetWidget extends ReactWidget {
                 }`}
                 onPointerDown={(e) => this.onViewPointerDown(e, view.id)}
                 onPointerMove={(e) => this.onViewPointerMove(e, view.id)}
-                onPointerUp={() => this.onViewPointerUp(view.id)}
+                onPointerUp={(e) => this.onViewPointerUp(e, view.id)}
                 onPointerEnter={() => {
                     this.hoveredViewId = view.id;
                     this.update();
@@ -1666,6 +1747,7 @@ export class DrawingSheetWidget extends ReactWidget {
                     }
                 }}
             >
+                <rect x={hitX} y={hitY} width={hitWidth} height={hitHeight} className="nuke-cad-drawing-view-hit" />
                 {(selected || hovered) && (
                     <rect
                         x={bx - 3}
@@ -1727,7 +1809,7 @@ export class DrawingSheetWidget extends ReactWidget {
                 {view.kind === 'detail' && view.detailRadius !== undefined && (
                     <circle cx={cx} cy={cy} r={view.detailRadius * view.scale} className="nuke-cad-drawing-detail" />
                 )}
-                <g className="nuke-cad-drawing-view-chip" transform={`translate(${chipX} ${chipY})`} pointerEvents="none">
+                <g className="nuke-cad-drawing-view-chip" transform={`translate(${chipX} ${chipY})`}>
                     <rect width={chipWidth} height={5.6} rx={1.2} className="nuke-cad-drawing-view-chip-bg" />
                     <text x={3} y={3.9} className="nuke-cad-drawing-view-chip-text">
                         {chipLabel}
