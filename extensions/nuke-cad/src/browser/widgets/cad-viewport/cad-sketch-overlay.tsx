@@ -246,6 +246,9 @@ const TOOLS: Array<{ tool: SketchTool; label: string; icon: string; key: string 
     { tool: 'mirrorTool', label: 'Mirror', icon: 'codicon-nuke-cad-mirror', key: keyFor('mirrorTool') }
 ];
 
+/** Gesture tools that operate on the current selection and require one. */
+const TRANSFORM_GESTURE_TOOLS: ReadonlySet<SketchTool> = new Set(['move', 'copy', 'rotate', 'mirrorTool']);
+
 /** Snap-radius presets in screen pixels; M matches the session default. */
 const SNAP_RADIUS_PRESETS: ReadonlyArray<{ label: string; px: number }> = [
     { label: 'S', px: 6 },
@@ -438,6 +441,7 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
     const tool = controller.getTool();
     const construction = controller.getConstruction();
     const status = controller.getStatus();
+    const selectionCount = controller.getSelection().size;
     const constraintInput = controller.getConstraintInput();
     const dimensions = active ? controller.getDimensions() : [];
     const dimensionLabels = active ? controller.getDimensionLabels() : [];
@@ -587,7 +591,9 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
         active && tool === 'select' && constraintInput === undefined
             ? 'Click: select · Ctrl+Click: multi-select / relations · Q: shortcut bar · Del: delete · Esc: clear'
             : gestureHint;
-    const hintText = buildHintText(status, refCounts, selectHint);
+    const hintParts = buildHintParts(status, refCounts, selectHint);
+    const hintText = hintTextOf(hintParts);
+    const hintIsWarning = hintParts.transient !== undefined && status.hintKind === 'warning';
     const hasDiagnostics =
         status.conflicting.length > 0 || status.redundant.length > 0 || refCounts.ambiguous > 0 || refCounts.unmatched > 0;
 
@@ -972,7 +978,11 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
                     title={hasDiagnostics ? 'Open solver diagnostics' : undefined}
                 >
                     <span className="cad-sketch-status-hints" title={hintText}>
-                        {hintText}
+                        {hintParts.context.length > 0 && hintParts.context.join(' · ')}
+                        {hintParts.context.length > 0 && hintParts.transient !== undefined ? ' · ' : ''}
+                        {hintParts.transient !== undefined && (
+                            <span className={hintIsWarning ? 'cad-sketch-status-hint-warning' : undefined}>{hintParts.transient}</span>
+                        )}
                     </span>
                     <span className="cad-sketch-status-badges">
                         {status.conflicting.length > 0 && (
@@ -989,6 +999,22 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
                                 title={`${status.redundant.length} redundant constraint${status.redundant.length === 1 ? '' : 's'}`}
                             >
                                 {status.redundant.length} redundant
+                            </span>
+                        )}
+                        {selectionCount > 0 && (
+                            <span
+                                className="cad-sketch-status-badge cad-sketch-status-badge-muted"
+                                title={`${selectionCount} selected sketch ${selectionCount === 1 ? 'entity' : 'entities'}`}
+                            >
+                                {selectionCount} selected
+                            </span>
+                        )}
+                        {construction && (
+                            <span
+                                className="cad-sketch-status-badge cad-sketch-status-badge-muted"
+                                title="New geometry is construction geometry"
+                            >
+                                Construction
                             </span>
                         )}
                         <span
@@ -1705,6 +1731,15 @@ function SketchToolbar(props: SketchToolbarProps): React.ReactElement {
     };
 
     const selectedSketchId = documentStore.selection.selectedSketchId;
+    const selectedSketch =
+        selectedSketchId !== undefined ? documentStore.document?.sketches.find((sketch) => sketch.id === selectedSketchId) : undefined;
+    const selectionCount = controller.getSelection().size;
+    const carbonCopyTooltip =
+        selectedSketch !== undefined ? `Carbon copy ${selectedSketch.name}…` : 'Carbon copy — Select a sketch in the Feature Tree first';
+    const externalGeometryTooltip =
+        externalGeometryTarget !== undefined
+            ? `External geometry from ${externalGeometryTarget.id}`
+            : 'No target feature selected for external geometry';
 
     const handleCarbonCopy = async (): Promise<void> => {
         const session = controller.getSession();
@@ -1831,16 +1866,25 @@ function SketchToolbar(props: SketchToolbarProps): React.ReactElement {
                 <div className="cad-sketch-toolbar-body">
                     <div className="cad-sketch-toolbar-group">
                         <div className="cad-sketch-toolbar-group-label">Draw</div>
-                        {TOOLS.map(({ tool: t, label, icon, key }) => (
-                            <Tooltip key={t} content={`${label} (${key})`} position="bottom">
-                                <button
-                                    className={`theia-button secondary cad-sketch-tool-button ${tool === t ? 'active' : ''}`}
-                                    onClick={() => controller.setTool(t)}
+                        {TOOLS.map(({ tool: t, label, icon, key }) => {
+                            const disabled = TRANSFORM_GESTURE_TOOLS.has(t) && selectionCount === 0;
+                            return (
+                                <Tooltip
+                                    key={t}
+                                    content={disabled ? `${label} — Select entities first` : `${label} (${key})`}
+                                    position="bottom"
                                 >
-                                    <span className={`codicon ${icon}`} />
-                                </button>
-                            </Tooltip>
-                        ))}
+                                    <button
+                                        className={`theia-button secondary cad-sketch-tool-button ${tool === t ? 'active' : ''}`}
+                                        disabled={disabled}
+                                        aria-disabled={disabled}
+                                        onClick={() => controller.setTool(t)}
+                                    >
+                                        <span className={`codicon ${icon}`} />
+                                    </button>
+                                </Tooltip>
+                            );
+                        })}
                     </div>
                     <div className="cad-sketch-toolbar-separator" />
                     <div className="cad-sketch-toolbar-group">
@@ -1861,10 +1905,11 @@ function SketchToolbar(props: SketchToolbarProps): React.ReactElement {
                                 <span className="codicon codicon-edit" />
                             </button>
                         </Tooltip>
-                        <Tooltip content="External Geometry" position="bottom">
+                        <Tooltip content={externalGeometryTooltip} position="bottom">
                             <button
                                 className={`theia-button secondary cad-sketch-tool-button ${facePickMode === 'externalGeometry' ? 'active' : ''}`}
                                 disabled={externalGeometryTarget === undefined}
+                                aria-disabled={externalGeometryTarget === undefined}
                                 onClick={() => {
                                     if (facePickMode === 'externalGeometry') {
                                         onCancelFacePick();
@@ -1876,8 +1921,13 @@ function SketchToolbar(props: SketchToolbarProps): React.ReactElement {
                                 <span className="codicon codicon-nuke-cad-external-ref" />
                             </button>
                         </Tooltip>
-                        <Tooltip content="Carbon Copy (import the Feature-Tree-selected sketch)" position="bottom">
-                            <button className="theia-button secondary cad-sketch-tool-button" onClick={() => void handleCarbonCopy()}>
+                        <Tooltip content={carbonCopyTooltip} position="bottom">
+                            <button
+                                className="theia-button secondary cad-sketch-tool-button"
+                                disabled={selectedSketch === undefined}
+                                aria-disabled={selectedSketch === undefined}
+                                onClick={() => void handleCarbonCopy()}
+                            >
                                 <span className="codicon codicon-copy" />
                             </button>
                         </Tooltip>
@@ -2292,6 +2342,11 @@ interface TransformActionsProps {
 function TransformActions(props: TransformActionsProps): React.ReactElement {
     const { controller, tool, messageService } = props;
     const [open, setOpen] = React.useState<'scale' | 'array' | 'offset' | undefined>(undefined);
+    const selectionCount = controller.getSelection().size;
+    const selectionDisabled = selectionCount === 0;
+    const selectionReason = 'Select entities first';
+    const joinDisabled = (controller.getSession()?.findOpenVertices().length ?? 0) < 2;
+    const joinReason = 'No open wire ends';
 
     // Mirror activation guard: the TOOLS button routes straight through
     // controller.setTool, so the axis check runs here on entry and only warns.
@@ -2338,32 +2393,43 @@ function TransformActions(props: TransformActionsProps): React.ReactElement {
             <div className="cad-sketch-toolbar-separator" />
             <div className="cad-sketch-toolbar-group">
                 <div className="cad-sketch-toolbar-group-label">Transform</div>
-                <Tooltip content="Scale selection…" position="bottom">
+                <Tooltip content={selectionDisabled ? `Scale selection — ${selectionReason}` : 'Scale selection…'} position="bottom">
                     <button
                         className={`theia-button secondary cad-sketch-tool-button ${open === 'scale' ? 'active' : ''}`}
+                        disabled={selectionDisabled}
+                        aria-disabled={selectionDisabled}
                         onClick={() => togglePopover('scale')}
                     >
                         <span className="codicon codicon-nuke-cad-scale" />
                     </button>
                 </Tooltip>
-                <Tooltip content="Rectangular array…" position="bottom">
+                <Tooltip content={selectionDisabled ? `Rectangular array — ${selectionReason}` : 'Rectangular array…'} position="bottom">
                     <button
                         className={`theia-button secondary cad-sketch-tool-button ${open === 'array' ? 'active' : ''}`}
+                        disabled={selectionDisabled}
+                        aria-disabled={selectionDisabled}
                         onClick={() => togglePopover('array')}
                     >
                         <span className="codicon codicon-nuke-cad-array" />
                     </button>
                 </Tooltip>
-                <Tooltip content="Offset wire…" position="bottom">
+                <Tooltip content={selectionDisabled ? `Offset wire — ${selectionReason}` : 'Offset wire…'} position="bottom">
                     <button
                         className={`theia-button secondary cad-sketch-tool-button ${open === 'offset' ? 'active' : ''}`}
+                        disabled={selectionDisabled}
+                        aria-disabled={selectionDisabled}
                         onClick={() => togglePopover('offset')}
                     >
                         <span className="codicon codicon-nuke-cad-offset" />
                     </button>
                 </Tooltip>
-                <Tooltip content="Join open ends" position="bottom">
-                    <button className="theia-button secondary cad-sketch-tool-button" onClick={runJoin}>
+                <Tooltip content={joinDisabled ? `Join open ends — ${joinReason}` : 'Join open ends'} position="bottom">
+                    <button
+                        className="theia-button secondary cad-sketch-tool-button"
+                        disabled={joinDisabled}
+                        aria-disabled={joinDisabled}
+                        onClick={runJoin}
+                    >
                         <span className="codicon codicon-nuke-cad-join" />
                     </button>
                 </Tooltip>
@@ -5532,6 +5598,7 @@ function ParametersPanel(props: ParametersPanelProps): React.ReactElement {
 
     return (
         <DraggableNukePanel drag={props.drag} className="cad-sketch-parameters-panel" title="Parameters" onClose={onClose}>
+            <div className="cad-sketch-parameters-subtitle">Sketch values merge into the document parameter table on finish.</div>
             <div className="cad-sketch-parameters-list">
                 {Object.entries(parameters).map(([name, value]) => (
                     <div key={name} className="cad-sketch-parameter-row">
@@ -5770,31 +5837,39 @@ export function formatDimensionWithUnits(text: string, units: DocumentUnits | un
     return units === undefined ? text : `${text} ${units}`;
 }
 
+interface HintParts {
+    /** Placement, auto-constraint, and reference counts (always info). */
+    context: string[];
+    /** Transient gesture feedback, rendered with its own severity. */
+    transient?: string;
+}
+
 /**
  * Left side of the sketch status line: transient hints only. Solver state
  * (conflicts/redundancy/DOF) belongs to the adjacent badges, not this text.
  */
-function buildHintText(status: SketchStatus, referenceCounts?: ReferenceCounts, selectHint?: string): string {
-    const parts: string[] = [];
+function buildHintParts(status: SketchStatus, referenceCounts?: ReferenceCounts, selectHint?: string): HintParts {
+    const context: string[] = [];
     if (selectHint !== undefined) {
-        parts.push(selectHint);
+        context.push(selectHint);
     }
     if (referenceCounts !== undefined) {
         if (referenceCounts.ambiguous > 0) {
-            parts.push(`${referenceCounts.ambiguous} ambiguous ref${referenceCounts.ambiguous === 1 ? '' : 's'}`);
+            context.push(`${referenceCounts.ambiguous} ambiguous ref${referenceCounts.ambiguous === 1 ? '' : 's'}`);
         }
         if (referenceCounts.unmatched > 0) {
-            parts.push(`${referenceCounts.unmatched} unmatched ref${referenceCounts.unmatched === 1 ? '' : 's'}`);
+            context.push(`${referenceCounts.unmatched} unmatched ref${referenceCounts.unmatched === 1 ? '' : 's'}`);
         }
     }
     if (status.lastAutoConstraints.length > 0) {
         const kinds = status.lastAutoConstraints.map((a) => a.kind).join(', ');
-        parts.push(`Auto: ${kinds}`);
+        context.push(`Auto: ${kinds}`);
     }
-    if (status.hint !== undefined) {
-        parts.push(status.hint);
-    }
-    return parts.join(' · ');
+    return { context, transient: status.hint };
+}
+
+function hintTextOf(parts: HintParts): string {
+    return [...parts.context, ...(parts.transient !== undefined ? [parts.transient] : [])].join(' · ');
 }
 
 interface ReferenceCounts {

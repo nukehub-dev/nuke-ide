@@ -974,10 +974,12 @@ describe('SketchSession', () => {
 
             expect(session.getPrimitives().filter((p) => p.type === 'ellipse')).toHaveLength(0);
             expect(session.getStatus().hint).toContain('Circle tool');
+            expect(session.getStatus().hintKind).toBe('warning');
             // The gesture stays alive: a corrected click completes the ellipse.
             await session.click({ x: 2, y: 4 });
             expect(session.getPrimitives().filter((p) => p.type === 'ellipse')).toHaveLength(1);
             expect(session.getStatus().hint).toBeUndefined();
+            expect(session.getStatus().hintKind).toBeUndefined();
         });
 
         it('clamps a minor radius above the major radius with a hint', async () => {
@@ -1466,6 +1468,7 @@ describe('SketchSession', () => {
             await session.click({ x: 5, y: 0 });
             expect(session.getPrimitives().filter((p) => p.type === 'arc')).toHaveLength(0);
             expect(session.getStatus().hint).toContain('width');
+            expect(session.getStatus().hintKind).toBe('warning');
         });
 
         it('cancels staged slot centers', async () => {
@@ -2168,6 +2171,7 @@ describe('SketchSession', () => {
             session.cycleMode();
             expect(session.getRectangleMode()).toBe('center');
             expect(session.getStatus().hint).toContain('center');
+            expect(session.getStatus().hintKind).toBe('info');
             session.cycleMode();
             expect(session.getRectangleMode()).toBe('rounded');
             session.cycleMode();
@@ -2615,6 +2619,7 @@ describe('SketchSession', () => {
             session.setSnapEnabled(false);
             await session.click({ x: 0, y: 0 });
             expect(session.getStatus().hint).toContain('selection');
+            expect(session.getStatus().hintKind).toBe('warning');
         });
 
         it('copies the selection leaving the originals in place', async () => {

@@ -719,6 +719,10 @@
     padding: 0;
 }
 
+.cad-sketch-tool-button:disabled {
+    cursor: not-allowed;
+}
+
 .cad-sketch-tool-button.active,
 .cad-sketch-tool-button.theia-button.secondary.active {
     background: var(--theia-focusBorder);
@@ -1093,6 +1097,10 @@
     text-overflow: ellipsis;
 }
 
+.cad-sketch-status-hint-warning {
+    color: var(--theia-editorWarning-foreground);
+}
+
 .cad-sketch-status-badges {
     display: flex;
     flex: 0 0 auto;
@@ -1239,6 +1247,12 @@
     right: 8px;
     width: 260px;
     max-height: calc(100% - 88px);
+}
+
+.cad-sketch-parameters-subtitle {
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size0);
+    line-height: 1.4;
 }
 
 .cad-sketch-parameters-list {

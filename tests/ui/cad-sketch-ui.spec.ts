@@ -178,6 +178,19 @@ test('edit sketch re-enters directly and transform tools use the selected geomet
     await datumPicker.locator('button', { hasText: 'Start Sketch' }).first().click();
     const finish = viewport.locator('.cad-sketch-finish-button');
     await expect(finish).toBeVisible({ timeout: 30_000 });
+    const sketchToolbar = viewport.locator('.cad-sketch-toolbar').first();
+    const selectionBadge = viewport.locator('.cad-sketch-status-badge').filter({ hasText: /^\d+ selected$/ });
+    const constructionBadge = viewport.locator('.cad-sketch-status-badge').filter({ hasText: /^Construction$/ });
+    const transformIcons = ['move', 'copy', 'rotate', 'mirror', 'scale', 'array', 'offset'];
+    const transformButton = (icon: string) => sketchToolbar.locator(`button:has(.codicon-nuke-cad-${icon})`);
+
+    // An empty selection hides the selection badge and disables every
+    // selection transform, so the action cannot only fail after the click.
+    await expect(selectionBadge).toBeHidden();
+    await expect(constructionBadge).toBeHidden();
+    for (const icon of transformIcons) {
+        await expect(transformButton(icon)).toBeDisabled();
+    }
 
     const viewportBox = await viewport.boundingBox();
     expect(viewportBox, 'viewport has no bounding box').not.toBeNull();
@@ -226,8 +239,22 @@ test('edit sketch re-enters directly and transform tools use the selected geomet
     }
     await page.keyboard.press('s');
     await click(600, 420);
+    // Selecting a primitive shows the selection badge and arms the transforms.
+    await expect(selectionBadge).toHaveText('1 selected');
+    for (const icon of transformIcons) {
+        await expect(transformButton(icon)).toBeEnabled();
+    }
+
+    // Construction is a status-line state, not only a toolbar highlight.
+    const constructionToggle = sketchToolbar.locator('button:has(.codicon-nuke-cad-construction)');
+    await constructionToggle.click();
+    await expect(constructionBadge).toHaveText('Construction');
+    await expect(constructionBadge).toBeVisible();
+    await constructionToggle.click();
+    await expect(constructionBadge).toBeHidden();
+
     // The transform value popovers must escape the palette's scroll clipping.
-    await viewport.locator('.cad-sketch-toolbar button:has(.codicon-nuke-cad-scale)').click();
+    await transformButton('scale').click();
     const scalePopover = page.locator('.cad-sketch-dimension-popover').filter({ hasText: 'Scale' });
     await expect(scalePopover).toBeVisible();
     await scalePopover.getByRole('button', { name: 'Cancel' }).click();
@@ -236,6 +263,13 @@ test('edit sketch re-enters directly and transform tools use the selected geomet
     await click(600, 420);
     await click(600, 470);
     await expect(hint).not.toContainText('needs a selection');
+
+    // Clearing the selection hides the badge and re-disables the transforms.
+    await page.keyboard.press('Escape');
+    await expect(selectionBadge).toBeHidden();
+    for (const icon of transformIcons) {
+        await expect(transformButton(icon)).toBeDisabled();
+    }
     await finish.click();
     await expect(viewport.locator('.cad-document-toolbar').first()).toBeVisible({ timeout: 30_000 });
     await dismissSaveDialog();

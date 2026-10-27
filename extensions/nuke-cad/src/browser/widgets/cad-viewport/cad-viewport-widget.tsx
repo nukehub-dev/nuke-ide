@@ -2346,7 +2346,9 @@ export class CadViewportWidget extends ReactWidget {
         this.facePickMode = undefined;
         this.sketchEntering = true;
         this.update();
-        void this.doEnterSketch(datum.kind, datum.offset ?? 0, datum.reference);
+        // Legacy `offset` datums are XY planes displaced along Z.
+        const kind = datum.kind === 'offset' ? 'XY' : datum.kind;
+        void this.doEnterSketch(kind, datum.offset ?? 0, datum.reference);
     };
 
     protected readonly handleStartFacePick = (offset: number): void => {

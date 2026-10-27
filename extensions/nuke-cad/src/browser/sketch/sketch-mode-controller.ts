@@ -1476,7 +1476,7 @@ export class SketchModeController {
         // still highlight when snapping is off.
         const pick = this.lastPointer !== undefined ? this.computeSnap(this.lastPointer, true) : this.lastSnap;
         const id =
-            this.session !== undefined && this.lastSnap !== undefined && this.session.getTool() === 'select'
+            this.session !== undefined && pick !== undefined && this.session.getTool() === 'select'
                 ? this.hoveredPrimitiveId(pick)
                 : undefined;
         if (id === this.hoverPrimitiveId) {

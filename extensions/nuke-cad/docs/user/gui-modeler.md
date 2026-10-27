@@ -405,7 +405,11 @@ Delete/Backspace to remove the selection (deleting a point cascades to its
 primitive). Escape works stepwise: it cancels the entity being drawn first,
 then clears the selection, and finally returns you to the Select tool from
 any drawing tool. The status line reminds you of these bindings while Select
-is active.
+is active, shows `N selected` and a `Construction` badge, and renders failed
+gestures as warnings. Selection transforms (Move/Copy/Rotate/Mirror and
+Scale/Array/Offset) stay disabled until something is selected; Carbon Copy
+needs a Feature-Tree sketch and External Geometry needs a solid feature, with
+the target named in the tooltip.
 
 ### Speed-modeling interactions
 
@@ -1215,14 +1219,18 @@ for the current document:
    projected, section, or detail views, **Pick in viewport** for dimensions,
    **Save**, **Refresh**, and **SVG**/**DXF** export.
 3. The sheet is rendered as a framed drawing with a title block. Use the
-   zoom controls, mouse wheel, or middle-drag to pan; **Fit sheet** resets the
-   view. Grid and 5 mm snapping have their own toggles.
+   zoom controls, mouse wheel (zooms toward the pointer), or middle/Alt/Space
+   left-drag to pan; **Fit sheet** resets the view. Grid and 5 mm snapping have
+   their own toggles.
 4. The right inspector lists the sheet, the selected view, its scale,
    hidden-line toggle, delete actions, all views, and all dimensions. **Fit**
    chooses a standard scale for the selected view from its linework; a new
-   base view that would sit as a dot at 1:1 auto-fits once.
+   base view that would sit as a dot at 1:1 auto-fits once. The status bar
+   shows the selected view's kind, scale, and linework extent.
 5. Drag views by their label or anywhere in their body area (5 mm snap when
-   enabled); projected views stay aligned to their parent. Dimensions stay
+   enabled); projected views stay aligned to their parent. Right-click a view
+   for **Fit view**, hidden-line toggle, standard scales, **Scale…**, and
+   **Delete view**; double-click a view to fit it. Dimensions stay
    associative — they recompute from the 3D model on every build and flag
    `stale` when their reference breaks.
 

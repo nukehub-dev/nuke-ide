@@ -39,6 +39,11 @@
  * patterns: a dragged label pins a session-scoped offset, otherwise labels
  * auto-deconflict.
  *
+ * Canvas navigation is cursor-anchored wheel zoom plus middle/Alt/Space-drag
+ * panning (grab/grabbing cursors), with a per-view context menu for fit,
+ * hidden lines, standard scales, and delete. The status bar reports the
+ * selected view's scale and naked linework extent.
+ *
  * Dirty drawing state triggers `buildDrawing` (shared `NukeCadBackendService`
  * RPC → `python/geometry_service.py --from-drawing`), never a full geometry
  * rebuild.
@@ -85,6 +90,14 @@ import {
 } from '../../../common/cad-drawing';
 import { CadDocumentStore } from '../../document/cad-document-store';
 import { ensureNukeCadExtension } from '../cad-viewport/cad-save-path';
+import { openContextMenu } from '../cad-viewport/viewport-context-menu';
+import {
+    buildDrawingViewMenu,
+    clampDrawingZoom,
+    formatDrawingExtent,
+    zoomDrawingAtPoint,
+    type DrawingViewMenuAction
+} from './drawing-sheet-interactions';
 import {
     NukeCheckbox,
     NukeFormRow,
@@ -151,7 +164,17 @@ export class DrawingSheetWidget extends ReactWidget {
     private showFrame = true;
     private inspectorOpen = true;
     private hoveredViewId: string | undefined;
-    private panDrag: { startX: number; startY: number; panX: number; panY: number } | undefined;
+    private panDrag: { startX: number; startY: number; panX: number; panY: number; pointerId: number } | undefined;
+    /** Relative view drag: press point and the view position at press time. */
+    private viewDragStart: { viewId: string; startPoint: [number, number]; startPosition: [number, number] } | undefined;
+    /** The current view press moved; never treat its click tail as a double-click. */
+    private viewDragMoved = false;
+    /** Space is held: the canvas shows `grab` and left-drag pans. */
+    private spaceHeld = false;
+    /** Window-level Space handling only applies while the pointer is over the canvas. */
+    private pointerOverCanvas = false;
+    /** Dismisses the open view context menu (shared renderer close). */
+    private closeViewMenu: (() => void) | undefined;
     /**
      * Tracks the first build: unknown until a Refresh succeeds (true) or
      * fails loudly (false). Auto-refresh on drawing edits fires only once
@@ -269,6 +292,9 @@ export class DrawingSheetWidget extends ReactWidget {
     }
 
     private async refreshDrawing(): Promise<void> {
+        // A rebuild replaces view linework under the pointer; a menu captured
+        // against the old view is no longer meaningful.
+        this.closeViewMenu?.();
         const sheet = this.activeSheet();
         if (sheet === undefined) {
             return;
@@ -298,6 +324,8 @@ export class DrawingSheetWidget extends ReactWidget {
             this.messageService.error(`Drawing build failed (${message}). Sheet edits are saved in the document.`);
         } finally {
             this.building = false;
+            // A completion swaps the linework under any menu opened mid-build.
+            this.closeViewMenu?.();
             this.update();
             this.maybeAutoFitPendingView();
         }
@@ -396,6 +424,15 @@ export class DrawingSheetWidget extends ReactWidget {
     }
 
     private onViewPointerDown(event: React.PointerEvent, viewId: string): void {
+        // The view stops propagation for dragging, so an open menu would miss
+        // the shared renderer's window-level outside-pointerdown close.
+        this.closeViewMenu?.();
+        this.viewDragMoved = false;
+        // Space is the pan modifier: let the event bubble to the canvas pan
+        // handler instead of starting a view drag.
+        if (this.spaceHeld) {
+            return;
+        }
         if (this.tool === 'dimension' || event.button !== 0 || event.altKey) {
             return;
         }
@@ -405,11 +442,18 @@ export class DrawingSheetWidget extends ReactWidget {
         }
         event.preventDefault();
         event.stopPropagation();
+        this.canvasRef?.focus({ preventScroll: true });
         // Capture on the view group, not the painted child: the polyline under
         // the pointer is replaced by the next render, and capture on it would
         // drop the drag as soon as the pointer leaves the 1 px line.
         const target = event.currentTarget;
         target.setPointerCapture?.(event.pointerId);
+        const sheet = this.activeSheet();
+        const view = sheet?.views.find((entry) => entry.id === viewId);
+        if (sheet === undefined || view === undefined) {
+            return;
+        }
+        this.viewDragStart = { viewId, startPoint: point, startPosition: [...view.position] };
         this.selectedViewId = viewId;
         this.dragViewId = viewId;
         this.update();
@@ -425,12 +469,20 @@ export class DrawingSheetWidget extends ReactWidget {
             return;
         }
         const view = sheet.views.find((v) => v.id === viewId);
-        if (view === undefined) {
+        const start = this.viewDragStart;
+        if (view === undefined || start === undefined || start.viewId !== viewId) {
             return;
         }
-        let next: [number, number] = this.snapEnabled
-            ? [snapDrawingPosition(point[0]), snapDrawingPosition(point[1])]
-            : [point[0], point[1]];
+        // Drag relative to the press point: grabbing a label or any part of a
+        // view moves it by the pointer delta instead of teleporting its center
+        // to the cursor.
+        let next: [number, number] = [
+            start.startPosition[0] + (point[0] - start.startPoint[0]),
+            start.startPosition[1] + (point[1] - start.startPoint[1])
+        ];
+        if (this.snapEnabled) {
+            next = [snapDrawingPosition(next[0]), snapDrawingPosition(next[1])];
+        }
         if (view.kind !== 'base' && view.parentId !== undefined) {
             const parent = sheet.views.find((v) => v.id === view.parentId);
             if (parent !== undefined) {
@@ -440,6 +492,7 @@ export class DrawingSheetWidget extends ReactWidget {
         }
         const { width, height } = sheetDimensions(sheet.size);
         this.livePositions.set(viewId, clampSheetPosition(next, width, height));
+        this.viewDragMoved = true;
         this.update();
     }
 
@@ -451,6 +504,7 @@ export class DrawingSheetWidget extends ReactWidget {
             event.currentTarget.releasePointerCapture(event.pointerId);
         }
         this.dragViewId = undefined;
+        this.viewDragStart = undefined;
         const live = this.livePositions.get(viewId);
         this.livePositions.delete(viewId);
         const sheet = this.activeSheet();
@@ -622,8 +676,15 @@ export class DrawingSheetWidget extends ReactWidget {
         if (sheet === undefined || this.svgRef === null) {
             return;
         }
+        this.closeViewMenu?.();
+        if (this.spaceHeld) {
+            // Space owns the gesture: let the label drag bubble to the canvas
+            // pan handler like a view does.
+            return;
+        }
         event.stopPropagation();
         event.preventDefault();
+        this.canvasRef?.focus({ preventScroll: true });
         const start = this.clientToSheetMm(event.clientX, event.clientY);
         if (start === undefined) {
             return;
@@ -744,6 +805,10 @@ export class DrawingSheetWidget extends ReactWidget {
         if (sheet === undefined || view === undefined) {
             return;
         }
+        this.updateView(sheet, view, patch);
+    }
+
+    private updateView(sheet: DrawingSheet, view: DrawingSheet['views'][number], patch: { scale?: number; showHidden?: boolean }): void {
         const result = this.documentStore.updateView(sheet.id, view.id, patch);
         if (!result.success) {
             this.messageService.error(`Cannot update view: ${result.error ?? 'unknown error'}`);
@@ -757,16 +822,23 @@ export class DrawingSheetWidget extends ReactWidget {
         if (sheet === undefined || view === undefined) {
             return;
         }
+        this.deleteView(sheet, view);
+    }
+
+    private deleteView(sheet: DrawingSheet, view: DrawingSheet['views'][number]): void {
         const result = this.documentStore.deleteView(sheet.id, view.id);
         if (!result.success) {
             this.messageService.error(`Cannot delete view: ${result.error ?? 'unknown error'}`);
             return;
         }
-        this.selectedViewId = undefined;
+        if (this.selectedViewId === view.id) {
+            this.selectedViewId = undefined;
+        }
         this.update();
     }
 
     private deleteSelectedSheet(): void {
+        this.closeViewMenu?.();
         const sheet = this.activeSheet();
         if (sheet === undefined) {
             return;
@@ -795,7 +867,7 @@ export class DrawingSheetWidget extends ReactWidget {
     }
 
     private setZoom(next: number): void {
-        this.zoom = Math.min(Math.max(Number.isFinite(next) ? next : 1, 0.4), 4);
+        this.zoom = clampDrawingZoom(next);
         this.update();
     }
 
@@ -814,35 +886,153 @@ export class DrawingSheetWidget extends ReactWidget {
         // preventDefault there is ignored and logs a console error. This native
         // listener is bound with `{ passive: false }` in `bindCanvas`.
         event.preventDefault();
-        this.setZoom(this.zoom * (event.deltaY < 0 ? 1.12 : 1 / 1.12));
+        this.closeViewMenu?.();
+        const canvas = this.canvasRef;
+        if (canvas === null) {
+            return;
+        }
+        const rect = canvas.getBoundingClientRect();
+        const state = zoomDrawingAtPoint(
+            { zoom: this.zoom, panX: this.panX, panY: this.panY },
+            { x: event.clientX - rect.left, y: event.clientY - rect.top },
+            { x: canvas.clientWidth / 2, y: canvas.clientHeight / 2 },
+            this.zoom * (event.deltaY < 0 ? 1.12 : 1 / 1.12)
+        );
+        this.zoom = state.zoom;
+        this.panX = state.panX;
+        this.panY = state.panY;
+        this.update();
     };
 
     private bindCanvas = (element: HTMLDivElement | null): void => {
         if (this.canvasRef === element) {
             return;
         }
-        this.canvasRef?.removeEventListener('wheel', this.onCanvasWheel);
+        const previous = this.canvasRef;
+        if (previous !== null) {
+            this.closeViewMenu?.();
+            previous.removeEventListener('wheel', this.onCanvasWheel);
+            window.removeEventListener('keydown', this.onWindowKeyDown);
+            window.removeEventListener('keyup', this.onWindowKeyUp);
+            window.removeEventListener('blur', this.onWindowBlur);
+        }
         this.canvasRef = element;
-        this.canvasRef?.addEventListener('wheel', this.onCanvasWheel, { passive: false });
+        if (element !== null) {
+            element.addEventListener('wheel', this.onCanvasWheel, { passive: false });
+            window.addEventListener('keydown', this.onWindowKeyDown);
+            window.addEventListener('keyup', this.onWindowKeyUp);
+            window.addEventListener('blur', this.onWindowBlur);
+        } else {
+            // Leaving the document unmounts the canvas mid-gesture; drop the
+            // Space/pan state so the next canvas does not open in grab mode.
+            this.pointerOverCanvas = false;
+            this.spaceHeld = false;
+            this.panDrag = undefined;
+        }
     };
 
     dispose(): void {
+        this.closeViewMenu?.();
         this.canvasRef?.removeEventListener('wheel', this.onCanvasWheel);
         this.canvasRef = null;
+        window.removeEventListener('keydown', this.onWindowKeyDown);
+        window.removeEventListener('keyup', this.onWindowKeyUp);
+        window.removeEventListener('blur', this.onWindowBlur);
         super.dispose();
     }
 
-    private onCanvasPointerDown(event: React.PointerEvent<HTMLDivElement>): void {
-        if (event.button !== 1 && !(event.button === 0 && event.altKey)) {
+    /**
+     * Space panning is window-scoped while the pointer is over the canvas, so a
+     * page-level focus (no control owns the key) can pan without clicking the
+     * canvas first. The canvas key handlers below cover a focused canvas even
+     * after the pointer leaves it.
+     */
+    private readonly onWindowKeyDown = (event: KeyboardEvent): void => {
+        if (event.code !== 'Space' || event.defaultPrevented || this.closeViewMenu !== undefined) {
+            return;
+        }
+        if (!this.pointerOverCanvas || isEditableKeyTarget(event.target)) {
+            return;
+        }
+        // The canvas key handler owns a focused canvas; this window fallback
+        // only covers a page-level focus (no control owns Space). Leaving
+        // toolbar/inspector buttons alone keeps their native Space activation.
+        const target = event.target;
+        const pageTarget = target === document.body || target === document.documentElement;
+        const canvas = this.canvasRef;
+        const canvasTarget = canvas !== null && target instanceof Node && (target === canvas || canvas.contains(target));
+        if (!pageTarget && !canvasTarget) {
+            return;
+        }
+        // Block the workbench/page scroll and arm the grab cursor.
+        event.preventDefault();
+        this.setSpaceHeld(true);
+    };
+
+    private readonly onWindowKeyUp = (event: KeyboardEvent): void => {
+        if (event.code === 'Space') {
+            this.setSpaceHeld(false);
+        }
+    };
+
+    private readonly onWindowBlur = (): void => {
+        this.setSpaceHeld(false);
+        this.finishPanDrag();
+    };
+
+    private setSpaceHeld(next: boolean): void {
+        if (this.spaceHeld === next) {
+            return;
+        }
+        this.spaceHeld = next;
+        if (!next) {
+            // Releasing Space ends an in-flight pan; the gesture is modifier-owned.
+            this.finishPanDrag();
+        }
+        this.update();
+    }
+
+    private onCanvasKeyDown(event: React.KeyboardEvent<HTMLDivElement>): void {
+        if (event.code !== 'Space' || event.defaultPrevented || this.closeViewMenu !== undefined || isEditableKeyTarget(event.target)) {
             return;
         }
         event.preventDefault();
-        this.panDrag = { startX: event.clientX, startY: event.clientY, panX: this.panX, panY: this.panY };
-        this.canvasRef?.setPointerCapture(event.pointerId);
+        this.setSpaceHeld(true);
+    }
+
+    private onCanvasKeyUp(event: React.KeyboardEvent<HTMLDivElement>): void {
+        if (event.code === 'Space') {
+            event.preventDefault();
+            this.setSpaceHeld(false);
+        }
+    }
+
+    private onCanvasBlur(): void {
+        this.setSpaceHeld(false);
+        this.finishPanDrag();
+    }
+
+    private onCanvasPointerDown(event: React.PointerEvent<HTMLDivElement>): void {
+        // Keep the canvas focused so Space reaches its key handlers even when
+        // the workbench would otherwise own the keystroke.
+        event.currentTarget.focus({ preventScroll: true });
+        if (event.button !== 1 && !(event.button === 0 && (event.altKey || this.spaceHeld))) {
+            return;
+        }
+        event.preventDefault();
+        this.panDrag = {
+            startX: event.clientX,
+            startY: event.clientY,
+            panX: this.panX,
+            panY: this.panY,
+            pointerId: event.pointerId
+        };
+        event.currentTarget.setPointerCapture?.(event.pointerId);
+        this.update();
     }
 
     private onCanvasPointerMove(event: React.PointerEvent<HTMLDivElement>): void {
-        if (this.panDrag === undefined) {
+        if (this.panDrag === undefined || event.pointerId !== this.panDrag.pointerId) {
             return;
         }
         this.panX = this.panDrag.panX + (event.clientX - this.panDrag.startX);
@@ -851,12 +1041,122 @@ export class DrawingSheetWidget extends ReactWidget {
     }
 
     private onCanvasPointerUp(event: React.PointerEvent<HTMLDivElement>): void {
-        if (this.panDrag === undefined) {
+        this.finishPanDrag(event.pointerId);
+    }
+
+    private onCanvasPointerCancel(event: React.PointerEvent<HTMLDivElement>): void {
+        this.finishPanDrag(event.pointerId);
+    }
+
+    private finishPanDrag(pointerId?: number): void {
+        const drag = this.panDrag;
+        if (drag === undefined) {
             return;
         }
         this.panDrag = undefined;
-        this.canvasRef?.releasePointerCapture(event.pointerId);
+        const id = pointerId ?? drag.pointerId;
+        const canvas = this.canvasRef;
+        if (canvas?.hasPointerCapture(id) === true) {
+            canvas.releasePointerCapture(id);
+        }
         this.update();
+    }
+
+    private openViewContextMenu(event: React.MouseEvent, view: DrawingSheet['views'][number]): void {
+        const canvas = this.canvasRef;
+        if (canvas === null) {
+            return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        this.closeViewMenu?.();
+        canvas.focus({ preventScroll: true });
+        this.selectedViewId = view.id;
+        const rect = canvas.getBoundingClientRect();
+        let removeScrollListener: (() => void) | undefined;
+        let close: (() => void) | undefined;
+        const finish = (): void => {
+            removeScrollListener?.();
+            removeScrollListener = undefined;
+            if (this.closeViewMenu === close) {
+                this.closeViewMenu = undefined;
+            }
+        };
+        close = openContextMenu(
+            canvas,
+            buildDrawingViewMenu({ scale: view.scale, showHidden: view.showHidden === true }),
+            { x: event.clientX - rect.left, y: event.clientY - rect.top },
+            (action) => {
+                finish();
+                this.handleViewMenuAction(view.id, action);
+            },
+            { className: 'nuke-cad-drawing-view-menu', onClose: finish }
+        );
+        const onScroll = (): void => close?.();
+        window.addEventListener('scroll', onScroll, true);
+        removeScrollListener = () => window.removeEventListener('scroll', onScroll, true);
+        this.closeViewMenu = close;
+        this.update();
+    }
+
+    private handleViewMenuAction(viewId: string, action: DrawingViewMenuAction): void {
+        const sheet = this.activeSheet();
+        const view = sheet?.views.find((entry) => entry.id === viewId);
+        if (sheet === undefined || view === undefined) {
+            return;
+        }
+        switch (action.kind) {
+            case 'fitView':
+                this.fitView(sheet, view);
+                break;
+            case 'toggleHidden':
+                this.updateView(sheet, view, { showHidden: view.showHidden !== true });
+                break;
+            case 'setScale':
+                this.updateView(sheet, view, { scale: action.scale });
+                break;
+            case 'focusScale':
+                this.focusScaleControl(view.id);
+                break;
+            case 'deleteView':
+                this.deleteView(sheet, view);
+                break;
+        }
+    }
+
+    private focusScaleControl(viewId: string): void {
+        this.selectedViewId = viewId;
+        this.inspectorOpen = true;
+        this.update();
+        window.requestAnimationFrame(() => {
+            if (this.isDisposed) {
+                return;
+            }
+            const trigger = this.node.querySelector<HTMLElement>('.nuke-cad-drawing-scale-row .nuke-select-trigger');
+            trigger?.focus({ preventScroll: true });
+        });
+    }
+
+    private onViewDoubleClick(event: React.MouseEvent, viewId: string): void {
+        // A press that dragged ends with a click; browsers can still report a
+        // double-click for the preceding click. Fit only on a true double-click.
+        if (this.viewDragMoved) {
+            this.viewDragMoved = false;
+            return;
+        }
+        if (this.spaceHeld || this.tool === 'dimension') {
+            return;
+        }
+        const sheet = this.activeSheet();
+        const view = sheet?.views.find((entry) => entry.id === viewId);
+        if (sheet === undefined || view === undefined) {
+            return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        this.canvasRef?.focus({ preventScroll: true });
+        this.selectedViewId = viewId;
+        this.fitView(sheet, view);
     }
 
     private async exportDrawing(format: 'svg' | 'dxf'): Promise<void> {
@@ -983,11 +1283,24 @@ export class DrawingSheetWidget extends ReactWidget {
                 <div className="nuke-cad-drawing-body">
                     <div
                         ref={this.bindCanvas}
-                        className="nuke-cad-drawing-canvas"
+                        className={`nuke-cad-drawing-canvas${this.spaceHeld ? ' is-pan-ready' : ''}${
+                            this.panDrag !== undefined ? ' is-panning' : ''
+                        }`}
+                        tabIndex={0}
+                        aria-label="Drawing canvas"
+                        onKeyDown={(event) => this.onCanvasKeyDown(event)}
+                        onKeyUp={(event) => this.onCanvasKeyUp(event)}
+                        onBlur={() => this.onCanvasBlur()}
+                        onPointerEnter={() => {
+                            this.pointerOverCanvas = true;
+                        }}
+                        onPointerLeave={() => {
+                            this.pointerOverCanvas = false;
+                        }}
                         onPointerDown={(event) => this.onCanvasPointerDown(event)}
                         onPointerMove={(event) => this.onCanvasPointerMove(event)}
                         onPointerUp={(event) => this.onCanvasPointerUp(event)}
-                        onPointerCancel={(event) => this.onCanvasPointerUp(event)}
+                        onPointerCancel={(event) => this.onCanvasPointerCancel(event)}
                     >
                         <div
                             className="nuke-cad-drawing-stage"
@@ -1504,6 +1817,8 @@ export class DrawingSheetWidget extends ReactWidget {
 
     private renderStatus(sheet: DrawingSheet): React.ReactNode {
         const { width, height } = sheetDimensions(sheet.size);
+        const selected = this.selectedView();
+        const selectedExtent = selected !== undefined ? this.lineworkBounds(this.viewOutput(selected.id)) : undefined;
         const state = this.building
             ? 'Building…'
             : this.buildResult?.success === true
@@ -1523,6 +1838,12 @@ export class DrawingSheetWidget extends ReactWidget {
                 <span>{sheet.views.length} views</span>
                 <span>{sheet.dimensions.length} dims</span>
                 <span>{this.sheetScaleLabel(sheet)}</span>
+                {selected !== undefined && (
+                    <span className="nuke-cad-drawing-status-view">
+                        {selected.kind} {selected.orientation} · {formatDrawingScale(selected.scale)} ·{' '}
+                        {selectedExtent !== undefined ? formatDrawingExtent(selectedExtent) : 'no linework'}
+                    </span>
+                )}
                 <span className="nuke-cad-drawing-status-spacer" />
                 {warnings > 0 && <span className="nuke-cad-drawing-status-warning">{warnings} warnings</span>}
                 {this.documentStore.dirty && <span className="nuke-cad-drawing-status-warning">Unsaved</span>}
@@ -1736,6 +2057,8 @@ export class DrawingSheetWidget extends ReactWidget {
                 onPointerDown={(e) => this.onViewPointerDown(e, view.id)}
                 onPointerMove={(e) => this.onViewPointerMove(e, view.id)}
                 onPointerUp={(e) => this.onViewPointerUp(e, view.id)}
+                onContextMenu={(e) => this.openViewContextMenu(e, view)}
+                onDoubleClick={(e) => this.onViewDoubleClick(e, view.id)}
                 onPointerEnter={() => {
                     this.hoveredViewId = view.id;
                     this.update();
@@ -1939,4 +2262,16 @@ function arrowHead(x: number, y: number, axis: 'x' | 'y' | 'z', direction: numbe
         return `${x},${y} ${x - direction * size},${y - size / 2} ${x - direction * size},${y + size / 2}`;
     }
     return `${x},${y} ${x - size / 2},${y - direction * size} ${x + size / 2},${y - direction * size}`;
+}
+
+/** Space is a pan modifier over the canvas unless a text field owns the key. */
+function isEditableKeyTarget(target: EventTarget | null): boolean {
+    if (!(target instanceof HTMLElement)) {
+        return false;
+    }
+    if (target.isContentEditable) {
+        return true;
+    }
+    const tag = target.tagName;
+    return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
 }

@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - build: optional extensions selectable at build time via `NUKE_EXTENSIONS` allow-list / `NUKE_EXCLUDE_EXTENSIONS` deny-list.
+- nuke-cad: sketch status shows selected/construction badges, warns on failed gestures, and disables selection transforms with reasons.
+- nuke-cad: drawing sheet zooms at the pointer, Space-drag pans, and right-click views offer Fit/scale/hidden/delete; double-click fits.
 - nuke-cad: one-click STEP/IGES/BREP import as a grounded assembly instance inside a saved `.nuke-cad` document.
 - nuke-cad: Import CAD as Body creates editable STEP/IGES/BREP bodies with source-hash identity, solid selection, and a unit override.
 - nuke-cad: W7-X generator builds 10 exact coil bodies across 5 modules plus 5 shells as 55 assembly instances in about 25 s.

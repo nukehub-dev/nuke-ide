@@ -257,6 +257,11 @@ export interface SketchStatus {
      * equal ellipse radii); cleared by the next user action.
      */
     hint?: string;
+    /**
+     * Hint severity: `warning` for rejected/failed gestures, `info` for
+     * placement guidance and mode changes. Defaults to `info` when omitted.
+     */
+    hintKind?: 'info' | 'warning';
 }
 
 /** A committed constraint record tracked by the session. */
@@ -1009,7 +1014,7 @@ export class SketchSession {
     cycleMode(): void {
         if (this.tool === 'rectangle') {
             this.rectangleMode = this.rectangleMode === 'corner' ? 'center' : this.rectangleMode === 'center' ? 'rounded' : 'corner';
-            this.status = { ...this.status, hint: `Rectangle mode: ${this.rectangleMode}` };
+            this.status = { ...this.status, hint: `Rectangle mode: ${this.rectangleMode}`, hintKind: 'info' };
             this.emitChange();
         } else if (this.tool === 'polyline') {
             this.polylineMode = this.polylineMode === 'line' ? 'arc' : 'line';
@@ -1017,11 +1022,11 @@ export class SketchSession {
                 this.removePrimitiveAndConstraints(this.inProgress.arcMidId);
                 this.inProgress = { ...this.inProgress, arcMidId: undefined, arcMid: undefined };
             }
-            this.status = { ...this.status, hint: `Polyline mode: ${this.polylineMode}` };
+            this.status = { ...this.status, hint: `Polyline mode: ${this.polylineMode}`, hintKind: 'info' };
             this.emitChange();
         } else if (this.tool === 'polygon') {
             this.polygonSides = this.polygonSides >= POLYGON_MAX_SIDES ? POLYGON_MIN_SIDES : this.polygonSides + 1;
-            this.status = { ...this.status, hint: `Polygon sides: ${this.polygonSides}` };
+            this.status = { ...this.status, hint: `Polygon sides: ${this.polygonSides}`, hintKind: 'info' };
             this.emitChange();
         }
     }
@@ -1333,7 +1338,7 @@ export class SketchSession {
         const snapped = this.applySnap(raw, modifiers?.disableSnap);
         const auto: AutoConstraintFeedback[] = [];
         // A new action supersedes any transient gesture hint.
-        this.status = { ...this.status, hint: undefined };
+        this.status = { ...this.status, hint: undefined, hintKind: undefined };
 
         switch (this.tool) {
             case 'select':
@@ -1518,7 +1523,7 @@ export class SketchSession {
                     const width = snapped.point;
                     const error = this.buildSlot(this.inProgress.c1Id, c1, this.inProgress.c2Id!, c2, width, auto);
                     if (error !== undefined) {
-                        this.status = { ...this.status, lastAutoConstraints: [], hint: error };
+                        this.status = { ...this.status, lastAutoConstraints: [], hint: error, hintKind: 'warning' };
                         this.emitChange();
                         return;
                     }
@@ -1570,7 +1575,8 @@ export class SketchSession {
                         this.status = {
                             ...this.status,
                             lastAutoConstraints: [],
-                            hint: 'Equal radii make a circle — use the Circle tool (C) instead'
+                            hint: 'Equal radii make a circle — use the Circle tool (C) instead',
+                            hintKind: 'warning'
                         };
                         this.emitChange();
                         return;
@@ -1591,7 +1597,7 @@ export class SketchSession {
                     this.addEllipseInternal(ellipseId, centerId, focus1Id, clampedMinor, false);
                     this.inProgress = undefined;
                     await this.commit(auto);
-                    this.status = { ...this.status, hint };
+                    this.status = { ...this.status, hint, hintKind: hint === undefined ? undefined : 'warning' };
                     this.emitChange();
                 }
                 break;
@@ -1625,7 +1631,12 @@ export class SketchSession {
                 const result = await this.trimAt(raw, modifiers);
                 this.status = result.success
                     ? { ...this.status, lastAutoConstraints: [] }
-                    : { ...this.status, lastAutoConstraints: [], hint: result.error };
+                    : {
+                          ...this.status,
+                          lastAutoConstraints: [],
+                          hint: result.error,
+                          hintKind: result.error === undefined ? undefined : 'warning'
+                      };
                 this.emitChange();
                 break;
             }
@@ -1633,7 +1644,12 @@ export class SketchSession {
                 const result = await this.extendAt(raw, modifiers);
                 this.status = result.success
                     ? { ...this.status, lastAutoConstraints: [] }
-                    : { ...this.status, lastAutoConstraints: [], hint: result.error };
+                    : {
+                          ...this.status,
+                          lastAutoConstraints: [],
+                          hint: result.error,
+                          hintKind: result.error === undefined ? undefined : 'warning'
+                      };
                 this.emitChange();
                 break;
             }
@@ -1641,7 +1657,12 @@ export class SketchSession {
                 const result = await this.splitAt(raw, modifiers);
                 this.status = result.success
                     ? { ...this.status, lastAutoConstraints: [] }
-                    : { ...this.status, lastAutoConstraints: [], hint: result.error };
+                    : {
+                          ...this.status,
+                          lastAutoConstraints: [],
+                          hint: result.error,
+                          hintKind: result.error === undefined ? undefined : 'warning'
+                      };
                 this.emitChange();
                 break;
             }
@@ -1830,7 +1851,12 @@ export class SketchSession {
             const result = await this.filletCorner(a, b, radius);
             if (!result.success) {
                 this.inProgress = undefined;
-                this.status = { ...this.status, lastAutoConstraints: [], hint: result.error };
+                this.status = {
+                    ...this.status,
+                    lastAutoConstraints: [],
+                    hint: result.error,
+                    hintKind: result.error === undefined ? undefined : 'warning'
+                };
                 this.emitChange();
                 return;
             }
@@ -1894,7 +1920,12 @@ export class SketchSession {
         }
         const radius = Math.hypot(snapped.point.x - this.inProgress.center.x, snapped.point.y - this.inProgress.center.y);
         if (radius < 1e-9) {
-            this.status = { ...this.status, lastAutoConstraints: [], hint: 'Polygon needs a vertex away from the center' };
+            this.status = {
+                ...this.status,
+                lastAutoConstraints: [],
+                hint: 'Polygon needs a vertex away from the center',
+                hintKind: 'warning'
+            };
             this.emitChange();
             return;
         }
@@ -1977,7 +2008,12 @@ export class SketchSession {
         if (this.inProgress.stage === 1) {
             const radius = Math.hypot(snapped.point.x - this.inProgress.center.x, snapped.point.y - this.inProgress.center.y);
             if (radius < 1e-9) {
-                this.status = { ...this.status, lastAutoConstraints: [], hint: 'Arc slot needs a start point away from the center' };
+                this.status = {
+                    ...this.status,
+                    lastAutoConstraints: [],
+                    hint: 'Arc slot needs a start point away from the center',
+                    hintKind: 'warning'
+                };
                 this.emitChange();
                 return;
             }
@@ -2000,7 +2036,12 @@ export class SketchSession {
                 return;
             }
             if (Math.hypot(snapped.point.x - center.x, snapped.point.y - center.y) < 1e-9) {
-                this.status = { ...this.status, lastAutoConstraints: [], hint: 'Arc slot needs an end point away from the center' };
+                this.status = {
+                    ...this.status,
+                    lastAutoConstraints: [],
+                    hint: 'Arc slot needs an end point away from the center',
+                    hintKind: 'warning'
+                };
                 this.emitChange();
                 return;
             }
@@ -2010,7 +2051,12 @@ export class SketchSession {
                 span += 2 * Math.PI;
             }
             if (span < 1e-6 || 2 * Math.PI - span < 1e-6) {
-                this.status = { ...this.status, lastAutoConstraints: [], hint: 'Arc slot start and end angles must differ' };
+                this.status = {
+                    ...this.status,
+                    lastAutoConstraints: [],
+                    hint: 'Arc slot start and end angles must differ',
+                    hintKind: 'warning'
+                };
                 this.emitChange();
                 return;
             }
@@ -2039,7 +2085,8 @@ export class SketchSession {
             this.status = {
                 ...this.status,
                 lastAutoConstraints: [],
-                hint: 'Slot width must be non-zero — pick a width point off the wall'
+                hint: 'Slot width must be non-zero — pick a width point off the wall',
+                hintKind: 'warning'
             };
             this.emitChange();
             return;
@@ -2081,7 +2128,12 @@ export class SketchSession {
         if (this.inProgress === undefined || this.inProgress.tool !== 'sketchFillet') {
             const lineId = this.resolveLineTarget(snapped, raw);
             if (lineId === undefined) {
-                this.status = { ...this.status, lastAutoConstraints: [], hint: 'Sketch fillet: click the first line' };
+                this.status = {
+                    ...this.status,
+                    lastAutoConstraints: [],
+                    hint: 'Sketch fillet: click the first line',
+                    hintKind: 'info'
+                };
                 this.emitChange();
                 return;
             }
@@ -2100,7 +2152,8 @@ export class SketchSession {
                 this.status = {
                     ...this.status,
                     lastAutoConstraints: [],
-                    hint: 'Sketch fillet needs a second line sharing a corner with the first'
+                    hint: 'Sketch fillet needs a second line sharing a corner with the first',
+                    hintKind: 'warning'
                 };
                 this.emitChange();
                 return;
@@ -2117,7 +2170,12 @@ export class SketchSession {
         const corner = this.sharedCornerOf(lineAId, lineBId);
         const cornerPos = corner === undefined ? undefined : this.getPointPosition(corner);
         if (corner === undefined || cornerPos === undefined) {
-            this.status = { ...this.status, lastAutoConstraints: [], hint: 'Sketch fillet needs two lines sharing a corner point' };
+            this.status = {
+                ...this.status,
+                lastAutoConstraints: [],
+                hint: 'Sketch fillet needs two lines sharing a corner point',
+                hintKind: 'warning'
+            };
             this.emitChange();
             return;
         }
@@ -2126,14 +2184,20 @@ export class SketchSession {
             this.status = {
                 ...this.status,
                 lastAutoConstraints: [],
-                hint: 'Sketch fillet radius must be positive — click farther from the corner'
+                hint: 'Sketch fillet radius must be positive — click farther from the corner',
+                hintKind: 'warning'
             };
             this.emitChange();
             return;
         }
         const result = await this.filletCorner(lineAId, lineBId, radius);
         if (!result.success) {
-            this.status = { ...this.status, lastAutoConstraints: [], hint: result.error };
+            this.status = {
+                ...this.status,
+                lastAutoConstraints: [],
+                hint: result.error,
+                hintKind: result.error === undefined ? undefined : 'warning'
+            };
             this.emitChange();
             return;
         }
@@ -2145,7 +2209,12 @@ export class SketchSession {
         if (this.inProgress === undefined || this.inProgress.tool !== 'sketchChamfer') {
             const lineId = this.resolveLineTarget(snapped, raw);
             if (lineId === undefined) {
-                this.status = { ...this.status, lastAutoConstraints: [], hint: 'Sketch chamfer: click the first line' };
+                this.status = {
+                    ...this.status,
+                    lastAutoConstraints: [],
+                    hint: 'Sketch chamfer: click the first line',
+                    hintKind: 'info'
+                };
                 this.emitChange();
                 return;
             }
@@ -2164,7 +2233,8 @@ export class SketchSession {
                 this.status = {
                     ...this.status,
                     lastAutoConstraints: [],
-                    hint: 'Sketch chamfer needs a second line sharing a corner with the first'
+                    hint: 'Sketch chamfer needs a second line sharing a corner with the first',
+                    hintKind: 'warning'
                 };
                 this.emitChange();
                 return;
@@ -2181,7 +2251,12 @@ export class SketchSession {
         const corner = this.sharedCornerOf(lineAId, lineBId);
         const cornerPos = corner === undefined ? undefined : this.getPointPosition(corner);
         if (corner === undefined || cornerPos === undefined) {
-            this.status = { ...this.status, lastAutoConstraints: [], hint: 'Sketch chamfer needs two lines sharing a corner point' };
+            this.status = {
+                ...this.status,
+                lastAutoConstraints: [],
+                hint: 'Sketch chamfer needs two lines sharing a corner point',
+                hintKind: 'warning'
+            };
             this.emitChange();
             return;
         }
@@ -2190,14 +2265,20 @@ export class SketchSession {
             this.status = {
                 ...this.status,
                 lastAutoConstraints: [],
-                hint: 'Sketch chamfer distance must be positive — click farther from the corner'
+                hint: 'Sketch chamfer distance must be positive — click farther from the corner',
+                hintKind: 'warning'
             };
             this.emitChange();
             return;
         }
         const result = await this.chamferCorner(lineAId, lineBId, distance);
         if (!result.success) {
-            this.status = { ...this.status, lastAutoConstraints: [], hint: result.error };
+            this.status = {
+                ...this.status,
+                lastAutoConstraints: [],
+                hint: result.error,
+                hintKind: result.error === undefined ? undefined : 'warning'
+            };
             this.emitChange();
             return;
         }
@@ -2256,7 +2337,8 @@ export class SketchSession {
             this.status = {
                 ...this.status,
                 lastAutoConstraints: [],
-                hint: 'Polyline arc points are collinear — pick a different endpoint'
+                hint: 'Polyline arc points are collinear — pick a different endpoint',
+                hintKind: 'warning'
             };
             this.emitChange();
             return;
@@ -2398,7 +2480,7 @@ export class SketchSession {
         const { result, auto } = await this.doTrim(raw, modifiers);
         this.status = result.success
             ? { ...this.status, lastAutoConstraints: auto }
-            : { ...this.status, lastAutoConstraints: [], hint: result.error };
+            : { ...this.status, lastAutoConstraints: [], hint: result.error, hintKind: result.error === undefined ? undefined : 'warning' };
         this.emitChange();
         return result;
     }
@@ -2414,7 +2496,7 @@ export class SketchSession {
         const { result, auto } = await this.doExtend(raw, modifiers);
         this.status = result.success
             ? { ...this.status, lastAutoConstraints: auto }
-            : { ...this.status, lastAutoConstraints: [], hint: result.error };
+            : { ...this.status, lastAutoConstraints: [], hint: result.error, hintKind: result.error === undefined ? undefined : 'warning' };
         this.emitChange();
         return result;
     }
@@ -2432,7 +2514,7 @@ export class SketchSession {
         const { result, auto } = await this.doSplit(raw, modifiers);
         this.status = result.success
             ? { ...this.status, lastAutoConstraints: auto }
-            : { ...this.status, lastAutoConstraints: [], hint: result.error };
+            : { ...this.status, lastAutoConstraints: [], hint: result.error, hintKind: result.error === undefined ? undefined : 'warning' };
         this.emitChange();
         return result;
     }
@@ -2711,7 +2793,8 @@ export class SketchSession {
                 this.status = {
                     ...this.status,
                     lastAutoConstraints: [],
-                    hint: 'Move needs a selection — select entities with the Select tool first'
+                    hint: 'Move needs a selection — select entities with the Select tool first',
+                    hintKind: 'warning'
                 };
                 this.emitChange();
                 return;
@@ -2725,7 +2808,7 @@ export class SketchSession {
         this.inProgress = undefined;
         this.status = result.success
             ? { ...this.status, lastAutoConstraints: [] }
-            : { ...this.status, lastAutoConstraints: [], hint: result.error };
+            : { ...this.status, lastAutoConstraints: [], hint: result.error, hintKind: result.error === undefined ? undefined : 'warning' };
         this.emitChange();
     }
 
@@ -2735,7 +2818,8 @@ export class SketchSession {
                 this.status = {
                     ...this.status,
                     lastAutoConstraints: [],
-                    hint: 'Copy needs a selection — select entities with the Select tool first'
+                    hint: 'Copy needs a selection — select entities with the Select tool first',
+                    hintKind: 'warning'
                 };
                 this.emitChange();
                 return;
@@ -2749,7 +2833,7 @@ export class SketchSession {
         this.inProgress = undefined;
         this.status = result.success
             ? { ...this.status, lastAutoConstraints: [] }
-            : { ...this.status, lastAutoConstraints: [], hint: result.error };
+            : { ...this.status, lastAutoConstraints: [], hint: result.error, hintKind: result.error === undefined ? undefined : 'warning' };
         this.emitChange();
     }
 
@@ -2759,7 +2843,8 @@ export class SketchSession {
                 this.status = {
                     ...this.status,
                     lastAutoConstraints: [],
-                    hint: 'Rotate needs a selection — select entities with the Select tool first'
+                    hint: 'Rotate needs a selection — select entities with the Select tool first',
+                    hintKind: 'warning'
                 };
                 this.emitChange();
                 return;
@@ -2773,7 +2858,7 @@ export class SketchSession {
         this.inProgress = undefined;
         this.status = result.success
             ? { ...this.status, lastAutoConstraints: [] }
-            : { ...this.status, lastAutoConstraints: [], hint: result.error };
+            : { ...this.status, lastAutoConstraints: [], hint: result.error, hintKind: result.error === undefined ? undefined : 'warning' };
         this.emitChange();
     }
 
@@ -2782,7 +2867,8 @@ export class SketchSession {
             this.status = {
                 ...this.status,
                 lastAutoConstraints: [],
-                hint: 'Mirror needs a selection — select entities with the Select tool first'
+                hint: 'Mirror needs a selection — select entities with the Select tool first',
+                hintKind: 'warning'
             };
             this.emitChange();
             return;
@@ -2798,14 +2884,19 @@ export class SketchSession {
             axisLineId = this.findNearestCurve(raw, LINE_TARGET, this.pickTolerance())?.id;
         }
         if (axisLineId === undefined) {
-            this.status = { ...this.status, lastAutoConstraints: [], hint: 'Mirror needs an axis line — click a line in the sketch' };
+            this.status = {
+                ...this.status,
+                lastAutoConstraints: [],
+                hint: 'Mirror needs an axis line — click a line in the sketch',
+                hintKind: 'warning'
+            };
             this.emitChange();
             return;
         }
         const result = await this.mirrorSelection(axisLineId);
         this.status = result.success
             ? { ...this.status, lastAutoConstraints: [] }
-            : { ...this.status, lastAutoConstraints: [], hint: result.error };
+            : { ...this.status, lastAutoConstraints: [], hint: result.error, hintKind: result.error === undefined ? undefined : 'warning' };
         this.emitChange();
     }
 
@@ -4882,7 +4973,8 @@ export class SketchSession {
             diagnostics,
             fullyConstrained,
             lastAutoConstraints: this.status.lastAutoConstraints,
-            hint: this.status.hint
+            hint: this.status.hint,
+            hintKind: this.status.hintKind
         };
         this.refreshDimensionValues();
     }

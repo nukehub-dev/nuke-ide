@@ -59,8 +59,9 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
 - Sketch UI is three layers (`sketch-session.ts`, `sketch-mode-controller.ts`,
   `cad-sketch-overlay.tsx`) with session-scoped snap (default 12px, magnet + S/M/L),
   a controller-owned grid toggle, a top-center constraint chip bar plus a **More**
-  select, a selection-aware right-click menu, and split hints/solver badges on the
-  status line; face/edge picking
+  select, a selection-aware right-click menu, and split hints/solver badges plus
+  `N selected`/`Construction` state on the status line (failed gestures warn;
+  selection transforms disable with reasons); face/edge picking
   (`face-picker.ts`, `edge-picker.ts`) feeds `externalRefs` as construction geometry.
   See `docs/dev/sketch.md`.
 - Feature recompute (`feature-graph.ts`: DAG, topological order, cycle rejection,
@@ -68,10 +69,11 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   `TopologyRef`s (`topology-refs.ts` types, Python scoring/resolver,
   `matched`/`ambiguous`/`unmatched` with fingerprint-identity repair). See
   `docs/dev/features-patterns.md`.
-- Drawing Sheet workspace: grouped toolbar, framed paper + title block, zoom/pan,
-  grid/snap/frame toggles, inspector (views/dimensions/scale/Fit/delete), label/body
-  view dragging with a minimum grab area, tiny-1:1 auto-fit, and Save/Refresh/SVG/DXF;
-  pending edits auto-save before HLR. See `docs/dev/drawings-assemblies.md`.
+- Drawing Sheet workspace: grouped toolbar, framed paper + title block, cursor-centered
+  zoom + Space/middle/Alt pan, grid/snap/frame toggles, inspector
+  (views/dimensions/scale/Fit/delete), label/body view dragging with a minimum grab
+  area, view context menu + double-click Fit, selected-view status segment, tiny-1:1
+  auto-fit, and Save/Refresh/SVG/DXF; pending edits auto-save before HLR. See `docs/dev/drawings-assemblies.md`.
 - Dress-ups (fillet/chamfer/draft/shell on the accumulated B-rep via pick modes;
   fillet/chamfer edge picks optionally expand to a same-solid tangent chain, 15° / 256-edge cap),
   patterns/mirror/lattice (2500-cell cap)/multiTransform over same-body sources with

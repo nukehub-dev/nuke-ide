@@ -438,6 +438,21 @@
     cursor: default;
 }
 
+.nuke-cad-drawing-canvas:focus {
+    outline: none;
+}
+
+.nuke-cad-drawing-canvas:focus-visible {
+    outline: 1px solid var(--theia-focusBorder);
+    outline-offset: -1px;
+}
+
+/* View context menu (shared `openContextMenu` renderer, compact variant). */
+.nuke-cad-drawing-root .nuke-cad-drawing-view-menu {
+    min-width: 178px;
+    font-size: var(--theia-ui-font-size0);
+}
+
 .nuke-cad-drawing-stage {
     display: flex;
     align-items: center;
@@ -691,6 +706,12 @@
     text-overflow: ellipsis;
 }
 
+.nuke-cad-drawing-status-view {
+    overflow: hidden;
+    max-width: 42%;
+    text-overflow: ellipsis;
+}
+
 .nuke-cad-drawing-status-spacer {
     flex: 1 1 auto;
 }
@@ -776,6 +797,22 @@
 
 .nuke-cad-drawing-view.dimension-mode {
     cursor: crosshair;
+}
+
+/* Space-held pan overrides the view/label cursors so the whole canvas reads
+   as a single draggable surface. */
+.nuke-cad-drawing-canvas.is-pan-ready,
+.nuke-cad-drawing-canvas.is-pan-ready .nuke-cad-drawing-view,
+.nuke-cad-drawing-canvas.is-pan-ready .nuke-cad-drawing-view.dimension-mode,
+.nuke-cad-drawing-canvas.is-pan-ready .nuke-cad-drawing-dimension-text {
+    cursor: grab;
+}
+
+.nuke-cad-drawing-canvas.is-panning,
+.nuke-cad-drawing-canvas.is-panning .nuke-cad-drawing-view,
+.nuke-cad-drawing-canvas.is-panning .nuke-cad-drawing-view.dimension-mode,
+.nuke-cad-drawing-canvas.is-panning .nuke-cad-drawing-dimension-text {
+    cursor: grabbing;
 }
 
 .nuke-cad-drawing-view-frame {
