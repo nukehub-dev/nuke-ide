@@ -582,10 +582,26 @@
 }
 
 .cad-sketch-toolbar-title {
+    flex: 1 1 auto;
+    overflow: hidden;
     font-size: var(--theia-ui-font-size0);
     font-weight: 600;
     color: var(--theia-foreground);
     text-transform: uppercase;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* History pair sits in the fixed header, so it is reachable without scrolling. */
+.cad-sketch-toolbar-history {
+    display: flex;
+    flex: 0 0 auto;
+    gap: 2px;
+}
+
+.cad-sketch-toolbar-history .cad-sketch-tool-button {
+    width: 22px;
+    height: 22px;
 }
 
 /*

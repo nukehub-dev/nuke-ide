@@ -437,6 +437,69 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
         documentStore
     ]);
 
+    // Sketch-local undo/redo (Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z, Ctrl+Y). This is a
+    // window CAPTURE listener for the same reason as the document one above:
+    // Theia's keybinding registry matches from a document-capture listener.
+    // Text fields keep native undo; pick modes and dialogs keep the keyboard.
+    // Claim and swallow the chord even when the stack is empty so the document
+    // undo cannot run underneath an open sketch session.
+    React.useEffect(() => {
+        const onSketchUndoRedoKey = (e: KeyboardEvent): void => {
+            if (!controller.isActive || !(e.ctrlKey || e.metaKey) || e.altKey) {
+                return;
+            }
+            const key = e.key.toLowerCase();
+            const isUndo = key === 'z' && !e.shiftKey;
+            const isRedo = (key === 'z' && e.shiftKey) || key === 'y';
+            if (!isUndo && !isRedo) {
+                return;
+            }
+            const target = e.target;
+            if (!(target instanceof Element) || target.closest('.cad-viewport') === null) {
+                return;
+            }
+            if (
+                target instanceof HTMLInputElement ||
+                target instanceof HTMLTextAreaElement ||
+                target instanceof HTMLSelectElement ||
+                (target instanceof HTMLElement && target.isContentEditable)
+            ) {
+                return;
+            }
+            if (
+                setupVisible ||
+                featureCreationType !== undefined ||
+                editFeature !== undefined ||
+                facePickMode !== undefined ||
+                dressUpPickMode !== undefined ||
+                holePickMode === true ||
+                curvePickMode === true ||
+                measureActive === true
+            ) {
+                return;
+            }
+            e.preventDefault();
+            e.stopPropagation();
+            if (isUndo) {
+                void controller.undo();
+            } else {
+                void controller.redo();
+            }
+        };
+        window.addEventListener('keydown', onSketchUndoRedoKey, true);
+        return () => window.removeEventListener('keydown', onSketchUndoRedoKey, true);
+    }, [
+        controller,
+        setupVisible,
+        featureCreationType,
+        editFeature,
+        facePickMode,
+        dressUpPickMode,
+        holePickMode,
+        curvePickMode,
+        measureActive
+    ]);
+
     const active = controller.isActive;
     const tool = controller.getTool();
     const construction = controller.getConstruction();
@@ -539,6 +602,7 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
         }
         const num = Number(editDimValue);
         const isLiteral = editDimValue.trim() !== '' && Number.isFinite(num);
+        controller.checkpoint();
         const result = await session.editDimension(editingDimension.id, {
             value: isLiteral ? num : undefined,
             parameter: isLiteral ? '' : editDimValue.trim(),
@@ -558,6 +622,7 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
         if (session === undefined) {
             return;
         }
+        controller.checkpoint();
         const result = await session.addParameter(name, value);
         setParamErrors((prev) => ({ ...prev, [name]: result.success ? '' : (result.error ?? 'Invalid parameter') }));
     };
@@ -566,6 +631,7 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
         if (session === undefined) {
             return;
         }
+        controller.checkpoint();
         const result = session.removeParameter(name);
         setParamErrors((prev) => ({ ...prev, [name]: result.success ? '' : (result.error ?? 'Invalid parameter') }));
     };
@@ -574,6 +640,7 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
         if (session === undefined) {
             return;
         }
+        controller.checkpoint();
         const result = await session.setParameter(name, value);
         setParamErrors((prev) => ({ ...prev, [name]: result.success ? '' : (result.error ?? 'Invalid parameter') }));
     };
@@ -603,6 +670,7 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
             return;
         }
         try {
+            controller.checkpoint();
             const removed = await liveSession.removeRedundantConstraints();
             if (removed === 0) {
                 messageService?.warn('No redundant constraints to remove.');
@@ -892,6 +960,7 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
                                 if (sketchId === undefined) {
                                     return;
                                 }
+                                controller.checkpoint();
                                 const result = documentStore.removeExternalRef(sketchId, index);
                                 if (!result.success) {
                                     // eslint-disable-next-line no-console
@@ -1755,6 +1824,7 @@ function SketchToolbar(props: SketchToolbarProps): React.ReactElement {
             messageService?.warn(`Selected sketch '${selectedSketchId}' no longer exists in the document.`);
             return;
         }
+        controller.checkpoint();
         const result = await session.carbonCopyFrom(source);
         if (result.error !== undefined) {
             messageService?.warn(result.error);
@@ -1849,6 +1919,30 @@ function SketchToolbar(props: SketchToolbarProps): React.ReactElement {
             >
                 <div className="cad-sketch-toolbar-header">
                     <span className="cad-sketch-toolbar-title">Sketch</span>
+                    <div className="cad-sketch-toolbar-history">
+                        <Tooltip content="Undo (Ctrl+Z)" position="top">
+                            <button
+                                className="theia-button secondary cad-sketch-tool-button"
+                                aria-label="Undo"
+                                disabled={!controller.canUndo()}
+                                aria-disabled={!controller.canUndo()}
+                                onClick={() => void controller.undo()}
+                            >
+                                <span className="codicon codicon-nuke-cad-undo" />
+                            </button>
+                        </Tooltip>
+                        <Tooltip content="Redo (Ctrl+Shift+Z)" position="top">
+                            <button
+                                className="theia-button secondary cad-sketch-tool-button"
+                                aria-label="Redo"
+                                disabled={!controller.canRedo()}
+                                aria-disabled={!controller.canRedo()}
+                                onClick={() => void controller.redo()}
+                            >
+                                <span className="codicon codicon-nuke-cad-redo" />
+                            </button>
+                        </Tooltip>
+                    </div>
                     <Tooltip content="Keyboard Shortcuts" position="top">
                         <button
                             className={`theia-button secondary cad-sketch-tool-button ${shortcutsOpen ? 'active' : ''}`}
@@ -1914,6 +2008,7 @@ function SketchToolbar(props: SketchToolbarProps): React.ReactElement {
                                     if (facePickMode === 'externalGeometry') {
                                         onCancelFacePick();
                                     } else if (externalGeometryTarget !== undefined) {
+                                        controller.checkpoint();
                                         onStartExternalGeometryPick(externalGeometryTarget.id);
                                     }
                                 }}
@@ -2213,6 +2308,7 @@ function ScalePopover(props: TransformPopoverProps): React.ReactElement {
         }
         setError(undefined);
         try {
+            controller.checkpoint();
             const result = await live.scalePrimitives(ids, { x: cx, y: cy }, factor);
             if (!result.success) {
                 setError(result.error ?? 'Scale failed.');
@@ -2265,6 +2361,7 @@ function ArrayPopover(props: TransformPopoverProps): React.ReactElement {
         }
         setError(undefined);
         try {
+            controller.checkpoint();
             const result = await live.rectangularArray(ids, dx, dy, rows, cols);
             if (!result.success) {
                 setError(result.error ?? 'Rectangular array failed.');
@@ -2310,6 +2407,7 @@ function OffsetPopover(props: TransformPopoverProps): React.ReactElement {
         }
         setError(undefined);
         try {
+            controller.checkpoint();
             const result = await live.offsetWire(ids, distance, { autoTrim });
             if (!result.success) {
                 setError(result.error ?? 'Offset failed.');
@@ -2379,6 +2477,7 @@ function TransformActions(props: TransformActionsProps): React.ReactElement {
             return;
         }
         try {
+            controller.checkpoint();
             const result = await session.joinOpenEnds();
             if (!result.success) {
                 messageService?.warn(result.error ?? 'Join open ends failed.');
@@ -2505,6 +2604,17 @@ function SketchShortcutsPopover(props: SketchShortcutsPopoverProps): React.React
                         </span>
                     </div>
                 ))}
+            </div>
+            <div className="cad-sketch-shortcuts-section">
+                <div className="cad-sketch-shortcuts-title">History</div>
+                <div className="cad-sketch-shortcuts-row">
+                    <span className="cad-sketch-shortcuts-key">Ctrl+Z</span>
+                    <span>Undo the last sketch action</span>
+                </div>
+                <div className="cad-sketch-shortcuts-row">
+                    <span className="cad-sketch-shortcuts-key">Ctrl+Shift+Z</span>
+                    <span>Redo (Ctrl+Y also works)</span>
+                </div>
             </div>
             <div className="cad-sketch-shortcuts-section">
                 <div className="cad-sketch-shortcuts-title">Select tool</div>

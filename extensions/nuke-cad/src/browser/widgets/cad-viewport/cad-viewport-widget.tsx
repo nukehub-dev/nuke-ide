@@ -68,7 +68,7 @@ import { buildSolidSummaries } from '../outline-panel/solid-summaries';
 import { addSolidsToSelection, selectionSolidIds, toggleSolidSelection } from '../outline-panel/outline-interactions';
 import { NukeCadCommands } from '../../commands';
 import { LoadingAnimations } from 'nuke-essentials/lib/theme/browser/components/loading-spinner';
-import { NukeLoadingOverlay } from 'nuke-essentials/lib/theme/browser/components';
+import { NukeDialog, NukeLoadingOverlay } from 'nuke-essentials/lib/theme/browser/components';
 import { ViewBadge, ViewerNavBar, ViewCube } from 'nuke-essentials/lib/theme/browser/components';
 import type { ViewCubeHandle, ViewerNavAction } from 'nuke-essentials/lib/theme/browser/components';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
@@ -457,6 +457,18 @@ export class CadViewportWidget extends ReactWidget {
      * document open; never set in auto mode.
      */
     private buildStale = false;
+    /**
+     * True while the “sketch saved in memory” prompt asks whether to save an
+     * unsaved document before building. The prompt is hidden while the native
+     * save dialog is open and reopened when that dialog is cancelled.
+     */
+    private sketchSavePromptOpen = false;
+    /** Feature ids to rebuild after the prompt's save succeeds. */
+    private pendingSketchRebuildIds?: readonly string[];
+    /** Invalidates a pending prompt save when the document is replaced or closed. */
+    private sketchSavePromptGeneration = 0;
+    /** One warning per unsaved document when the user defers the rebuild. */
+    private unsavedSketchWarningShown = false;
     /** In-session result cache (memory-backed; untitled docs never touch the zip). */
     private readonly resultCache = new MemoryResultCache();
     /** Edit → plan → partial-RPC lifecycle tracker (progress/cancel/error states). */
@@ -860,6 +872,7 @@ export class CadViewportWidget extends ReactWidget {
     templatePickerOpen = false;
 
     protected readonly handleNewDocument = (): void => {
+        this.resetSketchSavePromptState();
         this.templatePickerOpen = true;
         this.update();
     };
@@ -965,6 +978,26 @@ export class CadViewportWidget extends ReactWidget {
     protected readonly handleSaveDocument = (): Promise<void> => this.saveDocument(false);
 
     protected readonly handleSaveDocumentAs = (): Promise<void> => this.saveDocument(true);
+
+    protected readonly handleSketchSavePromptSave = (): void => {
+        void this.saveSketchFromPrompt();
+    };
+
+    /**
+     * Defer the rebuild: keep the sketch in the in-memory document, mark the
+     * model stale, and explain once that saving enables a later rebuild.
+     */
+    protected readonly handleSketchSavePromptNotNow = (): void => {
+        if (!this.sketchSavePromptOpen) {
+            return;
+        }
+        this.buildStale = true;
+        this.dismissSketchSavePrompt();
+        if (!this.unsavedSketchWarningShown) {
+            this.unsavedSketchWarningShown = true;
+            this.messageService.warn('Save the document to rebuild the model.');
+        }
+    };
 
     protected readonly handleImportCad = (): Promise<void> => this.importCadAsAssembly();
 
@@ -2946,6 +2979,7 @@ export class CadViewportWidget extends ReactWidget {
      * flash over the new empty document.
      */
     private clearViewportModel(): void {
+        this.resetSketchSavePromptState();
         this.viewportGeneration++;
         this.rebuildToken++;
         this.rebuildPending = false;
@@ -3092,6 +3126,7 @@ export class CadViewportWidget extends ReactWidget {
      * background while the template picker is open.
      */
     prepareForNewDocument(): void {
+        this.resetSketchSavePromptState();
         this.templatePickerOpen = true;
         this.update();
     }
@@ -3128,6 +3163,7 @@ export class CadViewportWidget extends ReactWidget {
         await this.fileService.write(uri, json);
         this.documentStore.setUri(uri.toString());
         this.documentStore.markSaved();
+        this.unsavedSketchWarningShown = false;
         this.messageService.info(`Saved ${uri.path.base}`);
     }
 
@@ -3589,7 +3625,88 @@ export class CadViewportWidget extends ReactWidget {
         this.sketchSetupVisible = false;
         this.facePickMode = undefined;
         const doc = this.documentStore.document;
-        this.scheduleDocumentRebuild(doc !== undefined ? featuresConsumingSketch(doc, def.id) : undefined);
+        const dirtyIds = doc !== undefined ? featuresConsumingSketch(doc, def.id) : undefined;
+        if (this.documentStore.uri === undefined) {
+            // The sketch is already in the in-memory document. Do not run the
+            // rebuild here: its save path would silently open the generic file
+            // dialog. Ask explicitly whether to save and build instead.
+            this.showSketchSavePrompt(dirtyIds);
+            return;
+        }
+        this.scheduleDocumentRebuild(dirtyIds);
+    }
+
+    /** Show the explicit save-to-build prompt for an unsaved document. */
+    private showSketchSavePrompt(dirtyIds?: readonly string[]): void {
+        // A queued auto-rebuild would run the silent save path first and open
+        // the generic file dialog behind this prompt.
+        this.clearSaveRebuildTimer();
+        this.sketchSavePromptGeneration++;
+        this.sketchSavePromptOpen = true;
+        this.pendingSketchRebuildIds = dirtyIds;
+        this.update();
+    }
+
+    /** Close the prompt without scheduling a build. */
+    private dismissSketchSavePrompt(): void {
+        this.sketchSavePromptGeneration++;
+        this.sketchSavePromptOpen = false;
+        this.pendingSketchRebuildIds = undefined;
+        this.update();
+    }
+
+    /** Drop the prompt and its warning state when the document is replaced or closed. */
+    private resetSketchSavePromptState(): void {
+        this.sketchSavePromptGeneration++;
+        this.sketchSavePromptOpen = false;
+        this.pendingSketchRebuildIds = undefined;
+        this.unsavedSketchWarningShown = false;
+    }
+
+    /**
+     * Save an unsaved document from the prompt, then build.
+     *
+     * The prompt is unmounted before the native save dialog opens so the modal
+     * cannot cover it. A cancelled dialog reopens the prompt with the sketch
+     * still in the in-memory document; a successful save schedules the rebuild.
+     */
+    private async saveSketchFromPrompt(): Promise<void> {
+        if (!this.sketchSavePromptOpen) {
+            return;
+        }
+        const generation = this.sketchSavePromptGeneration;
+        const dirtyIds = this.pendingSketchRebuildIds;
+        this.sketchSavePromptOpen = false;
+        this.update();
+        // Let Lumino flush the update turn before Theia opens its file dialog.
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+        if (generation !== this.sketchSavePromptGeneration) {
+            return;
+        }
+        try {
+            await this.saveDocument(false);
+        } catch (error) {
+            if (generation !== this.sketchSavePromptGeneration) {
+                return;
+            }
+            this.showSketchSavePrompt(dirtyIds);
+            const message = error instanceof Error ? error.message : String(error);
+            this.messageService.error(`Failed to save the CAD document: ${message}`);
+            return;
+        }
+        if (generation !== this.sketchSavePromptGeneration) {
+            return;
+        }
+        if (!this.documentStore.hasDocument) {
+            return;
+        }
+        if (this.documentStore.uri === undefined) {
+            // User cancelled the native save dialog: keep the sketch and ask again.
+            this.showSketchSavePrompt(dirtyIds);
+            return;
+        }
+        this.dismissSketchSavePrompt();
+        this.scheduleDocumentRebuild(dirtyIds);
     }
 
     private scheduleDocumentRebuild(dirtyIds?: readonly string[]): void {
@@ -3619,6 +3736,10 @@ export class CadViewportWidget extends ReactWidget {
     }
 
     private onDocumentChange(): void {
+        if (!this.documentStore.hasDocument) {
+            // A closed document must not leave the save prompt mounted.
+            this.resetSketchSavePromptState();
+        }
         const doc = this.documentStore.document;
         if (doc !== undefined && this.documentStore.uri === undefined) {
             // Untitled document: update the widget title but do not rebuild automatically.
@@ -3843,6 +3964,7 @@ export class CadViewportWidget extends ReactWidget {
                 this.messageService.error(this.buildError);
                 return;
             }
+            this.resetSketchSavePromptState();
             this.documentStore.setUri(uri.toString());
             this.documentStore.markSaved();
             // Opening a document always builds, in both rebuild modes.
@@ -3902,6 +4024,7 @@ export class CadViewportWidget extends ReactWidget {
 
     /** Closing the viewport also closes its companion panels (stale without a model). */
     protected override onCloseRequest(msg: Message): void {
+        this.resetSketchSavePromptState();
         super.onCloseRequest(msg);
         for (const id of ['nuke-cad-outline-panel-widget', 'nuke-cad-feature-tree-widget']) {
             this.widgetManager.getWidgets(id).forEach((w) => w.close());
@@ -3943,6 +4066,9 @@ export class CadViewportWidget extends ReactWidget {
                 showOriginZ={this.preferences['nukeCad.showOriginZ']}
                 rebuildOnEdit={this.preferences['nukeCad.rebuildOnEdit']}
                 buildStale={this.buildStale}
+                sketchSavePromptOpen={this.sketchSavePromptOpen}
+                onSketchSavePromptSave={this.handleSketchSavePromptSave}
+                onSketchSavePromptNotNow={this.handleSketchSavePromptNotNow}
                 templates={DOCUMENT_TEMPLATES}
                 samples={SAMPLE_PROJECTS}
                 onDismissError={this.dismissBuildError}
@@ -4105,6 +4231,10 @@ interface CadViewportComponentProps {
     readonly showOriginZ: boolean;
     readonly rebuildOnEdit: 'auto' | 'manual';
     readonly buildStale: boolean;
+    /** True while the unsaved-document “sketch saved in memory” prompt is open. */
+    readonly sketchSavePromptOpen: boolean;
+    readonly onSketchSavePromptSave: () => void;
+    readonly onSketchSavePromptNotNow: () => void;
     readonly templates: ReadonlyArray<import('../../../common/document-templates').DocumentTemplate>;
     /** Complete example-project documents offered under the blank presets. */
     readonly samples: ReadonlyArray<SampleProject>;
@@ -4258,6 +4388,38 @@ interface StartModelLauncherProps {
     readonly onOpenModel: () => void;
     readonly onImportCad: () => void;
     readonly onImportCadBody: () => void;
+}
+
+interface SketchSavePromptProps {
+    readonly onSave: () => void;
+    readonly onNotNow: () => void;
+}
+
+/**
+ * Explicit save-to-build prompt shown after finishing a sketch on an unsaved
+ * document. The sketch is already committed to the in-memory document; saving
+ * only supplies the path the backend needs to build it.
+ */
+function SketchSavePrompt(props: SketchSavePromptProps): React.ReactElement {
+    return (
+        <NukeDialog
+            title="Sketch saved in memory"
+            onClose={props.onNotNow}
+            className="cad-sketch-save-prompt"
+            footer={
+                <>
+                    <button className="theia-button secondary" onClick={props.onNotNow}>
+                        Not now
+                    </button>
+                    <button className="theia-button" onClick={props.onSave}>
+                        Save…
+                    </button>
+                </>
+            }
+        >
+            <div>Save the document to build the model. The sketch is already in the document.</div>
+        </NukeDialog>
+    );
 }
 
 /** Shared launcher for the no-document welcome and the empty-document state. */
@@ -5118,6 +5280,11 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
         />
     ) : undefined;
 
+    const sketchSavePrompt =
+        props.sketchSavePromptOpen && props.documentStore.hasDocument ? (
+            <SketchSavePrompt onSave={props.onSketchSavePromptSave} onNotNow={props.onSketchSavePromptNotNow} />
+        ) : undefined;
+
     const importBodyDialog =
         props.importBodyDialog !== undefined ? (
             <ImportBodyDialog
@@ -5347,6 +5514,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                 {props.sketchEntering && <NukeLoadingOverlay message="Starting sketch solver..." />}
                 {sketchOverlay}
                 {templatePicker}
+                {sketchSavePrompt}
                 {importBodyDialog}
                 {w7xStudyDialog}
                 {w7xShapeStudyDialog}
@@ -5380,6 +5548,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                 </div>
                 {sketchOverlay}
                 {templatePicker}
+                {sketchSavePrompt}
                 {importBodyDialog}
                 {w7xStudyDialog}
                 {w7xShapeStudyDialog}
@@ -5411,6 +5580,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                 </div>
                 {sketchOverlay}
                 {templatePicker}
+                {sketchSavePrompt}
                 {importBodyDialog}
                 {w7xStudyDialog}
                 {w7xShapeStudyDialog}
@@ -5430,6 +5600,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             {measureListPopover}
             {sketchOverlay}
             {templatePicker}
+            {sketchSavePrompt}
             {importBodyDialog}
             {w7xStudyDialog}
             {w7xShapeStudyDialog}

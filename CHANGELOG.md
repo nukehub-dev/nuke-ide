@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - build: optional extensions selectable at build time via `NUKE_EXTENSIONS` allow-list / `NUKE_EXCLUDE_EXTENSIONS` deny-list.
 - nuke-cad: sketch status shows selected/construction badges, warns on failed gestures, and disables selection transforms with reasons.
+- nuke-cad: sketch-local undo/redo (Ctrl/Cmd+Z, Shift+Z/Y, toolbar buttons) covers tools, drags, constraints, dimensions, parameters, and transforms.
+- nuke-cad: finishing a sketch on an unsaved document prompts to Save… or defer the build instead of opening an unexplained file dialog.
 - nuke-cad: drawing sheet zooms at the pointer, Space-drag pans, and right-click views offer Fit/scale/hidden/delete; double-click fits.
 - nuke-cad: one-click STEP/IGES/BREP import as a grounded assembly instance inside a saved `.nuke-cad` document.
 - nuke-cad: Import CAD as Body creates editable STEP/IGES/BREP bodies with source-hash identity, solid selection, and a unit override.

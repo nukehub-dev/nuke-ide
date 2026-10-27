@@ -80,6 +80,9 @@ export interface DimensionLabel {
 /** Distance threshold in pixels for clicking a dimension label. */
 const LABEL_HIT_RADIUS_PX = 12;
 
+/** Maximum number of sketch snapshots kept for undo (older entries drop first). */
+const SKETCH_HISTORY_LIMIT = 50;
+
 /** Constraint kinds that require a numeric value from the user. */
 const VALUE_CONSTRAINTS: ReadonlySet<ConstraintKind> = new Set(['distance', 'radius', 'angle']);
 
@@ -167,6 +170,13 @@ export class SketchModeController {
     /** User label offsets in screen pixels, keyed by dimension id; session state, never stored in the document. */
     private readonly labelUserOffsets = new Map<string, [number, number]>();
     private panState?: { startCamera: THREE.OrthographicCamera; startPointer: Point2 };
+    /** Serialized SketchDef snapshots captured before committed mutations. */
+    private readonly undoHistory: string[] = [];
+    /** Snapshots undone from the current state, restored by redo. */
+    private readonly redoHistory: string[] = [];
+    private historyBusy = false;
+    /** Document parameters inherited when the active session was created. */
+    private inheritedParameters?: Record<string, number>;
     private status: SketchStatus = {
         dof: 0,
         conflicting: [],
@@ -192,7 +202,7 @@ export class SketchModeController {
     private readonly originalModelVisibility = new Map<THREE.Object3D, boolean>();
 
     private readonly listeners = new Set<SketchControllerChangeListener>();
-    private readonly disposeSessionOnExit: boolean;
+    private disposeSessionOnExit: boolean;
     private readonly renderCallback: () => void;
     private readonly messageService?: MessageService;
     private readonly documentStore?: CadDocumentStore;
@@ -312,6 +322,87 @@ export class SketchModeController {
     /** Current sketch session, if any. */
     getSession(): SketchSession | undefined {
         return this.session;
+    }
+
+    /** True when a sketch snapshot is available to undo. */
+    canUndo(): boolean {
+        return this.session !== undefined && !this.historyBusy && this.undoHistory.length > 0;
+    }
+
+    /** True when an undone sketch snapshot is available to redo. */
+    canRedo(): boolean {
+        return this.session !== undefined && !this.historyBusy && this.redoHistory.length > 0;
+    }
+
+    /**
+     * Capture the current sketch state before a committed mutation.
+     *
+     * Called by the controller's own gesture/constraint paths and by the
+     * overlay before it mutates the session directly (dimensions, parameters,
+     * transforms, carbon copy, external refs, redundant cleanup). A checkpoint
+     * identical to the stack top is ignored so cancelled gestures do not add
+     * duplicate undo steps; any checkpoint still clears the redo stack.
+     */
+    checkpoint(): void {
+        if (this.session === undefined || this.historyBusy) {
+            return;
+        }
+        const snapshot = JSON.stringify(this.session.toSketchDef());
+        if (this.undoHistory[this.undoHistory.length - 1] !== snapshot) {
+            this.undoHistory.push(snapshot);
+            if (this.undoHistory.length > SKETCH_HISTORY_LIMIT) {
+                this.undoHistory.shift();
+            }
+        }
+        this.redoHistory.length = 0;
+        this.emitChange();
+    }
+
+    /** Restore the previous sketch snapshot (session-scoped, never the document). */
+    async undo(): Promise<void> {
+        if (!this.canUndo() || this.session === undefined) {
+            return;
+        }
+        const target = this.undoHistory[this.undoHistory.length - 1];
+        const current = JSON.stringify(this.session.toSketchDef());
+        this.historyBusy = true;
+        try {
+            await this.restoreSnapshot(JSON.parse(target) as SketchDef);
+            this.undoHistory.pop();
+            this.redoHistory.push(current);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            console.error('[SketchMode] undo failed:', error);
+            this.messageService?.error(`Sketch undo failed: ${message}`);
+        } finally {
+            this.historyBusy = false;
+            this.emitChange();
+        }
+    }
+
+    /** Reapply a previously undone sketch snapshot. */
+    async redo(): Promise<void> {
+        if (!this.canRedo() || this.session === undefined) {
+            return;
+        }
+        const target = this.redoHistory[this.redoHistory.length - 1];
+        const current = JSON.stringify(this.session.toSketchDef());
+        this.historyBusy = true;
+        try {
+            await this.restoreSnapshot(JSON.parse(target) as SketchDef);
+            this.redoHistory.pop();
+            this.undoHistory.push(current);
+            if (this.undoHistory.length > SKETCH_HISTORY_LIMIT) {
+                this.undoHistory.shift();
+            }
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            console.error('[SketchMode] redo failed:', error);
+            this.messageService?.error(`Sketch redo failed: ${message}`);
+        } finally {
+            this.historyBusy = false;
+            this.emitChange();
+        }
     }
 
     /** Current active tool. */
@@ -452,6 +543,7 @@ export class SketchModeController {
             targetIds = [state.primitiveId];
             kind = 'radius';
         }
+        this.checkpoint();
         const result = await this.session.addConstraint(kind, targetIds, value, {
             direction: kind === 'distance' ? 'point-point' : undefined
         });
@@ -481,6 +573,7 @@ export class SketchModeController {
         if (popover === undefined || this.session === undefined) {
             return;
         }
+        this.checkpoint();
         const result = await this.session.addConstraint(kind, [popover.idA, popover.idB]);
         this.constraintPopover = undefined;
         if (!result.success) {
@@ -515,6 +608,7 @@ export class SketchModeController {
         if (this.selectedDimensionId === undefined || this.session === undefined) {
             return;
         }
+        this.checkpoint();
         await this.session.deleteDimension(this.selectedDimensionId);
         this.selectedDimensionId = undefined;
     }
@@ -688,6 +782,10 @@ export class SketchModeController {
         this.session = undefined;
         this.drag = undefined;
         this.dragFramePending = false;
+        this.undoHistory.length = 0;
+        this.redoHistory.length = 0;
+        this.historyBusy = false;
+        this.inheritedParameters = undefined;
         this.labelUserOffsets.clear();
         this.selectedIds.clear();
         this.hoverPrimitiveId = undefined;
@@ -819,7 +917,80 @@ export class SketchModeController {
                       inheritedParameters
                   });
         this.session = session;
+        this.inheritedParameters = inheritedParameters === undefined ? undefined : { ...inheritedParameters };
+        this.undoHistory.length = 0;
+        this.redoHistory.length = 0;
+        this.historyBusy = false;
         this.bindSession(session);
+    }
+
+    /**
+     * Rebuild the active session from one history snapshot.
+     *
+     * The sketch identity, datum, inherited parameters, tool, snap settings,
+     * camera, and selection (filtered to ids that still exist) survive the
+     * swap. A fresh solver is required because planegcs has no reset path.
+     */
+    private async restoreSnapshot(def: SketchDef): Promise<void> {
+        const previous = this.session;
+        if (previous === undefined) {
+            return;
+        }
+        const tool = previous.getTool();
+        const snapEnabled = previous.isSnapEnabled();
+        const snapRadius = previous.getSnapRadiusPx();
+        const previousSelection = [...this.selectedIds];
+        const previousDimensionId = this.selectedDimensionId;
+
+        const solver = await PlanegcsSketchSolver.create({ locateFile: () => getPlanegcsWasmUrl() });
+        let restored: SketchSession;
+        try {
+            restored = await SketchSession.fromSketchDef(def, solver, {
+                inheritedParameters: this.inheritedParameters,
+                snap: createSnapConfig({ radius: 0.25, gridPitch: 1 })
+            });
+        } catch (error) {
+            solver.destroy();
+            throw error;
+        }
+        restored.setSnapEnabled(snapEnabled);
+        restored.setSnapRadius(snapRadius);
+        restored.setTool(tool);
+
+        const liveIds = new Set(restored.getPrimitiveIds());
+        const nextSelection = previousSelection.filter((id) => liveIds.has(id));
+        restored.setSelection(nextSelection);
+
+        const disposePrevious = this.disposeSessionOnExit;
+        this.unbindSession();
+        if (disposePrevious) {
+            previous.destroy();
+        }
+        this.session = restored;
+        this.disposeSessionOnExit = true;
+        this.bindSession(restored);
+
+        this.selectedIds.clear();
+        for (const id of nextSelection) {
+            this.selectedIds.add(id);
+        }
+        this.selectedDimensionId =
+            previousDimensionId !== undefined && restored.getDimension(previousDimensionId) !== undefined ? previousDimensionId : undefined;
+        this.constraintInput = undefined;
+        this.constraintPopover = undefined;
+        this.autoDimensionState = undefined;
+        this.drag = undefined;
+        this.dragFramePending = false;
+        this.labelDrag = undefined;
+        this.panState = undefined;
+        this.hoverPrimitiveId = undefined;
+        this.activeSketchName = restored.getName();
+        this.status = restored.getStatus();
+
+        this.renderProjectedPrimitives();
+        this.renderSketch();
+        this.emitChange();
+        this.renderCallback();
     }
 
     private bindSession(session: SketchSession): void {
@@ -976,6 +1147,7 @@ export class SketchModeController {
         if (this.session === undefined || this.selectedIds.size === 0) {
             return;
         }
+        this.checkpoint();
         const value = !this.construction;
         for (const id of this.selectedIds) {
             await this.session.setConstruction(id, value);
@@ -1010,6 +1182,7 @@ export class SketchModeController {
             this.emitChange();
             return;
         }
+        this.checkpoint();
         const result = await this.session.addConstraint(kind, [...targetIds]);
         if (!result.success) {
             this.messageService?.error(result.error ?? `Failed to apply the ${kind} constraint.`);
@@ -1022,6 +1195,7 @@ export class SketchModeController {
         if (this.session === undefined) {
             return;
         }
+        this.checkpoint();
         for (const id of ids) {
             await this.session.setConstruction(id, construction);
         }
@@ -1039,6 +1213,7 @@ export class SketchModeController {
             this.emitChange();
             return;
         }
+        this.checkpoint();
         const result = await this.session.addConstraint(kind, targetIds, value, { diameter: options?.diameter });
         if (result.success) {
             this.constraintInput = undefined;
@@ -1058,6 +1233,7 @@ export class SketchModeController {
         if (this.session === undefined) {
             return;
         }
+        this.checkpoint();
         for (const id of ids) {
             await this.session.deletePrimitive(id);
             this.selectedIds.delete(id);
@@ -1197,6 +1373,7 @@ export class SketchModeController {
             if (pointId !== undefined) {
                 // Grabbing an endpoint/center also selects the owning primitive(s)
                 // so a press (even without movement) gives visible feedback.
+                this.checkpoint();
                 this.selectOwnedPrimitives(pointId, multiSelect);
                 this.clearHoverHighlight();
                 this.drag = { pointIds: [pointId] };
@@ -1242,6 +1419,11 @@ export class SketchModeController {
         if (tool !== 'select' && this.lastPointer !== undefined) {
             const snapped = this.lastSnap?.point ?? this.lastPointer;
             const beforeIds = new Set(this.session.getPrimitiveIds());
+            // One snapshot per gesture: the first click of a staged entity
+            // (line/circle/arc/slot/...) captures, later clicks do not.
+            if (!this.session.isInProgress()) {
+                this.checkpoint();
+            }
             try {
                 await this.session.click(snapped);
             } catch (err) {
@@ -1399,6 +1581,7 @@ export class SketchModeController {
             return;
         }
 
+        this.checkpoint();
         const result = await this.session.addConstraint(this.constraintInput.kind, targetIds);
         if (result.success) {
             this.constraintInput = undefined;
@@ -2493,6 +2676,9 @@ export class SketchModeController {
         }
         this.storeUnsubscribe?.();
         this.storeUnsubscribe = undefined;
+        this.undoHistory.length = 0;
+        this.redoHistory.length = 0;
+        this.historyBusy = false;
         this.scene.remove(this.sketchGroup);
         this.sketchGroup.traverse((child) => {
             if (child instanceof THREE.Line || child instanceof THREE.Points) {

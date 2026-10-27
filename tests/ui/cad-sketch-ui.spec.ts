@@ -160,6 +160,101 @@ test('New Sketch opens the datum picker after reopening the CAD viewport', async
     expect(severe, `unexpected severe errors:\n${severe.join('\n')}`).toEqual([]);
 });
 
+test('sketch undo/redo steps through geometry and keeps toolbar state in sync', async ({ page }) => {
+    const errors = collectErrors(page);
+    await page.goto('/');
+    await waitForWorkbench(page);
+    await closeAllEditors(page);
+    await runCommand(page, 'New CAD Document');
+    const viewport = page.locator('.cad-viewport').first();
+    await expect(viewport).toBeVisible({ timeout: 30_000 });
+
+    const templatePicker = page.locator('.cad-template-picker').first();
+    await expect(templatePicker).toBeVisible({ timeout: 10_000 });
+    await templatePicker.locator('button', { hasText: 'Empty document' }).first().click();
+    const datumPicker = viewport.locator('.cad-sketch-datum-picker').first();
+    await expect(datumPicker).toBeVisible({ timeout: 30_000 });
+    await expect(viewport.locator('.cad-document-toolbar').first()).toBeVisible({ timeout: 60_000 });
+    await datumPicker.locator('button', { hasText: 'Start Sketch' }).first().click();
+    await expect(viewport.locator('.cad-sketch-finish-button')).toBeVisible({ timeout: 30_000 });
+
+    const sketchToolbar = viewport.locator('.cad-sketch-toolbar').first();
+    const undoButton = sketchToolbar.getByRole('button', { name: 'Undo', exact: true });
+    const redoButton = sketchToolbar.getByRole('button', { name: 'Redo', exact: true });
+    const selectionBadge = viewport.locator('.cad-sketch-status-badge').filter({ hasText: /^\d+ selected$/ });
+
+    // An empty sketch has nothing to undo or redo.
+    await expect(undoButton).toBeDisabled();
+    await expect(redoButton).toBeDisabled();
+
+    const viewportBox = await viewport.boundingBox();
+    expect(viewportBox, 'viewport has no bounding box').not.toBeNull();
+    const click = async (x: number, y: number): Promise<void> => {
+        await page.mouse.click(viewportBox!.x + x, viewportBox!.y + y);
+        await page.waitForTimeout(120);
+    };
+
+    // Two horizontal lines, one undo step each (each line is a two-click gesture).
+    await page.keyboard.press('l');
+    await click(430, 420);
+    await click(760, 420);
+    await expect(undoButton).toBeEnabled();
+    await expect(redoButton).toBeDisabled();
+    await click(430, 500);
+    await click(760, 500);
+
+    await page.keyboard.press('s');
+    await click(600, 500);
+    await expect(selectionBadge).toHaveText('1 selected');
+
+    // Ctrl+Z removes the second line; the first stays pickable and redo arms.
+    await page.keyboard.press('Control+z');
+    await expect(undoButton).toBeEnabled();
+    await expect(redoButton).toBeEnabled();
+    await expect(selectionBadge).toBeHidden();
+    await click(600, 500);
+    await expect(selectionBadge).toBeHidden();
+    await click(600, 420);
+    await expect(selectionBadge).toHaveText('1 selected');
+
+    // Ctrl+Z removes the first line too, disabling undo.
+    await page.keyboard.press('Control+z');
+    await expect(undoButton).toBeDisabled();
+    await expect(redoButton).toBeEnabled();
+    await expect(selectionBadge).toBeHidden();
+    await click(600, 420);
+    await expect(selectionBadge).toBeHidden();
+
+    // Ctrl+Shift+Z restores the first line, then the second.
+    await page.keyboard.press('Control+Shift+z');
+    await expect(undoButton).toBeEnabled();
+    await expect(redoButton).toBeEnabled();
+    await click(600, 420);
+    await expect(selectionBadge).toHaveText('1 selected');
+    await click(600, 500);
+    await expect(selectionBadge).toBeHidden();
+
+    await page.keyboard.press('Control+Shift+z');
+    await expect(undoButton).toBeEnabled();
+    await expect(redoButton).toBeDisabled();
+    await click(600, 500);
+    await expect(selectionBadge).toHaveText('1 selected');
+
+    // The header buttons drive the same history as the keyboard chords.
+    await undoButton.click();
+    await expect(redoButton).toBeEnabled();
+    await expect(selectionBadge).toBeHidden();
+    await click(600, 500);
+    await expect(selectionBadge).toBeHidden();
+    await redoButton.click();
+    await expect(redoButton).toBeDisabled();
+    await click(600, 500);
+    await expect(selectionBadge).toHaveText('1 selected');
+
+    const severe = errors.filter((e) => !e.includes('l10n') && !e.includes('localization bundles'));
+    expect(severe, `unexpected severe errors:\n${severe.join('\n')}`).toEqual([]);
+});
+
 test('edit sketch re-enters directly and transform tools use the selected geometry', async ({ page }) => {
     const errors = collectErrors(page);
     await page.goto('/');
@@ -202,6 +297,19 @@ test('edit sketch re-enters directly and transform tools use the selected geomet
     // Finishing a sketch on an unsaved document can prompt for a save path
     // (the rebuild auto-save); the in-memory document is enough for this test.
     const dismissSaveDialog = async (): Promise<void> => {
+        // Unsaved documents now get the explicit save-to-build prompt; older
+        // fixtures fall back to the native save dialog.
+        const prompt = page.locator('.cad-sketch-save-prompt');
+        try {
+            await prompt.waitFor({ state: 'visible', timeout: 3000 });
+        } catch {
+            // No prompt; fall through to the native dialog check.
+        }
+        if (await prompt.isVisible().catch(() => false)) {
+            await prompt.getByRole('button', { name: 'Not now' }).click();
+            await expect(prompt).toBeHidden();
+            return;
+        }
         const shell = page.locator('#theia-dialog-shell');
         try {
             await shell.waitFor({ state: 'visible', timeout: 3000 });

@@ -474,7 +474,9 @@ constrained.
 - **Zoom**: mouse wheel around the cursor.
 - **Exit**: click the **Finish Sketch** pill at the top-right of the viewport,
   or run **Exit Sketch** from the Command Palette. The sketch is merged back
-  into the document and the viewport returns to the 3D view.
+  into the document and the viewport returns to the 3D view. On an unsaved
+  document, a **Sketch saved in memory** prompt asks whether to **Save…** (then
+  build) or **Not now** (keep the sketch, defer the build, and warn once).
 
 The sketch toolbar floats and can be dragged anywhere in the canvas by its
 **SKETCH** header (the collapsed hamburger drags too). Right-click or
@@ -1241,9 +1243,12 @@ section/dimension layers) from the sheet. PDF export is not in this release.
 ## Undo and redo
 
 The document toolbar offers **Undo** (`Ctrl+Z`) and **Redo** (`Ctrl+Shift+Z`
-/ `Ctrl+Y`) over committed document changes (depth 100). Sketch strokes are
-not individual steps — one undo step covers everything saved with the
-sketch. Undo and redo rebuild exactly like a normal edit.
+/ `Ctrl+Y`) over committed document changes (depth 100). Inside sketch mode,
+undo/redo are session-local: the same chords (plus the sketch toolbar's Undo/
+Redo buttons) step through individual tools, drags, constraints, dimensions,
+parameters, and transforms without touching document history. Finishing the
+sketch is one document-level step. Undo and redo rebuild exactly like a normal
+edit.
 
 ## Save and rebuild
 

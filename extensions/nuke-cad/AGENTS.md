@@ -61,7 +61,8 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   a controller-owned grid toggle, a top-center constraint chip bar plus a **More**
   select, a selection-aware right-click menu, and split hints/solver badges plus
   `N selected`/`Construction` state on the status line (failed gestures warn;
-  selection transforms disable with reasons); face/edge picking
+  selection transforms disable with reasons), session-local undo/redo (50
+  snapshots; finish-save prompt on unsaved documents); face/edge picking
   (`face-picker.ts`, `edge-picker.ts`) feeds `externalRefs` as construction geometry.
   See `docs/dev/sketch.md`.
 - Feature recompute (`feature-graph.ts`: DAG, topological order, cycle rejection,

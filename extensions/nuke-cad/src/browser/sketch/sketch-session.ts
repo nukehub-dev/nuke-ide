@@ -5060,7 +5060,12 @@ export class SketchSession {
         let candidate: string;
         do {
             candidate = `${prefix}-${++this.idCounter}`;
-        } while (this.primitives.has(candidate) || this.constraints.has(candidate) || this.parameters.has(candidate));
+        } while (
+            this.primitives.has(candidate) ||
+            this.constraints.has(candidate) ||
+            this.parameters.has(candidate) ||
+            this.dimensions.has(candidate)
+        );
         return candidate;
     }
 
