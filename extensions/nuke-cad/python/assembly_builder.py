@@ -839,9 +839,14 @@ def build_assembly_shape(
                     own_build = _build_single_doc_shape(doc, base_dir)
                 labeled_solids = _solids_of_body(own_build, target or "", own_labels)
                 if not labeled_solids:
+                    detail = _body_failure_detail(own_build, target or "")
+                    suffix = (
+                        f": {detail}"
+                        if detail is not None
+                        else " (it may be consumed by a boolean)"
+                    )
                     raise AssemblyBuildError(
-                        f"assembly instance '{instance_id}': body '{target}' produced no solids "
-                        "(it may be consumed by a boolean)"
+                        f"assembly instance '{instance_id}': body '{target}' produced no solids{suffix}"
                     )
             elif kind == "document":
                 assert target is not None
@@ -933,6 +938,25 @@ def _solids_of_body(
         for solid, owner in zip(solids, solid_body_ids, strict=True)
         if owner == body_id
     ]
+
+
+def _body_failure_detail(build_result: dict[str, Any], body_id: str) -> str | None:
+    """First failed feature error for a body, used to explain an empty instance.
+
+    A body can produce no solids because an import's source hash changed, a
+    sketch failed, or a boolean consumed it. The generic "may be consumed"
+    hint hides those actionable errors; surface the feature error when one
+    exists.
+    """
+    for record in build_result.get("featureResults", []):
+        if not isinstance(record, dict) or record.get("bodyId") != body_id:
+            continue
+        if record.get("status") not in ("failed", "stale"):
+            continue
+        error = record.get("error")
+        if isinstance(error, str) and error:
+            return error
+    return None
 
 
 def _solids_of_document(

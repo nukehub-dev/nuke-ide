@@ -1045,10 +1045,12 @@ def _load_model_shape(script_path: str) -> tuple[Any, list[str]]:
     drawings are built).
     """
     from geometry_service import (  # noqa: E402
+        HAS_ASSEMBLY_BUILDER,
         _execute_script_isolated,
         _migrate_v1_to_v2,
         _migrate_v2_to_v3,
         _validate_document_refs,
+        assembly_builder,
         feature_builder,
     )
 
@@ -1080,6 +1082,30 @@ def _load_model_shape(script_path: str) -> tuple[Any, list[str]]:
                 "Drawing documents requires build123d, "
                 "which is not available in the active Python environment"
             )
+        assembly = document.get("assembly")
+        if isinstance(assembly, dict) and assembly.get("groundedInstanceId"):
+            # Match the viewport: a grounded assembly projects the placed
+            # instance shape, not the unplaced source bodies. Building only the
+            # own-body shape would draw 15 coils stacked at the origin.
+            if not HAS_ASSEMBLY_BUILDER or assembly_builder is None:
+                raise DrawingError(
+                    "Drawing a grounded assembly requires the assembly builder, "
+                    "which is not available in the active Python environment"
+                )
+            try:
+                assembly_result = assembly_builder.build_assembly_shape(
+                    document, document_dir=source.parent
+                )
+            except assembly_builder.AssemblyBuildError as exc:
+                raise DrawingError(str(exc)) from exc
+            except Exception as exc:
+                raise DrawingError(f"Assembly build failed: {exc}") from exc
+            shape = assembly_result.get("shape")
+            if shape is None:
+                raise DrawingError(
+                    "Assembly produced no solids; check instance sources for failures"
+                )
+            return shape, list(assembly_result.get("warnings", []))
         curve_results: dict[str, dict[str, Any]] = {}
         curves = document.get("curves", [])
         if isinstance(curves, list) and curves:

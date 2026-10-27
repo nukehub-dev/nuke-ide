@@ -30,9 +30,11 @@ with `__NUKE_RESULT__` so arbitrary user prints cannot be mistaken for the
 protocol payload.
 
 Spawned services are tracked in a backend job registry with a one-hour default
-timeout, a 1 MB output tail, and a `cancelJob(jobId)` RPC that kills the
+timeout, a 1 MB diagnostic output tail, and a `cancelJob(jobId)` RPC that kills the
 process group (used by the FEM panel's **Stop** button); remaining jobs are
-killed when the backend stops. STEP-source imports and `.nuke-cad` document
+killed when the backend stops. The final `__NUKE_RESULT__` line is retained
+whole even when it exceeds the diagnostic tail, so large drawing SVG/DXF payloads
+are parsed instead of being mistaken for a service failure. STEP-source imports and `.nuke-cad` document
 opens/rebuilds are always spawned with `--no-dagmc`/`--no-mesh` — DAGMC and FEM
 mesh export only run when explicitly requested (see `backend-pipeline.md`).
 The backend also exposes `downloadFile(url, targetPath)` for external sample

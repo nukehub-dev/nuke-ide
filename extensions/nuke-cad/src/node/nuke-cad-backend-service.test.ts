@@ -38,7 +38,8 @@ import {
     inspectImportArgs,
     normalizeInspectImportResult,
     isAllowedDownloadUrl,
-    NukeCadBackendServiceImpl
+    NukeCadBackendServiceImpl,
+    ServiceResultCapture
 } from './nuke-cad-backend-service';
 import type {
     GeometryBuildRequest,
@@ -531,5 +532,52 @@ describe('backend sample download', () => {
             await new Promise<void>((resolve) => server.close(() => resolve()));
             await fs.promises.rm(directory, { recursive: true, force: true });
         }
+    });
+});
+
+describe('ServiceResultCapture', () => {
+    it('parses a result line larger than the bounded stdout tail', async () => {
+        const service = new NukeCadBackendServiceImpl();
+        const script = "process.stdout.write('__NUKE_RESULT__' + JSON.stringify({success:true,dxf:'0\\nEOF\\n'.repeat(200000)}) + '\\n');";
+        const result = await (service as any)._spawnJsonService(process.execPath, ['-e', script], process.cwd());
+        expect(result.success).toBe(true);
+        expect(result.error).toBeUndefined();
+        expect(result.dxf.length).toBeGreaterThan(1024 * 1024);
+    });
+
+    it('keeps a result line larger than the bounded diagnostic tail', () => {
+        const capture = new ServiceResultCapture();
+        const payload = JSON.stringify({
+            success: true,
+            svg: '<svg/>',
+            dxf: '0\nEOF\n'.repeat(300_000)
+        });
+        const line = `__NUKE_RESULT__${payload}`;
+        for (let offset = 0; offset < line.length; offset += 64 * 1024) {
+            capture.append(line.slice(offset, offset + 64 * 1024));
+        }
+        capture.finish();
+        expect(capture.resultLine).toBe(line);
+        expect(capture.output.length).toBeLessThanOrEqual(1024 * 1024);
+        expect(JSON.parse(capture.resultLine!.slice('__NUKE_RESULT__'.length))).toMatchObject({
+            success: true,
+            svg: '<svg/>'
+        });
+    });
+
+    it('keeps the last marker line and flushes a newline-less tail', () => {
+        const capture = new ServiceResultCapture();
+        capture.append('progress line\n__NUKE_RESULT__{"success":false,"error":"old"}\n');
+        capture.append('__NUKE_RESULT__{"success":true,"dxf":"EOF"}');
+        capture.finish();
+        expect(capture.resultLine).toBe('__NUKE_RESULT__{"success":true,"dxf":"EOF"}');
+    });
+
+    it('returns no result line for diagnostics-only output', () => {
+        const capture = new ServiceResultCapture();
+        capture.append('loading\ndone\n');
+        capture.finish();
+        expect(capture.resultLine).toBeUndefined();
+        expect(capture.output).toContain('done');
     });
 });

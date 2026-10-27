@@ -262,6 +262,33 @@ def test_missing_source_error_names_instance_and_source() -> None:
         raise AssertionError("expected AssemblyBuildError")
 
 
+def test_body_failure_detail_prefers_the_failed_feature_error() -> None:
+    """An empty body instance should name the import/feature failure."""
+    build_result = {
+        "featureResults": [
+            {
+                "featureId": "other",
+                "bodyId": "body-2",
+                "status": "failed",
+                "error": "wrong body",
+            },
+            {
+                "featureId": "coil-import",
+                "bodyId": "body-1",
+                "status": "failed",
+                "error": "feature 'coil-import': source hash mismatch; refresh the import",
+            },
+            {"featureId": "pad", "bodyId": "body-1", "status": "ok"},
+        ]
+    }
+    assert (
+        ab._body_failure_detail(build_result, "body-1")
+        == "feature 'coil-import': source hash mismatch; refresh the import"
+    )
+    assert ab._body_failure_detail(build_result, "body-9") is None
+    assert ab._body_failure_detail({}, "body-1") is None
+
+
 def test_classify_resolution_order(tmp_path: Path) -> None:
     body_ids = {"plate", "block"}
     assert ab.classify_instance_source("body:plate", body_ids, tmp_path) == ("body", "plate")

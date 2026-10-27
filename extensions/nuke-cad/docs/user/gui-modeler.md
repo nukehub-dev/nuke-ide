@@ -1240,8 +1240,12 @@ for the current document:
    build and flag `stale` when their reference breaks.
 
 Drawing edits are saved before the linework is rebuilt, so the HLR service
-always reads the current sheet. Export SVG (native) or DXF (visible/hidden/
-section/dimension layers) from the sheet. PDF export is not in this release.
+always reads the current sheet. A grounded assembly is drawn in its placed
+configuration, not as the unplaced source bodies. If an imported source file
+changed, the build reports the import hash error; run **Refresh Import
+Sources** before rebuilding the sheet. Export SVG (native) or DXF
+(visible/hidden/section/dimension layers) from the sheet. PDF export is not in
+this release.
 
 ## Undo and redo
 

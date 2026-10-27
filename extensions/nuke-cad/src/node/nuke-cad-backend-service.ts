@@ -250,10 +250,63 @@ export function inspectImportArgs(request: InspectImportSourceRequest, scriptPat
  */
 const MAX_CAPTURED_OUTPUT_CHARS = 1024 * 1024;
 
+/** Prefix the Python services put before their final JSON result line. */
+const RESULT_MARKER = '__NUKE_RESULT__';
+
 /** Append a chunk to a captured-output buffer, keeping only the trailing {@link MAX_CAPTURED_OUTPUT_CHARS} characters. */
 function appendOutputTail(buffer: string, chunk: string): string {
     const combined = buffer + chunk;
     return combined.length > MAX_CAPTURED_OUTPUT_CHARS ? combined.slice(combined.length - MAX_CAPTURED_OUTPUT_CHARS) : combined;
+}
+
+/**
+ * Capture a service's stdout for protocol parsing.
+ *
+ * The retained diagnostic tail is bounded, but a drawing result line carries
+ * the full SVG/DXF payload and can exceed that tail. Losing the marker at the
+ * start of such a line makes a successful exit (code 0) look like a service
+ * failure, so the final marker line is kept whole while the tail stays bounded.
+ */
+export class ServiceResultCapture {
+    private tail = '';
+    private pending = '';
+    private lastResultLine: string | undefined;
+
+    append(chunk: string): void {
+        this.tail = appendOutputTail(this.tail, chunk);
+        this.pending += chunk;
+        let newline = this.pending.indexOf('\n');
+        while (newline >= 0) {
+            this.consumeLine(this.pending.slice(0, newline));
+            this.pending = this.pending.slice(newline + 1);
+            newline = this.pending.indexOf('\n');
+        }
+    }
+
+    /** Flush a final result line that arrived without a trailing newline. */
+    finish(): void {
+        if (this.pending.length > 0) {
+            this.consumeLine(this.pending);
+            this.pending = '';
+        }
+    }
+
+    /** Bounded stdout tail for diagnostics and legacy result scanning. */
+    get output(): string {
+        return this.tail;
+    }
+
+    /** Complete final marker line, or undefined when the service printed none. */
+    get resultLine(): string | undefined {
+        return this.lastResultLine;
+    }
+
+    private consumeLine(line: string): void {
+        const trimmed = line.trim();
+        if (trimmed.startsWith(RESULT_MARKER)) {
+            this.lastResultLine = trimmed;
+        }
+    }
 }
 
 /** Per-spawn options for {@link NukeCadBackendServiceImpl._spawnJsonService}. */
@@ -717,7 +770,7 @@ export class NukeCadBackendServiceImpl implements NukeCadBackendService {
                 detached: process.platform !== 'win32'
             });
 
-            let stdout = '';
+            const stdout = new ServiceResultCapture();
             let stderr = '';
 
             const job: RunningCadJob = { jobId, process: child, cancelled: false, timedOut: false };
@@ -739,7 +792,7 @@ export class NukeCadBackendServiceImpl implements NukeCadBackendService {
             this.runningJobs.set(jobId, job);
 
             child.stdout?.on('data', (data: Buffer) => {
-                stdout = appendOutputTail(stdout, data.toString());
+                stdout.append(data.toString());
             });
 
             child.stderr?.on('data', (data: Buffer) => {
@@ -760,13 +813,35 @@ export class NukeCadBackendServiceImpl implements NukeCadBackendService {
             });
 
             child.on('close', (code) => {
+                stdout.finish();
                 const lifecycleError = job.cancelled
                     ? 'Job cancelled.'
                     : job.timedOut
                       ? `Job timed out after ${timeoutSeconds} seconds.`
                       : undefined;
-                const RESULT_MARKER = '__NUKE_RESULT__';
-                const lines = stdout.trim().split('\n');
+                const resultLine = stdout.resultLine;
+                if (resultLine !== undefined) {
+                    try {
+                        const parsed = JSON.parse(resultLine.slice(RESULT_MARKER.length)) as T;
+                        const success = lifecycleError ? false : code !== 0 && parsed.success !== false ? false : parsed.success;
+                        const result: T = {
+                            ...parsed,
+                            success,
+                            error:
+                                lifecycleError ?? (success === false ? parsed.error || `Process exited with code ${code}` : parsed.error),
+                            output: parsed.output ?? stderr
+                        };
+                        (result as any).jobId = jobId;
+                        if (scriptPath !== undefined) {
+                            (result as any).scriptPath = scriptPath;
+                        }
+                        finish(result);
+                        return;
+                    } catch {
+                        // Malformed result line: fall through to the legacy tail scan.
+                    }
+                }
+                const lines = stdout.output.trim().split('\n');
                 for (let i = lines.length - 1; i >= 0; i--) {
                     const candidate = lines[i].trim();
                     if (!candidate.startsWith(RESULT_MARKER)) {
@@ -793,7 +868,7 @@ export class NukeCadBackendServiceImpl implements NukeCadBackendService {
                     }
                 }
 
-                const detail = stderr.trim() || stdout.trim();
+                const detail = stderr.trim() || stdout.output.trim();
                 const result = {
                     success: false,
                     error: lifecycleError ?? `Service exited with code ${code}${detail ? `: ${detail.slice(-500)}` : ''}`,

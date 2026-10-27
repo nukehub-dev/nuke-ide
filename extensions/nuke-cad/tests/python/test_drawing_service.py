@@ -421,6 +421,42 @@ def test_build_drawing_document_flow(tmp_path: Path) -> None:
     assert isinstance(result["warnings"], list)
 
 
+def test_build_drawing_grounded_assembly_uses_placed_shape(tmp_path: Path, monkeypatch) -> None:
+    """A grounded assembly projects the placed instance compound, not own bodies."""
+    _require_build123d()
+    doc_path = _write_box_doc(tmp_path / "assembly.nuke-cad")
+    document = json.loads(doc_path.read_text(encoding="utf-8"))
+    document["assembly"] = {
+        "instances": [
+            {
+                "id": "box_m0",
+                "part": "body:body-1",
+                "placement": {
+                    "position": [20.0, 0.0, 0.0],
+                    "orientation": [0.0, 0.0, 0.0, 1.0],
+                },
+            }
+        ],
+        "connectors": [],
+        "mates": [],
+        "groundedInstanceId": "box_m0",
+    }
+    doc_path.write_text(json.dumps(document), encoding="utf-8")
+
+    calls: list[str] = []
+    original = geometry_service.assembly_builder.build_assembly_shape
+
+    def spy(doc: dict, **kwargs) -> dict:
+        calls.append("called")
+        return original(doc, **kwargs)
+
+    monkeypatch.setattr(geometry_service.assembly_builder, "build_assembly_shape", spy)
+    result = drawing_service.build_drawing(str(doc_path), "sheet-1")
+    assert result["success"] is True, result.get("error", "")
+    assert calls == ["called"]
+    assert len(result["views"][0]["visible"]) == 4
+
+
 def test_dimension_value_updates_after_param_edit(tmp_path: Path) -> None:
     """Re-resolving stored face refs after a z-size edit updates the value."""
     _require_build123d()

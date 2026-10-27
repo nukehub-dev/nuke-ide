@@ -74,7 +74,8 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   zoom + Space/middle/Alt pan, grid/snap/frame toggles, inspector
   (views/dimensions/scale/Fit/delete), label/body view dragging with a minimum grab
   area, view + paper context menus, double-click Fit, selected-view status segment, tiny-1:1
-  auto-fit, and Save/Refresh/SVG/DXF; pending edits auto-save before HLR. See `docs/dev/drawings-assemblies.md`.
+  auto-fit, and Save/Refresh/SVG/DXF; grounded assemblies project placed
+  instances; pending edits auto-save before HLR. See `docs/dev/drawings-assemblies.md`.
 - Dress-ups (fillet/chamfer/draft/shell on the accumulated B-rep via pick modes;
   fillet/chamfer edge picks optionally expand to a same-solid tangent chain, 15° / 256-edge cap),
   patterns/mirror/lattice (2500-cell cap)/multiTransform over same-body sources with
