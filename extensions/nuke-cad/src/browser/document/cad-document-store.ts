@@ -3005,6 +3005,23 @@ export class CadDocumentStore {
     }
 
     /**
+     * Drop cached projections for one sketch after its external refs change.
+     *
+     * Projections are build output, not document state; keeping them after the
+     * refs move would leave stale construction geometry on screen until the
+     * next rebuild. Returns true when the map changed.
+     */
+    private dropSketchProjections(sketchId: string): boolean {
+        if (!this.state.projectedPrimitives.has(sketchId)) {
+            return false;
+        }
+        const projectedPrimitives = new Map(this.state.projectedPrimitives);
+        projectedPrimitives.delete(sketchId);
+        this.state = { ...this.state, projectedPrimitives };
+        return true;
+    }
+
+    /**
      * Update per-reference resolution status from a document rebuild.
      *
      * This is not a user mutation and does not affect the dirty flag.
@@ -3031,7 +3048,44 @@ export class CadDocumentStore {
             return { success: false, error: `Sketch '${sketchId}' not found` };
         }
         sketch.externalRefs = [...(sketch.externalRefs ?? []), cloneTopologyRef(ref)];
-        return this.commit(doc);
+        const result = this.commit(doc);
+        if (result.success && this.dropSketchProjections(sketchId)) {
+            this.emitChange();
+        }
+        return result;
+    }
+
+    /**
+     * Mirror an in-progress sketch's restored external refs into the document.
+     *
+     * Session undo/redo owns the edit until Finish; this keeps the document's
+     * copy (and therefore the next projection rebuild) in step without adding a
+     * second document-history entry for a session-local action. The sketch's
+     * external-ref add/remove already recorded the document mutation.
+     */
+    syncSketchExternalRefsForEdit(sketchId: string, refs: readonly TopologyRef[]): DocumentMutationResult {
+        const check = this.requireDocument();
+        if (!check.success) {
+            return { success: false, error: check.error, issues: check.issues };
+        }
+        const doc = cloneDocument(check.value!);
+        const sketch = doc.sketches.find((s) => s.id === sketchId);
+        if (sketch === undefined) {
+            return { success: false, error: `Sketch '${sketchId}' not found` };
+        }
+        const next = refs.map((ref) => cloneTopologyRef(ref));
+        if (JSON.stringify(sketch.externalRefs ?? []) === JSON.stringify(next)) {
+            return { success: true };
+        }
+        if (next.length === 0) {
+            delete sketch.externalRefs;
+        } else {
+            sketch.externalRefs = next;
+        }
+        this.state = { ...this.state, document: doc, dirty: true };
+        this.dropSketchProjections(sketchId);
+        this.emitChange();
+        return { success: true };
     }
 
     /** Remove an external reference from a sketch by index. */
@@ -3053,7 +3107,11 @@ export class CadDocumentStore {
         if (sketch.externalRefs.length === 0) {
             delete sketch.externalRefs;
         }
-        return this.commit(doc);
+        const result = this.commit(doc);
+        if (result.success && this.dropSketchProjections(sketchId)) {
+            this.emitChange();
+        }
+        return result;
     }
 
     private requireDocument(): DocumentMutationResult<NukeCadDocument> {

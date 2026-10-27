@@ -36,7 +36,7 @@
  * @module nuke-cad/browser/widgets/drawing-sheet
  */
 
-import { formatDrawingScale } from '../../../common/cad-drawing';
+import { formatDrawingScale, type DrawingViewOrientation } from '../../../common/cad-drawing';
 import type { ContextMenuItem } from '../cad-viewport/viewport-context-menu';
 
 /** Canvas zoom limits shared by the wheel and toolbar paths. */
@@ -141,5 +141,74 @@ export function buildDrawingViewMenu(input: DrawingViewMenuInput): readonly Cont
         })),
         { label: 'Scale…', icon: 'codicon-settings-gear', action: { kind: 'focusScale' } },
         { label: 'Delete view', icon: 'codicon-trash', separatorAbove: true, action: { kind: 'deleteView' } }
+    ];
+}
+
+/** Actions the drawing widget dispatches for a sheet/paper menu item. */
+export type DrawingSheetMenuAction =
+    | { readonly kind: 'fitSheet' }
+    | { readonly kind: 'addBaseView' }
+    | { readonly kind: 'toggleGrid' }
+    | { readonly kind: 'toggleFrame' }
+    | { readonly kind: 'toggleSnap' }
+    | { readonly kind: 'refresh' }
+    | { readonly kind: 'export'; readonly format: 'svg' | 'dxf' }
+    | { readonly kind: 'deleteSheet' };
+
+export interface DrawingSheetMenuInput {
+    /** Grid is currently on (label flips to Hide grid). */
+    readonly showGrid?: boolean;
+    /** Frame/title block is currently on. */
+    readonly showFrame?: boolean;
+    /** 5 mm placement snap is currently on. */
+    readonly snapEnabled?: boolean;
+    /** Refresh is disabled while an HLR build is in flight. */
+    readonly building?: boolean;
+    /** Orientation used by Add base view (matches the toolbar's current pick). */
+    readonly baseViewOrientation?: DrawingViewOrientation;
+}
+
+/**
+ * Sheet-level menu for right-clicking blank paper.
+ *
+ * Keeps navigation, sheet presentation toggles, and output actions in one
+ * place without duplicating the selected-view menu. The shared renderer
+ * supplies the panel/pointer/Escape grammar.
+ */
+export function buildDrawingSheetMenu(input: DrawingSheetMenuInput = {}): readonly ContextMenuItem<DrawingSheetMenuAction>[] {
+    const showGrid = input.showGrid !== false;
+    const showFrame = input.showFrame !== false;
+    const snapEnabled = input.snapEnabled !== false;
+    const orientation = input.baseViewOrientation ?? 'front';
+    return [
+        { label: 'Fit sheet', icon: 'codicon-screen-full', action: { kind: 'fitSheet' } },
+        { label: `Add ${orientation} base view`, icon: 'codicon-nuke-cad-cube', action: { kind: 'addBaseView' } },
+        {
+            label: showGrid ? 'Hide grid' : 'Show grid',
+            icon: 'codicon-table',
+            separatorAbove: true,
+            action: { kind: 'toggleGrid' }
+        },
+        {
+            label: showFrame ? 'Hide frame and title block' : 'Show frame and title block',
+            icon: 'codicon-file',
+            action: { kind: 'toggleFrame' }
+        },
+        {
+            label: snapEnabled ? 'Disable 5 mm snapping' : 'Enable 5 mm snapping',
+            icon: 'codicon-magnet',
+            action: { kind: 'toggleSnap' }
+        },
+        {
+            label: 'Refresh linework',
+            icon: 'codicon-refresh',
+            separatorAbove: true,
+            disabled: input.building === true ? true : undefined,
+            reason: input.building === true ? 'Drawing build in progress' : undefined,
+            action: { kind: 'refresh' }
+        },
+        { label: 'Export SVG', icon: 'codicon-download', action: { kind: 'export', format: 'svg' } },
+        { label: 'Export DXF', icon: 'codicon-download', action: { kind: 'export', format: 'dxf' } },
+        { label: 'Delete sheet', icon: 'codicon-trash', separatorAbove: true, action: { kind: 'deleteSheet' } }
     ];
 }

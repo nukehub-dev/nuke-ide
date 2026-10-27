@@ -787,6 +787,41 @@ describe('face datum and external references', () => {
         expect(store.document?.sketches[0].externalRefs).toBeUndefined();
     });
 
+    it('drops cached projections when external references change', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        store.upsertSketch(sketch('s1'));
+        const projected = [{ id: 'p1', type: 'point', x: 1, y: 2 }];
+
+        store.setProjectedPrimitives({ s1: projected });
+        expect(store.addExternalRef('s1', faceRef('base')).success).toBe(true);
+        expect(store.getProjectedPrimitives().has('s1')).toBe(false);
+
+        store.setProjectedPrimitives({ s1: projected });
+        expect(store.removeExternalRef('s1', 0).success).toBe(true);
+        expect(store.getProjectedPrimitives().has('s1')).toBe(false);
+    });
+
+    it('syncs restored external refs without adding a history entry', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        store.upsertSketch(sketch('s1'));
+        store.addExternalRef('s1', faceRef('base'));
+        store.setProjectedPrimitives({ s1: [{ id: 'p1', type: 'point', x: 1, y: 2 }] });
+        const restored = faceRef('other', [1, 2, 3]);
+
+        const result = store.syncSketchExternalRefsForEdit('s1', [restored]);
+        expect(result.success).toBe(true);
+        expect(store.document?.sketches[0].externalRefs).toEqual([restored]);
+        expect(store.getProjectedPrimitives().has('s1')).toBe(false);
+        expect(store.dirty).toBe(true);
+
+        // Projection bookkeeping must not become a document-undo step: the
+        // first undo returns to the pre-add sketch, not to the same refs.
+        expect(store.undo().success).toBe(true);
+        expect(store.document?.sketches[0].externalRefs).toBeUndefined();
+    });
+
     it('rejects removing an external reference with an invalid index', () => {
         const store = new CadDocumentStore();
         store.createDocument('test');

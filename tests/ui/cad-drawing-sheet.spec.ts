@@ -174,6 +174,62 @@ test('drawing sheet workspace creates, builds, and exposes canvas controls', asy
         await expect(zoomLabel).toHaveText('100%');
         await page.waitForTimeout(150);
 
+        const menuItem = (scope: Locator, label: string) => scope.locator('.cad-viewport-context-menu-item', { hasText: label });
+
+        // Right-click blank paper opens the sheet-level menu (not the browser
+        // menu, and not the selected-view menu).
+        const openSheetMenu = async () => {
+            const box = await paper.boundingBox();
+            expect(box).not.toBeNull();
+            await page.mouse.click(box!.x + 6, box!.y + 6, { button: 'right' });
+            const menu = drawing.locator('.cad-viewport-context-menu');
+            await expect(menu).toBeVisible();
+            return menu;
+        };
+        const sheetMenu = await openSheetMenu();
+        for (const label of [
+            'Fit sheet',
+            'Add front base view',
+            'Hide grid',
+            'Hide frame and title block',
+            'Disable 5 mm snapping',
+            'Refresh linework',
+            'Export SVG',
+            'Export DXF',
+            'Delete sheet'
+        ]) {
+            await expect(menuItem(sheetMenu, label)).toBeVisible();
+        }
+        await page.keyboard.press('Escape');
+        await expect(sheetMenu).toBeHidden();
+
+        // Presentation toggles share state with the toolbar.
+        const gridMenu = await openSheetMenu();
+        await menuItem(gridMenu, 'Hide grid').click();
+        await expect(grid).toHaveAttribute('aria-pressed', 'false');
+        await grid.click();
+        await expect(grid).toHaveAttribute('aria-pressed', 'true');
+
+        const frameMenu = await openSheetMenu();
+        await menuItem(frameMenu, 'Hide frame and title block').click();
+        await expect(drawing.locator('.nuke-cad-drawing-title-block')).toHaveCount(0);
+        await drawing.getByRole('button', { name: 'Toggle frame and title block' }).click();
+        await expect(drawing.locator('.nuke-cad-drawing-title-block')).toHaveCount(1);
+
+        const snapToggle = drawing.getByRole('button', { name: 'Toggle 5 mm snapping' });
+        const snapMenu = await openSheetMenu();
+        await menuItem(snapMenu, 'Disable 5 mm snapping').click();
+        await expect(snapToggle).toHaveAttribute('aria-pressed', 'false');
+        await snapToggle.click();
+        await expect(snapToggle).toHaveAttribute('aria-pressed', 'true');
+
+        // Fit sheet resets zoom/pan like the toolbar reset.
+        await drawing.getByRole('button', { name: 'Zoom in' }).click();
+        await expect(zoomLabel).not.toHaveText('100%');
+        const fitSheetMenu = await openSheetMenu();
+        await menuItem(fitSheetMenu, 'Fit sheet').click();
+        await expect(zoomLabel).toHaveText('100%');
+
         // Right-click a view: compact actions anchored at the pointer.
         const openViewMenu = async () => {
             const chip = drawing.locator('.nuke-cad-drawing-view-chip').first();
@@ -185,7 +241,6 @@ test('drawing sheet workspace creates, builds, and exposes canvas controls', asy
             return menu;
         };
         const menu = await openViewMenu();
-        const menuItem = (scope: Locator, label: string) => scope.locator('.cad-viewport-context-menu-item', { hasText: label });
         for (const label of ['Fit view', 'Show hidden lines', '1:1', '1:2', '2:1', '5:1', 'Scale…', 'Delete view']) {
             await expect(menuItem(menu, label)).toBeVisible();
         }
@@ -235,6 +290,11 @@ test('drawing sheet workspace creates, builds, and exposes canvas controls', asy
         await expect(drawing.locator('.nuke-cad-drawing-view-row')).toHaveCount(0);
         await expect(viewStatus).toHaveCount(0);
         await waitForDrawingIdle();
+
+        // The paper menu can delete the sheet too, leaving the start card.
+        const deleteSheetMenu = await openSheetMenu();
+        await menuItem(deleteSheetMenu, 'Delete sheet').click();
+        await expect(drawing.locator('.nuke-cad-drawing-start-card')).toBeVisible();
 
         const severe = errors.filter((e) => !e.includes('l10n') && !e.includes('localization bundles'));
         expect(severe, `unexpected severe errors:\n${severe.join('\n')}`).toEqual([]);

@@ -29,6 +29,7 @@ import { describe, expect, it } from 'vitest';
 import {
     DRAWING_ZOOM_MAX,
     DRAWING_ZOOM_MIN,
+    buildDrawingSheetMenu,
     buildDrawingViewMenu,
     clampDrawingZoom,
     formatDrawingExtent,
@@ -130,5 +131,49 @@ describe('drawing view context menu', () => {
         expect(hidden[1].icon).toBe('codicon-eye-closed');
         expect(hidden.find((item) => item.label === '2:1')?.icon).toBe('codicon-check');
         expect(hidden.find((item) => item.label === '1:2')?.icon).toBe('codicon-symbol-ruler');
+    });
+});
+
+describe('drawing sheet (paper) context menu', () => {
+    const labels = (items: ReturnType<typeof buildDrawingSheetMenu>): string[] => items.map((item) => item.label);
+
+    it('offers sheet navigation, presentation toggles, output, and delete', () => {
+        const items = buildDrawingSheetMenu({
+            showGrid: true,
+            showFrame: true,
+            snapEnabled: true,
+            baseViewOrientation: 'top'
+        });
+        expect(labels(items)).toEqual([
+            'Fit sheet',
+            'Add top base view',
+            'Hide grid',
+            'Hide frame and title block',
+            'Disable 5 mm snapping',
+            'Refresh linework',
+            'Export SVG',
+            'Export DXF',
+            'Delete sheet'
+        ]);
+        expect(items[0].icon).toBe('codicon-screen-full');
+        expect(items[0].action).toEqual({ kind: 'fitSheet' });
+        expect(items[1].action).toEqual({ kind: 'addBaseView' });
+        expect(items[2].separatorAbove).toBe(true);
+        expect(items[5].separatorAbove).toBe(true);
+        expect(items[8].separatorAbove).toBe(true);
+        expect(items[8].action).toEqual({ kind: 'deleteSheet' });
+        expect(items[6].action).toEqual({ kind: 'export', format: 'svg' });
+        expect(items[7].action).toEqual({ kind: 'export', format: 'dxf' });
+    });
+
+    it('flips toggle labels and disables refresh while a build is running', () => {
+        const idle = buildDrawingSheetMenu({ showGrid: false, showFrame: false, snapEnabled: false });
+        expect(labels(idle)).toEqual(expect.arrayContaining(['Show grid', 'Show frame and title block', 'Enable 5 mm snapping']));
+        expect(idle.find((item) => item.label === 'Refresh linework')?.disabled).toBeUndefined();
+
+        const building = buildDrawingSheetMenu({ building: true });
+        const refresh = building.find((item) => item.label === 'Refresh linework');
+        expect(refresh?.disabled).toBe(true);
+        expect(refresh?.reason).toBe('Drawing build in progress');
     });
 });

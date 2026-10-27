@@ -175,6 +175,8 @@ export class SketchModeController {
     /** Snapshots undone from the current state, restored by redo. */
     private readonly redoHistory: string[] = [];
     private historyBusy = false;
+    /** Optional viewport hook that rebuilds projected external geometry. */
+    private externalRefsChangedHandler?: (sketchId: string) => void;
     /** Document parameters inherited when the active session was created. */
     private inheritedParameters?: Record<string, number>;
     private status: SketchStatus = {
@@ -306,6 +308,26 @@ export class SketchModeController {
         return () => {
             this.listeners.delete(listener);
         };
+    }
+
+    /**
+     * Register the viewport hook that refreshes projected external geometry.
+     *
+     * Restoring a session swaps its external refs in memory. The controller
+     * mirrors them into the document store, then asks the viewport to rebuild
+     * the projection so dashed construction geometry matches the restored
+     * sketch instead of lagging until Finish.
+     */
+    setExternalRefsChangedHandler(handler: (sketchId: string) => void): void {
+        this.externalRefsChangedHandler = handler;
+    }
+
+    /** Ask the viewport to reproject after the overlay mutated external refs. */
+    notifyExternalRefsChanged(): void {
+        const sketchId = this.session?.getId();
+        if (sketchId !== undefined) {
+            this.externalRefsChangedHandler?.(sketchId);
+        }
     }
 
     private emitChange(): void {
@@ -987,10 +1009,41 @@ export class SketchModeController {
         this.activeSketchName = restored.getName();
         this.status = restored.getStatus();
 
+        this.syncRestoredExternalRefs(restored);
         this.renderProjectedPrimitives();
         this.renderSketch();
         this.emitChange();
         this.renderCallback();
+    }
+
+    /**
+     * Mirror a restored session's external refs into the document store.
+     *
+     * The document copy drives the backend projection; leaving it at the
+     * pre-undo refs would keep stale dashed geometry until Finish. The store
+     * mutation is projection bookkeeping (no extra history entry); the
+     * viewport hook schedules the rebuild that regenerates the linework.
+     */
+    private syncRestoredExternalRefs(session: SketchSession): void {
+        const store = this.documentStore;
+        if (store === undefined) {
+            return;
+        }
+        const sketchId = session.getId();
+        const sketch = store.document?.sketches.find((entry) => entry.id === sketchId);
+        if (sketch === undefined) {
+            return;
+        }
+        const restored = session.getExternalRefs();
+        if (JSON.stringify(sketch.externalRefs ?? []) === JSON.stringify(restored)) {
+            return;
+        }
+        const result = store.syncSketchExternalRefsForEdit(sketchId, restored);
+        if (!result.success) {
+            this.messageService?.error(result.error ?? 'Failed to sync external geometry.');
+            return;
+        }
+        this.externalRefsChangedHandler?.(sketchId);
     }
 
     private bindSession(session: SketchSession): void {

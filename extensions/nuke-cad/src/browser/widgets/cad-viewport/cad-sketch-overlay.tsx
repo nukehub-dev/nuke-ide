@@ -965,8 +965,10 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
                                 if (!result.success) {
                                     // eslint-disable-next-line no-console
                                     console.error('[CadSketchOverlay] Failed to remove external ref:', result.error);
+                                    return;
                                 }
                                 session?.removeExternalRef(index);
+                                controller.notifyExternalRefsChanged();
                             }}
                         />
                     )}

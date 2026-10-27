@@ -448,7 +448,8 @@ as construction geometry:
 
 External geometry does not become part of the sketch's output wires or faces; it
 is only a reference for snapping and constraints. You can remove a reference
-from the list at any time.
+from the list at any time. Sketch undo/redo covers adding and removing external
+geometry and refreshes the projected dashed geometry immediately.
 
 ### Carbon copy
 
@@ -1232,9 +1233,11 @@ for the current document:
 5. Drag views by their label or anywhere in their body area (5 mm snap when
    enabled); projected views stay aligned to their parent. Right-click a view
    for **Fit view**, hidden-line toggle, standard scales, **Scale…**, and
-   **Delete view**; double-click a view to fit it. Dimensions stay
-   associative — they recompute from the 3D model on every build and flag
-   `stale` when their reference breaks.
+   **Delete view**; right-click blank paper for **Fit sheet**,
+   **Add base view**, grid/frame/snap toggles, **Refresh linework**,
+   **Export SVG/DXF**, and **Delete sheet**. Double-click a view to fit it.
+   Dimensions stay associative — they recompute from the 3D model on every
+   build and flag `stale` when their reference breaks.
 
 Drawing edits are saved before the linework is rebuilt, so the HLR service
 always reads the current sheet. Export SVG (native) or DXF (visible/hidden/
@@ -1246,9 +1249,10 @@ The document toolbar offers **Undo** (`Ctrl+Z`) and **Redo** (`Ctrl+Shift+Z`
 / `Ctrl+Y`) over committed document changes (depth 100). Inside sketch mode,
 undo/redo are session-local: the same chords (plus the sketch toolbar's Undo/
 Redo buttons) step through individual tools, drags, constraints, dimensions,
-parameters, and transforms without touching document history. Finishing the
-sketch is one document-level step. Undo and redo rebuild exactly like a normal
-edit.
+parameters, and transforms without touching document history. Adding or
+removing external geometry is also undoable, and the projected dashed geometry
+refreshes with the restored state. Finishing the sketch is one document-level
+step. Undo and redo rebuild exactly like a normal edit.
 
 ## Save and rebuild
 

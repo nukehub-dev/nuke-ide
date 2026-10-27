@@ -829,7 +829,21 @@ export class CadViewportWidget extends ReactWidget {
     protected readonly handleControllerReady = (controller: SketchModeController, camera: THREE.PerspectiveCamera): void => {
         this.sketchController = controller;
         this.sketchCamera = camera;
+        // External refs can change inside a sketch session (add/remove, or an
+        // undo/redo restoring the session snapshot). The store mirror is
+        // updated by the controller/overlay; the projection itself only comes
+        // from a document build, so refresh it here.
+        controller.setExternalRefsChangedHandler(() => this.handleSketchExternalRefsChanged());
     };
+
+    private handleSketchExternalRefsChanged(): void {
+        if (!this.documentStore.hasDocument || this.documentStore.uri === undefined) {
+            // Untitled documents have no build artifacts to refresh; the first
+            // saved build will project the current refs.
+            return;
+        }
+        this.scheduleDocumentRebuild();
+    }
 
     /**
      * Camera access for named views: the mounted scene publishes its

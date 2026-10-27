@@ -40,9 +40,9 @@
  * auto-deconflict.
  *
  * Canvas navigation is cursor-anchored wheel zoom plus middle/Alt/Space-drag
- * panning (grab/grabbing cursors), with a per-view context menu for fit,
- * hidden lines, standard scales, and delete. The status bar reports the
- * selected view's scale and naked linework extent.
+ * panning (grab/grabbing cursors), with per-view and blank-paper context menus
+ * (fit, hidden lines, scales, delete; sheet toggles and output) and a status
+ * bar that reports the selected view's scale and naked linework extent.
  *
  * Dirty drawing state triggers `buildDrawing` (shared `NukeCadBackendService`
  * RPC → `python/geometry_service.py --from-drawing`), never a full geometry
@@ -90,12 +90,14 @@ import {
 } from '../../../common/cad-drawing';
 import { CadDocumentStore } from '../../document/cad-document-store';
 import { ensureNukeCadExtension } from '../cad-viewport/cad-save-path';
-import { openContextMenu } from '../cad-viewport/viewport-context-menu';
+import { openContextMenu, type ContextMenuItem } from '../cad-viewport/viewport-context-menu';
 import {
+    buildDrawingSheetMenu,
     buildDrawingViewMenu,
     clampDrawingZoom,
     formatDrawingExtent,
     zoomDrawingAtPoint,
+    type DrawingSheetMenuAction,
     type DrawingViewMenuAction
 } from './drawing-sheet-interactions';
 import {
@@ -1063,6 +1065,42 @@ export class DrawingSheetWidget extends ReactWidget {
     }
 
     private openViewContextMenu(event: React.MouseEvent, view: DrawingSheet['views'][number]): void {
+        this.selectedViewId = view.id;
+        this.openCanvasContextMenu(
+            event,
+            buildDrawingViewMenu({ scale: view.scale, showHidden: view.showHidden === true }),
+            'nuke-cad-drawing-view-menu',
+            (action) => this.handleViewMenuAction(view.id, action)
+        );
+    }
+
+    private openSheetContextMenu(event: React.MouseEvent): void {
+        if (this.activeSheet() === undefined) {
+            return;
+        }
+        // Paper scope: clear the view selection so the menu cannot read as a
+        // view action when the user right-clicked empty sheet.
+        this.selectedViewId = undefined;
+        this.openCanvasContextMenu(
+            event,
+            buildDrawingSheetMenu({
+                showGrid: this.showGrid,
+                showFrame: this.showFrame,
+                snapEnabled: this.snapEnabled,
+                building: this.building,
+                baseViewOrientation: this.newViewOrientation
+            }),
+            'nuke-cad-drawing-sheet-menu',
+            (action) => this.handleSheetMenuAction(action)
+        );
+    }
+
+    private openCanvasContextMenu<T>(
+        event: React.MouseEvent,
+        items: readonly ContextMenuItem<T>[],
+        className: string,
+        onAction: (action: T) => void
+    ): void {
         const canvas = this.canvasRef;
         if (canvas === null) {
             return;
@@ -1071,7 +1109,6 @@ export class DrawingSheetWidget extends ReactWidget {
         event.stopPropagation();
         this.closeViewMenu?.();
         canvas.focus({ preventScroll: true });
-        this.selectedViewId = view.id;
         const rect = canvas.getBoundingClientRect();
         let removeScrollListener: (() => void) | undefined;
         let close: (() => void) | undefined;
@@ -1084,19 +1121,51 @@ export class DrawingSheetWidget extends ReactWidget {
         };
         close = openContextMenu(
             canvas,
-            buildDrawingViewMenu({ scale: view.scale, showHidden: view.showHidden === true }),
+            items,
             { x: event.clientX - rect.left, y: event.clientY - rect.top },
             (action) => {
                 finish();
-                this.handleViewMenuAction(view.id, action);
+                onAction(action);
             },
-            { className: 'nuke-cad-drawing-view-menu', onClose: finish }
+            { className, onClose: finish }
         );
         const onScroll = (): void => close?.();
         window.addEventListener('scroll', onScroll, true);
         removeScrollListener = () => window.removeEventListener('scroll', onScroll, true);
         this.closeViewMenu = close;
         this.update();
+    }
+
+    private handleSheetMenuAction(action: DrawingSheetMenuAction): void {
+        switch (action.kind) {
+            case 'fitSheet':
+                this.fitSheet();
+                break;
+            case 'addBaseView':
+                this.addBaseView(this.newViewOrientation);
+                break;
+            case 'toggleGrid':
+                this.showGrid = !this.showGrid;
+                this.update();
+                break;
+            case 'toggleFrame':
+                this.showFrame = !this.showFrame;
+                this.update();
+                break;
+            case 'toggleSnap':
+                this.snapEnabled = !this.snapEnabled;
+                this.update();
+                break;
+            case 'refresh':
+                void this.refreshDrawing();
+                break;
+            case 'export':
+                void this.exportDrawing(action.format);
+                break;
+            case 'deleteSheet':
+                this.deleteSelectedSheet();
+                break;
+        }
     }
 
     private handleViewMenuAction(viewId: string, action: DrawingViewMenuAction): void {
@@ -1884,6 +1953,7 @@ export class DrawingSheetWidget extends ReactWidget {
                     preserveAspectRatio="xMidYMid meet"
                     role="img"
                     aria-label={`Drawing sheet ${sheet.name}`}
+                    onContextMenu={(event) => this.openSheetContextMenu(event)}
                 >
                     <defs>
                         <pattern id={gridId} width="10" height="10" patternUnits="userSpaceOnUse">
