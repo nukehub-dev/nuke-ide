@@ -15,6 +15,88 @@ import { closeAllEditors, collectErrors, openFileByQuickOpen, runCommand, waitFo
 
 test.setTimeout(240_000);
 
+test('dragging an unbuilt view keeps its placeholder, frame, and chip together', async ({ page }) => {
+    const errors = collectErrors(page);
+    await page.goto('/');
+    await waitForWorkbench(page);
+    await closeAllEditors(page);
+
+    await runCommand(page, 'New CAD Document');
+    const viewport = page.locator('.cad-viewport').first();
+    await expect(viewport).toBeVisible({ timeout: 30_000 });
+    const templatePicker = page.locator('.cad-template-picker').first();
+    await expect(templatePicker).toBeVisible({ timeout: 10_000 });
+    await templatePicker.locator('button', { hasText: 'Empty document' }).first().click();
+    await expect(viewport.locator('.cad-document-toolbar').first()).toBeVisible({ timeout: 60_000 });
+
+    await runCommand(page, 'Open Drawing Sheet');
+    const drawing = page.locator('.nuke-cad-drawing-root').first();
+    await expect(drawing).toBeVisible({ timeout: 30_000 });
+    const startCard = drawing.locator('.nuke-cad-drawing-start-card').first();
+    await expect(startCard).toBeVisible({ timeout: 30_000 });
+    await startCard.locator('button', { hasText: 'Front' }).first().click();
+
+    // An untitled document makes the first auto-refresh ask for a save path.
+    // Cancel it so the view stays in the unbuilt placeholder state.
+    const saveShell = page.locator('#theia-dialog-shell');
+    try {
+        await saveShell.waitFor({ state: 'visible', timeout: 30_000 });
+    } catch {
+        // No save prompt (the browser picker may resolve immediately).
+    }
+    if (await saveShell.isVisible().catch(() => false)) {
+        await saveShell.getByRole('button', { name: 'Cancel' }).click();
+        await expect(saveShell).toBeHidden();
+    }
+    // Cancelling the save picker can return focus to the CAD viewport; bring
+    // the drawing tab back before interacting with the sheet.
+    await runCommand(page, 'Open Drawing Sheet');
+    await expect(drawing).toBeVisible({ timeout: 30_000 });
+
+    const view = drawing.locator('.nuke-cad-drawing-view').first();
+    const placeholder = view.locator('.nuke-cad-drawing-placeholder-card');
+    await expect(placeholder).toBeVisible();
+    const frame = view.locator('.nuke-cad-drawing-view-frame');
+    const chip = view.locator('.nuke-cad-drawing-view-chip');
+
+    const centerOf = async (locator: Locator): Promise<{ x: number; y: number }> => {
+        const box = await locator.boundingBox();
+        expect(box).not.toBeNull();
+        return { x: box!.x + box!.width / 2, y: box!.y + box!.height / 2 };
+    };
+    const expectFrameOnPlaceholder = async (): Promise<void> => {
+        const card = await centerOf(placeholder);
+        const selection = await centerOf(frame);
+        expect(Math.abs(card.x - selection.x)).toBeLessThanOrEqual(3);
+        expect(Math.abs(card.y - selection.y)).toBeLessThanOrEqual(3);
+        const chipBox = await chip.boundingBox();
+        const cardBox = await placeholder.boundingBox();
+        expect(chipBox).not.toBeNull();
+        expect(cardBox).not.toBeNull();
+        // The chip hugs the placeholder's top-left; a double-translated frame
+        // would leave it far away from the card.
+        expect(Math.abs(chipBox!.x - cardBox!.x)).toBeLessThanOrEqual(4);
+        expect(chipBox!.y).toBeLessThan(cardBox!.y);
+    };
+
+    const start = await placeholder.boundingBox();
+    expect(start).not.toBeNull();
+    const grabX = start!.x + start!.width / 2;
+    const grabY = start!.y + start!.height / 2;
+    await page.mouse.move(grabX, grabY);
+    await page.mouse.down();
+    await page.mouse.move(grabX + 120, grabY + 80, { steps: 6 });
+    await page.waitForTimeout(200);
+    await expectFrameOnPlaceholder();
+
+    await page.mouse.up();
+    await expect(placeholder).toBeVisible();
+    await expectFrameOnPlaceholder();
+
+    const severe = errors.filter((e) => !e.includes('l10n') && !e.includes('localization bundles'));
+    expect(severe, `unexpected severe errors:\n${severe.join('\n')}`).toEqual([]);
+});
+
 test('drawing sheet workspace creates, builds, and exposes canvas controls', async ({ page }) => {
     const errors = collectErrors(page);
     const fixtureDir = path.join(process.cwd(), 'tests/ui/fixtures');
@@ -118,6 +200,7 @@ test('drawing sheet workspace creates, builds, and exposes canvas controls', asy
         await page.mouse.move(chipStart!.x + chipStart!.width / 2 + 60, chipStart!.y + chipStart!.height / 2 + 30, { steps: 6 });
         await page.mouse.up();
         await expect.poll(async () => (await viewChip.boundingBox())?.x ?? Number.NEGATIVE_INFINITY).toBeGreaterThan(chipStart!.x + 20);
+        await expect.poll(async () => (await viewChip.boundingBox())?.y ?? Number.NEGATIVE_INFINITY).toBeGreaterThan(chipStart!.y + 10);
         await waitForDrawingIdle();
 
         const canvas = drawing.locator('.nuke-cad-drawing-canvas');

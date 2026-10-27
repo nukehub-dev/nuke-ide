@@ -1301,7 +1301,12 @@ export class DrawingSheetWidget extends ReactWidget {
             const pad = view.kind === 'section' ? 14 : 6;
             return { x: raw.x - pad, y: raw.y - pad, width: raw.width + pad * 2, height: raw.height + pad * 2 };
         }
-        const position = this.livePositions.get(view.id) ?? view.position;
+        // Committed/build origin (the output position when one exists), never
+        // the live drag position: `renderView` applies the drag delta once to
+        // this frame. Using `livePositions` here too would double-translate the
+        // selection frame/chip off the placeholder card while a view is being
+        // dragged.
+        const position = output?.position ?? view.position;
         const halfW = view.kind === 'detail' ? 28 : 35;
         const halfH = view.kind === 'detail' ? 28 : 22;
         return { x: position[0] - halfW, y: position[1] - halfH, width: halfW * 2, height: halfH * 2 };
@@ -2098,7 +2103,13 @@ export class DrawingSheetWidget extends ReactWidget {
         const hatchLoops = output?.hatchLoops ?? [];
         const hasLinework = output !== undefined;
         const bounds = this.viewBounds(view, output);
-        const [bx, by] = sheetMmToSvg(bounds.x + dx, bounds.y + bounds.height + dySvg, sheetHeight);
+        // Convert the committed bounds to SVG, then apply the same
+        // screen-space delta as the linework group. Adding the sheet-space
+        // delta before `sheetMmToSvg` would move the frame in the opposite
+        // vertical direction (the sheet y-axis is flipped).
+        const [boundsLeft, boundsTop] = sheetMmToSvg(bounds.x, bounds.y + bounds.height, sheetHeight);
+        const bx = boundsLeft + dx;
+        const by = boundsTop + dySvg;
         const [cx, cy] = sheetMmToSvg(live[0], live[1], sheetHeight);
         const chipLabel = `${view.kind} ${view.orientation} · ${formatDrawingScale(view.scale)}`;
         const chipWidth = Math.min(86, Math.max(26, chipLabel.length * 1.9 + 6));
