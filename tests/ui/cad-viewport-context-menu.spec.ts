@@ -145,8 +145,9 @@ test('right-click context menu and draggable feature dialog', async ({ page }) =
     const selectedOutlineLabel = outline.locator('.outline-row.selected .outline-row-label-text').first();
     await expect(selectedOutlineLabel).toHaveText(new RegExp(`^(?:${escapeRegExp(pickedBodyLabel)}|mat_${pickedSolidId})$`));
 
-    // Empty space: bottom-left corner (clear of the model, toolbar, status pill, and nav cluster).
-    await page.mouse.click(box.x + 20, box.y + box.height - 20, { button: 'right' });
+    // Empty space: bottom-left, above the command-search pill (clear of the model,
+    // toolbar, status pill, nav cluster, and the launcher).
+    await page.mouse.click(box.x + 20, box.y + box.height - 80, { button: 'right' });
     await expect(menu).toBeVisible();
     const emptyLabels = await labelTexts();
     expect(emptyLabels).toEqual(['Clear Selection', 'Fit All', 'Reset Explode', 'Show All Solids', 'Show Section View']);
@@ -185,7 +186,7 @@ test('right-click context menu and draggable feature dialog', async ({ page }) =
     // arms the pick without blocking the dialog; the pick stays cancellable.
     const toolbar = viewport.locator('.cad-document-toolbar').first();
     await expect(toolbar).toBeVisible();
-    await toolbar.locator('.cad-document-toolbar-search').click();
+    await viewport.locator('.cad-command-search-trigger').click();
     const commandSearch = viewport.locator('.cad-command-search-popover');
     await expect(commandSearch).toBeVisible();
     const commandInput = commandSearch.locator('.nuke-search-input-field');

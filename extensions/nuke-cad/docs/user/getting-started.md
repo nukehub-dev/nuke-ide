@@ -61,7 +61,7 @@ A view-only STEP/STP import is a display build: it does not create or modify a
 
 1. Open the **CAD Viewport** (the welcome card) or an existing `.nuke-cad`
    document, then click **Import CAD…**. The same action is in the Document
-   ribbon as **Import CAD as Assembly…** and in the toolbar command search.
+   ribbon as **Import CAD as Assembly…** and in the command search (bottom-left Search pill or `/`).
 2. Pick a `.step`, `.stp`, `.iges`, `.igs`, or `.brep` file. Cancelling this
    picker changes nothing.
 3. If the viewport has no saved document, choose where to save the

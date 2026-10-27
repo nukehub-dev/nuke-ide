@@ -49,8 +49,12 @@
 import * as React from '@theia/core/shared/react';
 import { injectable, inject, postConstruct } from '@theia/core/shared/inversify';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
+import { URI } from '@theia/core/lib/common/uri';
 import { Disposable } from '@theia/core/lib/common/disposable';
+import { Message } from '@theia/core/lib/browser';
 import { MessageService } from '@theia/core/lib/common/message-service';
+import { FileDialogService } from '@theia/filesystem/lib/browser';
+import { FileService } from '@theia/filesystem/lib/browser/file-service';
 import { NukeCadBackendService } from '../../../common/nuke-cad-protocol';
 import { validateTopologyRef, type TopologyRef } from '../../../common/topology-refs';
 import {
@@ -65,9 +69,9 @@ import {
 import {
     DRAWING_DEFAULT_LABEL_OFFSET,
     clampSheetPosition,
+    formatDrawingScale,
     layoutDrawingLabels,
     lockProjectedViewPosition,
-    pointerToSheetMm,
     sectionLineEndpoints,
     sheetDimensions,
     sheetMmToSvg,
@@ -80,12 +84,24 @@ import {
     type DrawingViewOutput
 } from '../../../common/cad-drawing';
 import { CadDocumentStore } from '../../document/cad-document-store';
-import { NukeEmptyState, NukeSelect, NukeToolbar, NukeToolbarGroup } from 'nuke-essentials/lib/theme/browser/components';
+import { ensureNukeCadExtension } from '../cad-viewport/cad-save-path';
+import {
+    NukeCheckbox,
+    NukeFormRow,
+    NukeSection,
+    NukeSelect,
+    NukeToolbar,
+    NukeToolbarGroup
+} from 'nuke-essentials/lib/theme/browser/components';
+import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
 import './drawing-sheet.css';
 
 type DrawingTool = 'select' | 'dimension';
 
-const BASE_ORIENTATIONS: DrawingViewOrientation[] = ['front', 'top', 'right'];
+/** Standard drafting scales (view multiplier; 0.5 = 1:2, 100 = 100:1). */
+const DRAWING_SCALE_PRESETS: readonly number[] = [
+    0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000
+];
 
 @injectable()
 export class DrawingSheetWidget extends ReactWidget {
@@ -100,6 +116,12 @@ export class DrawingSheetWidget extends ReactWidget {
 
     @inject(NukeCadBackendService)
     protected readonly backendService: NukeCadBackendService;
+
+    @inject(FileService)
+    protected readonly fileService: FileService;
+
+    @inject(FileDialogService)
+    protected readonly fileDialogService: FileDialogService;
 
     private tool: DrawingTool = 'select';
     private dimensionKind: DrawingDimensionKind = 'distance';
@@ -116,7 +138,18 @@ export class DrawingSheetWidget extends ReactWidget {
     private readonly livePositions = new Map<string, [number, number]>();
     private dragViewId: string | undefined;
     private newSheetSize: DrawingSheetSize = 'A4';
+    private newViewOrientation: DrawingViewOrientation = 'front';
     private svgRef: SVGSVGElement | null = null;
+    private canvasRef: HTMLDivElement | null = null;
+    private zoom = 1;
+    private panX = 0;
+    private panY = 0;
+    private snapEnabled = true;
+    private showGrid = true;
+    private showFrame = true;
+    private inspectorOpen = true;
+    private hoveredViewId: string | undefined;
+    private panDrag: { startX: number; startY: number; panX: number; panY: number } | undefined;
     /**
      * Tracks the first build: unknown until a Refresh succeeds (true) or
      * fails loudly (false). Auto-refresh on drawing edits fires only once
@@ -129,7 +162,7 @@ export class DrawingSheetWidget extends ReactWidget {
         this.id = DrawingSheetWidget.ID;
         this.title.label = DrawingSheetWidget.LABEL;
         this.title.closable = true;
-        this.title.iconClass = 'codicon codicon-nuke-cad-section';
+        this.title.iconClass = 'codicon codicon-nuke-cad-drawing';
         this.addClass('nuke-cad-drawing-sheet');
         this.lastDrawingVersion = this.documentStore.drawingVersion;
         this.toDispose.push(Disposable.create(this.documentStore.onChange(() => this.handleStoreChange())));
@@ -137,6 +170,17 @@ export class DrawingSheetWidget extends ReactWidget {
         // `edge-picker` broker; both subscriptions die with this widget.
         this.toDispose.push(Disposable.create(onDrawingDimensionPickRequest(() => this.handleViewportPickRequestChanged())));
         this.toDispose.push(Disposable.create(onDrawingDimensionEdgeHit((ref) => this.handleViewportEdgeHit(ref))));
+        this.handleStoreChange();
+    }
+
+    protected override onAfterAttach(msg: Message): void {
+        super.onAfterAttach(msg);
+        // The widget can be created before the CAD document finishes loading
+        // (the tab exists while the viewport build is still running). A hidden
+        // ReactWidget's store update can land before the node is attached, so
+        // re-read the shared store on every attach instead of leaving the
+        // initial "No CAD document" render behind.
+        this.lastDrawingVersion = this.documentStore.drawingVersion;
         this.handleStoreChange();
     }
 
@@ -167,20 +211,78 @@ export class DrawingSheetWidget extends ReactWidget {
         return (this.documentStore.document?.drawings ?? []).find((s) => s.id === this.activeSheetId);
     }
 
+    /**
+     * Filesystem path of the saved document. The store holds a file URI (for
+     * save/restore); the Python service and its working directory need a real
+     * path, never `file://...`.
+     */
+    private documentFilePath(): string | undefined {
+        const uri = this.documentStore.uri;
+        if (uri === undefined) {
+            return undefined;
+        }
+        try {
+            const parsed = new URI(uri);
+            return parsed.scheme === 'file' ? parsed.path.fsPath() : undefined;
+        } catch {
+            return undefined;
+        }
+    }
+
+    /** Save the shared CAD document, including its drawings block. */
+    private async saveDocument(forceDialog = false): Promise<boolean> {
+        const doc = this.documentStore.document;
+        if (doc === undefined) {
+            this.messageService.warn('No CAD document is active.');
+            return false;
+        }
+        const existing = this.documentStore.uri !== undefined ? new URI(this.documentStore.uri) : undefined;
+        let uri = existing !== undefined && !forceDialog ? existing : undefined;
+        if (uri === undefined) {
+            uri = await this.fileDialogService.showSaveDialog({
+                title: 'Save CAD Document',
+                inputValue: existing?.path.base ?? `${doc.name}.nuke-cad`,
+                filters: { 'CAD Document': ['nuke-cad'] }
+            });
+            if (uri === undefined) {
+                return false;
+            }
+            uri = uri.withPath(ensureNukeCadExtension(uri.path.toString()));
+        }
+        const json = this.documentStore.toJson();
+        if (json === undefined) {
+            return false;
+        }
+        try {
+            await this.fileService.write(uri, json);
+            this.documentStore.setUri(uri.toString());
+            this.documentStore.markSaved();
+            this.messageService.info(`Saved ${uri.path.base}`);
+            return true;
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            this.messageService.error(`Failed to save the CAD document: ${message}`);
+            return false;
+        }
+    }
+
     private async refreshDrawing(): Promise<void> {
         const sheet = this.activeSheet();
         if (sheet === undefined) {
             return;
         }
-        const scriptPath = this.documentStore.uri;
-        if (scriptPath === undefined) {
+        if (this.documentStore.dirty && !(await this.saveDocument())) {
+            return;
+        }
+        const documentPath = this.documentFilePath();
+        if (documentPath === undefined) {
             this.messageService.info('Save the .nuke-cad document before building the drawing sheet.');
             return;
         }
         this.building = true;
         this.update();
         try {
-            const result = await this.backendService.buildDrawing({ scriptPath, sheetId: sheet.id });
+            const result = await this.backendService.buildDrawing({ scriptPath: documentPath, sheetId: sheet.id });
             this.buildResult = result;
             this.drawingBackendReady = true;
             if (!result.success) {
@@ -223,6 +325,9 @@ export class DrawingSheetWidget extends ReactWidget {
         this.activeSheetId = sheetId;
         this.selectedViewId = viewResult.value;
         this.update();
+        if (this.drawingBackendReady !== true) {
+            void this.refreshDrawing();
+        }
     }
 
     private addDerivedView(kind: 'projected' | 'section' | 'detail'): void {
@@ -237,8 +342,13 @@ export class DrawingSheetWidget extends ReactWidget {
         }
         const orientation: DrawingViewOrientation =
             kind === 'projected' ? (parent.orientation === 'front' ? 'top' : 'right') : parent.orientation;
+        const { width, height } = sheetDimensions(sheet.size);
         const candidate: [number, number] = [parent.position[0] + 60, parent.position[1] + 40];
-        const position = kind === 'projected' ? lockProjectedViewPosition(orientation, parent.position, candidate) : candidate;
+        const position = clampSheetPosition(
+            kind === 'projected' ? lockProjectedViewPosition(orientation, parent.position, candidate) : candidate,
+            width,
+            height
+        );
         const result = this.documentStore.addView(sheet.id, {
             kind,
             orientation,
@@ -250,21 +360,39 @@ export class DrawingSheetWidget extends ReactWidget {
         });
         if (!result.success) {
             this.messageService.error(`Cannot create ${kind} view: ${result.error ?? 'unknown error'}`);
+            return;
         }
+        this.selectedViewId = result.value;
+        this.update();
+        if (this.drawingBackendReady !== true) {
+            void this.refreshDrawing();
+        }
+    }
+
+    private clientToSheetMm(clientX: number, clientY: number): [number, number] | undefined {
+        const sheet = this.activeSheet();
+        const svg = this.svgRef;
+        if (sheet === undefined || svg === null) {
+            return undefined;
+        }
+        const matrix = svg.getScreenCTM();
+        if (matrix === null) {
+            return undefined;
+        }
+        const point = svg.createSVGPoint();
+        point.x = clientX;
+        point.y = clientY;
+        const local = point.matrixTransform(matrix.inverse());
+        const { height } = sheetDimensions(sheet.size);
+        return [local.x, height - local.y];
     }
 
     private toSheetMm(event: React.PointerEvent): [number, number] | undefined {
-        const sheet = this.activeSheet();
-        if (sheet === undefined || this.svgRef === null) {
-            return undefined;
-        }
-        const { width, height } = sheetDimensions(sheet.size);
-        const rect = this.svgRef.getBoundingClientRect();
-        return pointerToSheetMm(event.clientX, event.clientY, rect, width, height);
+        return this.clientToSheetMm(event.clientX, event.clientY);
     }
 
     private onViewPointerDown(event: React.PointerEvent, viewId: string): void {
-        if (this.tool === 'dimension') {
+        if (this.tool === 'dimension' || event.button !== 0) {
             return;
         }
         const point = this.toSheetMm(event);
@@ -291,7 +419,9 @@ export class DrawingSheetWidget extends ReactWidget {
         if (view === undefined) {
             return;
         }
-        let next: [number, number] = [snapDrawingPosition(point[0]), snapDrawingPosition(point[1])];
+        let next: [number, number] = this.snapEnabled
+            ? [snapDrawingPosition(point[0]), snapDrawingPosition(point[1])]
+            : [point[0], point[1]];
         if (view.kind !== 'base' && view.parentId !== undefined) {
             const parent = sheet.views.find((v) => v.id === view.parentId);
             if (parent !== undefined) {
@@ -482,15 +612,17 @@ export class DrawingSheetWidget extends ReactWidget {
         }
         event.stopPropagation();
         event.preventDefault();
-        const { width } = sheetDimensions(sheet.size);
-        const rect = this.svgRef.getBoundingClientRect();
-        const mmPerPx = rect.width > 0 ? width / rect.width : 1;
-        const startClient: [number, number] = [event.clientX, event.clientY];
+        const start = this.clientToSheetMm(event.clientX, event.clientY);
+        if (start === undefined) {
+            return;
+        }
         const startOffset = this.pinnedLabels.get(dimensionId) ?? fallback;
         const move = (moveEvent: PointerEvent): void => {
-            const dxMm = (moveEvent.clientX - startClient[0]) * mmPerPx;
-            const dyMm = -(moveEvent.clientY - startClient[1]) * mmPerPx;
-            this.pinnedLabels.set(dimensionId, [startOffset[0] + dxMm, startOffset[1] + dyMm]);
+            const current = this.clientToSheetMm(moveEvent.clientX, moveEvent.clientY);
+            if (current === undefined) {
+                return;
+            }
+            this.pinnedLabels.set(dimensionId, [startOffset[0] + (current[0] - start[0]), startOffset[1] + (current[1] - start[1])]);
             this.update();
         };
         const up = (): void => {
@@ -502,110 +634,497 @@ export class DrawingSheetWidget extends ReactWidget {
         window.addEventListener('pointerup', up);
     }
 
+    private selectedView(): DrawingSheet['views'][number] | undefined {
+        const sheet = this.activeSheet();
+        return sheet?.views.find((view) => view.id === this.selectedViewId);
+    }
+
+    private addBaseView(orientation: DrawingViewOrientation): void {
+        const sheet = this.activeSheet();
+        if (sheet === undefined) {
+            return;
+        }
+        const { width, height } = sheetDimensions(sheet.size);
+        const baseCount = sheet.views.filter((view) => view.kind === 'base').length;
+        const position = clampSheetPosition(
+            [Math.round((width / 2 + baseCount * 30) / 5) * 5, Math.round((height / 2 - baseCount * 20) / 5) * 5],
+            width,
+            height
+        );
+        const result = this.documentStore.addView(sheet.id, { kind: 'base', orientation, scale: 1, position });
+        if (!result.success || result.value === undefined) {
+            this.messageService.error(`Cannot create base view: ${result.error ?? 'unknown error'}`);
+            return;
+        }
+        this.selectedViewId = result.value;
+        this.update();
+        if (this.drawingBackendReady !== true) {
+            void this.refreshDrawing();
+        }
+    }
+
+    /**
+     * Fit the selected view's linework inside a comfortable sheet area and
+     * snap to the nearest standard drafting scale. The next build uses the
+     * new scale, so small parts no longer sit as a dot at 1:1.
+     */
+    private fitSelectedView(): void {
+        const sheet = this.activeSheet();
+        const view = this.selectedView();
+        if (sheet === undefined || view === undefined) {
+            return;
+        }
+        const bounds = this.viewBounds(view, this.viewOutput(view.id));
+        if (!(bounds.width > 1e-6) || !(bounds.height > 1e-6)) {
+            this.messageService.info('Refresh the drawing before fitting this view.');
+            return;
+        }
+        const { width, height } = sheetDimensions(sheet.size);
+        const factor = Math.min((width * 0.62) / bounds.width, (height * 0.62) / bounds.height);
+        const raw = view.scale * factor;
+        const next = DRAWING_SCALE_PRESETS.reduce((best, candidate) =>
+            Math.abs(Math.log(candidate / raw)) < Math.abs(Math.log(best / raw)) ? candidate : best
+        );
+        const result = this.documentStore.updateView(sheet.id, view.id, { scale: next });
+        if (!result.success) {
+            this.messageService.error(`Cannot fit view: ${result.error ?? 'unknown error'}`);
+        }
+        this.update();
+    }
+
+    private updateSelectedView(patch: { scale?: number; showHidden?: boolean }): void {
+        const sheet = this.activeSheet();
+        const view = this.selectedView();
+        if (sheet === undefined || view === undefined) {
+            return;
+        }
+        const result = this.documentStore.updateView(sheet.id, view.id, patch);
+        if (!result.success) {
+            this.messageService.error(`Cannot update view: ${result.error ?? 'unknown error'}`);
+        }
+        this.update();
+    }
+
+    private deleteSelectedView(): void {
+        const sheet = this.activeSheet();
+        const view = this.selectedView();
+        if (sheet === undefined || view === undefined) {
+            return;
+        }
+        const result = this.documentStore.deleteView(sheet.id, view.id);
+        if (!result.success) {
+            this.messageService.error(`Cannot delete view: ${result.error ?? 'unknown error'}`);
+            return;
+        }
+        this.selectedViewId = undefined;
+        this.update();
+    }
+
+    private deleteSelectedSheet(): void {
+        const sheet = this.activeSheet();
+        if (sheet === undefined) {
+            return;
+        }
+        const result = this.documentStore.deleteSheet(sheet.id);
+        if (!result.success) {
+            this.messageService.error(`Cannot delete sheet: ${result.error ?? 'unknown error'}`);
+            return;
+        }
+        this.activeSheetId = undefined;
+        this.selectedViewId = undefined;
+        this.buildResult = undefined;
+        this.update();
+    }
+
+    private deleteDimension(dimensionId: string): void {
+        const sheet = this.activeSheet();
+        if (sheet === undefined) {
+            return;
+        }
+        const result = this.documentStore.deleteDimension(sheet.id, dimensionId);
+        if (!result.success) {
+            this.messageService.error(`Cannot delete dimension: ${result.error ?? 'unknown error'}`);
+        }
+        this.update();
+    }
+
+    private setZoom(next: number): void {
+        this.zoom = Math.min(Math.max(Number.isFinite(next) ? next : 1, 0.4), 4);
+        this.update();
+    }
+
+    private fitSheet(): void {
+        this.zoom = 1;
+        this.panX = 0;
+        this.panY = 0;
+        this.update();
+    }
+
+    private onCanvasWheel(event: React.WheelEvent<HTMLDivElement>): void {
+        if (!event.ctrlKey && !event.metaKey && Math.abs(event.deltaY) < 1) {
+            return;
+        }
+        event.preventDefault();
+        this.setZoom(this.zoom * (event.deltaY < 0 ? 1.12 : 1 / 1.12));
+    }
+
+    private onCanvasPointerDown(event: React.PointerEvent<HTMLDivElement>): void {
+        if (event.button !== 1 && !(event.button === 0 && event.altKey)) {
+            return;
+        }
+        event.preventDefault();
+        this.panDrag = { startX: event.clientX, startY: event.clientY, panX: this.panX, panY: this.panY };
+        this.canvasRef?.setPointerCapture(event.pointerId);
+    }
+
+    private onCanvasPointerMove(event: React.PointerEvent<HTMLDivElement>): void {
+        if (this.panDrag === undefined) {
+            return;
+        }
+        this.panX = this.panDrag.panX + (event.clientX - this.panDrag.startX);
+        this.panY = this.panDrag.panY + (event.clientY - this.panDrag.startY);
+        this.update();
+    }
+
+    private onCanvasPointerUp(event: React.PointerEvent<HTMLDivElement>): void {
+        if (this.panDrag === undefined) {
+            return;
+        }
+        this.panDrag = undefined;
+        this.canvasRef?.releasePointerCapture(event.pointerId);
+        this.update();
+    }
+
+    private async exportDrawing(format: 'svg' | 'dxf'): Promise<void> {
+        const sheet = this.activeSheet();
+        if (sheet === undefined) {
+            return;
+        }
+        if (this.buildResult?.success !== true) {
+            await this.refreshDrawing();
+        }
+        const built = this.buildResult;
+        const text = format === 'svg' ? built?.svg : built?.dxf;
+        if (built?.success !== true || typeof text !== 'string' || text.length === 0) {
+            const reason = format === 'dxf' ? built?.dxfError : undefined;
+            this.messageService.warn(reason ?? `No ${format.toUpperCase()} was produced. Refresh the drawing and try again.`);
+            return;
+        }
+        const docName = this.documentStore.document?.name ?? 'drawing';
+        const stem = `${docName}-${sheet.name}`.replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '') || 'drawing';
+        const blob = new Blob([text], {
+            type: format === 'svg' ? 'image/svg+xml;charset=utf-8' : 'application/dxf;charset=utf-8'
+        });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = `${stem}.${format}`;
+        anchor.click();
+        URL.revokeObjectURL(url);
+        this.messageService.info(`Exported ${anchor.download}`);
+    }
+
+    /** Human-readable single scale when every view shares one, else AS SHOWN. */
+    private sheetScaleLabel(sheet: DrawingSheet): string {
+        if (sheet.views.length === 0) {
+            return '—';
+        }
+        const scales = new Set(sheet.views.map((view) => formatDrawingScale(view.scale)));
+        return scales.size === 1 ? [...scales][0] : 'AS SHOWN';
+    }
+
+    private viewBounds(
+        view: DrawingSheet['views'][number],
+        output: DrawingViewOutput | undefined
+    ): { x: number; y: number; width: number; height: number } {
+        let minX = Number.POSITIVE_INFINITY;
+        let minY = Number.POSITIVE_INFINITY;
+        let maxX = Number.NEGATIVE_INFINITY;
+        let maxY = Number.NEGATIVE_INFINITY;
+        const include = (point: readonly [number, number]): void => {
+            minX = Math.min(minX, point[0]);
+            minY = Math.min(minY, point[1]);
+            maxX = Math.max(maxX, point[0]);
+            maxY = Math.max(maxY, point[1]);
+        };
+        for (const line of output?.visible ?? []) {
+            line.points.forEach(include);
+        }
+        for (const line of output?.hidden ?? []) {
+            line.points.forEach(include);
+        }
+        for (const loop of output?.hatchLoops ?? []) {
+            loop.loop.forEach(include);
+        }
+        if (Number.isFinite(minX) && Number.isFinite(minY)) {
+            const pad = view.kind === 'section' ? 14 : 6;
+            return { x: minX - pad, y: minY - pad, width: maxX - minX + pad * 2, height: maxY - minY + pad * 2 };
+        }
+        const position = this.livePositions.get(view.id) ?? view.position;
+        const halfW = view.kind === 'detail' ? 28 : 35;
+        const halfH = view.kind === 'detail' ? 28 : 22;
+        return { x: position[0] - halfW, y: position[1] - halfH, width: halfW * 2, height: halfH * 2 };
+    }
+
     protected render(): React.ReactNode {
         const doc = this.documentStore.document;
         if (doc === undefined) {
-            return <NukeEmptyState title="No CAD document" message="Open a .nuke-cad document to create drawing sheets." />;
+            return (
+                <div className="nuke-cad-drawing-root nuke-cad-drawing-empty-root">
+                    <div className="nuke-cad-drawing-empty">
+                        <div className="nuke-cad-drawing-start-card nuke-cad-drawing-empty-card">
+                            <div className="nuke-cad-drawing-start-header">
+                                <span className="nuke-cad-drawing-start-icon" aria-hidden="true">
+                                    <span className="codicon codicon-nuke-cad-drawing" />
+                                </span>
+                                <div className="nuke-cad-drawing-start-heading">
+                                    <div className="nuke-cad-drawing-start-eyebrow">Drawing sheet</div>
+                                    <div className="nuke-cad-drawing-start-title">No CAD document open</div>
+                                </div>
+                            </div>
+                            <div className="nuke-cad-drawing-start-message">
+                                Drawings live inside a <code>.nuke-cad</code> document. Open one to create sheets, views, and dimensions.
+                            </div>
+                            <ol className="nuke-cad-drawing-empty-steps">
+                                <li>Open a .nuke-cad document from the Explorer or a sample project.</li>
+                                <li>Add a sheet, then place a base view on it.</li>
+                                <li>Pick model edges to add dimensions, then export SVG or DXF.</li>
+                            </ol>
+                            <div className="nuke-cad-drawing-start-hint">
+                                <span className="codicon codicon-info" aria-hidden="true" />
+                                <span>This tab picks up the document as soon as it opens.</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
         }
         const drawings = doc.drawings ?? [];
         if (drawings.length === 0) {
-            return (
-                <div className="nuke-cad-drawing-empty">
-                    <NukeEmptyState title="No drawing sheets" message="Create a sheet with a base view to start the drawing.">
-                        <div className="nuke-cad-drawing-new-row">
-                            <div>
-                                Size
-                                <NukeSelect
-                                    ariaLabel="Size"
-                                    value={this.newSheetSize}
-                                    options={[
-                                        { value: 'A4', label: 'A4 landscape' },
-                                        { value: 'A3', label: 'A3 landscape' }
-                                    ]}
-                                    onChange={(value) => {
-                                        this.newSheetSize = value as DrawingSheetSize;
-                                        this.update();
-                                    }}
-                                />
-                            </div>
-                            {BASE_ORIENTATIONS.map((orientation) => (
-                                <button
-                                    key={orientation}
-                                    className="theia-button secondary"
-                                    onClick={() => this.createBaseSheet(orientation)}
-                                >
-                                    Base {orientation}
-                                </button>
-                            ))}
-                        </div>
-                    </NukeEmptyState>
-                </div>
-            );
+            return <div className="nuke-cad-drawing-root nuke-cad-drawing-empty-root">{this.renderEmptyState()}</div>;
         }
         const sheet = this.activeSheet() ?? drawings[0];
         return (
             <div className="nuke-cad-drawing-root">
-                <NukeToolbar>
+                {this.renderToolbar(sheet, drawings)}
+                {this.renderNotices()}
+                <div className="nuke-cad-drawing-body">
+                    <div
+                        ref={(element) => {
+                            this.canvasRef = element;
+                        }}
+                        className="nuke-cad-drawing-canvas"
+                        onWheel={(event) => this.onCanvasWheel(event)}
+                        onPointerDown={(event) => this.onCanvasPointerDown(event)}
+                        onPointerMove={(event) => this.onCanvasPointerMove(event)}
+                        onPointerUp={(event) => this.onCanvasPointerUp(event)}
+                        onPointerCancel={(event) => this.onCanvasPointerUp(event)}
+                    >
+                        <div
+                            className="nuke-cad-drawing-stage"
+                            style={{ transform: `translate(${this.panX}px, ${this.panY}px) scale(${this.zoom})` }}
+                        >
+                            {this.renderSheetSvg(sheet)}
+                        </div>
+                    </div>
+                    {this.inspectorOpen && this.renderInspector(sheet)}
+                </div>
+                {this.renderStatus(sheet)}
+            </div>
+        );
+    }
+
+    private renderEmptyState(): React.ReactNode {
+        const sizes: DrawingSheetSize[] = ['A4', 'A3'];
+        const orientations: { id: DrawingViewOrientation; title: string; hint: string }[] = [
+            { id: 'front', title: 'Front', hint: 'Face-on base view' },
+            { id: 'top', title: 'Top', hint: 'Plan view from above' },
+            { id: 'right', title: 'Right', hint: 'Side elevation' }
+        ];
+        return (
+            <div className="nuke-cad-drawing-empty">
+                <div className="nuke-cad-drawing-start-card">
+                    <div className="nuke-cad-drawing-start-header">
+                        <span className="nuke-cad-drawing-start-icon" aria-hidden="true">
+                            <span className="codicon codicon-nuke-cad-drawing" />
+                        </span>
+                        <div className="nuke-cad-drawing-start-heading">
+                            <div className="nuke-cad-drawing-start-eyebrow">Drawing</div>
+                            <div className="nuke-cad-drawing-start-title">Start a drawing</div>
+                            <div className="nuke-cad-drawing-start-message">
+                                Create a sheet from the current CAD document, then add views and dimensions.
+                            </div>
+                        </div>
+                    </div>
+                    <div className="nuke-cad-drawing-start-label">Sheet size</div>
+                    <div className="nuke-cad-drawing-size-grid">
+                        {sizes.map((size) => {
+                            const dimensions = sheetDimensions(size);
+                            return (
+                                <button
+                                    key={size}
+                                    className={`nuke-cad-drawing-size-card${this.newSheetSize === size ? ' selected' : ''}`}
+                                    aria-pressed={this.newSheetSize === size}
+                                    onClick={() => {
+                                        this.newSheetSize = size;
+                                        this.update();
+                                    }}
+                                >
+                                    <span className="nuke-cad-drawing-size-name">{size}</span>
+                                    <span className="nuke-cad-drawing-size-meta">
+                                        {dimensions.width} × {dimensions.height} mm
+                                    </span>
+                                </button>
+                            );
+                        })}
+                    </div>
+                    <div className="nuke-cad-drawing-start-label">Base view</div>
+                    <div className="nuke-cad-drawing-orientation-grid">
+                        {orientations.map((orientation) => (
+                            <button
+                                key={orientation.id}
+                                className="nuke-cad-drawing-orientation-card"
+                                onClick={() => this.createBaseSheet(orientation.id)}
+                            >
+                                <span className="nuke-cad-drawing-orientation-icon" aria-hidden="true">
+                                    <span className="codicon codicon-nuke-cad-cube" />
+                                </span>
+                                <span className="nuke-cad-drawing-orientation-name">{orientation.title}</span>
+                                <span className="nuke-cad-drawing-orientation-hint">{orientation.hint}</span>
+                            </button>
+                        ))}
+                    </div>
+                    <div className="nuke-cad-drawing-start-hint">
+                        <span className="codicon codicon-info" aria-hidden="true" />
+                        <span>A base view is required; projected, section, and detail views are added from it.</span>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    private renderToolbar(sheet: DrawingSheet, drawings: readonly DrawingSheet[]): React.ReactNode {
+        const iconButton = (
+            label: string,
+            icon: string,
+            onClick: () => void,
+            options?: { active?: boolean; disabled?: boolean; className?: string }
+        ): React.ReactNode => (
+            <Tooltip content={label} position="bottom">
+                <button
+                    className={`theia-button${options?.active === true ? '' : ' secondary'} nuke-cad-drawing-icon-button${
+                        options?.active === true ? ' is-active' : ''
+                    }${options?.className ? ` ${options.className}` : ''}`}
+                    aria-label={label}
+                    aria-pressed={options?.active}
+                    disabled={options?.disabled}
+                    onClick={onClick}
+                >
+                    <span className={`codicon codicon-${icon}`} />
+                </button>
+            </Tooltip>
+        );
+        return (
+            <div className="nuke-cad-drawing-toolbar">
+                <NukeToolbar className="nuke-cad-drawing-toolbar-groups">
                     <NukeToolbarGroup label="Sheet">
                         <NukeSelect
+                            className="nuke-cad-drawing-sheet-select"
                             ariaLabel="Drawing sheet"
                             value={sheet.id}
-                            options={drawings.map((s) => ({ value: s.id, label: `${s.name} (${s.size})` }))}
+                            options={drawings.map((entry) => ({ value: entry.id, label: `${entry.name} (${entry.size})` }))}
                             onChange={(value) => {
                                 this.activeSheetId = value;
                                 this.selectedViewId = undefined;
                                 this.pendingTargets = [];
                                 this.pendingViewId = undefined;
                                 this.buildResult = undefined;
-                                // A sheet switch invalidates the in-progress viewport pick.
                                 cancelDrawingDimensionPick();
                                 this.update();
                             }}
                         />
-                        <button
-                            className="theia-button secondary"
-                            title="Add a new sheet with a front base view"
-                            onClick={() => this.createBaseSheet('front')}
-                        >
-                            New sheet
+                        <NukeSelect
+                            className="nuke-cad-drawing-size-select"
+                            ariaLabel="New sheet size"
+                            value={this.newSheetSize}
+                            options={[
+                                { value: 'A4', label: 'A4' },
+                                { value: 'A3', label: 'A3' }
+                            ]}
+                            onChange={(value) => {
+                                this.newSheetSize = value as DrawingSheetSize;
+                                this.update();
+                            }}
+                        />
+                        <Tooltip content={`New ${this.newSheetSize} sheet with a ${this.newViewOrientation} base view`} position="bottom">
+                            <button className="theia-button" onClick={() => this.createBaseSheet(this.newViewOrientation)}>
+                                <span className="codicon codicon-add" /> New sheet
+                            </button>
+                        </Tooltip>
+                        {iconButton('Delete current sheet', 'trash', () => this.deleteSelectedSheet())}
+                    </NukeToolbarGroup>
+                    <NukeToolbarGroup label="View">
+                        <NukeSelect
+                            className="nuke-cad-drawing-orientation-select"
+                            ariaLabel="Base view orientation"
+                            value={this.newViewOrientation}
+                            options={[
+                                { value: 'front', label: 'Front' },
+                                { value: 'top', label: 'Top' },
+                                { value: 'right', label: 'Right' },
+                                { value: 'iso', label: 'Iso' }
+                            ]}
+                            onChange={(value) => {
+                                this.newViewOrientation = value as DrawingViewOrientation;
+                                this.update();
+                            }}
+                        />
+                        <button className="theia-button secondary" onClick={() => this.addBaseView(this.newViewOrientation)}>
+                            <span className="codicon codicon-nuke-cad-cube" /> Base
+                        </button>
+                        <button className="theia-button secondary" onClick={() => this.addDerivedView('projected')}>
+                            <span className="codicon codicon-layers" /> Projected
+                        </button>
+                        <button className="theia-button secondary" onClick={() => this.addDerivedView('section')}>
+                            <span className="codicon codicon-split-horizontal" /> Section
+                        </button>
+                        <button className="theia-button secondary" onClick={() => this.addDerivedView('detail')}>
+                            <span className="codicon codicon-zoom-in" /> Detail
                         </button>
                     </NukeToolbarGroup>
-                    <NukeToolbarGroup label="Tool">
-                        <button
-                            className={this.tool === 'select' ? 'theia-button' : 'theia-button secondary'}
-                            title="Select and drag views"
-                            onClick={() => {
+                    <NukeToolbarGroup label="Annotate">
+                        {iconButton(
+                            'Select and drag views',
+                            'nuke-cad-select',
+                            () => {
                                 this.tool = 'select';
-                                // Leaving the dimension tool aborts an in-progress viewport pick.
                                 cancelDrawingDimensionPick();
                                 this.pendingTargets = [];
                                 this.pendingViewId = undefined;
                                 this.update();
-                            }}
-                        >
-                            Select
-                        </button>
-                        <button
-                            className={this.tool === 'dimension' ? 'theia-button' : 'theia-button secondary'}
-                            title="Dimension tool: click one/two model edges in a view"
-                            onClick={() => {
+                            },
+                            { active: this.tool === 'select' }
+                        )}
+                        {iconButton(
+                            'Dimension tool',
+                            'nuke-cad-measure',
+                            () => {
                                 this.tool = 'dimension';
                                 this.update();
-                            }}
-                        >
-                            Dimension
-                        </button>
+                            },
+                            { active: this.tool === 'dimension' }
+                        )}
                         <NukeSelect
+                            className="nuke-cad-drawing-dimension-select"
                             ariaLabel="Dimension kind"
                             value={this.dimensionKind}
                             options={[
-                                { value: 'distance', label: 'distance' },
-                                { value: 'radius', label: 'radius' },
-                                { value: 'diameter', label: 'diameter' }
+                                { value: 'distance', label: 'Distance' },
+                                { value: 'radius', label: 'Radius' },
+                                { value: 'diameter', label: 'Diameter' }
                             ]}
                             onChange={(value) => {
                                 this.dimensionKind = value as DrawingDimensionKind;
-                                // A new kind needs a new target count: restart any in-progress viewport pick.
                                 cancelDrawingDimensionPick();
                                 this.pendingTargets = [];
                                 this.update();
@@ -614,7 +1133,6 @@ export class DrawingSheetWidget extends ReactWidget {
                         {this.tool === 'dimension' && (
                             <button
                                 className="theia-button secondary"
-                                title="Pick model edges in the 3D viewport (fingerprint TopologyRefs: one edge for radius/diameter, two for distance)"
                                 onClick={() => {
                                     if (this.viewportPickActive()) {
                                         this.cancelViewportEdgePick();
@@ -623,103 +1141,504 @@ export class DrawingSheetWidget extends ReactWidget {
                                     }
                                 }}
                             >
-                                {this.viewportPickActive() ? 'Cancel pick' : 'Pick in viewport'}
+                                <span className="codicon codicon-target" /> {this.viewportPickActive() ? 'Cancel pick' : 'Pick in viewport'}
                             </button>
                         )}
                     </NukeToolbarGroup>
-                    <NukeToolbarGroup label="View">
-                        <button
-                            className="theia-button secondary"
-                            title="Add a projected view from the selected view"
-                            onClick={() => this.addDerivedView('projected')}
-                        >
-                            Projected
+                    <NukeToolbarGroup label="Output">
+                        <button className="theia-button secondary" onClick={() => void this.saveDocument()}>
+                            <span className="codicon codicon-save" /> Save
                         </button>
-                        <button
-                            className="theia-button secondary"
-                            title="Add a section view from the selected view"
-                            onClick={() => this.addDerivedView('section')}
-                        >
-                            Section
-                        </button>
-                        <button
-                            className="theia-button secondary"
-                            title="Add a detail view from the selected view"
-                            onClick={() => this.addDerivedView('detail')}
-                        >
-                            Detail
-                        </button>
-                        <button
-                            className="theia-button secondary"
-                            title="Rebuild drawing linework (buildDrawing, never a full rebuild)"
-                            onClick={() => void this.refreshDrawing()}
-                        >
+                        <button className="theia-button secondary" disabled={this.building} onClick={() => void this.refreshDrawing()}>
+                            <span className={`codicon ${this.building ? 'codicon-loading codicon-modifier-spin' : 'codicon-refresh'}`} />
                             {this.building ? 'Building…' : 'Refresh'}
+                        </button>
+                        <button className="theia-button secondary" onClick={() => void this.exportDrawing('svg')}>
+                            <span className="codicon codicon-download" /> SVG
+                        </button>
+                        <button className="theia-button secondary" onClick={() => void this.exportDrawing('dxf')}>
+                            <span className="codicon codicon-download" /> DXF
                         </button>
                     </NukeToolbarGroup>
                 </NukeToolbar>
-                {this.drawingBackendReady === false && (
-                    <div className="nuke-cad-drawing-notice">
-                        Drawing buildDrawing RPC unreachable: sheet edits are saved in the document; the parent must reconcile the RPC
-                        contract before linework refreshes.
-                    </div>
-                )}
-                {this.tool === 'dimension' && (this.pendingTargets.length > 0 || this.viewportPickActive()) && (
-                    <div className="nuke-cad-drawing-notice">
-                        Dimension {this.dimensionKind}: {this.pendingTargets.length}/{drawingDimensionTargetsNeeded(this.dimensionKind)}{' '}
-                        edges picked
-                        {this.viewportPickActive() ? ' — click edges in the 3D viewport.' : '.'}
-                        {this.viewportPickActive() && (
-                            <button className="theia-button secondary" onClick={() => this.cancelViewportEdgePick()}>
-                                Cancel pick
-                            </button>
-                        )}
-                    </div>
-                )}
-                {this.renderSheetSvg(sheet)}
+                <div className="nuke-cad-drawing-view-controls">
+                    {iconButton('Zoom out', 'zoom-out', () => this.setZoom(this.zoom / 1.15))}
+                    <button className="nuke-cad-drawing-zoom-label" aria-label="Reset zoom" onClick={() => this.fitSheet()}>
+                        {Math.round(this.zoom * 100)}%
+                    </button>
+                    {iconButton('Zoom in', 'zoom-in', () => this.setZoom(this.zoom * 1.15))}
+                    {iconButton('Fit sheet', 'screen-full', () => this.fitSheet())}
+                    {iconButton(
+                        'Toggle grid',
+                        'table',
+                        () => {
+                            this.showGrid = !this.showGrid;
+                            this.update();
+                        },
+                        { active: this.showGrid }
+                    )}
+                    {iconButton(
+                        'Toggle 5 mm snapping',
+                        'magnet',
+                        () => {
+                            this.snapEnabled = !this.snapEnabled;
+                            this.update();
+                        },
+                        { active: this.snapEnabled }
+                    )}
+                    {iconButton(
+                        'Toggle frame and title block',
+                        'file',
+                        () => {
+                            this.showFrame = !this.showFrame;
+                            this.update();
+                        },
+                        { active: this.showFrame }
+                    )}
+                    {iconButton(
+                        'Toggle inspector',
+                        'layout-sidebar-right',
+                        () => {
+                            this.inspectorOpen = !this.inspectorOpen;
+                            this.update();
+                        },
+                        { active: this.inspectorOpen, className: 'nuke-cad-drawing-inspector-toggle' }
+                    )}
+                </div>
             </div>
         );
     }
 
+    private renderNotices(): React.ReactNode {
+        const notices: React.ReactNode[] = [];
+        if (this.drawingBackendReady === false) {
+            notices.push(
+                <div key="backend" className="nuke-cad-drawing-notice warning">
+                    <span className="codicon codicon-warning" aria-hidden="true" />
+                    <span>Drawing service unavailable. Sheet edits are saved; linework will refresh when the CAD backend answers.</span>
+                    <button className="theia-button secondary" onClick={() => void this.refreshDrawing()}>
+                        Retry
+                    </button>
+                </div>
+            );
+        }
+        if (this.buildResult?.success === false) {
+            notices.push(
+                <div key="build" className="nuke-cad-drawing-notice error">
+                    <span className="codicon codicon-error" aria-hidden="true" />
+                    <span>Drawing build failed: {this.buildResult.error ?? 'unknown error'}</span>
+                    <button className="theia-button secondary" onClick={() => void this.refreshDrawing()}>
+                        Retry
+                    </button>
+                </div>
+            );
+        }
+        if (typeof this.buildResult?.dxfError === 'string' && this.buildResult.dxfError.length > 0) {
+            notices.push(
+                <div key="dxf" className="nuke-cad-drawing-notice warning">
+                    <span className="codicon codicon-warning" aria-hidden="true" />
+                    <span>DXF export unavailable: {this.buildResult.dxfError}</span>
+                </div>
+            );
+        }
+        if (this.tool === 'dimension' && (this.pendingTargets.length > 0 || this.viewportPickActive())) {
+            notices.push(
+                <div key="pick" className="nuke-cad-drawing-notice info">
+                    <span className="codicon codicon-target" aria-hidden="true" />
+                    <span>
+                        Dimension {this.dimensionKind}: {this.pendingTargets.length}/{drawingDimensionTargetsNeeded(this.dimensionKind)}{' '}
+                        edges picked{this.viewportPickActive() ? ' — click edges in the 3D viewport.' : '.'}
+                    </span>
+                    {this.viewportPickActive() && (
+                        <button className="theia-button secondary" onClick={() => this.cancelViewportEdgePick()}>
+                            Cancel pick
+                        </button>
+                    )}
+                </div>
+            );
+        }
+        return notices.length > 0 ? <div className="nuke-cad-drawing-notices">{notices}</div> : undefined;
+    }
+
+    private renderInspector(sheet: DrawingSheet): React.ReactNode {
+        const selected = this.selectedView();
+        return (
+            <aside className="nuke-cad-drawing-inspector">
+                <NukeSection title="Sheet" icon="nuke-cad-drawing">
+                    <div className="nuke-cad-drawing-meta">
+                        <span>Name</span>
+                        <strong>{sheet.name}</strong>
+                        <span>Size</span>
+                        <strong>{sheet.size} landscape</strong>
+                        <span>Scale</span>
+                        <strong>{this.sheetScaleLabel(sheet)}</strong>
+                        <span>Views</span>
+                        <strong>{sheet.views.length}</strong>
+                        <span>Dimensions</span>
+                        <strong>{sheet.dimensions.length}</strong>
+                    </div>
+                    <div className="nuke-cad-drawing-inspector-actions">
+                        <button className="theia-button secondary" onClick={() => this.createBaseSheet(this.newViewOrientation)}>
+                            <span className="codicon codicon-add" /> New sheet
+                        </button>
+                        <button className="theia-button secondary" onClick={() => this.deleteSelectedSheet()}>
+                            <span className="codicon codicon-trash" /> Delete
+                        </button>
+                    </div>
+                </NukeSection>
+                {selected !== undefined && (
+                    <NukeSection title="Selected view" icon="selection">
+                        <NukeFormRow label="Type">
+                            <span className="nuke-cad-drawing-value">
+                                {selected.kind} {selected.orientation}
+                            </span>
+                        </NukeFormRow>
+                        <NukeFormRow label="Position">
+                            <span className="nuke-cad-drawing-value">
+                                {selected.position[0].toFixed(1)}, {selected.position[1].toFixed(1)} mm
+                            </span>
+                        </NukeFormRow>
+                        <NukeFormRow label="Scale" hint="Changes rebuild the drawing linework.">
+                            <div className="nuke-cad-drawing-scale-row">
+                                <NukeSelect
+                                    ariaLabel="View scale"
+                                    value={String(selected.scale)}
+                                    options={(() => {
+                                        const values = [...DRAWING_SCALE_PRESETS];
+                                        if (!values.some((value) => Math.abs(value - selected.scale) < 1e-9)) {
+                                            values.push(selected.scale);
+                                            values.sort((a, b) => a - b);
+                                        }
+                                        return values.map((value) => ({
+                                            value: String(value),
+                                            label: formatDrawingScale(value)
+                                        }));
+                                    })()}
+                                    onChange={(value) => this.updateSelectedView({ scale: Number(value) })}
+                                />
+                                <button className="theia-button secondary" onClick={() => this.fitSelectedView()}>
+                                    <span className="codicon codicon-screen-full" /> Fit
+                                </button>
+                            </div>
+                        </NukeFormRow>
+                        <NukeCheckbox
+                            checked={selected.showHidden === true}
+                            onChange={(checked) => this.updateSelectedView({ showHidden: checked })}
+                            ariaLabel="Show hidden lines"
+                        >
+                            Show hidden lines
+                        </NukeCheckbox>
+                        <div className="nuke-cad-drawing-inspector-actions">
+                            <button className="theia-button secondary" onClick={() => this.deleteSelectedView()}>
+                                <span className="codicon codicon-trash" /> Delete view
+                            </button>
+                        </div>
+                    </NukeSection>
+                )}
+                <NukeSection title="Views" icon="layers">
+                    {this.renderViewsSection(sheet)}
+                </NukeSection>
+                <NukeSection title="Dimensions" icon="nuke-cad-measure">
+                    {this.renderDimensionsSection(sheet)}
+                </NukeSection>
+            </aside>
+        );
+    }
+
+    private renderViewsSection(sheet: DrawingSheet): React.ReactNode {
+        if (sheet.views.length === 0) {
+            return <div className="nuke-cad-drawing-panel-empty">No views yet. Add a base view above.</div>;
+        }
+        return (
+            <div className="nuke-cad-drawing-view-list">
+                {sheet.views.map((view) => (
+                    <div key={view.id} className={`nuke-cad-drawing-view-row${this.selectedViewId === view.id ? ' selected' : ''}`}>
+                        <button
+                            className="nuke-cad-drawing-view-row-main"
+                            onClick={() => {
+                                this.selectedViewId = view.id;
+                                this.update();
+                            }}
+                        >
+                            <span className={`codicon codicon-${this.iconForView(view.kind)} nuke-cad-drawing-view-row-icon`} />
+                            <span className="nuke-cad-drawing-view-row-copy">
+                                <span className="nuke-cad-drawing-view-row-label">
+                                    {view.kind} {view.orientation}
+                                </span>
+                                <span className="nuke-cad-drawing-view-row-meta">
+                                    {formatDrawingScale(view.scale)}
+                                    {view.showHidden === true ? ' · hidden' : ''}
+                                    {view.parentId !== undefined ? ' · child' : ''}
+                                </span>
+                            </span>
+                        </button>
+                        <Tooltip content="Delete view" position="left">
+                            <button
+                                className="nuke-cad-drawing-row-delete"
+                                aria-label={`Delete ${view.kind} ${view.orientation}`}
+                                onClick={(event) => {
+                                    event.stopPropagation();
+                                    this.selectedViewId = view.id;
+                                    this.deleteSelectedView();
+                                }}
+                            >
+                                <span className="codicon codicon-trash" />
+                            </button>
+                        </Tooltip>
+                    </div>
+                ))}
+            </div>
+        );
+    }
+
+    private renderDimensionsSection(sheet: DrawingSheet): React.ReactNode {
+        if (sheet.dimensions.length === 0) {
+            return <div className="nuke-cad-drawing-panel-empty">None yet. Use Dimension, then Pick in viewport.</div>;
+        }
+        return (
+            <div className="nuke-cad-drawing-dimension-list">
+                {sheet.dimensions.map((dimension) => {
+                    const output = this.buildResult?.dimensions?.find((entry) => entry.id === dimension.id);
+                    const value = output?.text ?? (dimension.value !== undefined ? dimension.value.toFixed(2) : 'not built');
+                    const stale = output?.stale ?? dimension.stale ?? false;
+                    return (
+                        <div key={dimension.id} className={`nuke-cad-drawing-dimension-row${stale ? ' stale' : ''}`}>
+                            <button
+                                className="nuke-cad-drawing-dimension-row-main"
+                                onClick={() => {
+                                    this.selectedViewId = dimension.viewId;
+                                    this.update();
+                                }}
+                            >
+                                <span className="codicon codicon-nuke-cad-measure nuke-cad-drawing-dimension-row-icon" />
+                                <span className="nuke-cad-drawing-dimension-row-copy">
+                                    <span className="nuke-cad-drawing-dimension-row-label">{dimension.kind}</span>
+                                    <span className="nuke-cad-drawing-dimension-row-value">{value}</span>
+                                </span>
+                                {stale && <span className="nuke-cad-drawing-badge">stale</span>}
+                            </button>
+                            <Tooltip content="Delete dimension" position="left">
+                                <button
+                                    className="nuke-cad-drawing-row-delete"
+                                    aria-label={`Delete ${dimension.kind} dimension`}
+                                    onClick={() => this.deleteDimension(dimension.id)}
+                                >
+                                    <span className="codicon codicon-trash" />
+                                </button>
+                            </Tooltip>
+                        </div>
+                    );
+                })}
+            </div>
+        );
+    }
+
+    private renderStatus(sheet: DrawingSheet): React.ReactNode {
+        const { width, height } = sheetDimensions(sheet.size);
+        const state = this.building
+            ? 'Building…'
+            : this.buildResult?.success === true
+              ? 'Up to date'
+              : this.buildResult?.success === false
+                ? 'Build failed'
+                : 'Not built';
+        const warnings = this.buildResult?.warnings?.length ?? 0;
+        return (
+            <div className="nuke-cad-drawing-status">
+                <span className="nuke-cad-drawing-status-sheet">
+                    {sheet.name} · {sheet.size} landscape
+                </span>
+                <span>
+                    {width} × {height} mm
+                </span>
+                <span>{sheet.views.length} views</span>
+                <span>{sheet.dimensions.length} dims</span>
+                <span>{this.sheetScaleLabel(sheet)}</span>
+                <span className="nuke-cad-drawing-status-spacer" />
+                {warnings > 0 && <span className="nuke-cad-drawing-status-warning">{warnings} warnings</span>}
+                {this.documentStore.dirty && <span className="nuke-cad-drawing-status-warning">Unsaved</span>}
+                <span className={`nuke-cad-drawing-status-build${this.buildResult?.success === false ? ' error' : ''}`}>{state}</span>
+                <span>Snap {this.snapEnabled ? '5 mm' : 'off'}</span>
+                <span>{Math.round(this.zoom * 100)}%</span>
+            </div>
+        );
+    }
+
+    private iconForView(kind: DrawingSheet['views'][number]['kind']): string {
+        switch (kind) {
+            case 'base':
+                return 'nuke-cad-cube';
+            case 'projected':
+                return 'layers';
+            case 'section':
+                return 'split-horizontal';
+            case 'detail':
+                return 'zoom-in';
+        }
+    }
+
     private renderSheetSvg(sheet: DrawingSheet): React.ReactNode {
         const { width, height } = sheetDimensions(sheet.size);
+        const gridId = `nuke-cad-drawing-grid-${sheet.id}`;
+        const majorGridId = `${gridId}-major`;
+        const arrowId = `nuke-cad-drawing-arrow-${sheet.id}`;
+        const shadowId = `${gridId}-shadow`;
         return (
-            <svg
-                ref={(el) => {
-                    this.svgRef = el;
-                }}
-                className="nuke-cad-drawing-svg"
-                viewBox={`0 0 ${width} ${height}`}
-                preserveAspectRatio="xMidYMid meet"
-                role="img"
-                aria-label={`Drawing sheet ${sheet.name}`}
-            >
-                <rect x={0} y={0} width={width} height={height} className="nuke-cad-drawing-paper" />
-                {sheet.views.map((view) => this.renderView(view, height))}
-                {this.renderDimensions(sheet, height)}
-                <text x={8} y={height - 8} className="nuke-cad-drawing-title">
-                    {sheet.name} — {sheet.size} landscape
+            <div className="nuke-cad-drawing-paper-stage">
+                <svg
+                    ref={(el) => {
+                        this.svgRef = el;
+                    }}
+                    className="nuke-cad-drawing-svg"
+                    viewBox={`-10 -10 ${width + 20} ${height + 20}`}
+                    preserveAspectRatio="xMidYMid meet"
+                    role="img"
+                    aria-label={`Drawing sheet ${sheet.name}`}
+                >
+                    <defs>
+                        <pattern id={gridId} width="10" height="10" patternUnits="userSpaceOnUse">
+                            <path d="M 10 0 L 0 0 0 10" className="nuke-cad-drawing-grid-line" />
+                        </pattern>
+                        <pattern id={majorGridId} width="50" height="50" patternUnits="userSpaceOnUse">
+                            <path d="M 50 0 L 0 0 0 50" className="nuke-cad-drawing-grid-line major" />
+                        </pattern>
+                        <filter id={shadowId} x="-5%" y="-5%" width="110%" height="110%">
+                            <feDropShadow dx="0" dy="1.5" stdDeviation="2" floodColor="#000000" floodOpacity="0.2" />
+                        </filter>
+                        <marker
+                            id={arrowId}
+                            viewBox="0 0 6 6"
+                            refX="5"
+                            refY="3"
+                            markerWidth="4"
+                            markerHeight="4"
+                            orient="auto-start-reverse"
+                        >
+                            <path d="M 0 0 L 6 3 L 0 6 z" className="nuke-cad-drawing-arrowhead" />
+                        </marker>
+                    </defs>
+                    <rect
+                        x={0}
+                        y={0}
+                        width={width}
+                        height={height}
+                        className="nuke-cad-drawing-paper"
+                        filter={`url(#${shadowId})`}
+                        onClick={() => {
+                            if (this.tool === 'select') {
+                                this.selectedViewId = undefined;
+                                this.update();
+                            }
+                        }}
+                    />
+                    {this.showGrid && (
+                        <>
+                            <rect x={10} y={10} width={width - 20} height={height - 20} fill={`url(#${gridId})`} pointerEvents="none" />
+                            <rect
+                                x={10}
+                                y={10}
+                                width={width - 20}
+                                height={height - 20}
+                                fill={`url(#${majorGridId})`}
+                                pointerEvents="none"
+                            />
+                        </>
+                    )}
+                    {this.showFrame && this.renderSheetFrame(width, height)}
+                    {sheet.views.map((view) => this.renderView(view, width, height))}
+                    {this.renderDimensions(sheet, height, arrowId)}
+                    {this.showFrame && this.renderTitleBlock(sheet, width, height)}
+                </svg>
+            </div>
+        );
+    }
+
+    private renderSheetFrame(width: number, height: number): React.ReactNode {
+        const margin = 10;
+        return (
+            <g className="nuke-cad-drawing-frame" pointerEvents="none">
+                <rect
+                    x={margin}
+                    y={margin}
+                    width={width - margin * 2}
+                    height={height - margin * 2}
+                    className="nuke-cad-drawing-frame-border"
+                />
+                <path
+                    d={`M ${margin} ${margin + 7} L ${margin + 7} ${margin} M ${width - margin - 7} ${margin} L ${width - margin} ${margin + 7} M ${width - margin} ${height - margin - 7} L ${width - margin - 7} ${height - margin} M ${margin + 7} ${height - margin} L ${margin} ${height - margin - 7}`}
+                    className="nuke-cad-drawing-frame-tick"
+                />
+            </g>
+        );
+    }
+
+    private renderTitleBlock(sheet: DrawingSheet, width: number, height: number): React.ReactNode {
+        const margin = 10;
+        const blockWidth = 92;
+        const blockHeight = 30;
+        const x = width - margin - blockWidth;
+        const y = height - margin - blockHeight;
+        const documentName = this.documentStore.document?.name ?? 'Untitled';
+        const truncate = (text: string, max: number): string => (text.length > max ? `${text.slice(0, max - 1)}…` : text);
+        return (
+            <g className="nuke-cad-drawing-title-block" transform={`translate(${x} ${y})`} pointerEvents="none">
+                <rect width={blockWidth} height={blockHeight} className="nuke-cad-drawing-title-block-box" />
+                <line x1={0} y1={9} x2={blockWidth} y2={9} className="nuke-cad-drawing-title-block-rule" />
+                <line x1={0} y1={18} x2={blockWidth} y2={18} className="nuke-cad-drawing-title-block-rule" />
+                <line x1={0} y1={24} x2={blockWidth} y2={24} className="nuke-cad-drawing-title-block-rule" />
+                <line x1={58} y1={0} x2={58} y2={blockHeight} className="nuke-cad-drawing-title-block-rule" />
+                <text x={3} y={6} className="nuke-cad-drawing-title-block-brand">
+                    NUKE CAD
                 </text>
-            </svg>
+                <text x={61} y={6} className="nuke-cad-drawing-title-block-caption">
+                    DRAWING
+                </text>
+                <text x={3} y={15} className="nuke-cad-drawing-title-block-value">
+                    {truncate(documentName, 28)}
+                </text>
+                <text x={61} y={15} className="nuke-cad-drawing-title-block-caption">
+                    {truncate(sheet.name, 14)}
+                </text>
+                <text x={3} y={22} className="nuke-cad-drawing-title-block-caption">
+                    {sheet.size} landscape
+                </text>
+                <text x={61} y={22} className="nuke-cad-drawing-title-block-value">
+                    {this.sheetScaleLabel(sheet)}
+                </text>
+                <text x={3} y={28} className="nuke-cad-drawing-title-block-caption">
+                    NukeIDE
+                </text>
+                <text x={61} y={28} className="nuke-cad-drawing-title-block-caption">
+                    SHEET
+                </text>
+            </g>
         );
     }
 
     /**
-     * Render one view. D1 linework points are absolute sheet-mm (y-up from
-     * bottom-left), so they map straight to SVG units; only the live drag
-     * delta rides a group transform until the store commits the move.
+     * Render one view. The linework is stored in sheet-mm at the view's
+     * committed position; a live drag shifts only the linework group while
+     * the frame, chip, section marker, and detail circle follow the live
+     * position directly (never double-translated).
      */
-    private renderView(view: DrawingSheet['views'][number], sheetHeight: number): React.ReactNode {
+    private renderView(view: DrawingSheet['views'][number], sheetWidth: number, sheetHeight: number): React.ReactNode {
         const live = this.livePositions.get(view.id) ?? view.position;
         const dx = live[0] - view.position[0];
         const dySvg = -(live[1] - view.position[1]);
         const output = this.viewOutput(view.id);
         const selected = this.selectedViewId === view.id;
+        const hovered = this.hoveredViewId === view.id;
         const polylines = output?.visible ?? [];
         const hidden = output?.hidden ?? [];
         const hatchLoops = output?.hatchLoops ?? [];
         const hasLinework = output !== undefined;
+        const bounds = this.viewBounds(view, output);
+        const [bx, by] = sheetMmToSvg(bounds.x + dx, bounds.y + bounds.height + dySvg, sheetHeight);
         const [cx, cy] = sheetMmToSvg(live[0], live[1], sheetHeight);
+        const chipLabel = `${view.kind} ${view.orientation} · ${formatDrawingScale(view.scale)}`;
+        const chipWidth = Math.min(86, Math.max(26, chipLabel.length * 1.9 + 6));
+        const chipX = Math.max(2, Math.min(bx, sheetWidth - chipWidth - 2));
+        const chipY = Math.max(2, by - 7);
         const toPoints = (points: readonly (readonly [number, number])[]): string =>
             points
                 .map(([px, py]) => {
@@ -730,16 +1649,45 @@ export class DrawingSheetWidget extends ReactWidget {
         return (
             <g
                 key={view.id}
-                className={`nuke-cad-drawing-view${selected ? ' selected' : ''}${this.tool === 'dimension' ? ' dimension-mode' : ''}`}
+                className={`nuke-cad-drawing-view${selected ? ' selected' : ''}${hovered ? ' hovered' : ''}${
+                    this.tool === 'dimension' ? ' dimension-mode' : ''
+                }`}
                 onPointerDown={(e) => this.onViewPointerDown(e, view.id)}
                 onPointerMove={(e) => this.onViewPointerMove(e, view.id)}
                 onPointerUp={() => this.onViewPointerUp(view.id)}
+                onPointerEnter={() => {
+                    this.hoveredViewId = view.id;
+                    this.update();
+                }}
+                onPointerLeave={() => {
+                    if (this.hoveredViewId === view.id) {
+                        this.hoveredViewId = undefined;
+                        this.update();
+                    }
+                }}
             >
+                {(selected || hovered) && (
+                    <rect
+                        x={bx - 3}
+                        y={by - 3}
+                        width={bounds.width + 6}
+                        height={bounds.height + 6}
+                        rx={2}
+                        className={`nuke-cad-drawing-view-frame${selected ? ' selected' : ''}`}
+                        pointerEvents="none"
+                    />
+                )}
                 {!hasLinework && (
-                    <g>
-                        <rect x={cx - 30} y={cy - 20} width={60} height={40} className="nuke-cad-drawing-placeholder" />
-                        <text x={cx} y={cy + 4} textAnchor="middle" className="nuke-cad-drawing-placeholder-text">
-                            {view.kind} {view.orientation}
+                    <g transform={`translate(${cx} ${cy})`} pointerEvents="none">
+                        <rect x={-35} y={-22} width={70} height={44} rx={2} className="nuke-cad-drawing-placeholder-card" />
+                        <text x={0} y={-9} textAnchor="middle" className="nuke-cad-drawing-placeholder-kicker">
+                            {view.kind.toUpperCase()}
+                        </text>
+                        <text x={0} y={1} textAnchor="middle" className="nuke-cad-drawing-placeholder-title">
+                            {view.orientation}
+                        </text>
+                        <text x={0} y={12} textAnchor="middle" className="nuke-cad-drawing-placeholder-hint">
+                            {this.buildResult === undefined ? 'Refresh to generate' : 'No linework returned'}
                         </text>
                     </g>
                 )}
@@ -774,14 +1722,17 @@ export class DrawingSheetWidget extends ReactWidget {
                     {hatchLoops.map((loop, i) => (
                         <polygon key={`s-${i}`} points={toPoints(loop.loop)} className="nuke-cad-drawing-hatch" />
                     ))}
-                    {view.kind === 'section' && this.renderSectionMarker(view, live, sheetHeight)}
-                    {view.kind === 'detail' && view.detailRadius !== undefined && (
-                        <circle cx={cx} cy={cy} r={view.detailRadius * view.scale} className="nuke-cad-drawing-detail" />
-                    )}
                 </g>
-                <text x={cx - 34} y={cy - 24} className="nuke-cad-drawing-view-tag">
-                    {view.kind} {view.orientation} {view.scale}:1
-                </text>
+                {view.kind === 'section' && this.renderSectionMarker(view, live, sheetHeight)}
+                {view.kind === 'detail' && view.detailRadius !== undefined && (
+                    <circle cx={cx} cy={cy} r={view.detailRadius * view.scale} className="nuke-cad-drawing-detail" />
+                )}
+                <g className="nuke-cad-drawing-view-chip" transform={`translate(${chipX} ${chipY})`} pointerEvents="none">
+                    <rect width={chipWidth} height={5.6} rx={1.2} className="nuke-cad-drawing-view-chip-bg" />
+                    <text x={3} y={3.9} className="nuke-cad-drawing-view-chip-text">
+                        {chipLabel}
+                    </text>
+                </g>
             </g>
         );
     }
@@ -799,10 +1750,13 @@ export class DrawingSheetWidget extends ReactWidget {
         const [sx1, sy1] = sheetMmToSvg(x1, y1, sheetHeight);
         const [sx2, sy2] = sheetMmToSvg(x2, y2, sheetHeight);
         return (
-            <g className="nuke-cad-drawing-section">
+            <g className="nuke-cad-drawing-section" pointerEvents="none">
                 <line x1={sx1} y1={sy1} x2={sx2} y2={sy2} className="nuke-cad-drawing-section-line" />
                 <polygon points={arrowHead(sx2, sy2, axis, flip)} className="nuke-cad-drawing-section-arrow" />
                 <polygon points={arrowHead(sx1, sy1, axis, -flip)} className="nuke-cad-drawing-section-arrow" />
+                <text x={(sx1 + sx2) / 2} y={Math.min(sy1, sy2) - 3} textAnchor="middle" className="nuke-cad-drawing-section-label">
+                    SECTION
+                </text>
             </g>
         );
     }
@@ -813,7 +1767,7 @@ export class DrawingSheetWidget extends ReactWidget {
      * extension points in absolute sheet-mm. Without build output the label
      * falls back to the stored value above the owning view.
      */
-    private renderDimensions(sheet: DrawingSheet, sheetHeight: number): React.ReactNode {
+    private renderDimensions(sheet: DrawingSheet, sheetHeight: number, arrowId: string): React.ReactNode {
         const auto: { id: string; x: number; y: number; width: number; height: number }[] = [];
         const bases = new Map<string, [number, number]>();
         for (const dimension of sheet.dimensions) {
@@ -860,7 +1814,17 @@ export class DrawingSheetWidget extends ReactWidget {
                             {anchors.length > 0
                                 ? anchors.map((anchor, i) => {
                                       const [ex, ey] = sheetMmToSvg(anchor[0], anchor[1], sheetHeight);
-                                      return <line key={i} x1={ex} y1={ey} x2={ax} y2={ay} className="nuke-cad-drawing-leader" />;
+                                      return (
+                                          <line
+                                              key={i}
+                                              x1={ax}
+                                              y1={ay}
+                                              x2={ex}
+                                              y2={ey}
+                                              className="nuke-cad-drawing-leader"
+                                              markerEnd={`url(#${arrowId})`}
+                                          />
+                                      );
                                   })
                                 : null}
                             <text

@@ -26,20 +26,23 @@
 // *****************************************************************************
 
 /**
- * CAD command search popover, anchored under the document toolbar.
+ * CAD command search: a floating launcher over the viewport canvas plus its
+ * popover.
  *
  * Filters the shared CAD command registry (including the menu-only tails) and
  * runs the chosen action on Enter/click. Disabled rows stay listed, state why
  * they cannot run, and are inert. Escape and Tab close the popover and consume
- * the key so the viewport/Theia handlers do not also react. The popover is
- * absolutely positioned inside the toolbar's containing block — never
- * portaled — so it stays glued under the bar.
+ * the key so the viewport/Theia handlers do not also react. The launcher sits
+ * bottom-left, outside the document toolbar, so a dense ribbon never pushes a
+ * section under the trigger; the popover is absolutely positioned against the
+ * viewport overlay — never portaled.
  *
  * @module nuke-cad/browser/widgets/cad-viewport
  */
 
 import * as React from '@theia/core/shared/react';
 import { NukeSearchInput } from 'nuke-essentials/lib/theme/browser/components';
+import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
 import { filterCadCommandActions, type CadCommandSearchAction } from './cad-command-search-model';
 
 export interface CadCommandSearchProps {
@@ -48,8 +51,94 @@ export interface CadCommandSearchProps {
     readonly onClose: () => void;
 }
 
-/** Marks the toolbar trigger so the outside-pointerdown closer ignores it (its click toggles). */
+export interface CadCommandSearchLauncherProps {
+    readonly actions: readonly CadCommandSearchAction[];
+    /** A task panel/dialog/pick mode owns the keyboard: `/` and the popover stay inert. */
+    readonly blocked: boolean;
+}
+
+/** Marks the launcher trigger so the outside-pointerdown closer ignores it (its click toggles). */
 export const CAD_COMMAND_SEARCH_TRIGGER_ATTRIBUTE = 'data-cad-command-search-trigger';
+
+/** True for controls that own their keystrokes (`/` must type, never open search). */
+function isTextEntryTarget(target: EventTarget | null): boolean {
+    return (
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement ||
+        (target instanceof HTMLElement && target.isContentEditable)
+    );
+}
+
+/**
+ * Floating command-search launcher over the viewport canvas (bottom-left).
+ *
+ * Deliberately outside the document toolbar: a dense ribbon can then never
+ * slide a section underneath the trigger. `/` still opens the same popover in
+ * document mode, with the same text-field/task-panel guards.
+ */
+export function CadCommandSearchLauncher(props: CadCommandSearchLauncherProps): React.ReactElement {
+    const [open, setOpen] = React.useState(false);
+    const close = React.useCallback(() => setOpen(false), []);
+
+    // A task panel/dialog/pick mode that starts while the popover is open owns
+    // the keyboard next: get the search card out of its way.
+    React.useEffect(() => {
+        if (props.blocked) {
+            setOpen(false);
+        }
+    }, [props.blocked]);
+
+    // Document-mode `/` shortcut. Window bubble phase is enough: `/` has no
+    // viewport/Theia binding to pre-empt, and the guards keep it out of every
+    // input. `blocked` covers the task panel/dialog/pick/measure states the
+    // viewport host owns.
+    React.useEffect(() => {
+        const onSearchKey = (event: KeyboardEvent): void => {
+            if (event.key !== '/' || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) {
+                return;
+            }
+            const target = event.target;
+            // Only inside this CAD viewport: another editor or a non-text
+            // control elsewhere must keep its own `/` key.
+            if (!(target instanceof Element) || target.closest('.cad-viewport') === null) {
+                return;
+            }
+            if (isTextEntryTarget(target) || open || props.blocked) {
+                return;
+            }
+            event.preventDefault();
+            setOpen(true);
+        };
+        window.addEventListener('keydown', onSearchKey);
+        return () => window.removeEventListener('keydown', onSearchKey);
+    }, [open, props.blocked]);
+
+    return (
+        <>
+            <div className="cad-command-search-launcher">
+                <Tooltip content="Search CAD commands (/)" position="top">
+                    <button
+                        type="button"
+                        className="cad-command-search-trigger"
+                        aria-label="Search CAD commands"
+                        aria-haspopup="dialog"
+                        aria-expanded={open}
+                        {...{ [CAD_COMMAND_SEARCH_TRIGGER_ATTRIBUTE]: '' }}
+                        onClick={() => setOpen((current) => !current)}
+                    >
+                        <span className="codicon codicon-search" />
+                        <span className="cad-command-search-trigger-label">Search</span>
+                        <kbd className="cad-command-search-trigger-key" aria-hidden="true">
+                            /
+                        </kbd>
+                    </button>
+                </Tooltip>
+            </div>
+            <CadCommandSearch open={open} actions={props.actions} onClose={close} />
+        </>
+    );
+}
 
 export function CadCommandSearch(props: CadCommandSearchProps): React.ReactElement | null {
     const [query, setQuery] = React.useState('');

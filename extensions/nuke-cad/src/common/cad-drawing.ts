@@ -135,6 +135,20 @@ export function snapDrawingPosition(value: number, step: number = DRAWING_GRID_S
     return Math.round(value / step) * step;
 }
 
+/**
+ * Human-readable drawing scale (`1:1`, `1:2`, `2:1`, `1:2.5`).
+ *
+ * View `scale` is a multiplier (1 = 1:1, 0.5 = 1:2, 2 = 2:1); drafting
+ * labels use the ratio form so a reduced view never reads `0.5:1`.
+ */
+export function formatDrawingScale(scale: number): string {
+    if (!Number.isFinite(scale) || scale <= 0) {
+        return '?';
+    }
+    const trim = (value: number): string => value.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+    return scale >= 1 ? `${trim(scale)}:1` : `1:${trim(1 / scale)}`;
+}
+
 /** Clamp a sheet-mm position inside the sheet bounds. */
 export function clampSheetPosition(position: readonly [number, number], sheetWidthMm: number, sheetHeightMm: number): [number, number] {
     return [Math.min(Math.max(position[0], 0), sheetWidthMm), Math.min(Math.max(position[1], 0), sheetHeightMm)];

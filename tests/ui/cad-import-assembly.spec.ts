@@ -54,7 +54,7 @@ test('Import CAD is offered on empty states and wired into command search', asyn
     // The same actions resolve through the shared command registry/search.
     const toolbar = viewport.locator('.cad-document-toolbar').first();
     await expect(toolbar).toBeVisible({ timeout: 60_000 });
-    await toolbar.locator('.cad-document-toolbar-search').click();
+    await viewport.locator('.cad-command-search-trigger').click();
     const popover = viewport.locator('.cad-command-search-popover');
     await expect(popover).toBeVisible();
     const search = popover.locator('.nuke-search-input-field');

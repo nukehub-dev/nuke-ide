@@ -102,7 +102,7 @@ export class NukeCadToolsContribution implements NukeToolsContribution {
             sectionOrder: 'b',
             categoryOrder: 'a',
             order: 'a4',
-            icon: 'nuke-cad-section',
+            icon: 'nuke-cad-drawing',
             description: 'Open the 2D drawing sheet for .nuke-cad documents.'
         });
 

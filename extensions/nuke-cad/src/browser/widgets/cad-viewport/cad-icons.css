@@ -52,6 +52,7 @@
 .codicon-nuke-cad-keyboard,
 .codicon-nuke-cad-edges,
 .codicon-nuke-cad-section,
+.codicon-nuke-cad-drawing,
 .codicon-nuke-cad-slot,
 .codicon-nuke-cad-sketch-fillet,
 .codicon-nuke-cad-sketch-chamfer,
@@ -325,6 +326,12 @@
 .codicon-nuke-cad-section {
     -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linejoin='round'%3E%3Cpath d='M8 1.5 14 5v6L8 14.5 2 11V5Z'/%3E%3Cpath d='M2 5l6 3.5L14 5M8 8.5v6'/%3E%3Cpath d='M1 12 15 7' stroke-dasharray='2 1.4' stroke-linecap='round'/%3E%3C/svg%3E");
     mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linejoin='round'%3E%3Cpath d='M8 1.5 14 5v6L8 14.5 2 11V5Z'/%3E%3Cpath d='M2 5l6 3.5L14 5M8 8.5v6'/%3E%3Cpath d='M1 12 15 7' stroke-dasharray='2 1.4' stroke-linecap='round'/%3E%3C/svg%3E");
+}
+
+/* Landscape sheet with a projected view and title block — drawing sheet. */
+.codicon-nuke-cad-drawing {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linejoin='round'%3E%3Crect x='1.5' y='3.5' width='13' height='9' rx='1'/%3E%3Ccircle cx='5.5' cy='7.6' r='1.7'/%3E%3Cpath d='M9.5 12.5V10.2h5'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linejoin='round'%3E%3Crect x='1.5' y='3.5' width='13' height='9' rx='1'/%3E%3Ccircle cx='5.5' cy='7.6' r='1.7'/%3E%3Cpath d='M9.5 12.5V10.2h5'/%3E%3C/svg%3E");
 }
 
 /* Wavy 3D curve — Curves tree section. */

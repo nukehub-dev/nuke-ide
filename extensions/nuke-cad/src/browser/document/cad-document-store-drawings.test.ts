@@ -118,6 +118,58 @@ describe('drawing-sheet store mutations', () => {
         expect(store.updateViewPosition(sheetId, baseId, [NaN, 10]).success).toBe(false);
     });
 
+    it('updates view scale and hidden-line visibility', () => {
+        const store = storeWithDoc();
+        const sheetId = store.addSheet('A4').value!;
+        const viewId = store.addView(sheetId, { kind: 'base', orientation: 'front', scale: 1, position: [100, 100] }).value!;
+        expect(store.updateView(sheetId, viewId, { scale: 0.5, showHidden: true }).success).toBe(true);
+        const view = store.document!.drawings![0].views[0];
+        expect(view.scale).toBe(0.5);
+        expect(view.showHidden).toBe(true);
+        expect(store.updateView(sheetId, viewId, { scale: 0 }).success).toBe(false);
+        expect(store.updateView(sheetId, viewId, { scale: Number.NaN }).success).toBe(false);
+        expect(store.updateView(sheetId, 'missing', { scale: 1 }).success).toBe(false);
+    });
+
+    it('deletes a view with its descendants and their dimensions', () => {
+        const store = storeWithDoc();
+        const sheetId = store.addSheet('A4').value!;
+        const baseId = store.addView(sheetId, { kind: 'base', orientation: 'front', scale: 1, position: [100, 100] }).value!;
+        const topId = store.addView(sheetId, {
+            kind: 'projected',
+            orientation: 'top',
+            scale: 1,
+            position: [100, 160],
+            parentId: baseId
+        }).value!;
+        const detailId = store.addView(sheetId, {
+            kind: 'detail',
+            orientation: 'front',
+            scale: 1,
+            position: [200, 100],
+            parentId: topId,
+            detailCenter: [0, 0],
+            detailRadius: 10
+        }).value!;
+        expect(store.addDimension(sheetId, { kind: 'distance', targets: [edgeRef(), edgeRef()], viewId: detailId }).success).toBe(true);
+        expect(store.deleteView(sheetId, baseId).success).toBe(true);
+        expect(store.document!.drawings![0].views).toHaveLength(0);
+        expect(store.document!.drawings![0].dimensions).toHaveLength(0);
+    });
+
+    it('deletes dimensions and whole sheets', () => {
+        const store = storeWithDoc();
+        const sheetId = store.addSheet('A4').value!;
+        const viewId = store.addView(sheetId, { kind: 'base', orientation: 'front', scale: 1, position: [100, 100] }).value!;
+        const dimId = store.addDimension(sheetId, { kind: 'radius', targets: [edgeRef()], viewId }).value!;
+        expect(store.deleteDimension(sheetId, dimId).success).toBe(true);
+        expect(store.document!.drawings![0].dimensions).toHaveLength(0);
+        expect(store.deleteDimension(sheetId, dimId).success).toBe(false);
+        expect(store.deleteSheet(sheetId).success).toBe(true);
+        expect(store.document!.drawings).toHaveLength(0);
+        expect(store.deleteSheet(sheetId).success).toBe(false);
+    });
+
     it('adds dimensions with target-arity guards', () => {
         const store = storeWithDoc();
         const sheetId = store.addSheet('A4').value!;

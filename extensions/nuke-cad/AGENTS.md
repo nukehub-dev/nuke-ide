@@ -68,6 +68,10 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   `TopologyRef`s (`topology-refs.ts` types, Python scoring/resolver,
   `matched`/`ambiguous`/`unmatched` with fingerprint-identity repair). See
   `docs/dev/features-patterns.md`.
+- Drawing Sheet workspace: grouped toolbar, framed paper + title block, zoom/pan,
+  grid/snap/frame toggles, inspector (views/dimensions/scale/Fit/delete), and
+  Save/Refresh/SVG/DXF; pending edits auto-save before HLR. See
+  `docs/dev/drawings-assemblies.md`.
 - Dress-ups (fillet/chamfer/draft/shell on the accumulated B-rep via pick modes;
   fillet/chamfer edge picks optionally expand to a same-solid tangent chain, 15° / 256-edge cap),
   patterns/mirror/lattice (2500-cell cap)/multiTransform over same-body sources with
@@ -103,7 +107,7 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   data; shared specs must match nuke-core's registry). See `docs/dev/backend-pipeline.md`.
 - Viewport: purpose-built three.js widget (active-camera rule, scene-scaled
   `clip-planes.ts` near/far, `ViewerNavBar` children, scoped keys with capture phase,
-  toolbar command search (`/`) over the shared `cad-command-registry.ts` table
+  floating bottom-left command-search launcher (`/`) over the shared `cad-command-registry.ts` table
   (ribbon + search, disabled reasons, pinned commands + label-free density) with text/pick/dialog guards,
   `ViewCube`/`ViewBadge` below the toolbar, theme-adaptive colors), worker-parsed
   tessellation with content-keyed reuse that rebuilds invalidate, single-authority

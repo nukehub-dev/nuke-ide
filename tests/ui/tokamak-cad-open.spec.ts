@@ -294,7 +294,7 @@ test('document toolbar collapses to section menus without wrapping at narrow wid
         'Rebuild'
     ]);
     await expect(toolbar.locator('[role="group"][aria-label="Inspect"] .nuke-ribbon-item-label').last()).toHaveText('Outline');
-    await expect(toolbar.locator('.cad-document-toolbar-search')).toBeVisible();
+    await expect(viewport.locator('.cad-command-search-trigger')).toBeVisible();
     await toolbar.screenshot({ path: 'test-results/cad-ribbon-tiles.png' });
 
     // Ribbon customization: pinning a caret-menu command renders it inline in
@@ -337,7 +337,7 @@ test('document toolbar collapses to section menus without wrapping at narrow wid
     await page.setViewportSize({ width: 900, height: 800 });
     await expect(toolbar.locator('.nuke-ribbon-menus')).toBeVisible({ timeout: 10_000 });
     await expect(toolbar.locator('.nuke-ribbon-section')).toHaveCount(7);
-    await expect(toolbar.locator('.cad-document-toolbar-search')).toBeVisible();
+    await expect(viewport.locator('.cad-command-search-trigger')).toBeVisible();
     const menuTriggers = toolbar.locator('.nuke-ribbon-menu-trigger');
     await expect(menuTriggers).toHaveCount(7);
     for (let index = 0; index < 7; index++) {
@@ -470,7 +470,7 @@ test('Q shortcut bar opens in sketch mode and closes on Escape', async ({ page }
     expect(severe, `unexpected severe errors:\n${severe.join('\n')}`).toEqual([]);
 });
 
-test('document toolbar command search runs ribbon actions and opens with /', async ({ page }) => {
+test('command search runs ribbon actions and opens with /', async ({ page }) => {
     test.setTimeout(180_000);
     const errors = collectErrors(page);
     await page.goto('/');
@@ -494,7 +494,7 @@ test('document toolbar command search runs ribbon actions and opens with /', asy
         test.skip(true, `CAD backend unavailable: ${(await errorBanner.textContent()) ?? 'build failed'}`);
     }
 
-    const searchButton = toolbar.locator('.cad-document-toolbar-search');
+    const searchButton = viewport.locator('.cad-command-search-trigger');
     await expect(searchButton).toBeVisible();
     await expect(searchButton).toHaveAttribute('aria-label', 'Search CAD commands');
 
@@ -534,11 +534,11 @@ test('document toolbar command search runs ribbon actions and opens with /', asy
     await expect(dialog).toBeHidden();
 
     // `/` opens the same popover in document mode; Escape closes it without
-    // running anything.
+    // running anything. Click clear of the assembly panel (top-left).
     await viewport
         .locator('canvas')
         .first()
-        .click({ position: { x: 200, y: 200 } });
+        .click({ position: { x: 600, y: 300 } });
     await viewport.focus();
     await page.keyboard.press('/');
     await expect(popover).toBeVisible();

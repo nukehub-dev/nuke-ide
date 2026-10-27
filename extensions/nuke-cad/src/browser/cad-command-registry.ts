@@ -27,7 +27,7 @@
 
 /**
  * Pure CAD command registry: the single ordered action table behind the
- * document ribbon and the toolbar command search.
+ * document ribbon and the command search.
  *
  * The toolbar supplies document state plus handlers; `buildCadCommands` binds
  * both into `CadCommandSpec`s. Consumers render the specs but never own a

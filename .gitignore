@@ -30,6 +30,7 @@ coverage.xml
 *.tess.json
 *.nuke-cache.zip
 *.step
+*.step.key
 
 # nuke-cad example-project JSON is generated from the canonical e2e .nuke-cad
 # fixtures by scripts/copy-cad-samples.js during the build; do not commit copies
@@ -40,4 +41,5 @@ applications/docker/workspace/
 
 # Playwright GUI smoke test artifacts
 test-results/
+tests/ui/fixtures/*.smoke.nuke-cad
 playwright-report/

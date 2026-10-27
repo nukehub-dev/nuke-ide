@@ -2248,6 +2248,113 @@ export class CadDocumentStore {
         return this.commit(doc, { markDrawing: true });
     }
 
+    /**
+     * Update the display properties of one drawing view.
+     *
+     * Scale is a positive multiplier (1 = 1:1, 0.5 = 1:2, 2 = 2:1); hidden
+     * lines are opt-in per view. Geometry, references, and parent links stay
+     * untouched.
+     */
+    updateView(sheetId: string, viewId: string, patch: { scale?: number; showHidden?: boolean }): DocumentMutationResult {
+        const check = this.requireDocument();
+        if (!check.success) {
+            return { success: false, error: check.error, issues: check.issues };
+        }
+        if (patch.scale !== undefined && (!Number.isFinite(patch.scale) || patch.scale <= 0)) {
+            return { success: false, error: 'View scale must be a positive finite number' };
+        }
+        if (patch.showHidden !== undefined && typeof patch.showHidden !== 'boolean') {
+            return { success: false, error: 'showHidden must be a boolean' };
+        }
+        const doc = cloneDocument(check.value!);
+        const sheet = (doc.drawings ?? []).find((s) => s.id === sheetId);
+        if (sheet === undefined) {
+            return { success: false, error: `Drawing sheet '${sheetId}' not found` };
+        }
+        const index = sheet.views.findIndex((v) => v.id === viewId);
+        if (index < 0) {
+            return { success: false, error: `View '${viewId}' not found on sheet '${sheetId}'` };
+        }
+        const next = { ...sheet.views[index] };
+        if (patch.scale !== undefined) {
+            next.scale = patch.scale;
+        }
+        if (patch.showHidden !== undefined) {
+            next.showHidden = patch.showHidden;
+        }
+        sheet.views = sheet.views.map((view, i) => (i === index ? next : view));
+        return this.commit(doc, { markDrawing: true });
+    }
+
+    /**
+     * Delete one view and every view/dimension that depends on it.
+     *
+     * Deleting a base view cascades through its projected, section, and
+     * detail children and their dimensions, so the sheet never keeps a
+     * dangling parent/view reference.
+     */
+    deleteView(sheetId: string, viewId: string): DocumentMutationResult {
+        const check = this.requireDocument();
+        if (!check.success) {
+            return { success: false, error: check.error, issues: check.issues };
+        }
+        const doc = cloneDocument(check.value!);
+        const sheet = (doc.drawings ?? []).find((s) => s.id === sheetId);
+        if (sheet === undefined) {
+            return { success: false, error: `Drawing sheet '${sheetId}' not found` };
+        }
+        if (!sheet.views.some((v) => v.id === viewId)) {
+            return { success: false, error: `View '${viewId}' not found on sheet '${sheetId}'` };
+        }
+        const removed = new Set<string>([viewId]);
+        let changed = true;
+        while (changed) {
+            changed = false;
+            for (const view of sheet.views) {
+                if (view.parentId !== undefined && removed.has(view.parentId) && !removed.has(view.id)) {
+                    removed.add(view.id);
+                    changed = true;
+                }
+            }
+        }
+        sheet.views = sheet.views.filter((v) => !removed.has(v.id));
+        sheet.dimensions = sheet.dimensions.filter((d) => !removed.has(d.viewId));
+        return this.commit(doc, { markDrawing: true });
+    }
+
+    /** Delete one dimension from a drawing sheet. */
+    deleteDimension(sheetId: string, dimensionId: string): DocumentMutationResult {
+        const check = this.requireDocument();
+        if (!check.success) {
+            return { success: false, error: check.error, issues: check.issues };
+        }
+        const doc = cloneDocument(check.value!);
+        const sheet = (doc.drawings ?? []).find((s) => s.id === sheetId);
+        if (sheet === undefined) {
+            return { success: false, error: `Drawing sheet '${sheetId}' not found` };
+        }
+        if (!sheet.dimensions.some((d) => d.id === dimensionId)) {
+            return { success: false, error: `Dimension '${dimensionId}' not found on sheet '${sheetId}'` };
+        }
+        sheet.dimensions = sheet.dimensions.filter((d) => d.id !== dimensionId);
+        return this.commit(doc, { markDrawing: true });
+    }
+
+    /** Delete a drawing sheet and everything on it. */
+    deleteSheet(sheetId: string): DocumentMutationResult {
+        const check = this.requireDocument();
+        if (!check.success) {
+            return { success: false, error: check.error, issues: check.issues };
+        }
+        const doc = cloneDocument(check.value!);
+        const drawings = doc.drawings ?? [];
+        if (!drawings.some((s) => s.id === sheetId)) {
+            return { success: false, error: `Drawing sheet '${sheetId}' not found` };
+        }
+        doc.drawings = drawings.filter((s) => s.id !== sheetId);
+        return this.commit(doc, { markDrawing: true });
+    }
+
     // *************************************************************************
     // Saved-measurement mutations (pinned viewport annotations). Immutable +
     // validated through the normal commit path (v3 schema, additive

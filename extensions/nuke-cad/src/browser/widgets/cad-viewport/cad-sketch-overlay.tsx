@@ -96,7 +96,7 @@ import {
 import { type DocumentTemplate } from '../../../common/document-templates';
 import { type SampleProject } from '../../../common/sample-projects';
 import { type DressUpPickMode } from './dress-up-pick';
-import { CadCommandSearch, CAD_COMMAND_SEARCH_TRIGGER_ATTRIBUTE } from './cad-command-search';
+import { CadCommandSearchLauncher } from './cad-command-search';
 import { type CadCommandSearchAction } from './cad-command-search-model';
 import { validRelations, type SketchEntityType } from './constraint-relations';
 import {
@@ -203,16 +203,6 @@ interface CadSketchOverlayProps {
     /** The W7-X coil shape-study dialog owns the keyboard (the `/` search stays inert). */
     readonly w7xShapeStudyDialogOpen?: boolean;
     readonly onCloseShortcutBar: () => void;
-}
-
-/** True for controls that own their keystrokes (`/` must type, never open search). */
-function isTextEntryTarget(target: EventTarget | null): boolean {
-    return (
-        target instanceof HTMLInputElement ||
-        target instanceof HTMLTextAreaElement ||
-        target instanceof HTMLSelectElement ||
-        (target instanceof HTMLElement && target.isContentEditable)
-    );
 }
 
 /**
@@ -1457,41 +1447,6 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
 
     const toolbarRef = React.useRef<HTMLDivElement>(null);
     const [ribbonDensity, setRibbonDensity] = React.useState<NukeRibbonDensity>('tiles');
-    const [searchOpen, setSearchOpen] = React.useState(false);
-    const closeSearch = React.useCallback(() => setSearchOpen(false), []);
-
-    // A task panel/dialog/pick mode that starts while the popover is open owns
-    // the keyboard next: get the search card out of its way.
-    React.useEffect(() => {
-        if (props.searchShortcutBlocked) {
-            setSearchOpen(false);
-        }
-    }, [props.searchShortcutBlocked]);
-
-    // Document-mode `/` shortcut. Window bubble phase is enough: `/` has no
-    // viewport/Theia binding to pre-empt, and the guards keep it out of every
-    // input. `searchShortcutBlocked` covers the task panel/dialog/pick/measure
-    // states the toolbar host owns.
-    React.useEffect(() => {
-        const onSearchKey = (event: KeyboardEvent): void => {
-            if (event.key !== '/' || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) {
-                return;
-            }
-            const target = event.target;
-            // Only inside this CAD viewport: another editor or a non-text
-            // control elsewhere must keep its own `/` key.
-            if (!(target instanceof Element) || target.closest('.cad-viewport') === null) {
-                return;
-            }
-            if (isTextEntryTarget(target) || searchOpen || props.searchShortcutBlocked) {
-                return;
-            }
-            event.preventDefault();
-            setSearchOpen(true);
-        };
-        window.addEventListener('keydown', onSearchKey);
-        return () => window.removeEventListener('keydown', onSearchKey);
-    }, [searchOpen, props.searchShortcutBlocked]);
 
     // Measure the whole bar (not the ribbon) so the info block and units select
     // count against the density decision. Hysteresis lives in the pure model.
@@ -1648,62 +1603,49 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
     }));
 
     return (
-        <div className="cad-document-toolbar" ref={toolbarRef}>
-            <div className="cad-document-toolbar-info">
-                <span className="codicon codicon-file cad-document-toolbar-icon" />
-                <div className="cad-document-toolbar-title">
-                    <span className="cad-document-toolbar-name">{doc?.name ?? 'Untitled'}</span>
-                    {props.documentStore.dirty && <span className="cad-document-toolbar-dirty" title="Unsaved changes" />}
-                </div>
-                <Tooltip content={SET_UNITS_TOOLTIP} position="bottom">
-                    <NukeSelect
-                        className="theia-select cad-document-toolbar-units"
-                        ariaLabel="Document units"
-                        value={doc?.units ?? ''}
-                        options={[
-                            { value: '', label: 'Unitless' },
-                            { value: 'mm', label: 'mm' },
-                            { value: 'cm', label: 'cm' },
-                            { value: 'm', label: 'm' }
-                        ]}
-                        onChange={(value) => {
-                            const next = value === '' ? undefined : (value as DocumentUnits);
-                            props.documentStore.setUnits(next);
-                        }}
-                    />
-                </Tooltip>
-            </div>
-            <div className="cad-document-toolbar-actions">
-                <NukeRibbon density={effectiveDensity} className="cad-document-toolbar-ribbon">
-                    {groups.map((group) => (
-                        <NukeRibbonSection
-                            key={group.label}
-                            label={group.label}
-                            shortLabel={group.shortLabel}
-                            items={group.actions}
-                            promoted={group.promoted}
-                            promotedIds={group.promotedIds}
+        <>
+            <div className="cad-document-toolbar" ref={toolbarRef}>
+                <div className="cad-document-toolbar-info">
+                    <span className="codicon codicon-file cad-document-toolbar-icon" />
+                    <div className="cad-document-toolbar-title">
+                        <span className="cad-document-toolbar-name">{doc?.name ?? 'Untitled'}</span>
+                        {props.documentStore.dirty && <span className="cad-document-toolbar-dirty" title="Unsaved changes" />}
+                    </div>
+                    <Tooltip content={SET_UNITS_TOOLTIP} position="bottom">
+                        <NukeSelect
+                            className="theia-select cad-document-toolbar-units"
+                            ariaLabel="Document units"
+                            value={doc?.units ?? ''}
+                            options={[
+                                { value: '', label: 'Unitless' },
+                                { value: 'mm', label: 'mm' },
+                                { value: 'cm', label: 'cm' },
+                                { value: 'm', label: 'm' }
+                            ]}
+                            onChange={(value) => {
+                                const next = value === '' ? undefined : (value as DocumentUnits);
+                                props.documentStore.setUnits(next);
+                            }}
                         />
-                    ))}
-                </NukeRibbon>
-                <div className="cad-document-toolbar-search-anchor">
-                    <Tooltip content="Search CAD commands (/)" position="bottom">
-                        <button
-                            type="button"
-                            className="theia-button secondary cad-document-toolbar-search"
-                            aria-label="Search CAD commands"
-                            aria-haspopup="dialog"
-                            aria-expanded={searchOpen}
-                            {...{ [CAD_COMMAND_SEARCH_TRIGGER_ATTRIBUTE]: '' }}
-                            onClick={() => setSearchOpen((open) => !open)}
-                        >
-                            <span className="codicon codicon-search" />
-                        </button>
                     </Tooltip>
                 </div>
+                <div className="cad-document-toolbar-actions">
+                    <NukeRibbon density={effectiveDensity} className="cad-document-toolbar-ribbon">
+                        {groups.map((group) => (
+                            <NukeRibbonSection
+                                key={group.label}
+                                label={group.label}
+                                shortLabel={group.shortLabel}
+                                items={group.actions}
+                                promoted={group.promoted}
+                                promotedIds={group.promotedIds}
+                            />
+                        ))}
+                    </NukeRibbon>
+                </div>
             </div>
-            <CadCommandSearch open={searchOpen} actions={searchActions} onClose={closeSearch} />
-        </div>
+            <CadCommandSearchLauncher actions={searchActions} blocked={props.searchShortcutBlocked} />
+        </>
     );
 }
 

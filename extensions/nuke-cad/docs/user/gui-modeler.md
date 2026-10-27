@@ -90,8 +90,9 @@ IGES imports read the file's length unit: a new document adopts it, and a
 mismatch against declared document units scales the geometry by the exact
 factor (reported in the import message).
 
-**Command search** sits at the right end of the document toolbar (magnifier
-button). Click it or press `/` in the viewport to filter every toolbar action —
+**Command search** floats over the bottom-left of the canvas as a **Search** pill
+(magnifier + `/` keycap), outside the document toolbar so a dense ribbon never
+covers it. Click it or press `/` in the viewport to filter every toolbar action —
 including the ones that normally live in a section's caret menu — by name,
 short label, or section caption. An empty field lists the first actions in
 ribbon order. Use `↑`/`↓` and `Enter` (or click a row) to run the highlighted
@@ -1202,19 +1203,27 @@ through the sidecar link.
 
 ## Drawings
 
-**Open Drawing Sheet** (`CAD Studio → Drawings`) creates a single-sheet 2D
-drawing of the document (A4/A3 landscape):
+**Open Drawing Sheet** (`CAD Studio → Drawings`) opens the drawing workspace
+for the current document:
 
-1. Create a sheet, then a base view (front/top/right preset).
-2. Add projected, section (axis/fraction/flip), or detail views from a
-   selected parent view; drag views on the sheet (5 mm snap).
-3. Dimension with the dimension tool: **Pick in viewport**, then click one
-   model edge (radius/diameter) or two (distance). Dimensions stay
-   associative — they recompute from the 3D model on every build and flag
-   `stale` when their reference breaks.
+1. Choose a sheet size (A4/A3) and a front/top/right base view on the empty
+   workspace. The first sheet can also be created from the toolbar.
+2. The toolbar groups sheet, view, dimension, and output actions: add base,
+   projected, section, or detail views, **Pick in viewport** for dimensions,
+   **Save**, **Refresh**, and **SVG**/**DXF** export.
+3. The sheet is rendered as a framed drawing with a title block. Use the
+   zoom controls, mouse wheel, or middle-drag to pan; **Fit sheet** resets the
+   view. Grid and 5 mm snapping have their own toggles.
+4. The right inspector lists the sheet, the selected view, its scale,
+   hidden-line toggle, delete actions, all views, and all dimensions. **Fit**
+   chooses a standard scale for the selected view.
+5. Drag views on the sheet (5 mm snap when enabled); projected views stay
+   aligned to their parent. Dimensions stay associative — they recompute from
+   the 3D model on every build and flag `stale` when their reference breaks.
 
-Export SVG (native) or DXF (visible/hidden/section/dimension layers) from
-the sheet. PDF export is not in this release.
+Drawing edits are saved before the linework is rebuilt, so the HLR service
+always reads the current sheet. Export SVG (native) or DXF (visible/hidden/
+section/dimension layers) from the sheet. PDF export is not in this release.
 
 ## Undo and redo
 

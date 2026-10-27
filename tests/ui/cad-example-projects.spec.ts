@@ -97,7 +97,7 @@ test('New CAD Document picker lists example projects and cancels cleanly', async
     expect(severe, `unexpected severe errors:\n${severe.join('\n')}`).toEqual([]);
 });
 
-test('Create W7-X Generator is searchable from the document toolbar', async ({ page }) => {
+test('Create W7-X Generator is searchable from the command launcher', async ({ page }) => {
     const errors = collectErrors(page);
     await page.goto('/');
     await waitForWorkbench(page);
@@ -119,7 +119,7 @@ test('Create W7-X Generator is searchable from the document toolbar', async ({ p
 
     const toolbar = viewport.locator('.cad-document-toolbar').first();
     await expect(toolbar).toBeVisible({ timeout: 60_000 });
-    await toolbar.locator('.cad-document-toolbar-search').click();
+    await viewport.locator('.cad-command-search-trigger').click();
     const popover = viewport.locator('.cad-command-search-popover');
     await expect(popover).toBeVisible();
     const search = popover.locator('.nuke-search-input-field');

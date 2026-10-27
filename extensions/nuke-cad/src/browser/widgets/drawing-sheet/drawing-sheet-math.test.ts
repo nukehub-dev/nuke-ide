@@ -38,6 +38,7 @@ import {
     DRAWING_GRID_SNAP_MM,
     clampDrawingLabel,
     clampSheetPosition,
+    formatDrawingScale,
     layoutDrawingLabels,
     lockProjectedViewPosition,
     pointerToSheetMm,
@@ -46,6 +47,16 @@ import {
 } from '../../../common/cad-drawing';
 
 describe('drawing-sheet placement math', () => {
+    it('formats view scales as drafting ratios', () => {
+        expect(formatDrawingScale(1)).toBe('1:1');
+        expect(formatDrawingScale(0.5)).toBe('1:2');
+        expect(formatDrawingScale(0.25)).toBe('1:4');
+        expect(formatDrawingScale(2)).toBe('2:1');
+        expect(formatDrawingScale(1.5)).toBe('1.5:1');
+        expect(formatDrawingScale(0)).toBe('?');
+        expect(formatDrawingScale(Number.NaN)).toBe('?');
+    });
+
     it('snaps drag positions to the 5 mm grid', () => {
         expect(DRAWING_GRID_SNAP_MM).toBe(5);
         // A full drag pipeline: pointer mm -> snap -> clamp on A4.

@@ -27,7 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-cad: New Sketch opens a Create Sketch task panel with the ribbon in place; empty documents offer Create Sketch/Open Model and the Model Outline shows the body count.
 - nuke-cad: sketch mode gains a constraint chip toolbar with a More menu, solver/DOF and snap/grid status badges, and an explicit grid toggle.
 - nuke-cad: sketch right-click menu offers only constraints valid for the selected geometry, plus dimensions, construction, delete, and canvas fit/grid/finish actions.
-- nuke-cad: command search in the document toolbar (button or `/`) filters and runs any ribbon action, including caret-menu-only entries.
+- nuke-cad: command search (floating button or `/`) filters and runs any ribbon action, including caret-menu-only entries.
 - nuke-cad: ribbon section menus pin any command inline (persisted in `nukeCad.ribbonPins`) and `nukeCad.ribbonLabels` hides tile labels for compact icon buttons.
 - nuke-cad: CAD Studio menu under Tools mirrors the sidebar (geometry, panels, analysis, environment commands).
 - nuke-cad: Move feature rigidly translates a body by dx/dy/dz with ghosted preview and tip chaining.
@@ -234,6 +234,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-cad: DAGMC export accepts `--no-auto-tolerance` so thin shell layers keep a fine faceting tolerance instead of being coarsened to diagonal/200.
 - nuke-cad: cache-hit document rebuilds reuse the existing canonical STEP instead of rewriting it.
 - nuke-cad: no-document and empty-document viewports share a Start a model launcher with a primary action tile, compact import rows, and a narrow-width fallback.
+- nuke-cad: drawing workspace with grouped toolbar, framed sheet and title block, zoom/pan, grid/snap, inspector, view scale/fit/delete, dimension list, and SVG/DXF export.
+- nuke-cad: Drawing Sheet's no-document state is a themed card with a numbered workflow primer on the dot-grid canvas instead of a bare panel.
 - nuke-cad: choosing the Empty document template opens the Create Sketch plane picker directly; cancelling it reveals the Start a model launcher.
 - nuke-cad: saving a script-source model rebuilds the viewport (STEP-source models unaffected).
 - nuke-cad: viewport context menu gains Find in Feature Tree, Clear Selection (Esc), and shortcut hints.
@@ -253,6 +255,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - app: startup splash tracks real loading progress and never blanks out on slow connections.
 - CI: vitest job compiles extensions first; conda pin no longer requests an unsatisfiable Python.
 - docker: image Python env ships working build123d with the OCP 7.9 shim and a CI version guard.
+- nuke-cad: command search moved off the ribbon into a floating bottom-left launcher, so a dense toolbar can no longer hide a section under its button.
+- nuke-cad: drawing builds use the saved document path and auto-save pending drawing edits before HLR, so sheets build instead of failing with a file-URI/ENOENT error.
+- nuke-cad: the drawing sheet re-reads the shared document when its tab attaches, so opening it during a model load no longer leaves a stale No CAD document panel.
+- nuke-cad: drawing-sheet toolbar toggles use dark inactive icons and white-on-accent active icons so they stay visible in the light theme.
+- nuke-cad: the drawing sheet's No CAD document state is centered in the editor instead of sticking to the top.
 - nuke-cad: `displayTolerance` survives later document mutations instead of being dropped by the next edit.
 - nuke-cad: closing and reopening the CAD viewport restores the active model, and shape-study dialog inputs follow the active theme.
 - nuke-cad: W7-X generator and coil study accept the reference STEP when its solids inherit the assembly root name instead of failing inventory validation.

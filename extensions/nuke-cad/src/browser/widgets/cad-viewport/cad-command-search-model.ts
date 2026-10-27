@@ -26,7 +26,7 @@
 // *****************************************************************************
 
 /**
- * Pure model for the CAD document-toolbar command search (no DOM, no React).
+ * Pure model for the CAD command search (no DOM, no React).
  *
  * The host maps the shared `buildCadCommands` specs into
  * `CadCommandSearchAction` entries; this module only filters that list.
