@@ -270,6 +270,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-cad: drawing views select and drag from their label or a minimum 36 × 28 mm body area, and a moved view keeps its position instead of snapping back before the next build.
 - nuke-cad: drawing builds no longer report a successful service as failed when the SVG/DXF result line exceeds the 1 MB stdout tail; the final result line is captured whole.
 - nuke-cad: drawings of grounded assemblies project the placed instance shape, and an empty instance body reports the underlying feature error (for example a changed import source) instead of only a generic no-solids hint.
+- nuke-cad: switching .nuke-cad documents is generation-guarded; a slower in-flight read/rebuild cannot land after the newer file, and the drawing sheet drops the previous document's linework before building the new one.
+- nuke-cad: a drawing build blocked by a changed import source shows a Refresh imports action that updates the source hash/size and retries the sheet.
 - nuke-cad: drawing-view drag keeps the selection frame, label chip, and placeholder card attached to the view, with horizontal and vertical deltas applied once and in the same direction.
 - nuke-cad: wheel zooming the drawing sheet no longer logs a passive-listener console error.
 - nuke-cad: tiny 1:1 base views (unitless/millimetre models) auto-fit once after their first projection, and Fit measures the naked linework instead of the padded bounds.

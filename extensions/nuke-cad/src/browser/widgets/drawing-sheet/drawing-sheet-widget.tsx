@@ -58,9 +58,11 @@ import { URI } from '@theia/core/lib/common/uri';
 import { Disposable } from '@theia/core/lib/common/disposable';
 import { Message } from '@theia/core/lib/browser';
 import { MessageService } from '@theia/core/lib/common/message-service';
+import { CommandService } from '@theia/core/lib/common/command';
 import { FileDialogService } from '@theia/filesystem/lib/browser';
 import { FileService } from '@theia/filesystem/lib/browser/file-service';
 import { NukeCadBackendService } from '../../../common/nuke-cad-protocol';
+import { NukeCadCommands } from '../../commands';
 import { validateTopologyRef, type TopologyRef } from '../../../common/topology-refs';
 import {
     appendDrawingDimensionTarget,
@@ -126,6 +128,9 @@ export class DrawingSheetWidget extends ReactWidget {
     @inject(MessageService)
     protected readonly messageService: MessageService;
 
+    @inject(CommandService)
+    protected readonly commandService: CommandService;
+
     @inject(CadDocumentStore)
     protected readonly documentStore: CadDocumentStore;
 
@@ -145,6 +150,13 @@ export class DrawingSheetWidget extends ReactWidget {
     private buildResult: DrawingBuildResult | undefined;
     private building = false;
     private lastDrawingVersion = -1;
+    /** Store document identity observed by this widget; -1 until the first event. */
+    private documentEpoch = -1;
+    private documentUri: string | undefined;
+    /** A newly opened document must refresh once its saved URI lands. */
+    private pendingDocumentDrawingRefresh = false;
+    /** Supersedes in-flight drawing builds across document and sheet switches. */
+    private buildGeneration = 0;
     /** Session-scoped pinned label offsets (sketch pattern: die with the session, opt out of auto-shift). */
     private readonly pinnedLabels = new Map<string, [number, number]>();
     private pendingTargets: TopologyRef[] = [];
@@ -214,6 +226,36 @@ export class DrawingSheetWidget extends ReactWidget {
     private handleStoreChange(): void {
         const version = this.documentStore.drawingVersion;
         const drawings = this.documentStore.document?.drawings ?? [];
+        const epoch = this.documentStore.documentEpoch;
+        const uri = this.documentStore.uri;
+        const epochChanged = epoch !== this.documentEpoch;
+        const uriChanged = uri !== this.documentUri;
+
+        if (epochChanged) {
+            this.documentEpoch = epoch;
+            this.documentUri = uri;
+            // Sheet/view ids repeat across files, so a previous document's
+            // linework is never valid for the new one. Drop it now rather than
+            // painting it until the next build lands.
+            this.buildGeneration++;
+            this.buildResult = undefined;
+            this.building = false;
+            this.lastDrawingVersion = version;
+            this.pendingAutoFitViewId = undefined;
+            this.selectedViewId = undefined;
+            this.pinnedLabels.clear();
+            this.livePositions.clear();
+            this.dragViewId = undefined;
+            this.viewDragStart = undefined;
+            this.hoveredViewId = undefined;
+            this.pendingTargets = [];
+            this.pendingViewId = undefined;
+            cancelDrawingDimensionPick();
+            this.pendingDocumentDrawingRefresh = uri === undefined;
+        } else if (uriChanged) {
+            this.documentUri = uri;
+        }
+
         if (this.activeSheetId === undefined || !drawings.some((s) => s.id === this.activeSheetId)) {
             this.activeSheetId = drawings.length > 0 ? drawings[0].id : undefined;
             this.selectedViewId = undefined;
@@ -222,14 +264,25 @@ export class DrawingSheetWidget extends ReactWidget {
             // A sheet switch invalidates the in-progress viewport pick.
             cancelDrawingDimensionPick();
         }
+
+        let refreshRequested = false;
+        if (
+            (epochChanged || this.pendingDocumentDrawingRefresh) &&
+            uri !== undefined &&
+            this.drawingBackendReady === true &&
+            this.activeSheetId !== undefined
+        ) {
+            this.pendingDocumentDrawingRefresh = false;
+            refreshRequested = true;
+        }
         if (version !== this.lastDrawingVersion) {
             this.lastDrawingVersion = version;
-            // Dirty drawing state triggers `buildDrawing`, never a full rebuild.
-            // Auto-fire only once the backend has answered a probe (manual
-            // Refresh probes it); otherwise Refresh reports on demand.
             if (this.drawingBackendReady === true && this.activeSheetId !== undefined) {
-                void this.refreshDrawing();
+                refreshRequested = true;
             }
+        }
+        if (refreshRequested) {
+            void this.refreshDrawing();
         }
         this.update();
     }
@@ -297,11 +350,19 @@ export class DrawingSheetWidget extends ReactWidget {
         // A rebuild replaces view linework under the pointer; a menu captured
         // against the old view is no longer meaningful.
         this.closeViewMenu?.();
+        this.pendingDocumentDrawingRefresh = false;
+        const generation = ++this.buildGeneration;
+        // A newer refresh owns the spinner from here on; an older build that
+        // is still winding down must not leave "Building…" stuck.
+        this.building = false;
         const sheet = this.activeSheet();
         if (sheet === undefined) {
             return;
         }
         if (this.documentStore.dirty && !(await this.saveDocument())) {
+            return;
+        }
+        if (generation !== this.buildGeneration) {
             return;
         }
         const documentPath = this.documentFilePath();
@@ -313,6 +374,9 @@ export class DrawingSheetWidget extends ReactWidget {
         this.update();
         try {
             const result = await this.backendService.buildDrawing({ scriptPath: documentPath, sheetId: sheet.id });
+            if (generation !== this.buildGeneration) {
+                return;
+            }
             this.buildResult = result;
             this.drawingBackendReady = true;
             if (!result.success) {
@@ -321,20 +385,44 @@ export class DrawingSheetWidget extends ReactWidget {
                 this.messageService.warn(`Drawing build warnings: ${result.warnings.join('; ')}`);
             }
         } catch (error) {
+            if (generation !== this.buildGeneration) {
+                return;
+            }
             this.drawingBackendReady = false;
             const message = error instanceof Error ? error.message : String(error);
             this.messageService.error(`Drawing build failed (${message}). Sheet edits are saved in the document.`);
         } finally {
-            this.building = false;
-            // A completion swaps the linework under any menu opened mid-build.
-            this.closeViewMenu?.();
-            this.update();
-            this.maybeAutoFitPendingView();
+            if (generation === this.buildGeneration) {
+                this.building = false;
+                // A completion swaps the linework under any menu opened mid-build.
+                this.closeViewMenu?.();
+                this.update();
+                this.maybeAutoFitPendingView();
+            }
         }
     }
 
     private viewOutput(viewId: string): DrawingViewOutput | undefined {
         return this.buildResult?.views?.find((v) => v.id === viewId);
+    }
+
+    /** Refresh changed import sources, then rebuild the sheet's linework. */
+    private async refreshImportsAndDrawing(): Promise<void> {
+        // The viewport command re-inspects and rebuilds the model before the
+        // sheet retry starts; keep the status line honest during that wait.
+        this.building = true;
+        this.update();
+        try {
+            await this.commandService.executeCommand(NukeCadCommands.REFRESH_IMPORT_SOURCES.id);
+        } catch (error) {
+            this.building = false;
+            this.update();
+            const message = error instanceof Error ? error.message : String(error);
+            this.messageService.error(`Failed to refresh import sources: ${message}`);
+            return;
+        }
+        this.building = false;
+        await this.refreshDrawing();
     }
 
     private createBaseSheet(orientation: DrawingViewOrientation): void {
@@ -852,6 +940,7 @@ export class DrawingSheetWidget extends ReactWidget {
         }
         this.activeSheetId = undefined;
         this.selectedViewId = undefined;
+        this.buildGeneration++;
         this.buildResult = undefined;
         this.update();
     }
@@ -1490,6 +1579,7 @@ export class DrawingSheetWidget extends ReactWidget {
                             value={sheet.id}
                             options={drawings.map((entry) => ({ value: entry.id, label: `${entry.name} (${entry.size})` }))}
                             onChange={(value) => {
+                                this.buildGeneration++;
                                 this.activeSheetId = value;
                                 this.selectedViewId = undefined;
                                 this.pendingTargets = [];
@@ -1679,11 +1769,22 @@ export class DrawingSheetWidget extends ReactWidget {
             );
         }
         if (this.buildResult?.success === false) {
+            const error = this.buildResult.error ?? 'unknown error';
+            const staleImports = /source hash mismatch|refresh the import/i.test(error);
             notices.push(
                 <div key="build" className="nuke-cad-drawing-notice error">
                     <span className="codicon codicon-error" aria-hidden="true" />
-                    <span>Drawing build failed: {this.buildResult.error ?? 'unknown error'}</span>
-                    <button className="theia-button secondary" onClick={() => void this.refreshDrawing()}>
+                    <span>Drawing build failed: {error}</span>
+                    {staleImports && (
+                        <button
+                            className="theia-button secondary"
+                            disabled={this.building}
+                            onClick={() => void this.refreshImportsAndDrawing()}
+                        >
+                            Refresh imports
+                        </button>
+                    )}
+                    <button className="theia-button secondary" disabled={this.building} onClick={() => void this.refreshDrawing()}>
                         Retry
                     </button>
                 </div>

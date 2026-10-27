@@ -135,6 +135,21 @@ describe('CadDocumentStore', () => {
         expect(store.dirty).toBe(false);
     });
 
+    it('bumps documentEpoch for new documents but not for edits', () => {
+        const store = new CadDocumentStore();
+        const initial = store.documentEpoch;
+        expect(store.createDocument('first').success).toBe(true);
+        const afterFirst = store.documentEpoch;
+        expect(afterFirst).toBe(initial + 1);
+
+        expect(store.loadDocument(minimalDoc()).success).toBe(true);
+        expect(store.documentEpoch).toBe(afterFirst + 1);
+
+        const afterLoad = store.documentEpoch;
+        expect(store.addBody('Body 1').success).toBe(true);
+        expect(store.documentEpoch).toBe(afterLoad);
+    });
+
     it('creates a document from a template', () => {
         const store = new CadDocumentStore();
         const result = store.createDocument('pincell', 'pincell');

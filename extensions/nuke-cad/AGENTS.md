@@ -125,6 +125,9 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   a saved document from cache) in `onAfterAttach`; the empty-document card must never
   cover an active document. The same hook re-reveals Feature Tree + Model Outline, and
   New Document clears the old model/tokens before installing (no background restore).
+- Document opens are generation-guarded: a slower file read, rebuild, or cached-fast-path
+  parse is discarded after a newer `.nuke-cad` open, and the Drawing Sheet clears per-document
+  linework/results via `CadDocumentStore.documentEpoch` before refreshing the new document.
 - Narrow document toolbars wrap the ribbon and use compact section menus; explode groups
   solids by instance/body and separates centered shells vertically.
 - Assembly-panel hover help uses the shared `Tooltip`/`useTooltip`; no native `title`.

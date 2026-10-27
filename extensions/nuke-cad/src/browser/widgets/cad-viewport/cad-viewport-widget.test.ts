@@ -1484,3 +1484,75 @@ describe('CadViewportWidget refresh import sources', () => {
         expect(widget.messageService.warn).toHaveBeenCalledWith(expect.stringContaining('missing file'));
     });
 });
+
+describe('CadViewportWidget document open arbitration', () => {
+    let widgetModule: WidgetModule;
+
+    beforeAll(async () => {
+        widgetModule = await loadWidget();
+    });
+
+    it('ignores a slower open after a newer document has been installed', async () => {
+        const deferred = <T>(): { promise: Promise<T>; resolve: (value: T) => void } => {
+            let resolve!: (value: T) => void;
+            const promise = new Promise<T>((done) => {
+                resolve = done;
+            });
+            return { promise, resolve };
+        };
+        const readA = deferred<{ value: { toString(): string } }>();
+        const readB = deferred<{ value: { toString(): string } }>();
+        const documents: unknown[] = [];
+        const widget = Object.create(widgetModule.CadViewportWidget.prototype);
+        Object.assign(widget, {
+            documentOpenGeneration: 0,
+            viewportGeneration: 0,
+            rebuildToken: 0,
+            rebuildPending: false,
+            rebuildPromise: undefined,
+            pendingPartialJobId: undefined,
+            loading: false,
+            tessData: undefined,
+            loadedTessPath: undefined,
+            tessLoadInFlight: false,
+            buildError: undefined,
+            buildWarnings: [],
+            buildStale: false,
+            saveRebuildTimer: undefined,
+            stateManager: { setModel: vi.fn(), setSolidSummaries: vi.fn() },
+            rebuildTracker: { reset: vi.fn() },
+            update: vi.fn(),
+            setLoading: vi.fn(),
+            resetSketchSavePromptState: vi.fn(),
+            invalidateTessellation: vi.fn(),
+            tryOpenFastPath: vi.fn().mockResolvedValue(false),
+            rebuildDocument: vi.fn().mockResolvedValue(undefined),
+            messageService: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
+            fileService: {
+                read: vi.fn((uri: URI) => (uri.toString().endsWith('/a.nuke-cad') ? readA.promise : readB.promise))
+            },
+            documentStore: {
+                loadDocument: vi.fn((doc: unknown) => {
+                    documents.push(doc);
+                    return { success: true };
+                }),
+                setUri: vi.fn(),
+                markSaved: vi.fn(),
+                document: undefined,
+                uri: undefined
+            }
+        });
+
+        const openA = (widget as any).openDocumentModel(new URI('file:///tmp/a.nuke-cad'), '/tmp/a.nuke-cad');
+        const openB = (widget as any).openDocumentModel(new URI('file:///tmp/b.nuke-cad'), '/tmp/b.nuke-cad');
+        readB.resolve({ value: { toString: () => '{"name":"B"}' } });
+        await openB;
+        readA.resolve({ value: { toString: () => '{"name":"A"}' } });
+        await openA;
+
+        expect(documents).toEqual([{ name: 'B' }]);
+        expect(widget.documentStore.setUri).toHaveBeenCalledTimes(1);
+        expect(widget.rebuildDocument).toHaveBeenCalledTimes(1);
+        expect(widget.setLoading).not.toHaveBeenLastCalledWith(true);
+    });
+});

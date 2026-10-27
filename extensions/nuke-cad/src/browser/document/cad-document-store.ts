@@ -984,6 +984,9 @@ export class CadDocumentStore {
         drawingVersion: 0
     };
 
+    /** Monotonic identity bumped whenever a different document is installed. */
+    private documentEpochCounter = 0;
+
     private readonly listeners = new Set<DocumentStoreListener>();
 
     /**
@@ -1026,6 +1029,17 @@ export class CadDocumentStore {
     /** Absolute file URI backing the document, when one has been assigned. */
     get uri(): string | undefined {
         return this.state.uri;
+    }
+
+    /**
+     * Monotonic identity for the installed document.
+     *
+     * Bumped by create/load/sample installs, never by edits. Panels use it to
+     * drop per-document caches and late async results when the user switches
+     * files without relying on sheet/view ids, which can repeat across docs.
+     */
+    get documentEpoch(): number {
+        return this.documentEpochCounter;
     }
 
     /** Whether the document has unsaved changes. */
@@ -1120,6 +1134,7 @@ export class CadDocumentStore {
         }
         this.undoStack = [];
         this.redoStack = [];
+        this.documentEpochCounter++;
         this.state = {
             document,
             uri: undefined,

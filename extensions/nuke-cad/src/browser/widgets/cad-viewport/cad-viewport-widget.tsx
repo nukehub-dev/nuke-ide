@@ -477,6 +477,8 @@ export class CadViewportWidget extends ReactWidget {
     private rebuildToken = 0;
     /** Invalidates the attach-time restore when a new document is created. */
     private viewportGeneration = 0;
+    /** Supersedes in-flight document opens so a slower read cannot win. */
+    private documentOpenGeneration = 0;
     /** Job id of the in-flight partial rebuild, for cancellation. */
     private pendingPartialJobId?: string;
     private partialJobCounter = 0;
@@ -2994,6 +2996,7 @@ export class CadViewportWidget extends ReactWidget {
      */
     private clearViewportModel(): void {
         this.resetSketchSavePromptState();
+        this.documentOpenGeneration++;
         this.viewportGeneration++;
         this.rebuildToken++;
         this.rebuildPending = false;
@@ -3354,6 +3357,7 @@ export class CadViewportWidget extends ReactWidget {
         // runs. Any miss executes that feature; without partial support the
         // transport fallback runs the full build.
         const restoreAll = restoreFromCache && !usePartial;
+        const generation = this.documentOpenGeneration;
         const token = ++this.rebuildToken;
         this.setLoading(
             true,
@@ -3374,10 +3378,13 @@ export class CadViewportWidget extends ReactWidget {
                 : restoreAll
                   ? await this.buildPartialWithFallback(filePath, [], displayTolerance)
                   : await this.backendService.buildDocument({ scriptPath: filePath, tolerance: displayTolerance });
-            if (token !== this.rebuildToken) {
+            if (token !== this.rebuildToken || generation !== this.documentOpenGeneration) {
                 // Cancelled or superseded while in flight: keep the attempted
-                // ids dirty so the next rebuild retries them.
-                this.rebuildTracker.noteEdit(attempted);
+                // ids dirty so the next rebuild retries them. A superseded
+                // document must not dirty the newer document's tracker.
+                if (generation === this.documentOpenGeneration) {
+                    this.rebuildTracker.noteEdit(attempted);
+                }
                 return;
             }
             this.pendingPartialJobId = undefined;
@@ -3398,8 +3405,10 @@ export class CadViewportWidget extends ReactWidget {
                 this.messageService.error(message);
             }
         } catch (error) {
-            if (token !== this.rebuildToken) {
-                this.rebuildTracker.noteEdit(attempted);
+            if (token !== this.rebuildToken || generation !== this.documentOpenGeneration) {
+                if (generation === this.documentOpenGeneration) {
+                    this.rebuildTracker.noteEdit(attempted);
+                }
                 return;
             }
             this.pendingPartialJobId = undefined;
@@ -3968,9 +3977,18 @@ export class CadViewportWidget extends ReactWidget {
     }
 
     private async openDocumentModel(uri: URI, filePath: string): Promise<void> {
+        // Opening another file supersedes any load or rebuild still in flight.
+        // Clear the previous viewport before the first await, then keep a
+        // generation token so a slower read cannot load an older document
+        // over the newer one.
+        this.clearViewportModel();
+        const generation = this.documentOpenGeneration;
         this.setLoading(true, 'Loading CAD document...');
         try {
             const content = await this.fileService.read(uri);
+            if (generation !== this.documentOpenGeneration) {
+                return;
+            }
             const json = JSON.parse(content.value.toString()) as unknown;
             const result = this.documentStore.loadDocument(json);
             if (!result.success) {
@@ -3988,16 +4006,24 @@ export class CadViewportWidget extends ReactWidget {
             // the build rewrites the same `<stem>.tess.json` path.
             this.invalidateTessellation();
             const doc = this.documentStore.document;
-            if (doc !== undefined && (await this.tryOpenFastPath(uri, filePath, doc))) {
+            if (doc !== undefined && (await this.tryOpenFastPath(uri, filePath, doc, generation))) {
+                return;
+            }
+            if (generation !== this.documentOpenGeneration) {
                 return;
             }
             await this.rebuildDocument(true);
         } catch (error) {
+            if (generation !== this.documentOpenGeneration) {
+                return;
+            }
             const message = error instanceof Error ? error.message : String(error);
             this.buildError = message;
             this.messageService.error(message);
         } finally {
-            this.setLoading(false);
+            if (generation === this.documentOpenGeneration) {
+                this.setLoading(false);
+            }
         }
     }
 
@@ -4008,18 +4034,24 @@ export class CadViewportWidget extends ReactWidget {
      * miss → false and the caller restores from the zip sidecar (per-feature
      * fallback to execution), which populates the sidecar on the way.
      */
-    private async tryOpenFastPath(uri: URI, filePath: string, doc: NukeCadDocument): Promise<boolean> {
+    private async tryOpenFastPath(uri: URI, filePath: string, doc: NukeCadDocument, generation: number): Promise<boolean> {
         const cached = this.resultCache.get(cacheKeyForDocument(uri.toString(), doc.name));
         const check = checkOpenFastPath(doc, cached);
         if (!check.hit || cached === undefined) {
             return false;
         }
         try {
-            // Publish a model without a tessellation path first (clears prior
-            // state synchronously), then render the cached tessellation
-            // directly — the backend never runs on this path.
+            // Parse before publishing anything: a newer open can replace the
+            // document while the cached tessellation is being parsed.
+            const tessData = await parseTessellationAsync(cached.tessText);
+            if (generation !== this.documentOpenGeneration) {
+                return true;
+            }
+            // Publish the model without a tessellation path (clears prior
+            // state), then attach the already-parsed cached tessellation; the
+            // backend never runs on this path.
             this.stateManager.setModel({ scriptPath: filePath, result: { success: true, scriptPath: filePath }, manifest: undefined });
-            this.tessData = await parseTessellationAsync(cached.tessText);
+            this.tessData = tessData;
             this.loadedTessPath = undefined;
             this.stateManager.setSolidSummaries(buildSolidSummaries(this.tessData.solids));
             this.tessLoadInFlight = false;
