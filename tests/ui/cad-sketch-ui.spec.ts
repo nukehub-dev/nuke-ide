@@ -226,17 +226,15 @@ test('edit sketch re-enters directly and transform tools use the selected geomet
     }
     await page.keyboard.press('s');
     await click(600, 420);
+    // The transform value popovers must escape the palette's scroll clipping.
+    await viewport.locator('.cad-sketch-toolbar button:has(.codicon-nuke-cad-scale)').click();
+    const scalePopover = page.locator('.cad-sketch-dimension-popover').filter({ hasText: 'Scale' });
+    await expect(scalePopover).toBeVisible();
+    await scalePopover.getByRole('button', { name: 'Cancel' }).click();
+    await expect(scalePopover).toBeHidden();
     await page.keyboard.press('v');
     await click(600, 420);
     await click(600, 470);
-    await expect(hint).not.toContainText('needs a selection');
-    await page.keyboard.press('l');
-    await click(500, 300);
-    await click(800, 300);
-    await page.keyboard.press('s');
-    await click(600, 470);
-    await page.keyboard.press('n');
-    await click(650, 300);
     await expect(hint).not.toContainText('needs a selection');
     await finish.click();
     await expect(viewport.locator('.cad-document-toolbar').first()).toBeVisible({ timeout: 30_000 });

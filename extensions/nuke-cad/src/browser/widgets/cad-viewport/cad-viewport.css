@@ -1189,9 +1189,12 @@
 }
 
 .cad-sketch-dimension-popover {
-    position: absolute;
+    /* Fixed, not absolute: the transform value popovers live inside the
+       scrollable sketch palette and must escape its overflow clipping. */
+    position: fixed;
     top: 50%;
     left: 50%;
+    z-index: 40;
     transform: translate(-50%, -50%);
     display: flex;
     flex-direction: column;
@@ -1203,6 +1206,7 @@
     background: var(--theia-editorWidget-background);
     color: var(--theia-foreground);
     pointer-events: auto;
+    box-shadow: var(--nuke-shadow-md);
 }
 
 .cad-sketch-dimension-popover-title {

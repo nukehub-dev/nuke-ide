@@ -7477,7 +7477,9 @@ function initViewport(
         // Canvas clicks never need a bottom-bar popover open; the popover
         // buttons live outside the canvas so this cannot eat their presses.
         onClosePopover();
-        if (controller.isActive) {
+        // Face-pick (external geometry) runs inside sketch mode; only the
+        // ordinary canvas click/shortcut path is owned by the sketch controller.
+        if (controller.isActive && activeFacePickMode === undefined) {
             return;
         }
         if (measureState.active && measureState.mode === 'model3d') {
@@ -8003,7 +8005,7 @@ function initViewport(
 
     const onPointerDown = (event: PointerEvent): void => {
         updateLastPointerPosition(event);
-        if (!controller.isActive) {
+        if (!controller.isActive || activeFacePickMode !== undefined) {
             return;
         }
         if (measureState.active && measureState.mode === 'sketch') {
@@ -8024,7 +8026,7 @@ function initViewport(
     };
     const onSketchPointerMove = (event: PointerEvent): void => {
         updateLastPointerPosition(event);
-        if (!controller.isActive) {
+        if (!controller.isActive || activeFacePickMode !== undefined) {
             return;
         }
         if (measureState.active && measureState.mode === 'sketch') {
@@ -8038,7 +8040,7 @@ function initViewport(
         // A right pointerup precedes `contextmenu` on Windows; letting it reach
         // the session would commit the point the new right-click contract is
         // about to cancel. Middle is still needed to end a pan.
-        if (!controller.isActive || (event.button !== 0 && event.button !== 1)) {
+        if (!controller.isActive || activeFacePickMode !== undefined || (event.button !== 0 && event.button !== 1)) {
             return;
         }
         void controller.onPointerUp(event.clientX, event.clientY);

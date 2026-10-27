@@ -1249,12 +1249,25 @@ export class SketchModeController {
                 console.error('[SketchMode] click failed:', err);
                 this.messageService?.error(`Sketch click failed: ${message}`);
             }
+            await this.applyConstructionToNew(beforeIds);
             this.maybeStartAutoDimension(beforeIds);
         }
     }
 
+    /** Construction toggle: new primitives are marked after the tool commits. */
+    private async applyConstructionToNew(beforeIds: ReadonlySet<string>): Promise<void> {
+        if (!this.construction || this.session === undefined) {
+            return;
+        }
+        for (const primitive of this.session.getPrimitives()) {
+            if (!beforeIds.has(primitive.id) && !primitive.construction) {
+                await this.session.setConstruction(primitive.id, true);
+            }
+        }
+    }
+
     private maybeStartAutoDimension(beforeIds: Set<string>): void {
-        if (!this.autoDimensionEnabled || this.session === undefined || this.lastClientPosition === undefined) {
+        if (!this.autoDimensionEnabled || this.construction || this.session === undefined || this.lastClientPosition === undefined) {
             return;
         }
         const newPrimitive = this.session

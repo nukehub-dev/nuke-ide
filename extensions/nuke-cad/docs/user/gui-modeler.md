@@ -389,13 +389,15 @@ Driving dimensions control geometry; reference dimensions just measure it.
 - Toggle **Driving** to convert between driving and reference.
 
 Open the **Parameters** panel from the toolbar to add, edit, or remove sketch-
-local parameters. Parameters bound to a driving dimension cannot be removed
-until the dimension is unbound.
+local parameters. New parameters merge into the document parameter table when
+you finish the sketch, so later features and sketches can reference them.
+Parameters bound to a driving dimension cannot be removed until the dimension
+is unbound.
 
 ### Select, drag, and delete
 
 With the **Select** tool, click a primitive (or a dimension label) to select
-it — Shift+click adds to the selection, clicking empty space clears it, and
+it — Ctrl/Cmd+click adds to the selection, clicking empty space clears it, and
 hovering outlines the primitive under the cursor. Drag a selected point to
 reshape the sketch interactively: the solver applies temporary constraints
 during the drag and re-solves, and the geometry updates live. Press
