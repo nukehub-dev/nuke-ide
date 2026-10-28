@@ -117,7 +117,7 @@ test('dataset inspector lists arrays and rows for the active viewer', async ({ p
     const container = await openViewer(page, 'volume-slice.vti');
     await expect(container.locator('.openmc-output-viewer-status.error')).toHaveCount(0);
 
-    await runCommand(page, 'Open Dataset Inspector');
+    await container.locator('.viewer-nav-dataset-inspector').click();
     const panel = page.locator('.dataset-inspector-panel');
     await expect(panel).toBeVisible({ timeout: 30_000 });
     await expect(panel).toContainText('Arrays');
@@ -143,7 +143,7 @@ test('dataset inspector aggregates DAGMC volume blocks', async ({ page }) => {
     const container = await openViewer(page, 'native-volumes.vtm');
     await expect(container.locator('.openmc-output-viewer-status.error')).toHaveCount(0);
 
-    await runCommand(page, 'Open Dataset Inspector');
+    await container.locator('.viewer-nav-dataset-inspector').click();
     const panel = page.locator('.dataset-inspector-panel');
     await expect(panel).toBeVisible({ timeout: 30_000 });
     await expect(panel.locator('.dataset-inspector-title')).toContainText('native-volumes.vtm');

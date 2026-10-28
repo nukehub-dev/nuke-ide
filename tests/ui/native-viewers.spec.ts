@@ -410,10 +410,14 @@ test('DAGMC viewer exposes panel shortcuts and outline quick actions', async ({ 
     // auto-opened panel again after the settings tab takes the right area.
     const settingsButton = container.locator('.viewer-nav-viewer-settings');
     const outlineButton = container.locator('.viewer-nav-dagmc-outline');
+    const datasetButton = container.locator('.viewer-nav-dataset-inspector');
     await expect(settingsButton).toBeVisible();
     await expect(outlineButton).toBeVisible();
+    await expect(datasetButton).toBeVisible();
     await settingsButton.click();
     await expect(page.locator('.viewer-settings-panel')).toBeVisible({ timeout: 30_000 });
+    await datasetButton.click();
+    await expect(page.locator('.dataset-inspector-panel')).toBeVisible({ timeout: 30_000 });
     await outlineButton.click();
     const panel = page.locator('.dagmc-outline-panel');
     await expect(panel).toBeVisible({ timeout: 30_000 });

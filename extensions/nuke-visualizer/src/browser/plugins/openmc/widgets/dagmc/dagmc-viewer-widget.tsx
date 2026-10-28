@@ -146,7 +146,7 @@ import {
     viewerSnapDirection
 } from '../../../../viewer-settings/viewer-settings-model';
 import type { ViewerDatasetHost } from '../../../../dataset-inspector/dataset-inspector-model';
-import { DAGMC_OUTLINE_COMMAND_ID, VIEWER_SETTINGS_COMMAND_ID } from '../../../../commands/panel-commands';
+import { DAGMC_OUTLINE_COMMAND_ID, DATASET_INSPECTOR_COMMAND_ID, VIEWER_SETTINGS_COMMAND_ID } from '../../../../commands/panel-commands';
 import {
     DagmcOutlineHost,
     DagmcOutlinePatch,
@@ -2012,6 +2012,7 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
                         disabled={disabled}
                         onOpenSettings={() => void this.commands.executeCommand(VIEWER_SETTINGS_COMMAND_ID)}
                         onOpenOutline={() => void this.commands.executeCommand(DAGMC_OUTLINE_COMMAND_ID)}
+                        onOpenDatasetInspector={() => void this.commands.executeCommand(DATASET_INSPECTOR_COMMAND_ID)}
                     />
                     <ViewerFileActions
                         disabled={disabled}

@@ -308,9 +308,15 @@ export interface ViewerPanelActionsProps {
     readonly onOpenSettings: () => void;
     /** DAGMC viewers only; omitted elsewhere. */
     readonly onOpenOutline?: () => void;
+    readonly onOpenDatasetInspector?: () => void;
 }
 
-export const ViewerPanelActions: React.FC<ViewerPanelActionsProps> = ({ disabled, onOpenSettings, onOpenOutline }) => (
+export const ViewerPanelActions: React.FC<ViewerPanelActionsProps> = ({
+    disabled,
+    onOpenSettings,
+    onOpenOutline,
+    onOpenDatasetInspector
+}) => (
     <>
         <Tooltip content="Open Viewer Settings" position="left">
             <button className={`${navButtonClass(false)} viewer-nav-viewer-settings`} disabled={disabled} onClick={onOpenSettings}>
@@ -321,6 +327,17 @@ export const ViewerPanelActions: React.FC<ViewerPanelActionsProps> = ({ disabled
             <Tooltip content="Open DAGMC Outline" position="left">
                 <button className={`${navButtonClass(false)} viewer-nav-dagmc-outline`} disabled={disabled} onClick={onOpenOutline}>
                     <span className="codicon codicon-list-tree" />
+                </button>
+            </Tooltip>
+        )}
+        {onOpenDatasetInspector && (
+            <Tooltip content="Open Dataset Inspector" position="left">
+                <button
+                    className={`${navButtonClass(false)} viewer-nav-dataset-inspector`}
+                    disabled={disabled}
+                    onClick={onOpenDatasetInspector}
+                >
+                    <span className="codicon codicon-table" />
                 </button>
             </Tooltip>
         )}

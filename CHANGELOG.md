@@ -204,7 +204,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-visualizer: Feature Edges shading draws only creases above a 30° dihedral angle.
 - nuke-visualizer: Gmsh .msh meshes import directly and convert headlessly to ASCII VTK.
 - nuke-visualizer: legacy VTK volume meshes render unshared boundary faces as surfaces instead of wireframe cages.
-- nuke-visualizer: viewer bottom bars add Viewer Settings and DAGMC Outline shortcuts.
+- nuke-visualizer: viewer bottom bars add Viewer Settings, Dataset Inspector, and DAGMC Outline shortcuts.
 - nuke-visualizer: DAGMC Outline adds Hide all, selected-volume Frame/Hide/Isolate/Clear actions, and filter-aware sections.
 - openmc-studio: DAGMC Editor routes picked CAD files to import instead of landing on an empty model.
 - openmc-studio: void cells emit standard `material="void"` so this OpenMC accepts them.

@@ -86,8 +86,9 @@ Planes**, and the shading modes. In a DAGMC viewer with a volume selected, the
 same menu adds **Hide Volume N** / **Isolate Volume N**, plus **Show All
 Volumes** when any volume, material, or group is hidden.
 
-The bottom bar also carries one-click **Viewer Settings** and, in DAGMC
-viewers, **DAGMC Outline** shortcuts beside the clip/shading/link controls.
+The bottom bar also carries one-click **Viewer Settings**, **Dataset
+Inspector**, and, in DAGMC viewers, **DAGMC Outline** shortcuts beside the
+clip/shading/link controls.
 
 **Viewer Settings** is a narrow sidebar panel built like the CAD outline:
 every row reserves a visible label column, so **Background**, **Point size**,

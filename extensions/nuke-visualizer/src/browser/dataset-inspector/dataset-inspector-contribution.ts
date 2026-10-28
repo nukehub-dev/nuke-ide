@@ -29,10 +29,11 @@ import { injectable, inject } from '@theia/core/shared/inversify';
 import { CommandContribution, CommandRegistry } from '@theia/core/lib/common';
 import { ApplicationShell, WidgetManager } from '@theia/core/lib/browser';
 import { DatasetInspectorWidget } from './dataset-inspector-widget';
+import { DATASET_INSPECTOR_COMMAND_ID } from '../commands/panel-commands';
 
 /** Command opening the Dataset Inspector sidebar (right area). */
 export const OpenDatasetInspectorCommand = {
-    id: 'nuke-visualizer.open-dataset-inspector',
+    id: DATASET_INSPECTOR_COMMAND_ID,
     label: 'Open Dataset Inspector',
     category: 'Visualizer'
 };

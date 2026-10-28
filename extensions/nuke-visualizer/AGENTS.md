@@ -99,8 +99,9 @@ All files under `extensions/nuke-visualizer/` except generated artifacts (`lib/`
 - Side panels bind one active viewer each: Viewer Settings (`ViewerSettingsHost`), DAGMC Outline (`DagmcOutlineHost`),
   CSG Outline (`CsgOutlineHost`), Dataset Inspector (`ViewerDatasetHost`) under `src/browser/<panel>/`. Settings rows
   reserve a nowrap 82 px label column with plain-integer section badges; DAGMC Outline mirrors Model Outline
-  headers/24 px rows (see `docs/dev/widget-patterns.md`). Native bottom bars expose one-click Viewer Settings
-  (and DAGMC Outline on DAGMC) shortcuts; panel commands stay id-only in `commands/panel-commands.ts` to avoid cycles.
+  headers/24 px rows (see `docs/dev/widget-patterns.md`). Native bottom bars expose one-click Viewer Settings,
+  Dataset Inspector, and (on DAGMC) Outline shortcuts; panel commands stay id-only in `commands/panel-commands.ts`
+  to avoid cycles.
 - `contributions/visualizer-tools-contribution.ts` exposes commands in the Nuke Tools sidebar under `Visualizer` and
   `Visualizer > OpenMC`; 3D chrome comes from `nuke-essentials` (`ViewCube`/`ViewerNavBar`/`ViewBadge`,
   `.nuke-viewer-status-line`) — never local gizmo/nav widgets.

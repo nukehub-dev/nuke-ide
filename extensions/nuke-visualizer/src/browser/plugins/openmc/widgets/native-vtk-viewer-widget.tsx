@@ -216,7 +216,7 @@ import { OpenMCVtkArrayInfo } from '../../../../common/openmc-protocol';
 import { VisualizerBackendService } from '../../../../common/base-visualizer-protocol';
 import { WorkspaceService } from '@theia/workspace/lib/browser';
 import { ViewerQualityMenu, type MeshQualityMetric } from './viewer-quality-menu';
-import { VIEWER_SETTINGS_COMMAND_ID } from '../../../commands/panel-commands';
+import { DATASET_INSPECTOR_COMMAND_ID, VIEWER_SETTINGS_COMMAND_ID } from '../../../commands/panel-commands';
 import {
     ViewerSettingsHost,
     ViewerSettingsPatch,
@@ -2604,6 +2604,7 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
                     <ViewerPanelActions
                         disabled={disabled}
                         onOpenSettings={() => void this.commands.executeCommand(VIEWER_SETTINGS_COMMAND_ID)}
+                        onOpenDatasetInspector={() => void this.commands.executeCommand(DATASET_INSPECTOR_COMMAND_ID)}
                     />
                     <ViewerFileActions
                         disabled={disabled}

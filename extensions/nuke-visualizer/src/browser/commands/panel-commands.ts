@@ -39,3 +39,6 @@ export const VIEWER_SETTINGS_COMMAND_ID = 'nuke-visualizer.open-viewer-settings'
 
 /** Opens (or reveals) the DAGMC Outline sidebar. */
 export const DAGMC_OUTLINE_COMMAND_ID = 'nuke-visualizer.open-dagmc-outline';
+
+/** Opens (or reveals) the Dataset Inspector sidebar. */
+export const DATASET_INSPECTOR_COMMAND_ID = 'nuke-visualizer.open-dataset-inspector';
