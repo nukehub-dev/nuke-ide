@@ -424,3 +424,54 @@
 .viewer-settings-range-auto.active {
     outline: 1px solid var(--theia-focusBorder);
 }
+
+/* Volume transfer-function editor: one compact row per opacity control
+   point, plus the slice preview under its axis/position controls. */
+.viewer-settings-volume-stops {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 4px;
+}
+
+.viewer-settings-volume-stop {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+}
+
+.viewer-settings-volume-stop-label {
+    flex: 0 0 8px;
+    font-size: 10px;
+    opacity: 0.7;
+    text-align: center;
+}
+
+.viewer-settings-volume-stop-value {
+    flex: 0 0 32px;
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+}
+
+.viewer-settings-volume-stop-position,
+.viewer-settings-volume-stop-alpha {
+    flex: 1 1 0;
+    min-width: 24px;
+}
+
+.viewer-settings-volume-stop-remove {
+    flex: 0 0 auto;
+    min-width: 0;
+    padding: 2px 4px;
+}
+
+.viewer-settings-volume-add {
+    min-width: 0;
+    padding: 2px 8px;
+}
+
+.viewer-settings-slice-preview-wrap {
+    margin-top: 4px;
+}

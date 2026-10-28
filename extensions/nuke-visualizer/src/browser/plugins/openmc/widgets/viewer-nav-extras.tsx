@@ -356,15 +356,18 @@ export interface ViewerFileActionsProps {
     readonly disabled?: boolean;
     readonly onScreenshot: () => void;
     readonly onReload: () => void;
+    /** Optional screenshot options popover rendered beside the one-click PNG button. */
+    readonly exportMenu?: React.ReactNode;
 }
 
-export const ViewerFileActions: React.FC<ViewerFileActionsProps> = ({ disabled, onScreenshot, onReload }) => (
+export const ViewerFileActions: React.FC<ViewerFileActionsProps> = ({ disabled, onScreenshot, onReload, exportMenu }) => (
     <>
         <Tooltip content="Download PNG screenshot" position="left">
             <button className={`${navButtonClass(false)} viewer-nav-screenshot`} disabled={disabled} onClick={onScreenshot}>
                 <span className="codicon codicon-device-camera" />
             </button>
         </Tooltip>
+        {exportMenu}
         <Tooltip content="Reload file" position="left">
             <button className={`${navButtonClass(false)} viewer-nav-reload`} disabled={disabled} onClick={onReload}>
                 <span className="codicon codicon-refresh" />

@@ -47,10 +47,6 @@ export interface PythonConfig {
 export interface EnvironmentInfo {
     pythonPath: string;
     pythonVersion: string;
-    paraviewInstalled: boolean;
-    paraviewVersion?: string;
-    trameInstalled: boolean;
-    trameVersion?: string;
     moabInstalled: boolean;
     moabVersion?: string;
     warning?: string;
@@ -286,7 +282,7 @@ export interface VisualizerBackendService {
 
     /**
      * Check the configured Python environment for base visualizer dependencies.
-     * Reports versions of trame, paraview, and moab if available.
+     * Reports Python and MOAB availability; rendering is native three.js.
      */
     checkEnvironment(config?: PythonConfig): Promise<EnvironmentInfo>;
 

@@ -386,6 +386,8 @@ export class OpenMCCollisionTrackViewerWidget extends NativeVtkViewerWidget {
                     this.histogramLogY = value;
                     this.update();
                 }}
+                statisticsModel={this.model}
+                statisticsComponent={this.component}
             />
         );
     }

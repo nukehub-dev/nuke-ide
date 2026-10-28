@@ -1,0 +1,101 @@
+/* Bivariate uncertainty editor (Viewer Settings).
+   Colors come from Theia theme variables only; the legend swatches carry the
+   actual mapped RGBA inline, so it always previews the live channel/threshold
+   without a second color derivation. */
+
+.uncertainty-editor {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+    font-size: 12px;
+}
+
+.uncertainty-editor-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 4px 8px;
+    min-width: 0;
+}
+
+/* Shared Tooltip wraps labels in an inline-flex span sized to the content:
+   reserve the settings-panel label column so text never clips next to the
+   controls (same rule as Viewer Settings rows). */
+.uncertainty-editor-row > span:has(> .uncertainty-editor-label) {
+    flex: 0 0 auto;
+    min-width: 82px;
+    max-width: 100%;
+}
+
+.uncertainty-editor-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+    color: var(--theia-foreground);
+}
+
+.uncertainty-editor-row .nuke-select {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.uncertainty-editor-slider {
+    display: flex;
+    flex: 1 1 auto;
+    min-width: 60px;
+}
+
+.uncertainty-editor-value {
+    flex: 0 0 auto;
+    min-width: 46px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    color: var(--theia-descriptionForeground);
+}
+
+.uncertainty-editor-row .nuke-color-picker {
+    flex: 0 1 auto;
+    min-width: 0;
+}
+
+.uncertainty-editor-row .nuke-color-picker-trigger {
+    max-width: 100%;
+    padding: 2px 6px;
+    gap: 6px;
+}
+
+.uncertainty-editor-row .nuke-color-preview {
+    width: 16px;
+    height: 16px;
+}
+
+.uncertainty-editor-hint {
+    font-size: 11px;
+    line-height: 15px;
+    color: var(--theia-descriptionForeground);
+}
+
+.uncertainty-editor-legend {
+    display: flex;
+    height: 12px;
+    margin-top: 2px;
+    overflow: hidden;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 2px;
+    background: var(--theia-input-background);
+}
+
+.uncertainty-editor-legend-swatch {
+    flex: 1 1 0;
+    min-width: 0;
+}
+
+.uncertainty-editor-legend-scale {
+    display: flex;
+    justify-content: space-between;
+    font-size: 10px;
+    color: var(--theia-descriptionForeground);
+}

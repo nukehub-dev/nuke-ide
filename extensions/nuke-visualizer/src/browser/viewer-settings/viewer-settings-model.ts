@@ -28,6 +28,8 @@
 import type { ClipAxis, ClipPlanesState } from '../viewer-core/clip-plane';
 import type { BoundsCorner } from '../viewer-core/orbit-controls';
 import type { ViewerShadingMode } from '../viewer-core/shading-mode';
+import type { SliceAxis } from '../viewer-core/slice-view';
+import type { OpacityStop, VolumeBlendMode } from '../viewer-core/volume-transfer';
 import type { WarpScaleMode } from '../viewer-core/warp-vectors';
 
 /**
@@ -148,6 +150,8 @@ export interface ViewerShadingSettings {
 export interface ViewerClipSettings {
     readonly state: ClipPlanesState;
     readonly tab: ClipAxis;
+    /** Closed-cut caps; absent when the viewer does not support capping. */
+    readonly caps?: boolean;
 }
 
 /** Distance-measure section of a settings snapshot. */
@@ -159,6 +163,35 @@ export interface ViewerMeasureSettings {
 export interface ViewerTallyVolumeSettings {
     readonly visible: boolean;
     /** Smooth trilinear raycast instead of per-cell voxel boxes. */
+    readonly smooth: boolean;
+}
+
+/**
+ * Volume section for any axis-aligned grid (`vti`/`vtr`/`vts`/tally mesh).
+ * `opacityStops` is the editable transfer curve; `blendMode` chooses MIP or
+ * front-to-back compositing; `shade` enables gradient headlight shading.
+ * Absent when the dataset has no volume grid.
+ */
+export interface ViewerVolumeSettings {
+    readonly visible: boolean;
+    readonly smooth: boolean;
+    readonly opacityStops: readonly OpacityStop[];
+    readonly blendMode: VolumeBlendMode;
+    readonly shade: boolean;
+}
+
+/** One 2D slice preview for the Slice section (RGBA, row-major). */
+export interface ViewerSlicePreview {
+    readonly width: number;
+    readonly height: number;
+    readonly rgba: Uint8ClampedArray;
+    readonly range: readonly [number, number];
+}
+
+/** Orthoslice section for axis-aligned grids; absent for non-grid datasets. */
+export interface ViewerSliceSettings {
+    readonly axis: SliceAxis;
+    readonly fraction: number;
     readonly smooth: boolean;
 }
 
@@ -238,6 +271,8 @@ export interface ViewerSettingsSnapshot {
     readonly threshold?: ViewerThresholdSettings;
     readonly scalarBar?: ViewerScalarBarSettings;
     readonly tallyVolume?: ViewerTallyVolumeSettings;
+    readonly volume?: ViewerVolumeSettings;
+    readonly slice?: ViewerSliceSettings;
     readonly warp?: ViewerWarpSettings;
     readonly glyph?: ViewerGlyphSettings;
     readonly solidColor?: ViewerColorSettings;
@@ -272,6 +307,14 @@ export interface ViewerSettingsPatch {
     readonly scalarBarVisible?: boolean;
     readonly tallyVolumeVisible?: boolean;
     readonly tallyVolumeSmooth?: boolean;
+    readonly volumeVisible?: boolean;
+    readonly volumeSmooth?: boolean;
+    readonly volumeOpacityStops?: readonly OpacityStop[];
+    readonly volumeBlendMode?: VolumeBlendMode;
+    readonly volumeShade?: boolean;
+    readonly sliceAxis?: SliceAxis;
+    readonly sliceFraction?: number;
+    readonly sliceSmooth?: boolean;
     readonly warpEnabled?: boolean;
     readonly warpArray?: string;
     readonly warpScaleMode?: WarpScaleMode;
@@ -286,6 +329,7 @@ export interface ViewerSettingsPatch {
     readonly shading?: ViewerShadingMode;
     readonly clip?: ClipPlanesState;
     readonly clipTab?: ClipAxis;
+    readonly clipCaps?: boolean;
     readonly measureActive?: boolean;
     readonly opacity?: number;
     readonly pointSize?: number;
@@ -300,6 +344,12 @@ export interface ViewerSettingsHost {
     getViewerSettingsSnapshot(): ViewerSettingsSnapshot | undefined;
     /** Apply a sidebar edit through the widget's existing setters. */
     applyViewerSettings(patch: ViewerSettingsPatch): void;
+    /**
+     * Render the current 2D orthoslice for the Slice section. Optional: only
+     * axis-aligned grid viewers implement it; when absent the section stays
+     * hidden. Pure data in, RGBA out — the panel owns the canvas.
+     */
+    getSlicePreview?(settings: ViewerSliceSettings): ViewerSlicePreview | undefined;
 }
 
 /**

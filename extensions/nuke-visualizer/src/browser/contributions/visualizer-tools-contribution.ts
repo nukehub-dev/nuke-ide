@@ -44,6 +44,7 @@ import {
 import { OpenMCCommands } from '../plugins/openmc/commands';
 import { OpenViewerSettingsCommand } from '../viewer-settings/viewer-settings-contribution';
 import { OpenDagmcOutlineCommand } from '../dagmc-outline/dagmc-outline-contribution';
+import { OpenDatasetInspectorCommand } from '../dataset-inspector/dataset-inspector-contribution';
 
 @injectable()
 export class VisualizerToolsContribution implements NukeToolsContribution {
@@ -79,6 +80,17 @@ export class VisualizerToolsContribution implements NukeToolsContribution {
             order: 'c',
             icon: 'layers',
             description: 'Open the DAGMC Outline sidebar for the active DAGMC viewer.'
+        });
+
+        registry.registerItem({
+            id: 'nuke-visualizer.dataset-inspector',
+            label: 'Dataset Inspector',
+            commandId: OpenDatasetInspectorCommand.id,
+            category: ['Visualizer'],
+            sectionOrder: 'd',
+            order: 'd',
+            icon: 'table',
+            description: 'Inspect dataset summary, arrays, and a table preview for the active viewer.'
         });
 
         registry.registerItem({

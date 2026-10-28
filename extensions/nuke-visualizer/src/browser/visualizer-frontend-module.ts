@@ -96,6 +96,8 @@ import { ExodusTimeSliderWidget } from './plugins/openmc/widgets/exodus-series/e
 import { OpenMCExodusViewerContribution } from './plugins/openmc/contributions/openmc-exodus-viewer-contribution';
 import { ViewerSettingsWidget } from './viewer-settings/viewer-settings-widget';
 import { ViewerSettingsContribution } from './viewer-settings/viewer-settings-contribution';
+import { DatasetInspectorWidget } from './dataset-inspector/dataset-inspector-widget';
+import { DatasetInspectorContribution } from './dataset-inspector/dataset-inspector-contribution';
 import { DagmcOutlineWidget } from './dagmc-outline/dagmc-outline-widget';
 import { DagmcOutlineContribution } from './dagmc-outline/dagmc-outline-contribution';
 import { CsgOutlineWidget } from './csg-outline/csg-outline-widget';
@@ -581,6 +583,18 @@ export default new ContainerModule((bind: interfaces.Bind) => {
     bind(ViewerSettingsWidget).toSelf();
     bind(ViewerSettingsContribution).toSelf().inSingletonScope();
     bind(CommandContribution).toService(ViewerSettingsContribution);
+
+    // Dataset Inspector sidebar (right area): summary + array table for the
+    // active viewer through the ViewerDatasetHost surface.
+    bind(WidgetFactory)
+        .toDynamicValue((context) => ({
+            id: DatasetInspectorWidget.ID,
+            createWidget: () => context.container.get<DatasetInspectorWidget>(DatasetInspectorWidget)
+        }))
+        .inSingletonScope();
+    bind(DatasetInspectorWidget).toSelf();
+    bind(DatasetInspectorContribution).toSelf().inSingletonScope();
+    bind(CommandContribution).toService(DatasetInspectorContribution);
 
     // DAGMC Outline sidebar (right area): volume/material/group visibility
     // for the active DAGMC viewer through the DagmcOutlineHost surface

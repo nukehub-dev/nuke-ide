@@ -178,6 +178,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-visualizer: IFP kinetics tab (kinetics parameters with uncertainties, CSV export) plus restart-preview and random-ray viewers.
 - nuke-visualizer: DAGMC Viewer Settings offers Color by Material with deterministic per-material colors and matching outline swatches.
 - nuke-visualizer: DAGMC color-by adds deterministic Volume and Group modes with matching outline swatches.
+- nuke-visualizer: Material Explorer exports the displayed materials as CSV, one row per nuclide or S(α,β) entry.
+- nuke-visualizer: volume transfer functions add editable opacity curves, MIP/composite blending, and gradient shading to native grid volumes.
+- nuke-visualizer: Viewer Settings gains an orthoslice section with X/Y/Z, position, smooth sampling, and a live preview for cell grids.
+- nuke-visualizer: clipped DAGMC and VTK surface meshes can fill their cut cross-sections with solid caps.
+- nuke-visualizer: Dataset Inspector sidebar lists bounds, arrays, and paged point/cell tables with CSV copy for the active viewer.
+- nuke-visualizer: output data panels add statistical plots (2D histogram, scatter, box, parallel coordinates) over loaded arrays.
+- nuke-visualizer: screenshot export menu offers PNG/JPEG/WebP, 1x/2x/4x, transparent backgrounds, and clipboard copy.
+- nuke-visualizer: mesh tallies emit std and relative-error companion arrays for convergence inspection.
+- nuke-visualizer: headless `base.integrate`, `base.describe`, and `base.mesh-quality` analysis commands for VTK arrays and meshes.
 - openmc-studio: DAGMC Editor routes picked CAD files to import instead of landing on an empty model.
 - openmc-studio: void cells emit standard `material="void"` so this OpenMC accepts them.
 - openmc-studio: Simulation Dashboard re-attaches to in-flight runs after reload with live progress and log streaming.

@@ -34,6 +34,7 @@ import URI from '@theia/core/lib/common/uri';
 import { OpenMCService } from '../../openmc-service';
 import { OpenMCMaterial, OpenMCMaterialNuclide } from '../../../../../common/openmc-protocol';
 import { OpenMCMaterialMixer } from './openmc-material-mixer';
+import { materialsToCsv } from './material-csv';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
 import { SimpleLoadingSpinner, LoadingAnimations } from 'nuke-essentials/lib/theme/browser/components/loading-spinner';
 
@@ -192,6 +193,21 @@ export class OpenMCMaterialExplorerWidget extends ReactWidget {
         this.update();
     }
 
+    /** Export the currently displayed materials list as a CSV download. */
+    private exportMaterialsCsv(): void {
+        const materials = this.getFilteredMaterials();
+        if (materials.length === 0) {
+            return;
+        }
+        const blob = new Blob([materialsToCsv(materials)], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = `${this.fileUri?.path.name ?? 'materials'}.csv`;
+        anchor.click();
+        URL.revokeObjectURL(url);
+    }
+
     private async highlightCell(cellId: number): Promise<void> {
         if (!this.geometryUri) {
             this.messageService.warn('No geometry.xml found. Cannot highlight cell.');
@@ -248,6 +264,15 @@ export class OpenMCMaterialExplorerWidget extends ReactWidget {
                     )}
                 </div>
                 <div className="toolbar-actions" style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
+                    <Tooltip content="Download the displayed materials as CSV" position="bottom">
+                        <button
+                            className="theia-button secondary"
+                            onClick={() => this.exportMaterialsCsv()}
+                            disabled={this.materials.length === 0}
+                        >
+                            <i className="fa fa-file-text-o"></i> Export CSV
+                        </button>
+                    </Tooltip>
                     <Tooltip content="Mix multiple materials into a new one" position="bottom">
                         <button
                             className={`theia-button ${this.showMixer ? 'primary' : 'secondary'}`}

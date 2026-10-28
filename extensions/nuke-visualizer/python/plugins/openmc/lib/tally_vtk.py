@@ -181,6 +181,81 @@ def _set_point_array(polydata, values, name):
     polydata.GetPointData().AddArray(vtk_array)
 
 
+def tally_moments(results, n_realizations):
+    """Mean, sample standard deviation and relative error per tally bin.
+
+    Inputs: ``results`` (the statepoint ``results`` dataset, whose last axis
+    holds ``[sum, sum_sq]`` — shape ``(bins, scores, nuclides, 2)`` in real
+    statepoints, or any leading shape), ``n_realizations`` (history count).
+    Output: ``(mean, std, rel_err)`` float arrays shaped like
+    ``results[..., 0]``.
+
+    The moments match ``output_readers._tally_score_moments``: ``mean =
+    sum / n`` and the sample standard deviation ``sqrt((sum_sq / n - mean**2)
+    / (n - 1))``. A results array without a sum-of-squares column (older or
+    synthetic files) still yields means with ``std = rel_err = 0``. A single
+    realization has no sample variance, exact-zero bins have no defined error,
+    and non-finite means carry no error information, so those entries keep
+    ``std = rel_err = 0`` (void bins stay visually clean and every emitted
+    array stays finite). Float cancellation that would make the variance
+    marginally negative clamps to zero. Pure numpy — no vtk.
+    """
+    try:
+        moments = np.asarray(results, dtype=float)
+    except (TypeError, ValueError):
+        raise OutputReaderError("tally results must be numeric") from None
+    if moments.ndim < 1 or moments.shape[-1] < 1:
+        raise OutputReaderError("tally results must hold [sum, sum_sq] moments")
+    try:
+        realizations = int(n_realizations)
+    except (TypeError, ValueError):
+        raise OutputReaderError(
+            f"n_realizations must be an integer, got {n_realizations!r}"
+        ) from None
+    realizations = max(1, realizations)
+    sums = moments[..., 0]
+    sums_sq = moments[..., 1] if moments.shape[-1] > 1 else np.zeros_like(sums)
+    mean = sums / realizations
+    std = np.zeros_like(mean)
+    rel_err = np.zeros_like(mean)
+    nonzero = np.isfinite(mean) & (np.abs(mean) > 0)
+    if realizations > 1 and np.any(nonzero):
+        variance = sums_sq[nonzero] / realizations - mean[nonzero] ** 2
+        std[nonzero] = np.sqrt(np.maximum(variance, 0.0) / (realizations - 1))
+        rel_err[nonzero] = std[nonzero] / np.abs(mean[nonzero])
+    return mean, std, rel_err
+
+
+def _validate_extra_arrays(size, arrays, unit):
+    """Validate secondary per-cell/per-point arrays for the VTK writers.
+
+    Inputs: ``size`` (expected tuple count), ``arrays`` (``None`` or a
+    mapping of array name -> values), ``unit`` (``"cell"``/``"point"`` for
+    the error message). Output: a list of ``(name, flat float array)`` pairs
+    in insertion order. Raises :class:`OutputReaderError` for non-mappings,
+    invalid names, wrong lengths, or non-finite values.
+    """
+    if arrays is None:
+        return []
+    if not isinstance(arrays, dict):
+        raise OutputReaderError("extra arrays must map array names to value arrays")
+    validated = []
+    for name, values in arrays.items():
+        array_name = _require_array_name(name)
+        try:
+            flat = np.asarray(values, dtype=float).ravel()
+        except (TypeError, ValueError):
+            raise OutputReaderError(f"{array_name} values must be numeric") from None
+        if flat.shape[0] != size:
+            raise OutputReaderError(
+                f"{array_name} has {flat.shape[0]} values, expected {size} (one value per {unit})"
+            )
+        if not np.all(np.isfinite(flat)):
+            raise OutputReaderError(f"{array_name} values must all be finite")
+        validated.append((array_name, flat))
+    return validated
+
+
 # ---------------------------------------------------------------------------
 # Mesh tallies (.vti image data)
 # ---------------------------------------------------------------------------
@@ -242,13 +317,16 @@ def build_mesh_image(dimension, lower_left, upper_right, values):
     return {"dims": dims, "origin": origin, "spacing": spacing, "flat": flat}
 
 
-def write_mesh_vti(geometry, array_name, output_path):
+def write_mesh_vti(geometry, array_name, output_path, extra_arrays=None):
     """Write a ``build_mesh_image()`` dict as a .vti file (lazy vtk).
 
     Inputs: ``geometry`` (a ``build_mesh_image`` dict), ``array_name``
-    (cell-data array name), ``output_path`` (.vti destination). Output: the
-    path string. Raises :class:`OutputReaderError` on bad input or missing
-    vtk. Validators run before the vtk gate.
+    (primary cell-data array name), ``output_path`` (.vti destination),
+    optional ``extra_arrays`` (mapping of additional cell-array name ->
+    values, e.g. the ``<score>-std``/``<score>-rel-err`` companions — written
+    after the primary in mapping order). Output: the path string. Raises
+    :class:`OutputReaderError` on bad input or missing vtk. Validators run
+    before the vtk gate.
     """
     name = _require_array_name(array_name)
     if not isinstance(geometry, dict) or "flat" not in geometry:
@@ -266,6 +344,10 @@ def write_mesh_vti(geometry, array_name, output_path):
     except (TypeError, ValueError):
         raise OutputReaderError("geometry dims/origin/spacing must hold numbers") from None
     image = build_mesh_image(geometry.get("dims"), geometry.get("origin"), upper, geometry["flat"])
+    extras = _validate_extra_arrays(image["flat"].shape[0], extra_arrays, "cell")
+    for extra_name, _ in extras:
+        if extra_name == name:
+            raise OutputReaderError(f"duplicate cell array name {name!r}")
     vtk, _ = _load_vtk()
     dims = image["dims"]
 
@@ -274,6 +356,8 @@ def write_mesh_vti(geometry, array_name, output_path):
     grid.SetOrigin(*image["origin"])
     grid.SetSpacing(*image["spacing"])
     _set_cell_array(grid, image["flat"], name)
+    for extra_name, extra_values in extras:
+        _set_cell_array(grid, extra_values, extra_name)
 
     writer = vtk.vtkXMLImageDataWriter()
     writer.SetFileName(output_path)
@@ -302,8 +386,11 @@ def read_mesh_tally(statepoint_path, tally_id, score=None, nuclide=None):
     Inputs: ``statepoint_path`` (.h5 file), ``tally_id`` (positive int),
     optional ``score``/``nuclide`` names (default: first of each). Output:
     JSON-safe dict with ``tallyName``, ``score``, ``nuclide``,
-    ``arrayName`` (``"<score>-mean"``), ``dimension``, ``lowerLeft``,
-    ``upperRight``, ``values`` (flat x-major means) and ``dataRange``.
+    ``arrayName`` (``"<score>-mean"``), ``stdArrayName``
+    (``"<score>-std"``), ``relErrArrayName`` (``"<score>-rel-err"``),
+    ``dimension``, ``lowerLeft``, ``upperRight``, ``values`` (flat x-major
+    means), ``stdValues`` (sample standard deviations), ``relErrValues``
+    (``std / |mean|``, 0 for exact-zero bins) and ``dataRange``.
     Only single regular-mesh tallies are supported; anything else raises
     :class:`OutputReaderError` with a human-readable reason.
     """
@@ -403,9 +490,11 @@ def read_mesh_tally(statepoint_path, tally_id, score=None, nuclide=None):
             raise OutputReaderError(f"Tally {tally_id} has no results dataset")
         # Statepoint 'results' hold [sum, sum_sq] moments (openmc tally.py),
         # not means: divide the sum column by n_realizations (missing only
-        # in synthetic fixtures, where 1 keeps values verbatim).
+        # in synthetic fixtures, where 1 keeps values verbatim). The std and
+        # relative-error companions use the same moments as the statepoint
+        # reader; see tally_moments.
         n_realizations = int(tally["n_realizations"][()]) if "n_realizations" in tally else 1
-        mean = np.asarray(tally["results"][..., 0], dtype=float) / max(1, n_realizations)
+        mean, std, rel_err = tally_moments(tally["results"][...], n_realizations)
         n_bins = dimension[0] * dimension[1] * dimension[2]
         # Results layout: (filter bins, scores, nuclides) with the mesh
         # filter outermost; see openmc_vtk.get_cell_tally_data.
@@ -417,18 +506,28 @@ def read_mesh_tally(statepoint_path, tally_id, score=None, nuclide=None):
                 f"{n_scores} scores x {n_nuclides} nuclides) — multi-filter "
                 "tallies cannot be exported"
             )
-        reshaped = mean.reshape(n_bins, n_scores, n_nuclides)
-        values = np.ascontiguousarray(reshaped[:, score_idx, nuclide_idx].ravel())
+        selector = (slice(None), score_idx, nuclide_idx)
+        values = np.ascontiguousarray(mean.reshape(n_bins, n_scores, n_nuclides)[selector].ravel())
+        std_values = np.ascontiguousarray(
+            std.reshape(n_bins, n_scores, n_nuclides)[selector].ravel()
+        )
+        rel_err_values = np.ascontiguousarray(
+            rel_err.reshape(n_bins, n_scores, n_nuclides)[selector].ravel()
+        )
 
     return {
         "tallyName": str(name),
         "score": score_name,
         "nuclide": nuclide_name,
         "arrayName": f"{score_name}-mean",
+        "stdArrayName": f"{score_name}-std",
+        "relErrArrayName": f"{score_name}-rel-err",
         "dimension": dimension,
         "lowerLeft": lower_left,
         "upperRight": upper_right,
         "values": values,
+        "stdValues": std_values,
+        "relErrValues": rel_err_values,
         "dataRange": [float(np.min(values)), float(np.max(values))],
     }
 
@@ -440,7 +539,9 @@ def tally_mesh_to_vtk(statepoint_path, tally_id, score=None, nuclide=None, outpu
     ``score``/``nuclide``, optional ``output_path`` (.vti destination,
     default: temp file). Output: JSON-safe dict with the output path
     (``vtkPath``), tally metadata and conversion stats (``dimensions``,
-    ``arrayName``, ``dataRange``, ``nCells``). Raises
+    ``arrayName`` plus ``stdArrayName``/``relErrArrayName``, ``dataRange``,
+    ``nCells``). The .vti carries ``<score>-mean``, ``<score>-std`` and
+    ``<score>-rel-err`` cell arrays in that order. Raises
     :class:`OutputReaderError` on bad input, missing files/dependencies, or
     non-mesh tallies.
     """
@@ -451,7 +552,15 @@ def tally_mesh_to_vtk(statepoint_path, tally_id, score=None, nuclide=None, outpu
     )
     if output_path is None:
         output_path = _default_output_path(statepoint_path, ".vti")
-    write_mesh_vti(geometry, data["arrayName"], output_path)
+    write_mesh_vti(
+        geometry,
+        data["arrayName"],
+        output_path,
+        extra_arrays={
+            data["stdArrayName"]: data["stdValues"],
+            data["relErrArrayName"]: data["relErrValues"],
+        },
+    )
     return {
         "vtkPath": output_path,
         "sourceFile": statepoint_path,
@@ -460,6 +569,8 @@ def tally_mesh_to_vtk(statepoint_path, tally_id, score=None, nuclide=None, outpu
         "score": data["score"],
         "nuclide": data["nuclide"],
         "arrayName": data["arrayName"],
+        "stdArrayName": data["stdArrayName"],
+        "relErrArrayName": data["relErrArrayName"],
         "dimensions": data["dimension"],
         "dataRange": data["dataRange"],
         "nCells": int(geometry["flat"].shape[0]),
@@ -862,17 +973,19 @@ def slice_surface_quads(resolution):
     )
 
 
-def write_overlay_vtp(points, values, array_name, output_path, quads=None):
+def write_overlay_vtp(points, values, array_name, output_path, quads=None, extra_arrays=None):
     """Write overlay/slice samples as a .vtp vertex cloud (lazy vtk).
 
     Inputs: ``points`` ((N, 3) array), ``values`` ((N,) array),
-    ``array_name`` (point-data array name), ``output_path`` (.vtp
+    ``array_name`` (primary point-data array name), ``output_path`` (.vtp
     destination), optional ``quads`` ((M, 4) int array of point ids — one
     quad per grid cell, turning the cloud into a shadeable surface while
-    keeping per-point values for smooth interpolation). Output: the path
-    string. Raises :class:`OutputReaderError` on bad input, length
-    mismatches, out-of-range quad ids, or missing vtk. Validators run
-    before the vtk gate.
+    keeping per-point values for smooth interpolation), optional
+    ``extra_arrays`` (mapping of additional point-array name -> (N,) values,
+    e.g. ``<score>-std``/``<score>-rel-err`` — written after the primary in
+    mapping order). Output: the path string. Raises
+    :class:`OutputReaderError` on bad input, length mismatches, out-of-range
+    quad ids, or missing vtk. Validators run before the vtk gate.
     """
     try:
         pts = np.asarray(points, dtype=float)
@@ -893,6 +1006,10 @@ def write_overlay_vtp(points, values, array_name, output_path, quads=None):
         )
     if not np.all(np.isfinite(vals)):
         raise OutputReaderError("values must all be finite")
+    extras = _validate_extra_arrays(pts.shape[0], extra_arrays, "point")
+    for extra_name, _ in extras:
+        if extra_name == name:
+            raise OutputReaderError(f"duplicate point array name {name!r}")
 
     quad_ids = None
     if quads is not None:
@@ -924,6 +1041,8 @@ def write_overlay_vtp(points, values, array_name, output_path, quads=None):
                 polys.InsertCellPoint(int(point_id))
         polydata.SetPolys(polys)
     _set_point_array(polydata, vals, name)
+    for extra_name, extra_values in extras:
+        _set_point_array(polydata, extra_values, extra_name)
 
     writer = vtk.vtkXMLPolyDataWriter()
     writer.SetFileName(output_path)
@@ -970,8 +1089,11 @@ def overlay_to_vtk(
     actual mesh cells instead of trilinear interpolation, default False).
     This static extract carries the same tally values
     and renders natively as a round-point cloud. Output: JSON-safe dict with the output path
-    (``vtkPath``), mode/plane/position, ``arrayName``, ``nPoints`` and
-    ``dataRange``. Raises :class:`OutputReaderError` on bad input, missing
+    (``vtkPath``), mode/plane/position, ``arrayName`` plus
+    ``stdArrayName``/``relErrArrayName``, ``nPoints`` and ``dataRange``. The
+    .vtp carries ``<score>-mean``, ``<score>-std`` and ``<score>-rel-err``
+    point arrays (std/rel-err sampled on the same lattice as the mean).
+    Raises :class:`OutputReaderError` on bad input, missing
     files/dependencies, or non-mesh tallies.
     """
     if mode not in ("slice", "full"):
@@ -984,10 +1106,19 @@ def overlay_to_vtk(
 
     if mode == "slice":
         grid = np.asarray(data["values"], dtype=float).reshape(dims, order="F")
+        std_grid = np.asarray(data["stdValues"], dtype=float).reshape(dims, order="F")
+        rel_err_grid = np.asarray(data["relErrValues"], dtype=float).reshape(dims, order="F")
         sampled = sample_regular_slice(
             grid, lo, hi, plane=plane, position=position, resolution=resolution, pixelated=pixelated
         )
         points, values = sampled["points"], sampled["values"]
+        # Sample the companions on the exact lattice the mean slice used (the
+        # same trilinear/nearest sampler `sample_regular_slice` applies), so a
+        # sampled cell always carries its own std/rel-err rather than values
+        # from a differently resolved grid.
+        sampler = sample_nearest_values if pixelated else sample_trilinear_values
+        std_values = sampler(std_grid, lo, hi, points)
+        rel_err_values = sampler(rel_err_grid, lo, hi, points)
         meta = {
             "plane": sampled["plane"],
             "position": sampled["position"],
@@ -997,6 +1128,8 @@ def overlay_to_vtk(
         plane = _require_plane(plane)
         points = mesh_cell_centers(dims, lo, hi)
         values = np.ascontiguousarray(np.asarray(data["values"], dtype=float).ravel())
+        std_values = np.ascontiguousarray(np.asarray(data["stdValues"], dtype=float).ravel())
+        rel_err_values = np.ascontiguousarray(np.asarray(data["relErrValues"], dtype=float).ravel())
         meta = {
             "plane": plane,
             "position": float(
@@ -1008,7 +1141,17 @@ def overlay_to_vtk(
     if output_path is None:
         output_path = _default_output_path(statepoint_path, ".vtp")
     quads = slice_surface_quads(sampled["resolution"]) if mode == "slice" else None
-    write_overlay_vtp(points, values, data["arrayName"], output_path, quads=quads)
+    write_overlay_vtp(
+        points,
+        values,
+        data["arrayName"],
+        output_path,
+        quads=quads,
+        extra_arrays={
+            data["stdArrayName"]: std_values,
+            data["relErrArrayName"]: rel_err_values,
+        },
+    )
     return {
         "vtkPath": output_path,
         "sourceFile": statepoint_path,
@@ -1019,6 +1162,8 @@ def overlay_to_vtk(
         "position": meta["position"],
         "resolution": meta["resolution"],
         "arrayName": data["arrayName"],
+        "stdArrayName": data["stdArrayName"],
+        "relErrArrayName": data["relErrArrayName"],
         "nPoints": int(values.shape[0]),
         "dataRange": [float(np.min(values)), float(np.max(values))],
     }

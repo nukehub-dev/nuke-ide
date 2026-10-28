@@ -22,7 +22,7 @@ Click `materials.xml` in the Explorer.
 
 ## Material List
 
-The left panel shows all materials as cards:
+The left panel shows a sortable list of all materials:
 
 | Field           | Description                                        |
 | --------------- | -------------------------------------------------- |
@@ -35,13 +35,13 @@ The left panel shows all materials as cards:
 | **Nuclides**    | Count of constituent nuclides                      |
 | **S(α,β)**      | Count of thermal scattering assignments            |
 
-Click a material card to expand it and see the full composition.
+Select a material to show its full composition in the details panel on the right.
 
 ---
 
 ## Composition Table
 
-When expanded, each material shows a table of nuclides:
+When selected, each material shows a table of nuclides:
 
 | Column       | Description                        |
 | ------------ | ---------------------------------- |
@@ -60,14 +60,16 @@ If the material has S(α,β) data (e.g., `c_H_in_H2O`), it is listed below the n
 Use the search bar at the top to filter materials:
 
 - By **name** (e.g., "fuel", "coolant")
+- By **ID**
 - By **nuclide** (e.g., "U235" — shows all materials containing U235)
-- By **density range**
+
+Use the sortable list headers to order materials by ID, name, or density.
 
 ---
 
 ## Cell Linkage
 
-Click **"Show Cell Usage"** on any material to see which cells in the geometry reference it.
+The details panel lists the cells in the geometry that reference the selected material.
 
 Requirements:
 
@@ -108,14 +110,14 @@ Click **"Mix Materials"** in the Material Explorer toolbar.
 
 - The mixed composition is shown in a preview table.
 - The resulting density is computed.
-- Click **"Add to materials.xml"** to append the new material definition to your file.
+- Click **"Save to File"** to append the new material definition to your file.
 - Or click **"Copy XML"** to paste the `<material>` snippet manually.
 
 ### Use Cases
 
 - **Blending enrichments:** Mix 3% and 5% enriched UO₂ to get 4%.
 - **Coolant chemistry:** Mix borated water at different ppm levels.
-- ** clad mixtures:** Combine Zircaloy alloys.
+- **Clad mixtures:** Combine Zircaloy alloys.
 
 ---
 
@@ -133,12 +135,12 @@ Future versions may support direct in-place editing.
 
 ## Export
 
-Click **"Export CSV"** to download all material compositions as a spreadsheet-friendly file.
+Click **"Export CSV"** in the Material Explorer toolbar to download the materials currently shown (the search filter and sort order apply). The file has one row per nuclide or S(α,β) entry, with the material ID, name, density, temperature, volume, and depletable flag repeated on each row. Materials without a composition produce a single row.
 
 ---
 
 ## Tips
 
-- **Depletable materials** are marked with a flame icon. These are the materials tracked by the depletion solver.
+- **Depletable materials** are marked with a `D` badge. These are the materials tracked by the depletion solver.
 - **Missing materials:** If a cell references a material ID that doesn't exist in `materials.xml`, a warning icon appears in the Cell Linkage panel.
 - **Density = sum:** If a material uses `density units="sum"`, the explorer shows the computed atom density for each nuclide.

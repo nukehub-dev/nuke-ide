@@ -28,25 +28,29 @@
 import * as THREE from 'three';
 import type { ClipPlanesState } from './clip-plane';
 import { clampClipFraction } from './clip-plane';
-import { mapScalar, normalizeToRange, type ScalarMapping } from './scalar-mapping';
+import type { ScalarMapping } from './scalar-mapping';
+import { buildVolumeTransferLut, DEFAULT_VOLUME_TRANSFER, type VolumeBlendMode } from './volume-transfer';
 
 /**
  * Smooth tally-volume rendering for the DAGMC drape scene: the same mesh
  * tally the voxel boxes show (`voxel-blocks.ts`, one flat-shaded box per
  * cell), sampled with hardware trilinear filtering instead.
  *
- * Each ray shows its maximum sample (MIP) rather than an alpha composite:
- * compositing veils the hot core in the blue haze of the much longer
- * low-flux path around it, while MIP keeps the core vivid with faint
- * surroundings.
+ * Each ray shows its maximum sample (MIP) by default: compositing veils the
+ * hot core in the blue haze of the much longer low-flux path around it,
+ * while MIP keeps the core vivid with faint surroundings. `composite` is the
+ * opt-in front-to-back alpha accumulation, and `shade` adds headlight
+ * gradient shading; both default off, so existing callers see the same
+ * picture.
  *
  * Boxes stay the default (exact per-cell values, cheap, no WebGL2 3D-texture
  * dependency beyond the base viewer); this module is the opt-in `smooth`
  * mode behind the Viewer Settings "Smooth volume" switch. Colors are
  * guaranteed to match the boxes: the RGBA lookup table is rebuilt from the
  * shared `ScalarMapping` pipeline (`mapScalar`, so colormap, range, log
- * scale, and invert behave identically), and exact-zero cells stay invisible
- * in both modes (collapsed boxes / zero alpha).
+ * scale, and invert behave identically; see `volume-transfer.ts`), and
+ * exact-zero cells stay invisible in both modes (collapsed boxes / zero
+ * alpha).
  */
 
 export const VOLUME_LUT_SIZE = 256;
@@ -109,35 +113,13 @@ export function packVolumeScalars(
  * values (and non-positive values under log scaling) get zero alpha,
  * mirroring the collapsed empty boxes; anything else ramps from faint to
  * the full `opacity` with display intensity.
+ *
+ * Compatibility wrapper over the identity ramp in `volume-transfer.ts`;
+ * callers that expose editable opacity stops should use
+ * `buildVolumeTransferLut` instead.
  */
 export function buildVolumeLut(mapping: ScalarMapping, dataRange: readonly [number, number], opacity: number): Uint8Array<ArrayBuffer> {
-    const lut = new Uint8Array(new ArrayBuffer(VOLUME_LUT_SIZE * 4));
-    const [dataMin, dataMax] = dataRange;
-    const span = dataMax - dataMin;
-    for (let i = 0; i < VOLUME_LUT_SIZE; i++) {
-        const dataValue = Number.isFinite(span) && span > 0 ? dataMin + (i / (VOLUME_LUT_SIZE - 1)) * span : 0;
-        const rgb = mapScalar(dataValue, mapping) ?? [0, 0, 0];
-        const at = i * 4;
-        lut[at] = Math.round(Math.min(1, Math.max(0, rgb[0])) * 255);
-        lut[at + 1] = Math.round(Math.min(1, Math.max(0, rgb[1])) * 255);
-        lut[at + 2] = Math.round(Math.min(1, Math.max(0, rgb[2])) * 255);
-        let alpha = 0;
-        if (dataValue !== 0 && !(mapping.logScale && dataValue <= 0)) {
-            // Display intensity mirrors mapScalar's t (linear/log + range,
-            // deliberately not inverted: alpha follows data magnitude while
-            // the colormap direction only affects color).
-            let t: number;
-            if (mapping.logScale) {
-                const [min, max] = mapping.range;
-                t = min > 0 && max > 0 ? normalizeToRange(Math.log(dataValue), [Math.log(min), Math.log(max)]) : 0;
-            } else {
-                t = normalizeToRange(dataValue, mapping.range);
-            }
-            alpha = opacity * t;
-        }
-        lut[at + 3] = Math.round(Math.min(1, Math.max(0, alpha)) * 255);
-    }
-    return lut;
+    return buildVolumeTransferLut(mapping, dataRange, DEFAULT_VOLUME_TRANSFER, VOLUME_LUT_SIZE, opacity);
 }
 
 /**
@@ -179,11 +161,19 @@ export function clipVolumeBox(
     };
 }
 
+/** Live blend/shading update; omitted fields keep their current value. */
+export interface VolumeRenderOptions {
+    readonly blendMode?: VolumeBlendMode;
+    readonly shade?: boolean;
+}
+
 /** Live handle for one raycast volume mesh (owned by the widget). */
 export interface VolumeRaycastHandle {
     readonly mesh: THREE.Mesh;
     /** Replace the RGBA lookup (same 256 entries); cheap, no re-upload of the volume. */
     updateLut(lut: Uint8Array): void;
+    /** Switch MIP/composite and gradient shading without rebuilding the volume. */
+    setRenderOptions(options: VolumeRenderOptions): void;
     /** Move/resize the raycast box (clip sections). */
     setBox(center: readonly [number, number, number], size: readonly [number, number, number]): void;
     dispose(): void;
@@ -207,10 +197,18 @@ uniform vec3 boxMax;
 // whole dataset into the cut region rather than cutting it.
 uniform vec3 clipMin;
 uniform vec3 clipMax;
+// 0 = maximum-intensity projection (default), 1 = front-to-back composite.
+uniform int blendMode;
+// 1 = headlight gradient shading (opt-in; unlit MIP stays the default).
+uniform int shade;
 in vec3 vWorldPos;
 layout(location = 0) out highp vec4 pc_fragColor;
 #define gl_FragColor pc_fragColor
 #define MARCH_STEPS ${VOLUME_MARCH_STEPS}
+#define BLEND_MIP 0
+#define BLEND_COMPOSITE 1
+#define SHADE_AMBIENT 0.35
+#define SHADE_DIFFUSE 0.65
 vec2 boxHit(vec3 ro, vec3 rd) {
     vec3 inv = 1.0 / rd;
     vec3 t0 = (clipMin - ro) * inv;
@@ -218,6 +216,30 @@ vec2 boxHit(vec3 ro, vec3 rd) {
     vec3 tmin = min(t0, t1);
     vec3 tmax = max(t0, t1);
     return vec2(max(max(tmin.x, tmin.y), tmin.z), min(min(tmax.x, tmax.y), tmax.z));
+}
+// Central differences of the R8 scalar texture give a gradient normal; a
+// headlight (view-direction) Lambert term scales the sample color. Zero
+// gradients have no surface direction, so they stay fully unlit (1.0)
+// instead of turning black.
+float headlight(vec3 uvw, vec3 worldPos) {
+    vec3 dims = vec3(textureSize(volumeMap, 0));
+    vec3 texel = 1.0 / dims;
+    float gx = texture(volumeMap, uvw + vec3(texel.x, 0.0, 0.0)).r
+             - texture(volumeMap, uvw - vec3(texel.x, 0.0, 0.0)).r;
+    float gy = texture(volumeMap, uvw + vec3(0.0, texel.y, 0.0)).r
+             - texture(volumeMap, uvw - vec3(0.0, texel.y, 0.0)).r;
+    float gz = texture(volumeMap, uvw + vec3(0.0, 0.0, texel.z)).r
+             - texture(volumeMap, uvw - vec3(0.0, 0.0, texel.z)).r;
+    vec3 raw = vec3(gx, gy, gz);
+    if (length(raw) <= 1e-6) {
+        return 1.0;
+    }
+    vec3 span = boxMax - boxMin;
+    vec3 gradient = raw * dims / span;
+    vec3 normal = -normalize(gradient);
+    vec3 lightDir = normalize(cameraPosition - worldPos);
+    float lambert = max(dot(normal, lightDir), 0.0);
+    return SHADE_AMBIENT + SHADE_DIFFUSE * lambert;
 }
 void main() {
     vec3 ro = cameraPosition;
@@ -229,36 +251,76 @@ void main() {
     }
     float dt = (hit.y - start) / float(MARCH_STEPS);
     vec3 span = boxMax - boxMin;
-    // Maximum-intensity projection: each ray shows its hottest sample.
-    // Alpha compositing instead would veil the core in the blue haze of
-    // the (much longer) low-flux path around it.
-    float maxS = 0.0;
-    for (int i = 0; i < MARCH_STEPS; i++) {
-        vec3 p = ro + rd * (start + (float(i) + 0.5) * dt);
-        vec3 uvw = (p - boxMin) / span;
-        maxS = max(maxS, texture(volumeMap, uvw).r);
+    if (blendMode == BLEND_COMPOSITE) {
+        // Front-to-back alpha compositing. Opaque samples terminate early
+        // (a break, not a dynamic loop bound — the march stays constant).
+        vec4 accum = vec4(0.0);
+        for (int i = 0; i < MARCH_STEPS; i++) {
+            vec3 p = ro + rd * (start + (float(i) + 0.5) * dt);
+            vec3 uvw = (p - boxMin) / span;
+            vec4 lut = texture(lutMap, vec2(texture(volumeMap, uvw).r, 0.5));
+            if (lut.a <= 0.0) {
+                continue;
+            }
+            vec3 rgb = lut.rgb;
+            if (shade == 1) {
+                rgb *= headlight(uvw, p);
+            }
+            accum.rgb += (1.0 - accum.a) * lut.a * rgb;
+            accum.a += (1.0 - accum.a) * lut.a;
+            if (accum.a >= 0.995) {
+                break;
+            }
+        }
+        if (accum.a <= 0.0) {
+            discard;
+        }
+        gl_FragColor = vec4(accum.rgb / accum.a, accum.a);
+    } else {
+        // Maximum-intensity projection: each ray shows its hottest sample
+        // (the historical look; any alpha is the LUT alpha at that peak).
+        float maxS = 0.0;
+        // Seed at the first march sample: a ray whose samples all pack to
+        // byte 0 still has a real position (its data minimum), not the camera.
+        vec3 maxPos = ro + rd * (start + 0.5 * dt);
+        for (int i = 0; i < MARCH_STEPS; i++) {
+            vec3 p = ro + rd * (start + (float(i) + 0.5) * dt);
+            vec3 uvw = (p - boxMin) / span;
+            float s = texture(volumeMap, uvw).r;
+            if (s > maxS) {
+                maxS = s;
+                maxPos = p;
+            }
+        }
+        vec4 lut = texture(lutMap, vec2(maxS, 0.5));
+        if (lut.a <= 0.0) {
+            discard;
+        }
+        vec3 rgb = lut.rgb;
+        if (shade == 1) {
+            rgb *= headlight((maxPos - boxMin) / span, maxPos);
+        }
+        gl_FragColor = vec4(rgb, lut.a);
     }
-    vec4 lut = texture(lutMap, vec2(maxS, 0.5));
-    if (lut.a <= 0.0) {
-        discard;
-    }
-    gl_FragColor = vec4(lut.rgb, lut.a);
 }
 `;
 
 /**
  * Assemble the raycast mesh over `grid` from packed R8 scalars and an RGBA
- * LUT (see `packVolumeScalars` / `buildVolumeLut`). BackSide rasterization
- * yields the exit point per pixel (also when the camera sits inside the
- * volume); entry comes from the analytic box hit. Throws on degenerate
+ * LUT (see `packVolumeScalars` / `buildVolumeTransferLut`). BackSide
+ * rasterization yields the exit point per pixel (also when the camera sits
+ * inside the volume); entry comes from the analytic box hit. `blendMode`
+ * and `shade` default to the legacy MIP/unlit look. Throws on degenerate
  * grids so callers can fall back to voxel boxes.
  */
 export function createVolumeRaycastMesh(options: {
     grid: VolumeGrid;
     scalars: Uint8Array<ArrayBuffer>;
     lut: Uint8Array<ArrayBuffer>;
+    blendMode?: VolumeBlendMode;
+    shade?: boolean;
 }): VolumeRaycastHandle {
-    const { grid, scalars, lut } = options;
+    const { grid, scalars, lut, blendMode = 'mip', shade = false } = options;
     const [nx, ny, nz] = grid.dims;
     if (!(nx > 0 && ny > 0 && nz > 0)) {
         throw new Error('Volume raycast needs a non-empty grid');
@@ -300,7 +362,9 @@ export function createVolumeRaycastMesh(options: {
             boxMin: { value: new THREE.Vector3(...grid.min) },
             boxMax: { value: new THREE.Vector3(...grid.max) },
             clipMin: { value: new THREE.Vector3(...grid.min) },
-            clipMax: { value: new THREE.Vector3(...grid.max) }
+            clipMax: { value: new THREE.Vector3(...grid.max) },
+            blendMode: { value: blendMode === 'composite' ? 1 : 0 },
+            shade: { value: shade ? 1 : 0 }
         },
         vertexShader: VOLUME_VERTEX_SHADER,
         fragmentShader: VOLUME_FRAGMENT_SHADER,
@@ -324,6 +388,14 @@ export function createVolumeRaycastMesh(options: {
             }
             (lutTexture.image.data as Uint8Array).set(next);
             lutTexture.needsUpdate = true;
+        },
+        setRenderOptions(next: VolumeRenderOptions): void {
+            if (next.blendMode !== undefined) {
+                (material.uniforms['blendMode'] as THREE.IUniform<number>).value = next.blendMode === 'composite' ? 1 : 0;
+            }
+            if (next.shade !== undefined) {
+                (material.uniforms['shade'] as THREE.IUniform<number>).value = next.shade ? 1 : 0;
+            }
         },
         setBox(center: readonly [number, number, number], boxSize: readonly [number, number, number]): void {
             mesh.position.set(center[0], center[1], center[2]);

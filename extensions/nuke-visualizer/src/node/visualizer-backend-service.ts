@@ -77,10 +77,7 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
         this.client = client;
     }
 
-    /**
-     * Check whether a port belongs to a trame server started by this service.
-     * Used by the visualizer reverse proxy to restrict forwarding to known servers.
-     */
+    /** Whether this backend still tracks a process on the given legacy port. */
     isVisualizerPort(port: number): boolean {
         return this.processes.has(port);
     }
@@ -411,8 +408,6 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
         const info: EnvironmentInfo = {
             pythonPath: pythonCommand,
             pythonVersion: 'unknown',
-            paraviewInstalled: false,
-            trameInstalled: false,
             moabInstalled: false
         };
 
@@ -424,11 +419,6 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
 
         // Use nuke-core to check dependencies
         const depCheck = await this.nukeCoreService.checkDependencies(BASE_VISUALIZER_REQUIREMENTS, pythonCommand);
-
-        info.trameInstalled = depCheck.versions['trame'] !== undefined;
-        info.trameVersion = depCheck.versions['trame'];
-        info.paraviewInstalled = depCheck.versions['paraview'] !== undefined;
-        info.paraviewVersion = depCheck.versions['paraview'];
 
         // Check moab separately (optional, with fallback to mbconvert CLI)
         if (depCheck.versions['moab']) {

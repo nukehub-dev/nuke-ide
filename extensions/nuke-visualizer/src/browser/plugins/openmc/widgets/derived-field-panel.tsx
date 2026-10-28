@@ -35,6 +35,7 @@ import {
     normalizeHistogramBinCount
 } from '../../../viewer-core/derived-fields';
 import { parseColorBy } from './native-vtk/native-vtk-data';
+import { StatisticsPanel, type StatisticsArray } from './statistics-panel';
 
 /**
  * Shared Calculator + Histogram section for the native output viewers'
@@ -99,6 +100,36 @@ export function resolveHistogramSource(
     return { label: `${selection.kind === 'point' ? 'Point' : 'Cell'}: ${array.name}`, values };
 }
 
+/**
+ * Scalar series for the Statistics card: every point/cell array reduced to
+ * one value per tuple with the active component. Capped to the first eight
+ * arrays so a statepoint with hundreds of tallies cannot build a huge
+ * parallel-coordinates table. Pure; hosts pass the stable model identity so
+ * the panel can memoize on it.
+ */
+export function resolveStatisticsArrays(model: HistogramSourceModel | undefined, component: number, maxArrays = 8): StatisticsArray[] {
+    if (!model) {
+        return [];
+    }
+    const arrays: StatisticsArray[] = [];
+    for (const array of [...model.pointArrays, ...model.cellArrays]) {
+        const components = Math.max(1, array.components);
+        const tuples = Math.floor(array.values.length / components);
+        if (tuples < 2) {
+            continue;
+        }
+        const values = new Float64Array(tuples);
+        for (let t = 0; t < tuples; t++) {
+            values[t] = tupleScalar(array.values, components, t, component);
+        }
+        arrays.push({ name: `${array.association}:${array.name}`, values });
+        if (arrays.length >= maxArrays) {
+            break;
+        }
+    }
+    return arrays;
+}
+
 export interface DerivedFieldPanelProps {
     /** Uncommitted expression text (widget-owned). */
     readonly expression: string;
@@ -119,6 +150,10 @@ export interface DerivedFieldPanelProps {
     readonly onBinCountChange: (value: number) => void;
     readonly logY: boolean;
     readonly onLogYChange: (value: boolean) => void;
+    /** Model for the optional Statistics card (point/cell arrays). */
+    readonly statisticsModel?: HistogramSourceModel;
+    /** Active vector component used to reduce multi-component arrays. */
+    readonly statisticsComponent?: number;
 }
 
 /** Format a stats scalar: integers stay short, the rest match the legend precision. */
@@ -148,6 +183,11 @@ function statsLine(stats: ArrayStats): string {
  * `histogram` prop (resolved by the host); this component only bins them.
  */
 export function DerivedFieldPanel(props: DerivedFieldPanelProps): React.ReactElement {
+    const [showStatistics, setShowStatistics] = React.useState(false);
+    const statisticsArrays = React.useMemo(
+        () => resolveStatisticsArrays(props.statisticsModel, props.statisticsComponent ?? -1),
+        [props.statisticsModel, props.statisticsComponent]
+    );
     const bins = normalizeHistogramBinCount(props.binCount);
     const stats = props.histogram ? computeArrayStats(props.histogram.values) : undefined;
     const histogram = props.histogram ? computeHistogram(props.histogram.values, bins) : undefined;
@@ -266,6 +306,30 @@ export function DerivedFieldPanel(props: DerivedFieldPanelProps): React.ReactEle
                     </>
                 )}
             </div>
+            {statisticsArrays.length >= 2 && (
+                <div className="openmc-output-viewer-card">
+                    <div className="openmc-output-viewer-card-title">Statistics</div>
+                    {!showStatistics ? (
+                        <div className="openmc-derived-field-note">
+                            Compare distributions and correlations across the loaded arrays.
+                            <button className="theia-button secondary openmc-statistics-open" onClick={() => setShowStatistics(true)}>
+                                Show statistical plots
+                            </button>
+                        </div>
+                    ) : (
+                        <>
+                            <div className="openmc-output-viewer-control">
+                                <button className="theia-button secondary" onClick={() => setShowStatistics(false)}>
+                                    Hide statistical plots
+                                </button>
+                            </div>
+                            <div style={{ height: 340, minHeight: 0 }}>
+                                <StatisticsPanel arrays={statisticsArrays} />
+                            </div>
+                        </>
+                    )}
+                </div>
+            )}
         </>
     );
 }

@@ -93,13 +93,39 @@ import {
 } from '../../../viewer-core/viewer-context-menu';
 import {
     TallyVolumeMode,
+    VOLUME_LUT_SIZE,
     VolumeGrid,
     VolumeRaycastHandle,
-    buildVolumeLut,
     clipVolumeBox,
     createVolumeRaycastMesh,
     packVolumeScalars
 } from '../../../viewer-core/volume-raycast';
+import { extractGridSlice, sliceToRgba, type GridSliceSource, type SliceAxis } from '../../../viewer-core/slice-view';
+import { buildClipCap } from '../../../viewer-core/capped-clip';
+import {
+    buildScreenshotFilename,
+    captureRendererScreenshot,
+    copyScreenshotDataUrl,
+    downloadScreenshotDataUrl,
+    type ScreenshotOptions
+} from '../../../viewer-core/canvas-screenshot';
+import { ViewerExportMenu } from './viewer-export-menu';
+import {
+    statsForArray,
+    summarizeNativeModel,
+    tableForArray,
+    type DatasetAssociation,
+    type DatasetStats,
+    type DatasetSummary,
+    type DatasetTable
+} from '../../../viewer-core/dataset-inspector';
+import type { ViewerDatasetHost } from '../../../dataset-inspector/dataset-inspector-model';
+import {
+    DEFAULT_VOLUME_TRANSFER,
+    buildVolumeTransferLut,
+    normalizeOpacityStops,
+    type VolumeTransferOptions
+} from '../../../viewer-core/volume-transfer';
 import {
     anyClipEnabled,
     boundingBoxFromPositions,
@@ -153,6 +179,8 @@ import {
     ViewerSettingsPatch,
     ViewerSettingsSnapshot,
     ViewerGlyphSettings,
+    ViewerSlicePreview,
+    ViewerSliceSettings,
     ViewerThresholdSettings,
     viewerSnapDirection
 } from '../../../viewer-settings/viewer-settings-model';
@@ -248,7 +276,7 @@ export interface NativeVtkViewerProps {
  * convert→serve→iframe lifecycle with convert→FileService→native rendering.
  */
 @injectable()
-export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettingsHost {
+export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettingsHost, ViewerDatasetHost {
     static readonly ID: string = 'native-vtk-viewer-widget';
     static readonly LABEL: string = 'Native VTK Viewer';
 
@@ -344,6 +372,10 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
     private scene: THREE.Scene | undefined;
     private camera: THREE.PerspectiveCamera | undefined;
     private dataGroup: THREE.Group | undefined;
+    /** Closed-cut cap meshes (rebuilt from the active clip state). */
+    private clipCaps = true;
+    private clipCapGroup: THREE.Group | undefined;
+    private clipCapKey: string | undefined;
     private orbitControls: OrbitControlsHandle | undefined;
     private resizeObserver: ResizeObserver | undefined;
     private contextMenuClose: (() => void) | undefined;
@@ -359,6 +391,16 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
     private volumeMode: TallyVolumeMode = 'boxes';
     /** Master visibility for the volume (boxes, smooth mesh, and grid points). */
     private volumeVisible = true;
+    /** Editable color/opacity transfer function, blend mode, and gradient shading. */
+    private volumeTransfer: VolumeTransferOptions = {
+        opacityStops: DEFAULT_VOLUME_TRANSFER.opacityStops,
+        blendMode: DEFAULT_VOLUME_TRANSFER.blendMode,
+        shade: DEFAULT_VOLUME_TRANSFER.shade
+    };
+    /** Orthoslice preview state (Viewer Settings Slice section). */
+    private orthoSliceAxis: SliceAxis = 'Z';
+    private orthoSliceFraction = 0.5;
+    private orthoSliceSmooth = false;
     /** Live smooth raycast handle (owned here; textures release on dispose). */
     private volumeSmooth: VolumeRaycastHandle | undefined;
     /** Packed-texture identity (array + mapping + range): repack only on change. */
@@ -808,7 +850,18 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
                 : {}),
             scalarBar: { visible: this.scalarBarVisible },
             ...(this.volumeSmoothGrid() !== undefined
-                ? { tallyVolume: { visible: this.volumeVisible, smooth: this.volumeMode === 'smooth' } }
+                ? {
+                      volume: {
+                          visible: this.volumeVisible,
+                          smooth: this.volumeMode === 'smooth',
+                          opacityStops: this.volumeTransfer.opacityStops,
+                          blendMode: this.volumeTransfer.blendMode,
+                          shade: this.volumeTransfer.shade
+                      }
+                  }
+                : {}),
+            ...(this.sliceSource() !== undefined
+                ? { slice: { axis: this.orthoSliceAxis, fraction: this.orthoSliceFraction, smooth: this.orthoSliceSmooth } }
                 : {}),
             ...(warpOptions.length > 0 && warpArray !== undefined
                 ? {
@@ -828,7 +881,7 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
             ...(solid ? { solidColor: { value: this.solidColor } } : {}),
             background: { value: this.resolveBackground() },
             shading: { value: this.shading },
-            clip: { state: this.clip, tab: this.clipTab },
+            clip: { state: this.clip, tab: this.clipTab, caps: this.clipCaps },
             measure: { active: this.measure.active },
             opacity: { value: this.opacity, ...OPACITY_SPEC },
             pointSize: { value: this.pointSize, ...POINT_SIZE_SPEC },
@@ -842,6 +895,11 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
             this.clipTab = patch.clipTab;
             this.update();
         }
+        if (patch.clipCaps !== undefined && patch.clipCaps !== this.clipCaps) {
+            this.clipCaps = patch.clipCaps;
+            this.applyClip();
+            this.update();
+        }
         if (patch.measureActive !== undefined) {
             this.setMeasureActive(patch.measureActive);
         }
@@ -853,6 +911,46 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         }
         if (patch.tallyVolumeSmooth !== undefined) {
             this.setVolumeSmooth(patch.tallyVolumeSmooth);
+        }
+        if (patch.volumeVisible !== undefined) {
+            this.setVolumeVisible(patch.volumeVisible);
+        }
+        if (patch.volumeSmooth !== undefined) {
+            this.setVolumeSmooth(patch.volumeSmooth);
+        }
+        let volumeTransferChanged = false;
+        if (patch.volumeOpacityStops !== undefined) {
+            this.volumeTransfer = { ...this.volumeTransfer, opacityStops: normalizeOpacityStops(patch.volumeOpacityStops) };
+            volumeTransferChanged = true;
+        }
+        if (patch.volumeBlendMode !== undefined) {
+            this.volumeTransfer = { ...this.volumeTransfer, blendMode: patch.volumeBlendMode };
+            volumeTransferChanged = true;
+        }
+        if (patch.volumeShade !== undefined) {
+            this.volumeTransfer = { ...this.volumeTransfer, shade: patch.volumeShade };
+            volumeTransferChanged = true;
+        }
+        if (volumeTransferChanged) {
+            this.refreshVolumeSmooth();
+            this.renderScene();
+            this.update();
+        }
+        let sliceChanged = false;
+        if (patch.sliceAxis !== undefined) {
+            this.orthoSliceAxis = patch.sliceAxis;
+            sliceChanged = true;
+        }
+        if (patch.sliceFraction !== undefined && Number.isFinite(patch.sliceFraction)) {
+            this.orthoSliceFraction = Math.min(1, Math.max(0, patch.sliceFraction));
+            sliceChanged = true;
+        }
+        if (patch.sliceSmooth !== undefined) {
+            this.orthoSliceSmooth = patch.sliceSmooth;
+            sliceChanged = true;
+        }
+        if (sliceChanged) {
+            this.update();
         }
         let nextRangeMode: ColorRangeMode | undefined;
         let nextCustomRange: [number, number] | undefined;
@@ -900,12 +998,106 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
     // ------------------------------------------------------------------
 
     /**
-     * Grid behind the smooth raycast volume in world coordinates (true 3D
-     * datasets only). The default (no grid) disables the tally-volume
-     * rows and every method below short-circuits.
+     * Grid behind the smooth raycast volume in world coordinates. Any
+     * axis-aligned rectilinear/image dataset exposes one; subclasses may
+     * override (the DAGMC drape supplies its tally grid separately).
      */
     protected volumeSmoothGrid(): VolumeGrid | undefined {
-        return undefined;
+        const model = this.model;
+        if (!model || (model.family !== 'rectilinear' && model.family !== 'image')) {
+            return undefined;
+        }
+        const dims = model.gridDimensions;
+        const axes = model.gridAxes;
+        if (!dims || !axes) {
+            return undefined;
+        }
+        const [xAxis, yAxis, zAxis] = axes;
+        if (xAxis.length === 0 || yAxis.length === 0 || zAxis.length === 0) {
+            return undefined;
+        }
+        return {
+            dims: [dims[0], dims[1], dims[2]],
+            min: [xAxis[0], yAxis[0], zAxis[0]],
+            max: [xAxis[xAxis.length - 1], yAxis[yAxis.length - 1], zAxis[zAxis.length - 1]]
+        };
+    }
+
+    /**
+     * Cell-centered grid source for the Slice preview: the active cell array
+     * reduced to one scalar per cell. Undefined for point clouds, Solid
+     * Color, point-array color-by, or a grid whose active array is not a
+     * one-tuple-per-cell array.
+     */
+    private sliceSource(): { source: GridSliceSource; array: NativeVtkDataArray } | undefined {
+        const model = this.model;
+        if (!model || (model.family !== 'rectilinear' && model.family !== 'image') || !model.gridDimensions) {
+            return undefined;
+        }
+        const cells = model.gridDimensions[0] * model.gridDimensions[1] * model.gridDimensions[2];
+        const selection = parseColorBy(this.colorBy);
+        let array = selection && selection.kind === 'cell' ? this.findArray('cell', selection.name) : undefined;
+        if (!array || array.values.length !== cells * Math.max(1, array.components)) {
+            // Solid Color (or a point-array selection) still gets a useful
+            // slice: use the first cell array with one tuple per cell.
+            array = model.cellArrays.find((entry) => entry.values.length === cells * Math.max(1, entry.components));
+        }
+        if (!array) {
+            return undefined;
+        }
+        const components = Math.max(1, array.components);
+        if (array.values.length !== cells * components) {
+            return undefined;
+        }
+        let values: ArrayLike<number> = array.values;
+        if (components > 1) {
+            const scalar = new Float64Array(cells);
+            for (let i = 0; i < cells; i++) {
+                scalar[i] = tupleScalar(array.values, components, i, this.component);
+            }
+            values = scalar;
+        }
+        return {
+            source: {
+                dims: model.gridDimensions,
+                axes: model.gridAxes ?? [new Float64Array(0), new Float64Array(0), new Float64Array(0)],
+                values,
+                range: resolveEffectiveRange(this.rangeMode, array.range, this.customRange)
+            },
+            array
+        };
+    }
+
+    /** Render the current 2D orthoslice for the Viewer Settings Slice section. */
+    getSlicePreview(settings: ViewerSliceSettings): ViewerSlicePreview | undefined {
+        const active = this.sliceSource();
+        if (!active) {
+            return undefined;
+        }
+        const mapping = this.scalarMappingFor(active.array);
+        if (!mapping) {
+            return undefined;
+        }
+        const slice = extractGridSlice(active.source, settings.axis, settings.fraction, settings.smooth ? 'linear' : 'nearest');
+        if (!slice) {
+            return undefined;
+        }
+        return { width: slice.width, height: slice.height, rgba: sliceToRgba(slice, mapping), range: slice.range };
+    }
+
+    /** Dataset Inspector: summary of the loaded model (no-op until a dataset lands). */
+    getDatasetSummary(): DatasetSummary | undefined {
+        return this.model ? summarizeNativeModel(this.model) : undefined;
+    }
+
+    /** Dataset Inspector: paged point/cell table for one named array. */
+    getDatasetTable(association: DatasetAssociation, name: string): DatasetTable | undefined {
+        return this.model ? tableForArray(this.model, association, name) : undefined;
+    }
+
+    /** Dataset Inspector: descriptive stats (and cell integral when measurable). */
+    getDatasetStats(association: DatasetAssociation, name: string): DatasetStats | undefined {
+        return this.model ? statsForArray(this.model, association, name, this.component) : undefined;
     }
 
     /** Show or hide the volume (Viewer Settings toggle): boxes, smooth mesh, and grid points. */
@@ -948,6 +1140,11 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
      * subclasses override, the default is a no-op.
      */
     protected syncUnderlayDimming(): void {}
+
+    /** Build the RGBA raycast LUT from the current transfer function + global opacity. */
+    private volumeLut(mapping: ScalarMapping, range: readonly [number, number]): Uint8Array<ArrayBuffer> {
+        return buildVolumeTransferLut(mapping, range, this.volumeTransfer, VOLUME_LUT_SIZE, this.opacity);
+    }
 
     /**
      * Reconcile the smooth raycast mesh with the current mode and color-by
@@ -1006,7 +1203,6 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         // relut: updating a detached mesh leaves smooth mode blank.
         if (!smooth || smooth.mesh.parent !== this.dataGroup || this.volumePackedKey !== key) {
             const scalars = packVolumeScalars(resolved, grid.dims, [dataMin, dataMax]);
-            const lut = buildVolumeLut(mapping, [dataMin, dataMax], this.opacity);
             try {
                 if (smooth) {
                     smooth.mesh.parent?.remove(smooth.mesh);
@@ -1021,7 +1217,9 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
                         max: [...grid.max] as [number, number, number]
                     },
                     scalars,
-                    lut
+                    lut: this.volumeLut(mapping, [dataMin, dataMax]),
+                    blendMode: this.volumeTransfer.blendMode,
+                    shade: this.volumeTransfer.shade
                 });
                 this.volumePackedKey = key;
                 // Drawn after translucent shells so the interior stays
@@ -1042,7 +1240,8 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
                 return;
             }
         } else {
-            smooth.updateLut(buildVolumeLut(mapping, this.volumePackedRange ?? [0, 0], this.opacity));
+            smooth.updateLut(this.volumeLut(mapping, this.volumePackedRange ?? [0, 0]));
+            smooth.setRenderOptions({ blendMode: this.volumeTransfer.blendMode, shade: this.volumeTransfer.shade });
         }
         this.applyVolumeClipBox();
         this.updateVolumeVisibility();
@@ -1281,17 +1480,31 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         }
     }
 
-    /** Download a PNG screenshot of the current canvas (F12 equivalent). */
-    saveScreenshot(): void {
-        if (!this.renderer || !this.model) {
+    /** Download a screenshot of the current canvas (one-click PNG by default). */
+    saveScreenshot(options: ScreenshotOptions = {}): void {
+        if (!this.renderer || !this.scene || !this.camera || !this.model) {
             return;
         }
+        const dataUrl = captureRendererScreenshot(this.renderer, this.scene, this.camera, this.host ?? this.renderer.domElement, options);
         this.renderScene();
-        const url = this.renderer.domElement.toDataURL('image/png');
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `${this.fileUri?.path.base ?? 'native-vtk'}.png`;
-        link.click();
+        downloadScreenshotDataUrl(dataUrl, {
+            ...options,
+            filename: buildScreenshotFilename(this.fileUri?.path.base ?? 'native-vtk', new Date(), options.format ?? 'png')
+        });
+    }
+
+    /** Copy the current canvas to the clipboard (falls back to a visible warning). */
+    async copyScreenshot(options: ScreenshotOptions = {}): Promise<void> {
+        if (!this.renderer || !this.scene || !this.camera) {
+            return;
+        }
+        const dataUrl = captureRendererScreenshot(this.renderer, this.scene, this.camera, this.host ?? this.renderer.domElement, options);
+        this.renderScene();
+        try {
+            await copyScreenshotDataUrl(dataUrl);
+        } catch (error) {
+            this.messageService.warn(error instanceof Error ? error.message : String(error));
+        }
     }
 
     /** Frame the loaded dataset through the orbit controls (target + distance). */
@@ -1422,6 +1635,13 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
                         disabled={disabled}
                         onScreenshot={() => this.saveScreenshot()}
                         onReload={() => this.fileUri && this.setVtkFile(this.fileUri)}
+                        exportMenu={
+                            <ViewerExportMenu
+                                disabled={disabled}
+                                onExport={(options) => this.saveScreenshot(options)}
+                                onCopy={(options) => void this.copyScreenshot(options)}
+                            />
+                        }
                     />
                 </ViewerNavBar>
                 {this.openNavPopover === 'clip' && (
@@ -1927,6 +2147,8 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         // must not dangle at the disposed mesh) and its cell map.
         this.glyphMesh = undefined;
         this.glyphCellCache = undefined;
+        this.clipCapGroup = undefined;
+        this.clipCapKey = undefined;
         // Rebuild clears the measure session (viewport state, never document
         // state); the label hides on the next repaint via updateMeasureLabel.
         this.measure = resetMeasureState();
@@ -2430,6 +2652,15 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
                 material.needsUpdate = true;
             }
         });
+        this.clipCapGroup?.children.forEach((cap) => {
+            if (cap instanceof THREE.Mesh) {
+                const material = cap.material as THREE.MeshLambertMaterial;
+                material.opacity = flags.opacity;
+                material.transparent = flags.transparent;
+                material.wireframe = false;
+                material.needsUpdate = true;
+            }
+        });
     }
 
     /** Effective canvas backdrop: the setting, else the theme editor background (the look before scene.background). */
@@ -2474,7 +2705,9 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
                 const role = child.geometry.userData?.['role'];
                 child.visible = role === 'edges' ? this.shading === 'edges' && !flags.pointsOnly : !flags.pointsOnly;
             } else if (child instanceof THREE.Mesh) {
-                if ((child as THREE.Mesh).userData?.['tallyVolumeSmooth'] === true) {
+                if (child.userData?.['role'] === 'clip-cap') {
+                    child.visible = this.clipCaps && anyClipEnabled(this.clip) && !flags.pointsOnly && this.shading !== 'wireframe';
+                } else if ((child as THREE.Mesh).userData?.['tallyVolumeSmooth'] === true) {
                     child.visible = this.volumeVisible && this.volumeMode === 'smooth' && !flags.pointsOnly;
                 } else if (child instanceof THREE.InstancedMesh && this.voxelLayout) {
                     child.visible = this.volumeVisible && !smoothActive && !flags.pointsOnly;
@@ -2500,7 +2733,87 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
                 (child.material as THREE.Material).clippingPlanes = planes;
             }
         });
+        this.rebuildClipCaps(planes);
         this.applyVolumeClipBox();
+    }
+
+    /** Remove the current cap meshes (clip/state/dataset change). */
+    private clearClipCaps(): void {
+        this.clipCapKey = undefined;
+        const group = this.clipCapGroup;
+        if (!group) {
+            return;
+        }
+        group.parent?.remove(group);
+        this.disposeObject(group);
+        this.clipCapGroup = undefined;
+    }
+
+    /**
+     * Rebuild solid caps for every enabled clip plane from the unclipped
+     * triangle soup. Caps use the solid color and follow the same opacity;
+     * other enabled planes clip them at box-section edges. Open/non-manifold
+     * soups produce no cap (the hollow cut remains).
+     */
+    private rebuildClipCaps(planes: readonly THREE.Plane[]): void {
+        const model = this.model;
+        const key =
+            this.clipCaps && model?.triangles
+                ? `${JSON.stringify(this.clip)}:${model.positions.length}:${model.triangles.length}:${this.warpEnabled}:${this.warpEffectiveScale()}:${this.colorBy}:${this.solidColor}`
+                : undefined;
+        if (key !== undefined && this.clipCapGroup && this.clipCapKey === key) {
+            return;
+        }
+        this.clearClipCaps();
+        if (
+            key === undefined ||
+            !this.clipCaps ||
+            !this.dataGroup ||
+            !model?.triangles ||
+            model.triangles.length === 0 ||
+            planes.length === 0
+        ) {
+            return;
+        }
+        const positions = this.scenePositions();
+        if (positions.length === 0) {
+            return;
+        }
+        const group = new THREE.Group();
+        group.name = 'clip-caps';
+        for (const plane of planes) {
+            const cap = buildClipCap(
+                { positions, triangles: model.triangles },
+                [plane.normal.x, plane.normal.y, plane.normal.z],
+                plane.constant
+            );
+            if (!cap || cap.length === 0) {
+                continue;
+            }
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.BufferAttribute(cap, 3));
+            geometry.computeVertexNormals();
+            const material = new THREE.MeshLambertMaterial({
+                color: this.solidColor,
+                side: THREE.DoubleSide,
+                transparent: this.opacity < 1,
+                opacity: this.opacity,
+                clippingPlanes: [...planes],
+                polygonOffset: true,
+                polygonOffsetFactor: 1,
+                polygonOffsetUnits: 1
+            });
+            const mesh = new THREE.Mesh(geometry, material);
+            mesh.userData['role'] = 'clip-cap';
+            group.add(mesh);
+        }
+        if (group.children.length === 0) {
+            return;
+        }
+        this.dataGroup.add(group);
+        this.clipCapGroup = group;
+        this.clipCapKey = key;
+        this.applyShadingVisibility();
     }
 
     private toThreePlanes(): THREE.Plane[] {

@@ -36,8 +36,10 @@ import {
     createVolumeRaycastMesh,
     packVolumeScalars,
     VOLUME_LUT_SIZE,
-    type VolumeGrid
+    type VolumeGrid,
+    type VolumeRaycastHandle
 } from './volume-raycast';
+import type { VolumeBlendMode } from './volume-transfer';
 
 function testMapping(): ScalarMapping {
     const definition = getColormap('Cool to Warm');
@@ -163,7 +165,16 @@ describe('createVolumeRaycastMesh', () => {
         const uniforms = (handle.mesh.material as THREE.ShaderMaterial).uniforms;
         expect(uniforms['boxMin'].value.toArray()).toEqual([0, 0, 0]);
         expect(uniforms['boxMax'].value.toArray()).toEqual([2, 1, 1]);
-        expect(Object.keys(uniforms).sort()).toEqual(['boxMax', 'boxMin', 'clipMax', 'clipMin', 'lutMap', 'volumeMap']);
+        expect(Object.keys(uniforms).sort()).toEqual([
+            'blendMode',
+            'boxMax',
+            'boxMin',
+            'clipMax',
+            'clipMin',
+            'lutMap',
+            'shade',
+            'volumeMap'
+        ]);
         const volume = uniforms['volumeMap'].value as THREE.Data3DTexture;
         expect([volume.image.width, volume.image.height, volume.image.depth]).toEqual([2, 1, 1]);
         handle.updateLut(buildVolumeLut(mapping, [0, 10], 0.5));
@@ -187,5 +198,68 @@ describe('createVolumeRaycastMesh', () => {
         ).toThrow();
         expect(() => createVolumeRaycastMesh({ grid, scalars: new Uint8Array(3), lut })).toThrow();
         expect(() => createVolumeRaycastMesh({ grid, scalars: new Uint8Array(2), lut: new Uint8Array(4) })).toThrow();
+    });
+});
+
+describe('volume raycast render options', () => {
+    const grid: VolumeGrid = { dims: [2, 1, 1], min: [0, 0, 0], max: [2, 1, 1] };
+
+    function createHandle(blendMode?: VolumeBlendMode, shade?: boolean): VolumeRaycastHandle {
+        return createVolumeRaycastMesh({
+            grid,
+            scalars: packVolumeScalars([0, 10], [2, 1, 1], [0, 10]),
+            lut: buildVolumeLut(testMapping(), [0, 10], 1),
+            blendMode,
+            shade
+        });
+    }
+
+    function uniformsOf(handle: VolumeRaycastHandle): Record<string, THREE.IUniform> {
+        return (handle.mesh.material as THREE.ShaderMaterial).uniforms;
+    }
+
+    it('defaults to MIP without shading and keeps a GLSL3 constant-bound march', () => {
+        const handle = createHandle();
+        const material = handle.mesh.material as THREE.ShaderMaterial;
+        expect(uniformsOf(handle)['blendMode'].value).toBe(0);
+        expect(uniformsOf(handle)['shade'].value).toBe(0);
+        expect(material.glslVersion).toBe(THREE.GLSL3);
+        expect(material.fragmentShader).toContain('uniform int blendMode');
+        expect(material.fragmentShader).toContain('uniform int shade');
+        expect(material.fragmentShader).toContain('#define MARCH_STEPS 192');
+        expect(material.fragmentShader).toContain('BLEND_COMPOSITE');
+        expect(material.fragmentShader).toContain('headlight');
+        handle.dispose();
+    });
+
+    it('plumbs initial blend mode and shading into the uniforms', () => {
+        const handle = createHandle('composite', true);
+        expect(uniformsOf(handle)['blendMode'].value).toBe(1);
+        expect(uniformsOf(handle)['shade'].value).toBe(1);
+        handle.dispose();
+    });
+
+    it('updates blend mode and shading live without rebuilding the volume', () => {
+        const handle = createHandle();
+        const material = handle.mesh.material;
+        const uniforms = uniformsOf(handle);
+        const volume = uniforms['volumeMap'].value;
+        handle.setRenderOptions({ blendMode: 'composite' });
+        expect(uniforms['blendMode'].value).toBe(1);
+        expect(uniforms['shade'].value).toBe(0);
+        handle.setRenderOptions({ shade: true });
+        expect(uniforms['blendMode'].value).toBe(1);
+        expect(uniforms['shade'].value).toBe(1);
+        handle.setRenderOptions({ blendMode: 'mip', shade: false });
+        expect(uniforms['blendMode'].value).toBe(0);
+        expect(uniforms['shade'].value).toBe(0);
+        // Unknown persisted values fall back to the safe MIP path.
+        handle.setRenderOptions({ blendMode: 'bogus' as VolumeBlendMode });
+        expect(uniforms['blendMode'].value).toBe(0);
+        // The material, volume texture, and clip uniforms survive option changes.
+        expect(handle.mesh.material).toBe(material);
+        expect(uniforms['volumeMap'].value).toBe(volume);
+        expect(uniforms['clipMin'].value.toArray()).toEqual([0, 0, 0]);
+        handle.dispose();
     });
 });

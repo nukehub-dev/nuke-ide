@@ -382,6 +382,8 @@ export class OpenMCTracksViewerWidget extends NativeVtkViewerWidget {
                     this.histogramLogY = value;
                     this.update();
                 }}
+                statisticsModel={this.model}
+                statisticsComponent={this.component}
             />
         );
     }

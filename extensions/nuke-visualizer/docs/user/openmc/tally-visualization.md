@@ -27,6 +27,9 @@ Or use the menu: `Tools → Visualizer → OpenMC → Tally → Visualize Tally`
 
 - An interactive 3D volume rendered natively in the IDE.
 - The mesh cells are colored by tally value using a selectable colormap.
+- Uncertainty companions: every converted mesh also carries `<score>-std` and
+  `<score>-rel-err` cell arrays. Pick either in **Color by** to inspect
+  convergence; void (exact-zero) cells stay zero rather than NaN.
 - Controls for opacity, representation, and clipping work the same as the [Base Visualizer](../base-visualizer.md).
 
 ### Options

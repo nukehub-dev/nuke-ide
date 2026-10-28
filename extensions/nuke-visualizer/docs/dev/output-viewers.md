@@ -47,7 +47,7 @@ tabs and the DAGMC tally drape — never block the open on the backend.
 
 ### The Color-By Contract
 
-Color-by is a pure client-side control: `'Solid Color' | 'Point: <array>' | 'Cell: <array>'`, validated against the arrays the parsed dataset actually has. Switching arrays re-colors instantly — no conversion re-run, no restart. Converters decide _which_ arrays exist — e.g. weight windows write one cell-data array per (bound, group) named `lower_g<i>` / `upper_g<i>`, which is what makes Color By act as the group/bound selector.
+Color-by is a pure client-side control: `'Solid Color' | 'Point: <array>' | 'Cell: <array>'`, validated against the arrays the parsed dataset actually has. Switching arrays re-colors instantly — no conversion re-run, no restart. Converters decide _which_ arrays exist — e.g. weight windows write one cell-data array per (bound, group) named `lower_g<i>` / `upper_g<i>`, which is what makes Color By act as the group/bound selector. Mesh tallies write `<score>-mean` first, followed by `<score>-std` and `<score>-rel-err` from the same `[sum, sum_sq]` moments; the overlay/slice paths sample all three on the same lattice. The DAGMC surface drape remains mean-only until its sampler contract grows a second array.
 
 The DAGMC viewer adds three categorical modes, `Material`, `Volume`, and `Group` (`dagmc-color-by.ts`): per-volume material names, volume ids, and group memberships from `dagmc.info` map through the shared `nuke-essentials` `theme/browser/material-colors.ts` helpers (trim/lower-case + FNV-1a palette index) — `materialColor` mutes the graveyard material grey; `categoryColor` keys volumes as `volume:<id>` and groups as `group:<name>` without special-casing the graveyard (those modes are structural). Group mode uses the primary group per volume: the first group key in `info.groups` insertion order whose `volumeIds` include the volume; volumes in no group fall back to the solid color. Each categorical mode carries no scalar array, so `activeColorArray`/range/component stay undefined, `colormap.disabled` is true, the snapshot omits `scalarBar`, and the Viewer Settings panel hides the whole scalar-controls group (colormap, Invert/Log, range, threshold, legend) instead of rendering dead controls, leaving Color by plus a short `note` (`Color by material` / volume / group). Solid Color follows the same hide rule. `isCategoricalColorBy` guards the load-time array fallback so these modes survive a manifest load with no matching array; volumes without material info (or an unresolvable category) fall back to the solid color. The outline renders matching material and group swatches.
 
@@ -92,19 +92,57 @@ The resizable split between the 3D area and the data panel uses `src/browser/plu
 
 IFP kinetics results live in ordinary `statepoint*.h5` files, so they have no registry entry: the statepoint viewer shows a conditional tab when `kinetics-utils.ts::hasIfpTallies` matches, lazy-loading `openmc.kinetics` via `getKineticsParameters()`.
 
+### Volume, Slice, Clip Caps
+
+- **Volume** — `viewer-core/volume-transfer.ts` owns the opacity-stop model (`normalizeOpacityStops`,
+  `sampleOpacity`, `buildVolumeTransferLut`) and blend/shade options; `volume-raycast.ts` consumes it in the
+  GLSL3 raycast. `NativeVtkViewerWidget.volumeSmoothGrid()` returns a grid for any `rectilinear`/`image`
+  model with axes, so `.vti`, `.vtr`, `.vts`, random-ray, weight-window and tally grids all expose the
+  Viewer Settings **Volume** section. Defaults are the legacy boxes + MIP/unlit look; `opacityStops` is a
+  display-intensity ramp (not raw data), and the global opacity slider is a separate multiplier.
+- **Slice** — `viewer-core/slice-view.ts` extracts cell-centered X/Y/Z slices (`extractGridSlice`, nearest
+  or linear) and paints RGBA through the active `ScalarMapping`. `ViewerSettingsHost.getSlicePreview` is
+  optional; `viewer-settings/slice-preview.tsx` only paints the returned buffer and never moves the camera.
+  Solid Color falls back to the first one-tuple-per-cell array so a grid always has a useful preview.
+- **Clip caps** — `viewer-core/capped-clip.ts::buildClipCap` intersects a closed triangle soup with the
+  clip plane, chains segments into loops, and ear-clips the cap. Both `NativeVtkViewerWidget` and
+  `DagmcViewerWidget` rebuild caps from `applyClip()` (never a separate event), mark them
+  `role: 'clip-cap'`, apply the other enabled planes as clipping planes, and use the solid/block color.
+  Open shells, points and lines stay hollow; `clipCaps` defaults on.
+
+### Dataset Inspector, Statistics, Export
+
+- **Dataset Inspector** — `src/browser/dataset-inspector/` binds to the active viewer through
+  `ViewerDatasetHost` (`getDatasetSummary`, `getDatasetTable`). The pure core is
+  `viewer-core/dataset-inspector.ts`; tables are capped at 200 rows and Copy CSV copies that window.
+  `NativeVtkViewerWidget` implements the host; other viewers can opt in structurally.
+- **Statistics** — `viewer-core/statistics.ts` provides `computeHistogram2D`, `computeQuantiles`,
+  `sampleScatter`, `boxStatsByCategory`, and `parallelCoordinates`; `statistics-panel.tsx` renders them
+  with Plotly. `derived-field-panel.tsx::resolveStatisticsArrays` flattens point/cell arrays to scalar
+  series (first eight) and the Statistics card mounts lazily from the data panels.
+- **Export** — `viewer-core/canvas-screenshot.ts` resolves format/scale/transparency, captures through a
+  temporarily resized renderer (`captureRendererScreenshot`), and downloads/copies the data URL. The
+  props-only `viewer-export-menu.tsx` sits in `ViewerFileActions`; the one-click PNG path stays.
+
 ---
 
 ## Key Files
 
-| Purpose                    | File                                                               |
-| -------------------------- | ------------------------------------------------------------------ |
-| Viewer registry            | `src/browser/output-viewer/output-viewer-registry.ts`              |
-| Filename patterns          | `src/browser/output-viewer/output-file-patterns.ts`                |
-| Viewer base class          | `src/browser/plugins/openmc/widgets/native-vtk-viewer-widget.tsx`  |
-| Calculator + histogram UI  | `src/browser/plugins/openmc/widgets/derived-field-panel.tsx`       |
-| Derived-field expressions  | `src/browser/viewer-core/derived-fields.ts` (pure, vitest-covered) |
-| Glyph layout math          | `src/browser/viewer-core/glyph-layout.ts` (pure, vitest-covered)   |
-| Split-drag helper          | `src/browser/plugins/openmc/widgets/drag-split.ts`                 |
-| Backend conversion service | `src/node/plugins/openmc/services/openmc-output-service.ts`        |
-| VTK converters (Python)    | `python/plugins/openmc/lib/output_vtk.py`                          |
-| Summary → XML (Python)     | `python/plugins/openmc/lib/geometry_parser.py`                     |
+| Purpose                    | File                                                                             |
+| -------------------------- | -------------------------------------------------------------------------------- |
+| Viewer registry            | `src/browser/output-viewer/output-viewer-registry.ts`                            |
+| Filename patterns          | `src/browser/output-viewer/output-file-patterns.ts`                              |
+| Viewer base class          | `src/browser/plugins/openmc/widgets/native-vtk-viewer-widget.tsx`                |
+| Calculator + histogram UI  | `src/browser/plugins/openmc/widgets/derived-field-panel.tsx`                     |
+| Derived-field expressions  | `src/browser/viewer-core/derived-fields.ts` (pure, vitest-covered)               |
+| Glyph layout math          | `src/browser/viewer-core/glyph-layout.ts` (pure, vitest-covered)                 |
+| Volume transfer + raycast  | `src/browser/viewer-core/volume-transfer.ts`, `volume-raycast.ts`                |
+| Orthoslice math + preview  | `src/browser/viewer-core/slice-view.ts`, `viewer-settings/slice-preview.tsx`     |
+| Capped clip geometry       | `src/browser/viewer-core/capped-clip.ts` (pure, vitest-covered)                  |
+| Dataset Inspector          | `src/browser/dataset-inspector/`                                                 |
+| Statistics core + panel    | `src/browser/viewer-core/statistics.ts`, `widgets/statistics-panel.tsx`          |
+| Screenshot capture + menu  | `src/browser/viewer-core/canvas-screenshot.ts`, `widgets/viewer-export-menu.tsx` |
+| Split-drag helper          | `src/browser/plugins/openmc/widgets/drag-split.ts`                               |
+| Backend conversion service | `src/node/plugins/openmc/services/openmc-output-service.ts`                      |
+| VTK converters (Python)    | `python/plugins/openmc/lib/output_vtk.py`                                        |
+| Summary → XML (Python)     | `python/plugins/openmc/lib/geometry_parser.py`                                   |

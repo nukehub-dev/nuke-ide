@@ -643,3 +643,9 @@
     font-size: 9px;
     fill: var(--theia-descriptionForeground);
 }
+
+/* Statistics card action under the derived-field/histogram cards. */
+.openmc-statistics-open {
+    margin-left: 6px;
+    padding: 1px 8px;
+}

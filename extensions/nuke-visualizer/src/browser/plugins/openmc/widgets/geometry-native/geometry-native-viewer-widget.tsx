@@ -43,6 +43,14 @@ import type { ViewerNavAction, ViewCubeHandle } from 'nuke-essentials/lib/theme/
 import { ViewCube } from 'nuke-essentials/lib/theme/browser/components';
 import { ViewerFileActions } from '../viewer-nav-extras';
 import {
+    buildScreenshotFilename,
+    captureRendererScreenshot,
+    copyScreenshotDataUrl,
+    downloadScreenshotDataUrl,
+    type ScreenshotOptions
+} from '../../../../viewer-core/canvas-screenshot';
+import { ViewerExportMenu } from '../viewer-export-menu';
+import {
     ClipAxis,
     ClipPlanesState,
     anyClipEnabled,
@@ -431,17 +439,31 @@ export class GeometryNativeViewerWidget extends ReactWidget implements ViewerSet
         }
     }
 
-    /** Download a PNG screenshot of the current canvas. */
-    saveScreenshot(): void {
-        if (!this.renderer || this.cells.length === 0) {
+    /** Download a screenshot of the current canvas (one-click PNG by default). */
+    saveScreenshot(options: ScreenshotOptions = {}): void {
+        if (!this.renderer || !this.scene || !this.camera || this.cells.length === 0) {
             return;
         }
+        const dataUrl = captureRendererScreenshot(this.renderer, this.scene, this.camera, this.host ?? this.renderer.domElement, options);
         this.renderScene();
-        const url = this.renderer.domElement.toDataURL('image/png');
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `${this.modelUri?.path.base ?? 'geometry'}.png`;
-        link.click();
+        downloadScreenshotDataUrl(dataUrl, {
+            ...options,
+            filename: buildScreenshotFilename(this.modelUri?.path.base ?? 'geometry', new Date(), options.format ?? 'png')
+        });
+    }
+
+    /** Copy the current canvas to the clipboard (falls back to a visible warning). */
+    async copyScreenshot(options: ScreenshotOptions = {}): Promise<void> {
+        if (!this.renderer || !this.scene || !this.camera) {
+            return;
+        }
+        const dataUrl = captureRendererScreenshot(this.renderer, this.scene, this.camera, this.host ?? this.renderer.domElement, options);
+        this.renderScene();
+        try {
+            await copyScreenshotDataUrl(dataUrl);
+        } catch (error) {
+            this.messageService.warn(error instanceof Error ? error.message : String(error));
+        }
     }
 
     /** Frame all visible cells through the orbit controls (target + distance). */
@@ -536,6 +558,13 @@ export class GeometryNativeViewerWidget extends ReactWidget implements ViewerSet
                             disabled={disabled}
                             onScreenshot={() => this.saveScreenshot()}
                             onReload={() => this.modelUri && this.setModelFile(this.modelUri)}
+                            exportMenu={
+                                <ViewerExportMenu
+                                    disabled={disabled}
+                                    onExport={(options) => this.saveScreenshot(options)}
+                                    onCopy={(options) => void this.copyScreenshot(options)}
+                                />
+                            }
                         />
                     </ViewerNavBar>
                     {this.cells.length > 0 && (

@@ -28,10 +28,25 @@ All files under `extensions/nuke-visualizer/` except generated artifacts (`lib/`
   `viewer-core/scalar-mapping.ts` (34-preset generated `colormaps.ts` — never hand-edit); see `docs/dev/output-viewers.md`.
   DAGMC adds categorical `Material|Volume|Group` (`dagmc-color-by.ts` + shared `material-colors`): no scalar mapping or
   legend, and Viewer Settings hides the colormap/Invert/Log/range/threshold/legend rows (`colormap.disabled`).
+- Grid volumes use `viewer-core/volume-transfer.ts` + `volume-raycast.ts` (editable opacity stops, MIP/composite, gradient
+  shade); Viewer Settings `ViewerVolumeSettings` keeps the ramp and defaults to the legacy MIP look.
+- Orthoslices use `viewer-core/slice-view.ts`; `ViewerSettingsHost.getSlicePreview` returns RGBA for the Slice section,
+  and `slice-preview.tsx` only paints it. Never move the 3D camera from the preview.
+- Clip caps use `viewer-core/capped-clip.ts` on closed triangle soups; `clipCaps` defaults on, caps follow solid/block
+  colors, and open/point/line data stays hollow. Rebuild caps from `applyClip()`, never a separate event.
+- Dataset Inspector (`src/browser/dataset-inspector/`, `ViewerDatasetHost`) binds like Viewer Settings; hosts expose
+  `getDatasetSummary`/`getDatasetTable` and optional `getDatasetStats`, the panel only renders the first 200 rows and
+  copies that window as CSV; cell integrals use grid volume / triangle area from `viewer-core/dataset-inspector.ts`.
+- Screenshots use `viewer-core/canvas-screenshot.ts` (`captureRendererScreenshot`, formats/scales/transparency) and the
+  props-only `viewer-export-menu.tsx`; keep the one-click PNG path and never resize the canvas CSS permanently.
+- Statistical plots use `viewer-core/statistics.ts` + `statistics-panel.tsx` (Plotly, 2D hist/scatter/box/parallel); the
+  host supplies scalar arrays, the panel owns tab/bin state only.
 - Output routing uses `src/browser/output-viewer/` (`output-viewer-registry.ts` + `output-file-patterns.ts`); register
   with `bind(OutputViewerContribution).to(...)`; see `docs/dev/output-viewers.md`.
 - DAGMC/STEP use `python/plugins/base/lib/dagmc.py` / `step.py` (`DagmcError`/`StepError`, `find_spec` probes, lazy
   loaders, cached `base.convert-dagmc-multiblock`); see `docs/dev/python-backends.md`.
+- Analysis commands `base.integrate` / `base.describe` / `base.mesh-quality` live in
+  `python/plugins/base/commands/analysis.py` (pure numpy in `lib/analysis.py`, lazy VTK); register in `base/plugin.py`.
 - Exodus series (`python/plugins/base/lib/exodus_series.py`, `base.exodus-series` → `ExodusTimeSliderWidget` for
   `*.e`/`*.exo*`) and headless geometry (`geometry_viz.py::extract_csg_mesh`, `slice_viz.py` via `openmc.geometry-mesh` /
   `openmc.geometry-slice-vtk` into `widgets/geometry-native/` and `widgets/tally-native/`); see `docs/dev/python-backends.md`.
@@ -50,8 +65,9 @@ All files under `extensions/nuke-visualizer/` except generated artifacts (`lib/`
 - 3D navigation is `viewer-core/orbit-controls.ts` OrbitControls only (`ORBIT_DAMPING_FACTOR`,
   `fitBounds`/`setViewDirection`/`zoomBy`) — never hand-roll orbit math.
 - Side panels bind one active viewer each: Viewer Settings (`ViewerSettingsHost`), DAGMC Outline (`DagmcOutlineHost`),
-  CSG Outline (`CsgOutlineHost`) under `src/browser/<panel>/`. Settings rows reserve a nowrap 82 px label column with
-  plain-integer section badges; DAGMC Outline mirrors Model Outline headers/24 px rows (see `docs/dev/widget-patterns.md`).
+  CSG Outline (`CsgOutlineHost`), Dataset Inspector (`ViewerDatasetHost`) under `src/browser/<panel>/`. Settings rows
+  reserve a nowrap 82 px label column with plain-integer section badges; DAGMC Outline mirrors Model Outline
+  headers/24 px rows (see `docs/dev/widget-patterns.md`).
 - `contributions/visualizer-tools-contribution.ts` exposes commands in the Nuke Tools sidebar under `Visualizer` and
   `Visualizer > OpenMC`; 3D chrome comes from `nuke-essentials` (`ViewCube`/`ViewerNavBar`/`ViewBadge`,
   `.nuke-viewer-status-line`) — never local gizmo/nav widgets.

@@ -114,12 +114,41 @@ smooth raycast volume and the grid cell-center cloud ignore the window.
 
 ### Clipping
 
-| Control         | What It Does                                     |
-| --------------- | ------------------------------------------------ |
-| **Enable Clip** | Turn the clipping planes on/off                  |
-| **Clip Axis**   | X / Y / Z tabs, each remembering its own setting |
-| **Position**    | Slider moving the plane through the volume       |
-| **Unflip**      | Swap which side of the plane is visible          |
+| Control         | What It Does                                                                         |
+| --------------- | ------------------------------------------------------------------------------------ |
+| **Enable Clip** | Turn the clipping planes on/off                                                      |
+| **Clip Axis**   | X / Y / Z tabs, each remembering its own setting                                     |
+| **Position**    | Slider moving the plane through the volume                                           |
+| **Unflip**      | Swap which side of the plane is visible                                              |
+| **Cap cut**     | Fill the clipped cross-section of a closed triangle mesh so the cut reads as a solid |
+
+Caps are built per enabled plane from closed surface meshes (DAGMC volumes,
+VTK/STL/FEM surfaces). Open shells and point/line data stay hollow. Cap
+color follows the solid or categorical block color and the current opacity.
+
+### Volume
+
+Axis-aligned 3D grids (`.vti`, `.vtr`, tally meshes, weight-window grids)
+gain a **Volume** section in Viewer Settings:
+
+| Control           | What It Does                                                                                       |
+| ----------------- | -------------------------------------------------------------------------------------------------- |
+| **Volume**        | Show or hide the volume (boxes or smooth raycast)                                                  |
+| **Smooth**        | Trilinear raycast volume instead of per-cell voxel boxes (WebGL2)                                  |
+| **Blend**         | `MIP` keeps the hottest sample per ray; `Composite` accumulates front-to-back alpha                |
+| **Shade**         | Gradient headlight shading inside the volume                                                       |
+| **Opacity curve** | Piecewise-linear alpha over display intensity; add/remove points, Reset returns to the linear ramp |
+
+The opacity curve is the volume transfer function: the x position is display
+intensity after the active colormap range/log mapping, and the alpha is the
+sample opacity. MIP remains the default so existing tally views look unchanged.
+
+### Slice
+
+For cell-centered grids the Viewer Settings sidebar also shows **Slice**:
+X/Y/Z orthoslices, a position slider, a Smooth switch (linear blend between
+two cell layers), and a live 2D preview painted with the active colormap.
+The preview is a data inspection aid; the 3D camera never moves.
 
 ### Camera
 
@@ -137,13 +166,17 @@ smooth raycast volume and the grid cell-center cloud ignore the window.
 
 ## Screenshots
 
-Click the **Screenshot** button in the control panel to capture the current view:
+The bottom bar has a one-click **Screenshot** button (PNG at the current
+viewport) and an **Export** menu for the rest:
 
-- **Format:** PNG, JPG, SVG, or PDF
-- **Resolution:** Use current viewport or specify custom [width, height]
-- **Transparent Background:** Optional
+- **Format:** PNG, JPEG, or WebP
+- **Scale:** 1×, 2×, or 4× the viewport resolution
+- **Transparent Background:** PNG/WebP only (JPEG has no alpha)
+- **Copy:** copy the image to the clipboard where the browser shell supports
+  `ClipboardItem`; otherwise a warning suggests downloading instead
 
-The image is saved to a timestamped file in your workspace or copied to the clipboard.
+Files download with the dataset name and a timestamp, e.g.
+`native-image-20261028-120000.png`.
 
 ---
 
@@ -270,6 +303,29 @@ uppercase headers and 24 px rows:
 - **Filter** — search box matching volume id, material, or group (for 20+-volume models).
 
 Display settings (color-by, shading, clip) stay in the **Viewer Settings** sidebar; the viewer itself keeps an `N of M volumes` status line.
+
+---
+
+## Headless Analysis Commands (advanced)
+
+The base backend also exposes analysis commands for scripts and automation:
+
+```bash
+python server.py base.describe --file model.vtk --array cell:flux
+python server.py base.integrate --file model.vtk --array cell:flux --volume
+python server.py base.mesh-quality --file model.vtk --output quality.vtu --metric aspect
+```
+
+- `base.describe` returns min/Q1/median/Q3/max/mean/std/count for one point or
+  cell array.
+- `base.integrate` returns the integral and mean of a scalar array over cell
+  volumes or surface areas (use `--surface` for area integration).
+- `base.mesh-quality` writes the same dataset with a quality cell array
+  (`area`, `min-angle`, `aspect`, or `volume`) for color-by in the viewer.
+
+All three print one JSON object and exit non-zero with `{"error": …}` on bad
+input; heavy VTK imports are lazy, so the commands fail cleanly when `vtk` is
+not installed.
 
 ---
 

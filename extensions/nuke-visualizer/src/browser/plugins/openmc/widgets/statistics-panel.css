@@ -1,0 +1,128 @@
+/* ============================================================================
+   Statistics panel (2D histogram / scatter / box / parallel coordinates)
+   ============================================================================ */
+
+.nuke-statistics-panel {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    background: var(--theia-editor-background);
+    color: var(--theia-foreground);
+    font-family: var(--theia-ui-font-family);
+    font-size: var(--theia-ui-font-size1);
+}
+
+.nuke-statistics-panel-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 0 0 auto;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--theia-panel-border);
+}
+
+.nuke-statistics-panel-title {
+    margin-right: auto;
+    font-weight: 600;
+}
+
+/* Icon-only header button: undo Theia's global .theia-button min-width/offset */
+.nuke-statistics-panel-close {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    margin-left: 0;
+    padding: 2px 6px;
+}
+
+.nuke-statistics-panel-tabs {
+    display: flex;
+    gap: 2px;
+    flex: 0 0 auto;
+    padding: 0 8px;
+    border-bottom: 1px solid var(--theia-panel-border);
+}
+
+.nuke-statistics-panel-tab {
+    padding: 6px 9px;
+    border: none;
+    border-bottom: 2px solid transparent;
+    background: transparent;
+    color: var(--theia-descriptionForeground);
+    font: inherit;
+    cursor: pointer;
+}
+
+.nuke-statistics-panel-tab:hover {
+    color: var(--theia-foreground);
+}
+
+.nuke-statistics-panel-tab[aria-selected='true'] {
+    color: var(--theia-foreground);
+    border-bottom-color: var(--theia-focusBorder);
+}
+
+.nuke-statistics-panel-tab:focus-visible {
+    outline: 1px solid var(--theia-focusBorder);
+    outline-offset: -1px;
+}
+
+.nuke-statistics-panel-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    flex: 0 0 auto;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--theia-panel-border);
+}
+
+.nuke-statistics-panel-control {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--theia-descriptionForeground);
+}
+
+.nuke-statistics-panel-control input[type='number'] {
+    width: 62px;
+    padding: 3px 6px;
+    border: 1px solid var(--theia-input-border, var(--theia-panel-border));
+    border-radius: 3px;
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    font-size: 12px;
+    outline: none;
+}
+
+.nuke-statistics-panel-control input[type='number']:focus {
+    border-color: var(--theia-focusBorder);
+}
+
+.nuke-statistics-panel-control .nuke-select {
+    min-width: 0;
+}
+
+.nuke-statistics-panel-note {
+    color: var(--theia-descriptionForeground);
+    font-size: 11px;
+}
+
+.nuke-statistics-panel-chart {
+    flex: 1 1 auto;
+    min-height: 0;
+    padding: 4px;
+}
+
+.nuke-statistics-panel-summary {
+    flex: 0 0 auto;
+    padding: 4px 10px;
+    border-top: 1px solid var(--theia-panel-border);
+    color: var(--theia-descriptionForeground);
+    font-size: 11px;
+}
+
+.nuke-statistics-panel-empty {
+    flex: 1 1 auto;
+}

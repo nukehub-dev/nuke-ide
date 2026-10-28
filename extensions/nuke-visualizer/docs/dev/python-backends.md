@@ -297,11 +297,13 @@ python/
         ├── plugin.py
         ├── commands/
         │   ├── convert.py     # headless converters (DAGMC, STEP)
-        │   └── exodus.py      # headless Exodus time-series extractor
+        │   ├── exodus.py      # headless Exodus time-series extractor
+        │   └── analysis.py    # integrate / describe / mesh-quality commands
         └── lib/
             ├── common.py
             ├── dagmc.py           # DAGMC → VTK library
-            └── step.py            # STEP → VTK library
+            ├── step.py            # STEP → VTK library
+            └── analysis.py        # pure numpy integrate/stats/quality helpers
 ```
 
 Import helpers using absolute imports:

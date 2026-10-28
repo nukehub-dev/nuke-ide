@@ -48,6 +48,15 @@ import {
     readVtkText
 } from '../native-vtk/native-vtk-data';
 import { buildVoxelMesh, tallyVolumePoints, updateVoxelInstances, voxelInstanceLayout } from '../../../../viewer-core/voxel-blocks';
+import { buildClipCap } from '../../../../viewer-core/capped-clip';
+import {
+    buildScreenshotFilename,
+    captureRendererScreenshot,
+    copyScreenshotDataUrl,
+    downloadScreenshotDataUrl,
+    type ScreenshotOptions
+} from '../../../../viewer-core/canvas-screenshot';
+import { ViewerExportMenu } from '../viewer-export-menu';
 import type { VoxelInstanceLayout } from '../../../../viewer-core/voxel-blocks';
 import {
     buildVolumeLut,
@@ -270,6 +279,10 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
     protected clip: ClipPlanesState = createClipPlanesState();
     /** Active X/Y/Z tab of the header clip control (per-axis settings persist). */
     protected clipTab: ClipAxis = 'X';
+    /** Closed-cut caps for the current clip planes (closed triangle blocks only). */
+    protected clipCaps = true;
+    protected clipCapGroup: THREE.Group | undefined;
+    protected clipCapKey: string | undefined;
     /**
      * Open bottom-bar popover (single slot, CAD `openPopover` parity — never
      * both cards). The widget owns the slot; every card control routes onto
@@ -601,7 +614,7 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
             solidColor: solid ? { value: this.solidColor } : undefined,
             background: { value: this.background },
             shading: { value: this.shading },
-            clip: { state: this.clip, tab: this.clipTab },
+            clip: { state: this.clip, tab: this.clipTab, caps: this.clipCaps },
             measure: { active: this.measure.active },
             opacity: { value: this.opacity, ...OPACITY_SPEC },
             pointSize: { value: this.pointSize, ...POINT_SIZE_SPEC },
@@ -620,6 +633,12 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
         }
         if (patch.clipTab !== undefined && patch.clipTab !== this.clipTab) {
             this.clipTab = patch.clipTab;
+            this.update();
+        }
+        if (patch.clipCaps !== undefined && patch.clipCaps !== this.clipCaps) {
+            this.clipCaps = patch.clipCaps;
+            this.applyClip();
+            this.renderScene();
             this.update();
         }
         if (patch.measureActive !== undefined) {
@@ -1398,17 +1417,31 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
         this.updateTallyVolumeVisibility();
     }
 
-    /** Download a PNG screenshot of the current canvas. */
-    saveScreenshot(): void {
-        if (!this.renderer || this.blocks.length === 0) {
+    /** Download a screenshot of the current canvas (one-click PNG by default). */
+    saveScreenshot(options: ScreenshotOptions = {}): void {
+        if (!this.renderer || !this.scene || !this.camera || this.blocks.length === 0) {
             return;
         }
+        const dataUrl = captureRendererScreenshot(this.renderer, this.scene, this.camera, this.host ?? this.renderer.domElement, options);
         this.renderScene();
-        const url = this.renderer.domElement.toDataURL('image/png');
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `${this.vtmUri?.path.base ?? 'dagmc'}.png`;
-        link.click();
+        downloadScreenshotDataUrl(dataUrl, {
+            ...options,
+            filename: buildScreenshotFilename(this.vtmUri?.path.base ?? 'dagmc', new Date(), options.format ?? 'png')
+        });
+    }
+
+    /** Copy the current canvas to the clipboard (falls back to a visible warning). */
+    async copyScreenshot(options: ScreenshotOptions = {}): Promise<void> {
+        if (!this.renderer || !this.scene || !this.camera) {
+            return;
+        }
+        const dataUrl = captureRendererScreenshot(this.renderer, this.scene, this.camera, this.host ?? this.renderer.domElement, options);
+        this.renderScene();
+        try {
+            await copyScreenshotDataUrl(dataUrl);
+        } catch (error) {
+            this.messageService.warn(error instanceof Error ? error.message : String(error));
+        }
     }
 
     /** Frame all visible blocks through the orbit controls (target + distance). */
@@ -1538,6 +1571,13 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
                         disabled={disabled}
                         onScreenshot={() => this.saveScreenshot()}
                         onReload={() => this.vtmUri && this.setVtmFile(this.vtmUri)}
+                        exportMenu={
+                            <ViewerExportMenu
+                                disabled={disabled}
+                                onExport={(options) => this.saveScreenshot(options)}
+                                onCopy={(options) => void this.copyScreenshot(options)}
+                            />
+                        }
                     />
                 </ViewerNavBar>
                 {this.openNavPopover === 'clip' && (
@@ -2174,6 +2214,8 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
             }
             this.disposeGroup(this.dataGroup);
             this.dataGroup = undefined;
+            this.clipCapGroup = undefined;
+            this.clipCapKey = undefined;
         }
         // Rebuild clears the measure session (viewport state, never document
         // state); the label hides on the next repaint via updateMeasureLabel.
@@ -2552,7 +2594,97 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
                 (child.material as THREE.Material).clippingPlanes = planes;
             }
         });
+        this.rebuildClipCaps(planes);
         this.applyVolumeClipBox();
+    }
+
+    /** Remove the current cap meshes (clip/state/dataset change). */
+    private clearClipCaps(): void {
+        this.clipCapKey = undefined;
+        const group = this.clipCapGroup;
+        if (!group) {
+            return;
+        }
+        group.parent?.remove(group);
+        this.disposeGroup(group);
+        this.clipCapGroup = undefined;
+    }
+
+    /** Base solid/categorical color for a block's cap (matches the surface fill). */
+    private blockCapColor(block: DagmcBlockModel): THREE.Color {
+        if (isMaterialColorBy(this.colorBy)) {
+            return new THREE.Color(materialColor(materialForVolume(this.modelInfo, this.blockVolumeId(block))));
+        }
+        if (isVolumeColorBy(this.colorBy)) {
+            const volumeId = this.blockVolumeId(block);
+            return new THREE.Color(volumeId === undefined ? this.solidColor : categoryColor(`volume:${volumeId}`));
+        }
+        if (isGroupColorBy(this.colorBy)) {
+            const groupName = primaryGroupForVolume(this.modelInfo, this.blockVolumeId(block));
+            return new THREE.Color(groupName === undefined ? this.solidColor : categoryColor(`group:${groupName}`));
+        }
+        return new THREE.Color(this.solidColor);
+    }
+
+    /**
+     * Build a solid cap for every visible closed triangle block and each
+     * enabled clip plane. Other enabled planes clip the cap at box-section
+     * edges; open blocks simply stay hollow.
+     */
+    private rebuildClipCaps(planes: readonly THREE.Plane[]): void {
+        const visible = this.visibleBlocks();
+        const key = this.clipCaps
+            ? `${JSON.stringify(this.clip)}:${visible.map((block) => block.blockIndex).join(',')}:${this.colorBy}:${this.solidColor}`
+            : undefined;
+        if (key !== undefined && this.clipCapGroup && this.clipCapKey === key) {
+            return;
+        }
+        this.clearClipCaps();
+        if (key === undefined || !this.clipCaps || !this.dataGroup || planes.length === 0) {
+            return;
+        }
+        const group = new THREE.Group();
+        group.name = 'clip-caps';
+        for (const block of visible) {
+            if (!block.triangles || block.triangles.length === 0) {
+                continue;
+            }
+            for (const plane of planes) {
+                const cap = buildClipCap(
+                    { positions: block.positions, triangles: block.triangles },
+                    [plane.normal.x, plane.normal.y, plane.normal.z],
+                    plane.constant
+                );
+                if (!cap || cap.length === 0) {
+                    continue;
+                }
+                const geometry = new THREE.BufferGeometry();
+                geometry.setAttribute('position', new THREE.BufferAttribute(cap, 3));
+                geometry.userData.role = 'clip-cap';
+                geometry.computeVertexNormals();
+                const material = new THREE.MeshLambertMaterial({
+                    color: this.blockCapColor(block),
+                    side: THREE.DoubleSide,
+                    transparent: this.opacity < 1,
+                    opacity: this.opacity,
+                    clippingPlanes: [...planes],
+                    polygonOffset: true,
+                    polygonOffsetFactor: 1,
+                    polygonOffsetUnits: 1
+                });
+                const mesh = new THREE.Mesh(geometry, material);
+                mesh.userData['blockIndex'] = block.blockIndex;
+                mesh.userData['role'] = 'clip-cap';
+                group.add(mesh);
+            }
+        }
+        if (group.children.length === 0) {
+            return;
+        }
+        this.dataGroup.add(group);
+        this.clipCapGroup = group;
+        this.clipCapKey = key;
+        this.applyShadingVisibility();
     }
 
     private toThreePlanes(): THREE.Plane[] {
@@ -2632,7 +2764,9 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
                 const geometry = child.geometry as THREE.BufferGeometry;
                 const role = geometry.userData?.['role'];
                 const kind = geometry.userData?.['kind'] as DagmcRenderKind | undefined;
-                if (child instanceof THREE.Mesh) {
+                if (role === 'clip-cap') {
+                    child.visible = this.clipCaps && anyClipEnabled(this.clip) && !flags.pointsOnly && this.shading !== 'wireframe';
+                } else if (child instanceof THREE.Mesh) {
                     child.visible = !flags.pointsOnly;
                 } else if (role === 'mesh-points') {
                     child.visible = flags.pointsOnly;

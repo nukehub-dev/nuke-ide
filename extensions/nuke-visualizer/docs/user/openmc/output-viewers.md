@@ -36,6 +36,39 @@ The tracks, collision-track, and weight-windows data panels open with a **Derive
 - **Calculator:** type an expression over the dataset's array names and press **Apply**. The grammar is deliberately small (not a general parser): `a/b`, `a-b`, `mag(v)`, `log10(a)`, where `a`, `b`, `v` are array names shown under the input (for example `upper_g1/lower_g1` on a weight-windows mesh). Applying computes a transient array and colors the 3D view by it, exactly like picking a parsed array in Color By. Divide-by-zero yields NaN, which renders in each colormap's NaN color; `log10` of a zero or negative value is NaN for the same reason. A rejected expression shows a panel error and changes nothing — **Clear** drops the transient field and returns to Solid Color.
 - **Histogram:** an SVG stats readout (min/max/mean/std, value counts) plus a bar chart over the **active** color-by array — derived or parsed — with a bin-count input and a **Log y** toggle for skewed tally distributions. It follows the Viewer Settings → Color by selection, so switching arrays re-bins instantly.
 
+## Statistics
+
+When a loaded dataset has at least two scalar arrays, the data panel adds a
+**Statistics** card. **Show statistical plots** opens four tabs over the
+loaded arrays (capped to the first eight so huge statepoints stay readable):
+
+- **2D Histogram** — joint distribution of two selected arrays.
+- **Scatter** — decimated pairwise scatter (up to 20,000 points).
+- **Box** — min/Q1/median/Q3/max per array.
+- **Parallel Coordinates** — multivariate rows colored by the active array.
+
+NaN/non-finite values are excluded from bins and quantiles. The card is
+available in the tracks, collision-track, and weight-windows data panels and
+uses the existing Plotly stack (no new dependency).
+
+## Dataset Inspector
+
+`Tools → Visualizer → Dataset Inspector` opens a right-hand sidebar bound to
+the active native viewer. It shows:
+
+- **Summary** — dataset kind, point/cell counts, bounds.
+- **Arrays** — every point and cell array with component count and range.
+- **Statistics** — count, min/Q1/median/Q3/max, mean and population std for
+  the selected array. Cell arrays on grids or triangle meshes also show the
+  integral (value × cell volume/area) and the summed volume/area.
+- **Table** — a paged preview of the selected array (coordinates plus
+  components) with **Copy CSV**.
+
+The table shows the first 200 rows so large meshes never materialize in the
+DOM; the CSV action copies that same preview window. The panel follows the
+active viewer tab and shows an empty state when the bound widget is not a
+native dataset viewer.
+
 ## Particle Restart (`particle_restart.h5`, `particle_<batch>_<id>.h5`)
 
 A single particle's recorded state, written when a particle is lost with restart enabled. This viewer is a React summary — no 3D conversion: batch, generation, particle type, energy, position/direction, and weight.
@@ -57,7 +90,7 @@ Double-clicking `summary.h5` opens the geometry 3D view (hierarchy tree + 3D). T
 
 ## Viewer Controls
 
-Display settings live in the **Viewer Settings** sidebar (`Ctrl+Shift+P` → "Open Viewer Settings", or Nuke Tools → Visualizer → Viewer Settings), bound to the active 3D viewer tab. Like the CAD panels it has an icon + subtitle header (the bound viewer tab) and collapsible count-badge sections: **Display** (Color by array; Component for multi-component arrays; the full 34-preset ParaView colormap list with Invert/Log toggles; Auto/custom color Range; color-legend toggle; solid-color and background pickers; Shading incl. Shaded + Edges; point size, line width, and opacity sliders), **Clip** (per-axis X/Y/Z tabs remembering position/flip, badge `n/3` enabled plus a live status dot), **Playback** (Exodus time-step slider), **Measure** (distance toggle with an armed status dot), and **View** (ISO/T/F/R/X/Y/Z axis snaps, same action as the canvas bottom bar). Viewer headers are gone in the native VTK and DAGMC viewers — screenshot and reload sit on the canvas bottom bar (the camera/refresh icons next to Clip and Shading) and the top-left badge is the single file-name surface; viewers with real header content (tally kind chip, random-ray array quick-select, tracks/collision filter bars) keep their strip. Geometry (`geometry.xml`) viewers show Clip plus opacity and background; Exodus viewers show Color by, Map (with Invert/Log), the legend toggle, background, and the time-step slider. The tracks viewer additionally shows Glyphs rows in Display (direction cones with density + size sliders). Right-clicking the canvas opens the view-actions menu (Fit, Screenshot, Clip Planes, shading) with the same icon-per-row density as the CAD viewport menu. DAGMC viewers add Hide/Isolate for the selected volume and Show All Volumes when anything is hidden.
+Display settings live in the **Viewer Settings** sidebar (`Ctrl+Shift+P` → "Open Viewer Settings", or Nuke Tools → Visualizer → Viewer Settings), bound to the active 3D viewer tab. Grid datasets add **Volume** (transfer curve, MIP/composite, gradient shading) and **Slice** (X/Y/Z orthoslice preview) sections; `Tools → Visualizer → Dataset Inspector` opens the companion array/spreadsheet panel. Like the CAD panels it has an icon + subtitle header (the bound viewer tab) and collapsible count-badge sections: **Display** (Color by array; Component for multi-component arrays; the full 34-preset ParaView colormap list with Invert/Log toggles; Auto/custom color Range; color-legend toggle; solid-color and background pickers; Shading incl. Shaded + Edges; point size, line width, and opacity sliders), **Clip** (per-axis X/Y/Z tabs remembering position/flip, badge `n/3` enabled plus a live status dot), **Playback** (Exodus time-step slider), **Measure** (distance toggle with an armed status dot), and **View** (ISO/T/F/R/X/Y/Z axis snaps, same action as the canvas bottom bar). Viewer headers are gone in the native VTK and DAGMC viewers — screenshot and reload sit on the canvas bottom bar (the camera/refresh icons next to Clip and Shading) and the top-left badge is the single file-name surface; viewers with real header content (tally kind chip, random-ray array quick-select, tracks/collision filter bars) keep their strip. Geometry (`geometry.xml`) viewers show Clip plus opacity and background; Exodus viewers show Color by, Map (with Invert/Log), the legend toggle, background, and the time-step slider. The tracks viewer additionally shows Glyphs rows in Display (direction cones with density + size sliders). Right-clicking the canvas opens the view-actions menu (Fit, Screenshot, Clip Planes, shading) with the same icon-per-row density as the CAD viewport menu. DAGMC viewers add Hide/Isolate for the selected volume and Show All Volumes when anything is hidden.
 
 - **Resizable split** — drag the handle between the 3D area and the data panel to resize it (the handle shields the 3D view's mouse capture while dragging, so fast drags stay smooth).
 - **Orientation cube and bottom bar** — shared with the CAD viewport: the labeled ±X/±Y/±Z triad in the top-right tracks the camera as you orbit (click a knob to snap to that standard view), the bottom bar drives ISO/top/front/right + fit + zoom plus Clip and Shading popovers anchored above it (X/Y/Z tabs + Flip + Offset slider with % readout, and a mode list — the same setters the Viewer Settings sidebar drives), and the top-left badge names the dataset. The DAGMC viewer additionally offers exclude/isolate for the selected volume.

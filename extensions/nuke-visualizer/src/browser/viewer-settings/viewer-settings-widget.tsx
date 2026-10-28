@@ -40,6 +40,9 @@ import { anyClipEnabled, CLIP_AXES, setAllClipEnabled, updateAxisClip } from '..
 import { isViewerShadingMode, VIEWER_SHADING_MODES } from '../viewer-core/shading-mode';
 import { isWarpScaleMode, WARP_EXAGGERATION_SPEC, WARP_SCALE_MODES } from '../viewer-core/warp-vectors';
 import { DEFAULT_GLYPH_DENSITY, DEFAULT_GLYPH_SCALE, GLYPH_DENSITY_SPEC, GLYPH_SCALE_SPEC } from '../viewer-core/glyph-layout';
+import { SLICE_AXES } from '../viewer-core/slice-view';
+import { DEFAULT_OPACITY_STOPS, MAX_OPACITY_STOPS, type OpacityStop } from '../viewer-core/volume-transfer';
+import { SlicePreview } from './slice-preview';
 import {
     RANGE_SLIDER_STEPS,
     rangeSliderToValue,
@@ -274,6 +277,8 @@ export class ViewerSettingsWidget extends ReactWidget {
                     host && (
                         <>
                             {this.renderDisplaySection(host, snapshot)}
+                            {this.renderVolumeSection(host, snapshot)}
+                            {this.renderSliceSection(host, snapshot)}
                             {this.renderClipSection(host, snapshot)}
                             {this.renderStepSection(host, snapshot)}
                             {this.renderMeasureSection(host, snapshot)}
@@ -315,6 +320,220 @@ export class ViewerSettingsWidget extends ReactWidget {
             return undefined;
         }
         return this.renderSection('display', 'Display', 'symbol-color', rows.length, undefined, <>{rows}</>);
+    }
+
+    protected renderVolumeSection(host: ViewerSettingsHost, snapshot: ViewerSettingsSnapshot): React.ReactNode {
+        const volume = snapshot.volume;
+        if (!volume) {
+            return undefined;
+        }
+        return this.renderSection('volume', 'Volume', 'graph', 5, volume.visible, this.renderVolumeBody(host, volume));
+    }
+
+    protected renderVolumeBody(host: ViewerSettingsHost, volume: NonNullable<ViewerSettingsSnapshot['volume']>): React.ReactNode {
+        return (
+            <div className="viewer-settings-group">
+                <div className="viewer-settings-row">
+                    {this.renderRowLabel('eye', 'Volume', 'Show the volume representation (boxes or smooth raycast)')}
+                    <NukeSwitch
+                        className="viewer-settings-volume-visible"
+                        ariaLabel="Volume visible"
+                        checked={volume.visible}
+                        onChange={() => this.applyPatch(host, { volumeVisible: !volume.visible })}
+                    />
+                </div>
+                <div className="viewer-settings-row">
+                    {this.renderRowLabel(
+                        'symbol-method',
+                        'Smooth',
+                        'Trilinear raycast volume instead of per-cell voxel boxes (WebGL2 3D texture)'
+                    )}
+                    <NukeSwitch
+                        className="viewer-settings-volume-smooth"
+                        ariaLabel="Smooth volume"
+                        checked={volume.smooth}
+                        onChange={() => this.applyPatch(host, { volumeSmooth: !volume.smooth })}
+                    />
+                </div>
+                <div className="viewer-settings-row">
+                    {this.renderRowLabel(
+                        'combine',
+                        'Blend',
+                        'MIP keeps the hottest sample per ray; Composite accumulates front-to-back alpha'
+                    )}
+                    <NukeSelect
+                        className="viewer-settings-volume-blend"
+                        ariaLabel="Volume blend mode"
+                        value={volume.blendMode}
+                        options={[
+                            { value: 'mip', label: 'MIP' },
+                            { value: 'composite', label: 'Composite' }
+                        ]}
+                        disabled={!volume.smooth}
+                        onChange={(value) => {
+                            if (value === 'mip' || value === 'composite') {
+                                this.applyPatch(host, { volumeBlendMode: value });
+                            }
+                        }}
+                    />
+                </div>
+                <div className="viewer-settings-row">
+                    {this.renderRowLabel('lightbulb', 'Shade', 'Gradient headlight shading inside the volume (composite or MIP)')}
+                    <NukeSwitch
+                        className="viewer-settings-volume-shade"
+                        ariaLabel="Shade volume"
+                        checked={volume.shade}
+                        onChange={() => this.applyPatch(host, { volumeShade: !volume.shade })}
+                    />
+                </div>
+                {this.renderVolumeStops(host, volume.opacityStops)}
+            </div>
+        );
+    }
+
+    /**
+     * Opacity curve editor: one row per control point with position (display
+     * intensity 0-100%) and alpha (0-100%). The viewer normalizes/sorts the
+     * list; this panel only emits the edited list.
+     */
+    protected renderVolumeStops(host: ViewerSettingsHost, stops: readonly OpacityStop[]): React.ReactNode {
+        const commit = (next: readonly OpacityStop[]): void => this.applyPatch(host, { volumeOpacityStops: next });
+        const replace = (index: number, patch: Partial<OpacityStop>): void => {
+            const next = stops.map((stop, i) => (i === index ? { ...stop, ...patch } : stop));
+            commit(next);
+        };
+        return (
+            <div className="viewer-settings-volume-stops">
+                <div className="viewer-settings-row">
+                    {this.renderRowLabel('graph', 'Opacity curve', 'Alpha (right) as a function of display intensity (left)')}
+                    <Tooltip content="Reset the opacity curve to the linear ramp" position="top">
+                        <button
+                            className="theia-button secondary viewer-settings-volume-reset"
+                            onClick={() => commit(DEFAULT_OPACITY_STOPS)}
+                        >
+                            Reset
+                        </button>
+                    </Tooltip>
+                </div>
+                {stops.map((stop, index) => (
+                    <div className="viewer-settings-volume-stop" key={`${index}-${stop.t}`}>
+                        <span className="viewer-settings-volume-stop-label">t</span>
+                        <NukeSlider
+                            className="viewer-settings-volume-stop-position"
+                            ariaLabel={`Opacity point ${index + 1} position`}
+                            min={0}
+                            max={100}
+                            step={1}
+                            value={Math.round(stop.t * 100)}
+                            onChange={(value) => replace(index, { t: value / 100 })}
+                        />
+                        <span className="viewer-settings-volume-stop-value">{Math.round(stop.t * 100)}%</span>
+                        <span className="viewer-settings-volume-stop-label">a</span>
+                        <NukeSlider
+                            className="viewer-settings-volume-stop-alpha"
+                            ariaLabel={`Opacity point ${index + 1} alpha`}
+                            min={0}
+                            max={100}
+                            step={1}
+                            value={Math.round(stop.alpha * 100)}
+                            onChange={(value) => replace(index, { alpha: value / 100 })}
+                        />
+                        <Tooltip content={`Remove opacity point ${index + 1}`} position="top">
+                            <button
+                                className="theia-button secondary viewer-settings-volume-stop-remove"
+                                disabled={stops.length <= 2}
+                                onClick={() => commit(stops.filter((_, i) => i !== index))}
+                            >
+                                <i className={codicon('trash')}></i>
+                            </button>
+                        </Tooltip>
+                    </div>
+                ))}
+                <div className="viewer-settings-row">
+                    <Tooltip
+                        content={
+                            stops.length >= MAX_OPACITY_STOPS
+                                ? `Maximum ${MAX_OPACITY_STOPS} opacity points`
+                                : 'Add an opacity control point'
+                        }
+                        position="top"
+                    >
+                        <button
+                            className="theia-button secondary viewer-settings-volume-add"
+                            disabled={stops.length >= MAX_OPACITY_STOPS}
+                            onClick={() => commit([...stops, { t: 0.5, alpha: 0.5 }])}
+                        >
+                            <i className={codicon('add')}></i> Add point
+                        </button>
+                    </Tooltip>
+                </div>
+            </div>
+        );
+    }
+
+    protected renderSliceSection(host: ViewerSettingsHost, snapshot: ViewerSettingsSnapshot): React.ReactNode {
+        const slice = snapshot.slice;
+        if (!slice || host.getSlicePreview === undefined) {
+            return undefined;
+        }
+        const preview = host.getSlicePreview(slice);
+        return this.renderSection(
+            'slice',
+            'Slice',
+            'layers',
+            1,
+            false,
+            <div className="viewer-settings-group">
+                <div className="viewer-settings-row viewer-settings-clip-tabs viewer-settings-slice-tabs">
+                    {SLICE_AXES.map((axis) => (
+                        <Tooltip key={axis} content={`${axis} orthoslice`} position="top">
+                            <button
+                                className={`theia-button${slice.axis === axis ? '' : ' secondary'} viewer-settings-clip-tab`}
+                                onClick={() => this.applyPatch(host, { sliceAxis: axis })}
+                            >
+                                {axis}
+                            </button>
+                        </Tooltip>
+                    ))}
+                </div>
+                <div className="viewer-settings-tip-fill">
+                    <Tooltip content={`Slice position (${Math.round(slice.fraction * 100)}%)`} position="top">
+                        <NukeSlider
+                            className="viewer-settings-slice-position"
+                            ariaLabel={`Slice ${slice.axis} position`}
+                            min={0}
+                            max={100}
+                            step={1}
+                            value={Math.round(slice.fraction * 100)}
+                            onChange={(value) => this.applyPatch(host, { sliceFraction: value / 100 })}
+                        />
+                    </Tooltip>
+                </div>
+                <div className="viewer-settings-row">
+                    {this.renderRowLabel(
+                        'symbol-method',
+                        'Smooth',
+                        'Blend the two adjacent cell layers (linear) instead of showing one cell layer'
+                    )}
+                    <NukeSwitch
+                        className="viewer-settings-slice-smooth"
+                        ariaLabel="Smooth slice"
+                        checked={slice.smooth}
+                        onChange={() => this.applyPatch(host, { sliceSmooth: !slice.smooth })}
+                    />
+                </div>
+                <div className="viewer-settings-slice-preview-wrap">
+                    <SlicePreview
+                        width={preview?.width ?? 0}
+                        height={preview?.height ?? 0}
+                        rgba={preview?.rgba}
+                        smooth={slice.smooth}
+                        label={`${slice.axis} slice`}
+                        emptyMessage="This dataset has no cell-grid slice to preview."
+                    />
+                </div>
+            </div>
+        );
     }
 
     protected renderClipSection(host: ViewerSettingsHost, snapshot: ViewerSettingsSnapshot): React.ReactNode {
@@ -1045,6 +1264,21 @@ export class ViewerSettingsWidget extends ReactWidget {
                         onChange={(checked) => this.applyPatch(host, { clip: setAllClipEnabled(clip.state, checked) })}
                     />
                 </div>
+                {clip.caps !== undefined && (
+                    <div className="viewer-settings-row">
+                        {this.renderRowLabel(
+                            'circuit-board',
+                            'Cap cut',
+                            'Fill the clipped cross-section with a solid cap (closed triangle meshes only)'
+                        )}
+                        <NukeSwitch
+                            className="viewer-settings-clip-caps"
+                            ariaLabel="Cap clip cuts"
+                            checked={clip.caps}
+                            onChange={() => this.applyPatch(host, { clipCaps: !clip.caps })}
+                        />
+                    </div>
+                )}
                 <div className="viewer-settings-row viewer-settings-clip-tabs">
                     {CLIP_AXES.map((axis) => (
                         <Tooltip key={axis} content={`Clip ${axis} plane settings`} position="top">
