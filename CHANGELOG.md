@@ -186,7 +186,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-visualizer: output data panels add statistical plots (2D histogram, scatter, box, parallel coordinates) over loaded arrays.
 - nuke-visualizer: screenshot export menu offers PNG/JPEG/WebP, 1x/2x/4x, transparent backgrounds, and clipboard copy.
 - nuke-visualizer: mesh tallies emit std and relative-error companion arrays for convergence inspection.
+- nuke-visualizer: bivariate tally rendering fades unreliable cells by relative error, with a Viewer Settings Uncertainty editor.
 - nuke-visualizer: headless `base.integrate`, `base.describe`, and `base.mesh-quality` analysis commands for VTK arrays and meshes.
+- nuke-visualizer: Find Data queries select by value, id, or name and highlight matching tuples in the 3D view with CSV extraction.
+- nuke-visualizer: bounding-box axes grid with nice tick labels for native 3D viewers.
+- nuke-visualizer: Save/Restore view state persists the camera and display settings per viewer tab.
+- nuke-visualizer: headless `base.export` writes CSV, VTK, or glTF from a dataset with optional array/block selection.
 - openmc-studio: DAGMC Editor routes picked CAD files to import instead of landing on an empty model.
 - openmc-studio: void cells emit standard `material="void"` so this OpenMC accepts them.
 - openmc-studio: Simulation Dashboard re-attaches to in-flight runs after reload with live progress and log streaming.

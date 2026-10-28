@@ -26,6 +26,8 @@ All files under `extensions/nuke-visualizer/` except generated artifacts (`lib/`
   (`native-vtk-data.ts`, 256 MB `NATIVE_VTK_MAX_READ_BYTES` budget — never bare `FileService.read`) and `parseNativeVtk`.
 - Shared viewer is `NativeVtkViewerWidget` (+ `widgets/native-vtk/`); color-by (`Solid Color|Point:|Cell:`) maps through
   `viewer-core/scalar-mapping.ts` (34-preset generated `colormaps.ts` — never hand-edit); see `docs/dev/output-viewers.md`.
+  Bivariate uncertainty (`viewer-core/bivariate-mapping.ts` + Viewer Settings `Uncertainty`) pairs `<score>-mean` with its
+  `-std`/`-rel-err` companion and blends surfaces/voxel blocks toward the mask color; smooth volume/slice stays mean-only.
   DAGMC adds categorical `Material|Volume|Group` (`dagmc-color-by.ts` + shared `material-colors`): no scalar mapping or
   legend, and Viewer Settings hides the colormap/Invert/Log/range/threshold/legend rows (`colormap.disabled`).
 - Grid volumes use `viewer-core/volume-transfer.ts` + `volume-raycast.ts` (editable opacity stops, MIP/composite, gradient
@@ -41,12 +43,20 @@ All files under `extensions/nuke-visualizer/` except generated artifacts (`lib/`
   props-only `viewer-export-menu.tsx`; keep the one-click PNG path and never resize the canvas CSS permanently.
 - Statistical plots use `viewer-core/statistics.ts` + `statistics-panel.tsx` (Plotly, 2D hist/scatter/box/parallel); the
   host supplies scalar arrays, the panel owns tab/bin state only.
+- Find Data uses `viewer-core/selection-query.ts` + props-only `find-data-dialog.tsx`; the native viewer keeps the
+  selection transient and expands it through `selection-overlay.ts` into an orange always-on-top group.
+- Axes grid uses `viewer-core/axes-grid.ts` + props-only `axes-grid-overlay.tsx`; lines live outside the data group so
+  data clipping never cuts the axes, and label projection goes through the isolated overlay host (not per-frame widget
+  re-renders).
+- Saved views use `viewer-core/viewer-state.ts` (versioned camera + display schema) and `nukeVisualizer.viewerStates`
+  keyed by viewer tab id; `orbit-controls.ts` owns `getPose`/`setPose`. Never store file paths or transient selections.
 - Output routing uses `src/browser/output-viewer/` (`output-viewer-registry.ts` + `output-file-patterns.ts`); register
   with `bind(OutputViewerContribution).to(...)`; see `docs/dev/output-viewers.md`.
 - DAGMC/STEP use `python/plugins/base/lib/dagmc.py` / `step.py` (`DagmcError`/`StepError`, `find_spec` probes, lazy
   loaders, cached `base.convert-dagmc-multiblock`); see `docs/dev/python-backends.md`.
 - Analysis commands `base.integrate` / `base.describe` / `base.mesh-quality` live in
-  `python/plugins/base/commands/analysis.py` (pure numpy in `lib/analysis.py`, lazy VTK); register in `base/plugin.py`.
+  `python/plugins/base/commands/analysis.py` (pure numpy in `lib/analysis.py`, lazy VTK); `base.export` lives in
+  `commands/export.py` + `lib/export.py` (CSV/VTK/glTF). Register both in `base/plugin.py`.
 - Exodus series (`python/plugins/base/lib/exodus_series.py`, `base.exodus-series` → `ExodusTimeSliderWidget` for
   `*.e`/`*.exo*`) and headless geometry (`geometry_viz.py::extract_csg_mesh`, `slice_viz.py` via `openmc.geometry-mesh` /
   `openmc.geometry-slice-vtk` into `widgets/geometry-native/` and `widgets/tally-native/`); see `docs/dev/python-backends.md`.

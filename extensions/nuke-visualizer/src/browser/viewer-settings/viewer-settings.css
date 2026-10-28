@@ -475,3 +475,15 @@
 .viewer-settings-slice-preview-wrap {
     margin-top: 4px;
 }
+
+/* Bivariate (mean + relative error) section: the shared UncertaintyEditor
+   owns its own rows/legend; the panel adds only the muted limitation notes. */
+.viewer-settings-uncertainty {
+    gap: 6px;
+}
+
+.viewer-settings-uncertainty-note {
+    font-size: 11px;
+    line-height: 15px;
+    color: var(--theia-descriptionForeground);
+}

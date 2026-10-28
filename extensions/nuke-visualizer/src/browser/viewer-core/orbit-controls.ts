@@ -138,6 +138,13 @@ export interface ManagedOrbitControls {
 }
 
 /** Disposable OrbitControls wiring owned by one viewer widget. */
+/** Snapshot of the orbit camera for viewer-state save/restore. */
+export interface OrbitControlsPose {
+    readonly position: BoundsCorner;
+    readonly target: BoundsCorner;
+    readonly up?: BoundsCorner;
+}
+
 export interface OrbitControlsHandle {
     /** Frame `min`/`max` bounds: sets the target and distance, keeping the current view direction. */
     fitBounds: (min: BoundsCorner, max: BoundsCorner) => void;
@@ -145,6 +152,10 @@ export interface OrbitControlsHandle {
     setViewDirection: (direction: BoundsCorner) => void;
     /** Dolly toward (`factor` < 1) or away (`factor` > 1) from the target. */
     zoomBy: (factor: number) => void;
+    /** Current camera position/target/up (for saved views). */
+    getPose: () => OrbitControlsPose;
+    /** Restore a saved camera pose (no animation). */
+    setPose: (pose: OrbitControlsPose) => void;
     /** Remove listeners and release the controls. */
     dispose: () => void;
 }
@@ -313,6 +324,26 @@ export async function createOrbitControls(
             }
             const offset = camera.position.clone().sub(controls.target).multiplyScalar(factor);
             camera.position.copy(controls.target).add(offset);
+            controls.update();
+        },
+        getPose: () => ({
+            position: [camera.position.x, camera.position.y, camera.position.z],
+            target: [controls.target.x, controls.target.y, controls.target.z],
+            up: [camera.up.x, camera.up.y, camera.up.z]
+        }),
+        setPose: (pose) => {
+            if (disposed) {
+                return;
+            }
+            const { position, target, up } = pose;
+            if (position.every(Number.isFinite) && target.every(Number.isFinite)) {
+                camera.position.set(position[0], position[1], position[2]);
+                controls.target.set(target[0], target[1], target[2]);
+            }
+            if (up && up.every(Number.isFinite)) {
+                camera.up.set(up[0], up[1], up[2]);
+            }
+            camera.lookAt(controls.target);
             controls.update();
         },
         dispose: () => {

@@ -30,6 +30,7 @@ import { injectable, inject, postConstruct } from '@theia/core/shared/inversify'
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { ApplicationShell, Widget } from '@theia/core/lib/browser';
 import { Message } from '@theia/core/lib/browser';
+import { PreferenceService } from '@theia/core/lib/common/preferences';
 import { codicon } from '@theia/core/lib/browser/widgets/widget';
 import { ColorPicker, NukeSelect, NukeSlider, NukeSwitch, Tooltip } from 'nuke-essentials/lib/theme/browser/components';
 import { NativeVtkViewerWidget } from '../plugins/openmc/widgets/native-vtk-viewer-widget';
@@ -43,6 +44,8 @@ import { DEFAULT_GLYPH_DENSITY, DEFAULT_GLYPH_SCALE, GLYPH_DENSITY_SPEC, GLYPH_S
 import { SLICE_AXES } from '../viewer-core/slice-view';
 import { DEFAULT_OPACITY_STOPS, MAX_OPACITY_STOPS, type OpacityStop } from '../viewer-core/volume-transfer';
 import { SlicePreview } from './slice-preview';
+import { parseViewerState, serializeViewerState } from '../viewer-core/viewer-state';
+import { UncertaintyEditor } from './uncertainty-editor';
 import {
     RANGE_SLIDER_STEPS,
     rangeSliderToValue,
@@ -88,6 +91,9 @@ export class ViewerSettingsWidget extends ReactWidget {
 
     @inject(ApplicationShell)
     protected readonly shell: ApplicationShell;
+
+    @inject(PreferenceService)
+    protected readonly preferences!: PreferenceService;
 
     protected activeViewer: Widget | undefined;
     /** Panel-local collapsed sections (CAD TreeSection pattern); viewer state is never cached here. */
@@ -159,6 +165,33 @@ export class ViewerSettingsWidget extends ReactWidget {
     /** Apply a sidebar edit through the widget's setters, then re-render from the live snapshot. */
     protected applyPatch(host: ViewerSettingsHost, patch: ViewerSettingsPatch): void {
         host.applyViewerSettings(patch);
+        this.update();
+    }
+
+    /** Saved viewer-state map (tab id -> serialized JSON). */
+    protected viewerStateMap(): Record<string, string> {
+        const value = this.preferences.get('nukeVisualizer.viewerStates');
+        return value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, string>) : {};
+    }
+
+    protected async saveViewerState(host: ViewerSettingsHost, snapshot: ViewerSettingsSnapshot): Promise<void> {
+        const state = host.getViewerState?.();
+        if (!state) {
+            return;
+        }
+        await this.preferences.set('nukeVisualizer.viewerStates', {
+            ...this.viewerStateMap(),
+            [snapshot.widgetId]: serializeViewerState(state)
+        });
+        this.update();
+    }
+
+    protected restoreViewerState(host: ViewerSettingsHost, snapshot: ViewerSettingsSnapshot): void {
+        const serialized = this.viewerStateMap()[snapshot.widgetId];
+        const state = serialized ? parseViewerState(serialized) : undefined;
+        if (state) {
+            host.applyViewerState?.(state);
+        }
         this.update();
     }
 
@@ -277,12 +310,13 @@ export class ViewerSettingsWidget extends ReactWidget {
                     host && (
                         <>
                             {this.renderDisplaySection(host, snapshot)}
+                            {this.renderUncertaintySection(host, snapshot)}
                             {this.renderVolumeSection(host, snapshot)}
                             {this.renderSliceSection(host, snapshot)}
                             {this.renderClipSection(host, snapshot)}
                             {this.renderStepSection(host, snapshot)}
                             {this.renderMeasureSection(host, snapshot)}
-                            {this.renderViewSection(host)}
+                            {this.renderViewSection(host, snapshot)}
                         </>
                     )
                 )}
@@ -320,6 +354,57 @@ export class ViewerSettingsWidget extends ReactWidget {
             return undefined;
         }
         return this.renderSection('display', 'Display', 'symbol-color', rows.length, undefined, <>{rows}</>);
+    }
+
+    /**
+     * Bivariate (mean + relative error) section. The host only reports it for
+     * a color-by cell array with a `-std`/`-rel-err` companion, so absent
+     * means either Solid Color or an array without uncertainty — hide the
+     * whole section rather than show dead controls. The editor emits the
+     * complete next options object and the switch lives beside it; surfaces
+     * and voxel blocks cannot carry per-vertex alpha, so the muted note
+     * states the two rendering limits up front.
+     */
+    protected renderUncertaintySection(host: ViewerSettingsHost, snapshot: ViewerSettingsSnapshot): React.ReactNode {
+        const bivariate = snapshot.bivariate;
+        if (!bivariate) {
+            return undefined;
+        }
+        const approximated = bivariate.channel === 'opacity' || bivariate.channel === 'noise';
+        return this.renderSection(
+            'uncertainty',
+            'Uncertainty',
+            'warning',
+            1,
+            bivariate.enabled,
+            <div className="viewer-settings-group viewer-settings-uncertainty">
+                <div className="viewer-settings-row">
+                    {this.renderRowLabel(
+                        'warning',
+                        'Uncertainty',
+                        'Fade the mean color toward the mask color as the relative statistical error (std / |mean|) grows'
+                    )}
+                    <NukeSwitch
+                        className="viewer-settings-bivariate"
+                        ariaLabel="Uncertainty rendering"
+                        checked={bivariate.enabled}
+                        onChange={() => this.applyPatch(host, { bivariateEnabled: !bivariate.enabled })}
+                    />
+                </div>
+                {bivariate.enabled && (
+                    <UncertaintyEditor
+                        channel={bivariate.channel}
+                        maxRelativeError={bivariate.maxRelativeError}
+                        lowQualityColor={bivariate.lowQualityColor}
+                        onChange={(options) => this.applyPatch(host, { bivariate: options })}
+                    />
+                )}
+                <div className="viewer-settings-uncertainty-note">
+                    {approximated ? 'Opacity and noise render as desaturation on surfaces and voxel blocks (no per-vertex alpha). ' : ''}
+                    The smooth volume raycast stays mean-only.
+                </div>
+            </div>
+        );
     }
 
     protected renderVolumeSection(host: ViewerSettingsHost, snapshot: ViewerSettingsSnapshot): React.ReactNode {
@@ -566,8 +651,60 @@ export class ViewerSettingsWidget extends ReactWidget {
         return this.renderSection('measure', 'Measure', 'ruler', 1, measure.active, this.renderMeasure(host, snapshot));
     }
 
-    protected renderViewSection(host: ViewerSettingsHost): React.ReactNode {
-        return this.renderSection('view', 'View', 'screen-full', VIEWER_SNAP_ACTIONS.length, undefined, this.renderSnap(host));
+    protected renderViewSection(host: ViewerSettingsHost, snapshot: ViewerSettingsSnapshot): React.ReactNode {
+        const grid = snapshot.axesGrid;
+        const gridRow = grid ? (
+            <div className="viewer-settings-row" key="axes-grid">
+                {this.renderRowLabel('ruler', 'Grid', 'Show bounding-box axes with tick labels for the active dataset')}
+                <NukeSwitch
+                    className="viewer-settings-axes-grid"
+                    ariaLabel="Axes grid"
+                    checked={grid.visible}
+                    onChange={() => this.applyPatch(host, { axesGridVisible: !grid.visible })}
+                />
+            </div>
+        ) : undefined;
+        const canRestoreState = host.getViewerState !== undefined && host.applyViewerState !== undefined;
+        const hasSavedState = canRestoreState && this.viewerStateMap()[snapshot.widgetId] !== undefined;
+        const viewRows = canRestoreState ? (
+            <>
+                <div className="viewer-settings-row" key="save-view">
+                    {this.renderRowLabel('save', 'View state', 'Save the camera and display settings for this viewer tab')}
+                    <Tooltip content="Save this viewer's camera and display settings" position="top">
+                        <button
+                            className="theia-button secondary viewer-settings-save-view"
+                            onClick={() => void this.saveViewerState(host, snapshot)}
+                        >
+                            Save
+                        </button>
+                    </Tooltip>
+                    <Tooltip
+                        content={hasSavedState ? 'Restore the saved camera and display settings' : 'No saved view for this tab yet'}
+                        position="top"
+                    >
+                        <button
+                            className="theia-button secondary viewer-settings-restore-view"
+                            disabled={!hasSavedState}
+                            onClick={() => this.restoreViewerState(host, snapshot)}
+                        >
+                            Restore
+                        </button>
+                    </Tooltip>
+                </div>
+            </>
+        ) : undefined;
+        return this.renderSection(
+            'view',
+            'View',
+            'screen-full',
+            VIEWER_SNAP_ACTIONS.length + (gridRow ? 1 : 0) + (viewRows ? 1 : 0),
+            undefined,
+            <>
+                {gridRow}
+                {viewRows}
+                {this.renderSnap(host)}
+            </>
+        );
     }
 
     protected renderColorBy(host: ViewerSettingsHost, snapshot: ViewerSettingsSnapshot): React.ReactNode {

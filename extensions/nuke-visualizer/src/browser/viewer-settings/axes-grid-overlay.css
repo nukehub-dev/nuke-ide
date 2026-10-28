@@ -1,0 +1,34 @@
+/* Axes-grid label overlay (viewer-core/axes-grid.ts + projectAxisLabels).
+   Colors come from Theia theme variables only: the overlay is reused by every
+   native viewer and must follow the active theme. The host places the root
+   over the 3D viewarea; labels are container-relative CSS pixels. */
+
+.axes-grid-overlay {
+    position: absolute;
+    left: 0;
+    top: 0;
+    /* Below the legend (5), nav bar/cube (10), and measure label (11). */
+    z-index: 4;
+    overflow: hidden;
+    pointer-events: none;
+}
+
+.axes-grid-overlay-label {
+    position: absolute;
+    display: block;
+    transform: translate(-50%, -50%);
+    padding: 0 2px;
+    border-radius: 2px;
+    background: var(--theia-editor-background);
+    color: var(--theia-descriptionForeground);
+    font-size: 10px;
+    line-height: 14px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    user-select: none;
+}
+
+.axes-grid-overlay-label-title {
+    color: var(--theia-foreground);
+    font-weight: 600;
+}

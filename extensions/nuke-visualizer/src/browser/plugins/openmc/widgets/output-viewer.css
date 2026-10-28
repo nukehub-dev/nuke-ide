@@ -649,3 +649,13 @@
     margin-left: 6px;
     padding: 1px 8px;
 }
+
+/* Find Data dialog floats over the 3D canvas, below the nav cluster. */
+.find-data-host {
+    position: absolute;
+    top: 54px;
+    right: 14px;
+    z-index: 30;
+    width: 360px;
+    max-width: calc(100% - 28px);
+}

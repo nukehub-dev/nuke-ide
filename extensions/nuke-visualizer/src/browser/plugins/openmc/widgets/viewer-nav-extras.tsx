@@ -298,6 +298,24 @@ export const LinkCamerasTrigger: React.FC<LinkCamerasTriggerProps> = ({ linked, 
 );
 
 /**
+ * Find Data trigger (D2): opens the transient query dialog. Lit while a
+ * selection is active so the canvas highlight is discoverable.
+ */
+export interface FindDataTriggerProps {
+    readonly active: boolean;
+    readonly disabled?: boolean;
+    readonly onClick: () => void;
+}
+
+export const FindDataTrigger: React.FC<FindDataTriggerProps> = ({ active, disabled, onClick }) => (
+    <Tooltip content={active ? 'Find Data (selection active)' : 'Find Data by value, id, or name'} position="left">
+        <button className={`${navButtonClass(active)} viewer-nav-find-data`} disabled={disabled} onClick={onClick} aria-pressed={active}>
+            <span className="codicon codicon-search" />
+        </button>
+    </Tooltip>
+);
+
+/**
  * DAGMC-only volume quick actions over the widget-owned canvas selection:
  * Exclude hides the selected volume, Isolate hides everything else (both
  * through the existing visibility setters; Show all in the DAGMC Outline

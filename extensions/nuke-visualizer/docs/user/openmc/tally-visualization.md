@@ -43,6 +43,42 @@ Before visualizing, you can select:
 
 ---
 
+## Uncertainty (Mean + Relative Error)
+
+Best for: judging where a tally is converged, not only where it is hot.
+
+### How to Open
+
+1. Open a mesh tally in the native 3D tally viewer.
+2. In the **Viewer Settings** sidebar, set **Color by** to the
+   `Cell: <score>-mean` array.
+3. Open the **Uncertainty** section and turn on its switch.
+
+The section only appears when the active cell array carries a companion:
+`<score>-mean` pairs with `<score>-std` or `<score>-rel-err`; any other
+array needs an explicit `<name>-rel-err` sibling. A bare `<name>-std`
+without a mean pair is not enough, so unrelated arrays are never guessed.
+
+### What You See
+
+- The mean still drives the color. The relative statistical error
+  (`std / |mean|`) fades each surface and voxel block toward the
+  **Mask color**, so poorly converged cells read as flat gray while
+  reliable cells keep their colormap color.
+- **Channel** — Opacity, Desaturate, or Noise. Surfaces and voxel blocks
+  carry per-vertex/instance RGB only, so Opacity and Noise are rendered as
+  the same desaturation blend (there is no per-vertex alpha or dither
+  texture).
+- **Max rel. error** — cells at or above the threshold take the mask
+  color; lower values expose more of the uncertainty. Void bins keep
+  relative error 0, so exact-zero cells stay reliable instead of masked.
+- **Mask color** — the color painted on cells at or above the threshold.
+- Editing the channel, threshold, or mask color repaints instantly — no
+  reload. The smooth volume raycast and the Slice preview stay mean-only
+  this wave; switch to voxel boxes to see bivariate shading in the volume.
+
+---
+
 ## Overlay Tally on Geometry
 
 Best for: Seeing tally results directly on your CAD/DAGMC geometry.
@@ -375,14 +411,15 @@ Or: `Tools → Visualizer → OpenMC → Tally → Visualize Source Distribution
 
 ## Summary Table
 
-| Visualization       | Requires                               | Best For                                    |
-| ------------------- | -------------------------------------- | ------------------------------------------- |
-| 3D Mesh Tally       | Mesh filter                            | Full 3D spatial understanding               |
-| Overlay on Geometry | Geometry + mesh filter                 | CAD-integrated results (slice or full 3D)   |
-| Energy Spectrum     | Energy filter                          | Spectral analysis, flux shapes              |
-| Spatial Plot        | Mesh filter                            | 1D profiles along an axis                   |
-| Line Probe          | Mesh filter                            | Flux profiles along an arbitrary segment    |
-| Contour             | Mesh filter                            | Flux iso-surfaces in a sibling tab          |
-| 2D Heatmap          | Mesh filter                            | Slice-by-slice inspection                   |
-| Source Distribution | `source.h5` or statepoint with source  | Source convergence checks                   |
-| Overlay + Source    | Geometry + statepoint with source bank | Correlating source birth with tally regions |
+| Visualization       | Requires                                | Best For                                    |
+| ------------------- | --------------------------------------- | ------------------------------------------- |
+| 3D Mesh Tally       | Mesh filter                             | Full 3D spatial understanding               |
+| Uncertainty         | Mesh filter with std/rel-err companions | Convergence-aware mean coloring             |
+| Overlay on Geometry | Geometry + mesh filter                  | CAD-integrated results (slice or full 3D)   |
+| Energy Spectrum     | Energy filter                           | Spectral analysis, flux shapes              |
+| Spatial Plot        | Mesh filter                             | 1D profiles along an axis                   |
+| Line Probe          | Mesh filter                             | Flux profiles along an arbitrary segment    |
+| Contour             | Mesh filter                             | Flux iso-surfaces in a sibling tab          |
+| 2D Heatmap          | Mesh filter                             | Slice-by-slice inspection                   |
+| Source Distribution | `source.h5` or statepoint with source   | Source convergence checks                   |
+| Overlay + Source    | Geometry + statepoint with source bank  | Correlating source birth with tally regions |

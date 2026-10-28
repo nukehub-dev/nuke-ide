@@ -53,6 +53,15 @@ import {
     strideForBudget
 } from './native-vtk/native-vtk-data';
 import { COLORMAP_NAMES, getColormap, isColormapName, type ColormapName } from '../../../viewer-core/colormaps';
+import {
+    DEFAULT_BIVARIATE_OPTIONS,
+    bivariateRgba,
+    bivariateWeight,
+    isUncertaintyChannel,
+    normalizeMaxRelativeError,
+    relativeError,
+    type BivariateOptions
+} from '../../../viewer-core/bivariate-mapping';
 import { getPointSpriteTexture } from '../../../viewer-core/point-sprite';
 import { buildVoxelMesh, updateVoxelInstances, voxelInstanceLayout } from '../../../viewer-core/voxel-blocks';
 import type { VoxelInstanceLayout } from '../../../viewer-core/voxel-blocks';
@@ -102,6 +111,8 @@ import {
 } from '../../../viewer-core/volume-raycast';
 import { extractGridSlice, sliceToRgba, type GridSliceSource, type SliceAxis } from '../../../viewer-core/slice-view';
 import { buildClipCap } from '../../../viewer-core/capped-clip';
+import { buildAxesGrid, projectAxisLabels, type AxisGridModel, type ProjectedAxisLabel } from '../../../viewer-core/axes-grid';
+import { AxesGridOverlay } from '../../../viewer-settings/axes-grid-overlay';
 import {
     buildScreenshotFilename,
     captureRendererScreenshot,
@@ -110,6 +121,10 @@ import {
     type ScreenshotOptions
 } from '../../../viewer-core/canvas-screenshot';
 import { ViewerExportMenu } from './viewer-export-menu';
+import { FindDataDialog, type FindDataAssociation } from './find-data-dialog';
+import { buildSelectionOverlay } from '../../../viewer-core/selection-overlay';
+import { selectionToCsv } from '../../../viewer-core/selection-query';
+import { viewerStateFromSnapshot, viewerStateToPatch, type ViewerState } from '../../../viewer-core/viewer-state';
 import {
     statsForArray,
     summarizeNativeModel,
@@ -189,6 +204,7 @@ import {
     ViewerClipPopover,
     ViewerClipTrigger,
     ViewerFileActions,
+    FindDataTrigger,
     LinkCamerasTrigger,
     ViewerNavPopoverShell,
     ViewerShadingPopover,
@@ -198,6 +214,31 @@ import './output-viewer.css';
 
 /** Scratch view-projection matrix for the measure-label projection (module scope so the camera loop never allocates). */
 const scratchViewProjection = new THREE.Matrix4();
+
+interface AxesGridOverlayHandle {
+    set(labels: readonly ProjectedAxisLabel[], width: number, height: number): void;
+}
+
+/**
+ * Isolated overlay host: the native viewer updates labels through a ref on
+ * every camera frame, so only this small subtree re-renders instead of the
+ * whole widget.
+ */
+const AxesGridOverlayHost = React.forwardRef<AxesGridOverlayHandle, { visible: boolean }>(({ visible }, ref) => {
+    const [payload, setPayload] = React.useState<{ labels: readonly ProjectedAxisLabel[]; width: number; height: number }>({
+        labels: [],
+        width: 0,
+        height: 0
+    });
+    React.useImperativeHandle(
+        ref,
+        () => ({
+            set: (labels, width, height) => setPayload({ labels, width, height })
+        }),
+        []
+    );
+    return <AxesGridOverlay labels={payload.labels} width={payload.width} height={payload.height} visible={visible} />;
+});
 
 /** Data-group child name of the scene underlay holder (subclass ghost content lives one level down). */
 const UNDERLAY_GROUP_NAME = 'underlay';
@@ -300,6 +341,10 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
     /** Canvas backdrop; undefined follows the theme editor background (the pre-scene.background look). */
     protected background: string | undefined;
     protected scalarBarVisible = true;
+    /** Bivariate (mean + relative error) master switch (Viewer Settings Uncertainty section). */
+    protected bivariateEnabled = false;
+    /** Bivariate channel/threshold/mask options; only used when a mean companion pair exists. */
+    protected bivariateOptions: BivariateOptions = DEFAULT_BIVARIATE_OPTIONS;
     protected invert = false;
     protected logScale = false;
     protected component = MAGNITUDE_COMPONENT;
@@ -376,6 +421,15 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
     private clipCaps = true;
     private clipCapGroup: THREE.Group | undefined;
     private clipCapKey: string | undefined;
+    /** Find Data dialog + transient query selection (viewport state, never document state). */
+    private findDataOpen = false;
+    private findDataSelection: { association: FindDataAssociation; name: string; indices: Uint32Array } | undefined;
+    private findDataGroup: THREE.Group | undefined;
+    /** Bounding-box axes grid + projected labels. */
+    private axesGridVisible = false;
+    private axesGridModel: AxisGridModel | undefined;
+    private axesGridLines: THREE.LineSegments | undefined;
+    private axesGridOverlayRef: AxesGridOverlayHandle | null = null;
     private orbitControls: OrbitControlsHandle | undefined;
     private resizeObserver: ResizeObserver | undefined;
     private contextMenuClose: (() => void) | undefined;
@@ -822,6 +876,7 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         const warpOptions = this.warpOptions();
         const warpArray = this.resolvedWarpArray();
         const glyph = this.glyphSnapshot();
+        const bivariate = selection && selection.kind === 'cell' ? this.bivariateCompanion(array) : undefined;
         return {
             widgetId: this.id,
             title: this.title.label,
@@ -849,6 +904,16 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
                   }
                 : {}),
             scalarBar: { visible: this.scalarBarVisible },
+            ...(bivariate
+                ? {
+                      bivariate: {
+                          enabled: this.bivariateEnabled,
+                          channel: this.bivariateOptions.channel,
+                          maxRelativeError: this.bivariateOptions.maxRelativeError,
+                          lowQualityColor: this.bivariateOptions.lowQualityColor
+                      }
+                  }
+                : {}),
             ...(this.volumeSmoothGrid() !== undefined
                 ? {
                       volume: {
@@ -883,10 +948,38 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
             shading: { value: this.shading },
             clip: { state: this.clip, tab: this.clipTab, caps: this.clipCaps },
             measure: { active: this.measure.active },
+            axesGrid: { visible: this.axesGridVisible },
             opacity: { value: this.opacity, ...OPACITY_SPEC },
             pointSize: { value: this.pointSize, ...POINT_SIZE_SPEC },
             lineWidth: { value: this.lineWidth, ...LINE_WIDTH_SPEC }
         };
+    }
+
+    /** Capture the full viewer state (settings + camera) for Save view. */
+    getViewerState(): ViewerState | undefined {
+        const snapshot = this.getViewerSettingsSnapshot();
+        if (!snapshot || !this.orbitControls) {
+            return undefined;
+        }
+        const pose = this.orbitControls.getPose();
+        return viewerStateFromSnapshot(snapshot, {
+            position: pose.position,
+            target: pose.target,
+            up: pose.up ?? [0, 1, 0],
+            orthographic: false
+        });
+    }
+
+    /** Restore a saved viewer state (settings first, then the camera pose). */
+    applyViewerState(state: ViewerState): void {
+        this.applyViewerSettings(viewerStateToPatch(state));
+        this.orbitControls?.setPose({
+            position: state.camera.position,
+            target: state.camera.target,
+            up: state.camera.up
+        });
+        this.renderScene();
+        this.update();
     }
 
     /** Apply a sidebar edit through the existing prop setters. */
@@ -902,6 +995,9 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         }
         if (patch.measureActive !== undefined) {
             this.setMeasureActive(patch.measureActive);
+        }
+        if (patch.axesGridVisible !== undefined && patch.axesGridVisible !== this.axesGridVisible) {
+            this.setAxesGridVisible(patch.axesGridVisible);
         }
         if (patch.snap !== undefined) {
             this.snapViewerTo(viewerSnapDirection(patch.snap));
@@ -950,6 +1046,39 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
             sliceChanged = true;
         }
         if (sliceChanged) {
+            this.update();
+        }
+        let bivariateChanged = false;
+        if (patch.bivariateEnabled !== undefined && patch.bivariateEnabled !== this.bivariateEnabled) {
+            this.bivariateEnabled = patch.bivariateEnabled;
+            bivariateChanged = true;
+        }
+        if (patch.bivariate !== undefined) {
+            // Editor emits the complete options object; sanitize persisted
+            // values here so a stale/garbage channel or threshold can never
+            // paint every bin as masked.
+            const next = patch.bivariate;
+            const options: BivariateOptions = {
+                channel: isUncertaintyChannel(next.channel) ? next.channel : DEFAULT_BIVARIATE_OPTIONS.channel,
+                maxRelativeError: normalizeMaxRelativeError(next.maxRelativeError),
+                lowQualityColor:
+                    typeof next.lowQualityColor === 'string' && next.lowQualityColor.trim() !== ''
+                        ? next.lowQualityColor
+                        : DEFAULT_BIVARIATE_OPTIONS.lowQualityColor
+            };
+            if (
+                options.channel !== this.bivariateOptions.channel ||
+                options.maxRelativeError !== this.bivariateOptions.maxRelativeError ||
+                options.lowQualityColor !== this.bivariateOptions.lowQualityColor
+            ) {
+                this.bivariateOptions = options;
+                bivariateChanged = true;
+            }
+        }
+        if (bivariateChanged) {
+            // Same instant repaint as color-by/range edits: surfaces and
+            // voxel instance colors follow the new blend, no reload.
+            this.recolor();
             this.update();
         }
         let nextRangeMode: ColorRangeMode | undefined;
@@ -1098,6 +1227,156 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
     /** Dataset Inspector: descriptive stats (and cell integral when measurable). */
     getDatasetStats(association: DatasetAssociation, name: string): DatasetStats | undefined {
         return this.model ? statsForArray(this.model, association, name, this.component) : undefined;
+    }
+
+    /** Find Data dialog overlay (transient; never document state). */
+    protected renderFindData(): React.ReactNode {
+        if (!this.findDataOpen || !this.model) {
+            return undefined;
+        }
+        return (
+            <div className="find-data-host">
+                <FindDataDialog
+                    arrays={[...this.model.pointArrays, ...this.model.cellArrays]}
+                    onSelect={(association, name, indices) => this.setFindDataSelection(association, name, indices)}
+                    onClear={() => this.clearFindDataSelection()}
+                    onExtractCsv={(association, name, indices) => this.exportFindDataCsv(association, name, indices)}
+                />
+            </div>
+        );
+    }
+
+    /** Apply a Find Data selection and rebuild the canvas highlight. */
+    protected setFindDataSelection(association: FindDataAssociation, name: string, indices: Uint32Array): void {
+        this.findDataSelection = { association, name, indices };
+        this.rebuildSelectionOverlay();
+        this.update();
+    }
+
+    /** Drop the transient selection (Clear / new dataset). */
+    clearFindDataSelection(): void {
+        this.findDataSelection = undefined;
+        this.clearSelectionOverlay();
+        this.update();
+    }
+
+    /** Download the selected tuples as CSV (x/y/z plus the source array). */
+    protected exportFindDataCsv(association: FindDataAssociation, name: string, indices: Uint32Array): void {
+        const array = this.findArray(association, name);
+        if (!array) {
+            return;
+        }
+        const csv = selectionToCsv({ values: array.values, components: array.components }, indices, {
+            includeIndex: true,
+            valueLabel: array.name
+        });
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const anchor = document.createElement('a');
+        anchor.href = URL.createObjectURL(blob);
+        anchor.download = `${this.fileUri?.path.base ?? 'selection'}-${name}.csv`;
+        anchor.click();
+        URL.revokeObjectURL(anchor.href);
+    }
+
+    /** Remove the current highlight group (dataset/selection change). */
+    private clearSelectionOverlay(): void {
+        const group = this.findDataGroup;
+        if (!group) {
+            return;
+        }
+        group.parent?.remove(group);
+        this.disposeObject(group);
+        this.findDataGroup = undefined;
+    }
+
+    /**
+     * Rebuild the orange selection highlight from the current query indices.
+     * Uses the same warped positions as the rendered scene and the same
+     * clipping planes, so the highlight follows warp/clip edits.
+     */
+    private rebuildSelectionOverlay(): void {
+        this.clearSelectionOverlay();
+        const model = this.model;
+        const selection = this.findDataSelection;
+        if (!model || !selection || !this.dataGroup) {
+            return;
+        }
+        const gridCells = model.gridDimensions ? model.gridDimensions[0] * model.gridDimensions[1] * model.gridDimensions[2] : 0;
+        const overlay = buildSelectionOverlay(
+            {
+                positions: this.scenePositions(),
+                family: model.family,
+                pointCount: model.nPoints,
+                cellCount: gridCells,
+                triangles: model.triangles,
+                triangleCells: model.triangleCells,
+                segments: model.segments,
+                segmentCells: model.segmentCells,
+                vertices: model.vertices
+            },
+            selection.association,
+            selection.indices
+        );
+        if (!overlay?.points || overlay.points.length === 0) {
+            return;
+        }
+        const group = new THREE.Group();
+        group.name = 'find-data-selection';
+        const color = 0xffb300;
+        if (overlay.triangles) {
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.BufferAttribute(overlay.points, 3));
+            geometry.setIndex(new THREE.BufferAttribute(overlay.triangles, 1));
+            geometry.userData.role = 'find-data-selection';
+            const material = new THREE.MeshBasicMaterial({
+                color,
+                transparent: true,
+                opacity: 0.55,
+                depthTest: false,
+                depthWrite: false,
+                side: THREE.DoubleSide
+            });
+            const mesh = new THREE.Mesh(geometry, material);
+            mesh.renderOrder = 20;
+            group.add(mesh);
+        }
+        if (overlay.segments) {
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.BufferAttribute(overlay.points, 3));
+            geometry.setIndex(new THREE.BufferAttribute(overlay.segments, 1));
+            geometry.userData.role = 'find-data-selection';
+            const material = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.9, depthTest: false, depthWrite: false });
+            const lines = new THREE.LineSegments(geometry, material);
+            lines.renderOrder = 20;
+            group.add(lines);
+        }
+        if (!overlay.triangles && !overlay.segments) {
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.BufferAttribute(overlay.points, 3));
+            geometry.userData.role = 'find-data-selection';
+            const material = new THREE.PointsMaterial({
+                color,
+                size: Math.max(4, this.pointSize * 2),
+                sizeAttenuation: false,
+                transparent: true,
+                opacity: 0.95,
+                depthTest: false,
+                depthWrite: false,
+                map: getPointSpriteTexture() ?? null
+            });
+            const points = new THREE.Points(geometry, material);
+            points.renderOrder = 20;
+            group.add(points);
+        }
+        const planes = this.toThreePlanes();
+        group.traverse((child) => {
+            if (child instanceof THREE.Mesh || child instanceof THREE.Points || child instanceof THREE.LineSegments) {
+                (child.material as THREE.Material).clippingPlanes = planes;
+            }
+        });
+        this.dataGroup.add(group);
+        this.findDataGroup = group;
+        this.renderScene();
     }
 
     /** Show or hide the volume (Viewer Settings toggle): boxes, smooth mesh, and grid points. */
@@ -1585,6 +1864,13 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
                         {this.renderNavCluster()}
                         {this.renderGizmo()}
                         {this.renderMeasureLabel()}
+                        {this.renderFindData()}
+                        <AxesGridOverlayHost
+                            ref={(handle) => {
+                                this.axesGridOverlayRef = handle;
+                            }}
+                            visible={this.axesGridVisible}
+                        />
                         {this.renderLegend()}
                     </div>
                 </div>
@@ -1630,6 +1916,14 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
                         linked={this.cameraLinked}
                         disabled={disabled || this.cameraLinkKey() === undefined}
                         onToggle={() => this.setCameraLinked(!this.cameraLinked)}
+                    />
+                    <FindDataTrigger
+                        active={this.findDataSelection !== undefined}
+                        disabled={disabled}
+                        onClick={() => {
+                            this.findDataOpen = !this.findDataOpen;
+                            this.update();
+                        }}
                     />
                     <ViewerFileActions
                         disabled={disabled}
@@ -1975,6 +2269,90 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         );
     }
 
+    /** Toggle the bounding-box axes grid and its labels. */
+    setAxesGridVisible(visible: boolean): void {
+        this.axesGridVisible = visible;
+        if (visible && !this.axesGridLines) {
+            this.rebuildAxesGridLines();
+        }
+        if (this.axesGridLines) {
+            this.axesGridLines.visible = visible;
+        }
+        this.updateAxesGridOverlay();
+        this.update();
+        this.renderScene();
+    }
+
+    /** Rebuild grid lines from the current (possibly warped) scene bounds. */
+    private rebuildAxesGridLines(): void {
+        this.clearAxesGridLines();
+        const model = this.model;
+        if (!model || !this.scene) {
+            return;
+        }
+        const raw = boundingBoxFromPositions(this.scenePositions());
+        if (!raw) {
+            return;
+        }
+        const diagonal = Math.hypot(raw.max[0] - raw.min[0], raw.max[1] - raw.min[1], raw.max[2] - raw.min[2]);
+        const pad = Math.max(diagonal * 0.002, 1e-9);
+        const bounds = {
+            min: [raw.min[0] - pad, raw.min[1] - pad, raw.min[2] - pad] as [number, number, number],
+            max: [raw.max[0] + pad, raw.max[1] + pad, raw.max[2] + pad] as [number, number, number]
+        };
+        this.axesGridModel = buildAxesGrid({ bounds, ticks: 5, titles: { X: 'X', Y: 'Y', Z: 'Z' } });
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.BufferAttribute(this.axesGridModel.lines, 3));
+        const material = new THREE.LineBasicMaterial({
+            color: 0x9aa0a6,
+            transparent: true,
+            opacity: 0.55,
+            depthWrite: false
+        });
+        const lines = new THREE.LineSegments(geometry, material);
+        lines.name = 'axes-grid-lines';
+        lines.frustumCulled = false;
+        lines.visible = this.axesGridVisible;
+        this.scene.add(lines);
+        this.axesGridLines = lines;
+        this.updateAxesGridOverlay();
+    }
+
+    private clearAxesGridLines(): void {
+        const lines = this.axesGridLines;
+        if (!lines) {
+            return;
+        }
+        lines.parent?.remove(lines);
+        lines.geometry.dispose();
+        (lines.material as THREE.Material).dispose();
+        this.axesGridLines = undefined;
+        this.axesGridModel = undefined;
+    }
+
+    /** Project the grid labels into CSS pixels for the isolated overlay host. */
+    private updateAxesGridOverlay(): void {
+        const model = this.axesGridModel;
+        const camera = this.camera;
+        const host = this.host;
+        if (!this.axesGridVisible || !model || !camera || !host) {
+            return;
+        }
+        camera.updateMatrixWorld();
+        const width = Math.max(1, host.clientWidth);
+        const height = Math.max(1, host.clientHeight);
+        const labels = projectAxisLabels(
+            model,
+            {
+                position: [camera.position.x, camera.position.y, camera.position.z],
+                viewMatrix: camera.matrixWorldInverse.elements,
+                projectionMatrix: camera.projectionMatrix.elements
+            },
+            { width, height }
+        );
+        this.axesGridOverlayRef?.set(labels, width, height);
+    }
+
     protected renderError(): React.ReactNode {
         return (
             <div className="openmc-output-viewer-status error">
@@ -2090,6 +2468,7 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         this.resizeObserver = undefined;
         this.orbitControls?.dispose();
         this.orbitControls = undefined;
+        this.clearAxesGridLines();
         if (this.renderer) {
             this.renderer.dispose();
             this.renderer.domElement.remove();
@@ -2119,6 +2498,7 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         }
         this.updateGizmo();
         this.updateMeasureLabel();
+        this.updateAxesGridOverlay();
     }
 
     /** Re-project the cube axes for the current camera (direct DOM writes, never React state). */
@@ -2149,6 +2529,8 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         this.glyphCellCache = undefined;
         this.clipCapGroup = undefined;
         this.clipCapKey = undefined;
+        this.findDataSelection = undefined;
+        this.findDataGroup = undefined;
         // Rebuild clears the measure session (viewport state, never document
         // state); the label hides on the next repaint via updateMeasureLabel.
         this.measure = resetMeasureState();
@@ -2205,6 +2587,7 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         this.refreshGlyphs();
         this.fitView();
         this.recolor();
+        this.rebuildAxesGridLines();
     }
 
     /**
@@ -2495,19 +2878,49 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
             const mapped = mapScalar(value, mapping);
             return mapped ? [mapped[0], mapped[1], mapped[2]] : [solid.r, solid.g, solid.b];
         };
+        // Bivariate (mean + relative error): one weight per tuple drives the
+        // RGB blend toward the mask color. Vertex/instance colors have no
+        // alpha channel, so the opacity/noise channels resolve to the same
+        // desaturate blend on surfaces and voxel blocks; the smooth raycast
+        // volume and slice preview stay mean-only (documented in the panel).
+        const companion = this.bivariateEnabled ? this.bivariateCompanion(array) : undefined;
+        const bivariateOptions = this.bivariateOptions;
+        const tupleCount = Math.floor(array.values.length / Math.max(1, array.components));
+        const uncertaintyAt = (source: NativeVtkDataArray | undefined, tuple: number): number => {
+            if (!source || tuple < 0 || tuple >= tupleCount) {
+                return Number.NaN;
+            }
+            const components = Math.max(1, source.components);
+            const component = Math.min(components - 1, Math.max(0, mapping.component));
+            return source.values[tuple * components + component];
+        };
+        const weightAt = (tuple: number): number => {
+            if (!companion) {
+                return 1;
+            }
+            const relErr = companion.relErr
+                ? uncertaintyAt(companion.relErr, tuple)
+                : relativeError(tupleScalar(array.values, array.components, tuple, mapping.component), uncertaintyAt(companion.std, tuple));
+            return bivariateWeight(relErr, bivariateOptions);
+        };
+        const mapTuple = (tuple: number): [number, number, number] => {
+            const mean = mapAt(tupleScalar(array.values, array.components, tuple, mapping.component));
+            if (!companion || tuple < 0 || tuple >= tupleCount) {
+                return mean;
+            }
+            const [r, g, b] = bivariateRgba(mean, weightAt(tuple), bivariateOptions);
+            return [r, g, b];
+        };
         this.dataGroup.children.forEach((child) => {
             if (child instanceof THREE.LineSegments) {
                 const segments = model.segments ?? new Uint32Array(0);
                 const tupleOfVertex = this.lineTupleIndex(model, array, segments);
-                paint(child.geometry, (vertex) =>
-                    mapAt(tupleScalar(array.values, array.components, tupleOfVertex(vertex), mapping.component))
-                );
+                paint(child.geometry, (vertex) => mapTuple(tupleOfVertex(vertex)));
             } else if (child instanceof THREE.InstancedMesh && this.voxelLayout) {
                 // Voxel blocks carry per-instance colors (no color attribute);
                 // raw-zero cells collapse so void never washes out geometry.
                 const layout = this.voxelLayout;
                 const thresholdHidden = this.thresholdHidesVoxelInstance();
-                const tupleCount = Math.floor(array.values.length / Math.max(1, array.components));
                 const tupleOfInstance = (instance: number): number => {
                     if (array.association !== 'cell') {
                         return -1;
@@ -2522,36 +2935,23 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
                     const tuple = tupleOfInstance(instance);
                     return tuple >= 0 && array.values[tuple] === 0;
                 };
-                updateVoxelInstances(
-                    child,
-                    layout,
-                    (instance) => mapAt(tupleScalar(array.values, array.components, tupleOfInstance(instance), mapping.component)),
-                    isEmpty
-                );
+                updateVoxelInstances(child, layout, (instance) => mapTuple(tupleOfInstance(instance)), isEmpty);
             } else if (child instanceof THREE.Mesh) {
                 const triangles = model.triangles ?? new Uint32Array(0);
                 const tupleOfVertex = this.meshTupleIndex(model, array, triangles);
-                paint(child.geometry, (vertex) =>
-                    mapAt(tupleScalar(array.values, array.components, tupleOfVertex(vertex), mapping.component))
-                );
+                paint(child.geometry, (vertex) => mapTuple(tupleOfVertex(vertex)));
             } else if (child instanceof THREE.Points) {
                 const role = child.geometry.userData?.['role'];
                 if (role === 'mesh-points' && model.triangles) {
                     const tupleOfVertex = this.meshTupleIndex(model, array, model.triangles);
-                    paint(child.geometry, (vertex) =>
-                        mapAt(tupleScalar(array.values, array.components, tupleOfVertex(vertex), mapping.component))
-                    );
+                    paint(child.geometry, (vertex) => mapTuple(tupleOfVertex(vertex)));
                 } else if (role === 'line-points' && model.segments) {
                     const segments = model.segments;
                     const tupleOfVertex = this.lineTupleIndex(model, array, segments);
-                    paint(child.geometry, (vertex) =>
-                        mapAt(tupleScalar(array.values, array.components, tupleOfVertex(vertex), mapping.component))
-                    );
+                    paint(child.geometry, (vertex) => mapTuple(tupleOfVertex(vertex)));
                 } else {
                     const tupleOfVertex = this.pointTupleIndex(model, array);
-                    paint(child.geometry, (vertex) =>
-                        mapAt(tupleScalar(array.values, array.components, tupleOfVertex(vertex), mapping.component))
-                    );
+                    paint(child.geometry, (vertex) => mapTuple(tupleOfVertex(vertex)));
                 }
             }
         });
@@ -2608,6 +3008,10 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         this.dataGroup?.children.forEach((child) => {
             // Box3Helper (grid bounds) carries no color attribute — leave it alone.
             if (child instanceof THREE.Box3Helper) {
+                return;
+            }
+            // Find Data highlights own their material (orange, always-on-top).
+            if ((child as THREE.Object3D).userData?.['role'] === 'find-data-selection') {
                 return;
             }
             if (child instanceof THREE.InstancedMesh) {
@@ -2843,6 +3247,43 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         return list?.find((array) => array.name === name);
     }
 
+    /**
+     * Uncertainty companions for the active color-by cell array, if any.
+     *
+     * Detection is deliberately narrow (never guess arbitrary pairs):
+     * - `<base>-mean` pairs with `<base>-rel-err`, falling back to
+     *   `<base>-std` (relative error becomes `std / |mean|`).
+     * - Any other `<name>` only pairs with an explicit `<name>-rel-err`;
+     *   a bare `<name>-std` is not enough.
+     * Companions must be cell arrays with one scalar tuple per mean tuple.
+     * Returns undefined for point arrays, Solid Color, or a missing/mismatched
+     * companion, which hides the Viewer Settings Uncertainty section.
+     */
+    private bivariateCompanion(
+        array: NativeVtkDataArray | undefined
+    ): { relErr?: NativeVtkDataArray; std?: NativeVtkDataArray } | undefined {
+        if (!array || array.association !== 'cell' || !this.model) {
+            return undefined;
+        }
+        const tuples = Math.floor(array.values.length / Math.max(1, array.components));
+        const companion = (name: string): NativeVtkDataArray | undefined => {
+            const candidate = this.model?.cellArrays.find((entry) => entry.name === name);
+            if (!candidate || Math.max(1, candidate.components) !== 1) {
+                return undefined;
+            }
+            return Math.floor(candidate.values.length / Math.max(1, candidate.components)) === tuples ? candidate : undefined;
+        };
+        const suffix = '-mean';
+        if (array.name.length > suffix.length && array.name.endsWith(suffix)) {
+            const base = array.name.slice(0, -suffix.length);
+            const relErr = companion(`${base}-rel-err`);
+            const std = companion(`${base}-std`);
+            return relErr || std ? { relErr, std } : undefined;
+        }
+        const relErr = companion(`${array.name}-rel-err`);
+        return relErr ? { relErr } : undefined;
+    }
+
     private hasArray(colorBy: string): boolean {
         const selection = parseColorBy(colorBy);
         return !selection || selection.kind === 'solid' || this.findArray(selection.kind, selection.name) !== undefined;
@@ -3051,8 +3492,10 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
     /** Rewrite warp positions, re-apply clip (bounds may have moved), and repaint. */
     private applyWarp(): void {
         this.rewriteWarpPositions();
-        // Cones follow deformation: layout runs on the rewritten positions.
+        // Cones, Find Data highlights, and the axes grid follow deformation.
         this.refreshGlyphs();
+        this.rebuildSelectionOverlay();
+        this.rebuildAxesGridLines();
         this.applyClip();
         this.renderScene();
     }

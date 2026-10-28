@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<VTKFile type="ImageData" version="0.1" byte_order="LittleEndian">
+  <ImageData WholeExtent="0 2 0 2 0 2" Origin="0 0 0" Spacing="1 1 1">
+    <Piece Extent="0 2 0 2 0 2">
+      <CellData Scalars="flux-mean">
+        <DataArray type="Float32" Name="flux-mean" format="ascii" NumberOfComponents="1">
+          2 4 6 8 10 12 14 16
+        </DataArray>
+        <DataArray type="Float32" Name="flux-std" format="ascii" NumberOfComponents="1">
+          0.02 0.1 0.3 0.8 1.0 1.8 2.8 4.8
+        </DataArray>
+        <DataArray type="Float32" Name="flux-rel-err" format="ascii" NumberOfComponents="1">
+          0.01 0.025 0.05 0.1 0.1 0.15 0.2 0.3
+        </DataArray>
+      </CellData>
+      <PointData />
+    </Piece>
+  </ImageData>
+</VTKFile>

@@ -150,6 +150,38 @@ X/Y/Z orthoslices, a position slider, a Smooth switch (linear blend between
 two cell layers), and a live 2D preview painted with the active colormap.
 The preview is a data inspection aid; the 3D camera never moves.
 
+### Find Data
+
+The magnifier button on the native VTK/tally viewer bottom bar opens
+**Find Data**. Pick a point or cell array, then query it with the small
+closed grammar:
+
+- `value >= 1.5`, `value < 0`, `value == 10`, `value != 0`
+- `value in [min, max]` (inclusive)
+- `id == 42` (explicit ids or the 0-based tuple index)
+- `name contains fuel` (case-insensitive, when the dataset carries names)
+- combine predicates with `and` (no OR/nesting)
+
+**Select** highlights the matching tuples in orange on the canvas; **Clear**
+drops the highlight; **Extract CSV** downloads index/value rows for the
+selection. Non-finite values never match. The highlight is view-only and is
+cleared when the dataset reloads.
+
+### Axes grid
+
+Viewer Settings → **View → Grid** draws a bounding-box axes grid with nice
+tick labels for the active dataset. Labels follow the camera and drop out
+when they overlap or leave the viewport. The grid is view-only and is not
+saved into the dataset.
+
+### Saved views
+
+Viewer Settings → **View → View state** has **Save** and **Restore**. Save
+captures the camera, color mapping, shading, opacity, clip/threshold/warp,
+volume/slice, legend, and grid settings for that viewer tab; Restore applies
+them again after a reload. Entries live in the `nukeVisualizer.viewerStates`
+preference, keyed by the viewer tab.
+
 ### Camera
 
 | Control          | What It Does                                     |
@@ -314,6 +346,7 @@ The base backend also exposes analysis commands for scripts and automation:
 python server.py base.describe --file model.vtk --array cell:flux
 python server.py base.integrate --file model.vtk --array cell:flux --volume
 python server.py base.mesh-quality --file model.vtk --output quality.vtu --metric aspect
+python server.py base.export --file model.vtk --format csv --output model.csv
 ```
 
 - `base.describe` returns min/Q1/median/Q3/max/mean/std/count for one point or
@@ -322,6 +355,10 @@ python server.py base.mesh-quality --file model.vtk --output quality.vtu --metri
   volumes or surface areas (use `--surface` for area integration).
 - `base.mesh-quality` writes the same dataset with a quality cell array
   (`area`, `min-angle`, `aspect`, or `volume`) for color-by in the viewer.
+- `base.export` writes CSV (one row per point/cell tuple), VTK, or glTF; use
+  `--array cell:flux` to export one array and `--block N` to restrict a
+  block/volume. glTF is available only when the installed VTK provides the
+  writer.
 
 All three print one JSON object and exit non-zero with `{"error": …}` on bad
 input; heavy VTK imports are lazy, so the commands fail cleanly when `vtk` is

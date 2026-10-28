@@ -25,11 +25,13 @@
 // SPDX-License-Identifier: BSD-2-Clause
 // *****************************************************************************
 
+import type { BivariateOptions, UncertaintyChannel } from '../viewer-core/bivariate-mapping';
 import type { ClipAxis, ClipPlanesState } from '../viewer-core/clip-plane';
 import type { BoundsCorner } from '../viewer-core/orbit-controls';
 import type { ViewerShadingMode } from '../viewer-core/shading-mode';
 import type { SliceAxis } from '../viewer-core/slice-view';
 import type { OpacityStop, VolumeBlendMode } from '../viewer-core/volume-transfer';
+import type { ViewerState } from '../viewer-core/viewer-state';
 import type { WarpScaleMode } from '../viewer-core/warp-vectors';
 
 /**
@@ -75,6 +77,21 @@ export interface ViewerColormapSettings {
 /** Scalar-bar (color legend) section of a settings snapshot. */
 export interface ViewerScalarBarSettings {
     readonly visible: boolean;
+}
+
+/**
+ * Bivariate (mean + relative statistical error) section of a settings
+ * snapshot. Present only when the active color-by cell array has a
+ * `-std`/`-rel-err` companion (or an explicit `<name>-rel-err`); viewers
+ * without a pair hide the whole section instead of showing dead controls.
+ * `enabled` is the master switch; the remaining fields are the shared
+ * {@link BivariateOptions} the editor edits.
+ */
+export interface ViewerBivariateSettings {
+    readonly enabled: boolean;
+    readonly channel: UncertaintyChannel;
+    readonly maxRelativeError: number;
+    readonly lowQualityColor: string;
 }
 
 /** Vector-component section (present only when the color-by array has multiple components). */
@@ -157,6 +174,11 @@ export interface ViewerClipSettings {
 /** Distance-measure section of a settings snapshot. */
 export interface ViewerMeasureSettings {
     readonly active: boolean;
+}
+
+/** Bounding-box axes/grid section. */
+export interface ViewerAxesGridSettings {
+    readonly visible: boolean;
 }
 
 /** Tally-volume section (DAGMC drape interior); absent without a loaded tally volume. */
@@ -270,6 +292,7 @@ export interface ViewerSettingsSnapshot {
     readonly range?: ViewerRangeSettings;
     readonly threshold?: ViewerThresholdSettings;
     readonly scalarBar?: ViewerScalarBarSettings;
+    readonly bivariate?: ViewerBivariateSettings;
     readonly tallyVolume?: ViewerTallyVolumeSettings;
     readonly volume?: ViewerVolumeSettings;
     readonly slice?: ViewerSliceSettings;
@@ -280,6 +303,7 @@ export interface ViewerSettingsSnapshot {
     readonly shading?: ViewerShadingSettings;
     readonly clip?: ViewerClipSettings;
     readonly measure?: ViewerMeasureSettings;
+    readonly axesGrid?: ViewerAxesGridSettings;
     readonly opacity?: ViewerOpacitySettings;
     readonly pointSize?: ViewerSliderSettings;
     readonly lineWidth?: ViewerSliderSettings;
@@ -305,6 +329,10 @@ export interface ViewerSettingsPatch {
     readonly invert?: boolean;
     readonly logScale?: boolean;
     readonly scalarBarVisible?: boolean;
+    /** Bivariate master switch (only meaningful with a mean/std/rel-err pair). */
+    readonly bivariateEnabled?: boolean;
+    /** Complete bivariate options (channel, threshold, mask color) after an editor edit. */
+    readonly bivariate?: BivariateOptions;
     readonly tallyVolumeVisible?: boolean;
     readonly tallyVolumeSmooth?: boolean;
     readonly volumeVisible?: boolean;
@@ -331,6 +359,7 @@ export interface ViewerSettingsPatch {
     readonly clipTab?: ClipAxis;
     readonly clipCaps?: boolean;
     readonly measureActive?: boolean;
+    readonly axesGridVisible?: boolean;
     readonly opacity?: number;
     readonly pointSize?: number;
     readonly lineWidth?: number;
@@ -350,6 +379,10 @@ export interface ViewerSettingsHost {
      * hidden. Pure data in, RGBA out — the panel owns the canvas.
      */
     getSlicePreview?(settings: ViewerSliceSettings): ViewerSlicePreview | undefined;
+    /** Capture the complete state (including camera) for Save view. */
+    getViewerState?(): ViewerState | undefined;
+    /** Restore a previously captured state (settings + camera). */
+    applyViewerState?(state: ViewerState): void;
 }
 
 /**

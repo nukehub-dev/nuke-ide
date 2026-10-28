@@ -298,12 +298,14 @@ python/
         ├── commands/
         │   ├── convert.py     # headless converters (DAGMC, STEP)
         │   ├── exodus.py      # headless Exodus time-series extractor
-        │   └── analysis.py    # integrate / describe / mesh-quality commands
+        │   ├── analysis.py    # integrate / describe / mesh-quality commands
+        │   └── export.py      # CSV/VTK/glTF dataset export
         └── lib/
             ├── common.py
             ├── dagmc.py           # DAGMC → VTK library
             ├── step.py            # STEP → VTK library
-            └── analysis.py        # pure numpy integrate/stats/quality helpers
+            ├── analysis.py        # pure numpy integrate/stats/quality helpers
+            └── export.py          # pure CSV/format helpers
 ```
 
 Import helpers using absolute imports:

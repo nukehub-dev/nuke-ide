@@ -123,26 +123,47 @@ IFP kinetics results live in ordinary `statepoint*.h5` files, so they have no re
 - **Export** — `viewer-core/canvas-screenshot.ts` resolves format/scale/transparency, captures through a
   temporarily resized renderer (`captureRendererScreenshot`), and downloads/copies the data URL. The
   props-only `viewer-export-menu.tsx` sits in `ViewerFileActions`; the one-click PNG path stays.
+  `base.export` (Python) writes CSV/VTK/glTF for the CLI and automation path.
+
+### Find Data, Axes Grid, Saved Views
+
+- **Find Data** — `viewer-core/selection-query.ts` parses the closed `value`/`id`/`name` grammar
+  (`and` only, inclusive `in [min, max]`), `find-data-dialog.tsx` is props-only, and
+  `viewer-core/selection-overlay.ts` expands selected tuples into points/triangles/segments. The native
+  viewer keeps the selection transient, adds an orange always-on-top group, and drops it on reload.
+  Selection indices never mutate the dataset; CSV extraction uses `selectionToCsv`.
+- **Axes grid** — `viewer-core/axes-grid.ts` builds box edges, low-face grid lines, and nice tick
+  labels; `projectAxisLabels` projects/dedupes them; `axes-grid-overlay.tsx` paints them. The native
+  viewer keeps `LineSegments` outside the data group (so data clipping doesn't cut the axes) and updates
+  labels through an isolated ref-driven overlay, never a full-widget re-render per frame.
+- **Saved views** — `viewer-core/viewer-state.ts` is the versioned camera + display schema;
+  `viewerStateToPatch`/`viewerStateFromSnapshot` bridge to Viewer Settings. The panel stores serialized
+  states in `nukeVisualizer.viewerStates` keyed by viewer tab id; Save/Restore sit in View → View state.
+  `orbit-controls.ts` exposes `getPose`/`setPose` for the camera half.
 
 ---
 
 ## Key Files
 
-| Purpose                    | File                                                                             |
-| -------------------------- | -------------------------------------------------------------------------------- |
-| Viewer registry            | `src/browser/output-viewer/output-viewer-registry.ts`                            |
-| Filename patterns          | `src/browser/output-viewer/output-file-patterns.ts`                              |
-| Viewer base class          | `src/browser/plugins/openmc/widgets/native-vtk-viewer-widget.tsx`                |
-| Calculator + histogram UI  | `src/browser/plugins/openmc/widgets/derived-field-panel.tsx`                     |
-| Derived-field expressions  | `src/browser/viewer-core/derived-fields.ts` (pure, vitest-covered)               |
-| Glyph layout math          | `src/browser/viewer-core/glyph-layout.ts` (pure, vitest-covered)                 |
-| Volume transfer + raycast  | `src/browser/viewer-core/volume-transfer.ts`, `volume-raycast.ts`                |
-| Orthoslice math + preview  | `src/browser/viewer-core/slice-view.ts`, `viewer-settings/slice-preview.tsx`     |
-| Capped clip geometry       | `src/browser/viewer-core/capped-clip.ts` (pure, vitest-covered)                  |
-| Dataset Inspector          | `src/browser/dataset-inspector/`                                                 |
-| Statistics core + panel    | `src/browser/viewer-core/statistics.ts`, `widgets/statistics-panel.tsx`          |
-| Screenshot capture + menu  | `src/browser/viewer-core/canvas-screenshot.ts`, `widgets/viewer-export-menu.tsx` |
-| Split-drag helper          | `src/browser/plugins/openmc/widgets/drag-split.ts`                               |
-| Backend conversion service | `src/node/plugins/openmc/services/openmc-output-service.ts`                      |
-| VTK converters (Python)    | `python/plugins/openmc/lib/output_vtk.py`                                        |
-| Summary → XML (Python)     | `python/plugins/openmc/lib/geometry_parser.py`                                   |
+| Purpose                    | File                                                                                     |
+| -------------------------- | ---------------------------------------------------------------------------------------- |
+| Viewer registry            | `src/browser/output-viewer/output-viewer-registry.ts`                                    |
+| Filename patterns          | `src/browser/output-viewer/output-file-patterns.ts`                                      |
+| Viewer base class          | `src/browser/plugins/openmc/widgets/native-vtk-viewer-widget.tsx`                        |
+| Calculator + histogram UI  | `src/browser/plugins/openmc/widgets/derived-field-panel.tsx`                             |
+| Derived-field expressions  | `src/browser/viewer-core/derived-fields.ts` (pure, vitest-covered)                       |
+| Glyph layout math          | `src/browser/viewer-core/glyph-layout.ts` (pure, vitest-covered)                         |
+| Volume transfer + raycast  | `src/browser/viewer-core/volume-transfer.ts`, `volume-raycast.ts`                        |
+| Orthoslice math + preview  | `src/browser/viewer-core/slice-view.ts`, `viewer-settings/slice-preview.tsx`             |
+| Capped clip geometry       | `src/browser/viewer-core/capped-clip.ts` (pure, vitest-covered)                          |
+| Dataset Inspector          | `src/browser/dataset-inspector/`                                                         |
+| Statistics core + panel    | `src/browser/viewer-core/statistics.ts`, `widgets/statistics-panel.tsx`                  |
+| Screenshot capture + menu  | `src/browser/viewer-core/canvas-screenshot.ts`, `widgets/viewer-export-menu.tsx`         |
+| Find Data query + overlay  | `viewer-core/selection-query.ts`, `selection-overlay.ts`, `widgets/find-data-dialog.tsx` |
+| Axes grid math + overlay   | `viewer-core/axes-grid.ts`, `viewer-settings/axes-grid-overlay.tsx`                      |
+| Saved viewer state         | `viewer-core/viewer-state.ts`, `viewer-settings/viewer-settings-widget.tsx`              |
+| Dataset export command     | `python/plugins/base/commands/export.py`, `lib/export.py`                                |
+| Split-drag helper          | `src/browser/plugins/openmc/widgets/drag-split.ts`                                       |
+| Backend conversion service | `src/node/plugins/openmc/services/openmc-output-service.ts`                              |
+| VTK converters (Python)    | `python/plugins/openmc/lib/output_vtk.py`                                                |
+| Summary → XML (Python)     | `python/plugins/openmc/lib/geometry_parser.py`                                           |
