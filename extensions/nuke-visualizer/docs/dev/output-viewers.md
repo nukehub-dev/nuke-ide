@@ -93,6 +93,15 @@ The tracks/collision-track/weight-windows panels host a Calculator input plus an
 
 The tracks viewer draws decimated direction cones (`THREE.InstancedMesh`, one draw call) oriented along per-point vectors; the collision-track viewer shares the path. The math lives in the pure `src/browser/viewer-core/glyph-layout.ts` (vitest-covered): density decimation (`decimateGlyphIndices`, stride `round(1/density)` widened past `MAX_GLYPH_INSTANCES`), polyline tangents (`polylineTangents` — per-pair accumulation into both endpoints, zero-length segments and isolated points stay zero), the +Y apex quaternion (`quaternionFromUp`, undefined for zero/non-finite vectors — the skip), and `planGlyphs` (decimate + skip). The converted `.vtp` carries no explicit direction array (the HDF5 `u` never reaches the converter), so the tracks widget overrides the base `glyphVectors()` hook with cached tangents (explicit 3-component point array fallback); the collision widget resolves the first 3-component point array (none today, so its Glyphs rows stay hidden until a producer emits vectors). The base owns the cone lifecycle: `refreshGlyphs()` runs after the warp rewrite in every funnel (build, warp edits, threshold edits — cones sit on warped positions), drops threshold-hidden tuples (point arrays 1:1, cell arrays via the first incident segment's cell), colors instances from the active mapping, and sizes cones off the scene diagonal (`autoGlyphSize` × the scale slider). Viewer Settings drives it through `glyphEnabled`/`glyphDensity`/`glyphScale` patches with a `glyph` snapshot section (live/total counts) beside the Warp rows. Streamlines stay deferred: `glyph-layout.ts` carries the marked F5b seam (`GlyphVectorField`) but no integrator.
 
+### Panel Shortcuts
+
+`viewer-nav-extras.tsx::ViewerPanelActions` renders the bottom-bar gear (Viewer Settings) and the
+DAGMC-only outline button. Both execute id-only commands from `commands/panel-commands.ts`; the widgets never
+import command contributions, so the widget → contribution → widget module cycle stays out. The DAGMC Outline
+panel drives `DagmcOutlinePatch.hideAll`/`focusVolume`: Hide all fills the hidden-volume set, and Frame fits only
+that volume's visible block bounds without changing visibility. Filtering force-expands sections and reports
+`matched/total` badges without mutating the stored collapse state.
+
 ### Canvas Context Menu
 
 `viewer-core/viewer-context-menu.ts` owns the shared Fit / Screenshot / Clip / shading model and the imperative renderer (measured, clamped, Escape/outside dismissal). Geometry-native overrides the contents with its cell Hide/Isolate group (`geometry-native-model.ts::buildGeometryContextMenuItems`). DAGMC adds its volume group through `dagmc-context-menu.ts::buildDagmcContextMenuItems`: Hide/Isolate the current `selectedVolumeId`, plus Show All when any block is hidden; the action ids route to the same `excludeSelectedVolume` / `isolateSelectedVolume` / `showAllDagmc` setters as the bottom bar and outline. Keep new menu rows pure-model tested; the renderer stays DOM-only.

@@ -37,6 +37,7 @@ import { DagmcViewerWidget } from '../plugins/openmc/widgets/dagmc/dagmc-viewer-
 import { isGraveyardMaterial } from '../plugins/openmc/widgets/dagmc/dagmc-toggle-model';
 import {
     dagmcOutlineVolumeMatches,
+    formatDagmcOutlineVolumeLabel,
     matchesDagmcOutlineQuery,
     resolveDagmcOutlineTargetId,
     DagmcOutlineHost,
@@ -62,8 +63,12 @@ import './dagmc-outline.css';
  * owns visibility + selection only. Volume rows collapse to `Volume <id>`
  * with the material as a muted suffix plus a hover eye button isolating the
  * row's volume; VOLUMES/MATERIALS/GROUPS headers are sticky with count
- * badges; the header keeps the bound viewer tab label as an
- * ellipsis-truncated subtitle (full text in the Nuke tooltip, never
+ * badges; Show all / Hide all ride one compact action row and the current
+ * selection gets a Frame / Hide-Show / Isolate / Clear strip. Double-clicking
+ * a visible volume row frames it, filtering force-expands every section and
+ * shows `matched/total` badges, and the selected row auto-scrolls into view
+ * once per selection change. The header keeps the bound viewer tab label as
+ * an ellipsis-truncated subtitle (full text in the Nuke tooltip, never
  * overflowing raw text, never `title=`).
  */
 @injectable()
@@ -79,6 +84,8 @@ export class DagmcOutlineWidget extends ReactWidget {
     protected filter = '';
     /** Panel-local collapsed groups (CAD TreeSection pattern); viewer state is never cached here. */
     protected collapsedGroups = new Set<string>();
+    /** Last selection scrolled into view (undefined = never); avoids scrolling on unrelated re-renders. */
+    protected scrolledSelectionId: number | null | undefined = undefined;
 
     constructor(options?: any) {
         super(options);
@@ -216,6 +223,11 @@ export class DagmcOutlineWidget extends ReactWidget {
     }
 
     protected toggleGroup(id: string): void {
+        // Filtering force-expands every section; toggling would silently
+        // mutate the collapse state the user expects back after clearing.
+        if (this.isFiltering()) {
+            return;
+        }
         if (this.collapsedGroups.has(id)) {
             this.collapsedGroups.delete(id);
         } else {
@@ -224,13 +236,20 @@ export class DagmcOutlineWidget extends ReactWidget {
         this.update();
     }
 
+    /** Active search filter (whitespace-only queries do not filter). */
+    protected isFiltering(): boolean {
+        return this.filter.trim().length > 0;
+    }
+
     /**
      * CAD-style collapsible section: chevron + uppercase label + count
      * badge (OutlineSection grammar). Collapse is panel-local; every row
-     * hook inside keeps working unchanged.
+     * hook inside keeps working unchanged. While filtering, sections are
+     * force-expanded and the badge reads `filtered/total`.
      */
-    protected renderGroup(id: string, label: string, count: number, body: React.ReactNode): React.ReactNode {
-        const collapsed = this.collapsedGroups.has(id);
+    protected renderGroup(id: string, label: string, count: number, total: number, body: React.ReactNode): React.ReactNode {
+        const filtering = this.isFiltering();
+        const collapsed = !filtering && this.collapsedGroups.has(id);
         return (
             <div className={`dagmc-outline-group${collapsed ? ' collapsed' : ''}`}>
                 <div
@@ -247,7 +266,7 @@ export class DagmcOutlineWidget extends ReactWidget {
                 >
                     <i className={`codicon codicon-chevron-${collapsed ? 'right' : 'down'} dagmc-outline-chevron`}></i>
                     <span className="dagmc-outline-group-label">{label}</span>
-                    <span className="dagmc-outline-count-badge">{count}</span>
+                    <span className="dagmc-outline-count-badge">{filtering ? `${count}/${total}` : `${count}`}</span>
                 </div>
                 {!collapsed && body}
             </div>
@@ -295,6 +314,7 @@ export class DagmcOutlineWidget extends ReactWidget {
                 </div>
             );
         }
+        this.scrollSelectedRowIntoView(snapshot);
         return (
             <div className="dagmc-outline-panel">
                 <div className="dagmc-outline-header">
@@ -324,7 +344,8 @@ export class DagmcOutlineWidget extends ReactWidget {
                         </div>
                         {this.renderSearch()}
                         {this.renderGraveyard(host, snapshot)}
-                        {this.renderShowAll(host)}
+                        {this.renderActions(host, snapshot)}
+                        {this.renderSelectionActions(host, snapshot)}
                         {this.renderVolumes(host, snapshot)}
                         {snapshot.hasModelInfo ? (
                             <>
@@ -380,15 +401,128 @@ export class DagmcOutlineWidget extends ReactWidget {
         );
     }
 
-    protected renderShowAll(host: DagmcOutlineHost): React.ReactNode {
+    /**
+     * Top action row: Show all (clears every hidden set) and Hide all
+     * (fills the hidden-volume set with the loaded ids). Hide all disables
+     * when the canvas has nothing left to hide.
+     */
+    protected renderActions(host: DagmcOutlineHost, snapshot: DagmcOutlineSnapshot): React.ReactNode {
+        const hideAllDisabled = snapshot.visibleCount === 0;
         return (
-            <Tooltip content="Show every volume" position="right">
-                <button className="theia-button secondary dagmc-outline-show-all" onClick={() => this.applyPatch(host, { showAll: true })}>
-                    <i className={codicon('eye')}></i>
-                    Show all
-                </button>
-            </Tooltip>
+            <div className="dagmc-outline-actions">
+                <Tooltip content="Show every volume" position="right">
+                    <button
+                        type="button"
+                        className="theia-button secondary dagmc-outline-show-all"
+                        onClick={() => this.applyPatch(host, { showAll: true })}
+                    >
+                        <i className={codicon('eye')}></i>
+                        Show all
+                    </button>
+                </Tooltip>
+                <Tooltip content={hideAllDisabled ? 'Nothing to hide' : 'Hide every volume'} position="right">
+                    <button
+                        type="button"
+                        className="theia-button secondary dagmc-outline-hide-all"
+                        disabled={hideAllDisabled}
+                        onClick={() => this.applyPatch(host, { hideAll: true })}
+                    >
+                        <i className={codicon('eye-closed')}></i>
+                        Hide all
+                    </button>
+                </Tooltip>
+            </div>
         );
+    }
+
+    /**
+     * Selected-volume strip: the widget-owned selection mirrored as one
+     * compact action line (Frame / Hide-Show / Isolate / Clear). Every
+     * button routes through the same outline patches as the rows and the
+     * canvas menu, so the panel never forks visibility state.
+     */
+    protected renderSelectionActions(host: DagmcOutlineHost, snapshot: DagmcOutlineSnapshot): React.ReactNode {
+        const id = snapshot.selectedVolumeId;
+        if (id === null) {
+            return undefined;
+        }
+        const entry = snapshot.volumes.find((candidate) => candidate.id === id);
+        const visible = entry?.visible === true;
+        const label = formatDagmcOutlineVolumeLabel(id);
+        return (
+            <div className="dagmc-outline-selection" role="group" aria-label={`${label} actions`}>
+                <span className="dagmc-outline-selection-label">{label}</span>
+                <Tooltip content={visible ? `Frame ${label}` : `${label} is hidden`} position="bottom">
+                    <button
+                        type="button"
+                        className="dagmc-outline-selection-frame"
+                        aria-label={`Frame ${label}`}
+                        disabled={!visible}
+                        onClick={() => this.applyPatch(host, { focusVolume: id })}
+                    >
+                        <i className={codicon('screen-full')}></i>
+                    </button>
+                </Tooltip>
+                <Tooltip content={visible ? `Hide ${label}` : `Show ${label}`} position="bottom">
+                    <button
+                        type="button"
+                        className="dagmc-outline-selection-toggle"
+                        aria-label={visible ? `Hide ${label}` : `Show ${label}`}
+                        onClick={() => this.applyPatch(host, { toggleVolume: id })}
+                    >
+                        <i className={codicon(visible ? 'eye-closed' : 'eye')}></i>
+                    </button>
+                </Tooltip>
+                <Tooltip content={`Isolate ${label}`} position="bottom">
+                    <button
+                        type="button"
+                        className="dagmc-outline-selection-isolate"
+                        aria-label={`Isolate ${label}`}
+                        onClick={() => this.isolateVolume(host, snapshot, id)}
+                    >
+                        <i className={codicon('eye')}></i>
+                    </button>
+                </Tooltip>
+                <Tooltip content="Clear selection" position="bottom">
+                    <button
+                        type="button"
+                        className="dagmc-outline-selection-clear"
+                        aria-label="Clear selection"
+                        onClick={() => this.applyPatch(host, { selectVolume: null })}
+                    >
+                        <i className={codicon('close')}></i>
+                    </button>
+                </Tooltip>
+            </div>
+        );
+    }
+
+    /**
+     * Scroll the selected row into view once per selection change. Canvas
+     * picks and outline clicks both reach here through the widget's
+     * outline-change signal; unrelated re-renders never move the panel, and
+     * `scrollIntoView` without `focus` leaves keyboard focus untouched.
+     */
+    protected scrollSelectedRowIntoView(snapshot: DagmcOutlineSnapshot): void {
+        const selected = snapshot.selectedVolumeId;
+        if (selected === this.scrolledSelectionId) {
+            return;
+        }
+        this.scrolledSelectionId = selected;
+        if (selected === null) {
+            return;
+        }
+        window.requestAnimationFrame(() => {
+            if (this.scrolledSelectionId !== selected) {
+                return;
+            }
+            this.node.querySelector<HTMLElement>('.dagmc-outline-volume-row.selected')?.scrollIntoView({ block: 'nearest' });
+        });
+    }
+
+    /** True when a row pointer event landed on an inline control (checkbox, label, isolate button). */
+    protected isRowControlTarget(target: EventTarget | null): boolean {
+        return target instanceof Element && target.closest('button, input, label, .nuke-checkbox') !== null;
     }
 
     protected renderVolumes(host: DagmcOutlineHost, snapshot: DagmcOutlineSnapshot): React.ReactNode {
@@ -397,6 +531,7 @@ export class DagmcOutlineWidget extends ReactWidget {
             'volumes',
             'Volumes',
             volumes.length,
+            snapshot.volumes.length,
             volumes.length === 0 ? (
                 <span className="dagmc-outline-hint">No volumes match the filter.</span>
             ) : (
@@ -413,7 +548,20 @@ export class DagmcOutlineWidget extends ReactWidget {
                             className={`dagmc-outline-row dagmc-outline-volume-row${entry.selected ? ' selected' : ''}${
                                 entry.visible ? '' : ' dagmc-outline-row-hidden'
                             }`}
-                            onClick={() => this.applyPatch(host, { selectVolume: entry.selected ? null : entry.id })}
+                            onClick={(e) => {
+                                // The second click of a double-click must not toggle
+                                // selection away from the row that is about to frame.
+                                if (e.detail > 1) {
+                                    return;
+                                }
+                                this.applyPatch(host, { selectVolume: entry.selected ? null : entry.id });
+                            }}
+                            onDoubleClick={(e) => {
+                                if (!entry.visible || this.isRowControlTarget(e.target)) {
+                                    return;
+                                }
+                                this.applyPatch(host, { selectVolume: entry.id, focusVolume: entry.id });
+                            }}
                             onKeyDown={(e) => {
                                 if (e.key === 'Enter' || e.key === ' ') {
                                     e.preventDefault();
@@ -452,6 +600,7 @@ export class DagmcOutlineWidget extends ReactWidget {
             'materials',
             'Materials',
             materials.length,
+            snapshot.materials.length,
             materials.map((entry) => (
                 <div
                     key={entry.name}
@@ -500,6 +649,7 @@ export class DagmcOutlineWidget extends ReactWidget {
             'groups',
             'Groups',
             groups.length,
+            snapshot.groups.length,
             groups.map((entry) => (
                 <div
                     key={entry.name}

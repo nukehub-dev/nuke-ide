@@ -39,6 +39,7 @@ import {
     DagmcModelInfoError,
     graveyardVolumeIds,
     groupsOfVolume,
+    hideAllDagmc,
     isDagmcVolumeVisible,
     isGraveyardMaterial,
     isolateDagmcVolume,
@@ -146,5 +147,23 @@ describe('dagmc visibility', () => {
         expect(visibility.hiddenMaterials).toEqual(['clad']);
         expect(visibleDagmcVolumeIds(visibility, info)).toEqual([1]);
         expect(visibleDagmcVolumeIds(showAllDagmc(visibility), info)).toEqual([1, 2]);
+    });
+
+    it('hides every supplied volume and dedupes ids without touching other switches', () => {
+        const info = sampleInfo();
+        const start = toggleDagmcGroup(setDagmcShowGraveyard(toggleDagmcMaterial(createDefaultDagmcVisibility(), 'clad'), true), 'core');
+        const visibility = hideAllDagmc(start, [1, 2, 2, 3, 1]);
+        expect(visibility.hiddenVolumes).toEqual([1, 2, 3]);
+        expect(visibility.hiddenMaterials).toEqual(['clad']);
+        expect(visibility.hiddenGroups).toEqual(['core']);
+        expect(visibility.showGraveyard).toBe(true);
+        expect(visibleDagmcVolumeIds(visibility, info)).toEqual([]);
+        expect(visibleDagmcVolumeIds(showAllDagmc(visibility), info)).toEqual([1, 2, 3]);
+    });
+
+    it('hides nothing when given no ids', () => {
+        const visibility = hideAllDagmc(createDefaultDagmcVisibility(), []);
+        expect(visibility.hiddenVolumes).toEqual([]);
+        expect(visibleDagmcVolumeIds(visibility, sampleInfo())).toEqual([1, 2]);
     });
 });

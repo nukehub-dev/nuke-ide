@@ -134,8 +134,12 @@ test('viewer settings sidebar shows values and drives shading', async ({ page })
     await expect(container.locator('.nuke-viewer-nav-bar')).toBeVisible();
     expect(await container.locator('.nuke-viewer-nav-bar button').count()).toBeGreaterThanOrEqual(11);
 
-    // The sidebar binds to the active viewer tab and shows its live values.
-    const settings = await openViewerSettings(page);
+    // The bottom-bar gear opens the sidebar directly (no command palette).
+    const settingsTrigger = container.locator('.viewer-nav-viewer-settings');
+    await expect(settingsTrigger).toBeVisible();
+    await settingsTrigger.click();
+    const settings = page.locator('.viewer-settings-panel');
+    await expect(settings).toBeVisible({ timeout: 30_000 });
     await expect(settings.locator('.viewer-settings-header-name')).toHaveText('Viewer Settings');
     await expect(settings.locator('.viewer-settings-title')).toContainText('Visualizer: native-polydata.vtp');
     // CAD panel chrome: collapsible count-badge sections with live status dots.
@@ -387,6 +391,66 @@ test('DAGMC outline sidebar lists volumes and toggles visibility', async ({ page
     await expect(panel.locator('.dagmc-outline-volume-row.dagmc-outline-row-hidden')).toHaveCount(0);
     await expect(canvas).toBeVisible();
     await expect(container.locator('.openmc-output-viewer-status.error')).toHaveCount(0);
+
+    const bad = severe(errors);
+    expect(bad, `unexpected severe errors:\n${bad.join('\n')}`).toEqual([]);
+});
+
+test('DAGMC viewer exposes panel shortcuts and outline quick actions', async ({ page }) => {
+    const errors = collectErrors(page);
+    await page.goto('/');
+    await waitForWorkbench(page);
+
+    const container = await openViewer(page, 'native-volumes.vtm');
+    await expect(container.locator('.openmc-output-viewer-status.error')).toHaveCount(0);
+    const canvas = container.locator('.openmc-output-viewer-viewarea canvas');
+    await expect(canvas).toBeVisible({ timeout: 30_000 });
+
+    // Bottom-bar shortcuts: Settings opens the sidebar, Outline reveals the
+    // auto-opened panel again after the settings tab takes the right area.
+    const settingsButton = container.locator('.viewer-nav-viewer-settings');
+    const outlineButton = container.locator('.viewer-nav-dagmc-outline');
+    await expect(settingsButton).toBeVisible();
+    await expect(outlineButton).toBeVisible();
+    await settingsButton.click();
+    await expect(page.locator('.viewer-settings-panel')).toBeVisible({ timeout: 30_000 });
+    await outlineButton.click();
+    const panel = page.locator('.dagmc-outline-panel');
+    await expect(panel).toBeVisible({ timeout: 30_000 });
+
+    // Row selection exposes the compact action strip; Clear dismisses it.
+    const rows = panel.locator('.dagmc-outline-volume-row');
+    await expect(rows).toHaveCount(2);
+    await rows.nth(0).click();
+    const selection = panel.locator('.dagmc-outline-selection');
+    await expect(selection).toBeVisible();
+    await expect(selection.locator('.dagmc-outline-selection-label')).toHaveText(/^Volume \d+$/);
+    await expect(selection.locator('.dagmc-outline-selection-frame')).toBeEnabled();
+    await selection.locator('.dagmc-outline-selection-clear').click();
+    await expect(selection).toHaveCount(0);
+
+    // Hide all empties the canvas and disables itself; Show all restores.
+    const hideAll = panel.locator('.dagmc-outline-hide-all');
+    await hideAll.click();
+    await expect(container.getByText('0 of 2 volumes').first()).toBeVisible({ timeout: 30_000 });
+    await expect(hideAll).toBeDisabled();
+    await panel.locator('.dagmc-outline-show-all').click();
+    await expect(container.getByText('2 of 2 volumes').first()).toBeVisible({ timeout: 30_000 });
+    await expect(panel.locator('.dagmc-outline-volume-row.dagmc-outline-row-hidden')).toHaveCount(0);
+
+    // Filtering force-expands a collapsed section so matches never hide, and
+    // the section badge reports matched/total. Clearing restores the collapse.
+    const volumesHeader = panel.locator('.dagmc-outline-group-header').first();
+    const search = panel.locator('.dagmc-outline-search');
+    await volumesHeader.click();
+    await expect(panel.locator('.dagmc-outline-volume-row')).toHaveCount(0);
+    await search.fill('Volume 1');
+    await expect(panel.locator('.dagmc-outline-volume-row')).toHaveCount(1);
+    await expect(panel.locator('.dagmc-outline-group-header .dagmc-outline-count-badge').first()).toHaveText('1/2');
+    await search.fill('');
+    await expect(panel.locator('.dagmc-outline-volume-row')).toHaveCount(0);
+    await volumesHeader.click();
+    await expect(panel.locator('.dagmc-outline-volume-row')).toHaveCount(2);
 
     const bad = severe(errors);
     expect(bad, `unexpected severe errors:\n${bad.join('\n')}`).toEqual([]);

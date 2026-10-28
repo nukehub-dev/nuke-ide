@@ -86,6 +86,9 @@ Planes**, and the shading modes. In a DAGMC viewer with a volume selected, the
 same menu adds **Hide Volume N** / **Isolate Volume N**, plus **Show All
 Volumes** when any volume, material, or group is hidden.
 
+The bottom bar also carries one-click **Viewer Settings** and, in DAGMC
+viewers, **DAGMC Outline** shortcuts beside the clip/shading/link controls.
+
 **Viewer Settings** is a narrow sidebar panel built like the CAD outline:
 every row reserves a visible label column, so **Background**, **Point size**,
 **Line width**, and **Opacity** keep their full text at the default 250 px
@@ -423,8 +426,14 @@ uppercase headers and 24 px rows:
   either setting). Isolating a graveyard row with the hover eye also turns
   this switch on, so the canvas shows the graveyard instead of going blank
   (`Show all` still keeps it off).
-- **Show all** — clear every hidden-set and restore all volumes.
-- **Filter** — search box matching volume id, material, or group (for 20+-volume models).
+- **Show all / Hide all** — restore every volume or hide all loaded volumes
+  in one click. Hide all disables once the canvas is empty.
+- **Selected-volume strip** — selecting a volume (row click or canvas pick)
+  adds Frame, Hide/Show, Isolate, and Clear actions directly under the
+  filter. Double-clicking a visible volume row also frames it.
+- **Filter** — search box matching volume id, material, or group (for 20+-volume models). Sections force-expand while filtering
+  so matches never hide inside a collapsed group; the section badge shows
+  `matched/total`, and clearing the filter restores your collapse state.
 
 Display settings (color-by, shading, clip) stay in the **Viewer Settings** sidebar; the viewer itself keeps an `N of M volumes` status line.
 

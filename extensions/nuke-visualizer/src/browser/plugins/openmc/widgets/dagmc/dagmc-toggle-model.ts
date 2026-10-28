@@ -170,6 +170,16 @@ export function showAllDagmc(visibility: DagmcVisibility): DagmcVisibility {
 }
 
 /**
+ * Hide every supplied volume id (duplicates collapse) while keeping the
+ * material, group, and graveyard switches untouched. The mirror of
+ * {@link showAllDagmc} for ids the caller already knows from the loaded
+ * blocks, so it works without model info too. Pure.
+ */
+export function hideAllDagmc(visibility: DagmcVisibility, allVolumeIds: readonly number[]): DagmcVisibility {
+    return { ...visibility, hiddenVolumes: [...new Set(allVolumeIds)] };
+}
+
+/**
  * Isolate one volume: hide every other volume id while keeping the material,
  * group, and graveyard switches untouched. Works without model info too
  * (block-name rows), since direct volume toggles apply regardless. Pure.

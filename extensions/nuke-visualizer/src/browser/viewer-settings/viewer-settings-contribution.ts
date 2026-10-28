@@ -29,10 +29,11 @@ import { injectable, inject } from '@theia/core/shared/inversify';
 import { CommandContribution, CommandRegistry } from '@theia/core/lib/common';
 import { ApplicationShell, WidgetManager } from '@theia/core/lib/browser';
 import { ViewerSettingsWidget } from './viewer-settings-widget';
+import { VIEWER_SETTINGS_COMMAND_ID } from '../commands/panel-commands';
 
 /** Command opening the Viewer Settings sidebar (right area). */
 export const OpenViewerSettingsCommand = {
-    id: 'nuke-visualizer.open-viewer-settings',
+    id: VIEWER_SETTINGS_COMMAND_ID,
     label: 'Open Viewer Settings',
     category: 'Visualizer'
 };

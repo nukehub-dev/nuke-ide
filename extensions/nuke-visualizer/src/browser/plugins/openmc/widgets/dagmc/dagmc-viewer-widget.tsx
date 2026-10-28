@@ -33,7 +33,7 @@ import { Message, Widget } from '@theia/core/lib/browser';
 import { Emitter, Event } from '@theia/core/lib/common/event';
 import { codicon } from '@theia/core/lib/browser/widgets/widget';
 import URI from '@theia/core/lib/common/uri';
-import { MessageService } from '@theia/core/lib/common';
+import { CommandRegistry, MessageService } from '@theia/core/lib/common';
 import { FileService } from '@theia/filesystem/lib/browser/file-service';
 import { NukeLoadingOverlay, Tooltip, ViewBadge, ViewerNavBar, ViewCube } from 'nuke-essentials/lib/theme/browser/components';
 import type { ViewerNavAction, ViewCubeHandle } from 'nuke-essentials/lib/theme/browser/components';
@@ -139,6 +139,7 @@ import {
     ViewerSettingsSnapshot,
     viewerSnapDirection
 } from '../../../../viewer-settings/viewer-settings-model';
+import { DAGMC_OUTLINE_COMMAND_ID, VIEWER_SETTINGS_COMMAND_ID } from '../../../../commands/panel-commands';
 import {
     DagmcOutlineHost,
     DagmcOutlinePatch,
@@ -165,6 +166,7 @@ import {
     DagmcVisibility,
     createDefaultDagmcVisibility,
     groupsOfVolume,
+    hideAllDagmc,
     isDagmcVolumeVisible,
     isGraveyardMaterial,
     isolateDagmcVolume,
@@ -184,6 +186,7 @@ import {
     ViewerClipTrigger,
     ViewerFileActions,
     ViewerNavPopoverShell,
+    ViewerPanelActions,
     ViewerShadingPopover,
     ViewerShadingTrigger
 } from '../viewer-nav-extras';
@@ -266,6 +269,9 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
 
     @inject(MessageService)
     protected readonly messageService!: MessageService;
+
+    @inject(CommandRegistry)
+    protected readonly commands!: CommandRegistry;
 
     protected vtmUri: URI | undefined;
     protected blocks: DagmcBlockModel[] = [];
@@ -1195,6 +1201,12 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
         if (patch.showAll === true) {
             this.setVisibility(showAllDagmc(this.visibility));
         }
+        if (patch.hideAll === true) {
+            this.setVisibility(hideAllDagmc(this.visibility, this.knownVolumeIds()));
+        }
+        if (patch.focusVolume !== undefined) {
+            this.focusVolume(patch.focusVolume);
+        }
         if (patch.selectVolume !== undefined) {
             this.selectVolume(patch.selectVolume);
         }
@@ -1830,6 +1842,22 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
         this.orbitControls.fitBounds(bounds.min, bounds.max);
     }
 
+    /**
+     * Frame one volume's visible blocks (outline double-click / Frame action).
+     * Only visible blocks contribute; a hidden or unknown volume is a no-op,
+     * so framing can never reveal geometry the outline says is hidden.
+     */
+    focusVolume(id: number): void {
+        if (!this.camera || !this.orbitControls) {
+            return;
+        }
+        const bounds = mergeDagmcBounds(this.blocks.filter((block) => this.blockVolumeId(block) === id && this.isBlockVisible(block)));
+        if (!bounds) {
+            return;
+        }
+        this.orbitControls.fitBounds(bounds.min, bounds.max);
+    }
+
     // ------------------------------------------------------------------
     // Visibility helpers
     // ------------------------------------------------------------------
@@ -1914,7 +1942,9 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
      *
      * The one-click X-plane section button is folded into the Clip card
      * (per-axis enable covers it); Exclude/Isolate stay direct buttons
-     * (transient canvas selection, no CAD popover analog).
+     * (transient canvas selection, no CAD popover analog), and the panel
+     * shortcuts (Viewer Settings + DAGMC Outline) sit before the file
+     * actions so the right-side panels stay one click away.
      */
     protected renderNavCluster(): React.ReactNode {
         const disabled = this.isLoading || this.blocks.length === 0;
@@ -1949,6 +1979,11 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
                         disabled={disabled}
                         onExclude={() => this.excludeSelectedVolume()}
                         onIsolate={() => this.isolateSelectedVolume()}
+                    />
+                    <ViewerPanelActions
+                        disabled={disabled}
+                        onOpenSettings={() => void this.commands.executeCommand(VIEWER_SETTINGS_COMMAND_ID)}
+                        onOpenOutline={() => void this.commands.executeCommand(DAGMC_OUTLINE_COMMAND_ID)}
                     />
                     <ViewerFileActions
                         disabled={disabled}

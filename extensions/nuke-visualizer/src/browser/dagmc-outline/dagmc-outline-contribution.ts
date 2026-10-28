@@ -29,10 +29,11 @@ import { injectable, inject } from '@theia/core/shared/inversify';
 import { CommandContribution, CommandRegistry } from '@theia/core/lib/common';
 import { ApplicationShell, WidgetManager } from '@theia/core/lib/browser';
 import { DagmcOutlineWidget } from './dagmc-outline-widget';
+import { DAGMC_OUTLINE_COMMAND_ID } from '../commands/panel-commands';
 
 /** Command opening the DAGMC Outline sidebar (right area). */
 export const OpenDagmcOutlineCommand = {
-    id: 'nuke-visualizer.open-dagmc-outline',
+    id: DAGMC_OUTLINE_COMMAND_ID,
     label: 'Open DAGMC Outline',
     category: 'Visualizer'
 };

@@ -32,7 +32,7 @@ import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { Message, Widget } from '@theia/core/lib/browser';
 import { codicon } from '@theia/core/lib/browser/widgets/widget';
 import URI from '@theia/core/lib/common/uri';
-import { MessageService } from '@theia/core/lib/common';
+import { CommandRegistry, MessageService } from '@theia/core/lib/common';
 import { FileService } from '@theia/filesystem/lib/browser/file-service';
 import { Tooltip, ViewBadge, ViewerNavBar, ViewCube } from 'nuke-essentials/lib/theme/browser/components';
 import type { ViewerNavAction, ViewCubeHandle } from 'nuke-essentials/lib/theme/browser/components';
@@ -216,6 +216,7 @@ import { OpenMCVtkArrayInfo } from '../../../../common/openmc-protocol';
 import { VisualizerBackendService } from '../../../../common/base-visualizer-protocol';
 import { WorkspaceService } from '@theia/workspace/lib/browser';
 import { ViewerQualityMenu, type MeshQualityMetric } from './viewer-quality-menu';
+import { VIEWER_SETTINGS_COMMAND_ID } from '../../../commands/panel-commands';
 import {
     ViewerSettingsHost,
     ViewerSettingsPatch,
@@ -235,6 +236,7 @@ import {
     LinkCamerasTrigger,
     ProbeTrigger,
     ViewerNavPopoverShell,
+    ViewerPanelActions,
     ViewerShadingPopover,
     ViewerShadingTrigger
 } from './viewer-nav-extras';
@@ -392,6 +394,9 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
 
     @inject(MessageService)
     protected readonly messageService!: MessageService;
+
+    @inject(CommandRegistry)
+    protected readonly commands!: CommandRegistry;
 
     protected fileUri: URI | undefined;
     protected model: NativeVtkModel | undefined;
@@ -2595,6 +2600,10 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
                     <ViewerQualityMenu
                         disabled={disabled || this.fileUri === undefined}
                         onApply={(metric) => void this.applyMeshQuality(metric)}
+                    />
+                    <ViewerPanelActions
+                        disabled={disabled}
+                        onOpenSettings={() => void this.commands.executeCommand(VIEWER_SETTINGS_COMMAND_ID)}
                     />
                     <ViewerFileActions
                         disabled={disabled}

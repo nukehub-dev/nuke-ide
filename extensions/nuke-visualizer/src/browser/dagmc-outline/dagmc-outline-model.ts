@@ -117,7 +117,9 @@ export interface DagmcOutlineSnapshot {
 /**
  * One outline edit. Every field is optional; hosts apply the fields they
  * support and ignore the rest. Toggles reuse the `dagmc-toggle-model`
- * visibility algebra; `showAll` clears every hidden-set (graveyard kept).
+ * visibility algebra; `showAll` clears every hidden-set (graveyard kept),
+ * `hideAll` sets the hidden-volume set to every known id, and
+ * `focusVolume` frames one visible volume without changing visibility.
  */
 export interface DagmcOutlinePatch {
     readonly toggleVolume?: number;
@@ -125,6 +127,10 @@ export interface DagmcOutlinePatch {
     readonly toggleGroup?: string;
     readonly showGraveyard?: boolean;
     readonly showAll?: boolean;
+    /** Hide every known volume (material/group/graveyard switches untouched). */
+    readonly hideAll?: boolean;
+    /** Frame one volume's visible blocks in the canvas; hidden or unknown ids are a no-op. */
+    readonly focusVolume?: number;
     /** Select a volume in the canvas (null clears); the widget owns the value. */
     readonly selectVolume?: number | null;
 }

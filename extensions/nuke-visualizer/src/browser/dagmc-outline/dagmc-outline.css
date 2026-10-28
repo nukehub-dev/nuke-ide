@@ -302,11 +302,96 @@ div.dagmc-outline-row.selected .dagmc-outline-row-icon {
     flex-shrink: 0;
 }
 
-.dagmc-outline-show-all {
-    align-self: flex-start;
+/* Action row: compact secondary buttons sharing the 24 px row grammar. */
+.dagmc-outline-actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.dagmc-outline-actions .theia-button {
+    min-width: 0;
+    height: 24px;
+    margin: 0;
+    padding: 0 8px;
     display: inline-flex;
     align-items: center;
     gap: 4px;
+    white-space: nowrap;
+}
+
+.dagmc-outline-actions .theia-button:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+/* Selected-volume strip: one 24 px line with the label and icon actions. */
+.dagmc-outline-selection {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-height: 24px;
+    padding: 0 2px 0 6px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 3px;
+    background: var(--theia-list-hoverBackground);
+}
+
+.dagmc-outline-selection-label {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 600;
+    font-size: 12px;
+}
+
+/* Compact icon buttons (plain buttons: .theia-button's 65 px min-width
+   would blow the strip). Disabled controls stay visible but muted. */
+.dagmc-outline-selection-frame,
+.dagmc-outline-selection-toggle,
+.dagmc-outline-selection-isolate,
+.dagmc-outline-selection-clear {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    border-radius: 3px;
+    color: var(--theia-descriptionForeground);
+    cursor: pointer;
+}
+
+.dagmc-outline-selection-frame:hover:not(:disabled),
+.dagmc-outline-selection-toggle:hover,
+.dagmc-outline-selection-isolate:hover,
+.dagmc-outline-selection-clear:hover {
+    color: var(--theia-foreground);
+    background: var(--theia-list-activeSelectionBackground);
+}
+
+.dagmc-outline-selection-frame:disabled {
+    opacity: 0.35;
+    cursor: default;
+}
+
+.dagmc-outline-actions .theia-button:focus-visible,
+.dagmc-outline-selection-frame:focus-visible,
+.dagmc-outline-selection-toggle:focus-visible,
+.dagmc-outline-selection-isolate:focus-visible,
+.dagmc-outline-selection-clear:focus-visible {
+    outline: 1px solid var(--theia-focusBorder);
+    outline-offset: -1px;
+}
+
+.dagmc-outline-selection .codicon {
+    font-size: 13px;
 }
 
 /* Row-label Tooltip span: same flex-override pattern as the search row so

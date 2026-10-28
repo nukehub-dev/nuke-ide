@@ -298,6 +298,36 @@ export const LinkCamerasTrigger: React.FC<LinkCamerasTriggerProps> = ({ linked, 
 );
 
 /**
+ * Right-area panel shortcuts: Viewer Settings is available from every
+ * native 3D viewer; DAGMC viewers additionally expose their Outline panel.
+ * Props-only, like every other nav extra — the host routes the clicks
+ * through the command registry and owns panel reveal behavior.
+ */
+export interface ViewerPanelActionsProps {
+    readonly disabled?: boolean;
+    readonly onOpenSettings: () => void;
+    /** DAGMC viewers only; omitted elsewhere. */
+    readonly onOpenOutline?: () => void;
+}
+
+export const ViewerPanelActions: React.FC<ViewerPanelActionsProps> = ({ disabled, onOpenSettings, onOpenOutline }) => (
+    <>
+        <Tooltip content="Open Viewer Settings" position="left">
+            <button className={`${navButtonClass(false)} viewer-nav-viewer-settings`} disabled={disabled} onClick={onOpenSettings}>
+                <span className="codicon codicon-settings-gear" />
+            </button>
+        </Tooltip>
+        {onOpenOutline && (
+            <Tooltip content="Open DAGMC Outline" position="left">
+                <button className={`${navButtonClass(false)} viewer-nav-dagmc-outline`} disabled={disabled} onClick={onOpenOutline}>
+                    <span className="codicon codicon-list-tree" />
+                </button>
+            </Tooltip>
+        )}
+    </>
+);
+
+/**
  * Find Data trigger: opens the transient query dialog. Lit while a
  * selection is active so the canvas highlight is discoverable.
  */
