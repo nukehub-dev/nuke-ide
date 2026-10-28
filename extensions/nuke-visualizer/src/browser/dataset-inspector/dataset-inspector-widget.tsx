@@ -55,6 +55,13 @@ function formatCount(value: number): string {
     return Number.isFinite(value) ? String(Math.max(0, Math.round(value))) : '0';
 }
 
+/** Deterministic grouped count for the table status, independent of the runtime locale. */
+const TABLE_COUNT_FORMAT = new Intl.NumberFormat('en-US');
+
+function formatTableCount(value: number): string {
+    return TABLE_COUNT_FORMAT.format(Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0);
+}
+
 /** `[x, y, z]` coordinate triple with the inspector's display formatting. */
 function formatVector(values: readonly [number, number, number]): string {
     return `[${values.map((value) => formatDatasetNumber(value)).join(', ')}]`;
@@ -456,7 +463,7 @@ export class DatasetInspectorWidget extends ReactWidget {
                 <div className="dataset-inspector-row">
                     <span className="dataset-inspector-row-label">
                         <i className="codicon codicon-symbol-parameter dataset-inspector-row-icon"></i>
-                        Rows
+                        Association
                     </span>
                     <div className="dataset-inspector-association-toggle" role="group" aria-label="Data array association">
                         {this.renderAssociationButton('point', 'Point', pointCount, association, summary)}
@@ -480,7 +487,7 @@ export class DatasetInspectorWidget extends ReactWidget {
                     <>
                         <div className="dataset-inspector-table-status">
                             <span>
-                                Showing {formatCount(shown)} of {formatCount(table.rowCount)} rows
+                                Showing {formatTableCount(shown)} of {formatTableCount(table.rowCount)} rows
                             </span>
                             <Tooltip content="Copy the displayed rows as CSV" position="top">
                                 <button
@@ -532,6 +539,7 @@ export class DatasetInspectorWidget extends ReactWidget {
                 <table className="dataset-inspector-table" aria-label={ariaLabel}>
                     <thead>
                         <tr>
+                            <th scope="col">#</th>
                             {table.columns.map((column, index) => (
                                 <th key={`${column}-${index}`} scope="col">
                                     {column}
@@ -542,6 +550,9 @@ export class DatasetInspectorWidget extends ReactWidget {
                     <tbody>
                         {rows.map((row, rowIndex) => (
                             <tr key={rowIndex}>
+                                <th scope="row" className="dataset-inspector-row-number">
+                                    {rowIndex + 1}
+                                </th>
                                 {row.map((cell, cellIndex) => (
                                     <td key={cellIndex}>{cell}</td>
                                 ))}

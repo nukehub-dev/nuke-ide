@@ -281,6 +281,14 @@
     min-width: 0;
 }
 
+/* Keep the association/array controls, status line, and table from touching. */
+.dataset-inspector-table-section {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
 .dataset-inspector-table-status {
     display: flex;
     align-items: center;
@@ -303,15 +311,19 @@
     color: var(--theia-descriptionForeground);
 }
 
-/* Bounded spreadsheet preview: the panel never grows with the dataset and
-   the header stays visible while the rows scroll (both axes). */
+/* Bounded spreadsheet preview: the panel never grows with the dataset, the
+   header stays visible while the rows scroll (both axes), and the stable
+   gutter keeps the right edge from shifting when the scrollbar appears. */
 .dataset-inspector-table-wrap {
     max-height: 320px;
     overflow: auto;
+    scrollbar-gutter: stable;
+    overscroll-behavior: contain;
     border: 1px solid var(--theia-panel-border);
 }
 
 .dataset-inspector-table {
+    --dataset-inspector-table-sticky-background: var(--theia-sideBar-background, var(--theia-editor-background));
     border-collapse: collapse;
     width: max-content;
     min-width: 100%;
@@ -319,11 +331,11 @@
     font-variant-numeric: tabular-nums;
 }
 
-.dataset-inspector-table th {
+.dataset-inspector-table thead th {
     position: sticky;
     top: 0;
-    z-index: 1;
-    background: var(--theia-sideBar-background, var(--theia-editor-background));
+    z-index: 2;
+    background: var(--dataset-inspector-table-sticky-background);
     color: var(--theia-descriptionForeground);
     font-weight: 600;
     text-align: right;
@@ -332,6 +344,7 @@
     white-space: nowrap;
 }
 
+.dataset-inspector-table tbody th,
 .dataset-inspector-table td {
     text-align: right;
     padding: 1px 6px;
@@ -341,11 +354,44 @@
     font-family: var(--theia-code-font-family);
 }
 
-.dataset-inspector-table th:first-child,
-.dataset-inspector-table td:first-child {
-    text-align: left;
+.dataset-inspector-table tbody th {
+    font-weight: 400;
 }
 
-.dataset-inspector-table tbody tr:last-child td {
+/* Row numbers pin to the left edge with an opaque background so they stay
+   visible over data columns during horizontal scrolling. */
+.dataset-inspector-table thead th:first-child,
+.dataset-inspector-table tbody th:first-child {
+    position: sticky;
+    left: 0;
+    text-align: left;
+    background: var(--dataset-inspector-table-sticky-background);
+    border-right: 1px solid var(--theia-panel-border);
+}
+
+.dataset-inspector-table thead th:first-child {
+    z-index: 3;
+}
+
+.dataset-inspector-table tbody th:first-child {
+    z-index: 1;
+    color: var(--theia-descriptionForeground);
+}
+
+.dataset-inspector-table tbody tr:hover td,
+.dataset-inspector-table tbody tr:hover th {
+    background: var(--theia-list-hoverBackground);
+}
+
+/* Layer the translucent list hover over the opaque sticky base, so the row
+   number cell highlights without exposing the data columns underneath. */
+.dataset-inspector-table tbody tr:hover th:first-child {
+    background:
+        linear-gradient(var(--theia-list-hoverBackground), var(--theia-list-hoverBackground)),
+        var(--dataset-inspector-table-sticky-background);
+}
+
+.dataset-inspector-table tbody tr:last-child td,
+.dataset-inspector-table tbody tr:last-child th {
     border-bottom: none;
 }

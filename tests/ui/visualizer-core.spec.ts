@@ -125,6 +125,12 @@ test('dataset inspector lists arrays and rows for the active viewer', async ({ p
     await expect(panel).toContainText('Statistics');
     await expect(panel.locator('.dataset-inspector-table-row, .dataset-inspector-row').first()).toBeVisible({ timeout: 30_000 });
 
+    const table = panel.locator('.dataset-inspector-table');
+    await expect(table.locator('thead th').first()).toHaveText('#');
+    const firstRow = table.locator('tbody tr').first();
+    await expect(firstRow.locator('th').first()).toHaveClass(/dataset-inspector-row-number/);
+    await expect(firstRow.locator('th.dataset-inspector-row-number')).toHaveText('1');
+
     const bad = severe(errors);
     expect(bad, `unexpected severe errors:\n${bad.join('\n')}`).toEqual([]);
 });
@@ -157,6 +163,13 @@ test('dataset inspector aggregates DAGMC volume blocks', async ({ page }) => {
     await expect(panel.locator('.dataset-inspector-table-status')).toContainText('Showing 2 of 2 rows');
     await expect(panel.locator('.dataset-inspector-table thead')).toContainText('volume_id');
     await expect(panel.locator('.dataset-inspector-table tbody tr')).toHaveCount(2);
+
+    const table = panel.locator('.dataset-inspector-table');
+    await expect(table.locator('thead th').first()).toHaveText('#');
+    const firstRow = table.locator('tbody tr').first();
+    await expect(firstRow.locator('th').first()).toHaveClass(/dataset-inspector-row-number/);
+    await expect(firstRow.locator('th.dataset-inspector-row-number')).toHaveText('1');
+
     await expect(panel).toContainText('Statistics');
     await expect(panel).toContainText('Integral (area)');
 

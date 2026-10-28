@@ -65,7 +65,9 @@ the active native viewer. It shows:
   components) with **Copy CSV**.
 
 The table shows the first 200 rows so large meshes never materialize in the
-DOM; the CSV action copies that same preview window. The panel follows the
+DOM; row numbers and the header stay pinned while you scroll, and large counts
+are grouped (for example `Showing 200 of 72,934 rows`). The CSV action copies
+that same preview window without the row-number column. The panel follows the
 active viewer tab and shows an empty state when the bound widget is not a
 native dataset viewer. DAGMC viewers aggregate every loaded volume block:
 counts and bounds union, same-named arrays merge into one catalogue entry,

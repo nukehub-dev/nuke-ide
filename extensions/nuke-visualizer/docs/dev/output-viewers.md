@@ -157,7 +157,8 @@ IFP kinetics results live in ordinary `statepoint*.h5` files, so they have no re
 
 - **Dataset Inspector** — `src/browser/dataset-inspector/` binds to the active viewer through
   `ViewerDatasetHost` (`getDatasetSummary`, `getDatasetTable`, optional `getDatasetStats`). The pure core is
-  `viewer-core/dataset-inspector.ts`; tables are capped at 200 rows and Copy CSV copies that window.
+  `viewer-core/dataset-inspector.ts`; tables are capped at 200 rows, render a pinned row-number column with a
+  sticky header, and Copy CSV copies that window without the row numbers.
   `NativeVtkViewerWidget` implements the host directly; `DagmcViewerWidget` opts in through
   `dagmc-dataset.ts`, which aggregates block counts/bounds, merges same-named arrays, pages tables across
   block boundaries, and sums per-block cell-area integrals.
