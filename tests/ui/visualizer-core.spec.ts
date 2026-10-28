@@ -129,6 +129,41 @@ test('dataset inspector lists arrays and rows for the active viewer', async ({ p
     expect(bad, `unexpected severe errors:\n${bad.join('\n')}`).toEqual([]);
 });
 
+test('dataset inspector aggregates DAGMC volume blocks', async ({ page }) => {
+    const errors = collectErrors(page);
+    await page.goto('/');
+    await waitForWorkbench(page);
+
+    const container = await openViewer(page, 'native-volumes.vtm');
+    await expect(container.locator('.openmc-output-viewer-status.error')).toHaveCount(0);
+
+    await runCommand(page, 'Open Dataset Inspector');
+    const panel = page.locator('.dataset-inspector-panel');
+    await expect(panel).toBeVisible({ timeout: 30_000 });
+    await expect(panel.locator('.dataset-inspector-title')).toContainText('native-volumes.vtm');
+
+    // Both one-triangle blocks aggregate into one logical polydata dataset.
+    await expect(panel.locator('.dataset-inspector-row').filter({ hasText: 'Kind' }).locator('.dataset-inspector-value')).toHaveText(
+        'PolyData'
+    );
+    await expect(panel.locator('.dataset-inspector-row').filter({ hasText: 'Points' }).locator('.dataset-inspector-value')).toHaveText('6');
+    await expect(panel.locator('.dataset-inspector-row').filter({ hasText: 'Cells' }).locator('.dataset-inspector-value')).toHaveText('2');
+
+    // The shared volume_id cell array is one catalogue entry with both tuples,
+    // and the table pages across the block boundary.
+    const volumeRows = panel.locator('.dataset-inspector-array-row').filter({ hasText: 'volume_id' });
+    await expect(volumeRows).toHaveCount(1);
+    await expect(volumeRows).toContainText('2 tuples');
+    await expect(panel.locator('.dataset-inspector-table-status')).toContainText('Showing 2 of 2 rows');
+    await expect(panel.locator('.dataset-inspector-table thead')).toContainText('volume_id');
+    await expect(panel.locator('.dataset-inspector-table tbody tr')).toHaveCount(2);
+    await expect(panel).toContainText('Statistics');
+    await expect(panel).toContainText('Integral (area)');
+
+    const bad = severe(errors);
+    expect(bad, `unexpected severe errors:\n${bad.join('\n')}`).toEqual([]);
+});
+
 test('screenshot export menu downloads a selected format', async ({ page }) => {
     const errors = collectErrors(page);
     await page.goto('/');

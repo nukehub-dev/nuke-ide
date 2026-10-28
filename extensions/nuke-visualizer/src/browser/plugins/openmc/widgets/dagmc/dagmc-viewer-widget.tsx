@@ -134,11 +134,18 @@ import {
 import { getPointSpriteTexture } from '../../../../viewer-core/point-sprite';
 import { nextNavPopover, type ViewerNavPopoverKind } from '../../../../viewer-core/viewer-nav-popover';
 import {
+    type DatasetAssociation,
+    type DatasetStats,
+    type DatasetSummary,
+    type DatasetTable
+} from '../../../../viewer-core/dataset-inspector';
+import {
     ViewerSettingsHost,
     ViewerSettingsPatch,
     ViewerSettingsSnapshot,
     viewerSnapDirection
 } from '../../../../viewer-settings/viewer-settings-model';
+import type { ViewerDatasetHost } from '../../../../dataset-inspector/dataset-inspector-model';
 import { DAGMC_OUTLINE_COMMAND_ID, VIEWER_SETTINGS_COMMAND_ID } from '../../../../commands/panel-commands';
 import {
     DagmcOutlineHost,
@@ -149,6 +156,7 @@ import {
     formatDagmcOutlineVolumeLabel
 } from '../../../../dagmc-outline/dagmc-outline-model';
 import { DagmcBlockModel, mergeDagmcBounds, parseBlockDataset, parseVtmManifest } from './dagmc-multiblock';
+import { dagmcStatsForArray, dagmcTableForArray, summarizeDagmcBlocks } from './dagmc-dataset';
 import {
     GROUP_COLOR_NOTE,
     MATERIAL_COLOR_NOTE,
@@ -260,7 +268,7 @@ const DEFAULT_VIEWER_BACKGROUND = '#1e1e1e';
  * and calls `setModelInfo` with the `dagmc.info` payload.
  */
 @injectable()
-export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost, DagmcOutlineHost, ComparisonViewHost {
+export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost, DagmcOutlineHost, ComparisonViewHost, ViewerDatasetHost {
     static readonly ID: string = 'dagmc-viewer-widget';
     static readonly LABEL: string = 'Native DAGMC Viewer';
 
@@ -1231,6 +1239,26 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
     /** Notify the bound outline panel to re-read the snapshot. */
     protected fireOutlineChanged(): void {
         this.outlineChanged.fire(undefined);
+    }
+
+    // ------------------------------------------------------------------
+    // Dataset Inspector sidebar API (single-direction sync: the panel
+    // reads aggregated block data, never duplicated per-block state)
+    // ------------------------------------------------------------------
+
+    /** Dataset Inspector: aggregate summary over every loaded block. */
+    getDatasetSummary(): DatasetSummary | undefined {
+        return this.blocks.length > 0 ? summarizeDagmcBlocks(this.blocks) : undefined;
+    }
+
+    /** Dataset Inspector: paged table for one array across every block that carries it. */
+    getDatasetTable(association: DatasetAssociation, name: string): DatasetTable | undefined {
+        return this.blocks.length > 0 ? dagmcTableForArray(this.blocks, association, name) : undefined;
+    }
+
+    /** Dataset Inspector: merged descriptive stats (and cell area integral) over the blocks. */
+    getDatasetStats(association: DatasetAssociation, name: string): DatasetStats | undefined {
+        return this.blocks.length > 0 ? dagmcStatsForArray(this.blocks, association, name, this.component) : undefined;
     }
 
     /**

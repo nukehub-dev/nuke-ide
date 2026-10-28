@@ -67,7 +67,10 @@ the active native viewer. It shows:
 The table shows the first 200 rows so large meshes never materialize in the
 DOM; the CSV action copies that same preview window. The panel follows the
 active viewer tab and shows an empty state when the bound widget is not a
-native dataset viewer.
+native dataset viewer. DAGMC viewers aggregate every loaded volume block:
+counts and bounds union, same-named arrays merge into one catalogue entry,
+and table pages cross block boundaries. Cell integrals sum the per-block
+surface areas.
 
 ## Particle Restart (`particle_restart.h5`, `particle_<batch>_<id>.h5`)
 

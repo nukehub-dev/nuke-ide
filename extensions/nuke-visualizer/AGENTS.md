@@ -40,6 +40,7 @@ All files under `extensions/nuke-visualizer/` except generated artifacts (`lib/`
 - Dataset Inspector (`src/browser/dataset-inspector/`, `ViewerDatasetHost`) binds like Viewer Settings; hosts expose
   `getDatasetSummary`/`getDatasetTable` and optional `getDatasetStats`, the panel only renders the first 200 rows and
   copies that window as CSV; cell integrals use grid volume / triangle area from `viewer-core/dataset-inspector.ts`.
+  DAGMC aggregates blocks through `dagmc-dataset.ts` (counts/bounds/arrays merged, tables cross block boundaries).
 - Screenshots use `viewer-core/canvas-screenshot.ts` (`captureRendererScreenshot`, formats/scales/transparency) and the
   props-only `viewer-export-menu.tsx`; keep the one-click PNG path and never resize the canvas CSS permanently. The
   same menu's Dataset CSV/VTK actions call `VisualizerBackendService.runBaseCommand('base.export', …)` and download the

@@ -156,9 +156,11 @@ IFP kinetics results live in ordinary `statepoint*.h5` files, so they have no re
 ### Dataset Inspector, Statistics, Export
 
 - **Dataset Inspector** — `src/browser/dataset-inspector/` binds to the active viewer through
-  `ViewerDatasetHost` (`getDatasetSummary`, `getDatasetTable`). The pure core is
+  `ViewerDatasetHost` (`getDatasetSummary`, `getDatasetTable`, optional `getDatasetStats`). The pure core is
   `viewer-core/dataset-inspector.ts`; tables are capped at 200 rows and Copy CSV copies that window.
-  `NativeVtkViewerWidget` implements the host; other viewers can opt in structurally.
+  `NativeVtkViewerWidget` implements the host directly; `DagmcViewerWidget` opts in through
+  `dagmc-dataset.ts`, which aggregates block counts/bounds, merges same-named arrays, pages tables across
+  block boundaries, and sums per-block cell-area integrals.
 - **Statistics** — `viewer-core/statistics.ts` provides `computeHistogram2D`, `computeQuantiles`,
   `sampleScatter`, `boxStatsByCategory`, and `parallelCoordinates`; `statistics-panel.tsx` renders them
   with Plotly. `derived-field-panel.tsx::resolveStatisticsArrays` flattens point/cell arrays to scalar
