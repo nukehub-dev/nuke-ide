@@ -63,8 +63,11 @@ export interface NukeToolsItem {
     /** Lexicographic ordering for the containing (deepest) category relative to its siblings. */
     categoryOrder?: string;
 
-    /** Codicon class (e.g. `codicon-play-circle`) for the item row. */
+    /** Codicon name (e.g. `play-circle`) for the item row. */
     icon?: string;
+
+    /** Full icon class list for custom theme-aware icons; takes precedence over `icon`. */
+    iconClass?: string;
 
     /** Optional longer description shown as a tooltip. */
     description?: string;

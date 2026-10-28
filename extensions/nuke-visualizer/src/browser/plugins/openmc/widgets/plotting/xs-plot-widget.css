@@ -95,7 +95,7 @@
 }
 
 .xs-plot-mode-button:focus-visible,
-.xs-plot-region-button:focus-visible {
+.xs-plot-region-option:has(.xs-plot-region-radio:focus-visible) {
     outline: 1px solid var(--theia-focusBorder);
     outline-offset: -2px;
 }
@@ -170,52 +170,58 @@
     outline-offset: 1px;
 }
 
-.xs-plot-region-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 6px;
-}
-
-.xs-plot-region-grid > span {
+.xs-plot-region-list {
     display: flex;
-    min-width: 0;
+    flex-direction: column;
+    gap: 4px;
 }
 
-.xs-plot-region-button {
-    width: 100%;
+.xs-plot-region-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     min-width: 0;
-    padding: 5px 8px;
-    border: 1px solid var(--theia-panel-border);
+    padding: 6px 8px;
+    border: 1px solid transparent;
     border-radius: 3px;
-    background: transparent;
     color: var(--theia-foreground);
-    font-family: var(--theia-ui-font-family);
     font-size: 11px;
-    line-height: 1.2;
-    text-align: center;
+    line-height: 1.3;
     cursor: pointer;
-    transition:
-        background-color 0.1s ease,
-        border-color 0.1s ease;
 }
 
-.xs-plot-region-button:hover {
+.xs-plot-region-option:hover {
     background: var(--theia-list-hoverBackground);
 }
 
-.xs-plot-region-button.active {
-    border-color: var(--theia-button-background);
-    background: var(--theia-button-background);
-    color: var(--theia-button-foreground);
-    font-weight: 500;
+.xs-plot-region-option.active {
+    border-color: color-mix(in srgb, var(--theia-focusBorder) 45%, transparent);
+    background: color-mix(in srgb, var(--theia-focusBorder) 10%, transparent);
+}
+
+.xs-plot-region-radio {
+    flex: 0 0 auto;
+    width: 14px;
+    height: 14px;
+    margin: 0;
+    accent-color: var(--theia-focusBorder);
+    cursor: pointer;
+}
+
+.xs-plot-region-label {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .xs-plot-region-range {
-    margin-top: 8px;
+    flex: 0 0 auto;
     color: var(--theia-descriptionForeground);
     font-size: 10px;
     font-variant-numeric: tabular-nums;
-    text-align: center;
+    white-space: nowrap;
 }
 
 .xs-plot-settings-list {

@@ -81,7 +81,7 @@ export class OpenMCOverlapWidget extends ReactWidget {
         this.title.label = OpenMCOverlapWidget.LABEL;
         this.title.caption = OpenMCOverlapWidget.LABEL;
         this.title.closable = true;
-        this.title.iconClass = 'fa fa-search';
+        this.title.iconClass = 'nuke-visualizer-icon nuke-visualizer-icon-overlap';
 
         this.update();
     }

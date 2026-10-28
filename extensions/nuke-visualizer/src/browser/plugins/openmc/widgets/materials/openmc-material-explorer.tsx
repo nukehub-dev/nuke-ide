@@ -68,7 +68,7 @@ export class OpenMCMaterialExplorerWidget extends ReactWidget {
         this.title.label = OpenMCMaterialExplorerWidget.LABEL;
         this.title.caption = OpenMCMaterialExplorerWidget.LABEL;
         this.title.closable = true;
-        this.title.iconClass = 'fa fa-flask';
+        this.title.iconClass = 'nuke-visualizer-icon nuke-visualizer-icon-materials';
         this.update();
     }
 

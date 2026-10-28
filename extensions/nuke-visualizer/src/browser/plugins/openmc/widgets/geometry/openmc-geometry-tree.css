@@ -79,9 +79,11 @@
     white-space: nowrap;
 }
 
-.openmc-geometry-tree .file-name i {
-    font-size: 14px;
-    color: var(--theia-activityBar-foreground);
+.openmc-geometry-tree .file-name .file-name-icon {
+    display: block;
+    flex: 0 0 auto;
+    align-self: center;
+    color: inherit;
 }
 
 .openmc-geometry-tree .close-btn {

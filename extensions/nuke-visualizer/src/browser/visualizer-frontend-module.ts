@@ -25,6 +25,7 @@
 // SPDX-License-Identifier: BSD-2-Clause
 // *****************************************************************************
 
+import './icons/domain-icon-classes.css';
 import { CommandContribution, MenuContribution, MessageService } from '@theia/core/lib/common';
 import { ContainerModule, interfaces } from '@theia/core/shared/inversify';
 import { VisualizerWidget } from './visualizer-widget';

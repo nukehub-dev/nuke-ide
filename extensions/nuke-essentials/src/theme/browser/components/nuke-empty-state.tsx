@@ -30,6 +30,8 @@ import * as React from '@theia/core/shared/react';
 export interface NukeEmptyStateProps {
     /** Codicon name shown above the title (without the `codicon-` prefix). */
     icon?: string;
+    /** Custom illustration shown above the title; takes precedence over `icon`. */
+    iconNode?: React.ReactNode;
     /** Primary heading. */
     title?: React.ReactNode;
     /** Descriptive message below the title. */
@@ -43,13 +45,20 @@ export interface NukeEmptyStateProps {
 }
 
 /**
- * Centered empty-state panel: icon, title, message, optional hint, and an
- * optional wrapping action row. Extends the ad-hoc `EmptyState` pattern from
- * `loading-spinner.tsx` with a title/hint and theme-token CSS classes.
+ * Centered empty-state panel: a codicon or custom illustration, title, message,
+ * optional hint, and an optional wrapping action row. Extends the ad-hoc
+ * `EmptyState` pattern from `loading-spinner.tsx` with a title/hint and
+ * theme-token CSS classes.
  */
-export const NukeEmptyState: React.FC<NukeEmptyStateProps> = ({ icon, title, message, hint, className, children }) => (
+export const NukeEmptyState: React.FC<NukeEmptyStateProps> = ({ icon, iconNode, title, message, hint, className, children }) => (
     <div className={`nuke-empty-state${className ? ` ${className}` : ''}`}>
-        {icon !== undefined && <span className={`codicon codicon-${icon} nuke-empty-state-icon`} />}
+        {iconNode !== undefined ? (
+            <div className="nuke-empty-state-illustration" aria-hidden="true">
+                {iconNode}
+            </div>
+        ) : (
+            icon !== undefined && <span className={`codicon codicon-${icon} nuke-empty-state-icon`} />
+        )}
         {title !== undefined && <div className="nuke-empty-state-title">{title}</div>}
         {message !== undefined && <div className="nuke-empty-state-message">{message}</div>}
         {hint !== undefined && <div className="nuke-empty-state-hint">{hint}</div>}

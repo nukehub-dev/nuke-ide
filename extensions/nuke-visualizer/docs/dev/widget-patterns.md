@@ -147,6 +147,14 @@ await this.plotlyService.showPlot({
 | Data received  | `setFigure()` or `setState()` triggers React render |
 | Widget closed  | Nothing special (no server to kill)                 |
 
+Empty states use `NukeEmptyState` with either a codicon or `iconNode` for a domain SVG illustration. Reusable
+visualizer illustrations live in `src/browser/widgets/domain-icons.tsx`; use them for file-specific empty states
+instead of generic repo/database glyphs.
+
+Title, command, and Nuke Tools `iconClass` hooks use `nuke-visualizer-icon nuke-visualizer-icon-<domain>` for
+the domain panels (geometry, overlap, materials, nuclear, tally, statepoint). The classes live in
+`src/browser/icons/domain-icon-classes.css` and are CSS masks so they follow the active theme color.
+
 ### Advantages
 
 - **Lightweight** — no Python process.

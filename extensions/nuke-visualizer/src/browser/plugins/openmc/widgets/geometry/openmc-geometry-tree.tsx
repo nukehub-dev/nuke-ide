@@ -39,13 +39,9 @@ import { GeometryNativeViewerWidget } from '../geometry-native/geometry-native-v
 import { OpenMCGeometryHierarchy, OpenMCUniverse, OpenMCCell, OpenMCSurface, OpenMCLattice } from '../../../../../common/openmc-protocol';
 import { URI } from '@theia/core/lib/common/uri';
 import './openmc-geometry-tree.css';
-import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
-import {
-    SimpleLoadingSpinner,
-    EmptyState,
-    ErrorDisplay,
-    LoadingAnimations
-} from 'nuke-essentials/lib/theme/browser/components/loading-spinner';
+import { NukeEmptyState, Tooltip } from 'nuke-essentials/lib/theme/browser/components';
+import { SimpleLoadingSpinner, ErrorDisplay, LoadingAnimations } from 'nuke-essentials/lib/theme/browser/components/loading-spinner';
+import { DomainGeometryIcon } from '../../../../widgets/domain-icons';
 
 export interface GeometryView3DRequest {
     fileUri: URI;
@@ -110,7 +106,7 @@ export class OpenMCGeometryTreeWidget extends ReactWidget {
         this.id = OpenMCGeometryTreeWidget.ID;
         this.title.label = OpenMCGeometryTreeWidget.LABEL;
         this.title.caption = OpenMCGeometryTreeWidget.LABEL;
-        this.title.iconClass = codicon('repo');
+        this.title.iconClass = 'nuke-visualizer-icon nuke-visualizer-icon-geometry';
         this.title.closable = false;
 
         this.node.tabIndex = 0;
@@ -230,12 +226,17 @@ export class OpenMCGeometryTreeWidget extends ReactWidget {
         if (!this.hierarchy) {
             return (
                 <div className="openmc-geometry-tree empty">
-                    <EmptyState
-                        icon="repo"
-                        message="No geometry file loaded"
-                        actionLabel="Browse Geometry File"
-                        onAction={() => this.handleBrowse()}
-                    />
+                    <NukeEmptyState
+                        iconNode={<DomainGeometryIcon />}
+                        title="No geometry loaded"
+                        message="Open a geometry.xml or summary.h5 file to browse cells, universes, and materials."
+                        hint="Surfaces and lattices are included when available."
+                    >
+                        <button className="theia-button" onClick={() => this.handleBrowse()}>
+                            <i className={codicon('folder-opened')}></i>
+                            Browse Geometry File
+                        </button>
+                    </NukeEmptyState>
                 </div>
             );
         }
@@ -249,7 +250,7 @@ export class OpenMCGeometryTreeWidget extends ReactWidget {
                     <div className="header-title">
                         <Tooltip content={fileName} position="bottom">
                             <span className="file-name">
-                                <i className={codicon('repo')}></i>
+                                <DomainGeometryIcon size={14} className="file-name-icon" />
                                 {fileName}
                             </span>
                         </Tooltip>

@@ -98,7 +98,7 @@ export class NuclearDataWidget extends ReactWidget {
         this.title.label = NuclearDataWidget.LABEL;
         this.title.caption = NuclearDataWidget.LABEL;
         this.title.closable = true;
-        this.title.iconClass = 'codicon codicon-database';
+        this.title.iconClass = 'nuke-visualizer-icon nuke-visualizer-icon-nuclear';
 
         // Follow preference changes (e.g. the user sets the path in Settings)
         this.toDispose.push(

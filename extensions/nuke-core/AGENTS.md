@@ -22,6 +22,7 @@ All files under `extensions/nuke-core/` except generated artifacts (`lib/`, `nod
   - CSS is copied to `lib/` by the `copy-css` build step.
 - Items are grouped by their `category` path. The first element becomes a top-level section (e.g., `Environment`, `OpenMC Studio`, `Visualizer`). Use `categoryOrder` to order sections logically; without it, sections sort alphabetically.
 - Items may declare `enabled` and `onDidChangeEnabled` so the sidebar dims rows that require state (e.g., an opened OpenMC Studio project) and refreshes when that state changes.
+- Items may set `iconClass` to a full theme-aware icon class list; it takes precedence over the codicon `icon` name.
 - Commands must already exist in the Theia `CommandRegistry`; the sidebar only invokes them.
 
 ## Work Guidance

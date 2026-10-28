@@ -174,7 +174,7 @@ export class VisualizerToolsContribution implements NukeToolsContribution {
             sectionOrder: 'd',
             categoryOrder: 'b',
             order: 'a',
-            icon: 'database',
+            iconClass: 'nuke-visualizer-icon nuke-visualizer-icon-statepoint',
             description: 'Open an OpenMC statepoint file for inspection.'
         });
 
@@ -186,7 +186,7 @@ export class VisualizerToolsContribution implements NukeToolsContribution {
             sectionOrder: 'd',
             categoryOrder: 'b',
             order: 'a',
-            icon: 'list-tree',
+            iconClass: 'nuke-visualizer-icon nuke-visualizer-icon-tally',
             description: 'Open the OpenMC tallies panel.'
         });
 
@@ -246,7 +246,7 @@ export class VisualizerToolsContribution implements NukeToolsContribution {
             sectionOrder: 'd',
             categoryOrder: 'b',
             order: 'a',
-            icon: 'repo',
+            iconClass: 'nuke-visualizer-icon nuke-visualizer-icon-geometry',
             description: 'Inspect the OpenMC geometry hierarchy.'
         });
 
@@ -258,7 +258,7 @@ export class VisualizerToolsContribution implements NukeToolsContribution {
             sectionOrder: 'd',
             categoryOrder: 'b',
             order: 'b',
-            icon: 'search',
+            iconClass: 'nuke-visualizer-icon nuke-visualizer-icon-overlap',
             description: 'Check the OpenMC geometry for overlapping cells.'
         });
 
@@ -270,7 +270,7 @@ export class VisualizerToolsContribution implements NukeToolsContribution {
             sectionOrder: 'd',
             categoryOrder: 'b',
             order: 'a',
-            icon: 'symbol-variable',
+            iconClass: 'nuke-visualizer-icon nuke-visualizer-icon-materials',
             description: 'Open the OpenMC materials explorer.'
         });
 
@@ -282,7 +282,7 @@ export class VisualizerToolsContribution implements NukeToolsContribution {
             sectionOrder: 'd',
             categoryOrder: 'b',
             order: 'b',
-            icon: 'database',
+            iconClass: 'nuke-visualizer-icon nuke-visualizer-icon-nuclear',
             description: 'Browse nuclear data libraries.'
         });
 

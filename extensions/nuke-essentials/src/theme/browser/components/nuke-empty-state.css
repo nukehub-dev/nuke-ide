@@ -9,12 +9,12 @@
     justify-content: center;
     gap: var(--nuke-space-3);
     box-sizing: border-box;
-    width: 100%;
+    /* Keep a gutter from the panel edge when the sidebar is narrower than
+       the card; cap wide sidebars at a readable width. */
+    width: calc(100% - 32px);
     max-width: 420px;
-    /* Center the capped card: in wide sidebars `max-width` alone hugs the
-       left and leaves an empty strip on the right. */
-    margin-inline: auto;
-    padding: var(--nuke-space-6);
+    margin: var(--nuke-space-4) auto;
+    padding: var(--nuke-space-6) var(--nuke-space-4);
     text-align: center;
     color: var(--theia-foreground);
     background: var(--theia-editorWidget-background, rgba(100, 100, 100, 0.08));
@@ -26,6 +26,26 @@
     font-size: 48px;
     margin-bottom: var(--nuke-space-1);
     opacity: 0.5;
+}
+
+.nuke-empty-state-illustration {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    width: 76px;
+    height: 76px;
+    margin-bottom: var(--nuke-space-1);
+    color: var(--theia-focusBorder);
+    background: color-mix(in srgb, var(--theia-focusBorder), transparent 88%);
+    border: 1px solid color-mix(in srgb, var(--theia-focusBorder), transparent 72%);
+    border-radius: var(--nuke-radius-xl);
+}
+
+.nuke-empty-state-illustration > svg {
+    display: block;
+    width: 50px;
+    height: 50px;
 }
 
 .nuke-empty-state-title {
@@ -51,4 +71,10 @@
     justify-content: center;
     gap: var(--nuke-space-3);
     margin-top: var(--nuke-space-2);
+}
+
+.nuke-empty-state-actions .theia-button {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--nuke-space-1);
 }

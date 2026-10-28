@@ -259,7 +259,7 @@ export class NukeToolsSidebarWidget extends ReactWidget {
     }
 
     protected renderItem(item: NukeToolsItem): React.ReactNode {
-        const iconClass = item.icon ? codicon(item.icon) : codicon('circle-small');
+        const iconClass = item.iconClass ?? (item.icon ? codicon(item.icon) : codicon('circle-small'));
         const disabled = item.enabled ? !item.enabled() : false;
         const className = `nuke-tools-item${disabled ? ' nuke-tools-item-disabled' : ''}`;
 

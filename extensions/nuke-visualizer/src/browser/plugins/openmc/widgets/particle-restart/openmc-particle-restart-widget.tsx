@@ -31,9 +31,10 @@ import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { codicon } from '@theia/core/lib/browser/widgets/widget';
 import { MessageService } from '@theia/core/lib/common';
 import URI from '@theia/core/lib/common/uri';
-import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
+import { NukeEmptyState, Tooltip } from 'nuke-essentials/lib/theme/browser/components';
 import { OpenMCBackendService, OpenMCParticleRestart } from '../../../../../common/openmc-protocol';
 import { detectMissingDependencies } from '../dependency-hints';
+import { DomainParticleIcon } from '../../../../widgets/domain-icons';
 import '../output-viewer.css';
 
 /**
@@ -147,7 +148,11 @@ export class OpenMCParticleRestartWidget extends ReactWidget {
         if (!data) {
             return (
                 <div className="openmc-output-viewer-status">
-                    <span>No particle restart file loaded</span>
+                    <NukeEmptyState
+                        iconNode={<DomainParticleIcon />}
+                        title="No particle restart loaded"
+                        message="Open a particle_restart.h5 file to inspect the lost particle and its run context."
+                    />
                 </div>
             );
         }

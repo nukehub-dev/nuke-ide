@@ -46,8 +46,9 @@ import {
 } from '../../../../../common/openmc-protocol';
 import { formatUncertainty, formatValue, hasIfpTallies, kineticsToCsv } from './kinetics-utils';
 import { URI } from '@theia/core/lib/common/uri';
-import { SimpleLoadingSpinner, EmptyState, LoadingAnimations } from 'nuke-essentials/lib/theme/browser/components/loading-spinner';
-import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
+import { SimpleLoadingSpinner, LoadingAnimations } from 'nuke-essentials/lib/theme/browser/components/loading-spinner';
+import { NukeEmptyState, Tooltip } from 'nuke-essentials/lib/theme/browser/components';
+import { DomainStatepointIcon } from '../../../../widgets/domain-icons';
 import { PlotlyComponent } from '../../../../plotly/plotly-component';
 
 export interface StatepointTallySelection {
@@ -222,7 +223,7 @@ export class OpenMCStatepointViewerWidget extends ReactWidget {
         this.id = OpenMCStatepointViewerWidget.ID;
         this.title.label = OpenMCStatepointViewerWidget.LABEL;
         this.title.caption = OpenMCStatepointViewerWidget.LABEL;
-        this.title.iconClass = codicon('database');
+        this.title.iconClass = 'nuke-visualizer-icon nuke-visualizer-icon-statepoint';
         this.title.closable = true;
 
         this.node.tabIndex = 0;
@@ -546,12 +547,17 @@ export class OpenMCStatepointViewerWidget extends ReactWidget {
         if (!this.statepointInfo) {
             return (
                 <div className="statepoint-viewer statepoint-viewer--empty">
-                    <EmptyState
-                        icon="database"
-                        message="No statepoint file loaded"
-                        actionLabel="Browse Statepoint File"
-                        onAction={() => this.handleBrowse()}
-                    />
+                    <NukeEmptyState
+                        iconNode={<DomainStatepointIcon />}
+                        title="No statepoint loaded"
+                        message="Open a statepoint HDF5 file to inspect k-effective, tallies, and run performance."
+                        hint="Statepoint files are written by OpenMC during and after a simulation run."
+                    >
+                        <button className="theia-button" onClick={() => this.handleBrowse()}>
+                            <i className={codicon('folder-opened')}></i>
+                            Browse Statepoint File
+                        </button>
+                    </NukeEmptyState>
                 </div>
             );
         }
@@ -565,7 +571,7 @@ export class OpenMCStatepointViewerWidget extends ReactWidget {
                 <div className="header">
                     <div className="header-main">
                         <div className="file-info">
-                            <i className={codicon('database')}></i>
+                            <DomainStatepointIcon size={14} />
                             <div>
                                 <div className="file-name">{fileName}</div>
                                 <div className="file-path">{this.statepointUri?.path.toString()}</div>
@@ -640,7 +646,12 @@ export class OpenMCStatepointViewerWidget extends ReactWidget {
         if (!info) {
             return (
                 <div className="tab-content">
-                    <EmptyState icon="database" message="No statepoint loaded. Open a statepoint file to view the simulation overview." />
+                    <NukeEmptyState
+                        iconNode={<DomainStatepointIcon />}
+                        title="No statepoint loaded"
+                        message="Open a statepoint file to view the simulation overview."
+                        hint="k-effective, batch statistics, and run details appear here."
+                    />
                 </div>
             );
         }

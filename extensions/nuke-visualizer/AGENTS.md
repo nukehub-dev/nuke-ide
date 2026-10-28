@@ -107,6 +107,10 @@ All files under `extensions/nuke-visualizer/` except generated artifacts (`lib/`
 - `contributions/visualizer-tools-contribution.ts` exposes commands in the Nuke Tools sidebar under `Visualizer` and
   `Visualizer > OpenMC`; 3D chrome comes from `nuke-essentials` (`ViewCube`/`ViewerNavBar`/`ViewBadge`,
   `.nuke-viewer-status-line`) — never local gizmo/nav widgets.
+- File-specific empty states use `NukeEmptyState` with `iconNode`; reusable domain illustrations live in
+  `src/browser/widgets/domain-icons.tsx` instead of generic repo/database codicons. Widget/command `iconClass`
+  hooks and Nuke Tools `iconClass` rows use the matching `nuke-visualizer-icon-<domain>` CSS mask classes, not
+  generic `fa`/`codicon` glyphs.
 
 ## Work Guidance
 

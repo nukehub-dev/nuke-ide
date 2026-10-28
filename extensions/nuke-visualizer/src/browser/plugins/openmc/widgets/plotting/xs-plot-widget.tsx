@@ -54,6 +54,15 @@ import './xs-plot-widget.css';
 /** Mode for XS plotting */
 type XSPlotMode = 'nuclides' | 'materials' | 'temp-comparison' | 'library-comparison' | 'thermal-scattering' | 'chain-decay';
 
+/** Energy-region presets in increasing energy order (Full Range is the all-energy option). */
+const XS_ENERGY_REGION_ORDER: readonly XSEnergyRegion[] = ['full', 'thermal', 'epithermal', 'resonance', 'fast'];
+
+/** Format one preset's energy bounds for the region list. */
+function formatEnergyRegionRange(region: XSEnergyRegion): string {
+    const [min, max] = XS_ENERGY_REGIONS[region].range;
+    return `${min.toExponential(0)} – ${max.toExponential(0)} eV`;
+}
+
 /** Material component definition */
 interface MaterialComponent {
     nuclide: string;
@@ -644,21 +653,23 @@ export class XSPlotWidget extends ReactWidget {
                         <span className={codicon('globe')} />
                         Energy Region
                     </h4>
-                    <div className="xs-plot-region-grid">
-                        {(Object.keys(XS_ENERGY_REGIONS) as XSEnergyRegion[]).map((region) => (
-                            <Tooltip key={region} content={XS_ENERGY_REGIONS[region].description} position="top">
-                                <button
-                                    onClick={() => this.setEnergyRegion(region)}
-                                    className={`xs-plot-region-button${this.energyRegion === region ? ' active' : ''}`}
-                                >
-                                    {XS_ENERGY_REGIONS[region].label}
-                                </button>
-                            </Tooltip>
-                        ))}
-                    </div>
-                    <div className="xs-plot-region-range">
-                        {XS_ENERGY_REGIONS[this.energyRegion].range[0].toExponential(0)} -{' '}
-                        {XS_ENERGY_REGIONS[this.energyRegion].range[1].toExponential(0)} eV
+                    <div className="xs-plot-region-list" role="radiogroup" aria-label="Energy region">
+                        {XS_ENERGY_REGION_ORDER.map((region) => {
+                            const active = this.energyRegion === region;
+                            return (
+                                <label key={region} className={`xs-plot-region-option${active ? ' active' : ''}`}>
+                                    <input
+                                        type="radio"
+                                        className="xs-plot-region-radio"
+                                        name={`xs-energy-region-${this.id}`}
+                                        checked={active}
+                                        onChange={() => this.setEnergyRegion(region)}
+                                    />
+                                    <span className="xs-plot-region-label">{XS_ENERGY_REGIONS[region].label}</span>
+                                    <span className="xs-plot-region-range">{formatEnergyRegionRange(region)}</span>
+                                </label>
+                            );
+                        })}
                     </div>
                 </div>
 
