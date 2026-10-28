@@ -1,0 +1,444 @@
+{
+  "bodies": [
+    {
+      "id": "body-1",
+      "label": "clad",
+      "name": "clad"
+    },
+    {
+      "id": "body-2",
+      "label": "fuel",
+      "name": "fuel"
+    },
+    {
+      "id": "body-3",
+      "label": "moderator",
+      "name": "moderator"
+    }
+  ],
+  "curves": [
+    {
+      "id": "audit-curve",
+      "name": "audit-curve",
+      "source": {
+        "kind": "points"
+      },
+      "samples": [
+        [
+          0.55,
+          0.0,
+          0
+        ],
+        [
+          0.388909,
+          0.388909,
+          0
+        ],
+        [
+          0.0,
+          0.55,
+          0
+        ],
+        [
+          -0.388909,
+          0.388909,
+          0
+        ],
+        [
+          -0.55,
+          0.0,
+          0
+        ],
+        [
+          -0.388909,
+          -0.388909,
+          0
+        ],
+        [
+          -0.0,
+          -0.55,
+          0
+        ],
+        [
+          0.388909,
+          -0.388909,
+          0
+        ],
+        [
+          0.55,
+          0.0,
+          0
+        ]
+      ]
+    }
+  ],
+  "datums": [
+    {
+      "id": "datum-xy",
+      "kind": "XY",
+      "name": "XY Plane"
+    },
+    {
+      "id": "datum-yz",
+      "kind": "YZ",
+      "name": "YZ Plane"
+    },
+    {
+      "id": "datum-xz",
+      "kind": "XZ",
+      "name": "XZ Plane"
+    }
+  ],
+  "features": [
+    {
+      "body": "body-2",
+      "dependsOn": [],
+      "id": "fuel",
+      "name": "fuel",
+      "params": {
+        "length": 1
+      },
+      "sketchId": "fuel-sketch",
+      "suppressed": false,
+      "type": "pad"
+    },
+    {
+      "body": "body-1",
+      "dependsOn": [],
+      "id": "clad",
+      "name": "clad",
+      "params": {
+        "length": 1
+      },
+      "sketchId": "clad-sketch",
+      "suppressed": false,
+      "type": "pad"
+    },
+    {
+      "body": "body-3",
+      "dependsOn": [],
+      "id": "moderator",
+      "name": "moderator",
+      "params": {
+        "length": 1
+      },
+      "sketchId": "moderator-sketch",
+      "suppressed": false,
+      "type": "pad"
+    }
+  ],
+  "name": "viewport-tools",
+  "parameters": {
+    "cladRadius": 0.5,
+    "fuelRadius": 0.4,
+    "pitch": 1.26
+  },
+  "sketches": [
+    {
+      "constraints": [
+        {
+          "c_id": "circle-2",
+          "driving": true,
+          "id": "radius-4",
+          "radius": "fuelRadius",
+          "type": "circle_radius"
+        }
+      ],
+      "datumId": "datum-xy",
+      "dimensions": [
+        {
+          "constraintId": "radius-4",
+          "driving": true,
+          "id": "dimension-5",
+          "kind": "radius",
+          "parameter": "fuelRadius",
+          "targetIds": [
+            "circle-2"
+          ],
+          "value": 0.4
+        }
+      ],
+      "id": "fuel-sketch",
+      "name": "fuel-sketch",
+      "primitives": [
+        {
+          "construction": false,
+          "fixed": true,
+          "id": "point-1",
+          "type": "point",
+          "x": 0,
+          "y": 0
+        },
+        {
+          "c_id": "point-1",
+          "construction": false,
+          "id": "circle-2",
+          "radius": 0.4,
+          "type": "circle"
+        }
+      ]
+    },
+    {
+      "constraints": [
+        {
+          "driving": true,
+          "id": "coincident-4",
+          "p1_id": "point-3",
+          "p2_id": "point-1",
+          "type": "p2p_coincident"
+        },
+        {
+          "c_id": "circle-2",
+          "driving": true,
+          "id": "radius-8",
+          "radius": "fuelRadius",
+          "type": "circle_radius"
+        },
+        {
+          "c_id": "circle-5",
+          "driving": true,
+          "id": "radius-10",
+          "radius": "cladRadius",
+          "type": "circle_radius"
+        }
+      ],
+      "datumId": "datum-xy",
+      "dimensions": [
+        {
+          "constraintId": "radius-8",
+          "driving": true,
+          "id": "dimension-9",
+          "kind": "radius",
+          "parameter": "fuelRadius",
+          "targetIds": [
+            "circle-2"
+          ],
+          "value": 0.4
+        },
+        {
+          "constraintId": "radius-10",
+          "driving": true,
+          "id": "dimension-11",
+          "kind": "radius",
+          "parameter": "cladRadius",
+          "targetIds": [
+            "circle-5"
+          ],
+          "value": 0.5
+        }
+      ],
+      "id": "clad-sketch",
+      "name": "clad-sketch",
+      "primitives": [
+        {
+          "construction": false,
+          "fixed": true,
+          "id": "point-1",
+          "type": "point",
+          "x": 0,
+          "y": 0
+        },
+        {
+          "c_id": "point-1",
+          "construction": false,
+          "id": "circle-2",
+          "radius": 0.4,
+          "type": "circle"
+        },
+        {
+          "construction": false,
+          "fixed": true,
+          "id": "point-3",
+          "type": "point",
+          "x": 0,
+          "y": 0
+        },
+        {
+          "c_id": "point-3",
+          "construction": false,
+          "id": "circle-5",
+          "radius": 0.5,
+          "type": "circle"
+        }
+      ]
+    },
+    {
+      "constraints": [
+        {
+          "driving": true,
+          "id": "horizontal-9",
+          "l_id": "line-5",
+          "type": "horizontal_l"
+        },
+        {
+          "driving": true,
+          "id": "vertical-10",
+          "l_id": "line-6",
+          "type": "vertical_l"
+        },
+        {
+          "driving": true,
+          "id": "horizontal-11",
+          "l_id": "line-7",
+          "type": "horizontal_l"
+        },
+        {
+          "driving": true,
+          "id": "vertical-12",
+          "l_id": "line-8",
+          "type": "vertical_l"
+        },
+        {
+          "difference": "pitch",
+          "driving": true,
+          "id": "distance-17",
+          "param1": {
+            "o_id": "point-1",
+            "prop": "x"
+          },
+          "param2": {
+            "o_id": "point-3",
+            "prop": "x"
+          },
+          "type": "difference"
+        },
+        {
+          "difference": "pitch",
+          "driving": true,
+          "id": "distance-19",
+          "param1": {
+            "o_id": "point-1",
+            "prop": "y"
+          },
+          "param2": {
+            "o_id": "point-4",
+            "prop": "y"
+          },
+          "type": "difference"
+        },
+        {
+          "c_id": "circle-14",
+          "driving": true,
+          "id": "radius-21",
+          "radius": "cladRadius",
+          "type": "circle_radius"
+        }
+      ],
+      "datumId": "datum-xy",
+      "dimensions": [
+        {
+          "constraintId": "distance-17",
+          "driving": true,
+          "id": "dimension-18",
+          "kind": "distanceH",
+          "parameter": "pitch",
+          "targetIds": [
+            "point-3",
+            "point-1"
+          ],
+          "value": 1.26
+        },
+        {
+          "constraintId": "distance-19",
+          "driving": true,
+          "id": "dimension-20",
+          "kind": "distanceV",
+          "parameter": "pitch",
+          "targetIds": [
+            "point-4",
+            "point-1"
+          ],
+          "value": 1.26
+        },
+        {
+          "constraintId": "radius-21",
+          "driving": true,
+          "id": "dimension-22",
+          "kind": "radius",
+          "parameter": "cladRadius",
+          "targetIds": [
+            "circle-14"
+          ],
+          "value": 0.5
+        }
+      ],
+      "id": "moderator-sketch",
+      "name": "moderator-sketch",
+      "primitives": [
+        {
+          "construction": false,
+          "fixed": true,
+          "id": "point-1",
+          "type": "point",
+          "x": -0.63,
+          "y": -0.63
+        },
+        {
+          "construction": false,
+          "id": "point-2",
+          "type": "point",
+          "x": 0.63,
+          "y": 0.63
+        },
+        {
+          "construction": false,
+          "id": "point-3",
+          "type": "point",
+          "x": 0.63,
+          "y": -0.63
+        },
+        {
+          "construction": false,
+          "id": "point-4",
+          "type": "point",
+          "x": -0.63,
+          "y": 0.63
+        },
+        {
+          "construction": false,
+          "id": "line-5",
+          "p1_id": "point-1",
+          "p2_id": "point-3",
+          "type": "line"
+        },
+        {
+          "construction": false,
+          "id": "line-6",
+          "p1_id": "point-3",
+          "p2_id": "point-2",
+          "type": "line"
+        },
+        {
+          "construction": false,
+          "id": "line-7",
+          "p1_id": "point-2",
+          "p2_id": "point-4",
+          "type": "line"
+        },
+        {
+          "construction": false,
+          "id": "line-8",
+          "p1_id": "point-4",
+          "p2_id": "point-1",
+          "type": "line"
+        },
+        {
+          "construction": false,
+          "fixed": true,
+          "id": "point-13",
+          "type": "point",
+          "x": 0,
+          "y": 0
+        },
+        {
+          "c_id": "point-13",
+          "construction": false,
+          "id": "circle-14",
+          "radius": 0.5,
+          "type": "circle"
+        }
+      ]
+    }
+  ],
+  "version": 3
+}

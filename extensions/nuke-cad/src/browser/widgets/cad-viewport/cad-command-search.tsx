@@ -155,9 +155,16 @@ export function CadCommandSearch(props: CadCommandSearchProps): React.ReactEleme
             if (action === undefined || action.disabled === true) {
                 return;
             }
+            // The row unmounts with the popover, so the browser would leave
+            // focus on <body>. Viewport-scoped keys (Escape ending Measure,
+            // F fitting, sketch tool keys) would then be ignored. Focus the
+            // viewport before running the action; a dialog opened by the
+            // action takes focus back when it mounts.
+            const viewport = rootRef.current?.closest<HTMLElement>('.cad-viewport');
             // Close first: the action may open a feature dialog that owns focus
             // and Escape from here on.
             props.onClose();
+            viewport?.focus({ preventScroll: true });
             action.onClick();
         },
         [props.onClose]
