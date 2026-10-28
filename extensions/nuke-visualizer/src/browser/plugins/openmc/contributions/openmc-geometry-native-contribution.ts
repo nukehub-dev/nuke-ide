@@ -49,7 +49,7 @@ import { CsgOutlineWidget } from '../../../csg-outline/csg-outline-widget';
 @injectable()
 export class OpenMCGeometryNativeViewerContribution implements OutputViewerContribution {
     readonly id = 'openmc-geometry-native-viewer';
-    readonly label = 'OpenMC Native Geometry Viewer';
+    readonly label = 'OpenMC Geometry Viewer';
     readonly priority = 100;
 
     @inject(WidgetManager)

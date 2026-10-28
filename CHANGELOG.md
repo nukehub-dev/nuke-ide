@@ -277,6 +277,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-visualizer: two-button viewer headers removed; Screenshot/Reload live on the canvas bottom bar.
 - nuke-visualizer: Viewer Settings and DAGMC Outline sidebars restyled to match the CAD panels with no behavior change.
 - nuke-visualizer: Dataset Inspector tables add sticky row numbers/headers, hover rows, an Association label, and grouped row counts.
+- nuke-visualizer: viewer tab titles drop the redundant Native prefix (DAGMC, VTK, Tally, Geometry, and Exodus viewers).
 - nuke-visualizer: Viewer Settings rows keep full labels in narrow sidebars, section badges are plain integers, and categorical color modes hide scalar-only controls; DAGMC Outline mirrors the CAD header and 24 px row treatment.
 
 ### Removed

@@ -381,7 +381,7 @@ export interface NativeVtkViewerProps {
 @injectable()
 export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettingsHost, ViewerDatasetHost {
     static readonly ID: string = 'native-vtk-viewer-widget';
-    static readonly LABEL: string = 'Native VTK Viewer';
+    static readonly LABEL: string = 'VTK Viewer';
 
     @inject(FileService)
     protected readonly fileService!: FileService;

@@ -58,7 +58,7 @@ export function isExodusFileName(baseName: string): boolean {
 @injectable()
 export class OpenMCExodusViewerContribution implements OutputViewerContribution {
     readonly id = 'openmc-exodus-viewer';
-    readonly label = 'Native Exodus Viewer';
+    readonly label = 'Exodus Viewer';
     readonly priority = 100;
 
     @inject(WidgetManager)

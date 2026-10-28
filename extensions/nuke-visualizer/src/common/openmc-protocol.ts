@@ -2052,7 +2052,7 @@ export interface EndfDetailResult {
 }
 
 // ============================================================================
-// Native Tally Viewer Types (`openmc.tally-mesh-vtk` / `openmc.source-vtk` /
+// Tally Viewer Types (`openmc.tally-mesh-vtk` / `openmc.source-vtk` /
 // `openmc.overlay-vtk`: headless extracts for `TallyNativeViewerWidget`)
 // ============================================================================
 

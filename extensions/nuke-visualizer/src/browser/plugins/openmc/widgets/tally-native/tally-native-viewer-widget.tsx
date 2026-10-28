@@ -95,7 +95,7 @@ import {
 @injectable()
 export class TallyNativeViewerWidget extends NativeVtkViewerWidget implements CsgOutlineHost {
     static override readonly ID: string = 'tally-native-viewer-widget';
-    static override readonly LABEL: string = 'Native Tally Viewer';
+    static override readonly LABEL: string = 'Tally Viewer';
 
     protected tallyKind: TallyOverlayKind = 'mesh';
     protected sliceAxis: SliceAxis | undefined;

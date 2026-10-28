@@ -97,7 +97,7 @@ function siblingH5mCandidate(uri: URI): URI | undefined {
 @injectable()
 export class OpenMCDagmcViewerContribution implements OutputViewerContribution {
     readonly id = 'openmc-dagmc-viewer';
-    readonly label = 'Native DAGMC Viewer';
+    readonly label = 'DAGMC Viewer';
     readonly priority = 100;
 
     @inject(WidgetManager)

@@ -131,7 +131,7 @@ const DEFAULT_VIEWER_BACKGROUND = '#1e1e1e';
 @injectable()
 export class GeometryNativeViewerWidget extends ReactWidget implements ViewerSettingsHost, CsgOutlineHost {
     static readonly ID: string = 'geometry-native-viewer-widget';
-    static readonly LABEL: string = 'Native Geometry Viewer';
+    static readonly LABEL: string = 'Geometry Viewer';
 
     @inject(FileService)
     protected readonly fileService!: FileService;

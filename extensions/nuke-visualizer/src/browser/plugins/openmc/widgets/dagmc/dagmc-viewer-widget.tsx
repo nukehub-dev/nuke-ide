@@ -270,7 +270,7 @@ const DEFAULT_VIEWER_BACKGROUND = '#1e1e1e';
 @injectable()
 export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost, DagmcOutlineHost, ComparisonViewHost, ViewerDatasetHost {
     static readonly ID: string = 'dagmc-viewer-widget';
-    static readonly LABEL: string = 'Native DAGMC Viewer';
+    static readonly LABEL: string = 'DAGMC Viewer';
 
     @inject(FileService)
     protected readonly fileService!: FileService;

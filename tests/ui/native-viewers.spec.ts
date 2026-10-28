@@ -405,6 +405,8 @@ test('DAGMC viewer exposes panel shortcuts and outline quick actions', async ({ 
     await expect(container.locator('.openmc-output-viewer-status.error')).toHaveCount(0);
     const canvas = container.locator('.openmc-output-viewer-viewarea canvas');
     await expect(canvas).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator('.lm-TabBar-tab').filter({ hasText: 'DAGMC Viewer' }).first()).toBeVisible();
+    await expect(page.locator('.lm-TabBar-tab').filter({ hasText: 'Native DAGMC Viewer' })).toHaveCount(0);
 
     // Bottom-bar shortcuts: Settings opens the sidebar, Outline reveals the
     // auto-opened panel again after the settings tab takes the right area.
