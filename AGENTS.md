@@ -91,6 +91,10 @@ Default section order:
 
 When the user requests a durable behavior change, record it here or in the relevant child `AGENTS.md`.
 
+- Never reference `.research/`, Wave/phase IDs, planning briefs, or roadmap labels in tracked source,
+  tests, docs, or comments. Describe the stable technical contract instead; planning material stays local
+  and gitignored.
+
 ---
 
 ## NukeIDE Project Guidance

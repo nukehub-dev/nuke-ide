@@ -50,6 +50,14 @@ statepoint (`statepoint*.h5` / `openmc_simulation_n<N>.h5`) and returns per-step
 `viewRange`. `OpenMCTallySeriesWidget` charts that payload and converts only the chosen step on **Open 3D at this
 step**, passing `viewRange` as a custom range when **Shared color range** is on; no per-step mesh is preloaded.
 
+Generic probe: `base.probe` samples a point/cell array at explicit points or a
+polyline (`--path`, `--samples`). Point arrays use `vtkProbeFilter`
+interpolation; cell arrays use the containing cell. The native viewer's
+`ProbeDialog` is props-only; canvas clicks stay client-side and map
+triangle/segment/voxel raycast hits to dataset tuples through
+`viewer-core/probe-model.ts`, while line profiles call `runBaseCommand` only
+for file-backed viewers.
+
 Comparison workspace groups already-open viewers into 2–4 Theia split panes
 (`visualizer-comparison-contribution.ts`). `viewer-core/comparison-session.ts` owns the pane labels and a
 per-session range bus; every pane publishes its **active-array data range** and the bus hands back the union,
@@ -182,6 +190,8 @@ IFP kinetics results live in ordinary `statepoint*.h5` files, so they have no re
 | Tally series widget/model  | `widgets/statepoint/tally-series-widget.tsx`, `tally-series-model.ts`                    |
 | Comparison session/range   | `viewer-core/comparison-session.ts` (pure, vitest-covered)                               |
 | Comparison command         | `contributions/visualizer-comparison-contribution.ts`                                    |
+| Probe command              | `python/plugins/base/commands/probe.py`, `lib/probe.py`                                  |
+| Probe dialog/model         | `widgets/probe-dialog.tsx`, `viewer-core/probe-model.ts`                                 |
 | Split-drag helper          | `src/browser/plugins/openmc/widgets/drag-split.ts`                                       |
 | Backend conversion service | `src/node/plugins/openmc/services/openmc-output-service.ts`                              |
 | VTK converters (Python)    | `python/plugins/openmc/lib/output_vtk.py`                                                |

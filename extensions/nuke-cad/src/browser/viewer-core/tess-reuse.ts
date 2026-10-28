@@ -54,7 +54,7 @@ export interface ParsedTessFace {
     /** Owning body id, when the build produced one. */
     readonly bodyId?: string;
     /**
-     * Owning assembly instance id (B1 `build_assembly` channel:
+     * Owning assembly instance id (assembly `build_assembly` channel:
      * `selector_map` keys are `<instanceId>/<bodyLabel>`). Absent for
      * single-part builds; the viewport renders those without instance groups.
      */

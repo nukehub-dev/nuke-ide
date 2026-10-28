@@ -2,7 +2,7 @@ import { test, expect, Page, Locator } from '@playwright/test';
 import { collectErrors, waitForWorkbench, openFileByQuickOpen, closeAllEditors } from './helpers';
 
 /**
- * Wave 4 tally series: one tally score across the depletion history.
+ * Tally series: one tally score across the depletion history.
  *
  * Flow: open the committed `statepoint.20.h5` fixture (sibling of the
  * committed `statepoint.10.h5` fixture) directly — the opener claims

@@ -2,7 +2,7 @@ import { test, expect, Page, Locator } from '@playwright/test';
 import { collectErrors, waitForWorkbench, openFileByQuickOpen, closeAllEditors, runCommand } from './helpers';
 
 /**
- * Native 3D viewer smoke suite (trame-to-frontend migration).
+ * Native 3D viewer smoke suite.
  *
  * Covers every native viewer with tiny committed fixtures under
  * tests/ui/fixtures/ (no nuclear-data backend needed except where noted):

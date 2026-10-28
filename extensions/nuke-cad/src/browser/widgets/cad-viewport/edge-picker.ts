@@ -199,9 +199,9 @@ export class EdgeHighlighter {
 }
 
 // *****************************************************************************
-// Drawing-dimension viewport pick (drawings phase, brief §4 revision).
+// Drawing-dimension viewport pick (drawing dimensions).
 //
-// The brief assumed a backend projected-edge → TopologyRef map that does not
+// A backend projected-edge → TopologyRef map is not available, so this path
 // exist (HLR output carries no source identity, by design). Instead, the
 // Drawing Sheet dimension tool reuses this viewport's edge picker: each
 // clicked edge yields its geometric fingerprint as a `TopologyRef` target
@@ -212,7 +212,7 @@ export class EdgeHighlighter {
 // CAD viewport widget (edge-pick mode, hover highlight, Cancel).
 // *****************************************************************************
 
-/** Number of edge targets a dimension kind needs (brief §2). */
+/** Number of edge targets a dimension kind needs. */
 export function drawingDimensionTargetsNeeded(kind: DrawingDimensionKind): 1 | 2 {
     return kind === 'distance' ? 2 : 1;
 }

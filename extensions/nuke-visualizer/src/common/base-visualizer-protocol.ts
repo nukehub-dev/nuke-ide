@@ -282,9 +282,9 @@ export interface VisualizerBackendService {
 
     /**
      * Run a whitelisted base-plugin headless command (`base.export`,
-     * `base.integrate`, `base.describe`, `base.mesh-quality`) and return its
-     * JSON stdout. Used by viewer actions that need a one-shot analysis or
-     * export; never starts a server.
+     * `base.integrate`, `base.describe`, `base.mesh-quality`, `base.probe`)
+     * and return its JSON stdout. Used by viewer actions that need a one-shot
+     * analysis or export; never starts a server.
      */
     runBaseCommand(command: string, args: string[], timeoutMs?: number): Promise<unknown>;
 

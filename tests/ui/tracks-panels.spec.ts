@@ -2,7 +2,7 @@ import { test, expect, Page } from '@playwright/test';
 import { collectErrors, waitForWorkbench, openFileByQuickOpen, closeAllEditors, runCommand } from './helpers';
 
 /**
- * Wave 1 output-viewer panels in the native tracks viewer: derived fields
+ * Output-viewer panels in the native tracks viewer: derived fields
  * (Calculator) + histogram, direction glyphs, and threshold coverage.
  *
  * Uses the tiny committed `tracks.h5` fixture (one neutron track, 4 states

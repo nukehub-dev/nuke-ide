@@ -26,7 +26,7 @@
 // *****************************************************************************
 
 /**
- * Dataset inspector core (D1): summarize a parsed native VTK model (kind,
+ * Dataset inspector core: summarize a parsed native VTK model (kind,
  * point/cell counts, world bounds, named data arrays) and page one numeric
  * array into a spreadsheet-shaped table with optional point coordinates
  * (polydata points, grid nodes) or cell-center coordinates (grid centers,

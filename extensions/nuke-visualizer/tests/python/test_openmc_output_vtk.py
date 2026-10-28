@@ -539,7 +539,7 @@ def test_vtk_info_command_success(voxel_file, vtk_mod, tmp_path, capsys):
 
 
 # ---------------------------------------------------------------------------
-# P1-B1 hardening: pure-leaning geometry validation (pytest + numpy only)
+# Geometry validation hardening: pure-leaning checks (pytest + numpy only)
 # ---------------------------------------------------------------------------
 
 

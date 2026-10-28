@@ -26,8 +26,7 @@
 // *****************************************************************************
 
 /**
- * Client-side multiblock expand for DAGMC volumes (P2-C2 of the
- * trame-to-frontend migration).
+ * Client-side multiblock expand for DAGMC volumes.
  *
  * The Python converter (`convert_h5m_to_multiblock_vtk` in
  * `python/plugins/base/lib/dagmc.py`) writes one `.vtm` manifest whose

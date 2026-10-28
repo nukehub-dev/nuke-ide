@@ -2,7 +2,7 @@ import { test, expect, Page } from '@playwright/test';
 import { collectErrors, waitForWorkbench, openFileByQuickOpen, closeAllEditors, runCommand } from './helpers';
 
 /**
- * Wave 1 native-viewer chrome: volume transfer function, orthoslice preview,
+ * Native-viewer chrome: volume transfer function, orthoslice preview,
  * clip caps, dataset inspector, and the screenshot export menu.
  *
  * Uses the committed `volume-slice.vti` (4×4×4 cell grid with flux/std) and

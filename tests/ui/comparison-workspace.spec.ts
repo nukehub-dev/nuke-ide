@@ -2,7 +2,7 @@ import { test, expect, Page, Locator } from '@playwright/test';
 import { collectErrors, waitForWorkbench, openFileByQuickOpen, closeAllEditors, runCommand } from './helpers';
 
 /**
- * Wave 5 comparison workspace over the native viewers.
+ * Comparison workspace over the native viewers.
  *
  * Flow: open two different fixtures as separate tabs (`native-polydata.vtp`,
  * `filter-pipeline.vtp` — both carry an `energy` point array, so the shared

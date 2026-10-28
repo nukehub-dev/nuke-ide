@@ -97,7 +97,7 @@ import '../output-viewer.css';
  * Props driving the native geometry viewer. Every field applies instantly to
  * the already-loaded cells — selecting, hiding materials, changing opacity,
  * or moving the clip planes never restarts anything (there is no trame
- * server; this is the P3-D2 replacement for the `geometry_viz.py` CSG
+ * server; this is the native replacement for the `geometry_viz.py` CSG
  * multiblock server and the `openmc-geometry-3d-widget.tsx` iframe).
  */
 export interface GeometryNativeViewerProps {
@@ -115,7 +115,7 @@ export interface GeometryNativeViewerProps {
 const DEFAULT_VIEWER_BACKGROUND = '#1e1e1e';
 
 /**
- * Native geometry viewer widget (P3-D2): renders CSG cells from the P3-D1
+ * Native geometry viewer widget: renders CSG cells from the
  * JSON extractor shape as three.js box meshes — one box per cell bbox,
  * colored per material — directly in the IDE with no trame server, no
  * reverse proxy, no iframe. The model arrives via `setModelJson` (validated
@@ -125,7 +125,7 @@ const DEFAULT_VIEWER_BACKGROUND = '#1e1e1e';
  * stays out (the React-native `openmc-overlap-widget.tsx` is untouched).
  *
  * This widget is intentionally NOT wired into any contribution yet: the
- * parent phase registers the opener, feeds it the extractor output path,
+ * the contribution registers the opener, feeds it the extractor output path,
  * and forwards tree selections from `openmc-geometry-tree.tsx`.
  */
 @injectable()
@@ -411,7 +411,7 @@ export class GeometryNativeViewerWidget extends ReactWidget implements ViewerSet
         this.update();
     }
 
-    /** Load a P3-D1 extractor JSON file through Theia's FileService (no HTTP fetch). */
+    /** Load a CSG mesh extractor JSON file through Theia's FileService (no HTTP fetch). */
     async setModelFile(uri: URI): Promise<void> {
         this.modelUri = uri;
         this.id = `${GeometryNativeViewerWidget.ID}:${uri.path.toString()}`;

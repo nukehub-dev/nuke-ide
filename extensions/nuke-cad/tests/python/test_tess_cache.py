@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""DOC-LEVEL tessellation cache (brief §9 revision): zip section, hooks, e2e.
+"""DOC-LEVEL tessellation cache: zip section, hooks, e2e.
 
 Covers the ``tess`` manifest section plus ``__doc__.tess.json`` blob in
 ``doc_cache`` (roundtrip, tolerance/length-scale sensitivity, LRU/size

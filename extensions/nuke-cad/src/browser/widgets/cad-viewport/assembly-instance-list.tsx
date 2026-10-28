@@ -26,7 +26,7 @@
 // *****************************************************************************
 
 /**
- * Assembly instance list for the CAD viewport (Wave B2).
+ * Assembly instance list for the CAD viewport.
  *
  * The floating card drags by its header and collapses to that header; position
  * is session-scoped UI state via `useDraggablePanel`, never document state.

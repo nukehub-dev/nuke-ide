@@ -26,7 +26,7 @@
 // *****************************************************************************
 
 /**
- * Pure assembly helpers for the CAD viewport (Wave B2).
+ * Pure assembly helpers for the CAD viewport.
  *
  * Instance rendering reuses the `tess-reuse.ts` face pool: BufferGeometry is
  * shared per source face, never cloned per instance. Reuse key:
@@ -36,7 +36,7 @@
  * `{ instanceId, solidId, faceId }`, re-derived per build because positional
  * ids shuffle.
  *
- * Placement solving mirrors the backend contract (brief §2): BFS from the
+ * Placement solving mirrors the backend contract: BFS from the
  * grounded instance (which keeps its stored placement) through
  * `resolveMatePlacement`; unmated non-grounded instances keep their stored
  * placement. `countAssemblyDof(...) < 0` is a warning (first-mate-wins), never
@@ -67,7 +67,7 @@ import {
 import { faceReuseKey, type ParsedTessFace } from './tess-reuse';
 import type { AssemblySection } from '../../document/cad-document-store';
 
-/** Face payload subset carrying optional B1 per-instance attribution. */
+/** Face payload subset carrying optional assembly per-instance attribution. */
 export type AssemblyFaceInput = Pick<ParsedTessFace, 'fingerprint' | 'nodeCount' | 'triangleCount' | 'positions'> & {
     readonly bodyId?: string;
     readonly instanceId?: string;
@@ -282,8 +282,8 @@ export function buildBomRows(assembly: AssemblySection): BomRow[] {
 }
 
 /**
- * Map an instance to built solid ids through B1's `selectorMap` channel
- * (`<instanceId>/<bodyLabel>` keys). Empty when B1 has not landed the keys.
+ * Map an instance to built solid ids through the assembly `selectorMap` channel
+ * (`<instanceId>/<bodyLabel>` keys). Empty when the assembly keys are not present.
  */
 export function instanceSolidIds(selectorMap: Record<string, number[]> | undefined, instanceId: string): number[] {
     if (selectorMap === undefined) {

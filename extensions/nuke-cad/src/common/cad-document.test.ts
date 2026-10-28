@@ -2196,7 +2196,7 @@ describe('extended feature validation', () => {
     });
 });
 
-describe('wave A2 additive params (revolve ends, upToBody, subtractive, linear datum axis, modeled threads)', () => {
+describe('additive params (revolve ends, upToBody, subtractive, linear datum axis, modeled threads)', () => {
     function makeBaseDocument(): NukeCadDocument {
         return {
             version: NUKE_CAD_SCHEMA_VERSION,

@@ -88,7 +88,7 @@ except Exception:
     curve_builder = None  # type: ignore
     HAS_CURVE_BUILDER = False
 
-# Result-cache sidecar (P2): pure stdlib, always importable. The zip path is
+# Result-cache sidecar: pure stdlib, always importable. The zip path is
 # composed from the caller-provided cache dir + document stem; a missing dir
 # disables caching for that build.
 try:
@@ -1737,7 +1737,7 @@ def _curve_tess_entry(curve_id: str, result: dict[str, Any]) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# P2 doc-level tessellation cache (brief §9, DOC-LEVEL revision).
+# doc-level tessellation cache.
 #
 # One ``__doc__.tess.json`` blob per sidecar holds the whole document
 # tessellation text, keyed by ``doc_cache.compute_tess_doc_hash`` (sorted
@@ -2067,7 +2067,7 @@ def _process_shape(
 
     # ------------------------------------------------------------------
     # 3. Tessellate and write viewport stream (document builds may reuse
-    #    the P2 doc-level tess blob: on a content-hash hit the cached text
+    #    the doc-level tess blob: on a content-hash hit the cached text
     #    is written verbatim and ONLY the meshing call is skipped).
     # ------------------------------------------------------------------
     if cached_text is None and has_solids:
@@ -3160,7 +3160,7 @@ def build_document(
     artifacts are identical to script builds. Per-feature status is returned in
     ``featureResults``.
 
-    ``cache_dir`` enables the P2 result cache (sidecar
+    ``cache_dir`` enables the result cache (sidecar
     ``<stem>.nuke-cache.zip`` resolved inside it; ``None`` disables caching
     and the result reports ``tessCacheHit: False`` with byte-identical output
     to a cache-disabled build). A cache-enabled build primes BOTH the
@@ -3646,7 +3646,7 @@ def build_document_partial(
     mesh_order: int = 1,
     length_scale: float = 1.0,
 ) -> dict:
-    """Rebuild only ``feature_ids`` of a ``.nuke-cad`` document via the P2 result cache.
+    """Rebuild only ``feature_ids`` of a ``.nuke-cad`` document via the result cache.
 
     Mirrors :func:`build_document` in validation, migration, curve handling,
     and artifact emission; only the feature execution differs (TS-planned
@@ -3977,7 +3977,7 @@ def main() -> None:
         default=None,
         help=(
             "Comma-separated feature ids for a partial --from-document rebuild; "
-            "clean predecessors reuse the P2 result cache at --cache-dir"
+            "clean predecessors reuse the result cache at --cache-dir"
         ),
     )
     parser.add_argument(

@@ -108,7 +108,7 @@ describe('defaultOverlayColorBy', () => {
         expect(defaultOverlayColorBy('slice', slice, 'image')).toBe('Point: flux_group_0');
     });
 
-    it('falls back to the P1 default and Solid Color', () => {
+    it('falls back to the default and Solid Color', () => {
         const mesh = classifyNativeVtkArrays([array('lower_g0', 'cell')]);
         expect(defaultOverlayColorBy('mesh', mesh, 'rectilinear')).toBe('Cell: lower_g0');
         expect(defaultOverlayColorBy('overlay', classifyNativeVtkArrays([]), 'rectilinear')).toBe(SOLID_COLOR);

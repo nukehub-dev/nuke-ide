@@ -5134,7 +5134,7 @@ class _BuildState:
     ``overlap_check``) together with the accumulators the feature loop mutates
     (per-body B-reps, per-feature historical shapes, pattern source tools,
     result records, the stale/failed set, and the boolean-consumed body set). Both the full build and the
-    partial (P2 cache) build drive the same :func:`_execute_feature` against
+    partial (result-cache) builds drive the same :func:`_execute_feature` against
     this state; the partial path additionally hydrates entries from cached
     B-rep blobs before executing the dirty closure.
     """
@@ -5239,7 +5239,7 @@ def _prepare_build_state(
 
     Injects implied body/boolean/datum dependencies and computes the
     topological order (via :func:`topo_sort_features`). Shared verbatim by the
-    full build and the P2 partial build so both plan the same execution order.
+    full build and the partial build so both plan the same execution order.
     ``document_dir``/``units`` ride on the state for ``import`` features;
     ``overlapCheck: false`` rides along as the cross-body warning gate.
     """
@@ -5302,7 +5302,7 @@ def _prepare_build_state(
 def _execute_feature(state: _BuildState, feature_id: str) -> None:
     """Execute one feature against the predecessor shapes in ``state``.
 
-    Single-feature step shared by the full build and the P2 partial build.
+    Single-feature step shared by the full build and the partial build.
     Predecessor inputs (body accumulators, historical ``feature_shapes``,
     pattern source ``tool_shapes``) may come from live execution or from
     cached B-rep blobs deserialized into ``state`` — execution itself is
@@ -5988,7 +5988,7 @@ def _assemble_final_shape(
 ) -> dict[str, Any]:
     """Assemble the final Compound from the state's non-consumed bodies.
 
-    Shared by the full build and the P2 partial build: a ``Compound`` of
+    Shared by the full build and the partial build: a ``Compound`` of
     non-consumed body accumulators in document body order, plus the body-label
     ``selectorMap``, per-solid body ids, cross-body overlap warnings, and the
     accumulated feature/reference records. ``overlap_cached`` /
@@ -6082,9 +6082,9 @@ def _assemble_final_shape(
 
 
 # ---------------------------------------------------------------------------
-# P2 result-cache seam + partial execution (C2).
+# Result-cache seam + partial execution.
 #
-# Trust boundary (brief decisions 2-3): the TS orchestrator owns the dirty
+# Trust boundary: the TS orchestrator owns the dirty
 # plan and cache validity. Per-feature content-hash keys are recomputed from
 # the doc JSON on the TS side (``FeatureGraph.markDirty``/``recomputePlan``);
 # the backend never re-validates keys. A clean predecessor's blob is restored
@@ -6237,7 +6237,7 @@ def _open_cache(cache_path: str | None, size_cap_bytes: int | None = None) -> An
     ``cache_path`` is the ``<stem>.nuke-cache.zip`` file path the caller
     resolved (the geometry service composes it from the cache dir + document
     stem). ``size_cap_bytes`` overrides the default LRU cap (None = default).
-    Never raises: without a path, without the C1 module, or on any IO error
+    Never raises: without a path, without the result-cache module, or on any IO error
     the build simply proceeds uncached.
     """
     if not cache_path or not HAS_DOC_CACHE or _doc_cache is None:
@@ -6283,7 +6283,7 @@ def _cache_write_feature(
     meta: dict[str, Any],
     shape_fingerprint: str,
 ) -> bool:
-    """Persist one feature's blobs via the C1 interface. Never raises.
+    """Persist one feature's blobs via the result-cache interface. Never raises.
 
     Returns True when the write landed; False (no cache, any error) means
     the caller carries on without a cache entry.
@@ -6359,7 +6359,7 @@ def _restore_cached_feature(
 def _write_back_feature(
     state: _BuildState, feature: dict[str, Any], cache: Any | None, input_key: str
 ) -> bool:
-    """Write one freshly executed feature's blobs back through the C1 interface.
+    """Write one freshly executed feature's blobs back through the result-cache interface.
 
     Only ``built`` executions are cached (``stale``/``failed`` leave no blobs,
     so a later restore can never resurrect them). Booleans additionally store
@@ -6445,7 +6445,7 @@ def build_document_shape_partial(
     topological order (via :func:`topo_sort_features`, same order as the full
     build) while every other feature restores its clean-predecessor inputs —
     body accumulator, historical shape, pattern source tool, boolean consumed
-    set — from cached B-rep blobs deserialized through the C1 interface. Each
+    set — from cached B-rep blobs deserialized through the result-cache interface. Each
     successful execution writes its fresh blobs back. A cache miss on a clean
     feature degrades to executing it, so with an empty cache this is exactly
     the full build. Unknown feature ids are a hard error.
@@ -6455,7 +6455,7 @@ def build_document_shape_partial(
     share one archive load and one commit); when ``None`` the handle is opened
     from ``cache_path`` as before. Builder semantics are unchanged either way.
 
-    Pattern fast path (brief section 8): a dirty pattern whose source is
+    Pattern fast path: a dirty pattern whose source is
     clean reuses the CACHED source tool shape, transforming it ×N through the
     unchanged :func:`_apply_pattern_or_mirror` — pairwise bbox-disjoint
     layouts skip the booleans entirely (zero fuse, flat ``Compound``), while
@@ -6527,7 +6527,7 @@ def build_document_shape_partial(
 def _content_keys_for_document(document: dict[str, Any]) -> dict[str, str]:
     """Per-feature content keys for the zip sidecar, computed without OCP.
 
-    Uses the C1 key scheme (self-consistent within Python: the write-back
+    Uses the Python-side key scheme (self-consistent within Python: the write-back
     path stores under these keys and the restore path looks them up).
     Raises on dependency cycles or dangling references like the builder.
     """

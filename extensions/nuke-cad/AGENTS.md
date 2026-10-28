@@ -93,8 +93,8 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   assembly-instance warnings for a validated large assembly (warnings only; the W7-X
   generator sets it). See `docs/dev/features-patterns.md`.
 - Backend builds (`geometry_service.py` script isolation at 120s, `feature_builder.py`
-  topological bodies, `curve_builder.py` wires, datums `XY`–`line2Point`, P2
-  `<stem>.nuke-cache.zip` partial cache with TS/C1 keys and doc-hash tess blob; display builds
+  topological bodies, `curve_builder.py` wires, datums `XY`–`line2Point`, the result cache
+  (`<stem>.nuke-cache.zip` sidecar with TS and Python content keys and doc-hash tess blob); display builds
   prime it, one batch load/commit serves a build, and per-body overlap verdicts are reused for
   unchanged signatures). See `docs/dev/backend-pipeline.md`.
 - Imported-body features read STEP/IGES/BREP through `exchange_reader.py` (one source read

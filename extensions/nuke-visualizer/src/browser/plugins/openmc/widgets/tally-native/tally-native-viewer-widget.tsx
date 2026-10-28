@@ -78,18 +78,18 @@ import {
 } from '../geometry-native/geometry-native-model';
 
 /**
- * Native tally mesh/overlay/source viewer widget (P3-D2): renders the three
+ * Native tally mesh/overlay/source viewer widget: renders the three
  * `tally_viz.py` dataset kinds (`openmc.visualize-mesh` full-3D grids,
  * `openmc.visualize-overlay` slice or full-3D tally-on-geometry,
  * `openmc.visualize-source` / statepoint-source point clouds) plus the
- * static `slice_viz.py` slice files (F9) on the P1 three.js viewer — VTK
+ * static `slice_viz.py` slice files on the three.js viewer — VTK
  * bytes arrive through `FileService`, parsing and instant color-by are
  * inherited, and this subclass only adds kind-aware defaults (dataset
  * classification, per-kind point-size preset, kind-preferred color-by).
  * No server, no restart.
  *
  * This widget is intentionally NOT wired into any contribution yet: the
- * parent phase registers the opener, feeds it the converted VTK paths, and
+ * the contribution registers the opener, feeds it the converted VTK paths, and
  * calls `setTallyText` (or `setVtkFile` + `setTallyKind`) per dataset.
  */
 @injectable()
@@ -232,7 +232,7 @@ export class TallyNativeViewerWidget extends NativeVtkViewerWidget implements Cs
 
     /**
      * Load already-read VTK XML text as a known dataset kind: parses through
-     * the P1 path, then applies the kind default color-by and point size.
+     * the native path, then applies the kind default color-by and point size.
      */
     async setTallyText(text: string, kind: TallyOverlayKind): Promise<void> {
         this.tallyKind = isTallyOverlayKind(kind) ? kind : 'overlay';

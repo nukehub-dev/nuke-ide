@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""STEP/IGES/BREP import length-unit detection and scaling (Wave A4).
+"""STEP/IGES/BREP import length-unit detection and scaling.
 
 Pure-mapping, IGES text-parser, and mocked-plumbing tests run in the minimal
 pytest profile (pytest + numpy only); OCP-bound tests (real FileUnits
@@ -597,7 +597,7 @@ def test_import_iges_unit_scaling_end_to_end(tmp_path: Path) -> None:
 
 
 def test_step_import_scale_message_lists_factor_not_just_units(tmp_path: Path) -> None:
-    """The import message must carry the numeric factor (Wave A4 contract)."""
+    """The import message must carry the numeric factor (unit-scaling contract)."""
     _requires_cad()
     text = _write_mm_box_step(tmp_path / "box.step")
     probe = tmp_path / "box_cm.step"

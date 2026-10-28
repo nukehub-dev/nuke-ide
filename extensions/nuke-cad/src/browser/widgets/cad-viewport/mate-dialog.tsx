@@ -26,7 +26,7 @@
 // *****************************************************************************
 
 /**
- * Mate creation dialog (Wave B2).
+ * Mate creation dialog.
  *
  * Mate-type dropdown in `MATE_TYPES` order, connector A/B pickers fed by the
  * viewport connector-pick mode (click adds to the dialog, right-click/Escape

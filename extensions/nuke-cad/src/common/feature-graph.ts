@@ -31,7 +31,7 @@
  * The graph is built from explicit `dependsOn` edges only; sketch dependencies
  * are resolved by the caller before constructing the graph. This is the
  * FreeCAD-style recompute engine foundation described in the nuke-cad program
- * plan §3.2.
+ * the feature-graph contract.
  *
  * @module nuke-cad/common
  */

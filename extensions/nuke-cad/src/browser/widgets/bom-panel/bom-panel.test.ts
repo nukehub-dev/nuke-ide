@@ -28,7 +28,7 @@
 /**
  * BOM panel contract tests: rows (instance id, part source, mate type, DOF
  * contribution) and click → viewport selection sync through
- * `NukeCadStateManager` (B1 `<instanceId>/…` selector keys; no-op until those
+ * `NukeCadStateManager` (assembly `<instanceId>/…` selector keys; no-op until those
  * land). Widget-chrome free: exercises the same pure path the panel renders.
  */
 

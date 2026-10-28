@@ -298,7 +298,7 @@ export const LinkCamerasTrigger: React.FC<LinkCamerasTriggerProps> = ({ linked, 
 );
 
 /**
- * Find Data trigger (D2): opens the transient query dialog. Lit while a
+ * Find Data trigger: opens the transient query dialog. Lit while a
  * selection is active so the canvas highlight is discoverable.
  */
 export interface FindDataTriggerProps {
@@ -311,6 +311,25 @@ export const FindDataTrigger: React.FC<FindDataTriggerProps> = ({ active, disabl
     <Tooltip content={active ? 'Find Data (selection active)' : 'Find Data by value, id, or name'} position="left">
         <button className={`${navButtonClass(active)} viewer-nav-find-data`} disabled={disabled} onClick={onClick} aria-pressed={active}>
             <span className="codicon codicon-search" />
+        </button>
+    </Tooltip>
+);
+
+/**
+ * Probe trigger: opens the generic point/line probe card next to the
+ * canvas. Props-only like every other extra — the host widget owns the dialog
+ * and the picking session.
+ */
+export interface ProbeTriggerProps {
+    readonly active: boolean;
+    readonly disabled?: boolean;
+    readonly onClick: () => void;
+}
+
+export const ProbeTrigger: React.FC<ProbeTriggerProps> = ({ active, disabled, onClick }) => (
+    <Tooltip content="Probe point values and line profiles" position="left">
+        <button className={`${navButtonClass(active)} viewer-nav-probe`} disabled={disabled} onClick={onClick} aria-pressed={active}>
+            <span className="codicon codicon-pulse" />
         </button>
     </Tooltip>
 );

@@ -2,7 +2,7 @@ import { test, expect, Page } from '@playwright/test';
 import { collectErrors, waitForWorkbench, openFileByQuickOpen, closeAllEditors } from './helpers';
 
 /**
- * Wave 2 time-series animation export in the Exodus viewer: the header Export
+ * Time-series animation export in the Exodus viewer: the header Export
  * button shows the export dialog (confirm row), and starting the capture
  * either records the loaded steps to WebM through the browser-built-in
  * MediaRecorder or — where the headless shell lacks it — fails with the

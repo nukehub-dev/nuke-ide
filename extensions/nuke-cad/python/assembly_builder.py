@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Assembly builder for `.nuke-cad` documents (Wave B1 backend).
+"""Assembly builder for `.nuke-cad` documents.
 
 Composes part instances into a placed assembly: resolves each instance's
 ``part`` source (same-document body, relative ``.nuke-cad`` document, or a

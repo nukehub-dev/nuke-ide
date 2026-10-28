@@ -1,7 +1,7 @@
 import { test, expect, Page } from '@playwright/test';
 import { collectErrors, waitForWorkbench, openFileByQuickOpen, closeAllEditors, runCommand } from './helpers';
 
-/** Wave 3 chrome: Find Data, axes grid, and saved viewer state. */
+/** Viewer inspection chrome: Find Data, axes grid, and saved viewer state. */
 
 test.setTimeout(180_000);
 

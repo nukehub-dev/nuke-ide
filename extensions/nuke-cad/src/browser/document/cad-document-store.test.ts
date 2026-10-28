@@ -2090,7 +2090,7 @@ function goldenRecord(doc: NukeCadDocument): CachedDocumentResult {
     };
 }
 
-describe('result cache key scheme (P2 C3)', () => {
+describe('result cache key scheme', () => {
     it('sha256Hex matches node:crypto across vectors', () => {
         for (const text of ['', 'abc', 'héllo wörld ✓', 'x'.repeat(1000)]) {
             expect(sha256Hex(text)).toBe(createHash('sha256').update(text, 'utf8').digest('hex'));
@@ -2246,7 +2246,7 @@ function chainDoc(): NukeCadDocument {
     };
 }
 
-describe('dirty rebuild plan (P2 C3)', () => {
+describe('dirty rebuild plan', () => {
     it('expands the dirty closure to transitive dependents in order', () => {
         const doc = chainDoc();
         expect(planDirtyRebuild(doc, ['f1']).featureIds).toEqual(['f1', 'f2', 'f3']);
@@ -2309,7 +2309,7 @@ describe('dirty rebuild plan (P2 C3)', () => {
     });
 });
 
-describe('memory result cache and open fast path (P2 C3)', () => {
+describe('memory result cache and open fast path', () => {
     it('keys saved documents by URI and untitled documents by name', () => {
         expect(cacheKeyForDocument('file:///a/model.nuke-cad', 'model')).toBe('file:///a/model.nuke-cad');
         expect(cacheKeyForDocument(undefined, 'Untitled')).toBe('untitled:Untitled');
@@ -2362,7 +2362,7 @@ describe('memory result cache and open fast path (P2 C3)', () => {
     });
 });
 
-describe('partial rebuild tracker (P2 C3)', () => {
+describe('partial rebuild tracker', () => {
     it('walks stale → building → fresh', () => {
         const tracker = new PartialRebuildTracker();
         expect(tracker.getState().status).toBe('fresh');
@@ -2428,7 +2428,7 @@ describe('partial rebuild tracker (P2 C3)', () => {
     });
 });
 
-describe('partial rebuild routing (P2 C3)', () => {
+describe('partial rebuild routing', () => {
     it('derives the cache dir from the document path', () => {
         expect(partialCacheDirForDocument('/a/b/model.nuke-cad')).toBe('/a/b');
         expect(partialCacheDirForDocument('/model.nuke-cad')).toBe('/');
@@ -2447,7 +2447,7 @@ describe('partial rebuild routing (P2 C3)', () => {
     });
 });
 
-describe('setUnits (wave A2)', () => {
+describe('setUnits', () => {
     it('tags a unitless document without rescaling existing numbers', () => {
         const store = new CadDocumentStore();
         store.createDocument('test');
@@ -2497,7 +2497,7 @@ describe('setUnits (wave A2)', () => {
     });
 });
 
-describe('computeDependsOn wave A2 contract', () => {
+describe('computeDependsOn contract', () => {
     it('chains subtractive primitives and helical sweeps like pocket', () => {
         const features = [feature('pad1', 'pad')];
         const subtractivePrim: FeatureDef = {
@@ -2526,7 +2526,7 @@ describe('computeDependsOn wave A2 contract', () => {
     });
 });
 
-describe('assembly mutations (Wave B2)', () => {
+describe('assembly mutations', () => {
     function assemblyStore(): CadDocumentStore {
         const store = new CadDocumentStore();
         store.createDocument('assembly-test');

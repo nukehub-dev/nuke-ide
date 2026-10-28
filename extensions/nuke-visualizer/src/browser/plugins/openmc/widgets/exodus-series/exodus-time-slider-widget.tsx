@@ -91,13 +91,13 @@ import { detectMissingDependencies } from '../dependency-hints';
 import '../output-viewer.css';
 
 /**
- * Native Exodus time-slider widget (P5, wired).
+ * Native Exodus time-slider widget.
  *
  * Renders a `base.exodus-series` payload — the headless replacement for the
  * trame `reader.TimestepValues` -> `view.ViewTime` slider in
  * `python/plugins/base/commands/serve.py` — as a client-side time index:
  * first/prev/slider/next/last stepping plus an instant per-step array
- * switch (no server restart; the P1 color-by win applied to time). Coloring
+ * switch (no server restart; the instant color-by path applied to time). Coloring
  * state lives in the viewer-core toolbar model and the legend gradient
  * samples the shared viewer-core colormap library. The current step's
  * decimated mesh (`stepPositions`) renders as a three.js point cloud colored

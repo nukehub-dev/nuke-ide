@@ -1205,7 +1205,7 @@ interface AssemblySectionsProps {
  * Assembly sections of the feature tree: instance rows (rename/delete plus a
  * Ground action) and mate rows (type chip, delete). Broken-reference badges
  * come from the frozen-spec validation on the synthesized root — the same
- * dangling-reference signal the backend reports once B1 lands.
+ * dangling-reference signal the backend reports for assembly references.
  */
 function AssemblySections(props: AssemblySectionsProps): React.ReactElement {
     const [renamingId, setRenamingId] = React.useState<string | undefined>(undefined);

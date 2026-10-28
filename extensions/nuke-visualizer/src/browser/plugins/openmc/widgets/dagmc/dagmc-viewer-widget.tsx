@@ -196,7 +196,7 @@ const scratchViewProjection = new THREE.Matrix4();
  * Props driving the native DAGMC viewer. Every field applies instantly to
  * the already-loaded blocks — toggling volumes, switching color-by, or
  * moving the clip planes never restarts anything (there is no trame server;
- * this is the P2-C2 replacement for the `dagmc_viz.py` ExtractBlock UI).
+ * this is the native replacement for the `dagmc_viz.py` ExtractBlock UI).
  */
 export interface DagmcViewerProps {
     /** `'Solid Color'`, `'Point: <name>'`, or `'Cell: <name>'` (base.serve format). */
@@ -244,7 +244,7 @@ const VOLUME_BLOCK_RE = /^Volume_(\d+)$/;
 const DEFAULT_VIEWER_BACKGROUND = '#1e1e1e';
 
 /**
- * Native DAGMC viewer widget (P2-C2): renders multiblock `.vtm` volume sets
+ * Native DAGMC viewer widget: renders multiblock `.vtm` volume sets
  * (as written by `convert_h5m_to_multiblock_vtk`) directly in the IDE with
  * three.js — no trame server, no reverse proxy, no iframe. The manifest is
  * read through Theia's `FileService`, each block file is resolved against
@@ -253,7 +253,7 @@ const DEFAULT_VIEWER_BACKGROUND = '#1e1e1e';
  * group toggles plus the per-axis clip planes apply instantly.
  *
  * This widget is intentionally NOT wired into any contribution yet: the
- * parent phase registers the opener, feeds it the converter output paths,
+ * the contribution registers the opener, feeds it the converter output paths,
  * and calls `setModelInfo` with the `dagmc.info` payload.
  */
 @injectable()
@@ -405,7 +405,7 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
     /** True while a linked pose applies (the resulting orbit change must not rebroadcast — echo suppression). */
     private applyingLinkedPose = false;
     /**
-     * Active comparison-workspace state (Wave 5); undefined outside a
+     * Active comparison-workspace state; undefined outside a
      * comparison. Comparison camera links apply direction only and the range
      * bus shares a union of the panes' active-array data ranges.
      */
@@ -670,7 +670,7 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
     }
 
     // ------------------------------------------------------------------
-    // Comparison workspace (Wave 5): 2–4 panes share camera orientation
+    // Comparison workspace: 2–4 panes share camera orientation
     // and a union color range. Additive and opt-in — outside a comparison
     // every method below is a safe no-op.
     // ------------------------------------------------------------------

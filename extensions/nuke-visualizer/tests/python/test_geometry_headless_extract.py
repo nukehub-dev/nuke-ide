@@ -1,4 +1,4 @@
-"""Tests for headless CSG->mesh JSON and static-slice extractors (P3-D1).
+"""Tests for headless CSG->mesh JSON and static-slice extractors.
 
 The new extractors in ``plugins.openmc.lib.geometry_viz`` (CSG->mesh JSON
 for a three.js client) and ``plugins.openmc.lib.slice_viz`` (static .vtp

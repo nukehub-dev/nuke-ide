@@ -147,7 +147,7 @@ describe('buildBomRows + instanceSolidIds', () => {
         ]);
     });
 
-    it('maps B1 `<instanceId>/<bodyLabel>` selector keys to solids', () => {
+    it('maps assembly `<instanceId>/<bodyLabel>` selector keys to solids', () => {
         const selectorMap = { 'base/body-1': [1, 2], 'arm/body-1': [3], 'body-1': [9] };
         expect(instanceSolidIds(selectorMap, 'arm')).toEqual([3]);
         expect(instanceSolidIds(selectorMap, 'missing')).toEqual([]);

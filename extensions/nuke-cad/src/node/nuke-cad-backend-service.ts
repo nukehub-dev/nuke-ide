@@ -175,7 +175,7 @@ export function buildDocumentArgs(request: BuildDocumentRequest, scriptPath: str
 
 /**
  * Build the argument list for ``python/geometry_service.py --from-document``
- * partial rebuilds (P2 result cache).
+ * partial rebuilds (result cache).
  *
  * ``featureIds`` travel as a single comma-separated ``--partial-feature-ids``
  * argument; ``cacheDir`` travels as ``--cache-dir`` when supplied (otherwise
@@ -206,8 +206,8 @@ export function buildFeaturesPartialArgs(request: BuildFeaturesPartialRequest, s
 
 /**
  * Build the argument list for ``python/geometry_service.py --from-drawing``
- * (Wave D2 drawing dispatch, reconciled to landed D1: append-only drawing
- * dispatch lives in `geometry_service.py`, `--sheet-id` selects the sheet).
+ * (drawing dispatch: append-only through `geometry_service.py`;
+ * `--sheet-id` selects the sheet).
  *
  * Exported for unit testing; callers should use {@link NukeCadBackendServiceImpl.buildDrawing}.
  */
@@ -625,7 +625,7 @@ export class NukeCadBackendServiceImpl implements NukeCadBackendService {
     }
 
     /**
-     * Build one drawing sheet's HLR linework (Wave D2, brief §3).
+     * Build one drawing sheet's HLR linework.
      *
      * Drawing-only passthrough to ``python/geometry_service.py
      * --from-drawing``: dirty drawing state triggers this RPC, never a

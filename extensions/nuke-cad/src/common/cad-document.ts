@@ -868,7 +868,7 @@ export interface NukeCadDocument {
      */
     assembly?: NukeCadAssembly;
     /**
-     * Additive drawing sheets (schema v3, Wave D2). Absent means the document
+     * Additive drawing sheets (schema v3). Absent means the document
      * has no drawings. Drawing output is derived, never cached in the zip, so
      * no migration step exists: older documents simply have no `drawings`.
      */

@@ -1369,7 +1369,7 @@ describe('generatePythonScript extended feature emission', () => {
     });
 });
 
-describe('generatePythonScript wave A2 emission', () => {
+describe('generatePythonScript emission', () => {
     it('emits blind revolves as today and hatches throughAll revolves', () => {
         for (const params of [
             { axis: 'x', angle: 180 },

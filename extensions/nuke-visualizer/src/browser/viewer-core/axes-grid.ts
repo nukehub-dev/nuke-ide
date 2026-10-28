@@ -26,7 +26,7 @@
 // *****************************************************************************
 
 /**
- * Pure axes-grid geometry for the native 3D viewer core (R3).
+ * Pure axes-grid geometry for the native 3D viewer core.
  *
  * {@link buildAxesGrid} turns a dataset bounds box into drawable line
  * segments plus world-space tick/title labels. Lines are xyz pairs

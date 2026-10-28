@@ -27,7 +27,7 @@
 
 /**
  * Tests for the native VTK viewer pure helpers (no DI/DOM): color-by
- * parsing, array classification for the four P1 dataset kinds, colormap
+ * parsing, array classification for the four native dataset kinds, colormap
  * sampling, point-budget stride, base64, and the VTK XML reader.
  */
 
@@ -74,7 +74,7 @@ describe('detectNativeVtkFamily', () => {
         expect(detectNativeVtkFamily('', '.vtr')).toBe('rectilinear');
     });
 
-    it('maps the P6 gap kinds onto the existing viewer families', () => {
+    it('maps the format-gap kinds onto the existing viewer families', () => {
         // Unstructured grids render through the polydata path (triangle edges/mesh).
         expect(detectNativeVtkFamily('vtkUnstructuredGrid', '.vtu')).toBe('polydata');
         expect(detectNativeVtkFamily('', '.vtu')).toBe('polydata');

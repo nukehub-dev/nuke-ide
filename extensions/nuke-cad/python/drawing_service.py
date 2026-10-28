@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # Copyright (C) 2026 NukeHub and others.
 # SPDX-License-Identifier: BSD-2-Clause
-"""Orthographic drawing core for nuke-cad (Wave D1 backend).
+"""Orthographic drawing core for nuke-cad.
 
 Builds a single-sheet orthographic drawing from a ``.nuke-cad`` document:
 base + projected views, one section view, one detail view, associative
@@ -18,7 +18,7 @@ the minimum side) and HLR the result; cut-face loops carry hatch metadata.
 Detail views HLR the full body (clipping to the detail circle is
 client-side). SVG is emitted natively via stdlib string building; DXF goes
 through ``ezdxf`` (guarded optional import, structured error when absent).
-PDF is not part of this phase.
+PDF export is not implemented.
 
 RPC shape (``build_drawing``)::
 
@@ -124,7 +124,7 @@ class DrawingError(RuntimeError):
 
 
 #: Landscape sheet sizes in sheet-mm (width, height), matching the fixed
-#: A4/A3 landscape templates from the drawings brief.
+#: A4/A3 landscape templates.
 SHEET_SIZES_MM: dict[str, tuple[float, float]] = {
     "A4": (297.0, 210.0),
     "A3": (420.0, 297.0),

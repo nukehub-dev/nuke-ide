@@ -26,8 +26,8 @@
 // *****************************************************************************
 
 /**
- * Pure helpers for the native VTK viewer (P1-B2 of the trame-to-frontend
- * migration, P6 format gap closed): color-by parsing, array classification
+ * Pure helpers for the native VTK viewer:
+ *  color-by parsing, array classification
  * for the dataset kinds the viewer renders (tracks `.vtp` polylines,
  * collision `.vtp` points, weight-windows `.vtr` rectilinear grids, voxel
  * `.vti` image data, plus DAGMC/STEP/FEM outputs: legacy ASCII `.vtk`
@@ -155,7 +155,7 @@ export function selectSourceColorArray(names: readonly string[]): string | undef
 }
 
 // ============================================================================
-// Array classification (quick-select groups for the four P1 dataset kinds)
+// Array classification (quick-select groups for the four native dataset kinds)
 // ============================================================================
 
 /** One weight-window energy group: the `lower_g<i>`/`upper_g<i>` cell pair. */

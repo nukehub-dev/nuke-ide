@@ -26,16 +26,15 @@
 // *****************************************************************************
 
 /**
- * Drawing-sheet data model for `.nuke-cad` documents (Wave D2).
+ * Drawing-sheet data model for `.nuke-cad` documents.
  *
- * Implements brief §2 verbatim: an optional top-level `drawings:
+ * Implements the drawing-sheet schema verbatim: an optional top-level `drawings:
  * DrawingSheet[]` block on the `.nuke-cad` document (schema stays v3, purely
  * additive, no migration). Dimensions reference model `TopologyRef`
  * fingerprints, never projected-geometry ids; `stale` marks refs the backend
  * could not re-resolve (`unmatched`/`ambiguous` keep last-good text).
  *
- * This module also owns the drawing RPC JSON shapes (brief §3:
- * `buildDrawing({scriptPath, sheetId})` returning per-view polylines +
+ * This module also owns the drawing RPC JSON shapes (`buildDrawing({scriptPath, sheetId})` returning per-view polylines +
  * dimension values + svg/dxf strings) and the pure sheet-math helpers the
  * drawing-sheet widget and the document store share (5 mm snap, pointer
  * mapping, projected-view alignment lock, section-line geometry, and the
@@ -47,10 +46,10 @@
 
 import { validateTopologyRef, type TopologyRef } from './topology-refs';
 
-/** Landscape sheet sizes supported by the fixed title-block template (brief §1: no title-block editor). */
+/** Landscape sheet sizes supported by the fixed title-block template. */
 export type DrawingSheetSize = 'A4' | 'A3';
 
-/** Sheet orientation; only landscape is supported in this phase. */
+/** Sheet orientation; only landscape is supported. */
 export type DrawingSheetOrientation = 'landscape';
 
 /** View kinds: one base view plus views derived from a parent view. */
@@ -59,13 +58,13 @@ export type DrawingViewKind = 'base' | 'projected' | 'section' | 'detail';
 /** Standard projection orientations for a view. */
 export type DrawingViewOrientation = 'front' | 'top' | 'right' | 'iso';
 
-/** Associative dimension kinds (brief §2). */
+/** Associative dimension kinds. */
 export type DrawingDimensionKind = 'distance' | 'radius' | 'diameter';
 
 /** Per-dimension resolution status reported by `buildDrawing`. */
 export type DrawingReferenceStatus = 'matched' | 'ambiguous' | 'unmatched';
 
-/** A single orthographic drawing sheet (brief §2, verbatim). */
+/** A single orthographic drawing sheet. */
 export interface DrawingSheet {
     id: string;
     name: string;
@@ -75,7 +74,7 @@ export interface DrawingSheet {
     dimensions: DrawingDimension[];
 }
 
-/** A single view placed on a drawing sheet (brief §2, verbatim). */
+/** A single view placed on a drawing sheet. */
 export interface DrawingView {
     id: string;
     kind: DrawingViewKind;
@@ -94,7 +93,7 @@ export interface DrawingView {
     showHidden?: boolean;
 }
 
-/** An associative dimension on a drawing sheet (brief §2, verbatim). */
+/** An associative dimension on a drawing sheet. */
 export interface DrawingDimension {
     id: string;
     kind: DrawingDimensionKind;
@@ -112,7 +111,7 @@ export const DRAWING_SHEET_DIMENSIONS_MM: Record<DrawingSheetSize, { width: numb
     A3: { width: 420, height: 297 }
 };
 
-/** Drag-to-place snap grid step in sheet mm (brief §4). */
+/** Drag-to-place snap grid step in sheet mm. */
 export const DRAWING_GRID_SNAP_MM = 5;
 
 /** Downward stack step for the auto-deconflict label layout, in sheet mm. */
@@ -193,7 +192,7 @@ export function sheetMmToSvg(x: number, y: number, sheetHeightMm: number): [numb
 /**
  * Lock a projected/section/detail view's alignment axis to its parent.
  *
- * Brief §4: projected views keep alignment axis locked to parent. `top`
+ * Projected views keep alignment axis locked to parent. `top`
  * shares the parent's x, `right` shares the parent's y, `front` shares the
  * parent's x (vertical alignment stack), and `iso` is free. Detail views use
  * their own orientation the same way.
@@ -297,9 +296,9 @@ export function layoutDrawingLabels(
 }
 
 // *****************************************************************************
-// Drawing RPC shapes (brief §3, reconciled to landed D1 keys).
+// Drawing RPC shapes.
 //
-// D1 owns `python/drawing_service.py` (dispatched append-only through
+// `python/drawing_service.py` owns the drawing backend (dispatched append-only through
 // `python/geometry_service.py --from-drawing --sheet-id <id>`) and its JSON
 // is normative here: `buildDrawing({scriptPath, sheetId})` returns per-view
 // polylines + dimension values + svg/dxf strings.
@@ -315,13 +314,13 @@ export interface DrawingBuildRequest {
     readonly outputDirectory?: string;
 }
 
-/** Analytic circle metadata for an exactly-projected circular edge (D1 `_analytic_circle`). */
+/** Analytic circle metadata for an exactly-projected circular edge (`drawing_service` `_analytic_circle`). */
 export interface DrawingCircle2D {
     readonly center: [number, number];
     readonly radius: number;
 }
 
-/** Analytic arc metadata for an exactly-projected circular edge (D1 `_analytic_circle`, degrees). */
+/** Analytic arc metadata for an exactly-projected circular edge (`drawing_service` `_analytic_circle`, degrees). */
 export interface DrawingArc2D {
     readonly center: [number, number];
     readonly radius: number;
@@ -331,7 +330,7 @@ export interface DrawingArc2D {
 
 /**
  * A single projected polyline in absolute sheet-mm 2D (y-up from
- * bottom-left, D1 `_edge_to_polyline`).
+ * bottom-left, `drawing_service` `_edge_to_polyline`).
  */
 export interface DrawingPolyline {
     /** Absolute sheet-mm points. */
@@ -340,7 +339,7 @@ export interface DrawingPolyline {
     /**
      * Backend-assigned projected-edge id. Positional and re-sorted every
      * rebuild — never stored; resolved to a model `TopologyRef` through
-     * `DrawingBuildResult.edgeRefMap` at click time. Absent until D1 ships
+     * `DrawingBuildResult.edgeRefMap` at click time. Absent when the drawing backend does not provide it
      * the projected-edge → TopologyRef map (see contract deviations).
      */
     readonly edgeId?: string;
@@ -348,13 +347,13 @@ export interface DrawingPolyline {
     readonly arc?: DrawingArc2D;
 }
 
-/** A hatched cut-face loop on a section view (D1 `_face_wire_loops`). */
+/** A hatched cut-face loop on a section view (`drawing_service` `_face_wire_loops`). */
 export interface DrawingHatchLoop {
     readonly loop: [number, number][];
     readonly area?: number;
 }
 
-/** HLR linework for one view, in absolute sheet-mm 2D (D1 `project_view`). */
+/** HLR linework for one view, in absolute sheet-mm 2D (`drawing_service` `project_view`). */
 export interface DrawingViewOutput {
     readonly id: string;
     readonly kind?: string;
@@ -369,13 +368,13 @@ export interface DrawingViewOutput {
     readonly center?: [number, number];
 }
 
-/** Recomputed value for one associative dimension (D1 `compute_dimensions`). */
+/** Recomputed value for one associative dimension (`drawing_service` `compute_dimensions`). */
 export interface DrawingDimensionOutput {
     readonly id: string;
     readonly kind?: string;
     readonly viewId?: string;
     readonly value?: number;
-    /** Unmatched/ambiguous refs keep last-good text and set `stale: true` (brief §2). */
+    /** Unmatched/ambiguous refs keep last-good text and set `stale: true`. */
     readonly stale: boolean;
     readonly text?: string;
     /** Projected 2D anchors in absolute sheet-mm for extension lines. */
@@ -383,7 +382,7 @@ export interface DrawingDimensionOutput {
     readonly note?: string;
 }
 
-/** Result of a `buildDrawing` request (D1 `build_drawing`). */
+/** Result of a `buildDrawing` request (`drawing_service` `build_drawing`). */
 export interface DrawingBuildResult {
     readonly success: boolean;
     readonly error?: string;
@@ -397,7 +396,7 @@ export interface DrawingBuildResult {
     /**
      * Projected-edge → model `TopologyRef` map for the dimension tool: edge
      * identity comes from the backend (never positional ids). Dimensions
-     * store the mapped `TopologyRef`, never a projected id. Absent until D1
+     * store the mapped `TopologyRef`, never a projected id. Absent when the drawing backend does not provide it
      * ships the map (see contract deviations).
      */
     readonly edgeRefMap?: Record<string, TopologyRef>;

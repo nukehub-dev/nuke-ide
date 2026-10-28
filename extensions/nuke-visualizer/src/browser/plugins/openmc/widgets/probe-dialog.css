@@ -1,0 +1,374 @@
+/* *****************************************************************************
+ * Copyright (C) 2026 NukeHub and others.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice,
+ *    this list of conditions and the following disclaimer.
+ *
+ * 2. Redistributions in binary form must reproduce the above copyright notice,
+ *    this list of conditions and the following disclaimer in the documentation
+ *    and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+ * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-2-Clause
+ **************************************************************************** */
+
+/* Probe dialog: self-contained floating card. The host supplies the
+   absolute anchor (like `.find-data-host`); the card owns its internal scroll
+   so the title/tabs stay put while samples and profile results grow. */
+
+.probe-dialog {
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    width: 430px;
+    max-width: calc(100vw - 32px);
+    max-height: min(620px, calc(100vh - 96px));
+    overflow: hidden;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editorWidget-background);
+    color: var(--theia-foreground);
+    font-family: var(--theia-ui-font-family);
+    font-size: var(--theia-ui-font-size1);
+    box-shadow: var(--theia-widget-shadow, 0 4px 6px rgba(0, 0, 0, 0.1));
+}
+
+.probe-dialog-title {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--theia-panel-border);
+    color: var(--theia-descriptionForeground);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.probe-title-text {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.probe-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 3px;
+    background: transparent;
+    color: var(--theia-descriptionForeground);
+    cursor: pointer;
+}
+
+.probe-close:hover {
+    background: var(--theia-toolbar-hoverBackground);
+    color: var(--theia-foreground);
+}
+
+.probe-close:focus-visible {
+    outline: 1px solid var(--theia-focusBorder);
+    outline-offset: -1px;
+}
+
+.probe-tabs {
+    display: flex;
+    flex: 0 0 auto;
+    gap: 2px;
+    padding: 4px 10px 0;
+    border-bottom: 1px solid var(--theia-panel-border);
+}
+
+.probe-tab {
+    padding: 5px 10px;
+    border: none;
+    border-bottom: 2px solid transparent;
+    background: transparent;
+    color: var(--theia-descriptionForeground);
+    font-family: inherit;
+    font-size: var(--theia-ui-font-size1);
+    cursor: pointer;
+}
+
+.probe-tab:hover {
+    color: var(--theia-foreground);
+}
+
+.probe-tab.active {
+    border-bottom-color: var(--theia-focusBorder);
+    color: var(--theia-foreground);
+}
+
+.probe-tab:focus-visible {
+    outline: 1px solid var(--theia-focusBorder);
+    outline-offset: -2px;
+}
+
+.probe-body {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 10px;
+}
+
+.probe-section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+}
+
+.probe-pick-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.probe-dialog .theia-button {
+    min-width: 0;
+    padding: 3px 10px;
+}
+
+.probe-pick-toggle {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 6px;
+}
+
+.probe-pick-toggle.active {
+    outline: 1px solid var(--theia-focusBorder);
+    outline-offset: -1px;
+}
+
+.probe-hint {
+    flex: 1 1 auto;
+    min-width: 0;
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size0);
+    line-height: 1.3;
+}
+
+.probe-empty {
+    padding: 14px 8px;
+    border: 1px dashed var(--theia-panel-border);
+    border-radius: 4px;
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size0);
+    text-align: center;
+}
+
+.probe-table-wrap {
+    max-height: 240px;
+    overflow: auto;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 4px;
+}
+
+.probe-table-wrap table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-family: var(--theia-code-font-family);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+}
+
+.probe-table-wrap th,
+.probe-table-wrap td {
+    padding: 2px 6px;
+    border-bottom: 1px solid var(--theia-panel-border);
+    text-align: left;
+    white-space: nowrap;
+}
+
+.probe-table-wrap th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--theia-editorWidget-background);
+    color: var(--theia-descriptionForeground);
+    font-weight: 600;
+}
+
+.probe-table-wrap td {
+    color: var(--theia-foreground);
+}
+
+.probe-table-wrap tbody tr:hover {
+    background: var(--theia-list-hoverBackground);
+}
+
+.probe-sample-table th,
+.probe-sample-table td {
+    text-align: right;
+}
+
+.probe-sample-table th:nth-child(4),
+.probe-sample-table td:nth-child(4) {
+    text-align: left;
+}
+
+.probe-profile-table td {
+    text-align: right;
+}
+
+.probe-row-note {
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size0);
+    line-height: 1.3;
+}
+
+.probe-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 6px;
+    padding-top: 8px;
+    border-top: 1px solid var(--theia-panel-border);
+}
+
+.probe-field {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+}
+
+.probe-field-row {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    min-width: 0;
+}
+
+.probe-field-row > .probe-field {
+    flex: 1 1 0;
+}
+
+.probe-label {
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size0);
+}
+
+.probe-field input {
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    padding: 3px 6px;
+    border: 1px solid var(--theia-input-border);
+    border-radius: 3px;
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    font-family: var(--theia-code-font-family);
+    font-size: var(--theia-code-font-size);
+}
+
+.probe-field input:focus {
+    border-color: var(--theia-focusBorder);
+    outline: none;
+}
+
+.probe-field input:disabled {
+    opacity: 0.6;
+}
+
+.probe-array {
+    width: 100%;
+}
+
+.probe-field-row > .probe-samples-field {
+    flex: 0 0 96px;
+}
+
+.probe-run {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 6px;
+    height: 24px;
+}
+
+.probe-profile-hint {
+    padding: 6px 8px;
+    border: 1px solid var(--theia-panel-border);
+    border-left: 3px solid var(--theia-editorWarning-foreground);
+    border-radius: 4px;
+    background: var(--theia-textCodeBlock-background);
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size0);
+    line-height: 1.35;
+}
+
+.probe-profile-error {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    padding: 4px 6px;
+    border: 1px solid var(--theia-inputValidation-errorBorder, var(--theia-errorForeground));
+    border-radius: 3px;
+    background: var(--theia-inputValidation-errorBackground);
+    color: var(--theia-errorForeground);
+    font-size: var(--theia-ui-font-size0);
+    line-height: 1.35;
+}
+
+.probe-profile-error .codicon {
+    flex: 0 0 auto;
+    margin-top: 1px;
+}
+
+.probe-profile-result {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+    padding-top: 8px;
+    border-top: 1px solid var(--theia-panel-border);
+}
+
+.probe-profile-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.probe-profile-summary {
+    flex: 1 1 auto;
+    overflow: hidden;
+    min-width: 0;
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size0);
+    font-variant-numeric: tabular-nums;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.probe-profile-chart {
+    height: 220px;
+    min-height: 180px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 4px;
+    background: var(--theia-editor-background);
+}

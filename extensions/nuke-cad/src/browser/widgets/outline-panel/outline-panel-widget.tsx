@@ -470,7 +470,7 @@ export class CadOutlinePanelWidget extends ReactWidget {
 
     /**
      * ASSEMBLIES row click: select the instance's solids in the viewport via
-     * the shared state manager (B1 `<instanceId>/…` selector keys; a no-op
+     * the shared state manager (assembly `<instanceId>/…` selector keys; a no-op
      * until those land).
      */
     private handleSelectInstance(instanceId: string): void {
@@ -567,7 +567,7 @@ interface CadOutlinePanelComponentProps {
     readonly document?: NukeCadDocument;
     /** Saved named views from the open document (display-only camera poses). */
     readonly namedViews: readonly SavedNamedView[];
-    /** Assembly section through the B1-optional channel (absent = single-part). */
+    /** Assembly section through the optional assembly channel (absent = single-part). */
     readonly assembly?: AssemblySection;
     readonly manifestExists: boolean;
     readonly manifestFileName: string;
@@ -1667,7 +1667,7 @@ interface AssembliesSectionProps {
 
 /**
  * ASSEMBLIES section: per-instance rows with the same hide/isolate/selection
- * sync as volume rows, keyed by instanceId (solids resolve through B1's
+ * sync as volume rows, keyed by instanceId (solids resolve through the assembly section's
  * `<instanceId>/…` selector keys).
  */
 function AssembliesSection(props: AssembliesSectionProps): React.ReactElement {

@@ -27,7 +27,6 @@
 
 import { createHash } from 'crypto';
 import * as fs from 'fs';
-import * as path from 'path';
 import { describe, expect, it } from 'vitest';
 import {
     W7X_BODY_LABELS,
@@ -165,61 +164,6 @@ describe('W7-X geometry asset', () => {
         expect(new Set(indices).size).toBe(55);
         expect([...indices].sort((a, b) => a - b)).toEqual(Array.from({ length: 55 }, (_, index) => index + 1));
         expect(W7X_BODY_LABELS).toEqual([...W7X_COIL_BODY_LABELS, ...W7X_SHELL_BODY_LABELS]);
-    });
-});
-
-const researchDirectory = path.resolve(__dirname, '../../../../.research/nuke-cad/w7x-parametric');
-const inventoryPath = path.join(researchDirectory, 'solid_inventory.json');
-const nonCoilPath = path.join(researchDirectory, 'non_coil_components.json');
-const researchAvailable = fs.existsSync(inventoryPath) && fs.existsSync(nonCoilPath);
-
-interface ResearchSolid {
-    index: number;
-    faces: number;
-    volume_m3: number;
-    step_name: string;
-    is_coil: boolean;
-}
-
-describe.skipIf(!researchAvailable)('W7-X geometry asset vs research inventory', () => {
-    it('matches every representative, copy index, and shell from the extracted inventory', () => {
-        const inventory = JSON.parse(fs.readFileSync(inventoryPath, 'utf8')) as {
-            source_size_bytes: number;
-            solids: ResearchSolid[];
-        };
-        const nonCoil = JSON.parse(fs.readFileSync(nonCoilPath, 'utf8')) as { components: ResearchSolid[] };
-        const byIndex = new Map(inventory.solids.map((solid) => [solid.index, solid]));
-        const nonCoilByIndex = new Map(nonCoil.components.map((solid) => [solid.index, solid]));
-
-        expect(asset.source.sourceSize).toBe(inventory.source_size_bytes);
-
-        for (const shape of asset.coilShapes) {
-            const representative = byIndex.get(shape.representativeIndex - 1);
-            expect(representative, `missing representative for ${shape.id}`).toBeDefined();
-            expect(representative?.is_coil).toBe(true);
-            expect(representative?.faces).toBe(shape.signature.faceCount);
-            expect(representative?.volume_m3).toBe(shape.signature.volume);
-            expect(representative?.step_name).toBe(`coil_${shape.representativeIndex - 1}`);
-
-            for (const transform of shape.transforms) {
-                const copy = byIndex.get(transform.index - 1);
-                expect(copy, `missing ${shape.id} copy ${transform.index}`).toBeDefined();
-                expect(copy?.is_coil).toBe(true);
-                expect(copy?.faces).toBe(shape.signature.faceCount);
-                expect(copy?.step_name).toBe(`coil_${transform.index - 1}`);
-                expect(Math.abs((copy?.volume_m3 ?? 0) - shape.signature.volume) / shape.signature.volume).toBeLessThan(
-                    W7X_VOLUME_RELATIVE_TOLERANCE
-                );
-            }
-        }
-
-        for (const shell of asset.shells) {
-            const source = nonCoilByIndex.get(shell.index - 1);
-            expect(source, `missing ${shell.label}`).toBeDefined();
-            expect(source?.step_name).toBe(shell.label);
-            expect(source?.faces).toBe(shell.signature.faceCount);
-            expect(source?.volume_m3).toBe(shell.signature.volume);
-        }
     });
 });
 

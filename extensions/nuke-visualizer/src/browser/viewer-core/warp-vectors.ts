@@ -31,7 +31,7 @@
  * (nodal DISP today, velocity tomorrow), ParaView `Warp By Vector` parity
  * computed client-side with no backend work.
  *
- * Scale modes mirror the brief vocabulary (`true|auto|capped-N`):
+ * Scale modes use the `true|auto|capped-N` vocabulary:
  *
  * - `true` — real displacement (scale factor 1).
  * - `auto` — the exaggeration that makes the largest displacement span 10%

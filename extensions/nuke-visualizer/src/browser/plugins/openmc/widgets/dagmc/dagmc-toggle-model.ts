@@ -26,7 +26,7 @@
 // *****************************************************************************
 
 /**
- * Volume/material/group toggle model for the native DAGMC viewer (P2-C2).
+ * Volume/material/group toggle model for the native DAGMC viewer.
  *
  * Replaces the trame volume-select/group autocomplete in `dagmc_viz.py`:
  * the backend keeps serving `get_dagmc_model_info` JSON (`dagmc.info`

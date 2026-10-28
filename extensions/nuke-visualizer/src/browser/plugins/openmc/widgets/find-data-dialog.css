@@ -25,7 +25,7 @@
  * SPDX-License-Identifier: BSD-2-Clause
  **************************************************************************** */
 
-/* Find Data dialog (D2): self-contained card the host floats over a viewport
+/* Find Data dialog: self-contained card the host floats over a viewport
    or embeds in a dialog/panel. Row chrome reuses `.openmc-output-viewer-control`
    from output-viewer.css; the query field overrides that rule's 120px width. */
 

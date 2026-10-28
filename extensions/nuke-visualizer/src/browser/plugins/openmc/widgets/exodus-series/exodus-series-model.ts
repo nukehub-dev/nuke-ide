@@ -26,8 +26,7 @@
 // *****************************************************************************
 
 /**
- * Pure time-series model for the native Exodus viewer (P5 of the
- * trame-to-frontend migration).
+ * Pure time-series model for the native Exodus viewer.
  *
  * Consumes the `base.exodus-series` extractor shape
  * (`python/plugins/base/lib/exodus_series.py`): `{ sourceFile, nSteps,

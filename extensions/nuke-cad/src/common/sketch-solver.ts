@@ -29,7 +29,7 @@
  * Solver-agnostic adapter over `@salusoft89/planegcs` (FreeCAD PlaneGCS WASM).
  *
  * No other module in the codebase imports planegcs directly. This file is the
- * isolation layer described in the nuke-cad GUI modeler program plan §3.5.
+ * isolation layer for the CAD sketch solver.
  *
  * @module nuke-cad/common
  */

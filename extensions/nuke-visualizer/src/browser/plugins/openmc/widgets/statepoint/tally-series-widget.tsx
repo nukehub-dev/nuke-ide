@@ -58,7 +58,7 @@ export interface TallySeriesWidgetRequest {
 }
 
 /**
- * Tally series across statepoints (Wave 4 U5).
+ * Tally series across statepoints.
  *
  * Plots one tally score over every statepoint in the series with `±σ` error
  * bars and a marker on the current step, then hands any mesh-tally step to

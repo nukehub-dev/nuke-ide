@@ -207,14 +207,14 @@ function isFinitePoint3(value: unknown): value is CurvePoint {
     return Array.isArray(value) && value.length === 3 && value.every((v) => typeof v === 'number' && Number.isFinite(v));
 }
 
-/** Document-level assembly section (B1 `NukeCadAssembly`, schema v3 additive). */
+/** Document-level assembly section (assembly section, schema v3 additive). */
 export type AssemblySection = NukeCadAssembly;
 
 /**
- * B1 contract (brief §2): `.nuke-cad` stays v3 with one ADDITIVE optional
+ * Import contract: `.nuke-cad` stays v3 with one ADDITIVE optional
  * top-level `assembly` field (`assembly?: NukeCadAssembly`, absent — or
  * present with an empty `groundedInstanceId` — meaning a single-part
- * document that builds exactly as today). B2 references B1's typed field
+ * document that builds exactly as today). The assembly section references that typed field
  * directly; no optional-channel shim remains.
  */
 export type DocumentWithAssembly = NukeCadDocument;
@@ -2112,7 +2112,7 @@ export class CadDocumentStore {
     }
 
     // *************************************************************************
-    // Drawing-sheet mutations (Wave D2, brief §2/§4). Immutable + validated
+    // Drawing-sheet mutations. Immutable + validated
     // through the normal commit path (v3 schema, additive `drawings` block).
     // Every success bumps `drawingVersion` so the drawing-sheet widget can
     // trigger `buildDrawing` — never a full geometry rebuild.
@@ -2232,7 +2232,7 @@ export class CadDocumentStore {
      *
      * The position snaps to the 5 mm grid, clamps inside the sheet bounds,
      * and — for projected/section/detail views — keeps the alignment axis
-     * locked to the parent view (brief §4).
+     * locked to the parent view.
      */
     updateViewPosition(sheetId: string, viewId: string, position: readonly [number, number]): DocumentMutationResult {
         const check = this.requireDocument();
@@ -2532,14 +2532,14 @@ export class CadDocumentStore {
     }
 
     // *************************************************************************
-    // Assembly mutations (Wave B2). Immutable + validated through the
-    // B1-optional `assembly` channel; `computeDependsOn` is untouched —
+    // Assembly mutations. Immutable + validated through the
+    // optional `assembly` channel; `computeDependsOn` is untouched —
     // assembly adds no feature edges.
     // *************************************************************************
 
     /**
      * Validate a candidate assembly section against the frozen spec, mirroring
-     * B1's schema rule: an absent section — or one with an empty
+     * assembly schema rule: an absent section — or one with an empty
      * `groundedInstanceId` — is a single-part document and always valid;
      * anything else must satisfy `validateAssemblyDocument` on a synthesized
      * root (grounding explicit, never defaulted).
@@ -3393,7 +3393,7 @@ export function computeDependsOn(type: FeatureDef['type'], bodyId: string, featu
 }
 
 // *****************************************************************************
-// P2 result-cache orchestration (TS side).
+// Result-cache orchestration (TS side).
 //
 // Two self-consistent key systems, never compared across the language
 // boundary (their number grammars differ): this region's keys back the
@@ -3408,7 +3408,7 @@ export function computeDependsOn(type: FeatureDef['type'], bodyId: string, featu
 /**
  * Builder-semantics version baked into every content key.
  *
- * MUST match ``BUILDER_VERSION`` in ``python/doc_cache.py`` (C1): any change
+ * MUST match ``BUILDER_VERSION`` in ``python/doc_cache.py``: any change
  * to builder semantics — or to the canonicalization below — bumps both, which
  * loudly invalidates every stored key (hash mismatch → full rebuild).
  */
@@ -3417,7 +3417,7 @@ export const RESULT_CACHE_BUILDER_VERSION = 2;
 /** Version input used when the OCP version is not known (pure key checks). */
 export const RESULT_CACHE_OCP_UNKNOWN = 'unknown';
 
-/** Versions folded into every content key (brief §2: key = SHA over inputs + versions). */
+/** Versions folded into every content key. */
 export interface ResultCacheVersions {
     readonly builderVersion: number;
     readonly ocpVersion: string;
@@ -3615,7 +3615,7 @@ function datumSnapshot(doc: NukeCadDocument, datumId: string): Record<string, un
  * Compute per-node content keys for a document, purely from the doc JSON (no
  * OCP, no backend call).
  *
- * Recipe (brief §2, node granularity brief §4): ``sketch:<id>`` keys hash the
+ * Recipe: ``sketch:<id>`` keys hash the
  * sketch primitive snapshot + datum snapshot + external refs; ``curve:<id>``
  * keys hash source + samples; ``feature:<id>`` keys hash canonical params
  * JSON + consumed-sketch keys + referenced-curve keys + upstream feature keys

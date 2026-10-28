@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Result-cache batching, uncompressed tess storage, and identical-write skips.
 
-Covers the open-cache brief's O3 work: ``DocCache.batch`` (one archive load,
+Covers the batch cache behavior: ``DocCache.batch`` (one archive load,
 one LRU pass, one atomic zip write per build; read-only batches never write;
 staged writes are discarded when the block raises), the ``ZIP_STORED``
-``__doc__.tess.json`` entry, and the Wave A skip of an identical tess stream
+``__doc__.tess.json`` entry, and the cache skip of an identical tess stream
 (``tessWriteSkipped``). Batch assertions are pure stdlib (minimal profile);
 the build-level ones are build123d-gated like their neighbors.
 """

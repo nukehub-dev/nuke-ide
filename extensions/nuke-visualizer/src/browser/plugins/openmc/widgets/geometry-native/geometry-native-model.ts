@@ -26,9 +26,9 @@
 // *****************************************************************************
 
 /**
- * Tolerant JSON model for the native geometry viewer (P3-D2).
+ * Tolerant JSON model for the native geometry viewer.
  *
- * Consumes the P3-D1 CSG→mesh extractor shape: `{ cells: [...], surfaces: [...] }`
+ * Consumes the CSG→mesh extractor shape: `{ cells: [...], surfaces: [...] }`
  * where each cell carries `{ id, name?, material?, bbox: { min, max }, color? }`
  * and each surface summary carries `{ id, type, boundary? }`. Anything extra
  * (regions, lattices, universes, coefficients) is ignored — the tree groups
@@ -60,7 +60,7 @@ export interface GeometryNativeSurfaceSummary {
     readonly boundary: string;
 }
 
-/** Validated subset of the P3-D1 extractor payload the native viewer needs. */
+/** Validated subset of the CSG extractor payload the native viewer needs. */
 export interface GeometryNativeModel {
     readonly cells: GeometryNativeCell[];
     readonly surfaces: GeometryNativeSurfaceSummary[];
@@ -130,7 +130,7 @@ function parseSurface(value: unknown, index: number): GeometryNativeSurfaceSumma
 }
 
 /**
- * Validate an unknown JSON value as the P3-D1 extractor shape the native
+ * Validate an unknown JSON value as the CSG extractor shape the native
  * geometry viewer needs. Missing `cells`/`surfaces` default to empty arrays;
  * extra fields anywhere are ignored. Cells without a valid `id` or `bbox`
  * are rejected (the 3D view cannot place them); bad `color` values fall back

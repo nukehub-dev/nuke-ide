@@ -3340,7 +3340,7 @@
     color: var(--theia-focusBorder);
 }
 
-/* Assembly instance list (Wave B2): draggable, collapsible card under the toolbar. */
+/* Assembly instance list: draggable, collapsible card under the toolbar. */
 .cad-assembly-panel {
     position: absolute;
     top: 104px;

@@ -1657,7 +1657,7 @@ function emitPatternOrMirror(
  * `# TODO(manual):`, never faked).
  *
  * The source solid is re-derived exactly like pattern/mirror sources; each
- * instance is translated by the §3 offset expressions inline (in the lattice
+ * instance is translated by the offset expressions inline (in the lattice
  * plane datum's frame, composed through the datum location) and merged with
  * the same fuse/cut rule as patterns. A `# <prefix>_r<row>c<col>` comment
  * records the per-cell label scheme (odd-r offset coordinates) the backend

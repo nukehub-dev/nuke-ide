@@ -26,7 +26,7 @@
 // *****************************************************************************
 
 /**
- * Find Data selection query core (D2): a deliberately tiny, closed grammar
+ * Find Data selection query core: a deliberately tiny, closed grammar
  * over the tuples of one numeric array.
  *
  * ```

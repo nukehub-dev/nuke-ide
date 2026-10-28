@@ -182,7 +182,7 @@ export interface ViewerMeasureSettings {
 
 /**
  * Comparison-workspace section of a settings snapshot. Present only while the
- * viewer participates in a comparison session (Wave 5); absent outside one so
+ * viewer participates in a comparison session; absent outside one so
  * the panel hides the whole section. `range` is the current union of the
  * panes' active-array data ranges (undefined until at least one pane reports
  * one).

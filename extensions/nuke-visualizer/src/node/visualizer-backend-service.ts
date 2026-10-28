@@ -339,7 +339,7 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
      * Keeps viewer actions (export/mesh quality/analysis) off the server path.
      */
     async runBaseCommand(command: string, args: string[], timeoutMs = 120_000): Promise<unknown> {
-        if (!/^base\.(export|integrate|describe|mesh-quality)$/.test(command)) {
+        if (!/^base\.(export|integrate|describe|mesh-quality|probe)$/.test(command)) {
             throw new Error(`Unsupported base command: ${command}`);
         }
         const serverScript = this.pythonHelper.findScript('server.py');

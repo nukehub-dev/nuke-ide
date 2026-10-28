@@ -26,7 +26,7 @@
 // *****************************************************************************
 
 /**
- * Bill-of-materials panel (Wave B2).
+ * Bill-of-materials panel.
  *
  * Lists one row per assembly instance — instance id, part source, joining
  * mate type, DOF contribution — with a click selecting the instance's solids
@@ -77,7 +77,7 @@ export class CadBomPanelWidget extends ReactWidget {
 
     /**
      * Select an instance's solids in the viewport via the shared state
-     * manager. A no-op while B1's `<instanceId>/…` selector keys have not
+     * manager. A no-op while the assembly's `<instanceId>/…` selector keys have not
      * landed (nothing built for the instance yet).
      */
     protected selectInstance(instanceId: string): void {

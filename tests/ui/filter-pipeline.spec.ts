@@ -2,7 +2,7 @@ import { test, expect, Page } from '@playwright/test';
 import { collectErrors, waitForWorkbench, openFileByQuickOpen, closeAllEditors, runCommand } from './helpers';
 
 /**
- * Wave 1 filter-pipeline chrome in the generic native viewer (no backend
+ * Filter-pipeline chrome in the generic native viewer (no backend
  * needed — FileService read + client-side settings only).
  *
  * Uses the tiny committed `filter-pipeline.vtp` fixture: a 2-triangle square

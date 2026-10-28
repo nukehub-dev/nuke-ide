@@ -2,7 +2,7 @@ import { test, expect, Page } from '@playwright/test';
 import { collectErrors, waitForWorkbench, openFileByQuickOpen, closeAllEditors, runCommand } from './helpers';
 
 /**
- * Wave C CAD chrome: the Model Outline parameter spreadsheet (edit-in-place
+ * CAD parameters and assembly chrome: the Model Outline parameter spreadsheet (edit-in-place
  * with validator reasons, rebuild scheduling), saved-measurement pins
  * (pin → rebuild → label survives), and the draggable/collapsible assembly
  * panel with its gated add-instance action.

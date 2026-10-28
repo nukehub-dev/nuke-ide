@@ -2792,7 +2792,7 @@ export class CadViewportWidget extends ReactWidget {
 
     /**
      * Instance list / outline row click: select the instance's solids in the
-     * viewport via the state manager (B1 `<instanceId>/…` selector keys; a
+     * viewport via the state manager (assembly `<instanceId>/…` selector keys; a
      * no-op until those land).
      */
     protected readonly handleSelectInstance = (instanceId: string): void => {
@@ -6900,7 +6900,7 @@ function initViewport(
     };
 
     /**
-     * Per-instance scene groups (Wave B2). Each assembly instance gets a
+     * Per-instance scene groups. Each assembly instance gets a
      * `THREE.Group` carrying its solved Mat4; meshes keep shared
      * BufferGeometry (see `shareAssemblyGeometries`) and per-instance
      * `userData = { instanceId, solidId, faceId }`. Single-part payloads

@@ -27,7 +27,7 @@
 
 /**
  * Tests for the native geometry viewer pure model (no DI/DOM/three.js):
- * tolerant P3-D1 JSON parsing, tree↔3D selection mapping, filtering, bounds,
+ * tolerant CSG JSON parsing, tree↔3D selection mapping, filtering, bounds,
  * and palette colors.
  */
 
@@ -56,7 +56,7 @@ import {
 } from './geometry-native-model';
 
 describe('parseGeometryNativeModel', () => {
-    it('parses the P3-D1 extractor shape', () => {
+    it('parses the CSG extractor shape', () => {
         const model = parseGeometryNativeModel({
             cells: [
                 { id: 1, name: 'fuel', material: 'uo2', bbox: { min: [0, 0, 0], max: [1, 1, 1] }, color: '#ff0000' },

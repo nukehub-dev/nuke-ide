@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Per-feature result cache for `.nuke-cad` documents (P2 Tier-4 perf work).
+"""Per-feature result cache for `.nuke-cad` documents (performance work).
 
-Single-zip sidecar layout (brief §1): ``<stem>.nuke-cache.zip`` beside the
+Single-zip sidecar layout: ``<stem>.nuke-cache.zip`` beside the
 document holds ``manifest.json`` plus one ``<featureId>.brep`` blob and one
 ``<featureId>.tess.json`` blob per cached feature. All zip IO is stdlib
 ``zipfile``; writes are atomic (tmp file + rename).
 
-Cache identity (brief §2) is a SHA-256 over the canonical feature JSON:
+Cache identity is a SHA-256 over the canonical feature JSON:
 params + sketch primitives snapshot + referenced curve samples + upstream
 feature keys + ``BUILDER_VERSION`` + OCP version. Keys are computed from the
 document JSON only, so the open fast path needs no backend call. A backend
@@ -14,8 +14,8 @@ shape fingerprint is stored alongside each entry for change detection; any
 hash mismatch (external edit, builder upgrade) fails safe to a full rebuild.
 
 Reads never raise: a missing/corrupt zip (or manifest) warns and is treated
-as a miss (brief §10). ``MemoryDocCache`` offers the same interface for
-untitled documents (brief §5): no URI, no zip.
+as a miss. ``MemoryDocCache`` offers the same interface for
+untitled documents: no URI, no zip.
 
 Key-system split (do not "fix" by merging): the TypeScript side computes its
 OWN keys for the in-session memory cache, and this module computes keys for
@@ -27,7 +27,7 @@ always miss at best and poison at worst.
 Pure stdlib only (hashlib/json/zipfile/...) so this module stays importable
 in the minimal pytest profile (pytest + numpy, no OCP).
 
-Doc-level tessellation blob (brief §9, DOC-LEVEL revision): besides the
+Doc-level tessellation blob: besides the
 per-feature blobs the sidecar holds ONE ``__doc__.tess.json`` blob with the
 whole document tessellation text, described by the manifest ``tess`` section
 (``docHash``/``tolerance``/``lengthScale``/``updatedAt``/``sizeBytes``).
@@ -40,7 +40,7 @@ with ``ZIP_STORED`` (the other entries stay deflated): it is one large JSON
 stream whose compression CPU cost buys little next to the decompress/write
 time a multi-hundred-MB archive already pays.
 
-Batch IO (brief §3 of the open-cache brief): :meth:`DocCache.batch` opens a
+Batch IO: :meth:`DocCache.batch` opens a
 :class:`DocCacheBatch` — one archive load, staged reads/writes, and ONE LRU
 pass + ONE atomic zip write at commit. A partial build restores and writes
 back many features plus the doc tess blob; per-call ``lookup``/``store``
@@ -82,7 +82,7 @@ MANIFEST_VERSION = 1
 
 MANIFEST_NAME = "manifest.json"
 
-#: Size-cap preference default (brief §6: ``nukeCad.resultCacheSizeMB``).
+#: Size-cap preference default.
 DEFAULT_SIZE_CAP_BYTES = 1024 * 1024 * 1024
 
 #: OCP-version sentinel used when the OCP distribution is not installed
@@ -136,7 +136,7 @@ def current_ocp_version() -> str:
 
 
 def _feature_sketch_ids(feature: Mapping[str, Any]) -> list[str]:
-    """Sketch ids a feature's geometry depends on (sketch-as-node, brief §4)."""
+    """Sketch ids a feature's geometry depends on (sketch-as-node)."""
     ids: list[str] = []
     sketch_id = feature.get("sketchId")
     if isinstance(sketch_id, str) and sketch_id:
@@ -191,7 +191,7 @@ def compute_sketch_key(
     builder_version: int = BUILDER_VERSION,
     ocp_version: str = UNKNOWN_OCP_VERSION,
 ) -> str:
-    """Content key for a sketch node (primitive JSON + datum snapshot, brief §4)."""
+    """Content key for a sketch node (primitive JSON + datum snapshot)."""
     payload = {
         "kind": "sketch",
         "builderVersion": builder_version,
@@ -212,7 +212,7 @@ def compute_feature_key(
     builder_version: int = BUILDER_VERSION,
     ocp_version: str = UNKNOWN_OCP_VERSION,
 ) -> str:
-    """Content key for one feature (brief §2).
+    """Content key for one feature.
 
     Hashes the canonical params JSON, the referenced sketches' primitive
     snapshots, the referenced curves' source + samples, the upstream
@@ -314,7 +314,7 @@ def compute_document_keys(
 
 
 def cache_path_for_document(document_path: str | Path) -> Path:
-    """Sidecar path for a document: ``<stem>.nuke-cache.zip`` beside it (brief §1)."""
+    """Sidecar path for a document: ``<stem>.nuke-cache.zip`` beside it."""
     path = Path(document_path)
     return path.parent / f"{path.stem}.nuke-cache.zip"
 
@@ -332,7 +332,7 @@ def _tool_name(feature_id: str) -> str:
     return f"{feature_id}.tool.brep"
 
 
-#: Blob name for the DOC-LEVEL tessellation cache (brief §9 revision): one
+#: Blob name for the DOC-LEVEL tessellation cache: one
 #: ``__doc__.tess.json`` blob per sidecar holds the whole document
 #: tessellation text. The ``__doc__`` prefix cannot collide with a feature id
 #: blob (``<featureId>.tess.json`` always carries the feature id).
@@ -347,9 +347,9 @@ def compute_tess_doc_hash(
     builder_version: int = BUILDER_VERSION,
     ocp_version: str = UNKNOWN_OCP_VERSION,
 ) -> str:
-    """Content hash keying the doc-level tessellation blob (brief §9).
+    """Content hash keying the doc-level tessellation blob.
 
-    SHA-256 over the C1-canonical JSON of the sorted per-feature keys from
+    SHA-256 over the canonical Python-side JSON of the sorted per-feature keys from
     :func:`compute_document_keys` plus ``tolerance`` and ``lengthScale``.
     OCP-free (feature keys hash document JSON only), so the geometry service
     computes it before meshing. Any edit that changes built geometry changes
@@ -375,7 +375,7 @@ def _empty_manifest(ocp_version: str = UNKNOWN_OCP_VERSION) -> dict[str, Any]:
 
 
 def _load_zip(path: Path) -> tuple[dict[str, Any], dict[str, bytes]]:
-    """Read (manifest, blobs); corrupt/missing zips warn and yield empty (brief §10)."""
+    """Read (manifest, blobs); corrupt/missing zips warn and yield empty."""
     try:
         with zipfile.ZipFile(path, "r") as archive:
             try:
@@ -450,7 +450,7 @@ def _evict_lru(
     keep_tess: bool = False,
     keep_ids: set[str] | frozenset[str] | None = None,
 ) -> None:
-    """Drop least-recently-used entries until under the cap (brief §6).
+    """Drop least-recently-used entries until under the cap.
 
     The doc-level tess blob counts toward the cap like any feature entry.
     Feature entries evict oldest-first, sparing ``keep_id`` (the just-stored
@@ -493,7 +493,7 @@ def _evict_lru(
 
 
 def _write_zip_atomic(path: Path, manifest: dict[str, Any], blobs: dict[str, bytes]) -> None:
-    """Write the whole zip to a tmp sibling and rename over the target (brief §1).
+    """Write the whole zip to a tmp sibling and rename over the target.
 
     The manifest goes first, then the doc-level tess blob ``ZIP_STORED`` (large
     JSON that does not earn its deflate CPU), then every other blob deflated.
@@ -638,7 +638,7 @@ class DocCacheBatch:
     # -- reads ---------------------------------------------------------
 
     def lookup(self, feature_id: str, input_key: str) -> CachedFeature | None:
-        """Return the entry on an exact key match, else ``None`` (miss, brief §10)."""
+        """Return the entry on an exact key match, else ``None`` (cache miss)."""
         record = self._state().get("features", {}).get(feature_id)
         if not isinstance(record, dict) or record.get("inputKey") != input_key:
             return None
@@ -791,7 +791,7 @@ class DocCacheBatch:
 
 
 class DocCache:
-    """File-backed per-feature result cache (single-zip sidecar, brief §1)."""
+    """File-backed per-feature result cache (single-zip sidecar)."""
 
     def __init__(self, path: str | Path, *, size_cap_bytes: int = DEFAULT_SIZE_CAP_BYTES) -> None:
         self._path = Path(path)
@@ -816,7 +816,7 @@ class DocCache:
         )
 
     def lookup(self, feature_id: str, input_key: str) -> CachedFeature | None:
-        """Return the entry on an exact key match, else ``None`` (miss, brief §10).
+        """Return the entry on an exact key match, else ``None`` (cache miss).
 
         Never raises for missing/corrupt caches: corruption warns and is a miss.
         """
@@ -864,7 +864,7 @@ class DocCache:
         *,
         updated_at: float | None = None,
     ) -> None:
-        """Write the DOC-LEVEL tessellation blob (brief §9 revision).
+        """Write the DOC-LEVEL tessellation blob.
 
         Persists ``tess_text`` as ``__doc__.tess.json`` (``ZIP_STORED``) plus
         the manifest ``tess`` section (``docHash``/``tolerance``/``lengthScale``/
@@ -967,7 +967,7 @@ class DocCache:
 
 
 class MemoryDocCache:
-    """Untitled-document backend (brief §5): same interface, no URI, no zip."""
+    """Untitled-document backend: same interface, no URI, no zip."""
 
     def __init__(self, *, size_cap_bytes: int = DEFAULT_SIZE_CAP_BYTES) -> None:
         self._size_cap_bytes = size_cap_bytes

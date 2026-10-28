@@ -25,7 +25,7 @@
  * SPDX-License-Identifier: BSD-2-Clause
  **************************************************************************** */
 
-/* Screenshot/export menu (E1): trigger rides the shared bottom nav bar next to
+/* Screenshot/export menu: trigger rides the shared bottom nav bar next to
    the one-click screenshot button; the card opens upward over the canvas,
    right-aligned to the trigger and clamped to the window on narrow viewers. */
 

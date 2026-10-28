@@ -26,7 +26,7 @@
 // *****************************************************************************
 
 /**
- * Capped-clipping geometry for the native 3D viewer core (R1): turn the
+ * Capped-clipping geometry for the native 3D viewer core: turn the
  * hollow cross-section left by a clip plane into a solid-looking cap.
  *
  * Plane convention matches {@link ./clip-plane.ts} / `THREE.Plane`:

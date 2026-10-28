@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Partial (P2 result-cache) builds: partial == full equivalence.
+"""Partial (result-cache) builds: partial == full equivalence.
 
 Covers the partial-execution path in ``feature_builder`` against the real
 ``doc_cache`` zip sidecar: restore/write-back through ``_cache_read_feature``
@@ -62,7 +62,7 @@ _W7X_CENTERLINE = (
 
 
 def test_builder_version_is_int() -> None:
-    """The cache-key version lives in doc_cache only (single source, C1)."""
+    """The cache-key version lives in doc_cache only (single source, Python side)."""
     assert isinstance(dc.BUILDER_VERSION, int) and dc.BUILDER_VERSION >= 1
     assert not hasattr(fb, "BUILDER_VERSION")
 

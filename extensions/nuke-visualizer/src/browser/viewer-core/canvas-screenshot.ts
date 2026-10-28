@@ -32,7 +32,7 @@
  * server-side render to base64) with a client-side `toDataURL` download:
  * the widget renders locally, so the pixels are already on the canvas.
  *
- * E1 export pack: PNG/JPEG/WebP output with an optional quality, integer
+ * Screenshot export pack: PNG/JPEG/WebP output with an optional quality, integer
  * super-sampling scale, and transparent-background capture for PNG/WebP.
  * `captureRendererScreenshot` temporarily resizes the three.js renderer
  * (`updateStyle=false`, so the CSS layout never moves), renders at the

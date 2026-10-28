@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Outward triangle winding for tessellated solids (tess-render brief §R-B).
+"""Outward triangle winding for tessellated solids.
 
 ``geometry_service._tessellate_shape`` must emit outward-wound triangles. OCCT
 triangulations follow each face's natural surface orientation, so faces a shell

@@ -6190,7 +6190,7 @@ function primitiveTypeToEntityType(type: string): SketchEntityType | undefined {
     }
     // Ellipses and B-splines relate to other entities only through their
     // point primitives (center, focus, poles); the curve itself has no
-    // relations this phase.
+    // relations.
     return undefined;
 }
 

@@ -27,7 +27,6 @@
 
 /**
  * Placement-math and label-offset acceptance for the drawing-sheet widget
- * (brief §5: `drawing-sheet/*.test.ts`).
  *
  * The widget renders these pure helpers from `common/cad-drawing`; drag,
  * snap, alignment lock, and label deconflict are verified here without DOM.

@@ -118,7 +118,7 @@ the document. A full build executes every feature and primes the per-feature
 result cache (it runs the partial builder with every feature dirty, which is the
 equivalence-tested cold-cache path), so the next edit restores clean predecessors
 from `<stem>.nuke-cache.zip` instead of re-executing them. See
-`docs/dev/backend-pipeline.md` (P2 result cache) and `docs/dev/viewport-outline.md`
+`docs/dev/backend-pipeline.md` (result cache) and `docs/dev/viewport-outline.md`
 (camera clipping).
 
 ### Feature-result tracking

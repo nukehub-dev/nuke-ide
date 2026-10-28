@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # Copyright (C) 2026 NukeHub and others.
 # SPDX-License-Identifier: BSD-2-Clause
-"""Tests for the nuke-cad drawing service (Wave D1 backend).
+"""Tests for the nuke-cad drawing service.
 
 Minimal profile (pytest + numpy only): import safety, guarded-dependency
 errors, pure helpers (section offset, Kasa fit, SVG goldens). Full profile

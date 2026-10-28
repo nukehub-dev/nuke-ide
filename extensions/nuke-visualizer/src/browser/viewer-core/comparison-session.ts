@@ -26,7 +26,7 @@
 // *****************************************************************************
 
 /**
- * Pure comparison-session model for the Wave 5 comparison workspace.
+ * Pure comparison-session model for the Comparison workspace.
  *
  * A session is an ordered, deduplicated set of open native viewers (panes)
  * labelled A, B, C, ... Each pane optionally joins the session's shared color

@@ -662,7 +662,7 @@ export class ViewerSettingsWidget extends ReactWidget {
     }
 
     /**
-     * Comparison section for a side-by-side comparison session (Wave 5):
+     * Comparison section for a side-by-side comparison session:
      * pane identity plus the camera-link, shared-range and label toggles,
      * the union range readout, and the leave action. The snapshot omits
      * `comparison` when the bound viewer is not in a session, so the whole

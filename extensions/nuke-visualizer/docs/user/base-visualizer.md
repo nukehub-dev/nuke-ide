@@ -198,6 +198,25 @@ drops the highlight; **Extract CSV** downloads index/value rows for the
 selection. Non-finite values never match. The highlight is view-only and is
 cleared when the dataset reloads.
 
+### Probe
+
+The pulse button on the native viewer bottom bar opens **Probe**:
+
+- **Point** tab: click **Pick points**, then click the canvas. Each sample
+  records X/Y/Z, the active array, and its value; **Clear** resets the list and
+  **Export CSV** downloads it. Solid Color still records coordinates, with an
+  empty value.
+- **Line** tab: choose a point/cell array, two endpoints (`x, y, z`), and a
+  sample count, then **Run profile**. The headless `base.probe` command samples
+  the line and returns a distance-vs-value chart, table, and CSV export. Point
+  arrays interpolate between vertices; cell arrays use the containing cell.
+  Line profiles need a file-backed viewer — converted tally tabs keep their
+  existing tally line probe.
+
+Probe state is view-only and cleared when the dataset reloads. `vtk` must be
+installed in the active Python environment for line profiles; point probing is
+client-side.
+
 ### Mesh quality
 
 The checklist button on the native viewer bottom bar opens **Mesh quality**.
@@ -391,6 +410,7 @@ python server.py base.describe --file model.vtk --array cell:flux
 python server.py base.integrate --file model.vtk --array cell:flux --volume
 python server.py base.mesh-quality --file model.vtk --output quality.vtu --metric aspect
 python server.py base.export --file model.vtk --format csv --output model.csv
+python server.py base.probe --file model.vti --array cell:flux --path "0.5,0.5,0.5;3.5,0.5,0.5" --samples 100
 ```
 
 - `base.describe` returns min/Q1/median/Q3/max/mean/std/count for one point or
@@ -403,10 +423,12 @@ python server.py base.export --file model.vtk --format csv --output model.csv
   `--array cell:flux` to export one array and `--block N` to restrict a
   block/volume. glTF is available only when the installed VTK provides the
   writer.
+- `base.probe` samples one array at `--points "x,y,z;…"` or along a `--path`
+  polyline (`--samples N`); it returns values plus a `dataRange`.
 
-All three print one JSON object and exit non-zero with `{"error": …}` on bad
-input; heavy VTK imports are lazy, so the commands fail cleanly when `vtk` is
-not installed.
+All print one JSON object and exit non-zero with `{"error": …}` on bad input;
+heavy VTK imports are lazy, so the commands fail cleanly when `vtk` is not
+installed.
 
 ---
 

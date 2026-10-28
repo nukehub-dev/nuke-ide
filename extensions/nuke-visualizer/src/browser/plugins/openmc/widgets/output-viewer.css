@@ -682,6 +682,21 @@
     max-width: calc(100% - 28px);
 }
 
+/* Generic probe card shares the anchored slot; the dialog scrolls
+   internally so the canvas stays fully interactive around it. */
+.probe-host {
+    position: absolute;
+    top: 54px;
+    right: 14px;
+    z-index: 30;
+    width: 430px;
+    max-width: calc(100% - 28px);
+    max-height: calc(100% - 80px);
+    min-height: 0;
+    display: flex;
+    overflow: hidden;
+}
+
 .nuke-viewer-legend-vertical .nuke-viewer-legend-range {
     flex-direction: column;
     align-items: flex-start;

@@ -2,7 +2,7 @@ import { test, expect, Page, Locator } from '@playwright/test';
 import { collectErrors, waitForWorkbench, openFileByQuickOpen, closeAllEditors, runCommand } from './helpers';
 
 /**
- * Bivariate (mean + relative error) tally rendering (U1).
+ * Bivariate (mean + relative error) tally rendering.
  *
  * The committed `tally-bivariate.vti` is a 2×2×2 image grid whose cell data
  * carries `flux-mean`, `flux-std`, and `flux-rel-err` (finite, non-zero).

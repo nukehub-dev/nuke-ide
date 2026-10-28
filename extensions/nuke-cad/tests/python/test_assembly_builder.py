@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for the nuke-cad assembly builder (Wave B1 backend).
+"""Tests for the nuke-cad assembly builder.
 
 Pure placement-math tests run in the minimal pytest profile (pytest + numpy
 only); geometry tests (same-document composition, STEP product names, DAGMC

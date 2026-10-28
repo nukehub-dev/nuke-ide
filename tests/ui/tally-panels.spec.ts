@@ -4,7 +4,7 @@ import { test, expect, Page, Locator } from '@playwright/test';
 import { collectErrors, waitForWorkbench, openFileByQuickOpen, closeAllEditors } from './helpers';
 
 /**
- * Wave 1 tally panels in the native tally viewer: line probes (+ CSV export)
+ * Tally panels in the native tally viewer: line probes (+ CSV export)
  * and contour (iso-surface sibling tabs).
  *
  * Flow: open the tiny committed `statepoint.10.h5` fixture (3x2x2 flux mesh,

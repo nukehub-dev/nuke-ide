@@ -26,18 +26,18 @@
 // *****************************************************************************
 
 /**
- * Dataset classification for the native tally mesh/overlay/source viewer (P3-D2).
+ * Dataset classification for the native tally mesh/overlay/source viewer.
  *
- * Covers the three `tally_viz.py` dataset kinds the P1 viewer already parses
+ * Covers the three `tally_viz.py` dataset kinds the native viewer already parses
  * (`openmc.visualize-mesh` full-3D grids, `openmc.visualize-overlay` slice or
  * full-3D tally-on-geometry, `openmc.visualize-source` / statepoint-source
- * point clouds) plus the static slice files from `slice_viz.py` (F9): given a
+ * point clouds) plus the static slice files from `slice_viz.py`: given a
  * VTK family, grid dimensions, and array names, this module picks the viewer
  * kind, the slice axis for thin grids, and the instant color-by default — no
  * server, no restart.
  *
  * Pure functions + types only; no trame, no vuetify, no DOM, no three.js.
- * Array grouping reuses the P1 `native-vtk-data` classifier.
+ * Array grouping reuses the `native-vtk-data` classifier.
  */
 
 import type { OpenMCVtkArrayInfo } from '../../../../../common/openmc-protocol';
@@ -178,7 +178,7 @@ export function pointSizeForKind(kind: TallyOverlayKind): number {
 /**
  * Default color-by for a classified dataset under a viewer kind: source
  * clouds prefer source arrays, slices prefer the first flux group, grids
- * reuse the P1 default (energy → flux → window bound → scalar...), and
+ * reuse the default (energy → flux → window bound → scalar...), and
  * anything without arrays stays Solid Color.
  */
 export function defaultOverlayColorBy(

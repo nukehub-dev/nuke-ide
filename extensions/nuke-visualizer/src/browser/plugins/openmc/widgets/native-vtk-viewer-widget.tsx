@@ -122,6 +122,21 @@ import {
 } from '../../../viewer-core/canvas-screenshot';
 import { ViewerExportMenu } from './viewer-export-menu';
 import { FindDataDialog, type FindDataAssociation } from './find-data-dialog';
+import { ProbeDialog } from './probe-dialog';
+import {
+    PROBE_SAMPLE_ROW_CAP,
+    probeLineToCsv,
+    probeSamplesToCsv,
+    resolveProbeTuple,
+    sampleProbeValue,
+    type ProbeArray,
+    type ProbeAssociation,
+    type ProbeHit,
+    type ProbeLinePoint,
+    type ProbeLineResult,
+    type ProbeSample,
+    type ProbeTopology
+} from '../../../viewer-core/probe-model';
 import { buildSelectionOverlay } from '../../../viewer-core/selection-overlay';
 import { selectionToCsv } from '../../../viewer-core/selection-query';
 import { viewerStateFromSnapshot, viewerStateToPatch, type ViewerState } from '../../../viewer-core/viewer-state';
@@ -216,6 +231,7 @@ import {
     ViewerFileActions,
     FindDataTrigger,
     LinkCamerasTrigger,
+    ProbeTrigger,
     ViewerNavPopoverShell,
     ViewerShadingPopover,
     ViewerShadingTrigger
@@ -253,10 +269,24 @@ const AxesGridOverlayHost = React.forwardRef<AxesGridOverlayHandle, { visible: b
 /** Data-group child name of the scene underlay holder (subclass ghost content lives one level down). */
 const UNDERLAY_GROUP_NAME = 'underlay';
 
+/** Dialog payload for one line-profile run: array, two endpoints, sample count. */
+interface ProbeProfileRequest {
+    readonly association: ProbeAssociation;
+    readonly name: string;
+    readonly p0: string;
+    readonly p1: string;
+    readonly samples: number;
+}
+
+/** Geometry role recorded by the scene builders (`mesh`, `mesh-points`, `edges`, overlays). */
+function probeObjectRole(object: THREE.Mesh | THREE.Points | THREE.Line): string | undefined {
+    return object.geometry?.userData?.['role'] as string | undefined;
+}
+
 /**
  * Props driving the native VTK viewer. Every field applies instantly to the
  * already-loaded dataset — changing color-by or the colormap never restarts
- * anything (there is no server to restart; this is the P1-B2 replacement for
+ * anything (there is no server to restart; this is the native replacement for
  * the trame `--color-by` restart hack in `OpenMCOutputViewerWidget`).
  */
 export interface NativeVtkViewerProps {
@@ -311,7 +341,7 @@ export interface NativeVtkViewerProps {
 }
 
 /**
- * Native VTK viewer widget (P1-B2): renders tracks `.vtp` polylines,
+ * Native VTK viewer widget: renders tracks `.vtp` polylines,
  * collision `.vtp` point clouds, weight-windows `.vtr` rectilinear grids, and
  * voxel `.vti` image grids directly in the IDE with three.js — no trame
  * server, no reverse proxy, no iframe. VTK bytes are read through Theia's
@@ -323,7 +353,7 @@ export interface NativeVtkViewerProps {
  * `points` shading mode; curvilinear grids stay point clouds.
  *
  * This widget is intentionally NOT wired into any contribution yet: the
- * parent phase replaces the `output-viewer-widget.tsx` subclasses'
+ * this viewer replaces the `output-viewer-widget.tsx` subclasses'
  * convert→serve→iframe lifecycle with convert→FileService→native rendering.
  */
 @injectable()
@@ -423,7 +453,7 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
     /** Mirrored orbit target for link publishes (fit keeps it exact; a local pan re-anchors on the next fit). */
     private linkTarget: [number, number, number] | undefined;
     /**
-     * Active comparison-workspace state (Wave 5); undefined outside a
+     * Active comparison-workspace state; undefined outside a
      * comparison. Comparison camera links apply direction only and the range
      * bus shares a union of the panes' active-array data ranges.
      */
@@ -462,6 +492,21 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
     private findDataOpen = false;
     private findDataSelection: { association: FindDataAssociation; name: string; indices: Uint32Array } | undefined;
     private findDataGroup: THREE.Group | undefined;
+    /**
+     * Generic probe viewport state: the floating dialog, canvas point
+     * picking, the newest-first sample history, and the file-backed line
+     * profile. Never document state — a dataset rebuild resets all of it.
+     * (`probeDialogOpen`/`probeProfileToken` avoid the tally-native viewer's
+     * pre-existing `probeOpen`/`probeToken` line-probe fields.)
+     */
+    private probeDialogOpen = false;
+    private probePicking = false;
+    private probeSamples: ProbeSample[] = [];
+    private probeProfileRunning = false;
+    private probeProfileError: string | undefined;
+    private probeProfileResult: ProbeLineResult | undefined;
+    /** Async guard for profile runs (bumped on rebuild and every new run). */
+    private probeProfileToken = 0;
     /** Bounding-box axes grid + projected labels. */
     private axesGridVisible = false;
     private axesGridModel: AxisGridModel | undefined;
@@ -801,11 +846,17 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         return this.measure.active;
     }
 
-    /** Arm or disarm the distance-measure tool (sidebar toggle). */
+    /** Arm or disarm the distance-measure tool (sidebar toggle); arming disarms probe picking. */
     setMeasureActive(active: boolean): void {
+        const disarmProbe = active && this.probePicking;
+        if (disarmProbe) {
+            this.probePicking = false;
+        }
         const next = setMeasureActive(this.measure, active);
         if (next !== this.measure) {
             this.measure = next;
+            this.update();
+        } else if (disarmProbe) {
             this.update();
         }
     }
@@ -856,7 +907,7 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
     }
 
     // ------------------------------------------------------------------
-    // Comparison workspace (Wave 5): 2–4 panes share camera orientation
+    // Comparison workspace: 2–4 panes share camera orientation
     // and a union color range. Additive and opt-in — outside a comparison
     // every method below is a safe no-op.
     // ------------------------------------------------------------------
@@ -1544,6 +1595,49 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         );
     }
 
+    /**
+     * Generic probe dialog overlay: point sampling works for every native
+     * dataset, while the line tab needs a real file for the headless
+     * `base.probe` run (converted tally tabs have no file URI).
+     */
+    protected renderProbe(): React.ReactNode {
+        if (!this.probeDialogOpen || !this.model) {
+            return undefined;
+        }
+        const model = this.model;
+        const arrays = [...model.pointArrays, ...model.cellArrays].map((array) => ({
+            association: array.association,
+            name: array.name,
+            components: array.components
+        }));
+        const selection = parseColorBy(this.colorBy);
+        const defaultArray =
+            selection && selection.kind !== 'solid' && this.findArray(selection.kind, selection.name) !== undefined
+                ? { association: selection.kind, name: selection.name }
+                : undefined;
+        return (
+            <div className="probe-host">
+                <ProbeDialog
+                    arrays={arrays}
+                    defaultArray={defaultArray}
+                    bounds={boundingBoxFromPositions(model.positions)}
+                    samples={this.probeSamples}
+                    picking={this.probePicking}
+                    canProfile={this.fileUri !== undefined}
+                    profileRunning={this.probeProfileRunning}
+                    profileError={this.probeProfileError}
+                    profileResult={this.probeProfileResult}
+                    onTogglePick={() => this.setProbePicking(!this.probePicking)}
+                    onClearSamples={() => this.clearProbeSamples()}
+                    onExportSamples={() => this.exportProbeSamplesCsv()}
+                    onRunProfile={(request) => void this.runProbeProfile(request)}
+                    onExportProfile={() => this.exportProbeProfileCsv()}
+                    onClose={() => this.closeProbe()}
+                />
+            </div>
+        );
+    }
+
     /** Apply a Find Data selection and rebuild the canvas highlight. */
     protected setFindDataSelection(association: FindDataAssociation, name: string, indices: Uint32Array): void {
         this.findDataSelection = { association, name, indices };
@@ -1572,6 +1666,79 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         const anchor = document.createElement('a');
         anchor.href = URL.createObjectURL(blob);
         anchor.download = `${this.fileUri?.path.base ?? 'selection'}-${name}.csv`;
+        anchor.click();
+        URL.revokeObjectURL(anchor.href);
+    }
+
+    // ------------------------------------------------------------------
+    // Generic probe: point picking is client-side; line profiles
+    // ride the existing headless `base.probe` seam. Every bit of this state
+    // is viewport-transient (reset on rebuild, never documents).
+    // ------------------------------------------------------------------
+
+    /** Open/close the probe dialog from the nav trigger; closing disarms picking. */
+    private toggleProbe(): void {
+        this.probeDialogOpen = !this.probeDialogOpen;
+        if (!this.probeDialogOpen) {
+            this.probePicking = false;
+        }
+        this.update();
+    }
+
+    /** Close the probe dialog from its Close button (also disarms picking). */
+    protected closeProbe(): void {
+        if (!this.probeDialogOpen && !this.probePicking) {
+            return;
+        }
+        this.probeDialogOpen = false;
+        this.probePicking = false;
+        this.update();
+    }
+
+    /** Arm/disarm canvas point picking (arming disarms the measure tool). */
+    protected setProbePicking(active: boolean): void {
+        if (this.probePicking === active) {
+            return;
+        }
+        this.probePicking = active;
+        if (active) {
+            // Both tools consume the same canvas click; never both armed.
+            this.setMeasureActive(false);
+        }
+        this.update();
+    }
+
+    /** Drop the point-probe history (dialog Clear). */
+    protected clearProbeSamples(): void {
+        if (this.probeSamples.length === 0) {
+            return;
+        }
+        this.probeSamples = [];
+        this.update();
+    }
+
+    /** Download the point-probe history as `<file>-probe.csv`. */
+    protected exportProbeSamplesCsv(): void {
+        if (this.probeSamples.length === 0) {
+            return;
+        }
+        this.downloadProbeCsv('probe', probeSamplesToCsv(this.probeSamples));
+    }
+
+    /** Download the last line profile as `<file>-profile.csv`. */
+    protected exportProbeProfileCsv(): void {
+        if (!this.probeProfileResult) {
+            return;
+        }
+        this.downloadProbeCsv('profile', probeLineToCsv(this.probeProfileResult));
+    }
+
+    /** Blob + anchor download (dataset name prefix, no server round-trip). */
+    private downloadProbeCsv(kind: 'probe' | 'profile', csv: string): void {
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const anchor = document.createElement('a');
+        anchor.href = URL.createObjectURL(blob);
+        anchor.download = `${this.fileUri?.path.base ?? 'dataset'}-${kind}.csv`;
         anchor.click();
         URL.revokeObjectURL(anchor.href);
     }
@@ -2135,6 +2302,116 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         }
     }
 
+    /**
+     * Run the headless `base.probe --path` profile for the dialog request and
+     * publish the parsed series. Token-guarded like dataset loads, so a stale
+     * response can never overwrite a newer run or a rebuilt dataset.
+     */
+    protected async runProbeProfile(request: ProbeProfileRequest): Promise<void> {
+        const uri = this.fileUri;
+        if (!uri) {
+            this.probeProfileError = 'Line profiles need a file-backed viewer — this tab renders converted data.';
+            this.probeProfileResult = undefined;
+            this.update();
+            return;
+        }
+        const source = uri.path.fsPath();
+        const token = ++this.probeProfileToken;
+        this.probeProfileRunning = true;
+        this.probeProfileError = undefined;
+        this.probeProfileResult = undefined;
+        this.update();
+        try {
+            const result = await this.visualizerBackend.runBaseCommand('base.probe', [
+                '--file',
+                source,
+                '--array',
+                `${request.association}:${request.name}`,
+                '--path',
+                `${request.p0};${request.p1}`,
+                '--samples',
+                String(request.samples)
+            ]);
+            if (token !== this.probeProfileToken) {
+                return;
+            }
+            this.probeProfileResult = this.parseProbeLineResult(result, request);
+            this.probeProfileRunning = false;
+            this.update();
+        } catch (error) {
+            if (token !== this.probeProfileToken) {
+                return;
+            }
+            this.probeProfileRunning = false;
+            this.probeProfileError = error instanceof Error ? error.message : String(error);
+            this.update();
+        }
+    }
+
+    /**
+     * Validate the `base.probe` stdout payload into a {@link ProbeLineResult}:
+     * finite distances/positions only, non-finite values stay `null` so the
+     * chart renders gaps. Throws on an error payload or an empty series.
+     */
+    private parseProbeLineResult(payload: unknown, request: ProbeProfileRequest): ProbeLineResult {
+        if (typeof payload !== 'object' || payload === null) {
+            throw new Error('Probe returned no result');
+        }
+        const data = payload as {
+            array?: unknown;
+            association?: unknown;
+            series?: unknown;
+            length?: unknown;
+            dataRange?: unknown;
+            error?: unknown;
+        };
+        if (typeof data.error === 'string') {
+            throw new Error(data.error);
+        }
+        const rawSeries = Array.isArray(data.series) ? data.series : [];
+        const series: ProbeLinePoint[] = [];
+        for (const entry of rawSeries) {
+            if (typeof entry !== 'object' || entry === null) {
+                continue;
+            }
+            const point = entry as { distance?: unknown; position?: unknown; value?: unknown; valid?: unknown };
+            const position = Array.isArray(point.position) ? point.position : undefined;
+            if (typeof point.distance !== 'number' || !Number.isFinite(point.distance) || position === undefined || position.length < 3) {
+                continue;
+            }
+            const [x, y, z] = position;
+            const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
+            if (!finite(x) || !finite(y) || !finite(z)) {
+                continue;
+            }
+            const value = finite(point.value) ? point.value : null;
+            const valid = typeof point.valid === 'boolean' ? point.valid && value !== null : value !== null;
+            series.push({ distance: point.distance, position: [x, y, z], value, valid });
+        }
+        if (series.length === 0) {
+            throw new Error('Probe returned no profile samples');
+        }
+        const association: ProbeAssociation = data.association === 'cell' ? 'cell' : request.association;
+        const length = typeof data.length === 'number' && Number.isFinite(data.length) ? data.length : undefined;
+        const rawRange = Array.isArray(data.dataRange) ? data.dataRange : undefined;
+        const dataRange =
+            rawRange !== undefined &&
+            rawRange.length >= 2 &&
+            typeof rawRange[0] === 'number' &&
+            Number.isFinite(rawRange[0]) &&
+            typeof rawRange[1] === 'number' &&
+            Number.isFinite(rawRange[1])
+                ? ([rawRange[0], rawRange[1]] as const)
+                : undefined;
+        return {
+            array: typeof data.array === 'string' ? data.array : request.name,
+            association,
+            series,
+            length,
+            dataRange
+        };
+    }
+
     /** Copy the current canvas to the clipboard (falls back to a visible warning). */
     async copyScreenshot(options: ScreenshotOptions = {}): Promise<void> {
         if (!this.renderer || !this.scene || !this.camera) {
@@ -2220,6 +2497,7 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
                         {this.describeModel()}
                         {this.note ? ` — ${this.note}` : ''} Drag to orbit, wheel to zoom, right-drag to pan.
                         {this.measure.active ? ' Measure mode: click two surface points; Escape cancels.' : ''}
+                        {this.probePicking ? ' Probe mode: click the canvas to read values; Escape cancels.' : ''}
                     </div>
                     <div style={{ flex: '1', minHeight: '0', position: 'relative', display: 'flex' }}>
                         <div ref={this.attachHost} style={{ flex: '1', minHeight: '0', position: 'relative' }} />
@@ -2229,6 +2507,7 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
                         {this.renderGizmo()}
                         {this.renderMeasureLabel()}
                         {this.renderFindData()}
+                        {this.renderProbe()}
                         <AxesGridOverlayHost
                             ref={(handle) => {
                                 this.axesGridOverlayRef = handle;
@@ -2289,6 +2568,7 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
                             this.update();
                         }}
                     />
+                    <ProbeTrigger active={this.probeDialogOpen} disabled={disabled} onClick={() => this.toggleProbe()} />
                     <ViewerQualityMenu
                         disabled={disabled || this.fileUri === undefined}
                         onApply={(metric) => void this.applyMeshQuality(metric)}
@@ -2430,9 +2710,20 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         return Math.max(Math.sqrt(dx * dx + dy * dy + dz * dz) * 0.01, 1e-9);
     }
 
-    /** Canvas click while the measure tool is active: raycast the data meshes and record the surface point. */
+    /**
+     * Canvas click while the measure tool is active: raycast the data meshes
+     * and record the surface point. Probe picking takes precedence on the same
+     * click (the two tools are mutually exclusive by construction).
+     */
     private onMeasureClick = (event: MouseEvent): void => {
-        if (!this.measure.active || event.button !== 0) {
+        if (event.button !== 0) {
+            return;
+        }
+        if (this.probePicking) {
+            this.onProbeClick(event);
+            return;
+        }
+        if (!this.measure.active) {
             return;
         }
         const canvas = this.renderer?.domElement;
@@ -2467,6 +2758,127 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
             this.update();
         }
     };
+
+    /**
+     * Canvas click while probe picking is armed: raycast the data group,
+     * resolve the hit tuple in the active array, and prepend the sample.
+     * Overlays (edges, clip caps, selection highlight, box helper) are
+     * skipped so their indices never resolve against the model.
+     */
+    private onProbeClick(event: MouseEvent): void {
+        const model = this.model;
+        const canvas = this.renderer?.domElement;
+        const camera = this.camera;
+        const dataGroup = this.dataGroup;
+        if (!model || !canvas || !camera || !dataGroup) {
+            return;
+        }
+        const rect = canvas.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) {
+            return;
+        }
+        const ndc = new THREE.Vector2(
+            ((event.clientX - rect.left) / rect.width) * 2 - 1,
+            -((event.clientY - rect.top) / rect.height) * 2 + 1
+        );
+        const raycaster = new THREE.Raycaster();
+        raycaster.params.Points.threshold = this.measurePickTolerance();
+        raycaster.params.Line.threshold = this.measurePickTolerance();
+        raycaster.setFromCamera(ndc, camera);
+        let intersection: THREE.Intersection | undefined;
+        let kind: ProbeHit['kind'] | undefined;
+        for (const candidate of raycaster.intersectObjects(dataGroup.children, true)) {
+            const classified = this.probeHitKind(candidate.object);
+            if (classified !== undefined) {
+                intersection = candidate;
+                kind = classified;
+                break;
+            }
+        }
+        if (!intersection || kind === undefined) {
+            return;
+        }
+        const hit: ProbeHit = {
+            position: [intersection.point.x, intersection.point.y, intersection.point.z],
+            kind,
+            faceIndex: intersection.faceIndex ?? undefined,
+            pointIndex: intersection.index ?? undefined,
+            instanceId: intersection.instanceId ?? undefined
+        };
+        const array = this.probeActiveArray();
+        const tuple = array ? resolveProbeTuple(this.probeTopology(model), hit, array.association) : undefined;
+        const value = array && tuple !== undefined ? sampleProbeValue(array, tuple, this.component) : undefined;
+        const sample: ProbeSample = {
+            position: hit.position,
+            association: array?.association,
+            array: array?.name,
+            tuple,
+            value
+        };
+        this.probeSamples = [sample, ...this.probeSamples].slice(0, PROBE_SAMPLE_ROW_CAP);
+        this.update();
+    }
+
+    /** Classify a data-group hit for probing (undefined = overlay or non-data geometry). */
+    private probeHitKind(object: THREE.Object3D): ProbeHit['kind'] | undefined {
+        // Box3Helper (grid bounds) is a role-less LineSegments — never data.
+        if (object instanceof THREE.Box3Helper) {
+            return undefined;
+        }
+        if (object === this.glyphMesh) {
+            // Direction glyphs are derived cones, not dataset cells.
+            return undefined;
+        }
+        if (object instanceof THREE.InstancedMesh) {
+            return this.voxelLayout ? 'voxel' : undefined;
+        }
+        if (object instanceof THREE.LineSegments) {
+            const role = probeObjectRole(object);
+            return role === 'edges' || role === 'find-data-selection' ? undefined : 'lines';
+        }
+        if (object instanceof THREE.Points) {
+            const role = probeObjectRole(object);
+            if (role === 'find-data-selection' || role === 'tally-source') {
+                return undefined;
+            }
+            if (role === 'mesh-points' || role === 'line-points' || role === 'grid-points') {
+                return role;
+            }
+            return 'points';
+        }
+        if (object instanceof THREE.Mesh) {
+            // Only the surface soup maps face indices onto model triangles;
+            // clip caps and the smooth volume are derived geometry.
+            return probeObjectRole(object) === 'mesh' ? 'mesh' : undefined;
+        }
+        return undefined;
+    }
+
+    /** Active color-by array in probe-model shape (undefined in Solid Color or when the array is missing). */
+    private probeActiveArray(): ProbeArray | undefined {
+        const selection = parseColorBy(this.colorBy);
+        if (!selection || selection.kind === 'solid') {
+            return undefined;
+        }
+        const array = this.findArray(selection.kind, selection.name);
+        return array === undefined
+            ? undefined
+            : { association: array.association, name: array.name, components: array.components, values: array.values };
+    }
+
+    /** Topology snapshot for tuple resolution (rendered positions, grid stride, voxel cells). */
+    private probeTopology(model: NativeVtkModel): ProbeTopology {
+        return {
+            positions: this.scenePositions(),
+            nPoints: model.nPoints,
+            stride: strideForBudget(model.positions.length / 3),
+            triangles: model.triangles,
+            triangleCells: model.triangleCells,
+            segments: model.segments,
+            segmentCells: model.segmentCells,
+            voxelCells: this.voxelLayout?.cells
+        };
+    }
 
     /**
      * Outside-click dismissal for the nav popover (CAD canvas-click parity,
@@ -2505,6 +2917,22 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         }
         if (this.openNavPopover !== undefined) {
             this.closeNavPopover();
+            event.stopPropagation();
+            event.preventDefault();
+            return;
+        }
+        // Probe picking is the most recent arm (dialog close comes next, so a
+        // second Escape closes the card); measure cancel stays last.
+        if (this.probePicking) {
+            this.probePicking = false;
+            this.update();
+            event.stopPropagation();
+            event.preventDefault();
+            return;
+        }
+        if (this.probeDialogOpen) {
+            this.probeDialogOpen = false;
+            this.update();
             event.stopPropagation();
             event.preventDefault();
             return;
@@ -2777,6 +3205,8 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
 
     override dispose(): void {
         this.loadToken++;
+        // Invalidate any in-flight line-profile run (same guard pattern as loads).
+        this.probeProfileToken++;
         this.dropCameraLinkSubscription();
         this.dropComparisonRangeSubscription();
         this.comparisonView = undefined;
@@ -2915,6 +3345,14 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         this.clipCapKey = undefined;
         this.findDataSelection = undefined;
         this.findDataGroup = undefined;
+        // Probe history and line profiles belong to the previous dataset:
+        // clear them and bump the token so an in-flight profile cannot land.
+        this.probePicking = false;
+        this.probeSamples = [];
+        this.probeProfileRunning = false;
+        this.probeProfileError = undefined;
+        this.probeProfileResult = undefined;
+        this.probeProfileToken++;
         // Rebuild clears the measure session (viewport state, never document
         // state); the label hides on the next repaint via updateMeasureLabel.
         this.measure = resetMeasureState();

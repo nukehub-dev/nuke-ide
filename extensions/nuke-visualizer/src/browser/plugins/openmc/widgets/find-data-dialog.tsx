@@ -26,7 +26,7 @@
 // *****************************************************************************
 
 /**
- * Props-only Find Data dialog body (D2): pick a point/cell array, type a
+ * Props-only Find Data dialog body: pick a point/cell array, type a
  * closed selection query, preview the live match count, then hand the chosen
  * tuple indices to the host.
  *

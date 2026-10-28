@@ -1144,7 +1144,7 @@ def test_step_cached_missing_file():
 
 
 # ---------------------------------------------------------------------------
-# Missing-vtk error paths (probe forced off, P1 pattern)
+# Missing-vtk error paths (dependency probe forced off)
 # ---------------------------------------------------------------------------
 
 

@@ -72,6 +72,9 @@ All files under `extensions/nuke-visualizer/` except generated artifacts (`lib/`
 - Comparison workspace (`viewer-core/comparison-session.ts`, `visualizer-comparison-contribution.ts`) groups
   already-open native/DAGMC viewers into split panes; camera links apply direction only across files and the
   shared range is the union of active-array data ranges. Never preload data or copy source camera distance.
+- Generic probe (`viewer-core/probe-model.ts`, `widgets/probe-dialog.tsx`, `base.probe`) maps raycast hits by
+  triangle/segment/voxel indices; keep point sampling client-side and line profiles file-backed, and never
+  map derived overlay geometry (edges, caps, glyphs, selection) onto dataset tuples.
 - Tally routing uses `python/plugins/openmc/lib/tally_vtk.py` (`openmc.tally-mesh-vtk` / `source-vtk` / `overlay-vtk` /
   `overlay-geometry-vtk`, XML only) via `openmc-service.ts::openTallyNativeWidget`; tabs open instantly with a loading
   status (`beginPendingLoad`) before conversion runs, failures land in-tab (`failPendingLoad`); probe/contour source

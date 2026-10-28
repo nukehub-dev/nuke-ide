@@ -1,6 +1,6 @@
 # Copyright (C) 2026 NukeHub and others.
 # SPDX-License-Identifier: BSD-2-Clause
-"""Tests for the headless Exodus-II series extractor (P5).
+"""Tests for the headless Exodus-II series extractor.
 
 ``plugins.base.lib.exodus_series`` reads transient ``.e`` files via
 ``netCDF4`` (preferred) or ``meshio`` (single-step fallback) and emits the

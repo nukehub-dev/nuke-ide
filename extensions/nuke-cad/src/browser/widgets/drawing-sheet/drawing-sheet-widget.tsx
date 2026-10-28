@@ -26,7 +26,7 @@
 // *****************************************************************************
 
 /**
- * Single-sheet orthographic drawing widget (Wave D2, brief §4).
+ * Single-sheet orthographic drawing widget.
  *
  * 2D SVG rendering of a `.nuke-cad` document's drawing sheets (not three.js
  * — linework, not meshes): drag views on the sheet (5 mm snap,
@@ -2349,7 +2349,7 @@ export class DrawingSheetWidget extends ReactWidget {
     }
 
     /**
-     * Render dimensions from the D1 build output: `text` is the recomputed
+     * Render dimensions from the drawing backend output: `text` is the recomputed
      * value (last-good text when `stale`), `anchors` are the projected 2D
      * extension points in absolute sheet-mm. Without build output the label
      * falls back to the stored value above the owning view.
