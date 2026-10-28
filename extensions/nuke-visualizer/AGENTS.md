@@ -51,6 +51,8 @@ All files under `extensions/nuke-visualizer/` except generated artifacts (`lib/`
   `.vtp`/`.vtu` via `WorkspaceService.open`; keep the metric list closed and surface/tet-mesh-only.
 - Statistical plots use `viewer-core/statistics.ts` + `statistics-panel.tsx` (Plotly, 2D hist/scatter/box/parallel); the
   host supplies scalar arrays, the panel owns tab/bin state only.
+- Plotly charts go through `plotly/plotly-component.tsx` + `plotly-theme.ts`; never hardcode `plotly_dark`/`theme="dark"`.
+  The component follows the Theia body theme and owns primary-axis, legend, modebar, and background colors.
 - Find Data uses `viewer-core/selection-query.ts` + props-only `find-data-dialog.tsx`; the native viewer keeps the
   selection transient and expands it through `selection-overlay.ts` into an orange always-on-top group.
 - Axes grid uses `viewer-core/axes-grid.ts` + props-only `axes-grid-overlay.tsx`; lines live outside the data group so

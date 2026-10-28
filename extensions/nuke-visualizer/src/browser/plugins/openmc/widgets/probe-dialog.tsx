@@ -56,6 +56,7 @@ import {
     type ProbeSample
 } from '../../../viewer-core/probe-model';
 import { PlotlyComponent } from '../../../plotly/plotly-component';
+import { usePlotlyTheme } from '../../../plotly/plotly-theme';
 import './probe-dialog.css';
 
 /** Host contract for the Probe dialog. */
@@ -101,28 +102,6 @@ function arrayOptionLabel(array: ProbeArrayOption): string {
 /** Numeric cell value or null for missing/non-finite entries. */
 function finiteOrNull(value: number | null | undefined): number | null {
     return value !== null && value !== undefined && Number.isFinite(value) ? value : null;
-}
-
-function detectPlotlyTheme(): 'dark' | 'light' {
-    if (typeof document === 'undefined' || !document.body) {
-        return 'dark';
-    }
-    const classes = document.body.classList;
-    return classes.contains('theia-light') || classes.contains('theia-hcLight') ? 'light' : 'dark';
-}
-
-/** Follow Theia's body theme class without injecting ThemeService. */
-function usePlotlyTheme(): 'dark' | 'light' {
-    const [theme, setTheme] = React.useState<'dark' | 'light'>(detectPlotlyTheme);
-    React.useEffect(() => {
-        if (typeof document === 'undefined' || !document.body) {
-            return;
-        }
-        const observer = new MutationObserver(() => setTheme(detectPlotlyTheme()));
-        observer.observe(document.body, { attributes: true, attributeFilter: ['class'] });
-        return () => observer.disconnect();
-    }, []);
-    return theme;
 }
 
 export const ProbeDialog: React.FC<ProbeDialogProps> = ({

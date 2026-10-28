@@ -166,6 +166,9 @@ IFP kinetics results live in ordinary `statepoint*.h5` files, so they have no re
   `sampleScatter`, `boxStatsByCategory`, and `parallelCoordinates`; `statistics-panel.tsx` renders them
   with Plotly. `derived-field-panel.tsx::resolveStatisticsArrays` flattens point/cell arrays to scalar
   series (first eight) and the Statistics card mounts lazily from the data panels.
+- **Plotly theme** — all charts use `plotly/plotly-component.tsx`, which follows the Theia body theme via
+  `plotly-theme.ts` and owns primary-axis, legend, modebar, and background colors. Do not force
+  `theme="dark"` or a `plotly_dark` template in a widget; pass data/trace colors only.
 - **Export** — `viewer-core/canvas-screenshot.ts` resolves format/scale/transparency, captures through a
   temporarily resized renderer (`captureRendererScreenshot`), and downloads/copies the data URL. The
   props-only `viewer-export-menu.tsx` sits in `ViewerFileActions`; the one-click PNG path stays.

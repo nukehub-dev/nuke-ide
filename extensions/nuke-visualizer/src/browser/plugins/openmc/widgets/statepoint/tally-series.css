@@ -120,7 +120,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-family: var(--theia-monospace-font-family);
+    font-family: var(--theia-code-font-family);
     font-variant-numeric: tabular-nums;
     font-size: 11px;
     color: var(--theia-descriptionForeground);
@@ -130,7 +130,7 @@
     flex-shrink: 0;
     margin-left: auto;
     white-space: nowrap;
-    font-family: var(--theia-monospace-font-family);
+    font-family: var(--theia-code-font-family);
     font-variant-numeric: tabular-nums;
     font-size: 12px;
     font-weight: 600;

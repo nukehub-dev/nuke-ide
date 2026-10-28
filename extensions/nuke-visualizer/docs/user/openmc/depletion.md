@@ -47,7 +47,9 @@ A list of all burnable materials. Click one to analyze it.
 
 ### 3. Plot Area (Center/Right)
 
-Interactive Plotly charts showing the selected material's evolution.
+Interactive Plotly charts showing the selected material's evolution. If the
+file has no burnup values, the X-Axis selector defaults to **Time (days)** and
+the unavailable burnup option is labeled as such.
 
 ---
 

@@ -417,6 +417,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-essentials + nuke-visualizer + openmc-studio + nuke-cad: shared NukeSelect replaces all builtin selects so dropdowns never clip.
 - nuke-visualizer: DAGMC Outline always binds on viewer open instead of sitting empty.
 - nuke-visualizer: Dataset Inspector binds DAGMC viewers and aggregates all volume-block arrays, tables, and area integrals.
+- nuke-visualizer: Plotly charts follow the active light/dark theme, including axis, legend, and toolbar colors.
+- nuke-visualizer: XS plot controls use compact outlined mode/region buttons and subtle reaction selection; Depletion defaults to Time when burnup is unavailable.
+- nuke-visualizer: Material Explorer and Material Mixer use valid Theia theme tokens instead of unresolved kebab-case variables.
 - nuke-visualizer: tally overlay/slice parsing accepts empty appended sections and real vtk-9 character offsets.
 - nuke-visualizer: legacy STRUCTURED_GRID `.vtk` files preview with voxel axes or a center-point fallback.
 - nuke-visualizer: DAGMC-less full overlay renders the voxel mesh instead of a cell-center cloud.

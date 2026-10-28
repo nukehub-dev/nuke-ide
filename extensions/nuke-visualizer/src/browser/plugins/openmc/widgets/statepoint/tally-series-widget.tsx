@@ -330,7 +330,7 @@ export class OpenMCTallySeriesWidget extends ReactWidget {
         };
         return (
             <div className="tally-series-chart">
-                <PlotlyComponent data={traces} layout={layout} theme="dark" style={{ width: '100%', height: '320px' }} />
+                <PlotlyComponent data={traces} layout={layout} style={{ width: '100%', height: '320px' }} />
             </div>
         );
     }

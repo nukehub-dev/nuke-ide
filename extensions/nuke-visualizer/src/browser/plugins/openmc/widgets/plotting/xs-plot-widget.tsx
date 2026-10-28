@@ -49,6 +49,7 @@ import { CommandRegistry } from '@theia/core/lib/common/command';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
 import { NukeSelect } from 'nuke-essentials/lib/theme/browser/components';
 import { WIDGET_IDS } from '../widget-ids';
+import './xs-plot-widget.css';
 
 /** Mode for XS plotting */
 type XSPlotMode = 'nuclides' | 'materials' | 'temp-comparison' | 'library-comparison' | 'thermal-scattering' | 'chain-decay';
@@ -350,6 +351,7 @@ export class XSPlotWidget extends ReactWidget {
             >
                 {/* Sidebar with controls */}
                 <div
+                    className="xs-plot-controls"
                     style={{
                         width: '320px',
                         minWidth: '320px',
@@ -587,23 +589,16 @@ export class XSPlotWidget extends ReactWidget {
         const textColor = 'var(--theia-foreground)';
         const accentColor = 'var(--theia-button-background)';
         const checkboxBg = 'var(--theia-input-background)';
-        const panelBg = 'var(--theia-sideBar-background)';
 
         return (
             <>
                 {/* Mode Selection */}
-                <div
-                    style={{
-                        padding: '10px 15px',
-                        borderBottom: '1px solid var(--theia-panel-border)',
-                        backgroundColor: panelBg
-                    }}
-                >
-                    <h4 style={{ margin: '0 0 8px 0', color: 'var(--theia-foreground)', fontSize: '12px' }}>
-                        <span className={codicon('symbol-misc')} style={{ marginRight: '6px' }} />
+                <div className="xs-plot-section">
+                    <h4 className="xs-plot-section-title">
+                        <span className={codicon('symbol-misc')} />
                         Plot Mode
                     </h4>
-                    <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                    <div className="xs-plot-mode-grid">
                         {this.renderModeButton('nuclides', 'Nuclides')}
                         {this.renderModeButton('materials', 'Materials')}
                         {this.renderModeButton('temp-comparison', 'Temp')}
@@ -622,117 +617,55 @@ export class XSPlotWidget extends ReactWidget {
                 {this.plotMode === 'chain-decay' && this.renderChainDecayControls(textColor, checkboxBg)}
 
                 {/* Reactions Section */}
-                <div
-                    style={{
-                        padding: '15px',
-                        borderBottom: '1px solid var(--theia-panel-border)',
-                        flex: 1,
-                        overflow: 'auto',
-                        minHeight: '150px'
-                    }}
-                >
-                    <h4 style={{ margin: '0 0 12px 0', color: 'var(--theia-foreground)' }}>
-                        <span className={codicon('list-flat')} style={{ marginRight: '6px' }} />
+                <div className="xs-plot-section xs-plot-reactions">
+                    <h4 className="xs-plot-section-title">
+                        <span className={codicon('list-flat')} />
                         Reactions
                     </h4>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <div className="xs-plot-reaction-list">
                         {this.selectedReactions.map((reaction, index) => (
-                            <label
-                                key={reaction.mt}
-                                style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    padding: '4px 8px',
-                                    borderRadius: '3px',
-                                    cursor: 'pointer',
-                                    backgroundColor: reaction.selected ? 'var(--theia-button-background)' : 'transparent',
-                                    fontSize: '12px'
-                                }}
-                            >
+                            <label key={reaction.mt} className={`xs-plot-reaction-row${reaction.selected ? ' selected' : ''}`}>
                                 <input
                                     type="checkbox"
+                                    className="xs-plot-checkbox xs-plot-reaction-checkbox"
                                     checked={reaction.selected}
                                     onChange={() => this.handleReactionToggle(index)}
-                                    style={{ marginRight: '8px' }}
                                 />
-                                <span
-                                    style={{
-                                        flex: 1,
-                                        color: reaction.selected ? 'var(--theia-button-foreground)' : 'var(--theia-foreground)'
-                                    }}
-                                >
-                                    {reaction.label}
-                                </span>
-                                <span
-                                    style={{
-                                        fontSize: '10px',
-                                        color: reaction.selected ? 'var(--theia-button-foreground)' : 'var(--theia-descriptionForeground)',
-                                        marginLeft: '4px',
-                                        opacity: reaction.selected ? 0.9 : 1
-                                    }}
-                                >
-                                    MT={reaction.mt}
-                                </span>
+                                <span className="xs-plot-reaction-label">{reaction.label}</span>
+                                <span className="xs-plot-reaction-mt">MT={reaction.mt}</span>
                             </label>
                         ))}
                     </div>
                 </div>
 
                 {/* Energy Region Presets */}
-                <div
-                    style={{
-                        padding: '15px',
-                        borderBottom: '1px solid var(--theia-panel-border)'
-                    }}
-                >
-                    <h4 style={{ margin: '0 0 10px 0', color: 'var(--theia-foreground)' }}>
-                        <span className={codicon('globe')} style={{ marginRight: '6px' }} />
+                <div className="xs-plot-section">
+                    <h4 className="xs-plot-section-title">
+                        <span className={codicon('globe')} />
                         Energy Region
                     </h4>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+                    <div className="xs-plot-region-grid">
                         {(Object.keys(XS_ENERGY_REGIONS) as XSEnergyRegion[]).map((region) => (
                             <Tooltip key={region} content={XS_ENERGY_REGIONS[region].description} position="top">
                                 <button
                                     onClick={() => this.setEnergyRegion(region)}
-                                    style={{
-                                        padding: '6px 8px',
-                                        fontSize: '11px',
-                                        backgroundColor:
-                                            this.energyRegion === region ? accentColor : 'var(--theia-button-secondaryBackground)',
-                                        color: this.energyRegion === region ? 'var(--theia-button-foreground)' : textColor,
-                                        border: 'none',
-                                        borderRadius: '3px',
-                                        cursor: 'pointer',
-                                        textAlign: 'center'
-                                    }}
+                                    className={`xs-plot-region-button${this.energyRegion === region ? ' active' : ''}`}
                                 >
                                     {XS_ENERGY_REGIONS[region].label}
                                 </button>
                             </Tooltip>
                         ))}
                     </div>
-                    <div
-                        style={{
-                            fontSize: '10px',
-                            color: 'var(--theia-descriptionForeground)',
-                            marginTop: '8px',
-                            textAlign: 'center'
-                        }}
-                    >
+                    <div className="xs-plot-region-range">
                         {XS_ENERGY_REGIONS[this.energyRegion].range[0].toExponential(0)} -{' '}
                         {XS_ENERGY_REGIONS[this.energyRegion].range[1].toExponential(0)} eV
                     </div>
                 </div>
 
                 {/* Settings */}
-                <div
-                    style={{
-                        padding: '15px',
-                        borderBottom: '1px solid var(--theia-panel-border)'
-                    }}
-                >
-                    <h4 style={{ margin: '0 0 12px 0', color: 'var(--theia-foreground)' }}>
-                        <span className={codicon('settings')} style={{ marginRight: '6px' }} />
+                <div className="xs-plot-section">
+                    <h4 className="xs-plot-section-title">
+                        <span className={codicon('settings')} />
                         Settings
                     </h4>
                     {this.plotMode !== 'temp-comparison' && (
@@ -765,64 +698,64 @@ export class XSPlotWidget extends ReactWidget {
                         </div>
                     )}
 
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '12px' }}>
-                        <label style={{ display: 'flex', alignItems: 'center', fontSize: '12px', cursor: 'pointer' }}>
+                    <div className="xs-plot-settings-list">
+                        <label className="xs-plot-check-row">
                             <input
                                 type="checkbox"
+                                className="xs-plot-checkbox"
                                 checked={this.showResonanceRegions}
                                 onChange={() => {
                                     this.showResonanceRegions = !this.showResonanceRegions;
                                     this.update();
                                 }}
-                                style={{ marginRight: '8px' }}
                             />
                             Show Resonance Regions
                         </label>
-                        <label style={{ display: 'flex', alignItems: 'center', fontSize: '12px', cursor: 'pointer' }}>
+                        <label className="xs-plot-check-row">
                             <input
                                 type="checkbox"
+                                className="xs-plot-checkbox"
                                 checked={this.showResonances}
                                 onChange={() => {
                                     this.showResonances = !this.showResonances;
                                     this.update();
                                 }}
-                                style={{ marginRight: '8px' }}
                             />
                             Show Resonance Markers
                         </label>
-                        <label style={{ display: 'flex', alignItems: 'center', fontSize: '12px', cursor: 'pointer' }}>
+                        <label className="xs-plot-check-row">
                             <input
                                 type="checkbox"
+                                className="xs-plot-checkbox"
                                 checked={this.showUncertainty}
                                 onChange={() => {
                                     this.showUncertainty = !this.showUncertainty;
                                     this.update();
                                 }}
-                                style={{ marginRight: '8px' }}
                             />
                             Show Uncertainty Bands
                         </label>
-                        <label style={{ display: 'flex', alignItems: 'center', fontSize: '12px', cursor: 'pointer' }}>
+                        <label className="xs-plot-check-row">
                             <input
                                 type="checkbox"
+                                className="xs-plot-checkbox"
                                 checked={this.showIntegrals}
                                 onChange={() => {
                                     this.showIntegrals = !this.showIntegrals;
                                     this.update();
                                 }}
-                                style={{ marginRight: '8px' }}
                             />
                             Calculate Integral Quantities
                         </label>
-                        <label style={{ display: 'flex', alignItems: 'center', fontSize: '12px', cursor: 'pointer' }}>
+                        <label className="xs-plot-check-row">
                             <input
                                 type="checkbox"
+                                className="xs-plot-checkbox"
                                 checked={this.showDerivative}
                                 onChange={() => {
                                     this.showDerivative = !this.showDerivative;
                                     this.update();
                                 }}
-                                style={{ marginRight: '8px' }}
                             />
                             Show Derivative/Slopes (dXS/dE)
                         </label>
@@ -881,7 +814,7 @@ export class XSPlotWidget extends ReactWidget {
                     </div>
                 </div>
 
-                <div style={{ padding: '15px' }}>
+                <div className="xs-plot-actions">
                     <button
                         onClick={() => this.handlePlot()}
                         disabled={this.isLoading}
@@ -1795,20 +1728,7 @@ export class XSPlotWidget extends ReactWidget {
     private renderModeButton(mode: XSPlotMode, label: string): React.ReactNode {
         const isActive = this.plotMode === mode;
         return (
-            <button
-                onClick={() => this.setPlotMode(mode)}
-                style={{
-                    flex: 1,
-                    padding: '6px 4px',
-                    fontSize: '11px',
-                    backgroundColor: isActive ? 'var(--theia-button-background)' : 'var(--theia-button-secondaryBackground)',
-                    color: isActive ? 'var(--theia-button-foreground)' : 'var(--theia-foreground)',
-                    border: 'none',
-                    borderRadius: '3px',
-                    cursor: 'pointer',
-                    fontWeight: isActive ? '500' : 'normal'
-                }}
-            >
+            <button onClick={() => this.setPlotMode(mode)} className={`xs-plot-mode-button${isActive ? ' active' : ''}`}>
                 {label}
             </button>
         );
@@ -1834,14 +1754,9 @@ export class XSPlotWidget extends ReactWidget {
         const filteredNuclides = this.availableNuclides.filter((n) => n.toLowerCase().includes(searchLower)).slice(0, 100);
 
         return (
-            <div
-                style={{
-                    padding: '15px',
-                    borderBottom: '1px solid var(--theia-panel-border)'
-                }}
-            >
-                <h4 style={{ margin: '0 0 12px 0', color: 'var(--theia-foreground)' }}>
-                    <span className={codicon('symbol-misc')} style={{ marginRight: '6px' }} />
+            <div className="xs-plot-section">
+                <h4 className="xs-plot-section-title">
+                    <span className={codicon('symbol-misc')} />
                     Nuclides
                 </h4>
 
@@ -1985,14 +1900,9 @@ export class XSPlotWidget extends ReactWidget {
 
     private renderMaterialControls(textColor: string, checkboxBg: string): React.ReactNode {
         return (
-            <div
-                style={{
-                    padding: '15px',
-                    borderBottom: '1px solid var(--theia-panel-border)'
-                }}
-            >
-                <h4 style={{ margin: '0 0 12px 0', color: 'var(--theia-foreground)' }}>
-                    <span className={codicon('symbol-struct')} style={{ marginRight: '6px' }} />
+            <div className="xs-plot-section">
+                <h4 className="xs-plot-section-title">
+                    <span className={codicon('symbol-struct')} />
                     Materials
                 </h4>
 
@@ -2185,14 +2095,9 @@ export class XSPlotWidget extends ReactWidget {
 
     private renderTempComparisonControls(textColor: string, checkboxBg: string): React.ReactNode {
         return (
-            <div
-                style={{
-                    padding: '15px',
-                    borderBottom: '1px solid var(--theia-panel-border)'
-                }}
-            >
-                <h4 style={{ margin: '0 0 12px 0', color: 'var(--theia-foreground)' }}>
-                    <span className={codicon('flame')} style={{ marginRight: '6px' }} />
+            <div className="xs-plot-section">
+                <h4 className="xs-plot-section-title">
+                    <span className={codicon('flame')} />
                     Temperature Comparison
                 </h4>
                 <div style={{ fontSize: '11px', color: 'var(--theia-descriptionForeground)', marginBottom: '12px' }}>
@@ -2324,16 +2229,9 @@ export class XSPlotWidget extends ReactWidget {
 
     private renderLibraryComparisonControls(textColor: string, checkboxBg: string): React.ReactNode {
         return (
-            <div
-                style={{
-                    padding: '10px',
-                    borderBottom: '1px solid var(--theia-panel-border)',
-                    boxSizing: 'border-box',
-                    width: '100%'
-                }}
-            >
-                <h4 style={{ margin: '0 0 6px 0', color: 'var(--theia-foreground)', fontSize: '12px' }}>
-                    <span className={codicon('book')} style={{ marginRight: '6px' }} />
+            <div className="xs-plot-section">
+                <h4 className="xs-plot-section-title">
+                    <span className={codicon('book')} />
                     Library Comparison
                 </h4>
                 <div style={{ fontSize: '10px', color: 'var(--theia-descriptionForeground)', marginBottom: '6px' }}>
@@ -2507,16 +2405,9 @@ export class XSPlotWidget extends ReactWidget {
 
     private renderThermalScatteringControls(textColor: string, checkboxBg: string): React.ReactNode {
         return (
-            <div
-                style={{
-                    padding: '10px',
-                    borderBottom: '1px solid var(--theia-panel-border)',
-                    boxSizing: 'border-box',
-                    width: '100%'
-                }}
-            >
-                <h4 style={{ margin: '0 0 6px 0', color: 'var(--theia-foreground)', fontSize: '12px' }}>
-                    <span className={codicon('flame')} style={{ marginRight: '6px' }} />
+            <div className="xs-plot-section">
+                <h4 className="xs-plot-section-title">
+                    <span className={codicon('flame')} />
                     S(α,β) Thermal Scattering
                 </h4>
                 <div style={{ fontSize: '10px', color: 'var(--theia-descriptionForeground)', marginBottom: '8px' }}>
@@ -2591,16 +2482,9 @@ export class XSPlotWidget extends ReactWidget {
 
     private renderChainDecayControls(textColor: string, checkboxBg: string): React.ReactNode {
         return (
-            <div
-                style={{
-                    padding: '10px',
-                    borderBottom: '1px solid var(--theia-panel-border)',
-                    boxSizing: 'border-box',
-                    width: '100%'
-                }}
-            >
-                <h4 style={{ margin: '0 0 6px 0', color: 'var(--theia-foreground)', fontSize: '12px' }}>
-                    <span className={codicon('git-branch')} style={{ marginRight: '6px' }} />
+            <div className="xs-plot-section">
+                <h4 className="xs-plot-section-title">
+                    <span className={codicon('git-branch')} />
                     Chain Decay/Buildup
                 </h4>
                 <div style={{ fontSize: '10px', color: 'var(--theia-descriptionForeground)', marginBottom: '8px' }}>

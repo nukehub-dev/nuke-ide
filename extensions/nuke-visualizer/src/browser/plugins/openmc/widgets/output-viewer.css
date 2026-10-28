@@ -549,7 +549,7 @@
 
 .openmc-output-viewer-card dd {
     margin: 0;
-    font-family: var(--theia-monospace-font-family, monospace);
+    font-family: var(--theia-code-font-family, monospace);
 }
 
 /* Missing-dependency guidance panel */
@@ -590,7 +590,7 @@
 }
 
 .openmc-output-viewer-dep-panel .dep-actions code {
-    font-family: var(--theia-monospace-font-family, monospace);
+    font-family: var(--theia-code-font-family, monospace);
     background: var(--theia-textCodeBlock-background, var(--theia-editorWidget-background));
     border-radius: 3px;
     padding: 0 4px;
@@ -600,7 +600,7 @@
     margin: 0;
     font-size: 11px;
     color: var(--theia-descriptionForeground);
-    font-family: var(--theia-monospace-font-family, monospace);
+    font-family: var(--theia-code-font-family, monospace);
     word-break: break-all;
 }
 
@@ -637,7 +637,7 @@
 }
 
 .openmc-derived-field-note code {
-    font-family: var(--theia-monospace-font-family, monospace);
+    font-family: var(--theia-code-font-family, monospace);
     background: var(--theia-textCodeBlock-background, var(--theia-editorWidget-background));
     border-radius: 3px;
     padding: 0 4px;

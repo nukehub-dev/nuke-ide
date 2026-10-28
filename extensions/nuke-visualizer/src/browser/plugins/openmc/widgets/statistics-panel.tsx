@@ -39,6 +39,7 @@ import * as React from 'react';
 import * as Plotly from 'plotly.js-dist-min';
 import { NukeEmptyState, NukeSelect } from 'nuke-essentials/lib/theme/browser/components';
 import { PlotlyComponent } from '../../../plotly/plotly-component';
+import { usePlotlyTheme } from '../../../plotly/plotly-theme';
 import {
     DEFAULT_HISTOGRAM_2D_BINS,
     DEFAULT_SCATTER_MAX_POINTS,
@@ -259,28 +260,6 @@ function buildParallelFigure(arrays: readonly StatisticsArray[], activeIndex: nu
         },
         summary: `${result.rowCount.toLocaleString()} rows × ${result.dimensions.length} dimensions${skippedNote}${sampledNote}`
     };
-}
-
-function detectPlotlyTheme(): 'dark' | 'light' {
-    if (typeof document === 'undefined' || !document.body) {
-        return 'dark';
-    }
-    const classes = document.body.classList;
-    return classes.contains('theia-light') || classes.contains('theia-hcLight') ? 'light' : 'dark';
-}
-
-/** Follow Theia's body theme class without injecting ThemeService. */
-function usePlotlyTheme(): 'dark' | 'light' {
-    const [theme, setTheme] = React.useState<'dark' | 'light'>(detectPlotlyTheme);
-    React.useEffect(() => {
-        if (typeof document === 'undefined' || !document.body) {
-            return;
-        }
-        const observer = new MutationObserver(() => setTheme(detectPlotlyTheme()));
-        observer.observe(document.body, { attributes: true, attributeFilter: ['class'] });
-        return () => observer.disconnect();
-    }, []);
-    return theme;
 }
 
 /**

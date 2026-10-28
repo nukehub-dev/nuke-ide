@@ -109,7 +109,7 @@
 .statepoint-viewer .file-path {
     font-size: 11px;
     color: var(--theia-descriptionForeground);
-    font-family: var(--theia-monospace-font-family);
+    font-family: var(--theia-code-font-family);
 }
 
 .statepoint-viewer .header-actions {

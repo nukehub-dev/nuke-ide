@@ -61,6 +61,10 @@ the active native viewer. It shows:
 - **Statistics** — count, min/Q1/median/Q3/max, mean and population std for
   the selected array. Cell arrays on grids or triangle meshes also show the
   integral (value × cell volume/area) and the summed volume/area.
+
+All Plotly charts follow the active light/dark theme, including axis, legend,
+and toolbar colors.
+
 - **Table** — a paged preview of the selected array (coordinates plus
   components) with **Copy CSV**.
 

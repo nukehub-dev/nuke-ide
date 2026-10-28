@@ -28,11 +28,11 @@
 }
 
 .material-explorer-container.error .error-message {
-    color: var(--theia-error-foreground);
+    color: var(--theia-errorForeground);
     max-width: 400px;
     padding: 16px;
-    background: var(--theia-inputValidation-error-background);
-    border: 1px solid var(--theia-inputValidation-error-border);
+    background: var(--theia-inputValidation-errorBackground);
+    border: 1px solid var(--theia-inputValidation-errorBorder);
     border-radius: 6px;
 }
 
@@ -166,11 +166,11 @@
 }
 
 .material-explorer-container .material-list-header .sortable:hover {
-    color: var(--theia-text-link-foreground);
+    color: var(--theia-textLink-foreground);
 }
 
 .material-explorer-container .material-list-header .sortable.active {
-    color: var(--theia-text-link-foreground);
+    color: var(--theia-textLink-foreground);
 }
 
 .material-explorer-container .material-list-header > div:nth-child(1) {
@@ -203,13 +203,13 @@
 }
 
 .material-explorer-container .material-item:hover {
-    background: var(--theia-list-hover-background);
+    background: var(--theia-list-hoverBackground);
 }
 
 .material-explorer-container .material-item.selected {
-    background: var(--theia-list-active-selection-background);
-    color: var(--theia-list-active-selection-foreground);
-    border-color: var(--theia-focus-border);
+    background: var(--theia-list-activeSelectionBackground);
+    color: var(--theia-list-activeSelectionForeground);
+    border-color: var(--theia-focusBorder);
 }
 
 .material-explorer-container .material-item > div:nth-child(1) {
@@ -217,11 +217,11 @@
     font-family: var(--theia-code-font-family);
     font-size: 11px;
     font-weight: 600;
-    color: var(--theia-description-foreground);
+    color: var(--theia-descriptionForeground);
 }
 
 .material-explorer-container .material-item.selected > div:nth-child(1) {
-    color: var(--theia-list-active-selection-foreground);
+    color: var(--theia-list-activeSelectionForeground);
 }
 
 .material-explorer-container .material-item .material-info {
@@ -235,7 +235,7 @@
     width: 90px;
     font-size: 11px;
     text-align: right;
-    color: var(--theia-description-foreground);
+    color: var(--theia-descriptionForeground);
     font-family: var(--theia-code-font-family);
     display: flex;
     flex-direction: column;
@@ -244,7 +244,7 @@
 }
 
 .material-explorer-container .material-item.selected > div:nth-child(3) {
-    color: var(--theia-list-active-selection-foreground);
+    color: var(--theia-list-activeSelectionForeground);
 }
 
 .material-explorer-container .material-item .material-name {
@@ -257,12 +257,12 @@
 
 .material-explorer-container .material-item .material-meta {
     font-size: 10px;
-    color: var(--theia-description-foreground);
+    color: var(--theia-descriptionForeground);
     font-weight: 400;
 }
 
 .material-explorer-container .material-item.selected .material-meta {
-    color: var(--theia-list-active-selection-foreground);
+    color: var(--theia-list-activeSelectionForeground);
     opacity: 0.8;
 }
 
@@ -277,8 +277,8 @@
     justify-content: center;
     width: 18px;
     height: 18px;
-    background: var(--theia-activity-bar-badge-background);
-    color: var(--theia-activity-bar-badge-foreground);
+    background: var(--theia-activityBarBadge-background);
+    color: var(--theia-activityBarBadge-foreground);
     border-radius: 50%;
     font-size: 9px;
     font-weight: bold;
@@ -288,7 +288,7 @@
 .material-explorer-container .no-results {
     padding: 40px 20px;
     text-align: center;
-    color: var(--theia-description-foreground);
+    color: var(--theia-descriptionForeground);
     font-style: italic;
 }
 
@@ -309,7 +309,7 @@
     align-items: center;
     justify-content: center;
     height: 100%;
-    color: var(--theia-description-foreground);
+    color: var(--theia-descriptionForeground);
     gap: 20px;
 }
 
@@ -386,13 +386,13 @@
 }
 
 .material-explorer-container .property:hover {
-    border-color: var(--theia-focus-border);
+    border-color: var(--theia-focusBorder);
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
 .material-explorer-container .property label {
     font-size: 10px;
-    color: var(--theia-description-foreground);
+    color: var(--theia-descriptionForeground);
     text-transform: uppercase;
     letter-spacing: 0.8px;
     margin-bottom: 6px;
@@ -444,7 +444,7 @@
 
 .material-explorer-container .thermal-item:hover {
     transform: translateY(-1px);
-    border-color: var(--theia-focus-border);
+    border-color: var(--theia-focusBorder);
 }
 
 .material-explorer-container .thermal-name {
@@ -454,7 +454,7 @@
 }
 
 .material-explorer-container .thermal-fraction {
-    color: var(--theia-description-foreground);
+    color: var(--theia-descriptionForeground);
     font-size: 11px;
     padding: 2px 6px;
     background: var(--theia-badge-background);
@@ -517,7 +517,7 @@
     text-align: right;
     font-size: 12px;
     font-family: var(--theia-code-font-family);
-    color: var(--theia-description-foreground);
+    color: var(--theia-descriptionForeground);
     font-weight: 500;
 }
 
@@ -567,13 +567,13 @@
 }
 
 .material-explorer-container .nuclide-table tr:hover {
-    background: var(--theia-list-hover-background);
+    background: var(--theia-list-hoverBackground);
 }
 
 .material-explorer-container .nuclide-table td:first-child {
     font-family: var(--theia-code-font-family);
     font-weight: 600;
-    color: var(--theia-text-link-foreground);
+    color: var(--theia-textLink-foreground);
 }
 
 .material-explorer-container .nuclide-table td:nth-child(2) {
@@ -582,7 +582,7 @@
 }
 
 .material-explorer-container .nuclide-table td:nth-child(3) {
-    color: var(--theia-description-foreground);
+    color: var(--theia-descriptionForeground);
     font-size: 12px;
 }
 
@@ -600,13 +600,13 @@
 
 .material-explorer-container .material-list-body::-webkit-scrollbar-thumb,
 .material-explorer-container .material-details-panel::-webkit-scrollbar-thumb {
-    background: var(--theia-scrollbar-slider-background);
+    background: var(--theia-scrollbarSlider-background);
     border-radius: 4px;
 }
 
 .material-explorer-container .material-list-body::-webkit-scrollbar-thumb:hover,
 .material-explorer-container .material-details-panel::-webkit-scrollbar-thumb:hover {
-    background: var(--theia-scrollbar-slider-hover-background);
+    background: var(--theia-scrollbarSlider-hoverBackground);
 }
 
 /* Responsive Adjustments */
@@ -688,8 +688,8 @@
 }
 
 .material-explorer-container .material-cell-item:hover {
-    border-color: var(--theia-focus-border);
-    background: var(--theia-list-hover-background);
+    border-color: var(--theia-focusBorder);
+    background: var(--theia-list-hoverBackground);
 }
 
 .material-explorer-container .material-cell-info {
@@ -704,7 +704,7 @@
     font-family: var(--theia-code-font-family);
     font-size: 12px;
     font-weight: 600;
-    color: var(--theia-text-link-foreground);
+    color: var(--theia-textLink-foreground);
     background: var(--theia-badge-background);
     padding: 3px 8px;
     border-radius: 4px;
@@ -723,7 +723,7 @@
 
 .material-explorer-container .material-cell-universe {
     font-size: 11px;
-    color: var(--theia-description-foreground);
+    color: var(--theia-descriptionForeground);
     background: var(--theia-sideBarSectionHeader-background);
     padding: 2px 6px;
     border-radius: 4px;
@@ -755,7 +755,7 @@
 .material-explorer-container .no-cells-message {
     padding: 16px;
     text-align: center;
-    color: var(--theia-description-foreground);
+    color: var(--theia-descriptionForeground);
     font-size: 13px;
     background: var(--theia-editor-background);
     border-radius: 6px;
@@ -770,5 +770,5 @@
 }
 
 .material-explorer-container .geometry-not-found i {
-    color: var(--theia-description-foreground);
+    color: var(--theia-descriptionForeground);
 }

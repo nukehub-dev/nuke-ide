@@ -45,6 +45,14 @@ import { PlotlyComponent } from '../../../../plotly/plotly-component';
 import { OpenMCService } from '../../openmc-service';
 import URI from '@theia/core/lib/common/uri';
 
+const CHECKBOX_STYLE: React.CSSProperties = {
+    width: '14px',
+    height: '14px',
+    margin: 0,
+    flexShrink: 0,
+    accentColor: 'var(--theia-focusBorder)'
+};
+
 @injectable()
 export class OpenMCDepletionWidget extends ReactWidget {
     static readonly ID = 'openmc-depletion-widget';
@@ -99,6 +107,11 @@ export class OpenMCDepletionWidget extends ReactWidget {
         this.loadData();
     }
 
+    /** Burnup is optional and may be present as an empty array in old results. */
+    private hasBurnup(): boolean {
+        return this.summary?.burnup !== undefined && this.summary.burnup.length > 0;
+    }
+
     private async loadData(): Promise<void> {
         if (!this.fileUri) return;
 
@@ -109,6 +122,11 @@ export class OpenMCDepletionWidget extends ReactWidget {
         try {
             // Load summary
             this.summary = await this.openmcService.getDepletionSummary(this.fileUri);
+
+            // Burnup is optional in depletion results; show the actual plotted axis instead of a disabled selection.
+            if (!this.hasBurnup() && this.xAxisType === 'burnup') {
+                this.xAxisType = 'time';
+            }
 
             // Load materials
             this.materials = await this.openmcService.getDepletionMaterials(this.fileUri);
@@ -268,7 +286,7 @@ export class OpenMCDepletionWidget extends ReactWidget {
                         value={this.selectedMaterialIndex >= 0 ? String(this.selectedMaterialIndex) : ''}
                         options={
                             this.materials.length === 0
-                                ? [{ value: '', label: 'Loading...' }]
+                                ? [{ value: '', label: this.isLoading ? 'Loading materials…' : 'No materials found' }]
                                 : this.materials.map((mat) => ({ value: String(mat.index), label: `${mat.name} (Mat ${mat.index})` }))
                         }
                         onChange={(value) => {
@@ -312,8 +330,8 @@ export class OpenMCDepletionWidget extends ReactWidget {
                         options={[
                             {
                                 value: 'burnup',
-                                label: `Burnup (MWd/kg) ${this.summary?.burnup ? '' : '(N/A)'}`,
-                                disabled: !this.summary?.burnup
+                                label: this.hasBurnup() ? 'Burnup (MWd/kg)' : 'Burnup (MWd/kg) — unavailable',
+                                disabled: !this.hasBurnup()
                             },
                             { value: 'time', label: 'Time (days)' },
                             { value: 'step', label: 'Time Step' }
@@ -324,9 +342,19 @@ export class OpenMCDepletionWidget extends ReactWidget {
                         }}
                         style={{ width: '100%', marginBottom: '5px' }}
                     />
-                    {!this.summary?.burnup && this.xAxisType === 'burnup' && (
-                        <div style={{ fontSize: '10px', color: 'var(--theia-warningForeground)', marginBottom: '10px' }}>
-                            ⚠️ No burnup data - showing Time instead
+                    {this.summary && !this.hasBurnup() && (
+                        <div
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                fontSize: '10px',
+                                color: 'var(--theia-descriptionForeground)',
+                                marginBottom: '10px'
+                            }}
+                        >
+                            <i className={codicon('info')} aria-hidden="true" />
+                            <span>No burnup data; using Time (days).</span>
                         </div>
                     )}
 
@@ -344,6 +372,7 @@ export class OpenMCDepletionWidget extends ReactWidget {
                             type="checkbox"
                             checked={this.scaleType === 'log'}
                             disabled={this.plotType === 'stacked'}
+                            style={CHECKBOX_STYLE}
                             onChange={(e) => {
                                 this.scaleType = e.target.checked ? 'log' : 'linear';
                                 this.update();
@@ -372,11 +401,11 @@ export class OpenMCDepletionWidget extends ReactWidget {
                                             padding: '4px 8px',
                                             fontSize: '10px',
                                             borderRadius: '4px',
-                                            border: `1px solid ${isActive ? 'var(--theia-successBackground, #4caf50)' : borderColor}`,
+                                            border: `1px solid ${isActive ? 'var(--theia-inputValidation-successBorder)' : borderColor}`,
                                             backgroundColor: isActive
-                                                ? 'var(--theia-successBackground, #4caf50)'
+                                                ? 'var(--theia-inputValidation-successBackground)'
                                                 : 'var(--theia-button-secondaryBackground)',
-                                            color: isActive ? 'var(--theia-button-foreground)' : textColor,
+                                            color: isActive ? 'var(--theia-foreground)' : textColor,
                                             cursor: 'pointer',
                                             fontWeight: isActive ? 'bold' : 'normal'
                                         }}
@@ -466,6 +495,7 @@ export class OpenMCDepletionWidget extends ReactWidget {
                             <input
                                 type="checkbox"
                                 checked={this.showActivityNuclides}
+                                style={CHECKBOX_STYLE}
                                 onChange={(e) => {
                                     this.showActivityNuclides = e.target.checked;
                                     this.update();
@@ -533,6 +563,7 @@ export class OpenMCDepletionWidget extends ReactWidget {
                         <input
                             type="checkbox"
                             checked={this.selectedNuclides.has(nuclide.nuclide)}
+                            style={CHECKBOX_STYLE}
                             onChange={(e) => {
                                 if (e.target.checked) {
                                     this.selectedNuclides.add(nuclide.nuclide);
@@ -686,8 +717,8 @@ export class OpenMCDepletionWidget extends ReactWidget {
                 xLabel = 'Time (days)';
                 break;
             case 'burnup':
-                xValues = this.summary.burnup || this.summary.timeDays;
-                xLabel = this.summary.burnup ? 'Burnup (MWd/kg)' : 'Time (days)';
+                xValues = this.summary.burnup && this.summary.burnup.length > 0 ? this.summary.burnup : this.summary.timeDays;
+                xLabel = this.hasBurnup() ? 'Burnup (MWd/kg)' : 'Time (days)';
                 break;
             case 'step':
             default:

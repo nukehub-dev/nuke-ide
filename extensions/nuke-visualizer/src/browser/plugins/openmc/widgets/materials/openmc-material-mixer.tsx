@@ -301,7 +301,7 @@ export const OpenMCMaterialMixer: React.FC<OpenMCMaterialMixerProps> = ({
                                                 borderRadius: '8px',
                                                 textAlign: 'center',
                                                 fontSize: '13px',
-                                                color: 'var(--theia-description-foreground)'
+                                                color: 'var(--theia-descriptionForeground)'
                                             }}
                                         >
                                             <i className="fa fa-arrow-left" style={{ marginRight: '8px' }}></i>
