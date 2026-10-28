@@ -40,6 +40,7 @@ import {
     ExodusSeries,
     BASE_VISUALIZER_REQUIREMENTS,
     EXODUS_REQUIREMENTS,
+    GMSH_REQUIREMENTS,
     STEP_REQUIREMENTS
 } from '../common/base-visualizer-protocol';
 import { NukeCoreBackendService, NukeCoreBackendServiceInterface } from 'nuke-core/lib/common';
@@ -293,6 +294,53 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
         }
 
         throw new Error(`STEP conversion completed but could not find output VTK file: ${vtkPath}`);
+    }
+
+    /**
+     * Convert a Gmsh `.msh` mesh to legacy ASCII VTK for the native viewer.
+     * Mirrors {@link convertStep}: detect a Python with gmsh, run
+     * `base.convert-gmsh`, and return the verified converted file path.
+     */
+    async convertGmsh(filePath: string): Promise<string> {
+        this.log(`Starting Gmsh conversion: ${filePath}`);
+
+        const serverScript = this.pythonHelper.findScript('server.py');
+
+        // Gmsh import needs gmsh only — detect Python with gmsh available
+        const pythonInfo = await this.pythonHelper.detectPython(GMSH_REQUIREMENTS);
+        this.log(`[Gmsh Converter] Using Python: ${pythonInfo.command}`);
+
+        const args = ['base.convert-gmsh', '--file', filePath];
+
+        this.log(`[Gmsh Converter] Command: "${pythonInfo.command}" "${serverScript}" "${args.join('" "')}"`);
+
+        const execResult = await this.pythonHelper.executeScript(serverScript, args, { requirements: GMSH_REQUIREMENTS });
+        if (execResult.status !== 0) {
+            const errorOutput = (execResult.stdout || '') + (execResult.stderr || '');
+            this.errorLog(`[Gmsh Converter] FAILED with status ${execResult.status}. Output: ${errorOutput}`);
+            throw new Error(errorOutput || `Gmsh conversion failed with status ${execResult.status}`);
+        }
+
+        const result = this.parseJsonFromMixedOutput(execResult.stdout) as {
+            vtk_path: string;
+            from_cache: boolean;
+            num_nodes?: number;
+            num_elements?: number;
+            error?: string;
+        };
+
+        if (result.error) {
+            this.errorLog(`[Gmsh Converter] FAILED: ${result.error}`);
+            throw new Error(result.error);
+        }
+
+        const vtkPath = result.vtk_path;
+        if (vtkPath && fs.existsSync(vtkPath)) {
+            this.log(`[Gmsh Converter] Success: ${vtkPath}`);
+            return vtkPath;
+        }
+
+        throw new Error(`Gmsh conversion completed but could not find output VTK file: ${vtkPath}`);
     }
 
     async getDagmcInfo(filePath: string): Promise<DagmcModelInfo> {

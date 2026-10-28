@@ -26,10 +26,16 @@
 // *****************************************************************************
 
 /**
- * Comparison workspace commands: group 2–4 already-open native 3D views into
- * linked split panes and unlink them again.
+ * Comparison workspace commands: group 2–4 native 3D views into linked split
+ * panes and unlink them again.
  *
- * No data is loaded here; the command only rearranges existing viewers.
+ * `Compare Open Views...` picks from viewers that are already open;
+ * `Compare Files...` browses for files, opens them through the visualizer
+ * open handler, and compares the resulting viewers. Both flows share
+ * {@link VisualizerComparisonContribution.startComparison}.
+ *
+ * No data is loaded by the open-views flow; that command only rearranges
+ * existing viewers.
  *
  * @module nuke-visualizer/browser/contributions
  */
@@ -37,8 +43,11 @@
 import { injectable, inject } from '@theia/core/shared/inversify';
 import { CommandContribution, CommandRegistry, MessageService } from '@theia/core/lib/common';
 import { ApplicationShell, QuickInputService, QuickPickItem, Widget } from '@theia/core/lib/browser';
-import { CompareOpenViewsCommand, StopComparisonCommand } from '../commands/visualizer-commands';
+import { FileDialogService } from '@theia/filesystem/lib/browser/file-dialog';
+import { CompareFilesCommand, CompareOpenViewsCommand, StopComparisonCommand } from '../commands/visualizer-commands';
 import { createComparisonSession, isComparisonViewHost, type ComparisonViewHost } from '../viewer-core/comparison-session';
+import { comparisonPanePlacements } from '../viewer-core/comparison-layout';
+import { VisualizerOpenHandler } from './visualizer-open-handler';
 import { OpenViewerSettingsCommand } from '../viewer-settings/viewer-settings-contribution';
 import { ViewerSettingsWidget } from '../viewer-settings/viewer-settings-widget';
 
@@ -47,8 +56,20 @@ interface ComparisonViewerPick extends QuickPickItem {
     id: string;
 }
 
+/** A viewer that is both docked in the shell and comparison-capable. */
+type ComparisonPaneWidget = Widget & ComparisonViewHost;
+
 const MIN_COMPARISON_VIEWS = 2;
 const MAX_COMPARISON_VIEWS = 4;
+
+/** File types the comparison file browser offers (`msh` is Gmsh). */
+const COMPARE_FILE_FILTERS = {
+    'VTK Files': ['vtk', 'vtu', 'vtp', 'vts', 'vtr', 'pvtu', 'pvtp'],
+    'DAGMC Files': ['h5m'],
+    'CAD Files': ['step', 'stp', 'brep'],
+    'Mesh Files': ['stl', 'ply', 'obj'],
+    'Gmsh Files': ['msh']
+};
 
 @injectable()
 export class VisualizerComparisonContribution implements CommandContribution {
@@ -64,9 +85,18 @@ export class VisualizerComparisonContribution implements CommandContribution {
     @inject(CommandRegistry)
     protected readonly commands: CommandRegistry;
 
+    @inject(FileDialogService)
+    protected readonly fileDialogService: FileDialogService;
+
+    @inject(VisualizerOpenHandler)
+    protected readonly openHandler: VisualizerOpenHandler;
+
     registerCommands(commands: CommandRegistry): void {
         commands.registerCommand(CompareOpenViewsCommand, {
             execute: () => this.compareOpenViews()
+        });
+        commands.registerCommand(CompareFilesCommand, {
+            execute: () => this.compareFiles()
         });
         commands.registerCommand(StopComparisonCommand, {
             execute: () => this.stopComparison()
@@ -78,10 +108,10 @@ export class VisualizerComparisonContribution implements CommandContribution {
      * and split panes): the generic native viewer, tally-native viewers, and
      * the DAGMC viewer all expose the comparison-host surface.
      */
-    protected getNativeViewers(): (Widget & ComparisonViewHost)[] {
+    protected getNativeViewers(): ComparisonPaneWidget[] {
         return this.shell
             .getWidgets('main')
-            .filter((widget): widget is Widget & ComparisonViewHost => isComparisonViewHost(widget) && !widget.isDisposed);
+            .filter((widget): widget is ComparisonPaneWidget => isComparisonViewHost(widget) && !widget.isDisposed);
     }
 
     async compareOpenViews(): Promise<void> {
@@ -114,17 +144,96 @@ export class VisualizerComparisonContribution implements CommandContribution {
             const viewerById = new Map(viewers.map((viewer) => [viewer.id, viewer] as const));
             const selected = picked
                 .map((item) => viewerById.get(item.id))
-                .filter((viewer): viewer is Widget & ComparisonViewHost => viewer !== undefined);
+                .filter((viewer): viewer is ComparisonPaneWidget => viewer !== undefined);
             if (selected.length < MIN_COMPARISON_VIEWS) {
                 return;
             }
 
-            const sessionId = `comparison-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-            const session = createComparisonSession(
-                sessionId,
-                selected.map((viewer) => ({ viewId: viewer.id, title: viewer.title.label }))
-            );
+            await this.startComparison(selected);
+        } catch (error) {
+            await this.messageService.error(`Compare Open Views failed: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
 
+    /**
+     * Browse for 2–4 files, open them one at a time through the visualizer
+     * open handler, and compare the resulting viewers. All files are opened
+     * before any pane is linked, so a failed open cannot leave a half-linked
+     * comparison behind.
+     */
+    async compareFiles(): Promise<void> {
+        try {
+            const selection = await this.fileDialogService.showOpenDialog({
+                title: 'Compare Files',
+                openLabel: 'Compare',
+                canSelectFiles: true,
+                canSelectFolders: false,
+                canSelectMany: true,
+                filters: COMPARE_FILE_FILTERS
+            });
+            if (!selection || (Array.isArray(selection) && selection.length === 0)) {
+                return;
+            }
+
+            const uris = Array.isArray(selection) ? selection : [selection];
+            if (uris.length < MIN_COMPARISON_VIEWS) {
+                await this.messageService.info('Select at least two files to compare.');
+                return;
+            }
+            if (uris.length > MAX_COMPARISON_VIEWS) {
+                await this.messageService.warn('Compare supports at most four files.');
+                return;
+            }
+
+            const opened: ComparisonPaneWidget[] = [];
+            const seen = new Set<string>();
+            for (const uri of uris) {
+                const widget = await this.openHandler.open(uri);
+                if (!widget || widget.isDisposed || !isComparisonViewHost(widget) || seen.has(widget.id)) {
+                    continue;
+                }
+                seen.add(widget.id);
+                opened.push(widget);
+            }
+            if (opened.length < MIN_COMPARISON_VIEWS) {
+                await this.messageService.info(
+                    'Compare needs at least two comparable 3D viewers. Pick files the visualizer can render as 3D data.'
+                );
+                return;
+            }
+
+            await this.startComparison(opened);
+        } catch (error) {
+            await this.messageService.error(`Compare Files failed: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    /**
+     * Shared comparison flow: create the session, join every selected pane,
+     * arrange the panes, and refresh Viewer Settings. Joined panes are
+     * unlinked again if any later step fails.
+     */
+    protected async startComparison(selected: readonly ComparisonPaneWidget[]): Promise<void> {
+        if (selected.length < MIN_COMPARISON_VIEWS || selected.length > MAX_COMPARISON_VIEWS) {
+            throw new Error(`A comparison needs between ${MIN_COMPARISON_VIEWS} and ${MAX_COMPARISON_VIEWS} views.`);
+        }
+
+        const sessionId = `comparison-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+        const session = createComparisonSession(
+            sessionId,
+            selected.map((viewer) => ({ viewId: viewer.id, title: viewer.title.label }))
+        );
+        if (session.panes.length < MIN_COMPARISON_VIEWS) {
+            throw new Error('A comparison needs at least two distinct views.');
+        }
+
+        const viewerById = new Map(selected.map((viewer) => [viewer.id, viewer] as const));
+        const panes = session.panes
+            .map((pane) => viewerById.get(pane.viewId))
+            .filter((viewer): viewer is ComparisonPaneWidget => viewer !== undefined);
+
+        const joined: ComparisonPaneWidget[] = [];
+        try {
             for (const pane of session.panes) {
                 const viewer = viewerById.get(pane.viewId);
                 if (!viewer) {
@@ -137,31 +246,55 @@ export class VisualizerComparisonContribution implements CommandContribution {
                     sharedRange: true,
                     showLabels: true
                 });
+                joined.push(viewer);
             }
 
-            // First pane keeps its position; each following pane splits right of
-            // the previous one, so the panes end up side by side left to right.
-            const [first, ...rest] = selected;
-            await this.shell.activateWidget(first.id);
-            let ref: Widget = first;
-            for (const viewer of rest) {
-                await this.shell.addWidget(viewer, { area: 'main', mode: 'split-right', ref });
-                ref = viewer;
-            }
-            // Splitting activates the last pane; re-activate the first so the
-            // Viewer Settings panel rebinds (and re-reads the comparison
-            // section) if it was already open before the command ran.
-            await this.shell.activateWidget(first.id);
-
-            first.syncComparisonCamera();
+            await this.arrangeComparisonPanes(panes);
+            panes[0].syncComparisonCamera();
             await this.commands.executeCommand(OpenViewerSettingsCommand.id);
             this.refreshSettingsPanel();
 
             const labels = session.panes.map((pane) => pane.label).join(', ');
             await this.messageService.info(`Comparing ${session.panes.length} views — cameras and color ranges linked. Panes: ${labels}.`);
         } catch (error) {
-            await this.messageService.error(`Compare Open Views failed: ${error instanceof Error ? error.message : String(error)}`);
+            for (const viewer of joined) {
+                if (!viewer.isDisposed) {
+                    viewer.leaveComparison();
+                }
+            }
+            this.refreshSettingsPanel();
+            throw error;
         }
+    }
+
+    /**
+     * Dock the panes in comparison order. The first pane keeps its position;
+     * {@link comparisonPanePlacements} decides every split. Bottom splits run
+     * first: docking the bottom row before the top-right pane keeps four panes
+     * in a true 2x2 grid instead of leaving the right pane spanning both rows.
+     */
+    protected async arrangeComparisonPanes(panes: readonly ComparisonPaneWidget[]): Promise<void> {
+        const first = panes[0];
+        if (!first) {
+            return;
+        }
+        const placements = comparisonPanePlacements(panes.length);
+        const ordered = [
+            ...placements.filter((placement) => placement.mode === 'split-bottom'),
+            ...placements.filter((placement) => placement.mode === 'split-right')
+        ];
+        await this.shell.activateWidget(first.id);
+        for (const placement of ordered) {
+            await this.shell.addWidget(panes[placement.pane], {
+                area: 'main',
+                mode: placement.mode,
+                ref: panes[placement.ref]
+            });
+        }
+        // Splitting activates the last pane; re-activate the first so the
+        // Viewer Settings panel rebinds (and re-reads the comparison section)
+        // if it was already open before the command ran.
+        await this.shell.activateWidget(first.id);
     }
 
     /** Re-read the open Viewer Settings panel after a comparison-state edit. */

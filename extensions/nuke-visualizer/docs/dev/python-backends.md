@@ -167,6 +167,7 @@ python server.py openmc.tally-mesh-vtk /path/to/statepoint.h5 1
 
 # Base visualizer
 python server.py base.convert-dagmc --file /path/to/model.h5m
+python server.py base.convert-gmsh --file /path/to/mesh.msh
 ```
 
 `server.py` auto-discovers plugins, builds argparse from registered commands, and routes to the handler.
@@ -352,7 +353,7 @@ error-path contract tests instead.
 
 ## File Converters
 
-Format conversion (e.g., DAGMC → VTK, STEP → VTK) is implemented as ordinary `@command` handlers in `plugins/base/commands/convert.py`:
+Format conversion (e.g., DAGMC → VTK, STEP → VTK, Gmsh → VTK) is implemented as ordinary `@command` handlers in `plugins/base/commands/convert.py`:
 
 ```python
 # python/plugins/base/commands/convert.py
@@ -384,7 +385,7 @@ const result = await this.pythonHelper.executeScriptJson<{
 - CLI commands → `python/plugins/<plugin>/commands/`
 - Unified entry point → `python/server.py`
 
-Converter libs follow the hardened pattern (`DagmcError`/`StepError`, `find_spec` probes, lazy loaders, validators before heavy imports): `plugins/base/lib/dagmc.py` + `step.py` (cached multiblock conversion), `plugins/base/lib/exodus_series.py` (`base.exodus-series`), and `plugins/openmc/lib/geometry_viz.py` + `slice_viz.py` (`openmc.geometry-mesh` / `openmc.geometry-slice-vtk`).
+Converter libs follow the hardened pattern (`DagmcError`/`StepError`/`GmshMeshError`, `find_spec` probes, lazy loaders, validators before heavy imports): `plugins/base/lib/dagmc.py`, `step.py`, and `gmsh_mesh.py` (cached DAGMC, CAD, and Gmsh conversion), `plugins/base/lib/exodus_series.py` (`base.exodus-series`), and `plugins/openmc/lib/geometry_viz.py` + `slice_viz.py` (`openmc.geometry-mesh` / `openmc.geometry-slice-vtk`).
 
 ---
 

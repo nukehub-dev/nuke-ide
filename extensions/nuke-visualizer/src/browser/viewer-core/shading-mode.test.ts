@@ -34,6 +34,7 @@ import { describe, expect, it } from 'vitest';
 import {
     clampShadingBaseOpacity,
     DEFAULT_VIEWER_SHADING_MODE,
+    FEATURE_EDGE_ANGLE_DEGREES,
     isViewerShadingMode,
     nextViewerShadingMode,
     resolveViewerShadingFlags,
@@ -42,9 +43,10 @@ import {
 } from './shading-mode';
 
 describe('isViewerShadingMode', () => {
-    it('accepts the five known modes', () => {
+    it('accepts the six known modes', () => {
         expect(isViewerShadingMode('shaded')).toBe(true);
         expect(isViewerShadingMode('edges')).toBe(true);
+        expect(isViewerShadingMode('feature-edges')).toBe(true);
         expect(isViewerShadingMode('wireframe')).toBe(true);
         expect(isViewerShadingMode('points')).toBe(true);
         expect(isViewerShadingMode('xray')).toBe(true);
@@ -52,15 +54,27 @@ describe('isViewerShadingMode', () => {
 
     it('rejects unknown values', () => {
         expect(isViewerShadingMode('Surface')).toBe(false);
+        expect(isViewerShadingMode('feature')).toBe(false);
         expect(isViewerShadingMode('')).toBe(false);
         expect(isViewerShadingMode(undefined)).toBe(false);
         expect(isViewerShadingMode(42)).toBe(false);
     });
 
     it('lists every mode in the select metadata with the default first', () => {
-        expect(VIEWER_SHADING_MODES.map((entry) => entry.id)).toEqual(['shaded', 'edges', 'wireframe', 'points', 'xray']);
-        expect(VIEWER_SHADING_MODES.map((entry) => entry.label)).toEqual(['Shaded', 'Shaded + Edges', 'Wireframe', 'Points', 'X-Ray']);
+        expect(VIEWER_SHADING_MODES.map((entry) => entry.id)).toEqual(['shaded', 'edges', 'feature-edges', 'wireframe', 'points', 'xray']);
+        expect(VIEWER_SHADING_MODES.map((entry) => entry.label)).toEqual([
+            'Shaded',
+            'Shaded + Edges',
+            'Feature Edges',
+            'Wireframe',
+            'Points',
+            'X-Ray'
+        ]);
         expect(DEFAULT_VIEWER_SHADING_MODE).toBe('shaded');
+    });
+
+    it('documents the feature-edge angle threshold in degrees', () => {
+        expect(FEATURE_EDGE_ANGLE_DEGREES).toBe(30);
     });
 });
 
@@ -101,6 +115,17 @@ describe('resolveViewerShadingFlags', () => {
         expect(resolveViewerShadingFlags('edges', 0.4).transparent).toBe(true);
     });
 
+    it('maps feature-edges to the same opaque shaded flags (the overlay keys off the mode)', () => {
+        expect(resolveViewerShadingFlags('feature-edges', 1)).toEqual(resolveViewerShadingFlags('shaded', 1));
+        expect(resolveViewerShadingFlags('feature-edges', 0.4)).toEqual({
+            wireframe: false,
+            pointsOnly: false,
+            transparent: true,
+            opacity: 0.4,
+            depthWrite: true
+        });
+    });
+
     it('maps wireframe to the wireframe flag only', () => {
         const flags = resolveViewerShadingFlags('wireframe', 1);
         expect(flags.wireframe).toBe(true);
@@ -139,7 +164,8 @@ describe('resolveViewerShadingFlags', () => {
 describe('nextViewerShadingMode', () => {
     it('cycles through the select order and wraps around', () => {
         expect(nextViewerShadingMode('shaded')).toBe('edges');
-        expect(nextViewerShadingMode('edges')).toBe('wireframe');
+        expect(nextViewerShadingMode('edges')).toBe('feature-edges');
+        expect(nextViewerShadingMode('feature-edges')).toBe('wireframe');
         expect(nextViewerShadingMode('wireframe')).toBe('points');
         expect(nextViewerShadingMode('points')).toBe('xray');
         expect(nextViewerShadingMode('xray')).toBe('shaded');

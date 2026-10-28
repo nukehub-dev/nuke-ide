@@ -34,14 +34,13 @@ import { NativeVtkViewerWidget } from './plugins/openmc/widgets/native-vtk-viewe
 import { parseNativeVtk, readVtkText } from './plugins/openmc/widgets/native-vtk/native-vtk-data';
 
 /**
- * Generic single-file visualizer (native-only): arbitrary VTK/DAGMC/STEP
- * files render in the three.js viewer after a `parseNativeVtkXml` probe.
- * DAGMC/STEP inputs convert first (convert-then-probe); anything the native
- * XML parser rejects (legacy `.vtk`, `.vtu`/`.vts` grids, `.stl`/`.ply`/`.obj`
- * meshes, unparseable files) renders an error panel naming the supported
- * kinds instead of starting a visualization server. There is no served/iframe
- * path — widget ID, open-handler claims, and the DAGMC sibling logic are
- * unchanged.
+ * Generic single-file visualizer (native-only): arbitrary VTK/DAGMC/STEP/Gmsh
+ * files render in the three.js viewer after a `parseNativeVtk` probe.
+ * DAGMC/STEP/Gmsh inputs convert first (convert-then-probe); anything the
+ * native parser rejects (binary VTK, `.stl`/`.ply`/`.obj` meshes, unparseable
+ * files) renders an error panel naming the supported kinds instead of
+ * starting a visualization server. There is no served/iframe path — widget
+ * ID, open-handler claims, and the DAGMC sibling logic are unchanged.
  */
 @injectable()
 export class VisualizerWidget extends NativeVtkViewerWidget {
@@ -90,7 +89,7 @@ export class VisualizerWidget extends NativeVtkViewerWidget {
 
     /**
      * Header reload/retry buttons call `setVtkFile(this.fileUri)`; re-run the
-     * full convert-then-probe load so DAGMC/STEP inputs convert again, and
+     * full convert-then-probe load so DAGMC/STEP/Gmsh inputs convert again, and
      * keep the generic visualizer identity (the base implementation rebrands
      * to the native viewer ID).
      */
@@ -189,6 +188,7 @@ export class VisualizerWidget extends NativeVtkViewerWidget {
                                 <div>VTK XML (.vtp, .vtr, .vti)</div>
                                 <div>H5M (DAGMC — converted)</div>
                                 <div>STEP, STP, BREP (CAD — converted)</div>
+                                <div>MSH (Gmsh — converted)</div>
                             </div>
                         </div>
                     </div>
@@ -212,6 +212,8 @@ export class VisualizerWidget extends NativeVtkViewerWidget {
             await this.convertAndLoadDAGMC(filePath, loadId);
         } else if (/\.(step|stp|brep)$/i.test(filePath)) {
             await this.convertAndLoadSTEP(filePath, loadId);
+        } else if (/\.msh$/i.test(filePath)) {
+            await this.convertAndLoadGmsh(filePath, loadId);
         } else {
             await this.loadNativeFile(filePath, loadId);
         }
@@ -228,6 +230,7 @@ export class VisualizerWidget extends NativeVtkViewerWidget {
                 'VTK Files': ['vtk', 'vtu', 'vtp', 'vts', 'vtr', 'pvtu', 'pvtp'],
                 'DAGMC Files': ['h5m'],
                 'CAD Files': ['step', 'stp', 'brep'],
+                'Gmsh Mesh': ['msh'],
                 'Mesh Files': ['stl', 'ply', 'obj'],
                 'All Files': ['*']
             }
@@ -299,13 +302,42 @@ export class VisualizerWidget extends NativeVtkViewerWidget {
         }
     }
 
+    private async convertAndLoadGmsh(mshPath: string, loadId: number): Promise<void> {
+        if (loadId !== this.currentLoadId) return;
+
+        this.isLoading = true;
+        this.error = undefined;
+        this.statusMessage = `Converting Gmsh mesh: ${mshPath}...`;
+        this.update();
+
+        try {
+            // Import the existing Gmsh mesh and export legacy ASCII VTK
+            const vtkPath = await this.visualizerBackend.convertGmsh(mshPath);
+
+            // Check if still the active load
+            if (loadId !== this.currentLoadId) return;
+
+            this.statusMessage = `Gmsh conversion successful. Loading visualization...`;
+            this.update();
+
+            // Probe the converted file for native rendering
+            await this.loadNativeFile(vtkPath, loadId);
+        } catch (error) {
+            if (loadId !== this.currentLoadId) return;
+            console.error('[Visualizer] Gmsh conversion failed:', error);
+            this.isLoading = false;
+            this.error = `Gmsh conversion failed: ${error instanceof Error ? error.message : String(error)}`;
+            this.update();
+        }
+    }
+
     /**
      * Render `filePath` natively: read through Theia's FileService, probe
-     * with `parseNativeVtkXml`, and render with instant color-by on success.
-     * Anything the native parser rejects (legacy `.vtk`, `.vtu`/`.vts`
-     * grids, `.stl`/`.ply`/`.obj` meshes, unparseable files) surfaces an
-     * error panel naming the supported kinds — there is no server fallback.
-     * Stale loads bail out instead of touching widget state.
+     * with `parseNativeVtk`, and render with instant color-by on success.
+     * Anything the native parser rejects (binary VTK, `.stl`/`.ply`/`.obj`
+     * meshes, unparseable files) surfaces an error panel naming the supported
+     * kinds — there is no server fallback. Stale loads bail out instead of
+     * touching widget state.
      */
     private async loadNativeFile(filePath: string, loadId: number): Promise<void> {
         this.isLoading = true;
@@ -341,8 +373,8 @@ export class VisualizerWidget extends NativeVtkViewerWidget {
             this.error =
                 `Cannot preview '${new URI(filePath).path.base}' in the native viewer ` +
                 `(${probeError instanceof Error ? probeError.message : probeError}). ` +
-                `Supported kinds: XML VTK (.vtp, .vtr, .vti); ` +
-                `.h5m (DAGMC) and .step/.stp/.brep (CAD) convert automatically when the converter emits XML VTK.`;
+                `Supported kinds: XML VTK (.vtp, .vtr, .vti, .vtu, .vts) and legacy ASCII .vtk; ` +
+                `.h5m (DAGMC), .step/.stp/.brep (CAD), and .msh (Gmsh) convert automatically to VTK.`;
             this.update();
             return;
         }

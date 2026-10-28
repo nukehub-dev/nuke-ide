@@ -61,7 +61,7 @@ export class VisualizerOpenHandler implements OpenHandler {
         if (ext === '.h5m') {
             return 1000;
         }
-        if (['.vtk', '.vtu', '.vtp', '.vts', '.vtr', '.vti', '.pvtu', '.pvtp'].includes(ext)) {
+        if (['.vtk', '.vtu', '.vtp', '.vts', '.vtr', '.vti', '.pvtu', '.pvtp', '.msh'].includes(ext)) {
             return 500;
         }
         if (['.stl', '.ply', '.obj'].includes(ext)) {

@@ -868,16 +868,56 @@ describe('parseLegacyVtkAscii', () => {
         const model = parseLegacyVtkAscii(LEGACY_UNSTRUCTURED_FIXTURE);
         expect(model.family).toBe('polydata');
         expect(model.nPoints).toBe(5);
-        // Quad surfaces triangulate; the tetra contributes its 6 wireframe edges.
-        expect([...(model.triangles ?? [])]).toEqual([0, 1, 2, 0, 2, 3]);
-        expect([...(model.triangleCells ?? [])]).toEqual([0, 0]);
-        expect(model.segments?.length).toBe(24);
+        // Quad surfaces triangulate; the lone tetra contributes its four
+        // boundary faces as triangles (no interior wireframe cage).
+        expect([...(model.triangles ?? [])]).toEqual([0, 1, 2, 0, 2, 3, 0, 2, 1, 0, 1, 4, 1, 2, 4, 2, 0, 4]);
+        expect([...(model.triangleCells ?? [])]).toEqual([0, 0, 1, 1, 1, 1]);
+        expect(model.segments?.length).toBe(36);
         expect(model.nonTriangleCells).toBe(0);
         const displacement = model.pointArrays.find((a) => a.name === 'displacement');
         expect(displacement?.components).toBe(3);
         expect(displacement?.range).toEqual([0, 0.4]);
         const temperature = model.pointArrays.find((a) => a.name === 'temperature');
         expect(temperature?.range).toEqual([300, 340]);
+    });
+
+    it('renders volumetric cells through boundary faces and drops shared interior faces', () => {
+        const twoTets = `# vtk DataFile Version 2.0
+two tets
+ASCII
+DATASET UNSTRUCTURED_GRID
+POINTS 5 float
+0 0 0 1 0 0 0 1 0 0 0 1 0 0 -1
+CELLS 2 10
+4 0 1 2 3
+4 0 2 1 4
+CELL_TYPES 2
+10
+10
+`;
+        const tets = parseLegacyVtkAscii(twoTets);
+        // Four faces per tetra minus the shared face on each side = six
+        // boundary triangles; the shared face is not in the surface mesh.
+        expect(tets.triangles?.length).toBe(18);
+        expect(tets.triangleCells?.length).toBe(6);
+        expect(new Set([...(tets.triangleCells ?? [])])).toEqual(new Set([0, 1]));
+        expect(tets.segments?.length).toBe(36);
+
+        const hexa = `# vtk DataFile Version 2.0
+hexa
+ASCII
+DATASET UNSTRUCTURED_GRID
+POINTS 8 float
+0 0 0 1 0 0 1 1 0 0 1 0 0 0 1 1 0 1 1 1 1 0 1 1
+CELLS 1 9
+8 0 1 2 3 4 5 6 7
+CELL_TYPES 1
+12
+`;
+        const hex = parseLegacyVtkAscii(hexa);
+        // Six quad faces fan into twelve boundary triangles.
+        expect(hex.triangles?.length).toBe(36);
+        expect(hex.triangleCells?.every((cell) => cell === 0)).toBe(true);
     });
 
     it('parses FIELD arrays with scalar and vector components', () => {

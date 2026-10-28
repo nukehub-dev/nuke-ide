@@ -40,6 +40,7 @@ import {
     formatProbeValue,
     parseProbePoint,
     probeLineToCsv,
+    probeMarkerRadius,
     probeSamplesToCsv,
     resolveProbeTuple,
     sampleProbeValue,
@@ -298,6 +299,21 @@ describe('sampleProbeValue', () => {
         expect(sampleProbeValue(scalar([1, 2], -1), 0)).toBeUndefined();
         expect(sampleProbeValue(scalar([1, 2], 1.5), 0)).toBeUndefined();
         expect(sampleProbeValue(scalar([1, 2], Number.NaN), 0)).toBeUndefined();
+    });
+});
+
+describe('probeMarkerRadius', () => {
+    it('scales up the newest sample and keeps history at the base radius', () => {
+        expect(probeMarkerRadius(0.01, 0)).toBeCloseTo(0.015, 12);
+        expect(probeMarkerRadius(0.01, 1)).toBe(0.01);
+        expect(probeMarkerRadius(0.01, 99)).toBe(0.01);
+    });
+
+    it('returns 0 for unusable base radii', () => {
+        expect(probeMarkerRadius(0, 0)).toBe(0);
+        expect(probeMarkerRadius(-1, 0)).toBe(0);
+        expect(probeMarkerRadius(Number.NaN, 0)).toBe(0);
+        expect(probeMarkerRadius(Number.POSITIVE_INFINITY, 0)).toBe(0);
     });
 });
 

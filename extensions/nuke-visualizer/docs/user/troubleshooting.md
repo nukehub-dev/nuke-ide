@@ -53,8 +53,8 @@ This guide covers the most common issues and how to fix them.
 
 **Fixes:**
 
-1. For large DAGMC or CAD files, conversion can take a while. Be patient or try a smaller file.
-   For STEP/STP/BREP files, ensure **gmsh** is installed in the active Python environment.
+1. For large DAGMC, CAD, or Gmsh mesh files, conversion can take a while. Be patient or try a smaller file.
+   For STEP/STP/BREP and Gmsh `.msh` files, ensure **gmsh** is installed in the active Python environment.
 2. Restart NukeIDE to clean up orphaned Python processes.
 
 ---
@@ -113,7 +113,21 @@ Health checks verify the **currently configured** environment, not fallback envi
 
 ---
 
-## CAD File Conversion Issues
+## CAD and Gmsh File Conversion Issues
+
+### "Gmsh conversion failed" for .msh
+
+**Symptoms:**
+
+- Error message when opening a `.msh` file
+- Status shows `Gmsh conversion failed: gmsh is required...`
+
+**Fixes:**
+
+1. Install **gmsh** in the active Python environment (same commands as CAD).
+2. Re-run the health check to verify gmsh is detected.
+3. Check the **Nuke Visualizer** output channel for the exact Python path being used.
+4. A `.msh` file with no elements cannot be rendered; re-export it with a mesh.
 
 ### "CAD conversion failed" for .step / .stp / .brep
 

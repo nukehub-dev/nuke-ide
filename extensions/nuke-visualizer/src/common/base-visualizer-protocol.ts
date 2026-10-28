@@ -36,6 +36,9 @@ export const BASE_VISUALIZER_REQUIREMENTS: PackageDependency[] = packages.base;
 /** Package requirements for STEP/STP/BREP conversion */
 export const STEP_REQUIREMENTS: PackageDependency[] = packages.step;
 
+/** Package requirements for direct Gmsh `.msh` mesh conversion */
+export const GMSH_REQUIREMENTS: PackageDependency[] = packages.gmsh;
+
 /** Package requirements for the headless Exodus-II series extractor (`base.exodus-series`) */
 export const EXODUS_REQUIREMENTS: PackageDependency[] = packages.exodus;
 
@@ -202,6 +205,16 @@ export interface VisualizerBackendService {
      * @returns Path to the generated VTK file
      */
     convertStep(filePath: string): Promise<string>;
+
+    /**
+     * Convert a Gmsh `.msh` mesh to legacy ASCII VTK for visualization.
+     * Runs `python server.py base.convert-gmsh` via gmsh; the existing mesh
+     * is imported and exported as-is (no remeshing).
+     *
+     * @param filePath Path to the `.msh` file
+     * @returns Path to the generated VTK file
+     */
+    convertGmsh(filePath: string): Promise<string>;
 
     /**
      * Get DAGMC model metadata (volumes, materials, groups, surfaces).

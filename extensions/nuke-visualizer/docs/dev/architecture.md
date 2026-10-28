@@ -107,7 +107,7 @@ Python scripts that do the actual scientific visualization.
 **Responsibilities:**
 
 - Read domain-specific files (HDF5, XML, VTK)
-- Convert scientific data to XML VTK (numpy geometry, `vtk` imports lazily for the final write)
+- Convert scientific data to VTK XML or legacy ASCII (numpy geometry, `vtk` imports lazily for the final write)
 - Compute derived data (spectra, spatial plots, cross-sections)
 - Print JSON results to stdout and exit — commands never bind ports or serve HTTP
 
@@ -226,10 +226,10 @@ extensions/nuke-visualizer/
 
 ## Key Design Decisions
 
-| Decision                              | Rationale                                                                                                                                           |
-| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Native three.js widgets for 3D**    | Converters write XML VTK; the frontend parses and renders client-side. No servers, ports, or iframes — color-by switches instantly with no restart. |
-| **React widgets for 2D plots**        | Plotly.js integrates cleanly with React. No server needed — data comes over RPC and renders directly.                                               |
-| **One Python process per conversion** | Simplifies lifecycle. Each conversion spawns its own short-lived Python process; nothing persists after exit.                                       |
-| **RPC over WebSocket**                | Theia's standard. Bidirectional: frontend calls backend methods; backend streams logs via `VisualizerClient`.                                       |
-| **Health checks in frontend**         | Frontend registers requirements; backend executes them via `nuke-core`. Keeps plugin logic decoupled from env detection.                            |
+| Decision                              | Rationale                                                                                                                                                             |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Native three.js widgets for 3D**    | Converters write VTK (XML or legacy ASCII); the frontend parses and renders client-side. No servers, ports, or iframes — color-by switches instantly with no restart. |
+| **React widgets for 2D plots**        | Plotly.js integrates cleanly with React. No server needed — data comes over RPC and renders directly.                                                                 |
+| **One Python process per conversion** | Simplifies lifecycle. Each conversion spawns its own short-lived Python process; nothing persists after exit.                                                         |
+| **RPC over WebSocket**                | Theia's standard. Bidirectional: frontend calls backend methods; backend streams logs via `VisualizerClient`.                                                         |
+| **Health checks in frontend**         | Frontend registers requirements; backend executes them via `nuke-core`. Keeps plugin logic decoupled from env detection.                                              |

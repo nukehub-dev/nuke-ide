@@ -3174,11 +3174,12 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
                 } else if (role === 'mesh-points') {
                     child.visible = flags.pointsOnly;
                 } else if (kind === 'edges') {
-                    // Edge overlay backs only `edges` (ParaView's Surface With
-                    // Edges, native-VTK parity): `shaded` faces render clean;
-                    // wireframe and points modes have their own
-                    // representation already.
-                    child.visible = this.shading === 'edges' && !flags.pointsOnly && !flags.wireframe;
+                    // One all-triangle-edge overlay, no thresholded geometry:
+                    // the DAGMC surface triangulation is already the feature
+                    // boundary, so `Feature Edges` intentionally falls back
+                    // to the same overlay. `shaded` stays clean; wireframe and
+                    // points have their own representation.
+                    child.visible = (this.shading === 'edges' || this.shading === 'feature-edges') && !flags.pointsOnly && !flags.wireframe;
                 } else {
                     child.visible = true;
                 }

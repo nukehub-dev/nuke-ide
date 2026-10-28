@@ -35,9 +35,11 @@
  * point/line/mesh datasets. Line and point datasets are already
  * wireframe-like, so `wireframe` only changes face meshes while `points`
  * swaps face/line rendering for a point cloud. `edges` (ParaView
- * `Surface With Edges`) renders the shaded mesh plus a dark edge overlay;
- * widgets build the overlay from `THREE.EdgesGeometry` and key its
- * visibility off the mode.
+ * `Surface With Edges`) renders the shaded mesh plus a dark overlay of every
+ * triangle edge; `feature-edges` keeps the shaded faces but limits the
+ * overlay to edges whose dihedral angle exceeds
+ * {@link FEATURE_EDGE_ANGLE_DEGREES}. Widgets build both overlays from
+ * `THREE.EdgesGeometry` and key their visibility off the mode.
  *
  * Pure functions + types only; no three.js, no DOM, no Theia imports.
  * Widgets translate {@link ViewerShadingFlags} onto three.js materials:
@@ -50,12 +52,13 @@
  * meshMaterial.depthWrite = flags.depthWrite;
  * mesh.visible = !flags.pointsOnly;
  * points.visible = flags.pointsOnly || <point dataset>;
- * edgeOverlay.visible = mode === 'edges' && !flags.pointsOnly;
+ * edgesOverlay.visible = mode === 'edges' && !flags.pointsOnly;
+ * featureEdgesOverlay.visible = mode === 'feature-edges' && !flags.pointsOnly;
  * ```
  */
 
 /** Shading modes offered by the viewer header select. */
-export type ViewerShadingMode = 'shaded' | 'edges' | 'wireframe' | 'points' | 'xray';
+export type ViewerShadingMode = 'shaded' | 'edges' | 'feature-edges' | 'wireframe' | 'points' | 'xray';
 
 /** Select entry: display metadata for one mutually exclusive shading mode. */
 export interface ViewerShadingModeInfo {
@@ -66,6 +69,7 @@ export interface ViewerShadingModeInfo {
 export const VIEWER_SHADING_MODES: readonly ViewerShadingModeInfo[] = [
     { id: 'shaded', label: 'Shaded' },
     { id: 'edges', label: 'Shaded + Edges' },
+    { id: 'feature-edges', label: 'Feature Edges' },
     { id: 'wireframe', label: 'Wireframe' },
     { id: 'points', label: 'Points' },
     { id: 'xray', label: 'X-Ray' }
@@ -73,6 +77,13 @@ export const VIEWER_SHADING_MODES: readonly ViewerShadingModeInfo[] = [
 
 /** Default shading mode: solid faces / native line + point rendering. */
 export const DEFAULT_VIEWER_SHADING_MODE: ViewerShadingMode = 'shaded';
+
+/**
+ * Dihedral angle (degrees) above which a shared triangle edge counts as a
+ * feature boundary. Widgets pass this to
+ * `new THREE.EdgesGeometry(meshGeometry, FEATURE_EDGE_ANGLE_DEGREES)`.
+ */
+export const FEATURE_EDGE_ANGLE_DEGREES = 30;
 
 /** Next mode in the header select order, wrapping around (context-menu cycle item). Pure. */
 export function nextViewerShadingMode(mode: ViewerShadingMode): ViewerShadingMode {
@@ -100,7 +111,14 @@ export interface ViewerShadingFlags {
 
 /** Runtime guard for shading-mode values (header select + props API). */
 export function isViewerShadingMode(value: unknown): value is ViewerShadingMode {
-    return value === 'shaded' || value === 'edges' || value === 'wireframe' || value === 'points' || value === 'xray';
+    return (
+        value === 'shaded' ||
+        value === 'edges' ||
+        value === 'feature-edges' ||
+        value === 'wireframe' ||
+        value === 'points' ||
+        value === 'xray'
+    );
 }
 
 /** Clamp a base opacity into [0, 1]; non-finite input means fully opaque. */
@@ -113,10 +131,11 @@ export function clampShadingBaseOpacity(value: number): number {
 
 /**
  * Decide the material flags for one shading mode under a base opacity.
- * `shaded`/`edges`/`wireframe`/`points` stay opaque unless the base opacity
- * is already translucent; `xray` always ghosts (transparent, no depth
- * write). `edges` shares the `shaded` flags — the edge overlay is an extra
- * object whose visibility the widget keys off the mode.
+ * `shaded`/`edges`/`feature-edges`/`wireframe`/`points` stay opaque unless
+ * the base opacity is already translucent; `xray` always ghosts
+ * (transparent, no depth write). `edges` and `feature-edges` share the
+ * `shaded` flags — each edge overlay is an extra object whose visibility
+ * the widget keys off the mode.
  */
 export function resolveViewerShadingFlags(mode: ViewerShadingMode, baseOpacity: number): ViewerShadingFlags {
     const opacity = clampShadingBaseOpacity(baseOpacity);
@@ -129,6 +148,7 @@ export function resolveViewerShadingFlags(mode: ViewerShadingMode, baseOpacity: 
             return { wireframe: false, pointsOnly: false, transparent: true, opacity: opacity * XRAY_OPACITY_SCALE, depthWrite: false };
         case 'shaded':
         case 'edges':
+        case 'feature-edges':
             return { wireframe: false, pointsOnly: false, transparent: opacity < 1, opacity, depthWrite: true };
     }
 }

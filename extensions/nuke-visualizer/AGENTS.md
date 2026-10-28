@@ -3,7 +3,7 @@
 ## Purpose
 
 Plugin-based 3D/2D visualization framework for NukeIDE: native three.js viewers over headless Python converters.
-Domain plugins: Base Visualizer (meshes/DAGMC/STEP/Exodus) and OpenMC (statepoints/tallies/geometry/outputs).
+Domain plugins: Base Visualizer (meshes/DAGMC/STEP/Gmsh/Exodus) and OpenMC (statepoints/tallies/geometry/outputs).
 
 ## Ownership
 
@@ -22,8 +22,9 @@ All files under `extensions/nuke-visualizer/` except generated artifacts (`lib/`
   package lists; keep shared specs matching nuke-core `package-registry.json` spec-for-spec.
 - No servers: never bind ports, spawn HTTP/trame/ParaView processes, or add proxy/iframe paths; every viewer
   converts headlessly and renders client-side.
-- Native render rule is convert → read → render: backend writes XML VTK and exits, frontend reads via `readVtkText`
-  (`native-vtk-data.ts`, 256 MB `NATIVE_VTK_MAX_READ_BYTES` budget — never bare `FileService.read`) and `parseNativeVtk`.
+- Native render rule is convert → read → render: backend writes VTK (XML or legacy ASCII) and exits, frontend reads
+  via `readVtkText` (`native-vtk-data.ts`, 256 MB `NATIVE_VTK_MAX_READ_BYTES` budget — never bare `FileService.read`)
+  and `parseNativeVtk`. Legacy volume cells emit only unshared boundary faces as triangles (no interior surface soup).
 - Shared viewer is `NativeVtkViewerWidget` (+ `widgets/native-vtk/`); color-by (`Solid Color|Point:|Cell:`) maps through
   `viewer-core/scalar-mapping.ts` (34-preset generated `colormaps.ts` — never hand-edit); see `docs/dev/output-viewers.md`.
   Bivariate uncertainty (`viewer-core/bivariate-mapping.ts` + Viewer Settings `Uncertainty`) pairs `<score>-mean` with its
@@ -58,8 +59,9 @@ All files under `extensions/nuke-visualizer/` except generated artifacts (`lib/`
   keyed by viewer tab id; `orbit-controls.ts` owns `getPose`/`setPose`. Never store file paths or transient selections.
 - Output routing uses `src/browser/output-viewer/` (`output-viewer-registry.ts` + `output-file-patterns.ts`); register
   with `bind(OutputViewerContribution).to(...)`; see `docs/dev/output-viewers.md`.
-- DAGMC/STEP use `python/plugins/base/lib/dagmc.py` / `step.py` (`DagmcError`/`StepError`, `find_spec` probes, lazy
-  loaders, cached `base.convert-dagmc-multiblock`); see `docs/dev/python-backends.md`.
+- DAGMC/STEP/Gmsh use `python/plugins/base/lib/dagmc.py`, `step.py`, and `gmsh_mesh.py` (`DagmcError`/`StepError`/
+  `GmshMeshError`, `find_spec` probes, lazy loaders, cached converters); `.msh` imports as-is (no remeshing) via
+  `base.convert-gmsh`; see `docs/dev/python-backends.md`.
 - Analysis commands `base.integrate` / `base.describe` / `base.mesh-quality` live in
   `python/plugins/base/commands/analysis.py` (pure numpy in `lib/analysis.py`, lazy VTK); `base.export` lives in
   `commands/export.py` + `lib/export.py` (CSV/VTK/glTF). Register both in `base/plugin.py`.
@@ -69,12 +71,16 @@ All files under `extensions/nuke-visualizer/` except generated artifacts (`lib/`
 - Tally series (`openmc.tally-series` in `commands/tally_series.py` + `lib/tally_series.py`) reads sibling
   statepoints through `widgets/statepoint/tally-series-widget.tsx`; preload no per-step mesh, and pass the
   series-wide `viewRange` as the custom 3D range when Shared color range is on.
-- Comparison workspace (`viewer-core/comparison-session.ts`, `visualizer-comparison-contribution.ts`) groups
-  already-open native/DAGMC viewers into split panes; camera links apply direction only across files and the
-  shared range is the union of active-array data ranges. Never preload data or copy source camera distance.
+- Comparison workspace (`viewer-core/comparison-session.ts`, `comparison-layout.ts`,
+  `visualizer-comparison-contribution.ts`) groups already-open or browsed native/DAGMC viewers into split panes;
+  four panes use a 2x2 grid, camera links apply direction only across files, and the shared range is the union of
+  active-array data ranges. Never preload data or copy source camera distance.
 - Generic probe (`viewer-core/probe-model.ts`, `widgets/probe-dialog.tsx`, `base.probe`) maps raycast hits by
   triangle/segment/voxel indices; keep point sampling client-side and line profiles file-backed, and never
-  map derived overlay geometry (edges, caps, glyphs, selection) onto dataset tuples.
+  map derived overlay geometry (edges, caps, glyphs, selection) onto dataset tuples. Point samples render as
+  world-anchored scene markers outside `dataGroup` (newest accented); clear them with history/dataset rebuilds.
+- Shading modes live in `viewer-core/shading-mode.ts`; `edges` draws every triangle edge, `feature-edges` draws only
+  creases above `FEATURE_EDGE_ANGLE_DEGREES` (30°), and DAGMC reuses its single edge overlay for both.
 - Tally routing uses `python/plugins/openmc/lib/tally_vtk.py` (`openmc.tally-mesh-vtk` / `source-vtk` / `overlay-vtk` /
   `overlay-geometry-vtk`, XML only) via `openmc-service.ts::openTallyNativeWidget`; tabs open instantly with a loading
   status (`beginPendingLoad`) before conversion runs, failures land in-tab (`failPendingLoad`); probe/contour source

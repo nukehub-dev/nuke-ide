@@ -198,7 +198,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-visualizer: tally series charts one score across sibling statepoints with error bars, a step slider, and shared-range 3D handoff.
 - nuke-visualizer: tally series selector switches total/mean/max aggregation in place.
 - nuke-visualizer: comparison workspace splits 2–4 open views side by side with linked cameras, shared color ranges, and A/B pane labels.
+- nuke-visualizer: comparison workspace adds Compare Files... browsing and a 2×2 grid for four panes.
 - nuke-visualizer: native viewers add a click point probe and headless line profiles with CSV export.
+- nuke-visualizer: probe samples leave newest-first world-anchored canvas markers.
+- nuke-visualizer: Feature Edges shading draws only creases above a 30° dihedral angle.
+- nuke-visualizer: Gmsh .msh meshes import directly and convert headlessly to ASCII VTK.
+- nuke-visualizer: legacy VTK volume meshes render unshared boundary faces as surfaces instead of wireframe cages.
 - openmc-studio: DAGMC Editor routes picked CAD files to import instead of landing on an empty model.
 - openmc-studio: void cells emit standard `material="void"` so this OpenMC accepts them.
 - openmc-studio: Simulation Dashboard re-attaches to in-flight runs after reload with live progress and log streaming.

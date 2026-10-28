@@ -65,7 +65,7 @@ const widget = await this.widgetManager.getOrCreateWidget(NativeVtkViewerWidget.
 
 ### Limitations
 
-- **XML VTK only** — the native parser reads XML formats; anything else must convert first.
+- **VTK XML or legacy ASCII only** — the native parser reads both forms; binary VTK and other formats must convert first.
 - **No server-side rendering** — very large datasets parse and render on the client.
 
 ---

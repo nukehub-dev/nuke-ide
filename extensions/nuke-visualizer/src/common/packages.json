@@ -33,6 +33,13 @@
       "condaSpec": "vtk"
     }
   ],
+  "gmsh": [
+    {
+      "name": "gmsh",
+      "required": true,
+      "condaSpec": "python-gmsh"
+    }
+  ],
   "exodus": [
     { "name": "meshio", "required": false, "condaSpec": "meshio" },
     { "name": "netCDF4", "required": false, "condaSpec": "netcdf4" }

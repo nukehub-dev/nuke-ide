@@ -1544,7 +1544,8 @@ function linearizeLegacyCell(type: number, ids: number[]): { edges: [number, num
             }
             return { edges, surface: ids.length >= 3 ? ids : undefined };
         }
-        // Surface cells fan-triangulate in the caller; volumetric cells wireframe.
+        // Surface cells fan-triangulate in the caller; known volumetric cells
+        // render through legacyVolumeFaces, unknown ones stay wireframe.
         const surface = type === 5 || type === 8 || type === 9 ? ids : undefined;
         return { edges: table.map(([a, b]) => [ids[a], ids[b]] as [number, number]), surface };
     }
@@ -1573,6 +1574,65 @@ function linearizeLegacyCell(type: number, ids: number[]): { edges: [number, num
     return { edges: [], surface: undefined };
 }
 
+/**
+ * Boundary faces for legacy volumetric cell types, as corner-index lists.
+ * `native-vtk-data` extracts shared-face boundaries across cells, so a
+ * tetrahedral FEM/Gmsh volume renders as its outer surface instead of a
+ * wireframe cage. Faces may be triangles or quads; callers fan-triangulate.
+ */
+const LEGACY_VOLUME_FACES: Record<number, number[][]> = {
+    10: [
+        [0, 2, 1],
+        [0, 1, 3],
+        [1, 2, 3],
+        [2, 0, 3]
+    ],
+    11: [
+        [0, 3, 2, 1],
+        [4, 5, 6, 7],
+        [0, 1, 5, 4],
+        [1, 2, 6, 5],
+        [2, 3, 7, 6],
+        [3, 0, 4, 7]
+    ],
+    12: [
+        [0, 3, 2, 1],
+        [4, 5, 6, 7],
+        [0, 1, 5, 4],
+        [1, 2, 6, 5],
+        [2, 3, 7, 6],
+        [3, 0, 4, 7]
+    ],
+    13: [
+        [0, 1, 2],
+        [3, 5, 4],
+        [0, 3, 4, 1],
+        [1, 4, 5, 2],
+        [2, 5, 3, 0]
+    ],
+    14: [
+        [0, 3, 2, 1],
+        [0, 1, 4],
+        [1, 2, 4],
+        [2, 3, 4],
+        [3, 0, 4]
+    ]
+};
+
+/** Boundary faces for one volumetric cell, or undefined for surface/unknown cells. */
+function legacyVolumeFaces(type: number, ids: number[]): number[][] | undefined {
+    const linearType = type === 24 ? 10 : type === 25 ? 12 : type === 26 ? 13 : type === 27 ? 14 : type;
+    const table = LEGACY_VOLUME_FACES[linearType];
+    if (!table) {
+        return undefined;
+    }
+    const faces = table.map((face) => face.map((corner) => ids[corner]));
+    if (faces.some((face) => face.some((index) => !Number.isInteger(index) || index < 0))) {
+        return undefined;
+    }
+    return faces;
+}
+
 function makeLegacyArray(name: string, association: 'point' | 'cell', components: number, values: Float64Array): NativeVtkDataArray {
     return toDataArray({ name, components, format: 'ascii' }, values, association);
 }
@@ -1585,9 +1645,11 @@ function makeLegacyArray(name: string, association: 'point' | 'cell', components
  * `CELL_TYPES`), or `DATASET STRUCTURED_GRID` (`DIMENSIONS` plus `POINTS`,
  * averaged to cell centers like the `.vts` path, with voxel axes when the
  * lattice is axis-aligned), with `POINT_DATA`/`CELL_DATA` carrying
- * `SCALARS`/`VECTORS`/`FIELD` (plus `NORMALS`/`TENSORS`). Produces the same
- * `NativeVtkModel` shape the classifier consumes. Binary files are
- * rejected with an ASCII-only error.
+ * `SCALARS`/`VECTORS`/`FIELD` (plus `NORMALS`/`TENSORS`). Volumetric cells
+ * (tetra/hexa/wedge/pyramid) emit their unshared boundary faces as triangles,
+ * so FEM and Gmsh volume meshes render as surfaces rather than wireframes.
+ * Produces the same `NativeVtkModel` shape the classifier consumes. Binary
+ * files are rejected with an ASCII-only error.
  */
 export function parseLegacyVtkAscii(text: string): NativeVtkModel {
     const lines = text.split(/\r?\n/);
@@ -1916,6 +1978,8 @@ export function parseLegacyVtkAscii(text: string): NativeVtkModel {
     const vertices: number[] = [];
     const triangles: number[] = [];
     const triangleCells: number[] = [];
+    /** Boundary-face counts for volumetric cells, keyed by sorted corner ids. */
+    const volumeFaceCounts = new Map<string, { readonly ids: number[]; count: number; readonly cell: number }>();
     let nonTriangleCells = 0;
     const pushTriangle = (tri: number[], cell: number): void => {
         triangles.push(tri[0], tri[1], tri[2]);
@@ -2069,6 +2133,22 @@ export function parseLegacyVtkAscii(text: string): NativeVtkModel {
                 vertices.push(...ids);
                 return;
             }
+            const faces = legacyVolumeFaces(type, ids);
+            if (faces) {
+                // Volumetric cells render through their outer boundary: count
+                // every face, then emit only faces that no neighboring cell
+                // shares. Internal faces never reach the surface mesh.
+                for (const face of faces) {
+                    const key = [...face].sort((a, b) => a - b).join(',');
+                    const existing = volumeFaceCounts.get(key);
+                    if (existing) {
+                        existing.count++;
+                    } else {
+                        volumeFaceCounts.set(key, { ids: face, count: 1, cell });
+                    }
+                }
+                return;
+            }
             const { edges, surface } = linearizeLegacyCell(type, ids);
             if (surface && surface.length === 3) {
                 pushTriangle(surface, cell);
@@ -2093,6 +2173,18 @@ export function parseLegacyVtkAscii(text: string): NativeVtkModel {
             }
             nonTriangleCells++;
         });
+        for (const face of volumeFaceCounts.values()) {
+            if (face.count !== 1) {
+                continue;
+            }
+            if (face.ids.length === 3) {
+                pushTriangle(face.ids, face.cell);
+            } else {
+                for (let k = 1; k + 1 < face.ids.length; k++) {
+                    pushTriangle([face.ids[0], face.ids[k], face.ids[k + 1]], face.cell);
+                }
+            }
+        }
         if (cellDataCount >= 0 && cellDataCount !== ugCells.length) {
             throw new Error(`Legacy VTK CELL_DATA (${cellDataCount}) does not match the cell count (${ugCells.length})`);
         }

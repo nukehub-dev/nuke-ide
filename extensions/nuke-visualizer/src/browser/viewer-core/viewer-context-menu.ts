@@ -100,6 +100,7 @@ export interface ViewerContextMenuState {
 export const VIEWER_SHADING_MENU_ICONS: Record<ViewerShadingMode, string> = {
     shaded: 'codicon-circle-filled',
     edges: 'codicon-globe',
+    'feature-edges': 'codicon-symbol-structure',
     wireframe: 'codicon-circle-outline',
     points: 'codicon-ellipsis',
     xray: 'codicon-preview'

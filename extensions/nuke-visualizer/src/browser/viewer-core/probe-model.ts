@@ -79,6 +79,22 @@ export interface ProbeSample {
     readonly value?: number;
 }
 
+/** Marker-size scale for the newest sample (index 0 in the newest-first history). */
+const PROBE_NEWEST_MARKER_SCALE = 1.5;
+
+/**
+ * World-space marker radius for one probe-history row: the newest sample
+ * (index 0) is scaled up for emphasis, older samples keep the base radius.
+ * A non-positive or non-finite base yields 0 so malformed dataset bounds
+ * never produce NaN sphere geometry.
+ */
+export function probeMarkerRadius(baseRadius: number, index: number): number {
+    if (!Number.isFinite(baseRadius) || baseRadius <= 0) {
+        return 0;
+    }
+    return index === 0 ? baseRadius * PROBE_NEWEST_MARKER_SCALE : baseRadius;
+}
+
 /**
  * Flattened render topology a raycast hit maps back onto. `positions` holds
  * xyz triplets (surface/line/point vertices, or grid cell centers) and

@@ -115,6 +115,37 @@ def test_convert_step_missing_gmsh(hermetic_tmp, monkeypatch, capsys):
 
 
 # ---------------------------------------------------------------------------
+# base.convert-gmsh
+# ---------------------------------------------------------------------------
+
+
+def test_convert_gmsh_missing_file(hermetic_tmp, capsys):
+    """A nonexistent Gmsh mesh fails with a JSON error and exit code 1."""
+    args = _parse(convert_cmds.cmd_convert_gmsh, ["--file", "/no/such/mesh.msh"])
+
+    rc = convert_cmds.cmd_convert_gmsh(args)
+
+    assert rc == 1
+    assert "Gmsh mesh file not found" in _stderr_error_line(capsys)
+
+
+def test_convert_gmsh_missing_gmsh(hermetic_tmp, monkeypatch, capsys):
+    """With gmsh unavailable, .msh conversion reports the import failure."""
+    from plugins.base.lib import gmsh_mesh
+
+    fake_msh = hermetic_tmp / "mesh.msh"
+    fake_msh.write_text("$MeshFormat\n2.2 0 8\n$EndMeshFormat\n")
+    monkeypatch.setitem(sys.modules, "gmsh", None)
+    monkeypatch.setattr(gmsh_mesh, "HAS_GMSH", False)
+
+    args = _parse(convert_cmds.cmd_convert_gmsh, ["--file", str(fake_msh)])
+    rc = convert_cmds.cmd_convert_gmsh(args)
+
+    assert rc == 1
+    assert "gmsh" in _stderr_error_line(capsys)
+
+
+# ---------------------------------------------------------------------------
 # dagmc.info
 # ---------------------------------------------------------------------------
 

@@ -52,6 +52,8 @@ Defines the contract for the base 3D mesh visualizer.
 export interface VisualizerBackendService {
   // Headless converters (no servers — each command writes VTK/JSON and exits)
   convertDagmc(filePath: string, volumeId?: number): Promise<string>;
+  convertStep(filePath: string): Promise<string>;
+  convertGmsh(filePath: string): Promise<string>;
 
   // Environment
   checkEnvironment(config?: PythonConfig): Promise<EnvironmentInfo>;
@@ -102,7 +104,7 @@ export interface OpenMCBackendService {
   getStatepointFullInfo(statepointPath: string): Promise<OpenMCStatepointFullInfo>;
   getKGenerationData(statepointPath: string): Promise<OpenMCKGenerationData>;
 
-  // Headless VTK converters (no visualize* servers — each writes XML VTK and exits)
+  // Headless VTK converters (no visualize* servers — each writes VTK and exits)
   convertTallyMeshToVtk(statepointPath: string, options?: OpenMCTallyMeshVtkOptions): Promise<OpenMCVtkConversionResult>;
   convertSourceToVtk(filePath: string, options?: OpenMCSourceVtkOptions): Promise<OpenMCVtkConversionResult>;
   convertOverlayToVtk(statepointPath: string, options?: OpenMCOverlayVtkOptions): Promise<OpenMCVtkConversionResult>;

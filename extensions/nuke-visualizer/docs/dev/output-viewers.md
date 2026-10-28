@@ -56,10 +56,24 @@ interpolation; cell arrays use the containing cell. The native viewer's
 `ProbeDialog` is props-only; canvas clicks stay client-side and map
 triangle/segment/voxel raycast hits to dataset tuples through
 `viewer-core/probe-model.ts`, while line profiles call `runBaseCommand` only
-for file-backed viewers.
+for file-backed viewers. Picked samples render as world-anchored scene
+markers (newest accented, older muted) outside the data group, so probe and
+measure raycasts never hit them.
 
-Comparison workspace groups already-open viewers into 2–4 Theia split panes
-(`visualizer-comparison-contribution.ts`). `viewer-core/comparison-session.ts` owns the pane labels and a
+Shading modes live in `viewer-core/shading-mode.ts`. `edges` draws every
+triangle edge; `feature-edges` passes a 30° threshold to `EdgesGeometry` and
+keeps sharp creases only. DAGMC reuses its single all-triangle-edge overlay
+for both modes because its surface triangulation is the feature boundary.
+
+Legacy ASCII VTK volume meshes (tetra/hexa/wedge/pyramid) emit their
+unshared boundary faces as triangles, so FEM and Gmsh `.msh` imports render
+as surfaces; shared interior faces never reach the triangle soup.
+
+Comparison workspace groups already-open viewers, or files opened through
+**Compare Files...**, into 2–4 Theia split panes
+(`visualizer-comparison-contribution.ts`). `viewer-core/comparison-layout.ts`
+owns the placement plan: two and three panes form one row, four panes form a
+2×2 grid. `viewer-core/comparison-session.ts` owns the pane labels and a
 per-session range bus; every pane publishes its **active-array data range** and the bus hands back the union,
 which is applied as a custom range while _Shared color range_ is on. Camera links reuse `cameraLinkBus` under a
 `comparison:<id>` key, applying direction only so differently scaled models keep their own framing. The generic
@@ -189,6 +203,7 @@ IFP kinetics results live in ordinary `statepoint*.h5` files, so they have no re
 | Tally series command       | `python/plugins/openmc/commands/tally_series.py`, `lib/tally_series.py`                  |
 | Tally series widget/model  | `widgets/statepoint/tally-series-widget.tsx`, `tally-series-model.ts`                    |
 | Comparison session/range   | `viewer-core/comparison-session.ts` (pure, vitest-covered)                               |
+| Comparison pane layout     | `viewer-core/comparison-layout.ts` (pure, vitest-covered)                                |
 | Comparison command         | `contributions/visualizer-comparison-contribution.ts`                                    |
 | Probe command              | `python/plugins/base/commands/probe.py`, `lib/probe.py`                                  |
 | Probe dialog/model         | `widgets/probe-dialog.tsx`, `viewer-core/probe-model.ts`                                 |

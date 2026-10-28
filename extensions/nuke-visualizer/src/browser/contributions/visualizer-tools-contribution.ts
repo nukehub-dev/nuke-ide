@@ -41,6 +41,7 @@ import {
     InstallBaseVisualizerCommand,
     InstallOpenMCCommand,
     CompareOpenViewsCommand,
+    CompareFilesCommand,
     StopComparisonCommand
 } from '../commands/visualizer-commands';
 import { OpenMCCommands } from '../plugins/openmc/commands';
@@ -107,12 +108,23 @@ export class VisualizerToolsContribution implements NukeToolsContribution {
         });
 
         registry.registerItem({
+            id: 'nuke-visualizer.compare-files',
+            label: 'Compare Files...',
+            commandId: CompareFilesCommand.id,
+            category: ['Visualizer'],
+            sectionOrder: 'd',
+            order: 'f',
+            icon: 'files',
+            description: 'Browse for two to four files and compare them with linked cameras and color ranges.'
+        });
+
+        registry.registerItem({
             id: 'nuke-visualizer.stop-comparison',
             label: 'Stop Comparison',
             commandId: StopComparisonCommand.id,
             category: ['Visualizer'],
             sectionOrder: 'd',
-            order: 'f',
+            order: 'g',
             icon: 'debug-disconnect',
             description: 'Unlink the active comparison workspace.'
         });

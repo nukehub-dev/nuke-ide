@@ -12,9 +12,9 @@ New to Nuke Visualizer? Start here:
 
 ### Base Visualizer (3D Mesh / DAGMC)
 
-→ [**Base Visualizer**](base-visualizer.md) — View VTK, DAGMC (.h5m), STL, PLY, and OBJ files with interactive 3D controls.
+→ [**Base Visualizer**](base-visualizer.md) — View VTK, DAGMC (.h5m), Gmsh (.msh), STL, PLY, and OBJ files with interactive 3D controls.
 
-→ [**Comparison Workspace**](base-visualizer.md#comparison-workspace) — Arrange 2–4 open views side by side with linked cameras and shared color ranges.
+→ [**Comparison Workspace**](base-visualizer.md#comparison-workspace) — Browse or pick 2–4 views for linked cameras and shared color ranges, with a 2×2 grid for four panes.
 
 ### OpenMC Plugin
 

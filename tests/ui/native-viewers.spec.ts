@@ -168,6 +168,13 @@ test('viewer settings sidebar shows values and drives shading', async ({ page })
     await expect(canvas).toBeVisible();
     await expect(settings.locator('.viewer-settings-shading .nuke-select-trigger')).toHaveText('X-Ray');
 
+    // Feature Edges is a distinct mode; applying it keeps the surface visible
+    // and does not surface a renderer error on a flat polydata fixture.
+    await selectNukeOption(page, settings, 'viewer-settings-shading', 'Feature Edges');
+    await expect(settings.locator('.viewer-settings-shading .nuke-select-trigger')).toHaveText('Feature Edges');
+    await expect(canvas).toBeVisible();
+    await expect(container.locator('.openmc-output-viewer-status.error')).toHaveCount(0);
+
     // The axis snap group drives the orbit handle without errors.
     await settings.locator('button.viewer-settings-snap-iso').click();
     await expect(canvas).toBeVisible();

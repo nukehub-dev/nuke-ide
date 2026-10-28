@@ -10,12 +10,12 @@ Nuke Visualizer requires a Python environment with scientific computing packages
 
 ### Base Visualizer (3D Mesh Viewer)
 
-| Package           | Required? | Notes                                 |
-| ----------------- | --------- | ------------------------------------- |
-| `vtk`             | Yes       | VTK export — converters write XML VTK |
-| `pydagmc`         | No        | For advanced DAGMC features           |
-| `moab` / `pymoab` | No        | For DAGMC .h5m file conversion        |
-| `gmsh`            | No        | For STEP/STP/BREP CAD file conversion |
+| Package           | Required? | Notes                                          |
+| ----------------- | --------- | ---------------------------------------------- |
+| `vtk`             | Yes       | VTK export and line-profile probing            |
+| `pydagmc`         | No        | For advanced DAGMC features                    |
+| `moab` / `pymoab` | No        | For DAGMC .h5m file conversion                 |
+| `gmsh`            | No        | For STEP/STP/BREP CAD and Gmsh .msh conversion |
 
 ### OpenMC Plugin
 
@@ -72,6 +72,7 @@ If the health check reports missing packages, you can install them directly:
 1. In the Explorer sidebar, **click** any of these file types:
    - `.h5m` — DAGMC geometry
    - `.step`, `.stp`, `.brep` — CAD geometry
+   - `.msh` — Gmsh mesh
    - `.vtk`, `.vtu`, `.vtp` — VTK data
    - `.stl`, `.ply`, `.obj` — Surface meshes
 2. The **Visualizer** panel opens with an interactive 3D view.

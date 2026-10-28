@@ -34,6 +34,7 @@ import {
     InstallBaseVisualizerCommand,
     InstallOpenMCCommand,
     CompareOpenViewsCommand,
+    CompareFilesCommand,
     StopComparisonCommand
 } from '../commands/visualizer-commands';
 
@@ -49,12 +50,17 @@ export class VisualizerMenuContribution implements MenuContribution {
         menus.registerMenuAction(NukeVisualizerMenus.VISUALIZER, {
             commandId: CompareOpenViewsCommand.id,
             label: CompareOpenViewsCommand.label,
-            order: '1_compare'
+            order: '1_compare-open'
+        });
+        menus.registerMenuAction(NukeVisualizerMenus.VISUALIZER, {
+            commandId: CompareFilesCommand.id,
+            label: CompareFilesCommand.label,
+            order: '2_compare-files'
         });
         menus.registerMenuAction(NukeVisualizerMenus.VISUALIZER, {
             commandId: StopComparisonCommand.id,
             label: StopComparisonCommand.label,
-            order: '2_stop'
+            order: '3_stop'
         });
         menus.registerSubmenu(NukeVisualizerMenus.ENVIRONMENT, 'Environment');
         menus.registerMenuAction(NukeVisualizerMenus.ENVIRONMENT, {

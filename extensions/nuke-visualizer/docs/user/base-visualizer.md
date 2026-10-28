@@ -13,6 +13,7 @@ The Base Visualizer renders 3D geometry and scientific datasets with **native in
 | DAGMC      | `.h5m`                                           | Nuclear CAD geometry; auto-converted to VTK  |
 | STEP       | `.step`, `.stp`                                  | CAD exchange format; auto-converted to VTK   |
 | BREP       | `.brep`                                          | OpenCASCADE native; auto-converted to VTK    |
+| Gmsh mesh  | `.msh`                                           | Imported as-is; auto-converted to ASCII VTK  |
 | STL        | `.stl`                                           | Stereolithography meshes                     |
 | PLY        | `.ply`                                           | Polygon file format                          |
 | OBJ        | `.obj`                                           | Wavefront OBJ                                |
@@ -20,7 +21,7 @@ The Base Visualizer renders 3D geometry and scientific datasets with **native in
 
 > **Priority:** `.h5m` files open with the highest priority. If a statepoint exists in the same folder, NukeIDE may offer to overlay tally results instead.
 >
-> **Note:** `.step`, `.stp`, and `.brep` files take precedence over the text editor and open directly in the Visualizer.
+> **Note:** `.step`, `.stp`, `.brep`, and `.msh` files take precedence over the text editor and open directly in the Visualizer.
 
 ---
 
@@ -46,14 +47,18 @@ The visualizer supports **multi-instance** tabs. Each file gets its own tab with
 Use the comparison workspace to compare two to four cases side by side without
 manually matching cameras or color scales.
 
-1. Open each case in its own visualizer tab (VTK, DAGMC, or tally-native).
-2. Run `Tools → Visualizer → Compare Open Views...` (also in the Nuke Tools
-   sidebar).
-3. Multi-select 2–4 open viewers and confirm.
-4. The views split into A/B/C panes. Cameras stay linked across different
-   files (orientation only, so each pane keeps its own framing distance), and
-   the color range uses the union of each pane's active-array data range.
-5. Viewer Settings opens with a **Comparison** section for the active pane.
+1. Choose one flow:
+   - `Tools → Visualizer → Compare Files...` (also in the Nuke Tools
+     sidebar) browses for 2–4 VTK, DAGMC, CAD, Gmsh, STL, PLY, or OBJ files
+     and opens each in its own viewer.
+   - Open each case first (VTK, DAGMC, Gmsh, or tally-native), then run
+     `Tools → Visualizer → Compare Open Views...` and multi-select 2–4 open
+     viewers.
+2. The views split into A/B/C panes; four panes form a 2×2 grid (A/B on top,
+   C/D below). Cameras stay linked across different files (orientation only,
+   so each pane keeps its own framing distance), and the color range uses the
+   union of each pane's active-array data range.
+3. Viewer Settings opens with a **Comparison** section for the active pane.
 
 | Control                | What It Does                                                            |
 | ---------------------- | ----------------------------------------------------------------------- |
@@ -95,7 +100,7 @@ Threshold, Scalar Bar) instead of showing them disabled.
 | Control        | What It Does                                                                                                                                                         |
 | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Opacity**    | Slider from 0 (invisible) to 1 (fully opaque)                                                                                                                        |
-| **Shading**    | Shaded / Shaded + Edges / Wireframe / Points / X-Ray                                                                                                                 |
+| **Shading**    | Shaded / Shaded + Edges / Feature Edges / Wireframe / Points / X-Ray                                                                                                 |
 | **Color By**   | Choose a data array (e.g., temperature, flux) or "Solid Color"                                                                                                       |
 | **Component**  | For multi-component arrays: Magnitude or a single component (X / Y / Z)                                                                                              |
 | **Color Map**  | Full ParaView preset list (34 maps — Viridis, Cool to Warm, Jet, RdBu, …)                                                                                            |
@@ -106,6 +111,11 @@ Threshold, Scalar Bar) instead of showing them disabled.
 | **Warp**       | Displace the mesh along a 3-component vector array (FEM deformation; row appears only when such an array exists)                                                     |
 | **Colors**     | Solid-color and background pickers                                                                                                                                   |
 | **Sizes**      | Point size and line width sliders (line width is driver-dependent); points render as round soft sprites                                                              |
+
+**Feature Edges** keeps the shaded surface and draws only creases whose
+dihedral angle exceeds 30°, so smooth tessellations stay clean while sharp
+corners remain readable. **Shaded + Edges** still draws every triangle edge.
+DAGMC viewers use their single surface-edge overlay for both edge modes.
 
 ### Warp (FEM Deformation)
 
@@ -205,7 +215,9 @@ The pulse button on the native viewer bottom bar opens **Probe**:
 - **Point** tab: click **Pick points**, then click the canvas. Each sample
   records X/Y/Z, the active array, and its value; **Clear** resets the list and
   **Export CSV** downloads it. Solid Color still records coordinates, with an
-  empty value.
+  empty value. Every picked point leaves a world-anchored marker on the
+  canvas; the newest marker is larger and accented, older samples stay muted,
+  and all markers clear with **Clear** or a dataset reload.
 - **Line** tab: choose a point/cell array, two endpoints (`x, y, z`), and a
   sample count, then **Run profile**. The headless `base.probe` command samples
   the line and returns a distance-vs-value chart, table, and CSV export. Point
@@ -325,6 +337,23 @@ conda install -c conda-forge gmsh
 
 ---
 
+## Gmsh Mesh Specifics
+
+Opening a `.msh` file imports the existing Gmsh mesh and writes a legacy
+ASCII VTK file for the native viewer. The mesh is never regenerated or
+re-meshed, and the converted file is cached so reopening the same file is
+instant. Volumetric meshes render their outer boundary surface, with shared
+interior faces omitted. This requires **gmsh** in the active Python
+environment:
+
+```bash
+pip install gmsh
+# or
+conda install -c conda-forge gmsh
+```
+
+---
+
 ## DAGMC Specifics
 
 ### Auto-Conversion
@@ -411,6 +440,7 @@ python server.py base.integrate --file model.vtk --array cell:flux --volume
 python server.py base.mesh-quality --file model.vtk --output quality.vtu --metric aspect
 python server.py base.export --file model.vtk --format csv --output model.csv
 python server.py base.probe --file model.vti --array cell:flux --path "0.5,0.5,0.5;3.5,0.5,0.5" --samples 100
+python server.py base.convert-gmsh --file mesh.msh
 ```
 
 - `base.describe` returns min/Q1/median/Q3/max/mean/std/count for one point or
@@ -425,6 +455,8 @@ python server.py base.probe --file model.vti --array cell:flux --path "0.5,0.5,0
   writer.
 - `base.probe` samples one array at `--points "x,y,z;…"` or along a `--path`
   polyline (`--samples N`); it returns values plus a `dataRange`.
+- `base.convert-gmsh` imports an existing Gmsh `.msh` mesh and writes ASCII
+  VTK without remeshing; the result path and node/element counts are JSON.
 
 All print one JSON object and exit non-zero with `{"error": …}` on bad input;
 heavy VTK imports are lazy, so the commands fail cleanly when `vtk` is not
@@ -434,7 +466,7 @@ installed.
 
 ## Preferences
 
-Conversion commands (STEP/DAGMC meshing) time out based on file size:
+Conversion commands (STEP, DAGMC, and Gmsh) time out based on file size:
 
 - **Setting:** `nukeVisualizer.serverTimeout` / `nukeVisualizer.serverTimeoutPerMB`
 - **Defaults:** 30 seconds + 0.5 seconds per MB (capped at 10 minutes)

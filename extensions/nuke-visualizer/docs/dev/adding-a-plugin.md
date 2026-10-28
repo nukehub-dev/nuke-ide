@@ -421,7 +421,7 @@ canHandle(uri: URI): number {
 
 **Option A — Subclass `NativeVtkViewerWidget`:**
 
-Best for 3D datasets: convert to XML VTK in the backend, read the file text, and render natively.
+Best for 3D datasets: convert to VTK XML or legacy ASCII in the backend, read the file text, and render natively.
 
 ```typescript
 const widget = await this.widgetManager.getOrCreateWidget(NativeVtkViewerWidget.ID, { uri: filePath, id: 'your-prefix-' + filePath });

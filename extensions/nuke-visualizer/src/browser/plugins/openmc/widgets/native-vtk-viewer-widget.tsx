@@ -126,6 +126,7 @@ import { ProbeDialog } from './probe-dialog';
 import {
     PROBE_SAMPLE_ROW_CAP,
     probeLineToCsv,
+    probeMarkerRadius,
     probeSamplesToCsv,
     resolveProbeTuple,
     sampleProbeValue,
@@ -169,6 +170,7 @@ import {
 } from '../../../viewer-core/clip-plane';
 import {
     DEFAULT_VIEWER_SHADING_MODE,
+    FEATURE_EDGE_ANGLE_DEGREES,
     ViewerShadingMode,
     isViewerShadingMode,
     resolveViewerShadingFlags
@@ -269,6 +271,16 @@ const AxesGridOverlayHost = React.forwardRef<AxesGridOverlayHandle, { visible: b
 /** Data-group child name of the scene underlay holder (subclass ghost content lives one level down). */
 const UNDERLAY_GROUP_NAME = 'underlay';
 
+/**
+ * Probe-history marker styling: the newest sample is accented cyan, older
+ * samples stay subdued. Geometry uses 12x8 spheres (up to 100 samples live
+ * at once), and the history base radius is a fraction of the measure marker.
+ */
+const PROBE_MARKER_NEWEST_COLOR = 0x3fc6ff;
+const PROBE_MARKER_HISTORY_COLOR = 0x8aa0ad;
+const PROBE_MARKER_HISTORY_OPACITY = 0.55;
+const PROBE_MARKER_HISTORY_SCALE = 0.6;
+
 /** Dialog payload for one line-profile run: array, two endpoints, sample count. */
 interface ProbeProfileRequest {
     readonly association: ProbeAssociation;
@@ -278,9 +290,17 @@ interface ProbeProfileRequest {
     readonly samples: number;
 }
 
-/** Geometry role recorded by the scene builders (`mesh`, `mesh-points`, `edges`, overlays). */
+/** Geometry role recorded by the scene builders (`mesh`, `mesh-points`, `edges`, `feature-edges`, overlays). */
 function probeObjectRole(object: THREE.Mesh | THREE.Points | THREE.Line): string | undefined {
     return object.geometry?.userData?.['role'] as string | undefined;
+}
+
+/** Surface edge overlay roles: every triangle edge vs. the thresholded feature boundary. */
+type ShadingEdgeRole = 'edges' | 'feature-edges';
+
+/** True for both surface edge overlay roles (visibility, rebuild, probe exclusion). */
+function isShadingEdgeRole(role: unknown): role is ShadingEdgeRole {
+    return role === 'edges' || role === 'feature-edges';
 }
 
 /**
@@ -316,7 +336,7 @@ export interface NativeVtkViewerProps {
     rangeMode?: ColorRangeMode;
     /** Custom color range (used in `custom` mode). */
     customRange?: readonly [number, number];
-    /** Shading mode (`shaded` | `edges` | `wireframe` | `points` | `xray`). */
+    /** Shading mode (`shaded` | `edges` | `feature-edges` | `wireframe` | `points` | `xray`). */
     shading?: ViewerShadingMode;
     /** Per-axis clip state; each enabled axis plane applies (box-section view). */
     clip?: ClipPlanesState;
@@ -502,6 +522,8 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
     private probeDialogOpen = false;
     private probePicking = false;
     private probeSamples: ProbeSample[] = [];
+    /** World-anchored probe markers, kept outside the data group like the measure overlay. */
+    private probeMarkerGroup: THREE.Group | undefined;
     private probeProfileRunning = false;
     private probeProfileError: string | undefined;
     private probeProfileResult: ProbeLineResult | undefined;
@@ -1708,12 +1730,13 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         this.update();
     }
 
-    /** Drop the point-probe history (dialog Clear). */
+    /** Drop the point-probe history (dialog Clear) and its marker overlay. */
     protected clearProbeSamples(): void {
         if (this.probeSamples.length === 0) {
             return;
         }
         this.probeSamples = [];
+        this.syncProbeMarkers();
         this.update();
     }
 
@@ -2816,6 +2839,7 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
             value
         };
         this.probeSamples = [sample, ...this.probeSamples].slice(0, PROBE_SAMPLE_ROW_CAP);
+        this.syncProbeMarkers();
         this.update();
     }
 
@@ -2834,7 +2858,7 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         }
         if (object instanceof THREE.LineSegments) {
             const role = probeObjectRole(object);
-            return role === 'edges' || role === 'find-data-selection' ? undefined : 'lines';
+            return isShadingEdgeRole(role) || role === 'find-data-selection' ? undefined : 'lines';
         }
         if (object instanceof THREE.Points) {
             const role = probeObjectRole(object);
@@ -2878,6 +2902,74 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
             segmentCells: model.segmentCells,
             voxelCells: this.voxelLayout?.cells
         };
+    }
+
+    /**
+     * Lazily create the world-anchored probe-marker group. It hangs off the
+     * scene (never `dataGroup`), so probe/measure raycasts cannot hit the
+     * markers and clipping leaves the annotations visible.
+     */
+    private ensureProbeMarkerGroup(): THREE.Group | undefined {
+        if (!this.scene) {
+            return undefined;
+        }
+        if (!this.probeMarkerGroup) {
+            this.probeMarkerGroup = new THREE.Group();
+            this.probeMarkerGroup.name = 'probe-markers';
+            this.scene.add(this.probeMarkerGroup);
+        }
+        return this.probeMarkerGroup;
+    }
+
+    /** Dispose every marker geometry/material and detach the overlay group. */
+    private clearProbeMarkers(): void {
+        const group = this.probeMarkerGroup;
+        if (!group) {
+            return;
+        }
+        while (group.children.length > 0) {
+            const child = group.children.pop();
+            if (child instanceof THREE.Mesh) {
+                child.geometry.dispose();
+                (child.material as THREE.Material).dispose();
+            }
+        }
+        group.removeFromParent();
+        this.probeMarkerGroup = undefined;
+    }
+
+    /**
+     * Rebuild the marker overlay from the newest-first sample history: one
+     * low-poly sphere per sample, with index 0 larger and accented. Runs on
+     * sample/clear/build only, never per frame.
+     */
+    private syncProbeMarkers(): void {
+        this.clearProbeMarkers();
+        if (this.probeSamples.length === 0) {
+            this.renderScene();
+            return;
+        }
+        const group = this.ensureProbeMarkerGroup();
+        if (!group) {
+            return;
+        }
+        const baseRadius = this.measureMarkerSize * PROBE_MARKER_HISTORY_SCALE;
+        this.probeSamples.forEach((sample, index) => {
+            const newest = index === 0;
+            const geometry = new THREE.SphereGeometry(probeMarkerRadius(baseRadius, index), 12, 8);
+            const material = newest
+                ? new THREE.MeshBasicMaterial({ color: PROBE_MARKER_NEWEST_COLOR })
+                : new THREE.MeshBasicMaterial({
+                      color: PROBE_MARKER_HISTORY_COLOR,
+                      transparent: true,
+                      opacity: PROBE_MARKER_HISTORY_OPACITY,
+                      depthWrite: false
+                  });
+            const marker = new THREE.Mesh(geometry, material);
+            marker.position.set(sample.position[0], sample.position[1], sample.position[2]);
+            group.add(marker);
+        });
+        this.renderScene();
     }
 
     /**
@@ -3207,6 +3299,7 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         this.loadToken++;
         // Invalidate any in-flight line-profile run (same guard pattern as loads).
         this.probeProfileToken++;
+        this.clearProbeMarkers();
         this.dropCameraLinkSubscription();
         this.dropComparisonRangeSubscription();
         this.comparisonView = undefined;
@@ -3346,9 +3439,11 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         this.findDataSelection = undefined;
         this.findDataGroup = undefined;
         // Probe history and line profiles belong to the previous dataset:
-        // clear them and bump the token so an in-flight profile cannot land.
+        // clear them (and their world markers) and bump the token so an
+        // in-flight profile cannot land.
         this.probePicking = false;
         this.probeSamples = [];
+        this.clearProbeMarkers();
         this.probeProfileRunning = false;
         this.probeProfileError = undefined;
         this.probeProfileResult = undefined;
@@ -3372,7 +3467,7 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
             const positions = this.triangleVertexPositions(model);
             const mesh = this.buildTriangleMesh(positions);
             this.dataGroup.add(mesh);
-            this.dataGroup.add(this.buildEdgeOverlay(mesh.geometry));
+            this.rebuildEdgeOverlays(this.dataGroup, mesh.geometry);
             this.dataGroup.add(this.buildTrianglePoints(positions));
         } else if (model.segments) {
             // Line datasets also carry a point cloud over the same vertices
@@ -3494,14 +3589,42 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         return new THREE.Mesh(geometry, material);
     }
 
-    /** Dark edge overlay for `edges` shading (ParaView Surface With Edges), derived from the mesh geometry. */
-    private buildEdgeOverlay(meshGeometry: THREE.BufferGeometry): THREE.LineSegments {
-        const geometry = new THREE.EdgesGeometry(meshGeometry);
-        geometry.userData = { role: 'edges' };
-        const material = new THREE.LineBasicMaterial({ color: 0x1a1a1a, transparent: true, opacity: this.opacity });
+    /** Dark edge overlay for `edges`/`feature-edges` shading, derived from the current mesh geometry. */
+    private buildEdgeOverlay(meshGeometry: THREE.BufferGeometry, role: ShadingEdgeRole): THREE.LineSegments {
+        const geometry =
+            role === 'feature-edges'
+                ? new THREE.EdgesGeometry(meshGeometry, FEATURE_EDGE_ANGLE_DEGREES)
+                : new THREE.EdgesGeometry(meshGeometry);
+        geometry.userData = { role };
+        const material = new THREE.LineBasicMaterial({
+            color: 0x1a1a1a,
+            transparent: true,
+            opacity: this.opacity,
+            linewidth: this.lineWidth
+        });
         const lines = new THREE.LineSegments(geometry, material);
-        lines.visible = this.shading === 'edges';
+        lines.visible = this.shading === role;
         return lines;
+    }
+
+    /**
+     * Rebuild both surface edge overlays from the current mesh geometry:
+     * `edges` keeps every triangle edge, `feature-edges` keeps only edges
+     * above the dihedral threshold. Shared by scene build and warp/threshold
+     * rewrites so the two overlays never drift apart.
+     */
+    private rebuildEdgeOverlays(group: THREE.Group, meshGeometry: THREE.BufferGeometry): void {
+        const previous = group.children.filter(
+            (child): child is THREE.LineSegments =>
+                child instanceof THREE.LineSegments && isShadingEdgeRole(child.geometry.userData?.['role'])
+        );
+        for (const overlay of previous) {
+            group.remove(overlay);
+            overlay.geometry.dispose();
+            (overlay.material as THREE.Material).dispose();
+        }
+        group.add(this.buildEdgeOverlay(meshGeometry, 'edges'));
+        group.add(this.buildEdgeOverlay(meshGeometry, 'feature-edges'));
     }
 
     /** Corner points over triangle data (shares the corner buffer); shown in `points` mode. */
@@ -3929,7 +4052,7 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
                 }
             } else if (child instanceof THREE.LineSegments) {
                 const role = child.geometry.userData?.['role'];
-                child.visible = role === 'edges' ? this.shading === 'edges' && !flags.pointsOnly : !flags.pointsOnly;
+                child.visible = isShadingEdgeRole(role) ? this.shading === role && !flags.pointsOnly : !flags.pointsOnly;
             } else if (child instanceof THREE.Mesh) {
                 if (child.userData?.['role'] === 'clip-cap') {
                     child.visible = this.clipCaps && anyClipEnabled(this.clip) && !flags.pointsOnly && this.shading !== 'wireframe';
@@ -4262,7 +4385,7 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
                 child.geometry.computeBoundingSphere();
                 warpedMesh = child.geometry;
             } else if (child instanceof THREE.LineSegments) {
-                if (child.geometry.userData?.['role'] === 'edges') {
+                if (isShadingEdgeRole(child.geometry.userData?.['role'])) {
                     return;
                 }
                 const soup = this.lineVertexPositions(model, positions);
@@ -4297,17 +4420,10 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
             }
         });
         if (warpedMesh) {
-            // The edges overlay derives from the mesh geometry — rebuild it
-            // from the warped corners so edges track the deformation.
-            const previous = group.children.find(
-                (child): child is THREE.LineSegments => child instanceof THREE.LineSegments && child.geometry.userData?.['role'] === 'edges'
-            );
-            if (previous) {
-                group.remove(previous);
-                previous.geometry.dispose();
-                (previous.material as THREE.Material).dispose();
-            }
-            group.add(this.buildEdgeOverlay(warpedMesh));
+            // Both edge overlays derive from the mesh geometry — rebuild them
+            // from the warped corners so they track the deformation and the
+            // current threshold, with no stale pre-warp lines.
+            this.rebuildEdgeOverlays(group, warpedMesh);
         }
     }
 

@@ -56,6 +56,12 @@ export const CompareOpenViewsCommand = {
     category: 'Visualizer'
 };
 
+export const CompareFilesCommand = {
+    id: 'nuke-visualizer.compare-files',
+    label: 'Compare Files...',
+    category: 'Visualizer'
+};
+
 export const StopComparisonCommand = {
     id: 'nuke-visualizer.stop-comparison',
     label: 'Stop Comparison',
