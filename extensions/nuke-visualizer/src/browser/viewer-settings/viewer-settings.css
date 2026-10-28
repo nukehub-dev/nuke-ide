@@ -496,3 +496,30 @@
     border: 1px solid var(--theia-input-border);
     padding: 2px 4px;
 }
+
+/* Comparison section (Wave 5 side-by-side sessions): the pane identity is a
+   read-only muted note, the shared-range readout follows the same muted
+   status-line typography as the Uncertainty notes, and the leave action
+   keeps the compact secondary-button sizing. */
+.viewer-settings-comparison-pane .viewer-settings-row-label {
+    color: var(--theia-descriptionForeground);
+}
+
+.viewer-settings-comparison-range-value {
+    font-size: 11px;
+    line-height: 15px;
+    color: var(--theia-descriptionForeground);
+    font-variant-numeric: tabular-nums;
+}
+
+.viewer-settings-comparison-range-note {
+    font-size: 11px;
+    line-height: 15px;
+    color: var(--theia-descriptionForeground);
+    opacity: 0.85;
+}
+
+.viewer-settings-comparison-leave {
+    min-width: 0;
+    padding: 2px 8px;
+}

@@ -39,7 +39,9 @@ import {
     VisualizerCommand,
     VisualizerHealthCheckCommand,
     InstallBaseVisualizerCommand,
-    InstallOpenMCCommand
+    InstallOpenMCCommand,
+    CompareOpenViewsCommand,
+    StopComparisonCommand
 } from '../commands/visualizer-commands';
 import { OpenMCCommands } from '../plugins/openmc/commands';
 import { OpenViewerSettingsCommand } from '../viewer-settings/viewer-settings-contribution';
@@ -91,6 +93,28 @@ export class VisualizerToolsContribution implements NukeToolsContribution {
             order: 'd',
             icon: 'table',
             description: 'Inspect dataset summary, arrays, and a table preview for the active viewer.'
+        });
+
+        registry.registerItem({
+            id: 'nuke-visualizer.compare-open-views',
+            label: 'Compare Open Views...',
+            commandId: CompareOpenViewsCommand.id,
+            category: ['Visualizer'],
+            sectionOrder: 'd',
+            order: 'e',
+            icon: 'git-compare',
+            description: 'Arrange open 3D views side by side with linked cameras and color ranges.'
+        });
+
+        registry.registerItem({
+            id: 'nuke-visualizer.stop-comparison',
+            label: 'Stop Comparison',
+            commandId: StopComparisonCommand.id,
+            category: ['Visualizer'],
+            sectionOrder: 'd',
+            order: 'f',
+            icon: 'debug-disconnect',
+            description: 'Unlink the active comparison workspace.'
         });
 
         registry.registerItem({

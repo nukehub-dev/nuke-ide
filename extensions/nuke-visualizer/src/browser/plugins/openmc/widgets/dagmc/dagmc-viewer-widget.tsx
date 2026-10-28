@@ -105,6 +105,15 @@ import {
     type BoundsCorner,
     type OrbitControlsHandle
 } from '../../../../viewer-core/orbit-controls';
+import { cameraLinkBus, cameraPoseDirection, type CameraLinkEndpoint, type CameraLinkPose } from '../../../../viewer-core/camera-link-bus';
+import {
+    comparisonCameraKey,
+    comparisonRangeBus,
+    type ComparisonRange,
+    type ComparisonRangeEndpoint,
+    type ComparisonViewHost,
+    type ComparisonViewOptions
+} from '../../../../viewer-core/comparison-session';
 import {
     addMeasurePoint,
     cancelMeasureStep,
@@ -170,6 +179,7 @@ import { buildDagmcContextMenuItems } from './dagmc-context-menu';
 import { ViewerMeasureLabel, type ViewerMeasureHandle } from '../viewer-measure';
 import {
     DagmcIsolateActions,
+    LinkCamerasTrigger,
     ViewerClipPopover,
     ViewerClipTrigger,
     ViewerFileActions,
@@ -247,7 +257,7 @@ const DEFAULT_VIEWER_BACKGROUND = '#1e1e1e';
  * and calls `setModelInfo` with the `dagmc.info` payload.
  */
 @injectable()
-export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost, DagmcOutlineHost {
+export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost, DagmcOutlineHost, ComparisonViewHost {
     static readonly ID: string = 'dagmc-viewer-widget';
     static readonly LABEL: string = 'Native DAGMC Viewer';
 
@@ -376,6 +386,42 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
     /** World-size endpoint marker radius, derived from the visible bounds at build time. */
     private measureMarkerSize = 0.01;
     private measureKeysAttached = false;
+    /**
+     * Opt-in camera link (nav-bar `Link cameras` toggle, per-widget state,
+     * default off): when on, the orbit change hook publishes `{position,
+     * target}` on the shared bus and linked poses apply through the orbit
+     * handle as a direction only, so every view keeps its own target and
+     * framing distance. Camera-only sync — color-by, clip, shading, and
+     * visibility stay per-widget and are never published or applied.
+     */
+    protected cameraLinked = false;
+    /**
+     * Link-identity override (comparison sessions key every pane by
+     * `comparison:<id>`; unset falls back to the manifest path).
+     */
+    protected cameraLinkSource: string | undefined;
+    private cameraLinkEndpoint: CameraLinkEndpoint | undefined;
+    private cameraLinkSubscribedKey: string | undefined;
+    /** True while a linked pose applies (the resulting orbit change must not rebroadcast — echo suppression). */
+    private applyingLinkedPose = false;
+    /**
+     * Active comparison-workspace state (Wave 5); undefined outside a
+     * comparison. Comparison camera links apply direction only and the range
+     * bus shares a union of the panes' active-array data ranges.
+     */
+    protected comparisonView: ComparisonViewOptions | undefined;
+    /** Camera-link identity captured on join (restored when the comparison is left). */
+    private comparisonRestoreLinkSource: string | undefined;
+    /** Camera-link toggle captured on join. */
+    private comparisonRestoreLinked = false;
+    /** Color-range mode captured on join. */
+    private comparisonRestoreRangeMode: ColorRangeMode = 'auto';
+    /** Custom color range captured on join. */
+    private comparisonRestoreCustomRange: [number, number] | undefined;
+    /** Live comparison-range endpoint (dropped on detach/dispose — no leaked bus listeners). */
+    private comparisonRangeEndpoint: ComparisonRangeEndpoint | undefined;
+    /** Last union observed on the comparison bus (snapshot readout + shared-range cache). */
+    private comparisonUnion: ComparisonRange | undefined;
 
     @postConstruct()
     protected init(): void {
@@ -522,6 +568,14 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
             this.syncMaterialProps();
             this.renderScene();
         }
+        if (styleChanged) {
+            // Comparison shared-range input: the active array's data range,
+            // never the custom window, so applying the union cannot feed back
+            // into the bus. A color-by switch resets the range to auto; the
+            // union stays authoritative while this pane opts in.
+            this.publishComparisonRange();
+            this.enforceComparisonSharedRange();
+        }
         this.update();
     }
 
@@ -577,6 +631,300 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
         this.orbitControls?.setViewDirection(direction);
     }
 
+    /**
+     * Link identity: the manifest path by default, so views of different
+     * files never link outside a comparison; a comparison session overrides
+     * it with one shared key so panes of different files follow each other.
+     */
+    protected cameraLinkKey(): string | undefined {
+        return this.cameraLinkSource ?? this.vtmUri?.path.toString();
+    }
+
+    /** Override the link identity (comparison join/leave); re-subscribes when it changes. */
+    setCameraLinkKey(key: string | undefined): void {
+        if (key === this.cameraLinkSource) {
+            return;
+        }
+        this.cameraLinkSource = key;
+        this.ensureCameraLinkSubscription();
+        this.update();
+    }
+
+    /** Flip the nav-bar `Link cameras` toggle (per-widget state, default off). */
+    setCameraLinked(linked: boolean): void {
+        if (linked === this.cameraLinked) {
+            return;
+        }
+        this.cameraLinked = linked;
+        this.ensureCameraLinkSubscription();
+        this.update();
+    }
+
+    /** Nav-bar toggle: comparison panes keep the stored comparison option in sync. */
+    private toggleCameraLink(): void {
+        if (this.comparisonView) {
+            this.setComparisonLinkCameras(!this.cameraLinked);
+        } else {
+            this.setCameraLinked(!this.cameraLinked);
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Comparison workspace (Wave 5): 2–4 panes share camera orientation
+    // and a union color range. Additive and opt-in — outside a comparison
+    // every method below is a safe no-op.
+    // ------------------------------------------------------------------
+
+    /**
+     * Join a comparison session. Captures the pre-comparison camera-link
+     * identity/toggle and range window so {@link leaveComparison} restores
+     * them exactly; re-joining leaves the previous session first.
+     */
+    joinComparison(options: ComparisonViewOptions): void {
+        if (this.comparisonView) {
+            this.leaveComparison();
+        }
+        this.comparisonRestoreLinkSource = this.cameraLinkSource;
+        this.comparisonRestoreLinked = this.cameraLinked;
+        this.comparisonRestoreRangeMode = this.rangeMode;
+        this.comparisonRestoreCustomRange = this.customRange ? [this.customRange[0], this.customRange[1]] : undefined;
+        this.comparisonView = { ...options };
+        this.comparisonUnion = undefined;
+        this.setCameraLinkKey(comparisonCameraKey(options.sessionId));
+        this.setCameraLinked(options.linkCameras);
+        this.ensureComparisonRangeSubscription();
+        this.publishComparisonRange();
+        // Seed from the bus: covers a union that predates this subscription,
+        // and hands the shared window to a pane that joined later.
+        this.comparisonUnion = comparisonRangeBus.union(options.sessionId);
+        if (options.sharedRange) {
+            this.applyComparisonUnion(this.comparisonUnion);
+        }
+        this.update();
+    }
+
+    /** Leave the comparison session: restore the captured link/range state. */
+    leaveComparison(): void {
+        const view = this.comparisonView;
+        if (!view) {
+            return;
+        }
+        this.dropComparisonRangeSubscription();
+        const linkSource = this.comparisonRestoreLinkSource;
+        const linked = this.comparisonRestoreLinked;
+        const rangeMode = this.comparisonRestoreRangeMode;
+        const customRange = this.comparisonRestoreCustomRange;
+        this.comparisonView = undefined;
+        this.comparisonUnion = undefined;
+        this.comparisonRestoreLinkSource = undefined;
+        this.comparisonRestoreLinked = false;
+        this.comparisonRestoreRangeMode = 'auto';
+        this.comparisonRestoreCustomRange = undefined;
+        this.setCameraLinkKey(linkSource);
+        this.setCameraLinked(linked);
+        if (view.sharedRange) {
+            // Shared range replaced the captured window; restore it through
+            // the same prop funnel the sidebar uses.
+            this.applyProps({ rangeMode, customRange });
+        }
+        this.update();
+    }
+
+    /** Current comparison participation (undefined outside a comparison). */
+    getComparisonView(): ComparisonViewOptions | undefined {
+        return this.comparisonView;
+    }
+
+    /** Per-pane `Link cameras` toggle (comparison section of Viewer Settings). */
+    setComparisonLinkCameras(linked: boolean): void {
+        const view = this.comparisonView;
+        if (!view || view.linkCameras === linked) {
+            return;
+        }
+        this.comparisonView = { ...view, linkCameras: linked };
+        this.setCameraLinked(linked);
+        this.update();
+    }
+
+    /** Per-pane `Shared color range` toggle: apply the union or restore the captured window. */
+    setComparisonSharedRange(shared: boolean): void {
+        const view = this.comparisonView;
+        if (!view || view.sharedRange === shared) {
+            return;
+        }
+        this.comparisonView = { ...view, sharedRange: shared };
+        if (shared) {
+            this.applyComparisonUnion(this.comparisonUnion);
+        } else {
+            this.applyProps({ rangeMode: this.comparisonRestoreRangeMode, customRange: this.comparisonRestoreCustomRange });
+        }
+        this.update();
+    }
+
+    /** Per-pane pane-label toggle (A/B/C badge). */
+    setComparisonShowLabels(show: boolean): void {
+        const view = this.comparisonView;
+        if (!view || view.showLabels === show) {
+            return;
+        }
+        this.comparisonView = { ...view, showLabels: show };
+        this.update();
+    }
+
+    /** Active color-by array's data range (never the custom/effective mapping range). */
+    getActiveDataRange(): [number, number] | undefined {
+        const active = this.activeColorArray();
+        if (!active) {
+            return undefined;
+        }
+        const range = this.mergedArrayRange(active.kind, active.name) ?? active.array.range;
+        return range ? [range[0], range[1]] : undefined;
+    }
+
+    /** Publish the current pose so the activated pane seeds the shared orientation. */
+    syncComparisonCamera(): void {
+        if (this.cameraLinked) {
+            this.publishCameraPose();
+        }
+    }
+
+    /** (Re)subscribe the comparison range endpoint after attach/join. */
+    private ensureComparisonRangeSubscription(): void {
+        const view = this.comparisonView;
+        if (!view || this.comparisonRangeEndpoint) {
+            return;
+        }
+        this.comparisonRangeEndpoint = comparisonRangeBus.link(view.sessionId, this.id, (range) => this.onComparisonRange(range));
+        // A detach disposed the endpoint (and with it this view's range);
+        // republish after every attach so the shared union stays complete.
+        this.publishComparisonRange();
+    }
+
+    /** Drop the range endpoint (detach/dispose path — a re-attach re-subscribes). */
+    private dropComparisonRangeSubscription(): void {
+        this.comparisonRangeEndpoint?.dispose();
+        this.comparisonRangeEndpoint = undefined;
+    }
+
+    /** Union update from the range bus: cache it and apply it while shared range is on. */
+    private onComparisonRange(range: ComparisonRange | undefined): void {
+        const previous = this.comparisonUnion;
+        const unchanged =
+            previous === undefined ? range === undefined : range !== undefined && previous[0] === range[0] && previous[1] === range[1];
+        if (unchanged) {
+            return;
+        }
+        this.comparisonUnion = range ? [range[0], range[1]] : undefined;
+        if (this.comparisonView?.sharedRange) {
+            this.applyComparisonUnion(this.comparisonUnion);
+        }
+        this.update();
+    }
+
+    /** Apply the union as a custom mapping window (no-op without a union). */
+    private applyComparisonUnion(range: ComparisonRange | undefined): void {
+        if (!range) {
+            return;
+        }
+        this.applyProps({ rangeMode: 'custom', customRange: [range[0], range[1]] });
+    }
+
+    /** True when the effective mapping is exactly the shared union window. */
+    private comparisonRangeApplied(range: ComparisonRange): boolean {
+        return (
+            this.rangeMode === 'custom' &&
+            this.customRange !== undefined &&
+            this.customRange[0] === range[0] &&
+            this.customRange[1] === range[1]
+        );
+    }
+
+    /** Re-apply the shared union after a mapping edit reset the range window. */
+    private enforceComparisonSharedRange(): void {
+        if (!this.comparisonView?.sharedRange || !this.comparisonUnion) {
+            return;
+        }
+        if (this.comparisonRangeApplied(this.comparisonUnion)) {
+            return;
+        }
+        this.applyComparisonUnion(this.comparisonUnion);
+    }
+
+    /** Publish the active data range (undefined clears this pane's contribution). */
+    private publishComparisonRange(): void {
+        this.comparisonRangeEndpoint?.publish(this.getActiveDataRange());
+    }
+
+    /** (Re)subscribe the link endpoint when the identity changes; drops it while there is no linkable key. */
+    private ensureCameraLinkSubscription(): void {
+        const key = this.cameraLinkKey();
+        if (key === this.cameraLinkSubscribedKey) {
+            return;
+        }
+        this.dropCameraLinkSubscription();
+        if (key !== undefined) {
+            this.cameraLinkEndpoint = cameraLinkBus.link(key, (pose) => this.onLinkedPose(pose));
+            this.cameraLinkSubscribedKey = key;
+        }
+    }
+
+    /** Drop the link subscription (detach/dispose path — no leaked bus listeners). */
+    private dropCameraLinkSubscription(): void {
+        this.cameraLinkEndpoint?.dispose();
+        this.cameraLinkEndpoint = undefined;
+        this.cameraLinkSubscribedKey = undefined;
+    }
+
+    /**
+     * Orbit change hook: the existing render-on-demand repaint plus the link
+     * publish when the toggle is on. Applying a linked pose sets
+     * {@link applyingLinkedPose}, so the resulting change never rebroadcasts.
+     */
+    private onOrbitChanged(): void {
+        this.renderScene();
+        if (!this.cameraLinked || this.applyingLinkedPose) {
+            return;
+        }
+        this.publishCameraPose();
+    }
+
+    /** Publish the current orbit pose on the camera-link bus (no-op without a live endpoint). */
+    private publishCameraPose(): void {
+        const endpoint = this.cameraLinkEndpoint;
+        const pose = this.orbitControls?.getPose();
+        if (!endpoint || !pose) {
+            return;
+        }
+        endpoint.publish({
+            position: [pose.position[0], pose.position[1], pose.position[2]],
+            target: [pose.target[0], pose.target[1], pose.target[2]]
+        });
+    }
+
+    /**
+     * Apply a linked pose from another pane: direction only through
+     * `setViewDirection`, so every pane keeps its own target and framing
+     * distance (differently sized geometries stay visible). Display settings
+     * are never touched: camera-only sync.
+     */
+    private onLinkedPose(pose: CameraLinkPose): void {
+        if (!this.cameraLinked || this.applyingLinkedPose) {
+            return;
+        }
+        const direction = cameraPoseDirection(pose);
+        const controls = this.orbitControls;
+        if (!direction || !controls) {
+            return;
+        }
+        this.applyingLinkedPose = true;
+        try {
+            controls.setViewDirection(direction);
+        } finally {
+            this.applyingLinkedPose = false;
+        }
+        this.renderScene();
+    }
+
     /** Read the current settings for the sidebar panel. */
     getViewerSettingsSnapshot(): ViewerSettingsSnapshot {
         const solid = this.colorBy === SOLID_COLOR;
@@ -616,6 +964,17 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
             shading: { value: this.shading },
             clip: { state: this.clip, tab: this.clipTab, caps: this.clipCaps },
             measure: { active: this.measure.active },
+            ...(this.comparisonView
+                ? {
+                      comparison: {
+                          label: this.comparisonView.label,
+                          linkCameras: this.comparisonView.linkCameras,
+                          sharedRange: this.comparisonView.sharedRange,
+                          showLabels: this.comparisonView.showLabels,
+                          ...(this.comparisonUnion ? { range: [this.comparisonUnion[0], this.comparisonUnion[1]] as const } : {})
+                      }
+                  }
+                : {}),
             opacity: { value: this.opacity, ...OPACITY_SPEC },
             pointSize: { value: this.pointSize, ...POINT_SIZE_SPEC },
             lineWidth: { value: this.lineWidth, ...LINE_WIDTH_SPEC },
@@ -625,6 +984,18 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
 
     /** Apply a sidebar edit through the existing prop setters. */
     applyViewerSettings(patch: ViewerSettingsPatch): void {
+        if (patch.comparisonLinkCameras !== undefined) {
+            this.setComparisonLinkCameras(patch.comparisonLinkCameras);
+        }
+        if (patch.comparisonSharedRange !== undefined) {
+            this.setComparisonSharedRange(patch.comparisonSharedRange);
+        }
+        if (patch.comparisonShowLabels !== undefined) {
+            this.setComparisonShowLabels(patch.comparisonShowLabels);
+        }
+        if (patch.comparisonLeave) {
+            this.leaveComparison();
+        }
         if (patch.tallyVolumeVisible !== undefined) {
             this.setTallyVolumeVisible(patch.tallyVolumeVisible);
         }
@@ -857,6 +1228,7 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
      */
     beginPendingLoad(label: string, statusMessage: string, sourcePath?: string): void {
         this.vtmUri = undefined;
+        this.ensureCameraLinkSubscription();
         this.clearTallyVolume();
         this.blocks = [];
         this.modelInfo = undefined;
@@ -892,6 +1264,7 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
     /** Load a `.vtm` manifest through Theia's FileService (no HTTP fetch). */
     async setVtmFile(uri: URI): Promise<void> {
         this.vtmUri = uri;
+        this.ensureCameraLinkSubscription();
         this.clearTallyVolume();
         this.id = `${DagmcViewerWidget.ID}:${uri.path.toString()}`;
         this.title.label = `${DagmcViewerWidget.LABEL}: ${uri.path.base}`;
@@ -924,6 +1297,7 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
 
     /** Load an already-read `.vtm` manifest, expanding blocks via FileService. */
     async setVtmText(text: string, token = ++this.loadToken): Promise<void> {
+        this.ensureCameraLinkSubscription();
         this.isLoading = true;
         this.error = undefined;
         this.statusMessage = 'Expanding multiblock volumes…';
@@ -963,6 +1337,9 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
             this.buildScene();
             this.fireOutlineChanged();
             this.update();
+            // Comparison shared-range input after the dataset lands.
+            this.publishComparisonRange();
+            this.enforceComparisonSharedRange();
         } catch (error) {
             if (token !== this.loadToken) {
                 return;
@@ -1517,6 +1894,7 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
                     <div style={{ flex: '1', minHeight: '0', position: 'relative', display: 'flex' }}>
                         <div ref={this.attachHost} style={{ flex: '1', minHeight: '0', position: 'relative' }} />
                         {this.renderViewBadge()}
+                        {this.renderComparisonBadge()}
                         {this.renderNavCluster()}
                         {this.renderGizmo()}
                         {this.renderMeasureLabel()}
@@ -1560,6 +1938,11 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
                         open={this.openNavPopover === 'shading'}
                         disabled={disabled}
                         onToggle={() => this.toggleNavPopover('shading')}
+                    />
+                    <LinkCamerasTrigger
+                        linked={this.cameraLinked}
+                        disabled={disabled || this.cameraLinkKey() === undefined}
+                        onToggle={() => this.toggleCameraLink()}
                     />
                     <DagmcIsolateActions
                         selectedVolumeId={this.selectedVolumeId}
@@ -1692,6 +2075,15 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
             return undefined;
         }
         return <ViewBadge text={this.vtmUri?.path.base ?? 'DAGMC volumes'} />;
+    }
+
+    /** Comparison pane label (A/B/C) below the dataset badge while labels are on. */
+    protected renderComparisonBadge(): React.ReactNode {
+        const comparison = this.comparisonView;
+        if (!comparison || !comparison.showLabels) {
+            return undefined;
+        }
+        return <div className="nuke-viewer-comparison-badge">{comparison.label}</div>;
     }
 
     /** Shared orientation cube over the 3D viewarea (hidden until volumes load). */
@@ -1976,6 +2368,8 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
     protected onAfterAttach(msg: Message): void {
         super.onAfterAttach(msg);
         this.ensureRenderer();
+        this.ensureCameraLinkSubscription();
+        this.ensureComparisonRangeSubscription();
         if (!this.measureKeysAttached) {
             window.addEventListener('keydown', this.onWindowKeyDown, true);
             window.addEventListener('pointerdown', this.onWindowPointerDown, true);
@@ -1989,12 +2383,21 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
             window.removeEventListener('pointerdown', this.onWindowPointerDown, true);
             this.measureKeysAttached = false;
         }
+        // Drop both bus subscriptions (no leaked listeners); the comparison
+        // and link state survive so the re-attach resubscribes where it left
+        // off, and dispose drops them permanently.
+        this.dropCameraLinkSubscription();
+        this.dropComparisonRangeSubscription();
         this.teardownRenderer();
         super.onBeforeDetach(msg);
     }
 
     override dispose(): void {
         this.loadToken++;
+        this.dropCameraLinkSubscription();
+        this.dropComparisonRangeSubscription();
+        this.comparisonView = undefined;
+        this.comparisonUnion = undefined;
         this.outlineChanged.dispose();
         this.teardownRenderer();
         super.dispose();
@@ -2956,7 +3359,7 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
         if (!renderer || !camera) {
             return;
         }
-        createOrbitControls(camera, renderer.domElement, { onChange: () => this.renderScene() })
+        createOrbitControls(camera, renderer.domElement, { onChange: () => this.onOrbitChanged() })
             .then((handle) => {
                 if (this.renderer !== renderer) {
                     handle.dispose();

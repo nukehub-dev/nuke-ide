@@ -188,6 +188,13 @@ import {
 } from '../../../viewer-core/glyph-layout';
 import { nextNavPopover, type ViewerNavPopoverKind } from '../../../viewer-core/viewer-nav-popover';
 import { cameraLinkBus, cameraPoseDirection, type CameraLinkEndpoint, type CameraLinkPose } from '../../../viewer-core/camera-link-bus';
+import {
+    comparisonCameraKey,
+    comparisonRangeBus,
+    type ComparisonRange,
+    type ComparisonRangeEndpoint,
+    type ComparisonViewOptions
+} from '../../../viewer-core/comparison-session';
 import { OpenMCVtkArrayInfo } from '../../../../common/openmc-protocol';
 import { VisualizerBackendService } from '../../../../common/base-visualizer-protocol';
 import { WorkspaceService } from '@theia/workspace/lib/browser';
@@ -415,6 +422,24 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
     private applyingLinkedPose = false;
     /** Mirrored orbit target for link publishes (fit keeps it exact; a local pan re-anchors on the next fit). */
     private linkTarget: [number, number, number] | undefined;
+    /**
+     * Active comparison-workspace state (Wave 5); undefined outside a
+     * comparison. Comparison camera links apply direction only and the range
+     * bus shares a union of the panes' active-array data ranges.
+     */
+    protected comparisonView: ComparisonViewOptions | undefined;
+    /** Camera-link identity captured on join (restored when the comparison is left). */
+    private comparisonRestoreLinkSource: string | undefined;
+    /** Camera-link toggle captured on join. */
+    private comparisonRestoreLinked = false;
+    /** Color-range mode captured on join. */
+    private comparisonRestoreRangeMode: ColorRangeMode = 'auto';
+    /** Custom color range captured on join. */
+    private comparisonRestoreCustomRange: [number, number] | undefined;
+    /** Live comparison-range endpoint (dropped on detach/dispose — no leaked bus listeners). */
+    private comparisonRangeEndpoint: ComparisonRangeEndpoint | undefined;
+    /** Last union observed on the comparison bus (snapshot readout + shared-range cache). */
+    private comparisonUnion: ComparisonRange | undefined;
     /** Bar + card elements behind the outside-click dismissal (trigger clicks are inside the bar). */
     protected navBarElement: HTMLDivElement | null = null;
     protected navPopoverElement: HTMLDivElement | null = null;
@@ -709,6 +734,15 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         if (colorsChanged || displayChanged || clipChanged || chromeChanged || warpChanged || thresholdChanged || glyphChanged) {
             this.update();
         }
+        if (colorsChanged) {
+            // Comparison shared-range input: the active array's data range,
+            // never the custom window, so applying the union cannot feed back
+            // into the bus.
+            this.publishComparisonRange();
+            // A color-by switch resets the range to auto; keep the shared
+            // union authoritative while this pane opts in.
+            this.enforceComparisonSharedRange();
+        }
     }
 
     /**
@@ -792,10 +826,13 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
 
     /** Override the link identity (source-file keying for file-less tabs); re-subscribes when it changes. */
     setCameraLinkKey(key: string | undefined): void {
-        if (key === this.cameraLinkSource) {
+        // A comparison session owns the identity while joined: late tally-tab
+        // source keys must not silently drop the pane out of the shared camera.
+        const next = this.comparisonView ? comparisonCameraKey(this.comparisonView.sessionId) : key;
+        if (next === this.cameraLinkSource) {
             return;
         }
-        this.cameraLinkSource = key;
+        this.cameraLinkSource = next;
         this.ensureCameraLinkSubscription();
         this.update();
     }
@@ -807,6 +844,201 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         }
         this.cameraLinked = linked;
         this.update();
+    }
+
+    /** Nav-bar toggle: comparison panes keep the stored comparison option in sync. */
+    private toggleCameraLink(): void {
+        if (this.comparisonView) {
+            this.setComparisonLinkCameras(!this.cameraLinked);
+        } else {
+            this.setCameraLinked(!this.cameraLinked);
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Comparison workspace (Wave 5): 2–4 panes share camera orientation
+    // and a union color range. Additive and opt-in — outside a comparison
+    // every method below is a safe no-op.
+    // ------------------------------------------------------------------
+
+    /**
+     * Join a comparison session. Captures the pre-comparison camera-link
+     * identity/toggle and range window so {@link leaveComparison} restores
+     * them exactly; re-joining leaves the previous session first.
+     */
+    joinComparison(options: ComparisonViewOptions): void {
+        if (this.comparisonView) {
+            this.leaveComparison();
+        }
+        this.comparisonRestoreLinkSource = this.cameraLinkSource;
+        this.comparisonRestoreLinked = this.cameraLinked;
+        this.comparisonRestoreRangeMode = this.rangeMode;
+        this.comparisonRestoreCustomRange = this.customRange ? [this.customRange[0], this.customRange[1]] : undefined;
+        this.comparisonView = { ...options };
+        this.comparisonUnion = undefined;
+        this.setCameraLinkKey(comparisonCameraKey(options.sessionId));
+        this.setCameraLinked(options.linkCameras);
+        this.ensureComparisonRangeSubscription();
+        this.publishComparisonRange();
+        // Seed from the bus: covers a union that predates this subscription,
+        // and hands the shared window to a pane that joined later.
+        this.comparisonUnion = comparisonRangeBus.union(options.sessionId);
+        if (options.sharedRange) {
+            this.applyComparisonUnion(this.comparisonUnion);
+        }
+        this.update();
+    }
+
+    /** Leave the comparison session: restore the captured link/range state. */
+    leaveComparison(): void {
+        const view = this.comparisonView;
+        if (!view) {
+            return;
+        }
+        this.dropComparisonRangeSubscription();
+        const linkSource = this.comparisonRestoreLinkSource;
+        const linked = this.comparisonRestoreLinked;
+        const rangeMode = this.comparisonRestoreRangeMode;
+        const customRange = this.comparisonRestoreCustomRange;
+        this.comparisonView = undefined;
+        this.comparisonUnion = undefined;
+        this.comparisonRestoreLinkSource = undefined;
+        this.comparisonRestoreLinked = false;
+        this.comparisonRestoreRangeMode = 'auto';
+        this.comparisonRestoreCustomRange = undefined;
+        this.setCameraLinkKey(linkSource);
+        this.setCameraLinked(linked);
+        if (view.sharedRange) {
+            // Shared range replaced the captured window; restore it through
+            // the same prop funnel the sidebar uses.
+            this.applyProps({ rangeMode, customRange });
+        }
+        this.update();
+    }
+
+    /** Current comparison participation (undefined outside a comparison). */
+    getComparisonView(): ComparisonViewOptions | undefined {
+        return this.comparisonView;
+    }
+
+    /** Per-pane `Link cameras` toggle (comparison section of Viewer Settings). */
+    setComparisonLinkCameras(linked: boolean): void {
+        const view = this.comparisonView;
+        if (!view || view.linkCameras === linked) {
+            return;
+        }
+        this.comparisonView = { ...view, linkCameras: linked };
+        this.setCameraLinked(linked);
+        this.update();
+    }
+
+    /** Per-pane `Shared color range` toggle: apply the union or restore the captured window. */
+    setComparisonSharedRange(shared: boolean): void {
+        const view = this.comparisonView;
+        if (!view || view.sharedRange === shared) {
+            return;
+        }
+        this.comparisonView = { ...view, sharedRange: shared };
+        if (shared) {
+            this.applyComparisonUnion(this.comparisonUnion);
+        } else {
+            this.applyProps({ rangeMode: this.comparisonRestoreRangeMode, customRange: this.comparisonRestoreCustomRange });
+        }
+        this.update();
+    }
+
+    /** Per-pane pane-label toggle (A/B/C badge). */
+    setComparisonShowLabels(show: boolean): void {
+        const view = this.comparisonView;
+        if (!view || view.showLabels === show) {
+            return;
+        }
+        this.comparisonView = { ...view, showLabels: show };
+        this.update();
+    }
+
+    /** Active color-by array's data range (never the custom/effective mapping range). */
+    getActiveDataRange(): [number, number] | undefined {
+        const selection = parseColorBy(this.colorBy);
+        if (!selection || selection.kind === 'solid') {
+            return undefined;
+        }
+        const array = this.findArray(selection.kind, selection.name);
+        return array ? [array.range[0], array.range[1]] : undefined;
+    }
+
+    /** Publish the current pose so the activated pane seeds the shared orientation. */
+    syncComparisonCamera(): void {
+        if (this.cameraLinked) {
+            this.publishCameraPose();
+        }
+    }
+
+    /** (Re)subscribe the comparison range endpoint after attach/join. */
+    private ensureComparisonRangeSubscription(): void {
+        const view = this.comparisonView;
+        if (!view || this.comparisonRangeEndpoint) {
+            return;
+        }
+        this.comparisonRangeEndpoint = comparisonRangeBus.link(view.sessionId, this.id, (range) => this.onComparisonRange(range));
+        // A detach disposed the endpoint (and with it this view's range);
+        // republish after every attach so the shared union stays complete.
+        this.publishComparisonRange();
+    }
+
+    /** Drop the range endpoint (detach/dispose path — a re-attach re-subscribes). */
+    private dropComparisonRangeSubscription(): void {
+        this.comparisonRangeEndpoint?.dispose();
+        this.comparisonRangeEndpoint = undefined;
+    }
+
+    /** Union update from the range bus: cache it and apply it while shared range is on. */
+    private onComparisonRange(range: ComparisonRange | undefined): void {
+        const previous = this.comparisonUnion;
+        const unchanged =
+            previous === undefined ? range === undefined : range !== undefined && previous[0] === range[0] && previous[1] === range[1];
+        if (unchanged) {
+            return;
+        }
+        this.comparisonUnion = range ? [range[0], range[1]] : undefined;
+        if (this.comparisonView?.sharedRange) {
+            this.applyComparisonUnion(this.comparisonUnion);
+        }
+        this.update();
+    }
+
+    /** Apply the union as a custom mapping window (no-op without a union). */
+    private applyComparisonUnion(range: ComparisonRange | undefined): void {
+        if (!range) {
+            return;
+        }
+        this.applyProps({ rangeMode: 'custom', customRange: [range[0], range[1]] });
+    }
+
+    /** True when the effective mapping is exactly the shared union window. */
+    private comparisonRangeApplied(range: ComparisonRange): boolean {
+        return (
+            this.rangeMode === 'custom' &&
+            this.customRange !== undefined &&
+            this.customRange[0] === range[0] &&
+            this.customRange[1] === range[1]
+        );
+    }
+
+    /** Re-apply the shared union after a mapping edit reset the range window. */
+    private enforceComparisonSharedRange(): void {
+        if (!this.comparisonView?.sharedRange || !this.comparisonUnion) {
+            return;
+        }
+        if (this.comparisonRangeApplied(this.comparisonUnion)) {
+            return;
+        }
+        this.applyComparisonUnion(this.comparisonUnion);
+    }
+
+    /** Publish the active data range (undefined clears this pane's contribution). */
+    private publishComparisonRange(): void {
+        this.comparisonRangeEndpoint?.publish(this.getActiveDataRange());
     }
 
     /** (Re)subscribe the link endpoint when the viewed file changes; drops it while there is no linkable file. */
@@ -839,10 +1071,23 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         if (!this.cameraLinked || this.applyingLinkedPose) {
             return;
         }
+        this.publishCameraPose();
+    }
+
+    /**
+     * Publish the current orbit pose on the camera-link bus. Comparison panes
+     * publish their live direction (their own target); same-file linking keeps
+     * the mirrored fit target for parity. No-op without a live endpoint.
+     */
+    private publishCameraPose(): void {
         const camera = this.camera;
-        const target = this.linkTarget;
         const endpoint = this.cameraLinkEndpoint;
-        if (!camera || !target || !endpoint) {
+        if (!camera || !endpoint) {
+            return;
+        }
+        const poseTarget = this.orbitControls?.getPose().target;
+        const target = this.comparisonView ? (poseTarget ?? this.linkTarget) : (this.linkTarget ?? poseTarget);
+        if (!target) {
             return;
         }
         const position = camera.position;
@@ -853,11 +1098,11 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
     }
 
     /**
-     * Apply a linked pose from another view of the same file: stage the
-     * linked distance on the owned camera, then snap orientation through the
-     * existing `setViewDirection` handle — each view keeps its own target
-     * and framing while the orbit direction and distance follow. Display
-     * settings are never touched: camera-only sync.
+     * Apply a linked pose from another pane. Outside a comparison the existing
+     * same-file behavior applies (stage the linked distance, snap orientation).
+     * Comparison panes apply the direction only through `setViewDirection`, so
+     * every pane keeps its own target and framing distance. Display settings
+     * are never touched: camera-only sync.
      */
     private onLinkedPose(pose: CameraLinkPose): void {
         if (!this.cameraLinked || this.applyingLinkedPose) {
@@ -871,7 +1116,13 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         }
         this.applyingLinkedPose = true;
         try {
-            camera.position.set(pose.position[0], pose.position[1], pose.position[2]);
+            if (!this.comparisonView) {
+                // Same-file link parity: stage the source distance on the
+                // owned camera before snapping the shared direction.
+                camera.position.set(pose.position[0], pose.position[1], pose.position[2]);
+            }
+            // Comparison panes stay cross-file: direction only, so every pane
+            // keeps its own target and framing distance.
             controls.setViewDirection(direction);
         } finally {
             this.applyingLinkedPose = false;
@@ -960,6 +1211,17 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
             shading: { value: this.shading },
             clip: { state: this.clip, tab: this.clipTab, caps: this.clipCaps },
             measure: { active: this.measure.active },
+            ...(this.comparisonView
+                ? {
+                      comparison: {
+                          label: this.comparisonView.label,
+                          linkCameras: this.comparisonView.linkCameras,
+                          sharedRange: this.comparisonView.sharedRange,
+                          showLabels: this.comparisonView.showLabels,
+                          ...(this.comparisonUnion ? { range: [this.comparisonUnion[0], this.comparisonUnion[1]] as const } : {})
+                      }
+                  }
+                : {}),
             axesGrid: { visible: this.axesGridVisible },
             opacity: { value: this.opacity, ...OPACITY_SPEC },
             pointSize: { value: this.pointSize, ...POINT_SIZE_SPEC },
@@ -996,6 +1258,18 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
 
     /** Apply a sidebar edit through the existing prop setters. */
     applyViewerSettings(patch: ViewerSettingsPatch): void {
+        if (patch.comparisonLinkCameras !== undefined) {
+            this.setComparisonLinkCameras(patch.comparisonLinkCameras);
+        }
+        if (patch.comparisonSharedRange !== undefined) {
+            this.setComparisonSharedRange(patch.comparisonSharedRange);
+        }
+        if (patch.comparisonShowLabels !== undefined) {
+            this.setComparisonShowLabels(patch.comparisonShowLabels);
+        }
+        if (patch.comparisonLeave) {
+            this.leaveComparison();
+        }
         if (patch.clipTab !== undefined && patch.clipTab !== this.clipTab) {
             this.clipTab = patch.clipTab;
             this.update();
@@ -1772,6 +2046,9 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
             this.statusMessage = '';
             this.buildScene();
             this.update();
+            // Comparison shared-range input after the dataset lands.
+            this.publishComparisonRange();
+            this.enforceComparisonSharedRange();
         } catch (error) {
             if (token !== this.loadToken) {
                 return;
@@ -1947,6 +2224,7 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
                     <div style={{ flex: '1', minHeight: '0', position: 'relative', display: 'flex' }}>
                         <div ref={this.attachHost} style={{ flex: '1', minHeight: '0', position: 'relative' }} />
                         {this.renderViewBadge()}
+                        {this.renderComparisonBadge()}
                         {this.renderNavCluster()}
                         {this.renderGizmo()}
                         {this.renderMeasureLabel()}
@@ -2001,7 +2279,7 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
                     <LinkCamerasTrigger
                         linked={this.cameraLinked}
                         disabled={disabled || this.cameraLinkKey() === undefined}
-                        onToggle={() => this.setCameraLinked(!this.cameraLinked)}
+                        onToggle={() => this.toggleCameraLink()}
                     />
                     <FindDataTrigger
                         active={this.findDataSelection !== undefined}
@@ -2100,6 +2378,15 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
             return undefined;
         }
         return <ViewBadge text={this.fileUri?.path.base ?? 'VTK dataset'} />;
+    }
+
+    /** Comparison pane label (A/B/C) below the dataset badge while labels are on. */
+    protected renderComparisonBadge(): React.ReactNode {
+        const comparison = this.comparisonView;
+        if (!comparison || !comparison.showLabels) {
+            return undefined;
+        }
+        return <div className="nuke-viewer-comparison-badge">{comparison.label}</div>;
     }
 
     /** Shared orientation cube over the 3D viewarea (hidden until a dataset loads). */
@@ -2468,6 +2755,7 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         super.onAfterAttach(msg);
         this.ensureRenderer();
         this.ensureCameraLinkSubscription();
+        this.ensureComparisonRangeSubscription();
         if (!this.measureKeysAttached) {
             window.addEventListener('keydown', this.onWindowKeyDown, true);
             window.addEventListener('pointerdown', this.onWindowPointerDown, true);
@@ -2482,6 +2770,7 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
             this.measureKeysAttached = false;
         }
         this.dropCameraLinkSubscription();
+        this.dropComparisonRangeSubscription();
         this.teardownRenderer();
         super.onBeforeDetach(msg);
     }
@@ -2489,6 +2778,9 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
     override dispose(): void {
         this.loadToken++;
         this.dropCameraLinkSubscription();
+        this.dropComparisonRangeSubscription();
+        this.comparisonView = undefined;
+        this.comparisonUnion = undefined;
         this.teardownRenderer();
         super.dispose();
     }

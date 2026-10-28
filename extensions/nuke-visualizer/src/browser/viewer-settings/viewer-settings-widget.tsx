@@ -38,6 +38,7 @@ import { DagmcViewerWidget } from '../plugins/openmc/widgets/dagmc/dagmc-viewer-
 import { GeometryNativeViewerWidget } from '../plugins/openmc/widgets/geometry-native/geometry-native-viewer-widget';
 import { ExodusTimeSliderWidget } from '../plugins/openmc/widgets/exodus-series/exodus-time-slider-widget';
 import { anyClipEnabled, CLIP_AXES, setAllClipEnabled, updateAxisClip } from '../viewer-core/clip-plane';
+import { formatRangeValue } from '../viewer-core/scalar-mapping';
 import { isViewerShadingMode, VIEWER_SHADING_MODES } from '../viewer-core/shading-mode';
 import { isWarpScaleMode, WARP_EXAGGERATION_SPEC, WARP_SCALE_MODES } from '../viewer-core/warp-vectors';
 import { DEFAULT_GLYPH_DENSITY, DEFAULT_GLYPH_SCALE, GLYPH_DENSITY_SPEC, GLYPH_SCALE_SPEC } from '../viewer-core/glyph-layout';
@@ -62,7 +63,7 @@ import './viewer-settings.css';
  * Viewer Settings sidebar panel: display settings for the active native 3D
  * viewer (color-by array/component, colormap, range, legend, warp-by-vector,
  * solid color, background, shading, point/line size, opacity, clip, measure,
- * axis snaps) in one Theia/React view, following the Model Outline active-widget pattern.
+ * comparison, axis snaps) in one Theia/React view, following the Model Outline active-widget pattern.
  *
  * The panel binds once — every native viewer (native-VTK and its tally /
  * output subclasses, DAGMC, geometry-native, Exodus) exposes the same
@@ -113,6 +114,14 @@ export class ViewerSettingsWidget extends ReactWidget {
         this.title.iconClass = codicon('settings-gear');
         this.toDispose.push(this.shell.onDidChangeActiveWidget(() => this.refreshActiveViewer()));
         this.toDispose.push(this.shell.onDidChangeCurrentWidget(() => this.refreshActiveViewer()));
+        this.refreshActiveViewer();
+    }
+
+    /**
+     * Force a fresh snapshot read. Commands that mutate viewer state without
+     * a shell activation (comparison join/leave) call this after their edit.
+     */
+    refresh(): void {
         this.refreshActiveViewer();
     }
 
@@ -316,6 +325,7 @@ export class ViewerSettingsWidget extends ReactWidget {
                             {this.renderClipSection(host, snapshot)}
                             {this.renderStepSection(host, snapshot)}
                             {this.renderMeasureSection(host, snapshot)}
+                            {this.renderComparisonSection(host, snapshot)}
                             {this.renderViewSection(host, snapshot)}
                         </>
                     )
@@ -649,6 +659,86 @@ export class ViewerSettingsWidget extends ReactWidget {
             return undefined;
         }
         return this.renderSection('measure', 'Measure', 'ruler', 1, measure.active, this.renderMeasure(host, snapshot));
+    }
+
+    /**
+     * Comparison section for a side-by-side comparison session (Wave 5):
+     * pane identity plus the camera-link, shared-range and label toggles,
+     * the union range readout, and the leave action. The snapshot omits
+     * `comparison` when the bound viewer is not in a session, so the whole
+     * section stays hidden rather than showing dead controls.
+     */
+    protected renderComparisonSection(host: ViewerSettingsHost, snapshot: ViewerSettingsSnapshot): React.ReactNode {
+        const comparison = snapshot.comparison;
+        if (!comparison) {
+            return undefined;
+        }
+        return this.renderSection(
+            'comparison',
+            'Comparison',
+            'git-compare',
+            3,
+            comparison.linkCameras || comparison.sharedRange,
+            <div className="viewer-settings-group viewer-settings-comparison">
+                <div className="viewer-settings-row viewer-settings-comparison-pane">
+                    {this.renderRowLabel(
+                        'git-compare',
+                        `Pane ${comparison.label}`,
+                        `This viewer is pane ${comparison.label} of the active comparison session`
+                    )}
+                </div>
+                <div className="viewer-settings-row">
+                    {this.renderRowLabel(
+                        'link',
+                        'Link cameras',
+                        'Sync the orbit direction across comparison panes; each pane keeps its own framing distance'
+                    )}
+                    <NukeSwitch
+                        className="viewer-settings-comparison-link"
+                        ariaLabel="Link comparison cameras"
+                        checked={comparison.linkCameras}
+                        onChange={() => this.applyPatch(host, { comparisonLinkCameras: !comparison.linkCameras })}
+                    />
+                </div>
+                <div className="viewer-settings-row">
+                    {this.renderRowLabel('symbol-color', 'Shared color range', "Use the union of every pane's active-array data range")}
+                    <NukeSwitch
+                        className="viewer-settings-comparison-range"
+                        ariaLabel="Shared comparison color range"
+                        checked={comparison.sharedRange}
+                        onChange={() => this.applyPatch(host, { comparisonSharedRange: !comparison.sharedRange })}
+                    />
+                </div>
+                <div className="viewer-settings-row">
+                    {this.renderRowLabel('tag', 'Show pane labels', 'Show the pane letter badge in the viewport corner')}
+                    <NukeSwitch
+                        className="viewer-settings-comparison-labels"
+                        ariaLabel="Show comparison pane labels"
+                        checked={comparison.showLabels}
+                        onChange={() => this.applyPatch(host, { comparisonShowLabels: !comparison.showLabels })}
+                    />
+                </div>
+                {comparison.sharedRange && comparison.range && (
+                    <div className="viewer-settings-comparison-range-value">
+                        Shared range: {formatRangeValue(comparison.range[0])} to {formatRangeValue(comparison.range[1])}
+                    </div>
+                )}
+                {comparison.sharedRange && !comparison.range && (
+                    <div className="viewer-settings-comparison-range-note">No active scalar array in the panes yet.</div>
+                )}
+                <div className="viewer-settings-row">
+                    <Tooltip content="Leave this comparison and restore the pane's camera link and color range" position="top">
+                        <button
+                            className="theia-button secondary viewer-settings-comparison-leave"
+                            onClick={() => this.applyPatch(host, { comparisonLeave: true })}
+                        >
+                            <i className={codicon('debug-disconnect')}></i>
+                            Leave comparison
+                        </button>
+                    </Tooltip>
+                </div>
+            </div>
+        );
     }
 
     protected renderViewSection(host: ViewerSettingsHost, snapshot: ViewerSettingsSnapshot): React.ReactNode {

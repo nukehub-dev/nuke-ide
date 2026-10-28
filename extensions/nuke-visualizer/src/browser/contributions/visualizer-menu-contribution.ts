@@ -32,7 +32,9 @@ import {
     VisualizerCommand,
     VisualizerHealthCheckCommand,
     InstallBaseVisualizerCommand,
-    InstallOpenMCCommand
+    InstallOpenMCCommand,
+    CompareOpenViewsCommand,
+    StopComparisonCommand
 } from '../commands/visualizer-commands';
 
 @injectable()
@@ -43,6 +45,16 @@ export class VisualizerMenuContribution implements MenuContribution {
             commandId: VisualizerCommand.id,
             label: VisualizerCommand.label,
             order: '0_main'
+        });
+        menus.registerMenuAction(NukeVisualizerMenus.VISUALIZER, {
+            commandId: CompareOpenViewsCommand.id,
+            label: CompareOpenViewsCommand.label,
+            order: '1_compare'
+        });
+        menus.registerMenuAction(NukeVisualizerMenus.VISUALIZER, {
+            commandId: StopComparisonCommand.id,
+            label: StopComparisonCommand.label,
+            order: '2_stop'
         });
         menus.registerSubmenu(NukeVisualizerMenus.ENVIRONMENT, 'Environment');
         menus.registerMenuAction(NukeVisualizerMenus.ENVIRONMENT, {

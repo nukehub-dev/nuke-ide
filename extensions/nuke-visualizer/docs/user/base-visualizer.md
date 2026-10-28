@@ -41,6 +41,37 @@ The visualizer supports **multi-instance** tabs. Each file gets its own tab with
 
 ---
 
+## Comparison Workspace
+
+Use the comparison workspace to compare two to four cases side by side without
+manually matching cameras or color scales.
+
+1. Open each case in its own visualizer tab (VTK, DAGMC, or tally-native).
+2. Run `Tools → Visualizer → Compare Open Views...` (also in the Nuke Tools
+   sidebar).
+3. Multi-select 2–4 open viewers and confirm.
+4. The views split into A/B/C panes. Cameras stay linked across different
+   files (orientation only, so each pane keeps its own framing distance), and
+   the color range uses the union of each pane's active-array data range.
+5. Viewer Settings opens with a **Comparison** section for the active pane.
+
+| Control                | What It Does                                                            |
+| ---------------------- | ----------------------------------------------------------------------- |
+| **Link cameras**       | Sync the orbit direction across panes; each pane keeps its own distance |
+| **Shared color range** | Map every pane on the union of active-array data ranges                 |
+| **Show pane labels**   | Show the A/B/C badge on each canvas                                     |
+| **Leave comparison**   | Unlink this pane and restore its previous camera link and range mode    |
+
+Shared color range unions the active arrays' data ranges; it does not change
+which array each pane colors by. Choose comparable arrays (for example the same
+score in two cases) or turn the shared range off for unrelated quantities.
+
+Run `Stop Comparison` (command palette or Nuke Tools) to unlink every pane.
+Panes stay open and split. Comparison is a session-only workspace state: it is
+not saved with the viewer state.
+
+---
+
 ## Interactive Controls
 
 Once the file loads, the visualization panel shows an interactive 3D view with a control sidebar:

@@ -14,6 +14,8 @@ New to Nuke Visualizer? Start here:
 
 → [**Base Visualizer**](base-visualizer.md) — View VTK, DAGMC (.h5m), STL, PLY, and OBJ files with interactive 3D controls.
 
+→ [**Comparison Workspace**](base-visualizer.md#comparison-workspace) — Arrange 2–4 open views side by side with linked cameras and shared color ranges.
+
 ### OpenMC Plugin
 
 The OpenMC plugin handles Monte Carlo simulation data:

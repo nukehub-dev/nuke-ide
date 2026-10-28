@@ -127,6 +127,28 @@
     z-index: 10;
 }
 
+/* Comparison pane label (A/B/C) sits directly below the dataset badge so the
+   two never overlap, using the same overlay layer. */
+.openmc-output-viewer-viewarea .nuke-viewer-comparison-badge {
+    position: absolute;
+    top: 44px;
+    left: 12px;
+    z-index: 10;
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border: 1px solid var(--theia-focusBorder);
+    border-radius: 8px;
+    background: var(--theia-editorWidget-background);
+    color: var(--theia-foreground);
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1.4;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+    pointer-events: none;
+}
+
 /* Distance measure (viewport annotations; cleared on rebuild) */
 
 .viewer-measure-toggle.active {

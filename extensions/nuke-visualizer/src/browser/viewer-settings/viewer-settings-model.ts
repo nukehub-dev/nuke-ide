@@ -180,6 +180,21 @@ export interface ViewerMeasureSettings {
     readonly active: boolean;
 }
 
+/**
+ * Comparison-workspace section of a settings snapshot. Present only while the
+ * viewer participates in a comparison session (Wave 5); absent outside one so
+ * the panel hides the whole section. `range` is the current union of the
+ * panes' active-array data ranges (undefined until at least one pane reports
+ * one).
+ */
+export interface ViewerComparisonSettings {
+    readonly label: string;
+    readonly linkCameras: boolean;
+    readonly sharedRange: boolean;
+    readonly showLabels: boolean;
+    readonly range?: readonly [number, number];
+}
+
 /** Bounding-box axes/grid section. */
 export interface ViewerAxesGridSettings {
     readonly visible: boolean;
@@ -307,6 +322,8 @@ export interface ViewerSettingsSnapshot {
     readonly shading?: ViewerShadingSettings;
     readonly clip?: ViewerClipSettings;
     readonly measure?: ViewerMeasureSettings;
+    /** Comparison-workspace state; absent outside a comparison session. */
+    readonly comparison?: ViewerComparisonSettings;
     readonly axesGrid?: ViewerAxesGridSettings;
     readonly opacity?: ViewerOpacitySettings;
     readonly pointSize?: ViewerSliderSettings;
@@ -367,6 +384,14 @@ export interface ViewerSettingsPatch {
     readonly clipTab?: ClipAxis;
     readonly clipCaps?: boolean;
     readonly measureActive?: boolean;
+    /** Comparison workspace: link cameras across panes (per-pane opt-out). */
+    readonly comparisonLinkCameras?: boolean;
+    /** Comparison workspace: share the union of the panes' data ranges. */
+    readonly comparisonSharedRange?: boolean;
+    /** Comparison workspace: show the A/B/C pane badge. */
+    readonly comparisonShowLabels?: boolean;
+    /** Leave the comparison session (restores the captured link/range state). */
+    readonly comparisonLeave?: boolean;
     readonly axesGridVisible?: boolean;
     readonly opacity?: number;
     readonly pointSize?: number;

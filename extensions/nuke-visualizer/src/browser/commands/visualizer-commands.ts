@@ -49,3 +49,15 @@ export const InstallOpenMCCommand = {
     label: 'Install OpenMC Dependencies',
     category: 'Visualizer'
 };
+
+export const CompareOpenViewsCommand = {
+    id: 'nuke-visualizer.compare-open-views',
+    label: 'Compare Open Views...',
+    category: 'Visualizer'
+};
+
+export const StopComparisonCommand = {
+    id: 'nuke-visualizer.stop-comparison',
+    label: 'Stop Comparison',
+    category: 'Visualizer'
+};

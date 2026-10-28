@@ -50,6 +50,13 @@ statepoint (`statepoint*.h5` / `openmc_simulation_n<N>.h5`) and returns per-step
 `viewRange`. `OpenMCTallySeriesWidget` charts that payload and converts only the chosen step on **Open 3D at this
 step**, passing `viewRange` as a custom range when **Shared color range** is on; no per-step mesh is preloaded.
 
+Comparison workspace groups already-open viewers into 2–4 Theia split panes
+(`visualizer-comparison-contribution.ts`). `viewer-core/comparison-session.ts` owns the pane labels and a
+per-session range bus; every pane publishes its **active-array data range** and the bus hands back the union,
+which is applied as a custom range while _Shared color range_ is on. Camera links reuse `cameraLinkBus` under a
+`comparison:<id>` key, applying direction only so differently scaled models keep their own framing. The generic
+native viewer and the DAGMC viewer both implement the `ComparisonViewHost` surface; no data is preloaded.
+
 ### The Color-By Contract
 
 Color-by is a pure client-side control: `'Solid Color' | 'Point: <array>' | 'Cell: <array>'`, validated against the arrays the parsed dataset actually has. Switching arrays re-colors instantly — no conversion re-run, no restart. Converters decide _which_ arrays exist — e.g. weight windows write one cell-data array per (bound, group) named `lower_g<i>` / `upper_g<i>`, which is what makes Color By act as the group/bound selector. Mesh tallies write `<score>-mean` first, followed by `<score>-std` and `<score>-rel-err` from the same `[sum, sum_sq]` moments; the overlay/slice paths sample all three on the same lattice. The DAGMC surface drape remains mean-only until its sampler contract grows a second array.
@@ -173,6 +180,8 @@ IFP kinetics results live in ordinary `statepoint*.h5` files, so they have no re
 | Mesh-quality popover       | `widgets/viewer-quality-menu.tsx`, `base.mesh-quality`                                   |
 | Tally series command       | `python/plugins/openmc/commands/tally_series.py`, `lib/tally_series.py`                  |
 | Tally series widget/model  | `widgets/statepoint/tally-series-widget.tsx`, `tally-series-model.ts`                    |
+| Comparison session/range   | `viewer-core/comparison-session.ts` (pure, vitest-covered)                               |
+| Comparison command         | `contributions/visualizer-comparison-contribution.ts`                                    |
 | Split-drag helper          | `src/browser/plugins/openmc/widgets/drag-split.ts`                                       |
 | Backend conversion service | `src/node/plugins/openmc/services/openmc-output-service.ts`                              |
 | VTK converters (Python)    | `python/plugins/openmc/lib/output_vtk.py`                                                |

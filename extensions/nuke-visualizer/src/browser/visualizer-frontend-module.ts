@@ -32,6 +32,7 @@ import { WidgetFactory, FrontendApplicationContribution, OpenHandler, bindViewCo
 import { VisualizerViewContribution } from './contributions/visualizer-view-contribution';
 import { VisualizerOpenHandler } from './contributions/visualizer-open-handler';
 import { VisualizerCommandContribution } from './commands/visualizer-command-contribution';
+import { VisualizerComparisonContribution } from './contributions/visualizer-comparison-contribution';
 import { VisualizerMenuContribution } from './contributions/visualizer-menu-contribution';
 import { VisualizerToolsContribution } from './contributions/visualizer-tools-contribution';
 import { NukeToolsContribution } from 'nuke-core/lib/common/nuke-tools-protocol';
@@ -301,6 +302,9 @@ export default new ContainerModule((bind: interfaces.Bind) => {
     // Bind custom commands
     bind(VisualizerCommandContribution).toSelf().inSingletonScope();
     bind(CommandContribution).toService(VisualizerCommandContribution);
+    // Bind comparison workspace commands (compare open views / stop comparison)
+    bind(VisualizerComparisonContribution).toSelf().inSingletonScope();
+    bind(CommandContribution).toService(VisualizerComparisonContribution);
     // Bind custom menus
     bind(VisualizerMenuContribution).toSelf().inSingletonScope();
     bind(MenuContribution).toService(VisualizerMenuContribution);

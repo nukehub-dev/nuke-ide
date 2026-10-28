@@ -69,6 +69,9 @@ All files under `extensions/nuke-visualizer/` except generated artifacts (`lib/`
 - Tally series (`openmc.tally-series` in `commands/tally_series.py` + `lib/tally_series.py`) reads sibling
   statepoints through `widgets/statepoint/tally-series-widget.tsx`; preload no per-step mesh, and pass the
   series-wide `viewRange` as the custom 3D range when Shared color range is on.
+- Comparison workspace (`viewer-core/comparison-session.ts`, `visualizer-comparison-contribution.ts`) groups
+  already-open native/DAGMC viewers into split panes; camera links apply direction only across files and the
+  shared range is the union of active-array data ranges. Never preload data or copy source camera distance.
 - Tally routing uses `python/plugins/openmc/lib/tally_vtk.py` (`openmc.tally-mesh-vtk` / `source-vtk` / `overlay-vtk` /
   `overlay-geometry-vtk`, XML only) via `openmc-service.ts::openTallyNativeWidget`; tabs open instantly with a loading
   status (`beginPendingLoad`) before conversion runs, failures land in-tab (`failPendingLoad`); probe/contour source
