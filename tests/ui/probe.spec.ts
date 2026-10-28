@@ -121,8 +121,8 @@ test('probe dialog picks a point value and runs an X-axis line profile with CSV 
     // --- Line tab: the default endpoints span the dataset X axis. ---
     await dialog.locator('.probe-tab-line').click();
     await expect(dialog.locator('.probe-array')).toBeVisible();
-    await expect(dialog.locator('.probe-p0')).toBeVisible();
-    await expect(dialog.locator('.probe-p1')).toBeVisible();
+    await expect(dialog.locator('.probe-start')).toBeVisible();
+    await expect(dialog.locator('.probe-end')).toBeVisible();
     await expect(dialog.locator('.probe-samples')).toBeVisible();
 
     await dialog.locator('.probe-run').click();

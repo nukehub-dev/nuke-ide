@@ -78,7 +78,7 @@ export interface ProbeDialogProps {
     readonly onTogglePick: () => void;
     readonly onClearSamples: () => void;
     readonly onExportSamples: () => void;
-    readonly onRunProfile: (request: { association: ProbeAssociation; name: string; p0: string; p1: string; samples: number }) => void;
+    readonly onRunProfile: (request: { association: ProbeAssociation; name: string; start: string; end: string; samples: number }) => void;
     readonly onExportProfile: () => void;
     readonly onClose: () => void;
 }
@@ -144,8 +144,8 @@ export const ProbeDialog: React.FC<ProbeDialogProps> = ({
 }) => {
     const [tab, setTab] = React.useState<ProbeTab>('point');
     const [selectedIndex, setSelectedIndex] = React.useState<number | undefined>(undefined);
-    const [p0, setP0] = React.useState(() => formatProbePoint(defaultProbeEndpoints(bounds).p0));
-    const [p1, setP1] = React.useState(() => formatProbePoint(defaultProbeEndpoints(bounds).p1));
+    const [start, setStart] = React.useState(() => formatProbePoint(defaultProbeEndpoints(bounds).start));
+    const [end, setEnd] = React.useState(() => formatProbePoint(defaultProbeEndpoints(bounds).end));
     const [sampleCountText, setSampleCountText] = React.useState(String(PROBE_DEFAULT_SAMPLES));
     const [endpointError, setEndpointError] = React.useState<string | undefined>(undefined);
     const theme = usePlotlyTheme();
@@ -181,8 +181,8 @@ export const ProbeDialog: React.FC<ProbeDialogProps> = ({
         }
         endpointKeyRef.current = endpointKey;
         const endpoints = defaultProbeEndpoints(bounds);
-        setP0(formatProbePoint(endpoints.p0));
-        setP1(formatProbePoint(endpoints.p1));
+        setStart(formatProbePoint(endpoints.start));
+        setEnd(formatProbePoint(endpoints.end));
         setEndpointError(undefined);
     }, [endpointKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -225,7 +225,7 @@ export const ProbeDialog: React.FC<ProbeDialogProps> = ({
         if (!canProfile || profileRunning || activeArray === undefined) {
             return;
         }
-        if (parseProbePoint(p0) === undefined || parseProbePoint(p1) === undefined) {
+        if (parseProbePoint(start) === undefined || parseProbePoint(end) === undefined) {
             setEndpointError('Enter endpoints as "x, y, z".');
             return;
         }
@@ -235,8 +235,8 @@ export const ProbeDialog: React.FC<ProbeDialogProps> = ({
         onRunProfile({
             association: activeArray.association,
             name: activeArray.name,
-            p0,
-            p1,
+            start,
+            end,
             samples: sampleCount
         });
     };
@@ -374,14 +374,14 @@ export const ProbeDialog: React.FC<ProbeDialogProps> = ({
                         </div>
                         <div className="probe-field-row">
                             <label className="probe-field">
-                                <span className="probe-label">P0</span>
+                                <span className="probe-label">Start</span>
                                 <input
                                     type="text"
-                                    className="probe-p0"
+                                    className="probe-start"
                                     placeholder="x, y, z"
-                                    value={p0}
+                                    value={start}
                                     onChange={(event) => {
-                                        setP0(event.target.value);
+                                        setStart(event.target.value);
                                         setEndpointError(undefined);
                                     }}
                                     disabled={!canProfile}
@@ -390,14 +390,14 @@ export const ProbeDialog: React.FC<ProbeDialogProps> = ({
                                 />
                             </label>
                             <label className="probe-field">
-                                <span className="probe-label">P1</span>
+                                <span className="probe-label">End</span>
                                 <input
                                     type="text"
-                                    className="probe-p1"
+                                    className="probe-end"
                                     placeholder="x, y, z"
-                                    value={p1}
+                                    value={end}
                                     onChange={(event) => {
-                                        setP1(event.target.value);
+                                        setEnd(event.target.value);
                                         setEndpointError(undefined);
                                     }}
                                     disabled={!canProfile}

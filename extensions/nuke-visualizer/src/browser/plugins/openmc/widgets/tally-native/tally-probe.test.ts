@@ -81,13 +81,13 @@ describe('clampProbeNpoints', () => {
 
 describe('defaultProbeEndpoints', () => {
     it('spans the X axis through the bounds center', () => {
-        const { p0, p1 } = defaultProbeEndpoints({ min: [0, 0, 0], max: [10, 20, 30] });
-        expect(p0).toEqual([0, 10, 15]);
-        expect(p1).toEqual([10, 10, 15]);
+        const { start, end } = defaultProbeEndpoints({ min: [0, 0, 0], max: [10, 20, 30] });
+        expect(start).toEqual([0, 10, 15]);
+        expect(end).toEqual([10, 10, 15]);
     });
 
     it('falls back to the unit diagonal without bounds', () => {
-        expect(defaultProbeEndpoints(undefined)).toEqual({ p0: [0, 0, 0], p1: [1, 1, 1] });
+        expect(defaultProbeEndpoints(undefined)).toEqual({ start: [0, 0, 0], end: [1, 1, 1] });
     });
 });
 

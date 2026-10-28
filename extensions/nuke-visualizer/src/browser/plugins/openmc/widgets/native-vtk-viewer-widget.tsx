@@ -273,8 +273,8 @@ const UNDERLAY_GROUP_NAME = 'underlay';
 interface ProbeProfileRequest {
     readonly association: ProbeAssociation;
     readonly name: string;
-    readonly p0: string;
-    readonly p1: string;
+    readonly start: string;
+    readonly end: string;
     readonly samples: number;
 }
 
@@ -2328,7 +2328,7 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
                 '--array',
                 `${request.association}:${request.name}`,
                 '--path',
-                `${request.p0};${request.p1}`,
+                `${request.start};${request.end}`,
                 '--samples',
                 String(request.samples)
             ]);

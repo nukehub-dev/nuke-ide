@@ -420,17 +420,20 @@ describe('clampProbeSamples', () => {
 
 describe('defaultProbeEndpoints', () => {
     it('spans X through the bounds center', () => {
-        expect(defaultProbeEndpoints({ min: [0, 0, 0], max: [10, 4, 2] })).toEqual({ p0: [0, 2, 1], p1: [10, 2, 1] });
-        expect(defaultProbeEndpoints({ min: [-2, -4, -6], max: [2, 4, 6] })).toEqual({ p0: [-2, 0, 0], p1: [2, 0, 0] });
-        expect(defaultProbeEndpoints({ min: [5, 5, 5], max: [5, 5, 5] })).toEqual({ p0: [5, 5, 5], p1: [5, 5, 5] });
+        expect(defaultProbeEndpoints({ min: [0, 0, 0], max: [10, 4, 2] })).toEqual({ start: [0, 2, 1], end: [10, 2, 1] });
+        expect(defaultProbeEndpoints({ min: [-2, -4, -6], max: [2, 4, 6] })).toEqual({ start: [-2, 0, 0], end: [2, 0, 0] });
+        expect(defaultProbeEndpoints({ min: [5, 5, 5], max: [5, 5, 5] })).toEqual({ start: [5, 5, 5], end: [5, 5, 5] });
     });
 
     it('falls back to the unit diagonal without usable bounds', () => {
-        expect(defaultProbeEndpoints(undefined)).toEqual({ p0: [0, 0, 0], p1: [1, 1, 1] });
+        expect(defaultProbeEndpoints(undefined)).toEqual({ start: [0, 0, 0], end: [1, 1, 1] });
         expect(defaultProbeEndpoints({ min: [Number.NaN, 0, 0], max: [1, 1, 1] })).toEqual({
-            p0: [0, 0, 0],
-            p1: [1, 1, 1]
+            start: [0, 0, 0],
+            end: [1, 1, 1]
         });
-        expect(defaultProbeEndpoints({ min: [0, 0, 0], max: [1, Number.POSITIVE_INFINITY, 1] })).toEqual({ p0: [0, 0, 0], p1: [1, 1, 1] });
+        expect(defaultProbeEndpoints({ min: [0, 0, 0], max: [1, Number.POSITIVE_INFINITY, 1] })).toEqual({
+            start: [0, 0, 0],
+            end: [1, 1, 1]
+        });
     });
 });

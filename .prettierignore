@@ -6,7 +6,7 @@ node_modules
 .venv/
 
 # Research/scratch artifacts (large generated JSON, throwaway scripts)
-.research/
+.planning/
 
 # Build output (tsc / webpack / electron-builder)
 extensions/*/lib

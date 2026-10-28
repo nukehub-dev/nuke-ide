@@ -132,8 +132,8 @@ export class TallyNativeViewerWidget extends NativeVtkViewerWidget implements Cs
     protected probeTallyId = '';
     protected probeScore = '';
     protected probeNuclide = '';
-    protected probeP0 = '';
-    protected probeP1 = '';
+    protected probeStart = '';
+    protected probeEnd = '';
     protected probeNpoints = String(LINE_PROBE_DEFAULT_NPOINTS);
     /** True = trilinear smooth (overlay slice default); false = nearest-cell pixelated. */
     protected probeSmooth = true;
@@ -292,7 +292,7 @@ export class TallyNativeViewerWidget extends NativeVtkViewerWidget implements Cs
             // bottom strip, so opening one closes the other.
             this.contourOpen = false;
             const bounds = this.model ? boundingBoxFromPositions(this.model.positions) : undefined;
-            const { p0, p1 } = defaultProbeEndpoints(
+            const { start, end } = defaultProbeEndpoints(
                 bounds
                     ? {
                           min: [bounds.min[0], bounds.min[1], bounds.min[2]] as ProbePoint3D,
@@ -300,11 +300,11 @@ export class TallyNativeViewerWidget extends NativeVtkViewerWidget implements Cs
                       }
                     : undefined
             );
-            if (this.probeP0 === '') {
-                this.probeP0 = formatProbePoint(p0);
+            if (this.probeStart === '') {
+                this.probeStart = formatProbePoint(start);
             }
-            if (this.probeP1 === '') {
-                this.probeP1 = formatProbePoint(p1);
+            if (this.probeEnd === '') {
+                this.probeEnd = formatProbePoint(end);
             }
         }
         this.update();
@@ -366,12 +366,12 @@ export class TallyNativeViewerWidget extends NativeVtkViewerWidget implements Cs
             (bounds.min[1] + bounds.max[1]) / 2,
             (bounds.min[2] + bounds.max[2]) / 2
         ];
-        const p0: ProbePoint3D = [center[0], center[1], center[2]];
-        const p1: ProbePoint3D = [center[0], center[1], center[2]];
-        p0[axis] = bounds.min[axis];
-        p1[axis] = bounds.max[axis];
-        this.probeP0 = formatProbePoint(p0);
-        this.probeP1 = formatProbePoint(p1);
+        const start: ProbePoint3D = [center[0], center[1], center[2]];
+        const end: ProbePoint3D = [center[0], center[1], center[2]];
+        start[axis] = bounds.min[axis];
+        end[axis] = bounds.max[axis];
+        this.probeStart = formatProbePoint(start);
+        this.probeEnd = formatProbePoint(end);
         this.probeError = undefined;
         this.update();
     }
@@ -381,8 +381,8 @@ export class TallyNativeViewerWidget extends NativeVtkViewerWidget implements Cs
         const token = ++this.probeToken;
         const statepointPath = this.probeStatepointPath.trim();
         const tallyId = Number(this.probeTallyId);
-        const p0 = parseProbePoint(this.probeP0);
-        const p1 = parseProbePoint(this.probeP1);
+        const start = parseProbePoint(this.probeStart);
+        const end = parseProbePoint(this.probeEnd);
         const npoints = clampProbeNpoints(Number(this.probeNpoints));
         this.probeNpoints = String(npoints);
         const score = this.probeScore.trim() || undefined;
@@ -397,12 +397,12 @@ export class TallyNativeViewerWidget extends NativeVtkViewerWidget implements Cs
             this.update();
             return;
         }
-        if (!p0 || !p1) {
+        if (!start || !end) {
             this.probeError = 'Enter endpoints as "x, y, z" in cm.';
             this.update();
             return;
         }
-        if (p0[0] === p1[0] && p0[1] === p1[1] && p0[2] === p1[2]) {
+        if (start[0] === end[0] && start[1] === end[1] && start[2] === end[2]) {
             this.probeError = 'Probe endpoints must differ.';
             this.update();
             return;
@@ -415,8 +415,8 @@ export class TallyNativeViewerWidget extends NativeVtkViewerWidget implements Cs
                 tallyId,
                 score,
                 nuclide,
-                p0,
-                p1,
+                p0: start,
+                p1: end,
                 npoints,
                 smooth: this.probeSmooth
             });
@@ -1075,27 +1075,27 @@ export class TallyNativeViewerWidget extends NativeVtkViewerWidget implements Cs
                     </div>
                     <div className="openmc-output-viewer-control" style={{ flexWrap: 'wrap', rowGap: '6px', marginTop: '6px' }}>
                         <label>
-                            P0 (cm)
+                            Start (cm)
                             <input
                                 type="text"
                                 style={{ width: '150px', marginLeft: '4px' }}
                                 placeholder="x, y, z"
-                                value={this.probeP0}
+                                value={this.probeStart}
                                 onChange={(event) => {
-                                    this.probeP0 = event.target.value;
+                                    this.probeStart = event.target.value;
                                     this.update();
                                 }}
                             />
                         </label>
                         <label>
-                            P1 (cm)
+                            End (cm)
                             <input
                                 type="text"
                                 style={{ width: '150px', marginLeft: '4px' }}
                                 placeholder="x, y, z"
-                                value={this.probeP1}
+                                value={this.probeEnd}
                                 onChange={(event) => {
-                                    this.probeP1 = event.target.value;
+                                    this.probeEnd = event.target.value;
                                     this.update();
                                 }}
                             />

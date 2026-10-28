@@ -74,8 +74,8 @@ test('line probe samples the mesh tally and exports the full-series CSV', async 
     await panel.getByLabel('Statepoint').fill(SP_FIXTURE);
     await panel.getByLabel('Tally').fill('1');
     await panel.getByLabel('Score').fill('flux');
-    await panel.getByLabel('P0 (cm)').fill('-1.5, 0, 0');
-    await panel.getByLabel('P1 (cm)').fill('1.5, 0, 0');
+    await panel.getByLabel('Start (cm)').fill('-1.5, 0, 0');
+    await panel.getByLabel('End (cm)').fill('1.5, 0, 0');
     await panel.getByLabel('Points').fill('4');
     await panel.locator('.tally-line-probe-run').click();
 

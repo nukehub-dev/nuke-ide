@@ -40,6 +40,9 @@ All files under `extensions/` except generated artifacts (`*/lib/`, `*/node_modu
 - Keep widgets and services small and composable; register everything through the module files, not ad-hoc singletons.
 - Sidebar `ReactWidget`s opt out of PerfectScrollbar (`this.scrollOptions = undefined` in the constructor — Theia enables it by default) and scroll natively via their own CSS; otherwise the `ps__thumb` overlay sits on top of panel content.
 - License header: new source files carry the BSD-2-Clause header used by existing files.
+- Tracked extension code, tests, and docs never cite `.planning/`, Wave/phase IDs, feature IDs, briefs, or
+  roadmaps; describe the stable contract instead. Domain notation (MGXS `P0`, `Q1/Q3`, `F1`, capture phase)
+  is not a planning label.
 - Extensions that spawn Python processes go through `nuke-core`'s environment detection rather than hard-coding interpreters.
 
 ### Common pitfalls

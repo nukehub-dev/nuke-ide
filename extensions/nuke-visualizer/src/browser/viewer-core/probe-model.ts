@@ -460,14 +460,14 @@ function isFinitePoint(point: readonly [number, number, number] | undefined): bo
  */
 export function defaultProbeEndpoints(
     bounds: { readonly min: readonly [number, number, number]; readonly max: readonly [number, number, number] } | undefined
-): { readonly p0: readonly [number, number, number]; readonly p1: readonly [number, number, number] } {
+): { readonly start: readonly [number, number, number]; readonly end: readonly [number, number, number] } {
     if (!bounds || !isFinitePoint(bounds.min) || !isFinitePoint(bounds.max)) {
-        return { p0: [0, 0, 0], p1: [1, 1, 1] };
+        return { start: [0, 0, 0], end: [1, 1, 1] };
     }
     const midY = (bounds.min[1] + bounds.max[1]) / 2;
     const midZ = (bounds.min[2] + bounds.max[2]) / 2;
     return {
-        p0: [bounds.min[0], midY, midZ],
-        p1: [bounds.max[0], midY, midZ]
+        start: [bounds.min[0], midY, midZ],
+        end: [bounds.max[0], midY, midZ]
     };
 }

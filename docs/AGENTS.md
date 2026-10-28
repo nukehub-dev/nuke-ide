@@ -20,6 +20,8 @@ All files under `docs/`.
 - Adding docs for an extension: create/edit files under that extension's `docs/` folder; the widget picks them up on IDE restart.
 - Adding a product doc: create `docs/<topic>.md` and add it to `docs/index.md`.
 - Keep `docs/architecture.md` (repo layout, extension list) and `docs/extensions.md` (extension catalogue) in sync when extensions are added, removed, or renamed.
+- Tracked docs never cite `.planning/`, Wave/phase IDs, feature IDs, briefs, or roadmaps; describe the stable
+  technical contract instead.
 - Markdown is formatted by prettier (`yarn format`); run `yarn format:check` before committing.
 
 ## Verification

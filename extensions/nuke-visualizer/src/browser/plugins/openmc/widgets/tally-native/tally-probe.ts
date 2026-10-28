@@ -37,6 +37,13 @@
  */
 
 import type { OpenMCTallyLineProbeResult } from '../../../../../common/openmc-protocol';
+import {
+    defaultProbeEndpoints as defaultSharedEndpoints,
+    formatProbePoint,
+    parseProbePoint as parseSharedPoint
+} from '../../../../viewer-core/probe-model';
+
+export { formatProbePoint };
 
 /** World-space probe endpoint in cm. */
 export type ProbePoint3D = [number, number, number];
@@ -71,25 +78,10 @@ export function parseProbeCoordinate(text: string): number | undefined {
     return text.trim() !== '' && Number.isFinite(value) ? value : undefined;
 }
 
-/**
- * Parse an endpoint from free text (`x, y, z` or `x y z`, in cm).
- * Returns undefined unless all three coordinates parse finite.
- */
+/** Parse an endpoint from free text (`x, y, z` or `x y z`, in cm). */
 export function parseProbePoint(text: string): ProbePoint3D | undefined {
-    const parts = text.split(/[\s,;]+/).filter((part) => part !== '');
-    if (parts.length !== 3) {
-        return undefined;
-    }
-    const coords = parts.map(parseProbeCoordinate);
-    if (coords.some((coord) => coord === undefined)) {
-        return undefined;
-    }
-    return coords as ProbePoint3D;
-}
-
-/** Format an endpoint for the text inputs (full precision round-trip). */
-export function formatProbePoint(point: ProbePoint3D): string {
-    return `${point[0]}, ${point[1]}, ${point[2]}`;
+    const point = parseSharedPoint(text);
+    return point === undefined ? undefined : [point[0], point[1], point[2]];
 }
 
 /** Clamp a sample count into the backend range (non-finite → default). */
@@ -100,18 +92,10 @@ export function clampProbeNpoints(value: number): number {
     return Math.min(LINE_PROBE_MAX_NPOINTS, Math.max(LINE_PROBE_MIN_NPOINTS, Math.floor(value)));
 }
 
-/**
- * Default probe line: the X-axis span through the dataset center, so the
- * first run shows a full-width flux profile without any typing. Without
- * bounds, the unit diagonal keeps the panel usable before a dataset loads.
- */
-export function defaultProbeEndpoints(bounds: ProbeBounds | undefined): { p0: ProbePoint3D; p1: ProbePoint3D } {
-    if (!bounds) {
-        return { p0: [0, 0, 0], p1: [1, 1, 1] };
-    }
-    const midY = (bounds.min[1] + bounds.max[1]) / 2;
-    const midZ = (bounds.min[2] + bounds.max[2]) / 2;
-    return { p0: [bounds.min[0], midY, midZ], p1: [bounds.max[0], midY, midZ] };
+/** Default probe line: the X-axis span through the dataset center. */
+export function defaultProbeEndpoints(bounds: ProbeBounds | undefined): { start: ProbePoint3D; end: ProbePoint3D } {
+    const { start, end } = defaultSharedEndpoints(bounds);
+    return { start: [start[0], start[1], start[2]], end: [end[0], end[1], end[2]] };
 }
 
 /**

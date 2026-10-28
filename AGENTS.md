@@ -84,16 +84,21 @@ Default section order:
 2. Update nearest owning docs and any affected parents or children.
 3. Refresh every affected Child NAD Index.
 4. Remove stale or contradictory text.
-5. Run existing verification when relevant.
-6. Report any docs intentionally left unchanged and why.
+5. Scan changed tracked files for `.planning/`, Wave/phase IDs, feature IDs, brief/roadmap citations, and
+   replace them with the durable technical name (domain notation such as MGXS `P0`, `Q1/Q3`, `F1`, and
+   capture phase stays).
+6. Run existing verification when relevant.
+7. Report any docs intentionally left unchanged and why.
 
 ## User Preferences
 
 When the user requests a durable behavior change, record it here or in the relevant child `AGENTS.md`.
 
-- Never reference `.research/`, Wave/phase IDs, planning briefs, or roadmap labels in tracked source,
+- Never reference `.planning/`, Wave/phase IDs, planning briefs, or roadmap labels in tracked source,
   tests, docs, or comments. Describe the stable technical contract instead; planning material stays local
   and gitignored.
+- Keep domain-standard notation where renaming would reduce correctness: MGXS `P0`, quartiles `Q1/Q3`,
+  `F1`, and DOM capture phase are not planning labels.
 
 ---
 

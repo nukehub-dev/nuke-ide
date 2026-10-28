@@ -258,7 +258,7 @@ Best for: Flux profiles along an arbitrary segment (e.g. across a fuel pin, thro
 ### What You See
 
 - A probe builder panel below the 3D view: statepoint path, tally id,
-  score/nuclide, two endpoints **P0/P1** in cm, the sample count, and a
+  score/nuclide, a start/end point pair in cm, the sample count, and a
   **Smooth** switch. Only one tool panel is open at a time (probe and
   contour share the bottom strip), and each panel has a close button.
 - Statepoint, tally, score, and nuclide arrive pre-filled from the open tab,
