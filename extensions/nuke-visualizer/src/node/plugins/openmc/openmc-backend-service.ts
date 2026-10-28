@@ -32,6 +32,8 @@ import {
     OpenMCBackendService,
     OpenMCStatepointInfo,
     OpenMCTallyInfo,
+    OpenMCTallySeries,
+    OpenMCTallySeriesOptions,
     XSGroupStructuresResponse,
     PythonConfig,
     VisualizerClient,
@@ -169,6 +171,10 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
 
     async listTallies(statepointPath: string): Promise<OpenMCTallyInfo[]> {
         return this.statepointService.listTallies(statepointPath);
+    }
+
+    async getTallySeries(files: string[], options: OpenMCTallySeriesOptions): Promise<OpenMCTallySeries> {
+        return this.statepointService.getTallySeries(files, options);
     }
 
     async getEnergySpectrum(statepointPath: string, tallyId: number, scoreIndex: number = 0, nuclideIndex: number = 0): Promise<any> {

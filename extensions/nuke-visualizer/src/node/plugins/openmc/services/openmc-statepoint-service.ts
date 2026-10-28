@@ -29,6 +29,8 @@ import { injectable, inject } from '@theia/core/shared/inversify';
 import {
     OpenMCStatepointInfo,
     OpenMCTallyInfo,
+    OpenMCTallySeries,
+    OpenMCTallySeriesOptions,
     OpenMCFilter,
     OpenMCStatepointFullInfo,
     OpenMCKGenerationData,
@@ -124,6 +126,21 @@ export class OpenMCStatepointService {
             })),
             hasMesh: t.has_mesh
         }));
+    }
+
+    async getTallySeries(files: string[], options: OpenMCTallySeriesOptions): Promise<OpenMCTallySeries> {
+        await this.pythonHelper.syncConfig(this.pythonConfig);
+        const args = ['openmc.tally-series', '--tally-id', String(options.tallyId), ...files.flatMap((file) => ['--file', file])];
+        if (options.score !== undefined) {
+            args.push('--score', options.score);
+        }
+        if (options.nuclide !== undefined) {
+            args.push('--nuclide', options.nuclide);
+        }
+        if (options.statistic !== undefined) {
+            args.push('--statistic', options.statistic);
+        }
+        return await this.pythonHelper.executeScriptJson<OpenMCTallySeries>(this.getScriptPath(), args, { timeout: 120000 });
     }
 
     async getStatepointFullInfo(statepointPath: string): Promise<OpenMCStatepointFullInfo> {

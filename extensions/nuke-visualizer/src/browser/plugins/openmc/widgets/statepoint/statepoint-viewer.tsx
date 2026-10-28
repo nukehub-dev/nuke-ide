@@ -52,7 +52,7 @@ import { PlotlyComponent } from '../../../../plotly/plotly-component';
 
 export interface StatepointTallySelection {
     tallyId: number;
-    action: 'view-3d' | 'overlay-geometry' | 'overlay-source' | 'heatmap' | 'spectrum' | 'spatial';
+    action: 'view-3d' | 'overlay-geometry' | 'overlay-source' | 'heatmap' | 'spectrum' | 'spatial' | 'series';
     score?: string;
     nuclide?: string;
 }
@@ -1206,6 +1206,20 @@ export class OpenMCStatepointViewerWidget extends ReactWidget {
                             </button>
                         </Tooltip>
                     )}
+                    <Tooltip content="Plot this score across statepoints" position="top">
+                        <button
+                            className="tally-card-btn tally-card-btn--series"
+                            onClick={() =>
+                                this.fireTallySelected({
+                                    tallyId: tally.id,
+                                    action: 'series',
+                                    score: tally.scores[0]
+                                })
+                            }
+                        >
+                            <i className={codicon('graph-line')}></i>
+                        </button>
+                    </Tooltip>
                 </div>
             </div>
         );

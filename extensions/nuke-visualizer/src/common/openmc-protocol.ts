@@ -226,6 +226,9 @@ export interface OpenMCBackendService {
     /** List all tallies in a statepoint file */
     listTallies(statepointPath: string): Promise<OpenMCTallyInfo[]>;
 
+    /** Read one tally/score across multiple statepoints (headless `openmc.tally-series`) */
+    getTallySeries(files: string[], options: OpenMCTallySeriesOptions): Promise<OpenMCTallySeries>;
+
     /** Get geometry bounds from DAGMC file */
     getGeometryBounds(geometryPath: string): Promise<{ x: [number, number]; y: [number, number]; z: [number, number] } | null>;
 
@@ -2058,6 +2061,54 @@ export interface OpenMCTallyMeshVtkOptions {
     tallyId: number;
     score?: string;
     nuclide?: string;
+}
+
+/** Aggregate shown by a tally series. */
+export type OpenMCTallySeriesStatistic = 'total' | 'mean' | 'max';
+
+/** Options for `openmc.tally-series` */
+export interface OpenMCTallySeriesOptions {
+    tallyId: number;
+    score?: string;
+    nuclide?: string;
+    /** Aggregation across the selected score/nuclide bins (default: total). */
+    statistic?: OpenMCTallySeriesStatistic;
+}
+
+/** One statepoint step of a tally series. */
+export interface OpenMCTallySeriesStep {
+    /** Contiguous 0-based position in the series. */
+    index: number;
+    /** X-axis value: explicit time, numeric statepoint suffix, or position. */
+    time: number;
+    /** Absolute statepoint path. */
+    file: string;
+    /** Basename shown in the widget. */
+    fileName: string;
+    /** Aggregated score value for this step. */
+    value: number;
+    /** Aggregated standard deviation for this step. */
+    std: number;
+    /** Number of finite bins contributing to the aggregate. */
+    nBins: number;
+}
+
+/** Full `openmc.tally-series` payload. */
+export interface OpenMCTallySeries {
+    files: string[];
+    tallyId: number;
+    tallyName: string;
+    score: string;
+    nuclide: string;
+    statistic: OpenMCTallySeriesStatistic;
+    timeLabel: string;
+    steps: OpenMCTallySeriesStep[];
+    /** Min/max of the aggregated step values. */
+    range: [number, number];
+    /** Global per-cell mean range across mesh steps (shared 3D color range). */
+    viewRange?: [number, number];
+    hasMesh: boolean;
+    volumeWeighted: boolean;
 }
 
 /** Options for `openmc.source-vtk` */

@@ -23,6 +23,7 @@ _COMMAND_MODULES = [
     "endf_data",
     "output_vtk",
     "tally_vtk",
+    "tally_series",
 ]
 
 load_command_modules("plugins.openmc.commands", _COMMAND_MODULES)

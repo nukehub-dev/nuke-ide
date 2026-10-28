@@ -68,6 +68,7 @@ import { OpenMCGeometryTreeWidget } from './plugins/openmc/widgets/geometry/open
 import { OpenMCMaterialExplorerWidget } from './plugins/openmc/widgets/materials/openmc-material-explorer';
 import { OpenMCOverlapWidget } from './plugins/openmc/widgets/geometry/openmc-overlap-widget';
 import { OpenMCStatepointViewerWidget } from './plugins/openmc/widgets/statepoint/statepoint-viewer';
+import { OpenMCTallySeriesWidget } from './plugins/openmc/widgets/statepoint/tally-series-widget';
 import { TallyNativeViewerWidget } from './plugins/openmc/widgets/tally-native/tally-native-viewer-widget';
 import { PlotlyService, PlotlyServiceImpl } from './plotly/plotly-service';
 import { HealthCheckFramework } from './services/health-check-framework';
@@ -571,6 +572,22 @@ export default new ContainerModule((bind: interfaces.Bind) => {
         .inSingletonScope();
     bind(OpenMCExodusViewerContribution).toSelf().inSingletonScope();
     bind(OutputViewerContribution).toService(OpenMCExodusViewerContribution);
+
+    // Bind native tally-series widget (one score across sibling statepoints,
+    // opened from a statepoint viewer tally card; no trame server)
+    bind(OpenMCTallySeriesWidget).toSelf().inTransientScope();
+    bind(WidgetFactory)
+        .toDynamicValue((context) => ({
+            id: OpenMCTallySeriesWidget.ID,
+            createWidget: (options?: { id?: string }) => {
+                const widget = context.container.get<OpenMCTallySeriesWidget>(OpenMCTallySeriesWidget);
+                if (options?.id) {
+                    widget.id = options.id;
+                }
+                return widget;
+            }
+        }))
+        .inSingletonScope();
 
     // Viewer Settings sidebar (right area): one panel bound to the active
     // native viewer through the shared ViewerSettingsHost surface

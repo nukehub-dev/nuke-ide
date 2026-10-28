@@ -34,6 +34,8 @@ import {
     OpenMCBackendService,
     OpenMCStatepointInfo,
     OpenMCTallyInfo,
+    OpenMCTallySeries,
+    OpenMCTallySeriesOptions,
     XSPlotRequest,
     XSPlotData,
     XSGroupStructuresResponse,
@@ -84,6 +86,8 @@ export interface TallyVisualizationOptions {
     filterGraveyard?: boolean;
     /** Whether to use pixelated (blocky) rendering (default: true) */
     pixelated?: boolean;
+    /** Shared color range for a series step (applied as a custom range after the tally loads) */
+    range?: readonly [number, number];
 }
 
 @injectable()
@@ -288,6 +292,13 @@ export class OpenMCService {
     }
 
     /**
+     * Read one tally/score across multiple statepoints (`openmc.tally-series`).
+     */
+    async getTallySeries(files: string[], options: OpenMCTallySeriesOptions): Promise<OpenMCTallySeries> {
+        return this.openmcBackend.getTallySeries(files, options);
+    }
+
+    /**
      * Get the currently loaded tallies.
      */
     getCurrentTallies(): OpenMCTallyInfo[] {
@@ -456,6 +467,9 @@ export class OpenMCService {
                     score: options.score,
                     nuclide: options.nuclide
                 });
+                if (options.range) {
+                    nativeWidget.applyProps({ rangeMode: 'custom', customRange: [options.range[0], options.range[1]] });
+                }
                 const tallyInfo = this.currentTallies.find((t) => t.id === options.tallyId);
                 if (tallyInfo) {
                     this._onTallyVisualized.fire(tallyInfo);

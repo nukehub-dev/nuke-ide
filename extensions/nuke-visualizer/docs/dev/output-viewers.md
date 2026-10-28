@@ -45,6 +45,11 @@ runs, then loads the converted file into it (`loadTallyIntoWidget` / `setVtmFile
 tab's error panel (`failPendingLoad`), never a toast-only dead end. Applies to tally mesh/slice/overlay/contour/source
 tabs and the DAGMC tally drape — never block the open on the backend.
 
+Tally series is the cross-statepoint path: `openmc.tally-series` reads one tally/score/nuclide from every sibling
+statepoint (`statepoint*.h5` / `openmc_simulation_n<N>.h5`) and returns per-step aggregates plus the series-wide mesh
+`viewRange`. `OpenMCTallySeriesWidget` charts that payload and converts only the chosen step on **Open 3D at this
+step**, passing `viewRange` as a custom range when **Shared color range** is on; no per-step mesh is preloaded.
+
 ### The Color-By Contract
 
 Color-by is a pure client-side control: `'Solid Color' | 'Point: <array>' | 'Cell: <array>'`, validated against the arrays the parsed dataset actually has. Switching arrays re-colors instantly — no conversion re-run, no restart. Converters decide _which_ arrays exist — e.g. weight windows write one cell-data array per (bound, group) named `lower_g<i>` / `upper_g<i>`, which is what makes Color By act as the group/bound selector. Mesh tallies write `<score>-mean` first, followed by `<score>-std` and `<score>-rel-err` from the same `[sum, sum_sq]` moments; the overlay/slice paths sample all three on the same lattice. The DAGMC surface drape remains mean-only until its sampler contract grows a second array.
@@ -166,6 +171,8 @@ IFP kinetics results live in ordinary `statepoint*.h5` files, so they have no re
 | Saved viewer state         | `viewer-core/viewer-state.ts`, `viewer-settings/viewer-settings-widget.tsx`              |
 | Dataset export command     | `python/plugins/base/commands/export.py`, `lib/export.py`                                |
 | Mesh-quality popover       | `widgets/viewer-quality-menu.tsx`, `base.mesh-quality`                                   |
+| Tally series command       | `python/plugins/openmc/commands/tally_series.py`, `lib/tally_series.py`                  |
+| Tally series widget/model  | `widgets/statepoint/tally-series-widget.tsx`, `tally-series-model.ts`                    |
 | Split-drag helper          | `src/browser/plugins/openmc/widgets/drag-split.ts`                                       |
 | Backend conversion service | `src/node/plugins/openmc/services/openmc-output-service.ts`                              |
 | VTK converters (Python)    | `python/plugins/openmc/lib/output_vtk.py`                                                |
