@@ -149,6 +149,10 @@ export interface ViewerSliceState {
 /** Color-legend visibility. */
 export interface ViewerLegendState {
     readonly visible: boolean;
+    /** Optional legend title override; omitted means the array name. */
+    readonly title?: string;
+    /** Stack the legend min/max labels vertically. */
+    readonly verticalLabels?: boolean;
 }
 
 /** Axes/grid overlay visibility. */
@@ -328,7 +332,7 @@ const GLYPH_KEYS = ['enabled', 'density', 'scale'] as const;
 const VOLUME_KEYS = ['visible', 'smooth', 'opacityStops', 'blendMode', 'shade'] as const;
 const OPACITY_STOP_KEYS = ['t', 'alpha'] as const;
 const SLICE_KEYS = ['axis', 'fraction', 'smooth'] as const;
-const LEGEND_KEYS = ['visible'] as const;
+const LEGEND_KEYS = ['visible', 'title', 'verticalLabels'] as const;
 const AXES_GRID_KEYS = ['visible'] as const;
 
 const COLOR_RANGE_MODES: readonly ColorRangeMode[] = ['auto', 'custom'];
@@ -772,7 +776,12 @@ function normalizeLegend(value: unknown): ViewerLegendState | undefined {
     }
     const fields = new StateFields();
     const visible = fields.boolean(record, 'visible', DEFAULT_VIEWER_LEGEND_STATE.visible);
-    return fields.valid ? { visible } : undefined;
+    const titleText = fields.string(record, 'title', '', { allowEmpty: true });
+    const title = titleText.length > 0 ? titleText : undefined;
+    const verticalLabels = record['verticalLabels'] === undefined ? undefined : fields.boolean(record, 'verticalLabels', false);
+    return fields.valid
+        ? { visible, ...(title !== undefined ? { title } : {}), ...(verticalLabels !== undefined ? { verticalLabels } : {}) }
+        : undefined;
 }
 
 function normalizeAxesGrid(value: unknown): ViewerAxesGridState | undefined {
@@ -956,7 +965,11 @@ function toSerializableState(state: ViewerState): Record<string, unknown> {
             fraction: state.slice.fraction,
             smooth: state.slice.smooth
         },
-        legend: { visible: state.legend.visible },
+        legend: {
+            visible: state.legend.visible,
+            ...(state.legend.title !== undefined ? { title: state.legend.title } : {}),
+            ...(state.legend.verticalLabels !== undefined ? { verticalLabels: state.legend.verticalLabels } : {})
+        },
         axesGrid: { visible: state.axesGrid.visible }
     };
 }
@@ -1006,6 +1019,8 @@ export function viewerStateToPatch(state: ViewerState): ViewerSettingsPatch {
         ...(state.mapping.solidColor !== undefined ? { solidColor: state.mapping.solidColor } : {}),
         ...(state.mapping.background !== undefined ? { background: state.mapping.background } : {}),
         scalarBarVisible: state.legend.visible,
+        ...(state.legend.title !== undefined ? { scalarBarTitle: state.legend.title } : {}),
+        ...(state.legend.verticalLabels !== undefined ? { scalarBarVertical: state.legend.verticalLabels } : {}),
         shading: state.shading,
         clip: state.clip.planes,
         clipCaps: state.clip.caps,
@@ -1101,7 +1116,11 @@ export function viewerStateFromSnapshot(snapshot: ViewerSettingsSnapshot, camera
         slice: snapshot.slice
             ? { axis: snapshot.slice.axis, fraction: snapshot.slice.fraction, smooth: snapshot.slice.smooth }
             : copySlice(DEFAULT_VIEWER_SLICE_STATE),
-        legend: { visible: snapshot.scalarBar?.visible ?? DEFAULT_VIEWER_LEGEND_STATE.visible },
+        legend: {
+            visible: snapshot.scalarBar?.visible ?? DEFAULT_VIEWER_LEGEND_STATE.visible,
+            ...(snapshot.scalarBar?.title !== undefined ? { title: snapshot.scalarBar.title } : {}),
+            ...(snapshot.scalarBar?.verticalLabels !== undefined ? { verticalLabels: snapshot.scalarBar.verticalLabels } : {})
+        },
         axesGrid: snapshot.axesGrid ? { visible: snapshot.axesGrid.visible } : { ...DEFAULT_VIEWER_AXES_GRID_STATE }
     };
     return normalizeViewerState(candidate);

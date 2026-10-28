@@ -192,6 +192,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-visualizer: bounding-box axes grid with nice tick labels for native 3D viewers.
 - nuke-visualizer: Save/Restore view state persists the camera and display settings per viewer tab.
 - nuke-visualizer: headless `base.export` writes CSV, VTK, or glTF from a dataset with optional array/block selection.
+- nuke-visualizer: export menu exports the loaded dataset as CSV or VTK and downloads it in one action.
+- nuke-visualizer: color legend supports a custom title and vertical min/max labels.
+- nuke-visualizer: mesh-quality popover writes aspect/area/min-angle/volume arrays and opens the result in a new viewer.
 - openmc-studio: DAGMC Editor routes picked CAD files to import instead of landing on an empty model.
 - openmc-studio: void cells emit standard `material="void"` so this OpenMC accepts them.
 - openmc-studio: Simulation Dashboard re-attaches to in-flight runs after reload with live progress and log streaming.

@@ -123,7 +123,9 @@ IFP kinetics results live in ordinary `statepoint*.h5` files, so they have no re
 - **Export** — `viewer-core/canvas-screenshot.ts` resolves format/scale/transparency, captures through a
   temporarily resized renderer (`captureRendererScreenshot`), and downloads/copies the data URL. The
   props-only `viewer-export-menu.tsx` sits in `ViewerFileActions`; the one-click PNG path stays.
-  `base.export` (Python) writes CSV/VTK/glTF for the CLI and automation path.
+  `base.export` (Python) writes CSV/VTK/glTF for the CLI and automation path; the native viewer's Dataset CSV/VTK
+  buttons call it through `VisualizerBackendService.runBaseCommand` and download the temporary result. The mesh-quality
+  popover uses the same runner for `base.mesh-quality` and opens the returned `.vtp`/`.vtu` through `WorkspaceService`.
 
 ### Find Data, Axes Grid, Saved Views
 
@@ -163,6 +165,7 @@ IFP kinetics results live in ordinary `statepoint*.h5` files, so they have no re
 | Axes grid math + overlay   | `viewer-core/axes-grid.ts`, `viewer-settings/axes-grid-overlay.tsx`                      |
 | Saved viewer state         | `viewer-core/viewer-state.ts`, `viewer-settings/viewer-settings-widget.tsx`              |
 | Dataset export command     | `python/plugins/base/commands/export.py`, `lib/export.py`                                |
+| Mesh-quality popover       | `widgets/viewer-quality-menu.tsx`, `base.mesh-quality`                                   |
 | Split-drag helper          | `src/browser/plugins/openmc/widgets/drag-split.ts`                                       |
 | Backend conversion service | `src/node/plugins/openmc/services/openmc-output-service.ts`                              |
 | VTK converters (Python)    | `python/plugins/openmc/lib/output_vtk.py`                                                |

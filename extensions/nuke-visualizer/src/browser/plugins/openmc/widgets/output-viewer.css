@@ -659,3 +659,13 @@
     width: 360px;
     max-width: calc(100% - 28px);
 }
+
+.nuke-viewer-legend-vertical .nuke-viewer-legend-range {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+}
+
+.nuke-viewer-legend-vertical .nuke-viewer-legend-range span:last-child {
+    align-self: flex-end;
+}

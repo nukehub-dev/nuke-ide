@@ -61,20 +61,20 @@ Threshold, Scalar Bar) instead of showing them disabled.
 
 ### Appearance
 
-| Control        | What It Does                                                                                                     |
-| -------------- | ---------------------------------------------------------------------------------------------------------------- |
-| **Opacity**    | Slider from 0 (invisible) to 1 (fully opaque)                                                                    |
-| **Shading**    | Shaded / Shaded + Edges / Wireframe / Points / X-Ray                                                             |
-| **Color By**   | Choose a data array (e.g., temperature, flux) or "Solid Color"                                                   |
-| **Component**  | For multi-component arrays: Magnitude or a single component (X / Y / Z)                                          |
-| **Color Map**  | Full ParaView preset list (34 maps — Viridis, Cool to Warm, Jet, RdBu, …)                                        |
-| **Invert/Log** | Reverse the colormap, or map values log-scaled (needs a positive range)                                          |
-| **Range**      | Auto (data range) or a custom min/max the colormap clamps to                                                     |
-| **Threshold**  | Hide cells whose active-array value falls outside a min/max window (row appears beside Range)                    |
-| **Scalar Bar** | Toggle the floating color-legend card (array name, gradient, min/max) on/off                                     |
-| **Warp**       | Displace the mesh along a 3-component vector array (FEM deformation; row appears only when such an array exists) |
-| **Colors**     | Solid-color and background pickers                                                                               |
-| **Sizes**      | Point size and line width sliders (line width is driver-dependent); points render as round soft sprites          |
+| Control        | What It Does                                                                                                                                                         |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Opacity**    | Slider from 0 (invisible) to 1 (fully opaque)                                                                                                                        |
+| **Shading**    | Shaded / Shaded + Edges / Wireframe / Points / X-Ray                                                                                                                 |
+| **Color By**   | Choose a data array (e.g., temperature, flux) or "Solid Color"                                                                                                       |
+| **Component**  | For multi-component arrays: Magnitude or a single component (X / Y / Z)                                                                                              |
+| **Color Map**  | Full ParaView preset list (34 maps — Viridis, Cool to Warm, Jet, RdBu, …)                                                                                            |
+| **Invert/Log** | Reverse the colormap, or map values log-scaled (needs a positive range)                                                                                              |
+| **Range**      | Auto (data range) or a custom min/max the colormap clamps to                                                                                                         |
+| **Threshold**  | Hide cells whose active-array value falls outside a min/max window (row appears beside Range)                                                                        |
+| **Scalar Bar** | Toggle the floating color-legend card (array name, gradient, min/max) on/off; when on, **Title** overrides the array name and **Vertical labels** stacks the min/max |
+| **Warp**       | Displace the mesh along a 3-component vector array (FEM deformation; row appears only when such an array exists)                                                     |
+| **Colors**     | Solid-color and background pickers                                                                                                                                   |
+| **Sizes**      | Point size and line width sliders (line width is driver-dependent); points render as round soft sprites                                                              |
 
 ### Warp (FEM Deformation)
 
@@ -167,6 +167,14 @@ drops the highlight; **Extract CSV** downloads index/value rows for the
 selection. Non-finite values never match. The highlight is view-only and is
 cleared when the dataset reloads.
 
+### Mesh quality
+
+The checklist button on the native viewer bottom bar opens **Mesh quality**.
+Pick `Aspect ratio`, `Area`, `Min angle`, or `Volume`; the viewer runs the
+headless `base.mesh-quality` command, writes `mesh_quality_<metric>` as a cell
+array, and opens the result in a new viewer tab ready for Color by. This needs
+`vtk` in the active Python environment and a surface/tetrahedral mesh.
+
 ### Axes grid
 
 Viewer Settings → **View → Grid** draws a bounding-box axes grid with nice
@@ -209,6 +217,11 @@ viewport) and an **Export** menu for the rest:
 
 Files download with the dataset name and a timestamp, e.g.
 `native-image-20261028-120000.png`.
+
+The same menu has a **Dataset** section with **CSV** and **VTK** buttons. They
+run the headless `base.export` command on the loaded dataset and download the
+result. This needs `vtk` in the active Python environment; a missing
+dependency shows an error instead of a partial file.
 
 ---
 

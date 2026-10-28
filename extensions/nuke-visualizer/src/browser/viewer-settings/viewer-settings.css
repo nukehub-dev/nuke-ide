@@ -487,3 +487,12 @@
     line-height: 15px;
     color: var(--theia-descriptionForeground);
 }
+
+.viewer-settings-legend-title {
+    flex: 1 1 auto;
+    min-width: 0;
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    border: 1px solid var(--theia-input-border);
+    padding: 2px 4px;
+}

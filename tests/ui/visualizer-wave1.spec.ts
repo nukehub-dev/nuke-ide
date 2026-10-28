@@ -136,10 +136,13 @@ test('screenshot export menu downloads a selected format', async ({ page }) => {
 
     const container = await openViewer(page, 'volume-slice.vti');
     await expect(container.locator('.openmc-output-viewer-status.error')).toHaveCount(0);
+    await expect(container.locator('.viewer-quality-trigger')).toBeVisible();
 
     await container.locator('.viewer-export-trigger').click();
     const popover = page.locator('.viewer-export-popover');
     await expect(popover).toBeVisible({ timeout: 30_000 });
+    await expect(popover.locator('.viewer-export-data-csv')).toBeVisible();
+    await expect(popover.locator('.viewer-export-data-vtk')).toBeVisible();
     const download = page.waitForEvent('download', { timeout: 30_000 });
     await popover.locator('.viewer-export-export').click();
     const file = await download;

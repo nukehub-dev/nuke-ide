@@ -334,6 +334,22 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
         return result as DagmcModelInfo;
     }
 
+    /**
+     * Run one whitelisted headless base command and parse its JSON stdout.
+     * Keeps viewer actions (export/mesh quality/analysis) off the server path.
+     */
+    async runBaseCommand(command: string, args: string[], timeoutMs = 120_000): Promise<unknown> {
+        if (!/^base\.(export|integrate|describe|mesh-quality)$/.test(command)) {
+            throw new Error(`Unsupported base command: ${command}`);
+        }
+        const serverScript = this.pythonHelper.findScript('server.py');
+        return this.pythonHelper.executeScriptJson(serverScript, [command, ...args], {
+            timeout: timeoutMs,
+            requirements: BASE_VISUALIZER_REQUIREMENTS,
+            maxBuffer: 64 * 1024 * 1024
+        });
+    }
+
     async getExodusSeries(filePath: string, maxSteps?: number, maxPoints?: number): Promise<ExodusSeries> {
         this.log(`Extracting Exodus series: ${filePath}`);
 

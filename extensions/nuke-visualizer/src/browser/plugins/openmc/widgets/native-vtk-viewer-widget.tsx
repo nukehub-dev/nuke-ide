@@ -189,6 +189,9 @@ import {
 import { nextNavPopover, type ViewerNavPopoverKind } from '../../../viewer-core/viewer-nav-popover';
 import { cameraLinkBus, cameraPoseDirection, type CameraLinkEndpoint, type CameraLinkPose } from '../../../viewer-core/camera-link-bus';
 import { OpenMCVtkArrayInfo } from '../../../../common/openmc-protocol';
+import { VisualizerBackendService } from '../../../../common/base-visualizer-protocol';
+import { WorkspaceService } from '@theia/workspace/lib/browser';
+import { ViewerQualityMenu, type MeshQualityMetric } from './viewer-quality-menu';
 import {
     ViewerSettingsHost,
     ViewerSettingsPatch,
@@ -324,6 +327,12 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
     @inject(FileService)
     protected readonly fileService!: FileService;
 
+    @inject(VisualizerBackendService)
+    protected readonly visualizerBackend!: VisualizerBackendService;
+
+    @inject(WorkspaceService)
+    protected readonly workspaceService!: WorkspaceService;
+
     @inject(MessageService)
     protected readonly messageService!: MessageService;
 
@@ -341,6 +350,9 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
     /** Canvas backdrop; undefined follows the theme editor background (the pre-scene.background look). */
     protected background: string | undefined;
     protected scalarBarVisible = true;
+    /** Legend title override; undefined uses the active array name. */
+    protected scalarBarTitle: string | undefined;
+    protected scalarBarVertical = false;
     /** Bivariate (mean + relative error) master switch (Viewer Settings Uncertainty section). */
     protected bivariateEnabled = false;
     /** Bivariate channel/threshold/mask options; only used when a mean companion pair exists. */
@@ -903,7 +915,7 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
                       }
                   }
                 : {}),
-            scalarBar: { visible: this.scalarBarVisible },
+            scalarBar: { visible: this.scalarBarVisible, title: this.scalarBarTitle, verticalLabels: this.scalarBarVertical },
             ...(bivariate
                 ? {
                       bivariate: {
@@ -1090,6 +1102,18 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
                 nextRangeMode = 'custom';
                 nextCustomRange = [patch.range[0], patch.range[1]];
             }
+        }
+        let legendChanged = false;
+        if (patch.scalarBarTitle !== undefined) {
+            this.scalarBarTitle = patch.scalarBarTitle.trim().length > 0 ? patch.scalarBarTitle : undefined;
+            legendChanged = true;
+        }
+        if (patch.scalarBarVertical !== undefined) {
+            this.scalarBarVertical = patch.scalarBarVertical;
+            legendChanged = true;
+        }
+        if (legendChanged) {
+            this.update();
         }
         this.applyProps({
             colorBy: patch.colorBy,
@@ -1772,6 +1796,68 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         });
     }
 
+    /** Export the loaded dataset through the headless `base.export` command. */
+    async exportData(format: 'csv' | 'vtk'): Promise<void> {
+        const uri = this.fileUri;
+        if (!uri) {
+            return;
+        }
+        const source = uri.path.fsPath();
+        const extension = format === 'csv' ? '.csv' : uri.path.ext || '.vtk';
+        const output = `${source}.viewer-export${extension}`;
+        try {
+            const result = await this.visualizerBackend.runBaseCommand('base.export', [
+                '--file',
+                source,
+                '--format',
+                format,
+                '--output',
+                output
+            ]);
+            const exported = (result as { path?: string }).path ?? output;
+            const exportedUri = new URI(exported);
+            const content = await this.fileService.read(exportedUri);
+            const blob = new Blob([content.value.toString()], { type: format === 'csv' ? 'text/csv' : 'text/plain' });
+            const anchor = document.createElement('a');
+            anchor.href = URL.createObjectURL(blob);
+            anchor.download = `${uri.path.base}.export${extension}`;
+            anchor.click();
+            URL.revokeObjectURL(anchor.href);
+            try {
+                await this.fileService.delete(exportedUri, { useTrash: false });
+            } catch {
+                // Best-effort cleanup; a failed delete must not hide the export.
+            }
+        } catch (error) {
+            this.messageService.error(error instanceof Error ? error.message : String(error));
+        }
+    }
+
+    /** Run `base.mesh-quality`, then open the metric dataset in a new viewer tab. */
+    async applyMeshQuality(metric: MeshQualityMetric): Promise<void> {
+        const uri = this.fileUri;
+        if (!uri) {
+            return;
+        }
+        const source = uri.path.fsPath();
+        const extension = this.model?.family === 'polydata' ? '.vtp' : '.vtu';
+        const output = `${source}.quality${extension}`;
+        try {
+            const result = await this.visualizerBackend.runBaseCommand('base.mesh-quality', [
+                '--file',
+                source,
+                '--output',
+                output,
+                '--metric',
+                metric
+            ]);
+            const path = (result as { path?: string }).path ?? output;
+            await this.workspaceService.open(new URI(path));
+        } catch (error) {
+            this.messageService.error(error instanceof Error ? error.message : String(error));
+        }
+    }
+
     /** Copy the current canvas to the clipboard (falls back to a visible warning). */
     async copyScreenshot(options: ScreenshotOptions = {}): Promise<void> {
         if (!this.renderer || !this.scene || !this.camera) {
@@ -1925,6 +2011,10 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
                             this.update();
                         }}
                     />
+                    <ViewerQualityMenu
+                        disabled={disabled || this.fileUri === undefined}
+                        onApply={(metric) => void this.applyMeshQuality(metric)}
+                    />
                     <ViewerFileActions
                         disabled={disabled}
                         onScreenshot={() => this.saveScreenshot()}
@@ -1934,6 +2024,7 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
                                 disabled={disabled}
                                 onExport={(options) => this.saveScreenshot(options)}
                                 onCopy={(options) => void this.copyScreenshot(options)}
+                                onExportData={(format) => void this.exportData(format)}
                             />
                         }
                     />
@@ -2249,15 +2340,16 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
         if (!mapping) {
             return undefined;
         }
+        const title = this.scalarBarTitle?.trim() || array.name;
         return (
             <div className="nuke-viewer-legend-anchor">
                 <Tooltip
-                    content={`${array.name}: ${formatRangeValue(mapping.range[0])} to ${formatRangeValue(mapping.range[1])}`}
+                    content={`${title}: ${formatRangeValue(mapping.range[0])} to ${formatRangeValue(mapping.range[1])}`}
                     position="top"
                     stretch
                 >
-                    <div className="nuke-viewer-legend">
-                        <div className="nuke-viewer-legend-title">{array.name}</div>
+                    <div className={`nuke-viewer-legend${this.scalarBarVertical ? ' nuke-viewer-legend-vertical' : ''}`}>
+                        <div className="nuke-viewer-legend-title">{title}</div>
                         <div className="nuke-viewer-legend-bar" style={{ background: mappingToCssGradient(mapping) }} />
                         <div className="nuke-viewer-legend-range">
                             <span>{formatRangeValue(mapping.range[0])}</span>

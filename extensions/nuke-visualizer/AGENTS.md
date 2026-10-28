@@ -40,7 +40,13 @@ All files under `extensions/nuke-visualizer/` except generated artifacts (`lib/`
   `getDatasetSummary`/`getDatasetTable` and optional `getDatasetStats`, the panel only renders the first 200 rows and
   copies that window as CSV; cell integrals use grid volume / triangle area from `viewer-core/dataset-inspector.ts`.
 - Screenshots use `viewer-core/canvas-screenshot.ts` (`captureRendererScreenshot`, formats/scales/transparency) and the
-  props-only `viewer-export-menu.tsx`; keep the one-click PNG path and never resize the canvas CSS permanently.
+  props-only `viewer-export-menu.tsx`; keep the one-click PNG path and never resize the canvas CSS permanently. The
+  same menu's Dataset CSV/VTK actions call `VisualizerBackendService.runBaseCommand('base.export', …)` and download the
+  returned temp file; both require `vtk` in the active environment.
+- Color legend title/vertical-label settings are native-viewer fields (`scalarBarTitle`/`scalarBarVertical`); keep the
+  legend as the single source of truth and do not duplicate the title in the viewer header.
+- Mesh quality (`viewer-quality-menu.tsx`) runs `base.mesh-quality` through `runBaseCommand`, then opens the returned
+  `.vtp`/`.vtu` via `WorkspaceService.open`; keep the metric list closed and surface/tet-mesh-only.
 - Statistical plots use `viewer-core/statistics.ts` + `statistics-panel.tsx` (Plotly, 2D hist/scatter/box/parallel); the
   host supplies scalar arrays, the panel owns tab/bin state only.
 - Find Data uses `viewer-core/selection-query.ts` + props-only `find-data-dialog.tsx`; the native viewer keeps the

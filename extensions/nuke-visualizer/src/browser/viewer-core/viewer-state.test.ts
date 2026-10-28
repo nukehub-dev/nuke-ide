@@ -101,7 +101,7 @@ function fullState(): ViewerState {
             shade: true
         },
         slice: { axis: 'Y', fraction: 0.4, smooth: true },
-        legend: { visible: false },
+        legend: { visible: false, title: 'Flux', verticalLabels: true },
         axesGrid: { visible: true }
     };
 }
@@ -130,7 +130,7 @@ function fullSnapshot(): ViewerSettingsSnapshot {
         component: { value: 1, options: [{ value: MAGNITUDE_COMPONENT, label: 'Magnitude' }] },
         range: { mode: 'custom', min: 250, max: 900, dataMin: 200, dataMax: 1000 },
         threshold: { enabled: true, min: 10, max: 20, dataMin: 0, dataMax: 100, visible: 5, total: 10 },
-        scalarBar: { visible: false },
+        scalarBar: { visible: false, title: 'Flux', verticalLabels: true },
         volume: {
             visible: true,
             smooth: true,
@@ -292,7 +292,7 @@ describe('invalid payloads', () => {
             )
         ).toBeUndefined();
         expect(parseViewerState(rawState({ version: 1, volume: { opacityStops: [{ t: 0, alpha: 1, color: '#fff' }] } }))).toBeUndefined();
-        expect(parseViewerState(rawState({ version: 1, legend: { visible: true, title: 'T' } }))).toBeUndefined();
+        expect(parseViewerState(rawState({ version: 1, legend: { visible: true, bogus: 'T' } }))).toBeUndefined();
     });
 
     it('rejects wrong field types and unknown enum values', () => {

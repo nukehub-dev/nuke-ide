@@ -77,6 +77,10 @@ export interface ViewerColormapSettings {
 /** Scalar-bar (color legend) section of a settings snapshot. */
 export interface ViewerScalarBarSettings {
     readonly visible: boolean;
+    /** Legend title override; undefined shows the active array name. */
+    readonly title?: string;
+    /** Stack the min/max labels vertically instead of side by side. */
+    readonly verticalLabels?: boolean;
 }
 
 /**
@@ -329,6 +333,10 @@ export interface ViewerSettingsPatch {
     readonly invert?: boolean;
     readonly logScale?: boolean;
     readonly scalarBarVisible?: boolean;
+    /** Legend title override (empty string restores the array name). */
+    readonly scalarBarTitle?: string;
+    /** Stack the legend min/max labels vertically. */
+    readonly scalarBarVertical?: boolean;
     /** Bivariate master switch (only meaningful with a mean/std/rel-err pair). */
     readonly bivariateEnabled?: boolean;
     /** Complete bivariate options (channel, threshold, mask color) after an editor edit. */

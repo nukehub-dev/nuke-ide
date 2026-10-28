@@ -1054,16 +1054,51 @@ export class ViewerSettingsWidget extends ReactWidget {
         if (!scalarBar) {
             return undefined;
         }
+        const commitTitle = (input: HTMLInputElement): void => {
+            this.applyPatch(host, { scalarBarTitle: input.value.trim() });
+        };
         return (
-            <div className="viewer-settings-row" key="scalar-bar">
-                {this.renderRowLabel('symbol-color', 'Color legend', 'Show the color legend for the active colormap')}
-                <NukeSwitch
-                    className="viewer-settings-scalar-bar"
-                    ariaLabel="Color legend"
-                    checked={scalarBar.visible}
-                    onChange={() => this.applyPatch(host, { scalarBarVisible: !scalarBar.visible })}
-                />
-            </div>
+            <React.Fragment key="scalar-bar-group">
+                <div className="viewer-settings-row" key="scalar-bar">
+                    {this.renderRowLabel('symbol-color', 'Color legend', 'Show the color legend for the active colormap')}
+                    <NukeSwitch
+                        className="viewer-settings-scalar-bar"
+                        ariaLabel="Color legend"
+                        checked={scalarBar.visible}
+                        onChange={() => this.applyPatch(host, { scalarBarVisible: !scalarBar.visible })}
+                    />
+                </div>
+                {scalarBar.visible && (
+                    <>
+                        <div className="viewer-settings-row" key="scalar-bar-title">
+                            {this.renderRowLabel('symbol-string', 'Title', 'Legend title; leave empty to show the active array name')}
+                            <input
+                                type="text"
+                                className="viewer-settings-legend-title"
+                                aria-label="Color legend title"
+                                key={scalarBar.title ?? ''}
+                                defaultValue={scalarBar.title ?? ''}
+                                placeholder="Array name"
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                        commitTitle(e.currentTarget);
+                                    }
+                                }}
+                                onBlur={(e) => commitTitle(e.currentTarget)}
+                            />
+                        </div>
+                        <div className="viewer-settings-row" key="scalar-bar-vertical">
+                            {this.renderRowLabel('list-vertical', 'Vertical labels', 'Stack the legend min/max labels vertically')}
+                            <NukeSwitch
+                                className="viewer-settings-legend-vertical"
+                                ariaLabel="Vertical legend labels"
+                                checked={scalarBar.verticalLabels ?? false}
+                                onChange={() => this.applyPatch(host, { scalarBarVertical: !(scalarBar.verticalLabels ?? false) })}
+                            />
+                        </div>
+                    </>
+                )}
+            </React.Fragment>
         );
     }
 

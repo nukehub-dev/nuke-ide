@@ -93,9 +93,11 @@ export interface ViewerExportMenuProps {
     readonly onExport: (options: ScreenshotOptions) => void;
     /** Copy to the clipboard with the selected options; when omitted the Copy action stays disabled. */
     readonly onCopy?: (options: ScreenshotOptions) => void;
+    /** Export the dataset itself through `base.export` (CSV or VTK). */
+    readonly onExportData?: (format: 'csv' | 'vtk') => void;
 }
 
-export const ViewerExportMenu: React.FC<ViewerExportMenuProps> = ({ disabled = false, onExport, onCopy }) => {
+export const ViewerExportMenu: React.FC<ViewerExportMenuProps> = ({ disabled = false, onExport, onCopy, onExportData }) => {
     const [open, setOpen] = React.useState(false);
     const [format, setFormat] = React.useState<ScreenshotFormat>('png');
     const [scale, setScale] = React.useState<ScreenshotScale>(1);
@@ -213,6 +215,33 @@ export const ViewerExportMenu: React.FC<ViewerExportMenuProps> = ({ disabled = f
                             Export
                         </button>
                     </div>
+                    {onExportData && (
+                        <div className="viewer-export-data">
+                            <div className="viewer-export-title">Dataset</div>
+                            <div className="viewer-export-actions">
+                                <button
+                                    className="theia-button secondary viewer-export-action viewer-export-data-csv"
+                                    disabled={disabled}
+                                    onClick={() => {
+                                        onExportData('csv');
+                                        setOpen(false);
+                                    }}
+                                >
+                                    CSV
+                                </button>
+                                <button
+                                    className="theia-button secondary viewer-export-action viewer-export-data-vtk"
+                                    disabled={disabled}
+                                    onClick={() => {
+                                        onExportData('vtk');
+                                        setOpen(false);
+                                    }}
+                                >
+                                    VTK
+                                </button>
+                            </div>
+                        </div>
+                    )}
                 </div>
             )}
         </div>
