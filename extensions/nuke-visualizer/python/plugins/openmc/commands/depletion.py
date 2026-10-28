@@ -3,7 +3,6 @@ Depletion result commands.
 """
 
 import json
-import sys
 
 from nuke_viz.plugin import arg, command
 
@@ -20,9 +19,6 @@ def cmd_depletion_summary(args):
         print(json.dumps(summary))
         return 0
     except Exception as e:
-        import traceback
-
-        traceback.print_exc(file=sys.stderr)
         print(json.dumps({"error": str(e)}))
         return 1
 
@@ -39,9 +35,6 @@ def cmd_depletion_materials(args):
         print(json.dumps({"materials": materials}))
         return 0
     except Exception as e:
-        import traceback
-
-        traceback.print_exc(file=sys.stderr)
         print(json.dumps({"error": str(e)}))
         return 1
 
@@ -67,8 +60,5 @@ def cmd_depletion_data(args):
         print(json.dumps({"summary": summary, "materialData": data}))
         return 0
     except Exception as e:
-        import traceback
-
-        traceback.print_exc(file=sys.stderr)
         print(json.dumps({"error": str(e)}))
         return 1

@@ -137,7 +137,7 @@
     color: var(--theia-textLink-foreground);
 }
 
-/* Actions: shared color range + 3D handoff */
+/* Actions: statistic, shared color range, 3D handoff */
 
 .tally-series-actions {
     display: flex;
@@ -147,12 +147,23 @@
     padding: 2px 2px 0;
 }
 
+.tally-series-statistic-row,
 .tally-series-shared-range-row {
     display: flex;
     align-items: center;
     gap: 8px;
     font-size: 12px;
     color: var(--theia-descriptionForeground);
+}
+
+.tally-series-statistic {
+    flex: 0 0 auto;
+    width: 92px;
+}
+
+.tally-series-statistic .nuke-select-trigger {
+    height: 26px;
+    padding: 0 8px;
 }
 
 .tally-series-shared-range-row .tally-series-shared-range {

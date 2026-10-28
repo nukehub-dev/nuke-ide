@@ -390,9 +390,6 @@ def check_overlaps(
                     pass
 
     except Exception as e:
-        import traceback
-
-        traceback.print_exc(file=sys.stderr)
         return {"overlaps": [], "totalOverlaps": 0, "samplesChecked": 0, "error": str(e)}
 
 
@@ -415,9 +412,6 @@ def get_overlap_viz_data(
 
         return checker.get_overlap_viz_data(overlap_results, marker_size)
     except Exception as e:
-        import traceback
-
-        traceback.print_exc(file=sys.stderr)
         return {"markers": [], "overlappingCellIds": [], "error": str(e)}
 
 

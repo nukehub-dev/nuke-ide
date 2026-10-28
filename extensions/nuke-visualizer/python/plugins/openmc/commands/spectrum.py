@@ -28,10 +28,8 @@ def cmd_spectrum(args):
         }
         print(json.dumps(serializable_data))
         return 0
-    except Exception:
-        import traceback
-
-        traceback.print_exc(file=sys.stderr)
+    except Exception as e:
+        print(json.dumps({"error": str(e)}))
         return 1
 
 
@@ -59,10 +57,8 @@ def cmd_spatial(args):
         }
         print(json.dumps(serializable_data))
         return 0
-    except Exception:
-        import traceback
-
-        traceback.print_exc(file=sys.stderr)
+    except Exception as e:
+        print(json.dumps({"error": str(e)}))
         return 1
 
 
@@ -90,9 +86,6 @@ def cmd_heatmap(args):
         print(json.dumps(data))
         return 0
     except Exception as e:
-        import traceback
-
-        traceback.print_exc(file=sys.stderr)
         print(json.dumps({"error": str(e)}))
         return 1
 
@@ -120,8 +113,5 @@ def cmd_heatmap_all(args):
         print(json.dumps(all_slices))
         return 0
     except Exception as e:
-        import traceback
-
-        traceback.print_exc(file=sys.stderr)
         print(json.dumps({"error": str(e)}))
         return 1

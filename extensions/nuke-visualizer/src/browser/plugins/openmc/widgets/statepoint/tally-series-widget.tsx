@@ -32,10 +32,10 @@ import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { codicon } from '@theia/core/lib/browser/widgets/widget';
 import { MessageService } from '@theia/core/lib/common';
 import URI from '@theia/core/lib/common/uri';
-import { NukeSwitch, Tooltip } from 'nuke-essentials/lib/theme/browser/components';
+import { NukeSelect, NukeSwitch, Tooltip, type NukeSelectOption } from 'nuke-essentials/lib/theme/browser/components';
 import { LoadingAnimations, SimpleLoadingSpinner } from 'nuke-essentials/lib/theme/browser/components/loading-spinner';
 import { OpenMCService } from '../../openmc-service';
-import { OpenMCTallySeries, OpenMCTallySeriesOptions } from '../../../../../common/openmc-protocol';
+import { OpenMCTallySeries, OpenMCTallySeriesOptions, OpenMCTallySeriesStatistic } from '../../../../../common/openmc-protocol';
 import {
     buildSeriesChart,
     clampSeriesIndex,
@@ -46,6 +46,11 @@ import {
     seriesYRange
 } from './tally-series-model';
 import { PlotlyComponent } from '../../../../plotly/plotly-component';
+
+const STATISTIC_OPTIONS: readonly NukeSelectOption[] = (['total', 'mean', 'max'] as const).map((statistic) => ({
+    value: statistic,
+    label: seriesStatisticLabel(statistic)
+}));
 
 /** Request that loads one tally series across a set of statepoints. */
 export interface TallySeriesWidgetRequest {
@@ -117,6 +122,28 @@ export class OpenMCTallySeriesWidget extends ReactWidget {
         void this.load();
     }
 
+    /**
+     * Switch the aggregation statistic and reload in place. Files and the
+     * score/nuclide selection stay unchanged; `load()` supersedes any
+     * in-flight request through the load token.
+     */
+    setStatistic(statistic: OpenMCTallySeriesStatistic): void {
+        const request = this.request;
+        if (!request || (request.options.statistic ?? 'total') === statistic) {
+            return;
+        }
+        this.request = {
+            ...request,
+            options: { ...request.options, statistic }
+        };
+        this.loading = true;
+        this.error = undefined;
+        this.series = undefined;
+        this.stepIndex = 0;
+        this.update();
+        void this.load();
+    }
+
     /** Fetch and parse the request's tally series. */
     protected async load(): Promise<void> {
         const request = this.request;
@@ -130,6 +157,10 @@ export class OpenMCTallySeriesWidget extends ReactWidget {
                 return;
             }
             const series = parseTallySeriesPayload(payload);
+            if ((request.options.statistic ?? 'total') !== series.statistic) {
+                // Keep the selector aligned with the backend's effective aggregate.
+                this.request = { ...request, options: { ...request.options, statistic: series.statistic } };
+            }
             this.series = series;
             this.stepIndex = clampSeriesIndex(0, series.steps.length);
             this.loading = false;
@@ -383,6 +414,17 @@ export class OpenMCTallySeriesWidget extends ReactWidget {
             : 'This tally has no mesh filter — 3D handoff is unavailable.';
         return (
             <div className="tally-series-actions">
+                <div className="tally-series-statistic-row">
+                    <span className="tally-series-statistic-label">Statistic</span>
+                    <NukeSelect
+                        className="tally-series-statistic"
+                        ariaLabel="Tally series statistic"
+                        value={this.request?.options.statistic ?? 'total'}
+                        options={STATISTIC_OPTIONS}
+                        onChange={(value) => this.setStatistic(value as OpenMCTallySeriesStatistic)}
+                        disabled={this.loading}
+                    />
+                </div>
                 <div className="tally-series-shared-range-row">
                     <NukeSwitch
                         className="tally-series-shared-range"

@@ -101,7 +101,8 @@ All files under `extensions/nuke-visualizer/` except generated artifacts (`lib/`
 
 - Add a plugin: create `python/plugins/<name>/` plus TS widget/open-handler wiring; follow `docs/dev/adding-a-plugin.md`.
 - Add a command: `@command`/`@arg` handler with lazy imports plus error-path tests in `tests/python/test_command_error_paths.py`;
-  follow `docs/dev/python-backends.md`.
+  keep `tests/python/test_command_contracts.py` green (every registered command supports `--help`, and missing
+  input yields one JSON error with no traceback); follow `docs/dev/python-backends.md`.
 - Reuse shared services, DI, and RPC patterns from `docs/dev/shared-services.md`, `docs/dev/di-wiring.md`, and
   `docs/dev/rpc-protocols.md` — never invent new plumbing.
 

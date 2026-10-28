@@ -52,51 +52,6 @@ export interface EnvironmentInfo {
     warning?: string;
 }
 
-/**
- * Visualization state for interactive controls.
- * Mirrors the state in Python backend (server.py base.serve).
- */
-export interface VisualizationState {
-    /** Opacity value between 0.0 and 1.0 */
-    opacity: number;
-
-    /** Surface representation type */
-    representation: RepresentationType;
-
-    /** Field to color by, or 'Solid Color' */
-    colorBy: string;
-
-    /** Available data arrays for coloring */
-    availableArrays: string[];
-
-    /** Color map preset name */
-    colorMap: string;
-
-    /** Whether to show the scalar bar/legend */
-    showScalarBar: boolean;
-
-    /** Whether the clip plane is enabled */
-    clipEnabled: boolean;
-
-    /** Clip plane origin coordinates */
-    clipOrigin: [number, number, number];
-
-    /** Clip plane normal vector */
-    clipNormal: [number, number, number];
-
-    /** Whether to invert the clip */
-    clipInvert: boolean;
-
-    /** Background color [R, G, B] with values 0-1 */
-    backgroundColor: [number, number, number];
-}
-
-/** Surface representation types */
-export type RepresentationType = 'Surface' | 'Surface with Edges' | 'Wireframe' | 'Points';
-
-/** Camera preset views */
-export type CameraViewType = 'isometric' | 'front' | 'back' | 'left' | 'right' | 'top' | 'bottom';
-
 /** Screenshot export options */
 export interface ScreenshotOptions {
     /** Output format */
@@ -107,18 +62,6 @@ export interface ScreenshotOptions {
 
     /** Use transparent background */
     transparent?: boolean;
-}
-
-/** Screenshot export result */
-export interface ScreenshotResult {
-    /** Base64 encoded image data */
-    base64?: string;
-
-    /** File path if saved to disk */
-    filePath?: string;
-
-    /** Error message if failed */
-    error?: string;
 }
 
 export interface ServerInfo {
@@ -299,25 +242,6 @@ export interface VisualizerBackendService {
      * Called by the RPC framework when a frontend connects.
      */
     setClient(client: VisualizerClient): void;
-
-    // === Visualization Controls (Future API) ===
-
-    /** Get current visualization state from a running server. Placeholder for external control API. */
-    getVisualizationState(port: number): Promise<VisualizationState>;
-
-    /** Update visualization state (opacity, representation, etc.). Placeholder for external control API. */
-    updateVisualizationState(port: number, state: Partial<VisualizationState>): Promise<void>;
-
-    /** Reset camera to default position. Placeholder for external control API. */
-    resetCamera(port: number): Promise<boolean>;
-
-    /** Set camera to a preset view. Placeholder for external control API. */
-    setCameraView(port: number, viewType: CameraViewType): Promise<boolean>;
-
-    // === Export ===
-
-    /** Capture screenshot of current view. Placeholder for external control API. */
-    captureScreenshot(port: number, options: ScreenshotOptions): Promise<ScreenshotResult>;
 }
 
 /**
@@ -386,18 +310,3 @@ export const COLOR_MAP_PRESETS = [
     'Earth',
     'Ocean'
 ] as const;
-
-/** Default visualization state */
-export const DEFAULT_VISUALIZATION_STATE: VisualizationState = {
-    opacity: 1.0,
-    representation: 'Surface',
-    colorBy: 'Solid Color',
-    availableArrays: ['Solid Color'],
-    colorMap: 'Cool to Warm',
-    showScalarBar: true,
-    clipEnabled: false,
-    clipOrigin: [0, 0, 0],
-    clipNormal: [1, 0, 0],
-    clipInvert: false,
-    backgroundColor: [0.1, 0.1, 0.15]
-};

@@ -4,7 +4,6 @@ Geometry analysis and visualization commands.
 
 import json
 import os
-import sys
 
 from nuke_viz.plugin import arg, command
 
@@ -74,9 +73,6 @@ def cmd_check_overlaps(args):
         print(json.dumps(result))
         return 0 if result.get("error") is None else 1
     except Exception as e:
-        import traceback
-
-        traceback.print_exc(file=sys.stderr)
         print(json.dumps({"overlaps": [], "totalOverlaps": 0, "error": str(e)}))
         return 1
 
@@ -103,9 +99,6 @@ def cmd_overlap_viz(args):
         print(json.dumps(result))
         return 0 if result.get("error") is None else 1
     except Exception as e:
-        import traceback
-
-        traceback.print_exc(file=sys.stderr)
         print(json.dumps({"markers": [], "overlappingCellIds": [], "error": str(e)}))
         return 1
 
@@ -124,9 +117,6 @@ def cmd_geometry_bounds(args):
         print(json.dumps(bounds))
         return 0
     except Exception as e:
-        import traceback
-
-        traceback.print_exc(file=sys.stderr)
         print(json.dumps({"error": str(e)}))
         return 1
 

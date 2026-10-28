@@ -105,16 +105,18 @@ value with ± standard-deviation error bars; the x-axis is the numeric
 statepoint step (for example `statepoint.20.h5` plots at 20), not depletion
 time.
 
-Use the first/previous/slider/next/last controls to move through steps. For a
-mesh tally, **Open 3D at this step** opens that statepoint's mesh in the native
-tally viewer. **Shared color range** (on by default) applies the min/max of the
-mesh cell means across the whole series, so every step is displayed on one
-color scale. Non-mesh tallies still chart, but the 3D handoff is unavailable.
+Use the **Total/Mean/Max** selector to switch the aggregation; the chart and
+error bars reload in place. Use the first/previous/slider/next/last controls to
+move through steps. For a mesh tally, **Open 3D at this step** opens that
+statepoint's mesh in the native tally viewer. **Shared color range** (on by
+default) applies the min/max of the mesh cell means across the whole series, so
+every step is displayed on one color scale. Non-mesh tallies still chart, but
+the 3D handoff is unavailable.
 
 The value is a sum over the selected score/nuclide bins. Regular-mesh tallies
 whose only filter is the mesh are volume-weighted; other tallies use an
 unweighted sum. Use the headless `openmc.tally-series` command for explicit
-time values, the mean/max aggregates, or scripted exports.
+time values or scripted exports.
 
 ---
 

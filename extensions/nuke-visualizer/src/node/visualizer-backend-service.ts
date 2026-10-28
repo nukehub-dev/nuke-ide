@@ -36,11 +36,6 @@ import {
     PythonConfig,
     EnvironmentInfo,
     VisualizerClient,
-    VisualizationState,
-    CameraViewType,
-    ScreenshotOptions,
-    ScreenshotResult,
-    DEFAULT_VISUALIZATION_STATE,
     DagmcModelInfo,
     ExodusSeries,
     BASE_VISUALIZER_REQUIREMENTS,
@@ -452,38 +447,5 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
         }
 
         return info;
-    }
-
-    // === Visualization Controls ===
-    // Note: Interactive controls are handled directly in the trame UI.
-    // These backend methods are placeholders for future external control API.
-
-    async getVisualizationState(_port: number): Promise<VisualizationState> {
-        // TODO: Implement WebSocket or HTTP API to query state from Python server
-        this.log('getVisualizationState: Not yet implemented');
-        return DEFAULT_VISUALIZATION_STATE;
-    }
-
-    async updateVisualizationState(_port: number, _state: Partial<VisualizationState>): Promise<void> {
-        // TODO: Implement WebSocket or HTTP API to update state on Python server
-        this.log('updateVisualizationState: Not yet implemented');
-    }
-
-    async resetCamera(_port: number): Promise<boolean> {
-        // TODO: Implement external camera control
-        this.log('resetCamera: Not yet implemented');
-        return false;
-    }
-
-    async setCameraView(_port: number, _viewType: CameraViewType): Promise<boolean> {
-        // TODO: Implement external camera control
-        this.log('setCameraView: Not yet implemented');
-        return false;
-    }
-
-    async captureScreenshot(_port: number, _options: ScreenshotOptions): Promise<ScreenshotResult> {
-        // TODO: Implement screenshot capture API
-        this.log('captureScreenshot: Not yet implemented');
-        return { error: 'Not yet implemented' };
     }
 }

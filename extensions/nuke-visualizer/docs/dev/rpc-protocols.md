@@ -76,12 +76,10 @@ export interface VisualizerClient {
 
 ### Key Types
 
-| Type                 | Description                                                           |
-| -------------------- | --------------------------------------------------------------------- |
-| `VisualizationState` | Opacity, representation, colorBy, colorMap, clip settings, background |
-| `CameraViewType`     | `isometric`, `front`, `back`, `left`, `right`, `top`, `bottom`        |
-| `ScreenshotOptions`  | Format, resolution, transparent background                            |
-| `PlotlyFigure`       | Generic figure for PlotlyService                                      |
+| Type                | Description                                |
+| ------------------- | ------------------------------------------ |
+| `ScreenshotOptions` | Format, resolution, transparent background |
+| `PlotlyFigure`      | Generic figure for PlotlyService           |
 
 ---
 

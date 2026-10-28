@@ -196,6 +196,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-visualizer: color legend supports a custom title and vertical min/max labels.
 - nuke-visualizer: mesh-quality popover writes aspect/area/min-angle/volume arrays and opens the result in a new viewer.
 - nuke-visualizer: tally series charts one score across sibling statepoints with error bars, a step slider, and shared-range 3D handoff.
+- nuke-visualizer: tally series selector switches total/mean/max aggregation in place.
 - nuke-visualizer: comparison workspace splits 2–4 open views side by side with linked cameras, shared color ranges, and A/B pane labels.
 - nuke-visualizer: native viewers add a click point probe and headless line profiles with CSV export.
 - openmc-studio: DAGMC Editor routes picked CAD files to import instead of landing on an empty model.
@@ -442,6 +443,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-visualizer: viewer right-click menu clamps inside the viewport with grouped actions and checked shading.
 - nuke-visualizer: DAGMC Outline header truncates with tooltips, sticky badges, hover isolate, and muted graveyard row.
 - nuke-visualizer: output viewer inputs gain focus/disabled styling and themed dropdown lists.
+- nuke-visualizer: headless command failures return one JSON error without tracebacks, and every registered command has a CLI help contract.
 - nukelab-integration: expired server tokens re-mint silently so file transfers never hang on Preparing download.
 - openmc-studio: DAGMC universes sync before CoupledOperator creation so coupled depletion runs.
 - openmc-studio: FW-CADIS generation validated against random-ray mode; repeat CAD conversions stop duplicating graveyards.

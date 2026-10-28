@@ -61,6 +61,8 @@ def cmd_greet(args):
 - Return an integer exit code (`0` for success).
 - Output **JSON to stdout** for data responses.
 - Report errors as one JSON `{"error": ...}` object and exit 1, never a traceback — base-plugin commands emit it on stderr, OpenMC-plugin commands on stdout; the node side parses stdout first (`executeCommandJson`).
+- Keep `tests/python/test_command_contracts.py` green: every registered command supports `--help`, and missing
+  input produces one JSON error with no traceback.
 - Use `@arg` decorators in the order you want positional arguments to appear.
 
 ### Argument Order

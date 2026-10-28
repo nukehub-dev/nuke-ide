@@ -11,7 +11,9 @@ import { collectErrors, waitForWorkbench, openFileByQuickOpen, closeAllEditors }
  * `openmc.tally-series` command over the sibling statepoints. A missing
  * backend (h5py) renders `.tally-series-error` and the test skips instead of
  * failing; a healthy backend renders the Plotly chart, the two-step slider,
- * and the "Open 3D at this step" action into the native tally viewer.
+ * and the "Open 3D at this step" action into the native tally viewer. The
+ * statistic selector then reloads the same series as Mean before the step
+ * and 3D checks.
  *
  * Suite conventions (root AGENTS.md): Theia/lumino selectors only, Command
  * Palette via Ctrl+Shift+P + `>` prefix, zero console severity-error/pageerror
@@ -22,6 +24,15 @@ test.setTimeout(180_000);
 
 function severe(errors: string[]): string[] {
     return errors.filter((e) => !e.includes('l10n') && !e.includes('localization bundles') && !e.includes('INVALID tab'));
+}
+
+/**
+ * Pick a NukeSelect option: the dropdown portals to document.body, so the
+ * option is located from the page root, not the widget.
+ */
+async function selectNukeOption(page: Page, scope: Locator, hookClass: string, optionName: string): Promise<void> {
+    await scope.locator(`.${hookClass} .nuke-select-trigger`).click();
+    await page.locator('.nuke-select-list').getByRole('option', { name: optionName }).click();
 }
 
 /** Open the two-statepoint fixture directly (the opener claims `statepoint*.h5`); skip when the backend is missing. */
@@ -68,7 +79,19 @@ test('tally card series charts the score across statepoints and opens 3D at a st
     }
     await expect(chart).toBeVisible({ timeout: 60_000 });
 
-    // Two sibling statepoints (10, 20) → two steps, starting at the first.
+    // The statistic selector starts on Total and reloads the series in place.
+    // The actions row unmounts while loading, then returns showing Mean.
+    const statistic = widget.locator('.tally-series-statistic');
+    await expect(statistic).toBeVisible({ timeout: 30_000 });
+    await expect(statistic.locator('.nuke-select-trigger')).toContainText('Total');
+    await selectNukeOption(page, widget, 'tally-series-statistic', 'Mean');
+    await expect(widget.locator('.tally-series-statistic .nuke-select-trigger')).toHaveText('Mean', { timeout: 60_000 });
+    await expect(statistic).toBeVisible();
+    await expect(widget.locator('.tally-series-meta')).toContainText('Mean');
+    await expect(widget.locator('.tally-series-error')).toHaveCount(0);
+
+    // Two sibling statepoints (10, 20) → two steps, starting at the first
+    // (the statistic reload resets the step index).
     await expect(widget.locator('.tally-series-slider')).toBeVisible();
     await expect(widget.locator('.tally-series-step-label')).toContainText('Step 1 of 2');
     await widget.getByRole('button', { name: 'Next step' }).click();

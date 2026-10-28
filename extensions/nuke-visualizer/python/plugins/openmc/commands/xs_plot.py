@@ -1834,8 +1834,5 @@ def cmd_xs_plot(args):
         return 0
 
     except Exception as e:
-        import traceback
-
-        traceback.print_exc(file=sys.stderr)
         print(json.dumps({"error": str(e)}))
         return 1
