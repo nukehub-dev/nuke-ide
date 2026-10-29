@@ -245,6 +245,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - openmc-studio: single-particle restart runs with track capture and post-run track handoff.
 - openmc-studio: domain icons replace generic codicons in widget titles, dashboard tabs, Nuke Tools rows, section headers, and empty states.
 - openmc-studio: dashboard header uses a theme-aware OpenMC mark; tally and depletion icons are redrawn as a bar-with-error and a decay curve.
+- openmc-studio: real OpenMP/MPI launch controls plus grouped Advanced settings for convergence, physics, limits, diagnostics, and isotropic materials.
 - Testing: Playwright UI smoke suite (`yarn test:ui`) covering boot, dashboard tabs, project flow, and windows in weekly CI.
 - Testing: weekly upstream-OpenMC-develop CI lane with the Python suite on a cached conda full profile.
 - Testing: end-to-end layer running real OpenMC drivers and project-file fixtures, env-gated and skipping cleanly otherwise.

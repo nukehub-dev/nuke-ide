@@ -71,7 +71,7 @@ Global simulation parameters, organized into collapsible sections.
 | **Run Mode**                  | `Eigenvalue (Criticality)`, `Fixed Source`, or `Volume Calculation`                                                    |
 | **Particles / Batches**       | Eigenvalue: particles per generation, inactive and active batches. Fixed source: particles per batch and total batches |
 | **Random Seed**               | Optional fixed seed for reproducibility (Advanced Settings sub-block)                                                  |
-| **Threads**                   | OpenMP thread count                                                                                                    |
+| **OpenMP threads**            | Per-process thread count, configured in **Advanced → Execution** and passed to OpenMC as `-s N`                        |
 | **Source Rejection Fraction** | Fraction of source sites rejected during initial source sampling                                                       |
 
 ### Sources
@@ -110,7 +110,31 @@ Photon transport toggle; when enabled: electron treatment (`LED` / `TTB`) and at
 
 ### Advanced
 
-Particle creation & physics toggles (fission neutrons, delayed neutrons/photons, survival biasing, probability tables) and run behavior knobs (event-based parallelism, generations per batch, lost-particle limits, log grid bins, max scattering order, tabular Legendre conversion).
+Advanced settings are grouped behind collapsible headers with a name filter at the top. Type a setting
+name or OpenMC XML element (for example `threads`, `keff_trigger`, `free_gas_threshold`) to show only the
+matching group. Each group reports its own validation state with a red dot and an inline message.
+
+| Group           | Settings                                                                                                                                                                                                                                                                   |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Execution**   | OpenMP threads (per MPI rank, passed as `openmc -s N`), MPI enable/processes/hosts, particle trace (batch/generation/particle), event-based parallelism, generations per batch, initial-source write, uniform source sampling                                              |
+| **Convergence** | k-eff trigger type/threshold, confidence intervals (fixed 95% half-widths)                                                                                                                                                                                                 |
+| **Physics**     | Temperature default/method/tolerance/windowed multipole, resonance elastic scattering (method and energy range), free-gas threshold, energy/time/weight cutoffs, shared secondary bank, surface grazing cutoff/ratio, particle creation and multi-group scattering options |
+| **Limits**      | Lost-particle limits, max particle events/in-flight/secondaries, max history splits, lost-particle restart files                                                                                                                                                           |
+| **Diagnostics** | Verbosity, no-reduce, random-number stride, plot seed, properties file, material/cell offsets                                                                                                                                                                              |
+
+**Threads and MPI.** OpenMP threads apply per process. With MPI enabled the run command is
+`mpirun -np <processes> openmc -s <threads>`, so total CPU demand is processes × threads. The optional
+host list is passed as `mpirun --host host1,host2` (Open MPI syntax). Threads and MPI are launch
+controls, not `settings.xml` content. CMFD and depletion drivers receive the same thread count; the
+depletion driver applies it through `OMP_NUM_THREADS` because `CoupledOperator` initializes libopenmc
+internally without a threads argument.
+
+**Version boundaries.** Shared secondary bank and surface grazing cutoffs are OpenMC 0.16.0+ settings.
+They are disabled when the configured environment lacks them and are omitted from XML/Python with a
+warning. `Material.decay_photon_energy` is a Python analysis helper derived from decay data, not an XML
+material field, so it is intentionally not exposed. `max_splits` is deprecated upstream in favor of
+`max_history_splits`; only the latter is emitted. The k-eff trigger has no per-batch option in OpenMC
+(only type and threshold); the "only last batch" flag exists on per-tally triggers.
 
 ---
 
@@ -121,9 +145,13 @@ Define and manage materials. The tab shows all materials in the project with inl
 ### Editing a Material
 
 1. Click a material card to expand it.
-2. Edit **Name**, **ID**, **Density** and units, **Temperature**, and **S(α,β)** thermal scattering assignments.
+2. Edit **Name**, **ID**, **Density** and units, **Temperature**, **Isotropic scattering nuclides**, and **S(α,β)** thermal scattering assignments.
 3. Add or remove nuclides in the composition table (name, fraction, `wo`/`ao`).
 4. Toggle **Depletable** to include the material in burnup calculations.
+
+**Isotropic scattering nuclides** lists nuclides whose elastic scattering is treated as isotropic in the
+laboratory system (`Material.isotropic`, `<isotropic>` in `materials.xml`). Leave it empty for OpenMC's
+default anisotropic treatment.
 
 ### Macroscopic (Multigroup) Materials
 
@@ -292,6 +320,9 @@ A readiness checklist (with an `N / M configured` badge) verifies the model befo
 | **Restart…**       | Resume from a selected statepoint (sets `settings.restartFile`, shown as a dismissible chip)     |
 
 If you reload the browser tab or window while a simulation is running, the dashboard automatically re-attaches to the in-flight backend run: **Stop** keeps working and live progress and the log resume where they left off.
+
+The **Run Summary** card mirrors the launch configuration: mode, particles, batches, OpenMP threads,
+and the MPI rank/host selection, so the command that will run is visible before and after starting.
 
 ### Particle Restart
 

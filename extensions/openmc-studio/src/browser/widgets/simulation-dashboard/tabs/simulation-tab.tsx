@@ -282,6 +282,18 @@ export class SimulationTabContribution implements DashboardTabContribution {
                             </div>
                         )}
                         <div className="info-item">
+                            <label>OpenMP threads:</label>
+                            <span>{state.settings.threads ?? 'Auto'}</span>
+                        </div>
+                        <div className="info-item">
+                            <label>MPI:</label>
+                            <span>
+                                {state.settings.mpi?.enabled
+                                    ? `${state.settings.mpi.processes ?? '?'} rank(s)${state.settings.mpi.hosts?.length ? ` on ${state.settings.mpi.hosts.join(', ')}` : ''}`
+                                    : 'Disabled'}
+                            </span>
+                        </div>
+                        <div className="info-item">
                             <label>Materials:</label>
                             <span>{state.materials.length}</span>
                         </div>

@@ -66,6 +66,7 @@ import {
 import { OpenMCCmfdSettings } from '../common/openmc-state-schema';
 import { resolveDepletionSolver } from '../common/depletion-solvers';
 import { parseDepletionBlock } from '../common/depletion-config';
+import { buildOpenMCRunCommand, buildPythonDriverCommand, describeParallelism } from '../common/openmc-run-command';
 import { NukeCoreBackendService, NukeCoreBackendServiceInterface } from 'nuke-core/lib/common';
 import { STUDIO_CORE_PACKAGES } from '../common/packages';
 import { OpenMCValidationBackendService } from './openmc-validation-backend-service';
@@ -521,26 +522,17 @@ export class OpenMCRunnerService {
         // Build command - find openmc executable
         const openmcExe = await this.findOpenMCExecutable(pythonCommand);
 
-        let command: string;
-        let args: string[];
+        const launch = buildOpenMCRunCommand({
+            openmcExecutable: openmcExe,
+            threads: request.threads,
+            mpi: request.mpi,
+            restartFile: request.restartFile,
+            extraArgs: request.args
+        });
+        const command = launch.command;
+        const args = launch.args;
 
-        if (request.mpi?.enabled && request.mpi.processes && request.mpi.processes > 1) {
-            command = 'mpirun';
-            args = ['-np', String(request.mpi.processes), openmcExe];
-        } else {
-            command = openmcExe;
-            args = [];
-        }
-
-        // Restart from a previous statepoint file (openmc -r <file>)
-        if (request.restartFile) {
-            args.push('-r', request.restartFile);
-        }
-
-        // Add any additional arguments
-        if (request.args) {
-            args.push(...request.args);
-        }
+        this.log(`Run parallelism: ${describeParallelism(request.threads, request.mpi)}`);
 
         // Build environment - ensure PATH includes Python bin directory
         const pythonBinDir = path.dirname(pythonCommand);
@@ -742,26 +734,17 @@ export class OpenMCRunnerService {
         // Build command - find openmc executable
         const openmcExe = await this.findOpenMCExecutable(pythonCommand);
 
-        let command: string;
-        let args: string[];
+        const launch = buildOpenMCRunCommand({
+            openmcExecutable: openmcExe,
+            threads: request.threads,
+            mpi: request.mpi,
+            restartFile: request.restartFile,
+            extraArgs: request.args
+        });
+        const command = launch.command;
+        const args = launch.args;
 
-        if (request.mpi?.enabled && request.mpi.processes && request.mpi.processes > 1) {
-            command = 'mpirun';
-            args = ['-np', String(request.mpi.processes), openmcExe];
-        } else {
-            command = openmcExe;
-            args = [];
-        }
-
-        // Restart from a previous statepoint file (openmc -r <file>)
-        if (request.restartFile) {
-            args.push('-r', request.restartFile);
-        }
-
-        // Add any additional arguments
-        if (request.args) {
-            args.push(...request.args);
-        }
+        this.log(`Run parallelism: ${describeParallelism(request.threads, request.mpi)}`);
 
         // Build environment - ensure PATH includes Python bin directory
         const pythonBinDir = path.dirname(pythonCommand);
@@ -1027,8 +1010,15 @@ export class OpenMCRunnerService {
         if (request.mpi?.enabled && request.mpi.processes && request.mpi.processes > 1) {
             args.push('--mpi-processes', String(request.mpi.processes));
         }
+        if (request.threads !== undefined) {
+            args.push('--threads', String(request.threads));
+        }
 
-        this.log(`Running depletion: ${pythonCommand} ${args.join(' ')}`);
+        const launch = buildPythonDriverCommand(pythonCommand, args, request.mpi);
+        const command = launch.command;
+        const launchArgs = launch.args;
+
+        this.log(`Running depletion (${describeParallelism(request.threads, request.mpi)}): ${command} ${launchArgs.join(' ')}`);
 
         // Build environment
         const pythonBinDir = path.dirname(pythonCommand);
@@ -1054,7 +1044,7 @@ export class OpenMCRunnerService {
             const logFilePath = path.join(logDir, `${processId}.log`);
             const logStream = fs.createWriteStream(logFilePath, { flags: 'a' });
 
-            const childProcess = spawn(pythonCommand, args, {
+            const childProcess = spawn(command, launchArgs, {
                 cwd: request.workingDirectory,
                 env,
                 stdio: ['ignore', 'pipe', 'pipe']
@@ -1231,20 +1221,19 @@ export class OpenMCRunnerService {
 
         // Build command; MPI wraps the driver in mpirun (the driver hands the
         // world communicator to the C API via mpi4py)
-        const mpiProcesses = request.mpi?.enabled && request.mpi.processes && request.mpi.processes > 1 ? request.mpi.processes : undefined;
         const driverArgs = [cmfdRunnerPath, request.workingDirectory, '--cmfd-config', JSON.stringify(cmfd)];
-
-        let command: string;
-        let args: string[];
-        if (mpiProcesses) {
-            command = 'mpirun';
-            args = ['-np', String(mpiProcesses), pythonCommand, ...driverArgs, '--mpi-processes', String(mpiProcesses)];
-        } else {
-            command = pythonCommand;
-            args = driverArgs;
+        if (request.mpi?.enabled && request.mpi.processes && request.mpi.processes > 1) {
+            driverArgs.push('--mpi-processes', String(request.mpi.processes));
+        }
+        if (request.threads !== undefined) {
+            driverArgs.push('--threads', String(request.threads));
         }
 
-        this.log(`Running with CMFD acceleration: ${command} ${args.join(' ')}`);
+        const launch = buildPythonDriverCommand(pythonCommand, driverArgs, request.mpi);
+        const command = launch.command;
+        const args = launch.args;
+
+        this.log(`Running with CMFD acceleration (${describeParallelism(request.threads, request.mpi)}): ${command} ${args.join(' ')}`);
 
         // Build environment
         const pythonBinDir = path.dirname(pythonCommand);

@@ -429,6 +429,13 @@ export class XMLGenerationService {
             for (const sab of material.thermalScattering) {
                 lines.push(`    <sab name="${sab.name}"/>`);
             }
+
+            // Isotropic-in-lab elastic scattering nuclides (Material.isotropic,
+            // openmc/material.py to_xml_element)
+            const isotropic = (material.isotropic ?? []).map((name) => name.trim()).filter((name) => name.length > 0);
+            if (isotropic.length > 0) {
+                lines.push(`    <isotropic>${isotropic.join(' ')}</isotropic>`);
+            }
         }
 
         lines.push('  </material>');
@@ -864,26 +871,59 @@ export class XMLGenerationService {
             lines.push(`  <source_rejection_fraction>${settings.sourceRejectionFraction}</source_rejection_fraction>`);
         }
 
-        // Temperature settings
+        // Temperature settings (openmc/settings.py
+        // _create_temperature_subelements emits separate temperature_* elements)
         if (settings.temperature) {
-            lines.push('  <temperature_default>');
-            if (settings.temperature.default) {
-                lines.push(`    <default>${settings.temperature.default}</default>`);
+            if (settings.temperature.default !== undefined) {
+                lines.push(`  <temperature_default>${settings.temperature.default}</temperature_default>`);
             }
             if (settings.temperature.method) {
-                lines.push(`    <method>${settings.temperature.method}</method>`);
+                lines.push(`  <temperature_method>${settings.temperature.method}</temperature_method>`);
             }
-            lines.push('  </temperature_default>');
+            if (settings.temperature.tolerance !== undefined) {
+                lines.push(`  <temperature_tolerance>${settings.temperature.tolerance}</temperature_tolerance>`);
+            }
+            if (settings.temperature.multipole !== undefined) {
+                lines.push(`  <temperature_multipole>${settings.temperature.multipole}</temperature_multipole>`);
+            }
         }
 
-        // Cutoff
-        if (settings.cutoff) {
+        // Cutoff (weight, energy, and time; neutron/photon time use the
+        // separate time_neutron/time_photon elements read by src/settings.cpp).
+        // The variance-reduction tab's weight cutoff is the legacy editor for
+        // the same block; settings.cutoff wins when both are present so XML
+        // never carries two <cutoff> elements.
+        const vrCutoff = state.varianceReduction?.cutoff;
+        const cutoff = {
+            ...(vrCutoff ? { weight: vrCutoff.weight, weightAvg: vrCutoff.weightAvg } : {}),
+            ...(settings.cutoff ?? {})
+        };
+        const hasCutoff =
+            cutoff.weight !== undefined ||
+            cutoff.weightAvg !== undefined ||
+            cutoff.energyNeutron !== undefined ||
+            cutoff.energyPhoton !== undefined ||
+            cutoff.time !== undefined ||
+            cutoff.timePhoton !== undefined;
+        if (hasCutoff) {
             lines.push('  <cutoff>');
-            if (settings.cutoff.weight) {
-                lines.push(`    <weight>${settings.cutoff.weight}</weight>`);
+            if (cutoff.weight !== undefined) {
+                lines.push(`    <weight>${cutoff.weight}</weight>`);
             }
-            if (settings.cutoff.weightAvg) {
-                lines.push(`    <weight_avg>${settings.cutoff.weightAvg}</weight_avg>`);
+            if (cutoff.weightAvg !== undefined) {
+                lines.push(`    <weight_avg>${cutoff.weightAvg}</weight_avg>`);
+            }
+            if (cutoff.energyNeutron !== undefined) {
+                lines.push(`    <energy_neutron>${cutoff.energyNeutron}</energy_neutron>`);
+            }
+            if (cutoff.energyPhoton !== undefined) {
+                lines.push(`    <energy_photon>${cutoff.energyPhoton}</energy_photon>`);
+            }
+            if (cutoff.time !== undefined) {
+                lines.push(`    <time_neutron>${cutoff.time}</time_neutron>`);
+            }
+            if (cutoff.timePhoton !== undefined) {
+                lines.push(`    <time_photon>${cutoff.timePhoton}</time_photon>`);
             }
             lines.push('  </cutoff>');
         }
@@ -1269,17 +1309,8 @@ export class XMLGenerationService {
                 lines.push('  <survival_biasing>true</survival_biasing>');
             }
 
-            // Cutoff settings
-            if (vr.cutoff && (vr.cutoff.weight !== undefined || vr.cutoff.weightAvg !== undefined)) {
-                lines.push('  <cutoff>');
-                if (vr.cutoff.weight !== undefined) {
-                    lines.push(`    <weight>${vr.cutoff.weight}</weight>`);
-                }
-                if (vr.cutoff.weightAvg !== undefined) {
-                    lines.push(`    <weight_avg>${vr.cutoff.weightAvg}</weight_avg>`);
-                }
-                lines.push('  </cutoff>');
-            }
+            // Cutoff settings are merged into the single <cutoff> block above
+            // (settings.cutoff wins over the legacy varianceReduction.cutoff).
 
             // Weight window generator (real OpenMC format: openmc/weight_windows.py:713)
             if (vr.weightWindowGenerator) {
@@ -1447,6 +1478,97 @@ export class XMLGenerationService {
         }
         if (settings.uniformSourceSampling !== undefined) {
             lines.push(`  <uniform_source_sampling>${settings.uniformSourceSampling}</uniform_source_sampling>`);
+        }
+        if (settings.trace !== undefined) {
+            lines.push(`  <trace>${settings.trace.join(' ')}</trace>`);
+        }
+        if (settings.keffTrigger !== undefined) {
+            lines.push('  <keff_trigger>');
+            lines.push(`    <type>${settings.keffTrigger.type}</type>`);
+            lines.push(`    <threshold>${settings.keffTrigger.threshold}</threshold>`);
+            lines.push('  </keff_trigger>');
+        }
+        if (settings.confidenceIntervals !== undefined) {
+            lines.push(`  <confidence_intervals>${settings.confidenceIntervals}</confidence_intervals>`);
+        }
+        if (settings.freeGasThreshold !== undefined) {
+            lines.push(`  <free_gas_threshold>${settings.freeGasThreshold}</free_gas_threshold>`);
+        }
+        if (settings.sharedSecondaryBank !== undefined) {
+            if (compat.sharedSecondaryBank) {
+                lines.push(`  <shared_secondary_bank>${settings.sharedSecondaryBank}</shared_secondary_bank>`);
+            } else {
+                warnings?.push('shared_secondary_bank requires OpenMC >= 0.16.0; the setting was not written to settings.xml');
+            }
+        }
+        if (settings.surfaceGrazingCutoff !== undefined || settings.surfaceGrazingRatio !== undefined) {
+            if (compat.surfaceGrazing) {
+                if (settings.surfaceGrazingCutoff !== undefined) {
+                    lines.push(`  <surface_grazing_cutoff>${settings.surfaceGrazingCutoff}</surface_grazing_cutoff>`);
+                }
+                if (settings.surfaceGrazingRatio !== undefined) {
+                    lines.push(`  <surface_grazing_ratio>${settings.surfaceGrazingRatio}</surface_grazing_ratio>`);
+                }
+            } else {
+                warnings?.push('Surface grazing cutoffs require OpenMC >= 0.16.0; the setting was not written to settings.xml');
+            }
+        }
+        if (settings.maxParticleEvents !== undefined) {
+            lines.push(`  <max_particle_events>${settings.maxParticleEvents}</max_particle_events>`);
+        }
+        if (settings.maxParticlesInFlight !== undefined) {
+            lines.push(`  <max_particles_in_flight>${settings.maxParticlesInFlight}</max_particles_in_flight>`);
+        }
+        if (settings.maxSecondaries !== undefined) {
+            lines.push(`  <max_secondaries>${settings.maxSecondaries}</max_secondaries>`);
+        }
+        if (settings.maxHistorySplits !== undefined) {
+            lines.push(`  <max_history_splits>${settings.maxHistorySplits}</max_history_splits>`);
+        }
+        if (settings.maxWriteLostParticles !== undefined) {
+            lines.push(`  <max_write_lost_particles>${settings.maxWriteLostParticles}</max_write_lost_particles>`);
+        }
+        if (settings.noReduce !== undefined) {
+            lines.push(`  <no_reduce>${settings.noReduce}</no_reduce>`);
+        }
+        if (settings.stride !== undefined) {
+            lines.push(`  <stride>${settings.stride}</stride>`);
+        }
+        if (settings.plotSeed !== undefined) {
+            lines.push(`  <plot_seed>${settings.plotSeed}</plot_seed>`);
+        }
+        if (settings.propertiesFile) {
+            lines.push(`  <properties_file>${this.escapeXml(settings.propertiesFile)}</properties_file>`);
+        }
+        if (settings.verbosity !== undefined) {
+            lines.push(`  <verbosity>${settings.verbosity}</verbosity>`);
+        }
+        if (settings.materialCellOffsets !== undefined) {
+            lines.push(`  <material_cell_offsets>${settings.materialCellOffsets}</material_cell_offsets>`);
+        }
+        if (settings.resonanceScattering) {
+            const resonance = settings.resonanceScattering;
+            const hasResonanceValue =
+                resonance.enable !== undefined ||
+                resonance.method !== undefined ||
+                resonance.energyMin !== undefined ||
+                resonance.energyMax !== undefined;
+            if (hasResonanceValue) {
+                lines.push('  <resonance_scattering>');
+                if (resonance.enable !== undefined) {
+                    lines.push(`    <enable>${resonance.enable}</enable>`);
+                }
+                if (resonance.method) {
+                    lines.push(`    <method>${resonance.method}</method>`);
+                }
+                if (resonance.energyMin !== undefined) {
+                    lines.push(`    <energy_min>${resonance.energyMin}</energy_min>`);
+                }
+                if (resonance.energyMax !== undefined) {
+                    lines.push(`    <energy_max>${resonance.energyMax}</energy_max>`);
+                }
+                lines.push('  </resonance_scattering>');
+            }
         }
         if (settings.tabularLegendre?.enable !== undefined) {
             lines.push('  <tabular_legendre>');

@@ -37,6 +37,8 @@
  * - `adjointSource` — random ray adjoint source support (0.16.0+)
  * - `tokamakSource` — `openmc.TokamakSource` existence (0.16.0+)
  * - `s2SampleMethod` — random ray `sample_method: 's2'` acceptance
+ * - `sharedSecondaryBank` — `Settings.shared_secondary_bank` existence (0.16.0+)
+ * - `surfaceGrazing` — `Settings.surface_grazing_cutoff` existence (0.16.0+)
  *
  * Results are cached per python command; on any probe failure the
  * release-compatible default is returned (stable releases are the common case).
@@ -50,13 +52,15 @@ import { OpenMCCompat, DEFAULT_OPENMC_COMPAT } from '../common/openmc-studio-pro
 import { OpenMCValidationBackendService } from './openmc-validation-backend-service';
 
 /**
- * Python one-liner: prints eight space-separated tokens —
+ * Python one-liner: prints ten space-separated tokens —
  * `<direct|wrapper> <adjoint|no-adjoint> <tokamak|no-tokamak> <s2|no-s2>
  * <substeps|no-substeps> <keff-search|no-keff-search>
- * <external-rate|no-external-rate> <continuation|no-continuation>`.
+ * <external-rate|no-external-rate> <continuation|no-continuation>
+ * <shared-bank|no-shared-bank> <grazing|no-grazing>`.
  *
- * Depletion capabilities are detected by introspection (never version
- * strings): constructor parameters and public Integrator methods.
+ * Depletion and 0.16 settings capabilities are detected by introspection
+ * (never version strings): constructor parameters, public Integrator methods,
+ * and Settings attributes.
  */
 const OPENMC_COMPAT_PROBE_SCRIPT = `
 import inspect
@@ -89,7 +93,9 @@ substeps = 'substeps' in _params
 keff_search = bool(_Integrator is not None and hasattr(_Integrator, 'add_keff_search_control'))
 external_rate = bool(_Integrator is not None and hasattr(_Integrator, 'add_external_source_rate'))
 continuation = 'continue_timesteps' in _params and hasattr(openmc.deplete, 'Results')
-print('{} {} {} {} {} {} {} {}'.format(
+shared_bank = hasattr(openmc.Settings(), 'shared_secondary_bank')
+grazing = hasattr(openmc.Settings(), 'surface_grazing_cutoff')
+print('{} {} {} {} {} {} {} {} {} {}'.format(
     fmt,
     'adjoint' if adj else 'no-adjoint',
     'tokamak' if tok else 'no-tokamak',
@@ -97,7 +103,9 @@ print('{} {} {} {} {} {} {} {}'.format(
     'substeps' if substeps else 'no-substeps',
     'keff-search' if keff_search else 'no-keff-search',
     'external-rate' if external_rate else 'no-external-rate',
-    'continuation' if continuation else 'no-continuation'))
+    'continuation' if continuation else 'no-continuation',
+    'shared-bank' if shared_bank else 'no-shared-bank',
+    'grazing' if grazing else 'no-grazing'))
 `;
 
 const PROBE_TIMEOUT_MS = 30000;
@@ -159,9 +167,9 @@ export class OpenMCCompatProbeService {
     }
 
     /**
-     * Parse the probe's eight-token output line. Tokens after the original
-     * four are optional so older probe output still parses (falling back to
-     * the release-compatible defaults for the missing depletion capabilities).
+     * Parse the probe's ten-token output line. Tokens after the original four
+     * are optional so older probe output still parses (falling back to the
+     * release-compatible defaults for missing capabilities).
      * @param stdout - Probe stdout
      * @returns Parsed compatibility, or undefined if malformed
      */
@@ -172,7 +180,9 @@ export class OpenMCCompatProbeService {
             .map((l) => l.trim())
             .filter((l) => l.length > 0)
             .pop();
-        const [format, adjoint, tokamak, s2, substeps, keffSearch, externalRate, continuation] = (line ?? '').split(/\s+/);
+        const [format, adjoint, tokamak, s2, substeps, keffSearch, externalRate, continuation, sharedBank, grazing] = (
+            line ?? ''
+        ).split(/\s+/);
         if (format !== 'direct' && format !== 'wrapper') {
             return undefined;
         }
@@ -185,7 +195,9 @@ export class OpenMCCompatProbeService {
             depletionKeffSearch: keffSearch === 'keff-search',
             depletionExternalSourceRate:
                 externalRate === 'external-rate' || (!externalRate && DEFAULT_OPENMC_COMPAT.depletionExternalSourceRate),
-            depletionContinuation: continuation === 'continuation' || (!continuation && DEFAULT_OPENMC_COMPAT.depletionContinuation)
+            depletionContinuation: continuation === 'continuation' || (!continuation && DEFAULT_OPENMC_COMPAT.depletionContinuation),
+            sharedSecondaryBank: sharedBank === 'shared-bank',
+            surfaceGrazing: grazing === 'grazing'
         };
     }
 }

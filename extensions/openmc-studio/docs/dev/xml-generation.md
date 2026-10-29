@@ -195,6 +195,31 @@ Maps `OpenMCState.settings` → `<settings>`.
 | `settings.photonTransport`         | `<photon_transport>true</photon_transport>` | Optional                                     |
 | `settings.dagmcFile`               | `<dagmc>true</dagmc>`                       | Enables DAGMC mode                           |
 
+### Runtime and advanced settings
+
+| State Field(s)                                                       | XML element(s)                                                                                                          |
+| -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `threads`, `mpi`                                                     | None — launch-only (`openmc -s N`, `mpirun -np N [--host ...]`)                                                         |
+| `trace`                                                              | `<trace>batch generation particle</trace>`                                                                              |
+| `keffTrigger`                                                        | `<keff_trigger><type/><threshold/></keff_trigger>`                                                                      |
+| `confidenceIntervals`                                                | `<confidence_intervals>`                                                                                                |
+| `temperature.default/method/tolerance/multipole`                     | Separate `<temperature_default>`, `<temperature_method>`, `<temperature_tolerance>`, `<temperature_multipole>` elements |
+| `cutoff.energyNeutron/energyPhoton/time/timePhoton/weight/weightAvg` | `<cutoff>` with `energy_neutron`, `energy_photon`, `time_neutron`, `time_photon`, `weight`, `weight_avg`                |
+| `resonanceScattering`                                                | `<resonance_scattering>` with `enable`, `method`, `energy_min`, `energy_max`                                            |
+| `freeGasThreshold`                                                   | `<free_gas_threshold>`                                                                                                  |
+| `sharedSecondaryBank`                                                | `<shared_secondary_bank>` (0.16.0+, probed)                                                                             |
+| `surfaceGrazingCutoff/Ratio`                                         | `<surface_grazing_cutoff>` / `<surface_grazing_ratio>` (0.16.0+, probed)                                                |
+| `maxParticleEvents`, `maxParticlesInFlight`, `maxSecondaries`        | `<max_particle_events>`, `<max_particles_in_flight>`, `<max_secondaries>`                                               |
+| `maxHistorySplits`, `maxWriteLostParticles`                          | `<max_history_splits>`, `<max_write_lost_particles>` (`max_splits` is deprecated upstream)                              |
+| `noReduce`, `stride`, `plotSeed`, `propertiesFile`, `verbosity`      | `<no_reduce>`, `<stride>`, `<plot_seed>`, `<properties_file>`, `<verbosity>`                                            |
+| `materialCellOffsets`                                                | `<material_cell_offsets>`                                                                                               |
+| `material.isotropic`                                                 | `<isotropic>nuclide ...</isotropic>` inside `<material>`                                                                |
+
+`shared_secondary_bank` and the surface grazing cutoffs are disabled and warned about when the probed
+`OpenMCCompat` reports an older environment. Python export emits the same `Settings` attributes; threads
+and MPI stay out of the Python model because they are run-launch controls. The legacy variance-reduction
+weight cutoff merges into the single `<cutoff>` block, with `settings.cutoff` taking precedence.
+
 ### Source Distributions
 
 | Spatial Type | XML `type`    | Parameters                   |

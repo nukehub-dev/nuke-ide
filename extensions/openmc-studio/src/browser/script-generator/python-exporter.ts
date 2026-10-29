@@ -48,6 +48,7 @@ import URI from '@theia/core/lib/common/uri';
 import { BinaryBuffer } from '@theia/core/lib/common/buffer';
 
 import { OpenMCStateManager } from '../openmc-state-manager';
+import { OpenMCStudioBackendService, OpenMCCompat } from '../../common/openmc-studio-protocol';
 import {
     OpenMCState,
     OpenMCMaterial,
@@ -71,6 +72,11 @@ import { generateCmfdCodeLines } from '../../common/cmfd';
 import { getDepletionSolver, resolveDepletionSolver } from '../../common/depletion-solvers';
 import { isElementName } from '../../common/material-utils';
 import { generatePlotAppearancePythonLines } from '../../common/plot-appearance';
+import {
+    generateMaterialIsotropicPython,
+    generateRuntimeSettingsPython,
+    generateTemperatureCutoffPython
+} from '../../common/settings-python-export';
 
 /** Options controlling how Python scripts are exported. */
 export interface PythonExportOptions {
@@ -82,6 +88,8 @@ export interface PythonExportOptions {
     includeComments?: boolean;
     /** Include shebang line (`#!/usr/bin/env python3`). */
     includeShebang?: boolean;
+    /** Probed OpenMC capabilities (0.16-only settings are gated when known). */
+    compat?: OpenMCCompat;
 }
 
 /** Result of a Python export operation. */
@@ -101,6 +109,9 @@ export class OpenMCPythonExporter {
 
     @inject(OpenMCStateManager)
     protected readonly stateManager: OpenMCStateManager;
+
+    @inject(OpenMCStudioBackendService)
+    protected readonly backendService: OpenMCStudioBackendService;
 
     @inject(FileDialogService)
     protected readonly fileDialogService: FileDialogService;
@@ -130,6 +141,9 @@ export class OpenMCPythonExporter {
         };
 
         try {
+            if (!defaultOptions.compat) {
+                defaultOptions.compat = await this.backendService.getOpenMCCompat().catch(() => undefined);
+            }
             if (defaultOptions.mode === 'single') {
                 return await this.exportSingleFile(state, defaultOptions);
             } else {
@@ -677,6 +691,10 @@ export class OpenMCPythonExporter {
         if (material.temperature) {
             lines.push(`${varName}.temperature = ${material.temperature}`);
         }
+        const isotropic = generateMaterialIsotropicPython(material, varName);
+        if (isotropic.length > 0) {
+            lines.push(...isotropic);
+        }
 
         lines.push('');
         return lines;
@@ -1161,10 +1179,8 @@ export class OpenMCPythonExporter {
             }
         }
 
-        // Threads
-        if (settings.threads) {
-            lines.push(`settings.threads = ${settings.threads}`);
-        }
+        // Threads are a runtime launch control (`openmc -s N`), not a
+        // Settings attribute — the runner applies settings.threads instead.
 
         // Advanced scalar settings (attribute names match settings.py)
         const boolSetting = (value: boolean): string => (value ? 'True' : 'False');
@@ -1210,6 +1226,7 @@ export class OpenMCPythonExporter {
         if (settings.uniformSourceSampling !== undefined) {
             lines.push(`settings.uniform_source_sampling = ${boolSetting(settings.uniformSourceSampling)}`);
         }
+        lines.push(...generateRuntimeSettingsPython(settings, options.compat));
         if (settings.tabularLegendre) {
             const entries: string[] = [];
             if (settings.tabularLegendre.enable !== undefined) {
@@ -1372,28 +1389,13 @@ export class OpenMCPythonExporter {
             lines.push('settings.entropy_mesh = entropy_mesh');
         }
 
-        // Temperature
-        if (settings.temperature) {
-            if (settings.temperature.default) {
-                lines.push(`settings.temperature['default'] = ${settings.temperature.default}`);
-            }
-            if (settings.temperature.method) {
-                lines.push(`settings.temperature['method'] = "${settings.temperature.method}"`);
-            }
-            if (settings.temperature.multipole) {
-                lines.push('settings.temperature["multipole"] = True');
-            }
-        }
-
-        // Cutoff
-        if (settings.cutoff) {
-            if (settings.cutoff.weight !== undefined) {
-                lines.push(`settings.cutoff['weight'] = ${settings.cutoff.weight}`);
-            }
-            if (settings.cutoff.weightAvg !== undefined) {
-                lines.push(`settings.cutoff['weight_avg'] = ${settings.cutoff.weightAvg}`);
-            }
-        }
+        // Temperature and cutoff settings (pure helper shared with tests).
+        // The variance-reduction tab's weight cutoff maps to the same
+        // settings.cutoff block; settings.cutoff wins when both are set.
+        const cutoff = state.varianceReduction?.cutoff
+            ? { ...state.varianceReduction.cutoff, ...(settings.cutoff ?? {}) }
+            : settings.cutoff;
+        lines.push(...generateTemperatureCutoffPython({ ...settings, cutoff }));
 
         // Variance reduction settings
         if (state.varianceReduction) {

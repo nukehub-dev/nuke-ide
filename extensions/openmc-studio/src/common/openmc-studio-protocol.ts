@@ -460,6 +460,10 @@ export interface OpenMCCompat {
     depletionExternalSourceRate: boolean;
     /** Whether `continue_timesteps` and restart results are available (0.15.1+) */
     depletionContinuation: boolean;
+    /** Whether `Settings.shared_secondary_bank` / `<shared_secondary_bank>` exists (0.16.0+) */
+    sharedSecondaryBank?: boolean;
+    /** Whether surface-grazing cutoffs exist (0.16.0+) */
+    surfaceGrazing?: boolean;
 }
 
 /** Release-compatible default (stable releases are the common case). */
@@ -471,7 +475,9 @@ export const DEFAULT_OPENMC_COMPAT: OpenMCCompat = {
     depletionSubsteps: false,
     depletionKeffSearch: false,
     depletionExternalSourceRate: true,
-    depletionContinuation: true
+    depletionContinuation: true,
+    sharedSecondaryBank: false,
+    surfaceGrazing: false
 };
 
 /** Result of XML generation */
@@ -555,6 +561,11 @@ export interface SimulationRunRequest {
     /** Working directory containing XML files */
     workingDirectory: string;
     openmcPath?: string;
+    /**
+     * OpenMP threads per OpenMC process (CLI `-s N`; per MPI rank). Omitted
+     * means OpenMC's default (all hardware threads / OMP_NUM_THREADS).
+     */
+    threads?: number;
     /** MPI configuration */
     mpi?: {
         enabled: boolean;

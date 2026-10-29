@@ -37,6 +37,12 @@ export interface CollapsibleSectionProps {
     defaultOpen?: boolean;
     /** Optional actions rendered in the header (clicks do not toggle the section). */
     actions?: React.ReactNode;
+    /** Validation status shown as a coloured dot in the header. */
+    status?: 'error' | 'warning';
+    /** Inline validation message rendered under the header. */
+    statusMessage?: string;
+    /** Extra class applied to the section root. */
+    className?: string;
     children?: React.ReactNode;
 }
 
@@ -49,15 +55,36 @@ export interface CollapsibleSectionProps {
  */
 export function CollapsibleSection(props: CollapsibleSectionProps): React.ReactNode {
     const [open, setOpen] = React.useState(props.defaultOpen ?? true);
+    const toggle = (): void => setOpen(!open);
 
     return (
-        <div className="settings-section">
-            <h3 onClick={() => setOpen(!open)} style={{ cursor: 'pointer' }}>
+        <div className={`settings-section${props.className ? ` ${props.className}` : ''}`} data-section-title={props.title}>
+            <h3
+                onClick={toggle}
+                role="button"
+                tabIndex={0}
+                aria-expanded={open}
+                onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        toggle();
+                    }
+                }}
+                style={{ cursor: 'pointer' }}
+            >
                 <i className={`codicon codicon-chevron-${open ? 'down' : 'right'}`}></i>
                 {props.icon && <i className={`codicon codicon-${props.icon}`}></i>}
                 {props.title}
+                {props.status && (
+                    <span
+                        className={`section-status-dot ${props.status}`}
+                        role="img"
+                        aria-label={props.status === 'error' ? 'Has validation errors' : 'Has validation warnings'}
+                    ></span>
+                )}
                 {props.actions && <span onClick={(e) => e.stopPropagation()}>{props.actions}</span>}
             </h3>
+            {props.statusMessage && <div className={`section-status-message ${props.status ?? 'error'}`}>{props.statusMessage}</div>}
             {open && props.children}
         </div>
     );

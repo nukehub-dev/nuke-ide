@@ -1042,12 +1042,28 @@ export class SimulationDashboardWidget extends ReactWidget {
             this.simulationRunner.runSimulation({
                 workingDirectory: uri.path.toString(),
                 restartFile,
+                threads: simState.settings.threads,
+                mpi: simState.settings.mpi?.enabled
+                    ? {
+                          enabled: true,
+                          processes: simState.settings.mpi.processes,
+                          hosts: simState.settings.mpi.hosts
+                      }
+                    : undefined,
                 args: args.length > 0 ? args : undefined,
                 // CMFD is C-API-only: when enabled the backend routes to the
                 // run_cmfd.py driver instead of the openmc binary. meshRef is
                 // resolved to inline bounds here (the backend has no state).
                 cmfd: resolveCmfdRunConfig(simState)
             });
+            if (simState.settings.threads !== undefined || simState.settings.mpi?.enabled) {
+                const mpiText = simState.settings.mpi?.enabled
+                    ? `, ${simState.settings.mpi.processes ?? '?'} MPI rank(s)${simState.settings.mpi.hosts?.length ? ` on ${simState.settings.mpi.hosts.join(', ')}` : ''}`
+                    : '';
+                this.logToConsole(
+                    `Parallelism: ${simState.settings.threads !== undefined ? `${simState.settings.threads} OpenMP thread(s)` : 'OpenMC default threads'}${mpiText}`
+                );
+            }
             if (simState.settings.cmfd?.enabled) {
                 this.logToConsole('CMFD acceleration enabled — running via openmc.cmfd C API');
             }

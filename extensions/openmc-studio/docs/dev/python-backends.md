@@ -351,6 +351,15 @@ if (stats.success) {
 (secondary, re-tags an enclosing volume). `refacet` re-tessellates from source CAD and re-creates the graveyard when the old file had one;
 with imprint/merge it routes through nuke-cad's `dagmc_export.py` when available, else the legacy OpenCASCADE BOPAlgo path.
 
+### Runtime controls
+
+The `openmc` binary receives OpenMP threads as `-s N`; MPI wraps it as `mpirun -np N [--host ...] openmc`.
+`run_cmfd.py` forwards `--threads` into `CMFDRun.run(args=['-s', N], ...)`, which passes it to
+`openmc.lib.init`. `run_depletion.py` sets `OMP_NUM_THREADS` before importing OpenMC because
+`CoupledOperator` initializes libopenmc internally without a `threads` kwarg, and its `--generate-microxs`
+transport solve passes `threads` through `get_microxs_and_flux(..., run_kwargs=...)`. Threads are per
+rank; `threads × processes` is the total CPU demand. None of these controls belongs in `settings.xml`.
+
 ### Depletion, search, and sweep drivers
 
 `run_depletion.py` supports coupled and independent operators, `get_microxs_and_flux` generation, transfer rates (via

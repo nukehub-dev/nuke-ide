@@ -6,6 +6,7 @@ paths raise SystemExit before any openmc import happens.
 """
 
 import json
+import os
 import sys
 
 import pytest
@@ -25,6 +26,24 @@ class TestLogProgress:
         run_depletion.log_progress("a")
         run_depletion.log_progress("b")
         assert capsys.readouterr().err == "a\nb\n"
+
+
+class TestConfigureOpenmpThreads:
+    def test_sets_omp_num_threads(self, monkeypatch):
+        """The requested thread count is exported before openmc import."""
+        monkeypatch.delenv("OMP_NUM_THREADS", raising=False)
+        from types import SimpleNamespace
+
+        assert run_depletion.configure_openmp_threads(SimpleNamespace(threads=3)) == 3
+        assert os.environ["OMP_NUM_THREADS"] == "3"
+
+    def test_leaves_default_when_unset(self, monkeypatch):
+        """No thread count leaves the OpenMP default untouched."""
+        monkeypatch.delenv("OMP_NUM_THREADS", raising=False)
+        from types import SimpleNamespace
+
+        assert run_depletion.configure_openmp_threads(SimpleNamespace(threads=None)) is None
+        assert "OMP_NUM_THREADS" not in os.environ
 
 
 class TestReadEnergyMode:

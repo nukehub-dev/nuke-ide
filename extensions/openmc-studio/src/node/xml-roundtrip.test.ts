@@ -1169,6 +1169,163 @@ describe('settings.xml round-trip', () => {
         fs.rmSync(advancedDir, { recursive: true, force: true });
     });
 
+    it('round-trips runtime, convergence, physics, limit, and diagnostics settings', async () => {
+        const runtimeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openmc-runtime-'));
+        const state = buildTestState();
+        state.materials[0].isotropic = ['H1', 'O16'];
+        state.settings.photonTransport = false;
+        Object.assign(state.settings, {
+            threads: 4,
+            mpi: { enabled: true, processes: 2, hosts: ['node1', 'node2'] },
+            trace: [2, 1, 7],
+            keffTrigger: { type: 'rel_err', threshold: 0.001 },
+            confidenceIntervals: true,
+            temperature: { default: 600, method: 'interpolation', tolerance: 15, multipole: true },
+            cutoff: { energyNeutron: 1e-3, energyPhoton: 1000, time: 1e-4, timePhoton: 1e-3, weight: 0.25, weightAvg: 1 },
+            resonanceScattering: { enable: true, method: 'dbrc', energyMin: 0.01, energyMax: 1000 },
+            freeGasThreshold: 400,
+            sharedSecondaryBank: true,
+            surfaceGrazingCutoff: 0.001,
+            surfaceGrazingRatio: 0.5,
+            maxParticleEvents: 1000000,
+            maxParticlesInFlight: 100000,
+            maxSecondaries: 10000,
+            maxHistorySplits: 10000000,
+            maxWriteLostParticles: 5,
+            noReduce: true,
+            stride: 152917,
+            plotSeed: 3,
+            propertiesFile: '/tmp/properties.h5',
+            verbosity: 7,
+            materialCellOffsets: false
+        } satisfies Partial<OpenMCSettings>);
+
+        const generator = new XMLGenerationService();
+        await generator.generateXML({
+            state,
+            outputDirectory: runtimeDir,
+            files: { materials: true, geometry: true, settings: true, tallies: false, plots: false },
+            randomRayCompat: {
+                raySourceFormat: 'direct',
+                adjointSource: false,
+                tokamakSource: false,
+                s2SampleMethod: false,
+                depletionSubsteps: false,
+                depletionKeffSearch: false,
+                depletionExternalSourceRate: true,
+                depletionContinuation: true,
+                sharedSecondaryBank: true,
+                surfaceGrazing: true
+            }
+        });
+
+        const settingsXml = fs.readFileSync(path.join(runtimeDir, 'settings.xml'), 'utf-8');
+        const materialsXml = fs.readFileSync(path.join(runtimeDir, 'materials.xml'), 'utf-8');
+        // Temperature fields are separate top-level elements (settings.py
+        // _create_temperature_subelements), not children of temperature_default.
+        expect(settingsXml).toContain('<temperature_default>600</temperature_default>');
+        expect(settingsXml).toContain('<temperature_method>interpolation</temperature_method>');
+        expect(settingsXml).toContain('<temperature_tolerance>15</temperature_tolerance>');
+        expect(settingsXml).toContain('<temperature_multipole>true</temperature_multipole>');
+        expect(settingsXml).not.toContain('<temperature_default>\n');
+        expect(settingsXml).toContain('<energy_neutron>0.001</energy_neutron>');
+        expect(settingsXml).toContain('<energy_photon>1000</energy_photon>');
+        expect(settingsXml).toContain('<time_neutron>0.0001</time_neutron>');
+        expect(settingsXml).toContain('<time_photon>0.001</time_photon>');
+        expect(settingsXml).toContain('<resonance_scattering>');
+        expect(settingsXml).toContain('<method>dbrc</method>');
+        expect(settingsXml).toContain('<energy_min>0.01</energy_min>');
+        expect(settingsXml).toContain('<energy_max>1000</energy_max>');
+        expect(settingsXml).toContain('<trace>2 1 7</trace>');
+        expect(settingsXml).toContain('<keff_trigger>');
+        expect(settingsXml).toContain('<type>rel_err</type>');
+        expect(settingsXml).toContain('<threshold>0.001</threshold>');
+        expect(settingsXml).toContain('<confidence_intervals>true</confidence_intervals>');
+        expect(settingsXml).toContain('<free_gas_threshold>400</free_gas_threshold>');
+        expect(settingsXml).toContain('<shared_secondary_bank>true</shared_secondary_bank>');
+        expect(settingsXml).toContain('<surface_grazing_cutoff>0.001</surface_grazing_cutoff>');
+        expect(settingsXml).toContain('<surface_grazing_ratio>0.5</surface_grazing_ratio>');
+        expect(settingsXml).toContain('<max_particle_events>1000000</max_particle_events>');
+        expect(settingsXml).toContain('<max_particles_in_flight>100000</max_particles_in_flight>');
+        expect(settingsXml).toContain('<max_secondaries>10000</max_secondaries>');
+        expect(settingsXml).toContain('<max_history_splits>10000000</max_history_splits>');
+        expect(settingsXml).toContain('<max_write_lost_particles>5</max_write_lost_particles>');
+        expect(settingsXml).toContain('<no_reduce>true</no_reduce>');
+        expect(settingsXml).toContain('<stride>152917</stride>');
+        expect(settingsXml).toContain('<plot_seed>3</plot_seed>');
+        expect(settingsXml).toContain('<properties_file>/tmp/properties.h5</properties_file>');
+        expect(settingsXml).toContain('<verbosity>7</verbosity>');
+        expect(settingsXml).toContain('<material_cell_offsets>false</material_cell_offsets>');
+        // Runtime launch controls are not settings.xml content
+        expect(settingsXml).not.toContain('<threads>');
+        expect(settingsXml).not.toContain('<mpi');
+        expect(materialsXml).toContain('<isotropic>H1 O16</isotropic>');
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const imported = await backend.importXML({ directory: runtimeDir });
+        expect(imported.success).toBe(true);
+        const importedSettings = imported.state!.settings;
+        expect(importedSettings.threads).toBeUndefined();
+        expect(importedSettings.mpi).toBeUndefined();
+        expect(importedSettings.trace).toEqual([2, 1, 7]);
+        expect(importedSettings.keffTrigger).toEqual({ type: 'rel_err', threshold: 0.001 });
+        expect(importedSettings.confidenceIntervals).toBe(true);
+        expect(importedSettings.temperature).toEqual({ default: 600, method: 'interpolation', tolerance: 15, multipole: true });
+        expect(importedSettings.cutoff).toEqual({
+            energyNeutron: 0.001,
+            energyPhoton: 1000,
+            time: 0.0001,
+            timePhoton: 0.001,
+            weight: 0.25,
+            weightAvg: 1
+        });
+        expect(importedSettings.resonanceScattering).toEqual({ enable: true, method: 'dbrc', energyMin: 0.01, energyMax: 1000 });
+        expect(importedSettings.freeGasThreshold).toBe(400);
+        expect(importedSettings.sharedSecondaryBank).toBe(true);
+        expect(importedSettings.surfaceGrazingCutoff).toBe(0.001);
+        expect(importedSettings.surfaceGrazingRatio).toBe(0.5);
+        expect(importedSettings.maxParticleEvents).toBe(1000000);
+        expect(importedSettings.maxParticlesInFlight).toBe(100000);
+        expect(importedSettings.maxSecondaries).toBe(10000);
+        expect(importedSettings.maxHistorySplits).toBe(10000000);
+        expect(importedSettings.maxWriteLostParticles).toBe(5);
+        expect(importedSettings.noReduce).toBe(true);
+        expect(importedSettings.stride).toBe(152917);
+        expect(importedSettings.plotSeed).toBe(3);
+        expect(importedSettings.propertiesFile).toBe('/tmp/properties.h5');
+        expect(importedSettings.verbosity).toBe(7);
+        expect(importedSettings.materialCellOffsets).toBe(false);
+        expect(imported.state!.materials[0].isotropic).toEqual(['H1', 'O16']);
+
+        fs.rmSync(runtimeDir, { recursive: true, force: true });
+    });
+
+    it('omits 0.16-only runtime settings with a warning on the release profile', async () => {
+        const gatedDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openmc-runtime-gated-'));
+        const state = buildTestState();
+        Object.assign(state.settings, {
+            sharedSecondaryBank: true,
+            surfaceGrazingCutoff: 0.001,
+            surfaceGrazingRatio: 0.5
+        } satisfies Partial<OpenMCSettings>);
+
+        const generator = new XMLGenerationService();
+        const result = await generator.generateXML({
+            state,
+            outputDirectory: gatedDir,
+            files: { materials: false, geometry: false, settings: true, tallies: false, plots: false }
+        });
+
+        const settingsXml = fs.readFileSync(path.join(gatedDir, 'settings.xml'), 'utf-8');
+        expect(settingsXml).not.toContain('<shared_secondary_bank>');
+        expect(settingsXml).not.toContain('<surface_grazing_cutoff>');
+        expect(settingsXml).not.toContain('<surface_grazing_ratio>');
+        expect(result.warnings?.some((warning) => warning.includes('shared_secondary_bank'))).toBe(true);
+        expect(result.warnings?.some((warning) => warning.includes('Surface grazing'))).toBe(true);
+
+        fs.rmSync(gatedDir, { recursive: true, force: true });
+    });
+
     it('omits advanced scalar settings when unset (backward compatible output)', async () => {
         const plainDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openmc-advanced-off-'));
         const state = buildTestState();
@@ -1196,7 +1353,26 @@ describe('settings.xml round-trip', () => {
             'max_order',
             'write_initial_source',
             'uniform_source_sampling',
-            'tabular_legendre'
+            'tabular_legendre',
+            'trace',
+            'keff_trigger',
+            'confidence_intervals',
+            'free_gas_threshold',
+            'shared_secondary_bank',
+            'surface_grazing_cutoff',
+            'surface_grazing_ratio',
+            'max_particle_events',
+            'max_particles_in_flight',
+            'max_secondaries',
+            'max_history_splits',
+            'max_write_lost_particles',
+            'no_reduce',
+            'stride',
+            'plot_seed',
+            'properties_file',
+            'verbosity',
+            'material_cell_offsets',
+            'resonance_scattering'
         ]) {
             expect(settingsXml).not.toContain(`<${element}>`);
         }

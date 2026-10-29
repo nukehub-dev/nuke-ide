@@ -31,9 +31,11 @@ class _FakeIndependentOperator:
 class _FakeDeplete:
     MicroXS = _FakeMicroXS
     IndependentOperator = _FakeIndependentOperator
+    last_run_kwargs = None
 
-    @staticmethod
-    def get_microxs_and_flux(model, domains, chain_file=None):
+    @classmethod
+    def get_microxs_and_flux(cls, model, domains, chain_file=None, run_kwargs=None):
+        cls.last_run_kwargs = run_kwargs
         return (["flux", len(domains)], ["micro", len(domains)])
 
 
@@ -124,6 +126,21 @@ class TestBuildIndependentOperator:
         assert op.chain == "chain"
         assert op.kwargs["normalization_mode"] == "source-rate"
         assert op.kwargs["fission_q"] == {"U235": 2.0e8}
+        assert _FakeDeplete.last_run_kwargs is None
+
+    def test_generate_microxs_passes_threads(self, monkeypatch):
+        """--threads is forwarded to the MicroXS transport solve."""
+        fake = _FakeOpenMC()
+        monkeypatch.setitem(sys.modules, "openmc", fake)
+        mats = [_FakeMaterial(1)]
+        run_depletion.build_independent_operator(
+            _args(generate_microxs=True, threads=3),
+            model="model",
+            materials=mats,
+            chain="chain",
+            fission_q=None,
+        )
+        assert _FakeDeplete.last_run_kwargs == {"threads": 3}
 
 
 class TestMainArgparseAdvanced:

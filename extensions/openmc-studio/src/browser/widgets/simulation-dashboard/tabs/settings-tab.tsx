@@ -56,7 +56,7 @@ import {
 } from './settings/source-details';
 import { renderOutputSection } from './settings/output-section';
 import { renderPhysicsSection } from './settings/physics-section';
-import { renderAdvancedSection } from './settings/advanced-section';
+import { AdvancedSection } from './settings/advanced-section';
 import { renderConvergenceSection } from './settings/convergence-section';
 import { calculateGeometryBounds } from './settings/geometry-bounds';
 
@@ -76,6 +76,9 @@ export class SettingsTabContribution implements DashboardTabContribution {
     /** Probed OpenMC compatibility for feature gating (fetched once). */
     private compat?: OpenMCCompat;
     private compatRequested = false;
+    /** MPI availability from the backend (fetched once). */
+    private mpiAvailable?: boolean;
+    private mpiCheckRequested = false;
 
     /**
      * Fetch the OpenMC compatibility descriptor once and re-render when it
@@ -91,6 +94,28 @@ export class SettingsTabContribution implements DashboardTabContribution {
             this.compat = compat;
             host.update();
         });
+    }
+
+    /**
+     * Fetch MPI availability once so the Execution group can show whether
+     * `mpirun` is present.
+     * @param host - Simulation dashboard widget host.
+     */
+    private requestMpiAvailability(host: SimulationDashboardWidget): void {
+        if (this.mpiCheckRequested) {
+            return;
+        }
+        this.mpiCheckRequested = true;
+        void host.studioService
+            .getBackendService()
+            .checkMPI()
+            .then((result) => {
+                this.mpiAvailable = result.available;
+                host.update();
+            })
+            .catch(() => {
+                this.mpiAvailable = false;
+            });
     }
 
     /**
@@ -131,6 +156,7 @@ export class SettingsTabContribution implements DashboardTabContribution {
         const { settings } = state;
         const runSettings = settings.run;
         this.requestCompat(host);
+        this.requestMpiAvailability(host);
 
         return (
             <div className="settings-tab">
@@ -311,16 +337,6 @@ export class SettingsTabContribution implements DashboardTabContribution {
                                 onChange={(e) => host.updateSetting('seed', e.target.value ? parseInt(e.target.value) : undefined)}
                             />
                         </div>
-                        <div className="form-group">
-                            <label>Threads</label>
-                            <input
-                                type="number"
-                                min={1}
-                                value={settings.threads || ''}
-                                placeholder="Auto"
-                                onChange={(e) => host.updateSetting('threads', e.target.value ? parseInt(e.target.value) : undefined)}
-                            />
-                        </div>
                     </div>
 
                     <div className="form-row">
@@ -451,7 +467,7 @@ export class SettingsTabContribution implements DashboardTabContribution {
                 </CollapsibleSection>
 
                 <CollapsibleSection title="Advanced" icon="settings-gear" defaultOpen={false}>
-                    {renderAdvancedSection(host, state)}
+                    <AdvancedSection host={host} state={state} compat={this.compat} mpiAvailable={this.mpiAvailable} />
                 </CollapsibleSection>
 
                 <CollapsibleSection title="Convergence" icon="openmc-plot" defaultOpen={false}>

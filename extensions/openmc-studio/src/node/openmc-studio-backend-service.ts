@@ -77,6 +77,7 @@ import {
     OpenMCState,
     OpenMCProjectFile,
     OpenMCIndependentSource,
+    OpenMCSettings,
     OpenMCTally,
     OpenMCTallyFilter,
     OpenMCMesh,
@@ -98,6 +99,7 @@ import { validateDepletionAdvanced, parseDepletionBlock } from '../common/deplet
 import { calculateGeometryBounds, boxOverlapsBounds, pointInBounds } from '../common/geometry-bounds';
 import { reshapeHexLatticeUniverses } from '../common/geometry-lattices';
 import { validateGeometryModel } from '../common/geometry-validation';
+import { validateRuntimeSettings } from '../common/settings-validation';
 import { OpenMCRunnerService } from './openmc-runner-service';
 import { XMLGenerationService } from './xml-generation-service';
 import { OpenMCCADImportService } from './cad-import-service';
@@ -489,6 +491,14 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                 // Parse NCrystal configuration (material cfg attribute)
                 if (mat.$.cfg) {
                     material.ncrystalCfg = mat.$.cfg;
+                }
+
+                // Parse isotropic-in-lab elastic scattering nuclides
+                if (mat.isotropic !== undefined) {
+                    const isotropic = Array.isArray(mat.isotropic) ? mat.isotropic : [mat.isotropic];
+                    material.isotropic = isotropic
+                        .flatMap((entry: any) => entry.toString().trim().split(/\s+/))
+                        .filter((name: string) => name.length > 0);
                 }
 
                 // Parse temperature
@@ -1345,6 +1355,144 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                     settings.sources.push(source);
                 }
             }
+        }
+
+        // Temperature settings (separate temperature_* elements)
+        const temperature: NonNullable<OpenMCSettings['temperature']> = {};
+        if (s.temperature_default !== undefined) {
+            temperature.default = parseFloat(s.temperature_default);
+        }
+        if (s.temperature_method) {
+            temperature.method = s.temperature_method.toString() as NonNullable<OpenMCSettings['temperature']>['method'];
+        }
+        if (s.temperature_tolerance !== undefined) {
+            temperature.tolerance = parseFloat(s.temperature_tolerance);
+        }
+        if (s.temperature_multipole !== undefined) {
+            temperature.multipole = this.parseXmlBool(s.temperature_multipole);
+        }
+        if (Object.keys(temperature).length > 0) {
+            settings.temperature = temperature;
+        }
+
+        // Cutoff block (weight, energy, and time)
+        if (s.cutoff) {
+            const cutoff: NonNullable<OpenMCSettings['cutoff']> = {};
+            if (s.cutoff.weight !== undefined) {
+                cutoff.weight = parseFloat(s.cutoff.weight);
+            }
+            if (s.cutoff.weight_avg !== undefined) {
+                cutoff.weightAvg = parseFloat(s.cutoff.weight_avg);
+            }
+            if (s.cutoff.energy_neutron !== undefined) {
+                cutoff.energyNeutron = parseFloat(s.cutoff.energy_neutron);
+            }
+            if (s.cutoff.energy_photon !== undefined) {
+                cutoff.energyPhoton = parseFloat(s.cutoff.energy_photon);
+            }
+            if (s.cutoff.time_neutron !== undefined) {
+                cutoff.time = parseFloat(s.cutoff.time_neutron);
+            }
+            if (s.cutoff.time_photon !== undefined) {
+                cutoff.timePhoton = parseFloat(s.cutoff.time_photon);
+            }
+            if (Object.keys(cutoff).length > 0) {
+                settings.cutoff = cutoff;
+            }
+        }
+
+        // Resonance elastic scattering
+        if (s.resonance_scattering) {
+            const resonance: NonNullable<OpenMCSettings['resonanceScattering']> = {};
+            const rs = s.resonance_scattering;
+            if (rs.enable !== undefined) {
+                resonance.enable = this.parseXmlBool(rs.enable);
+            }
+            if (rs.method) {
+                resonance.method = rs.method.toString() as NonNullable<OpenMCSettings['resonanceScattering']>['method'];
+            }
+            if (rs.energy_min !== undefined) {
+                resonance.energyMin = parseFloat(rs.energy_min);
+            }
+            if (rs.energy_max !== undefined) {
+                resonance.energyMax = parseFloat(rs.energy_max);
+            }
+            if (Object.keys(resonance).length > 0) {
+                settings.resonanceScattering = resonance;
+            }
+        }
+
+        // Particle trace triplet
+        if (s.trace !== undefined) {
+            const trace = this.parseNumberList(s.trace).map((n) => Math.trunc(n));
+            if (trace.length === 3) {
+                settings.trace = trace as [number, number, number];
+            } else {
+                warnings.push('settings.xml <trace> must contain exactly three integers (batch generation particle); ignored');
+            }
+        }
+
+        // Combined k-eff trigger
+        if (s.keff_trigger) {
+            const type = s.keff_trigger.type?.toString();
+            const threshold = s.keff_trigger.threshold !== undefined ? parseFloat(s.keff_trigger.threshold) : undefined;
+            if ((type === 'variance' || type === 'std_dev' || type === 'rel_err') && threshold !== undefined) {
+                settings.keffTrigger = { type, threshold };
+            } else {
+                warnings.push('settings.xml <keff_trigger> needs a valid type and threshold; ignored');
+            }
+        }
+
+        // Confidence intervals, free-gas threshold, and 0.16 surface/settings
+        if (s.confidence_intervals !== undefined) {
+            settings.confidenceIntervals = this.parseXmlBool(s.confidence_intervals);
+        }
+        if (s.free_gas_threshold !== undefined) {
+            settings.freeGasThreshold = parseFloat(s.free_gas_threshold);
+        }
+        if (s.shared_secondary_bank !== undefined) {
+            settings.sharedSecondaryBank = this.parseXmlBool(s.shared_secondary_bank);
+        }
+        if (s.surface_grazing_cutoff !== undefined) {
+            settings.surfaceGrazingCutoff = parseFloat(s.surface_grazing_cutoff);
+        }
+        if (s.surface_grazing_ratio !== undefined) {
+            settings.surfaceGrazingRatio = parseFloat(s.surface_grazing_ratio);
+        }
+
+        // Particle limits and diagnostics
+        if (s.max_particle_events !== undefined) {
+            settings.maxParticleEvents = parseInt(s.max_particle_events);
+        }
+        if (s.max_particles_in_flight !== undefined) {
+            settings.maxParticlesInFlight = parseInt(s.max_particles_in_flight);
+        }
+        if (s.max_secondaries !== undefined) {
+            settings.maxSecondaries = parseInt(s.max_secondaries);
+        }
+        if (s.max_history_splits !== undefined) {
+            settings.maxHistorySplits = parseInt(s.max_history_splits);
+        }
+        if (s.max_write_lost_particles !== undefined) {
+            settings.maxWriteLostParticles = parseInt(s.max_write_lost_particles);
+        }
+        if (s.no_reduce !== undefined) {
+            settings.noReduce = this.parseXmlBool(s.no_reduce);
+        }
+        if (s.stride !== undefined) {
+            settings.stride = parseInt(s.stride);
+        }
+        if (s.plot_seed !== undefined) {
+            settings.plotSeed = parseInt(s.plot_seed);
+        }
+        if (s.properties_file !== undefined) {
+            settings.propertiesFile = s.properties_file.toString();
+        }
+        if (s.verbosity !== undefined) {
+            settings.verbosity = parseInt(s.verbosity);
+        }
+        if (s.material_cell_offsets !== undefined) {
+            settings.materialCellOffsets = this.parseXmlBool(s.material_cell_offsets);
         }
 
         // Advanced scalar settings (element names match settings.py _create_*_subelement)
@@ -2379,6 +2527,29 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
 
         const issues: ValidationResult['issues'] = [];
         const { geometry, materials, settings, meshes, tallies } = request.state;
+
+        // Runtime/advanced settings: threads, MPI, triggers, physics, limits,
+        // diagnostics. 0.16-only fields are gated with the probed compat.
+        const needsCompat =
+            settings.sharedSecondaryBank !== undefined ||
+            settings.surfaceGrazingCutoff !== undefined ||
+            settings.surfaceGrazingRatio !== undefined;
+        let runtimeCompat: OpenMCCompat | undefined;
+        if (needsCompat) {
+            try {
+                runtimeCompat = await this.compatProbe.getOpenMCCompat();
+            } catch {
+                runtimeCompat = undefined;
+            }
+        }
+        for (const finding of validateRuntimeSettings(settings, runtimeCompat)) {
+            issues.push({
+                severity: finding.severity,
+                category: 'settings',
+                message: finding.message,
+                suggestion: finding.suggestion
+            });
+        }
 
         // Random ray (multi-group) restrictions — random ray only exists as
         // multi-group in this OpenMC generation. Ground truth: the C++ error

@@ -3724,3 +3724,28 @@
 .simulation-dashboard .source-list li.warn {
     color: var(--theia-inputValidation-warningBorder);
 }
+
+/* Advanced settings narrow-panel overrides. The base checkbox-grid and
+   form-row rules are declared later than the early @container blocks, so the
+   advanced groups need their own late container rule to collapse cleanly. */
+@container (max-width: 520px) {
+    .simulation-dashboard .advanced-section .checkbox-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .simulation-dashboard .advanced-section .form-row {
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .simulation-dashboard .advanced-section .form-row .form-group {
+        flex: 1 1 auto;
+        width: 100%;
+        min-width: 0;
+        max-width: 100%;
+    }
+
+    .simulation-dashboard .advanced-section .trace-inputs {
+        grid-template-columns: 1fr;
+    }
+}

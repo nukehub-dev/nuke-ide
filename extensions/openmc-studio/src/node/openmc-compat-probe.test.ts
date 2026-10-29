@@ -50,7 +50,9 @@ const WRAPPER_FULL: OpenMCCompat = {
     depletionSubsteps: true,
     depletionKeffSearch: true,
     depletionExternalSourceRate: true,
-    depletionContinuation: true
+    depletionContinuation: true,
+    sharedSecondaryBank: true,
+    surfaceGrazing: true
 };
 const DIRECT_MIN: OpenMCCompat = {
     raySourceFormat: 'direct',
@@ -60,7 +62,9 @@ const DIRECT_MIN: OpenMCCompat = {
     depletionSubsteps: false,
     depletionKeffSearch: false,
     depletionExternalSourceRate: true,
-    depletionContinuation: true
+    depletionContinuation: true,
+    sharedSecondaryBank: false,
+    surfaceGrazing: false
 };
 
 /** Probe subclass with the python spawn mocked out. */
@@ -114,34 +118,30 @@ function buildRandomRayState(): OpenMCState {
 describe('OpenMCCompatProbeService', () => {
     it('parses the release probe output (direct, no dev features)', () => {
         const probe = makeProbe('/fake/python', undefined);
-        expect((probe as any).parseProbeOutput('direct no-adjoint no-tokamak s2\n')).toEqual({
-            raySourceFormat: 'direct',
-            adjointSource: false,
-            tokamakSource: false,
-            s2SampleMethod: true,
-            depletionSubsteps: false,
-            depletionKeffSearch: false,
-            depletionExternalSourceRate: true,
-            depletionContinuation: true
+        expect(
+            (probe as any).parseProbeOutput(
+                'direct no-adjoint no-tokamak s2 no-substeps no-keff-search external-rate continuation no-shared-bank no-grazing\n'
+            )
+        ).toEqual({
+            ...DIRECT_MIN,
+            s2SampleMethod: true
         });
     });
 
     it('parses the full probe output with depletion capabilities', () => {
         const probe = makeProbe('/fake/python', undefined);
-        expect((probe as any).parseProbeOutput('wrapper adjoint tokamak s2 substeps keff-search external-rate continuation\n')).toEqual(
-            WRAPPER_FULL
-        );
+        expect((probe as any).parseProbeOutput('wrapper adjoint tokamak s2 substeps keff-search external-rate continuation\n')).toEqual({
+            ...WRAPPER_FULL,
+            sharedSecondaryBank: false,
+            surfaceGrazing: false
+        });
         expect(
             (probe as any).parseProbeOutput(
                 'direct no-adjoint no-tokamak no-s2 no-substeps no-keff-search no-external-rate no-continuation\n'
             )
         ).toEqual({
-            raySourceFormat: 'direct',
-            adjointSource: false,
-            tokamakSource: false,
+            ...DIRECT_MIN,
             s2SampleMethod: false,
-            depletionSubsteps: false,
-            depletionKeffSearch: false,
             depletionExternalSourceRate: false,
             depletionContinuation: false
         });
@@ -149,16 +149,11 @@ describe('OpenMCCompatProbeService', () => {
 
     it('parses the dev probe output (wrapper, all features)', () => {
         const probe = makeProbe('/fake/python', undefined);
-        expect((probe as any).parseProbeOutput('wrapper adjoint tokamak s2\n')).toEqual({
-            raySourceFormat: 'wrapper',
-            adjointSource: true,
-            tokamakSource: true,
-            s2SampleMethod: true,
-            depletionSubsteps: false,
-            depletionKeffSearch: false,
-            depletionExternalSourceRate: true,
-            depletionContinuation: true
-        });
+        expect(
+            (probe as any).parseProbeOutput(
+                'wrapper adjoint tokamak s2 substeps keff-search external-rate continuation shared-bank grazing\n'
+            )
+        ).toEqual(WRAPPER_FULL);
     });
 
     it('rejects malformed probe output', () => {

@@ -22,6 +22,7 @@ Options:
                          matching the IDE's OpenMCCmfdSettings)
     --mpi-processes N    Number of MPI processes (requires mpi4py; the launcher
                          is expected to start this script under mpirun -np N)
+    --threads N          Number of OpenMP threads per process (openmc -s N)
 """
 
 import argparse
@@ -228,6 +229,11 @@ def run_cmfd(args):
     # MPI: the launcher starts this script under mpirun; hand the world
     # communicator to the C API (kwargs are forwarded to openmc.lib.init).
     run_kwargs = {}
+    if getattr(args, "threads", None):
+        # openmc.lib.init forwards args to C++ openmc_init; -s sets the
+        # OpenMP thread count per rank exactly like the openmc CLI.
+        run_kwargs["args"] = ["-s", str(args.threads)]
+        log_progress(f"CMFD run using {args.threads} OpenMP thread(s) per rank")
     if getattr(args, "mpi_processes", None) and args.mpi_processes > 1:
         try:
             from mpi4py import MPI
@@ -298,6 +304,9 @@ Examples:
         help="CMFD configuration JSON (mesh spec, albedo, feedback, CMFDRun knobs)",
     )
     parser.add_argument("--mpi-processes", type=int, help="Number of MPI processes")
+    parser.add_argument(
+        "--threads", type=int, help="Number of OpenMP threads per process (openmc -s)"
+    )
 
     args = parser.parse_args()
 

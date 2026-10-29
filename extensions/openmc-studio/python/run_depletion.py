@@ -18,6 +18,7 @@ Options:
     --substeps N            Number of substeps per timestep
     --normalization MODE    Transport normalization mode (source-rate, fission-q, energy-deposition)
     --mpi-processes N       Number of MPI processes (for coupled operator)
+    --threads N             Number of OpenMP threads per process
 """
 
 import argparse
@@ -480,6 +481,26 @@ def log_progress(message: str):
     print(f"{message}", file=sys.stderr, flush=True)
 
 
+def configure_openmp_threads(args):
+    """Apply the requested OpenMP thread count for in-process transport.
+
+    CoupledOperator initializes libopenmc internally without an ``args``
+    parameter, so the only pre-initialization control is the OpenMP runtime
+    default. ``OMP_NUM_THREADS`` must be set before ``openmc`` is imported.
+
+    Args:
+        args: Parsed command-line arguments with an optional ``threads`` value.
+
+    Returns:
+        The applied thread count, or None when OpenMC's default applies.
+    """
+    threads = getattr(args, "threads", None)
+    if threads:
+        os.environ["OMP_NUM_THREADS"] = str(threads)
+        return threads
+    return None
+
+
 def sync_dagmc_universes_for_depletion(model):
     """Populate Python-side cells of DAGMC universes for depletion.
 
@@ -567,6 +588,12 @@ def run_depletion(args):
         NotImplementedError: If the independent operator is requested.
     """
     working_dir = Path(args.working_directory).absolute()
+
+    # Apply the OpenMP thread count before the openmc import: CoupledOperator
+    # initializes libopenmc internally and exposes no threads kwarg.
+    applied_threads = configure_openmp_threads(args)
+    if applied_threads:
+        log_progress(f"Depletion run using {applied_threads} OpenMP thread(s) per rank")
 
     # Semantic guards, before any openmc import so failures are clean config
     # errors (not lxml tracebacks from DataLibrary.from_xml(<mgxs.h5>)):
@@ -1013,7 +1040,12 @@ def build_independent_operator(args, model, materials, chain, fission_q, prev_re
         log_progress(
             "Computing multigroup fluxes and cross sections via transport solve (this may take a while)..."
         )
-        fluxes, micros = openmc.deplete.get_microxs_and_flux(model, depletable, chain_file=chain)
+        transport_kwargs = {}
+        if getattr(args, "threads", None):
+            transport_kwargs["threads"] = args.threads
+        fluxes, micros = openmc.deplete.get_microxs_and_flux(
+            model, depletable, chain_file=chain, run_kwargs=transport_kwargs or None
+        )
     else:
         flux_files = (
             [f.strip() for f in args.flux_files.split(",")]
@@ -1093,6 +1125,7 @@ Examples:
         help="Transport normalization mode",
     )
     parser.add_argument("--mpi-processes", type=int, help="Number of MPI processes")
+    parser.add_argument("--threads", type=int, help="Number of OpenMP threads per process")
     parser.add_argument(
         "--flux-files",
         help="Comma-separated flux file paths for the independent operator (one per depletable material)",

@@ -56,6 +56,8 @@ export class MaterialsTabContribution implements DashboardTabContribution {
     private newMaterialIsDepletable = false;
     private newMaterialVolume?: number;
     private newMaterialTemperature?: number;
+    /** Nuclides treated as isotropic-in-lab elastic scatterers (comma/space list in the form). */
+    private newMaterialIsotropic: string[] = [];
     private newMaterialThermalScattering: { name: string; fraction: number }[] = [];
     private newMaterialColor = '#4A90D9';
     /** NCrystal cfg attached to the material being created/edited (set by the NCrystal import). */
@@ -379,6 +381,12 @@ export class MaterialsTabContribution implements DashboardTabContribution {
                                             <span>{material.temperature} K</span>
                                         </div>
                                     )}
+                                    {material.isotropic && material.isotropic.length > 0 && (
+                                        <div className="material-property">
+                                            <label>Isotropic:</label>
+                                            <span>{material.isotropic.join(' ')}</span>
+                                        </div>
+                                    )}
                                 </div>
                                 <div className="material-nuclides-preview">
                                     {material.nuclides.slice(0, 5).map((n) => (
@@ -605,6 +613,24 @@ export class MaterialsTabContribution implements DashboardTabContribution {
                         />
                         <span className="form-hint">For Doppler broadening</span>
                     </div>
+                    <div className="form-group">
+                        <label>Isotropic scattering nuclides (optional)</label>
+                        <input
+                            type="text"
+                            value={this.newMaterialIsotropic.join(' ')}
+                            placeholder="e.g., H1 O16"
+                            onChange={(e) => {
+                                this.newMaterialIsotropic = e.target.value
+                                    .split(/[\s,]+/)
+                                    .map((name) => name.trim())
+                                    .filter((name) => name.length > 0);
+                                host.update();
+                            }}
+                        />
+                        <span className="form-hint">
+                            Treat elastic scattering from these nuclides as isotropic in the lab system (OpenMC <code>isotropic</code>)
+                        </span>
+                    </div>
                 </div>
 
                 {/* Thermal Scattering */}
@@ -757,6 +783,7 @@ export class MaterialsTabContribution implements DashboardTabContribution {
         this.newMaterialIsDepletable = false;
         this.newMaterialVolume = undefined;
         this.newMaterialTemperature = undefined;
+        this.newMaterialIsotropic = [];
         this.newMaterialThermalScattering = [];
         this.newMaterialColor = '#4A90D9';
         this.newMaterialType = 'nuclides';
@@ -883,6 +910,7 @@ export class MaterialsTabContribution implements DashboardTabContribution {
         this.newMaterialIsDepletable = material.isDepletable || false;
         this.newMaterialVolume = material.volume;
         this.newMaterialTemperature = material.temperature;
+        this.newMaterialIsotropic = material.isotropic ? [...material.isotropic] : [];
         this.newMaterialThermalScattering = material.thermalScattering?.map((s) => ({ ...s })) || [];
         this.newMaterialColor = material.color || '#4A90D9';
         this.newMaterialType = material.macroscopic ? 'macroscopic' : 'nuclides';
@@ -920,6 +948,7 @@ export class MaterialsTabContribution implements DashboardTabContribution {
         this.newMaterialIsDepletable = material.isDepletable || false;
         this.newMaterialVolume = material.volume;
         this.newMaterialTemperature = material.temperature;
+        this.newMaterialIsotropic = material.isotropic ? [...material.isotropic] : [];
         this.newMaterialThermalScattering = material.thermalScattering?.map((s) => ({ ...s })) || [];
         this.newMaterialColor = material.color || '#4A90D9';
         this.newMaterialType = material.macroscopic ? 'macroscopic' : 'nuclides';
@@ -1023,6 +1052,7 @@ export class MaterialsTabContribution implements DashboardTabContribution {
             isDepletable: this.newMaterialIsDepletable,
             volume: this.newMaterialVolume,
             temperature: this.newMaterialTemperature,
+            isotropic: this.newMaterialIsotropic.length > 0 ? this.newMaterialIsotropic : undefined,
             ncrystalCfg: this.newMaterialNCrystalCfg,
             color: this.newMaterialColor
         };

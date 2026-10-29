@@ -432,6 +432,12 @@ export interface OpenMCMaterial {
     volume?: number;
     /** Optional temperature in K (for Doppler broadening) */
     temperature?: number;
+    /**
+     * Nuclides whose elastic scattering is treated as isotropic in the
+     * laboratory system (`Material.isotropic`; `<isotropic>` in materials.xml).
+     * Empty/undefined keeps OpenMC's default anisotropic treatment.
+     */
+    isotropic?: string[];
     /** Material color for visualization (hex code) */
     color?: string;
     /** nuke-cad physical-model UUID carried through DAGMC import (copy provenance; never used for naming). */
@@ -933,15 +939,31 @@ export interface OpenMCSettings {
     entropyMesh?: OpenMCEntropyMesh;
     /** CMFD acceleration settings (C-API feature; not written to settings.xml) */
     cmfd?: OpenMCCmfdSettings;
-    /** Number of OpenMP threads */
+    /** Number of OpenMP threads passed to the runner (`-s N`; per MPI rank) */
     threads?: number;
+    /**
+     * MPI launch controls. Runtime-only: MPI is applied to the `openmc`
+     * invocation, never written to settings.xml. Threads are per rank, so
+     * `threads * processes` is the total CPU demand.
+     */
+    mpi?: {
+        /** Launch through `mpirun` (requires an MPI-enabled OpenMC build) */
+        enabled?: boolean;
+        /** Number of MPI ranks (`mpirun -np N`) */
+        processes?: number;
+        /** Optional host list for `mpirun --host host1,host2` */
+        hosts?: string[];
+    };
     /** Verbosity level (1-10) */
     verbosity?: number;
     /** Cutoff energies and weights */
     cutoff?: {
         energyNeutron?: number;
         energyPhoton?: number;
+        /** Neutron time cutoff in seconds (`<time_neutron>`) */
         time?: number;
+        /** Photon time cutoff in seconds (`<time_photon>`) */
+        timePhoton?: number;
         weight?: number;
         weightAvg?: number;
     };
@@ -1021,6 +1043,50 @@ export interface OpenMCSettings {
         tolerance?: number;
         multipole?: boolean;
     };
+    /** Debug trace of one particle: [batch, generation, particle] (`<trace>`) */
+    trace?: [number, number, number];
+    /**
+     * Combined k-eff precision trigger (`<keff_trigger>`). Ignored outside
+     * eigenvalue mode. OpenMC requires both the metric and a positive
+     * threshold; there is no per-batch restriction on this trigger.
+     */
+    keffTrigger?: {
+        type: 'variance' | 'std_dev' | 'rel_err';
+        threshold: number;
+    };
+    /**
+     * Report tally uncertainties as 95% confidence-interval half-widths
+     * (`<confidence_intervals>true</confidence_intervals>`).
+     */
+    confidenceIntervals?: boolean;
+    /** Free-gas scattering threshold in units of kT (`<free_gas_threshold>`) */
+    freeGasThreshold?: number;
+    /** Shared secondary particle bank (`<shared_secondary_bank>`, 0.16.0+) */
+    sharedSecondaryBank?: boolean;
+    /** Surface-flux grazing cosine cutoff (`<surface_grazing_cutoff>`, 0.16.0+) */
+    surfaceGrazingCutoff?: number;
+    /** Surface-flux grazing cosine substitution ratio (`<surface_grazing_ratio>`, 0.16.0+) */
+    surfaceGrazingRatio?: number;
+    /** Maximum events per particle (`<max_particle_events>`) */
+    maxParticleEvents?: number;
+    /** Event-based parallelism in-flight particle limit (`<max_particles_in_flight>`) */
+    maxParticlesInFlight?: number;
+    /** Maximum secondary bank size (`<max_secondaries>`) */
+    maxSecondaries?: number;
+    /** Maximum splits per history (`<max_history_splits>`) */
+    maxHistorySplits?: number;
+    /** Maximum lost-particle restart files written per rank (`<max_write_lost_particles>`) */
+    maxWriteLostParticles?: number;
+    /** Skip tally reduction across MPI ranks (`<no_reduce>`) */
+    noReduce?: boolean;
+    /** Random-number stride per source history (`<stride>`) */
+    stride?: number;
+    /** Seed for plot color generation (`<plot_seed>`) */
+    plotSeed?: number;
+    /** Properties HDF5 file for cell temperatures/densities (`<properties_file>`) */
+    propertiesFile?: string;
+    /** Material/cell offset optimization (`<material_cell_offsets>`) */
+    materialCellOffsets?: boolean;
     /** DAGMC geometry file path (for direct CAD geometry) */
     dagmcFile?: string;
     /** DAGMC model information (populated when importing DAGMC file) */
@@ -1033,7 +1099,7 @@ export interface OpenMCSettings {
     /** Resonance scattering settings */
     resonanceScattering?: {
         enable?: boolean;
-        method?: 'rvs' | 'dbrc' | 'wcm';
+        method?: 'rvs' | 'dbrc';
         energyMin?: number;
         energyMax?: number;
     };

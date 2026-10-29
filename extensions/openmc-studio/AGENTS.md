@@ -20,6 +20,9 @@ All files under `extensions/openmc-studio/` except generated artifacts (`lib/`, 
   sibling `bin/`/`Scripts`. See `src/node/openmc-runner-service.ts` and `docs/dev/architecture.md`.
 - Runner output: 1 MB in-memory tail cap, batched client streaming (200 ms / 256 KB), and a 3 s mover shifting `tracks*.h5` /
   `particle_*.h5` into `tracks/`/`particles/` (replace-on-collision, only track moves logged). See `docs/dev/architecture.md`.
+- Runtime launch: `settings.threads` → `openmc -s N` per rank and `settings.mpi` → `mpirun -np N [--host ...]`; neither is
+  written to XML/Python. CMFD forwards `lib.init` args; depletion uses `OMP_NUM_THREADS`; 0.16-only fields are probed.
+  See `docs/dev/python-backends.md`.
 - XS/chain precedence for runs: explicit preferences (`nuke.openmcCrossSections`, `nuke.openmcChainFile`) beat `OPENMC_CROSS_SECTIONS` /
   `OPENMC_CHAIN_FILE` env vars, which beat OpenMC defaults. See `docs/dev/rpc-protocols.md`.
 - Watcher excludes: `OpenMCStateManager` adds the effective output dir to `files.watcherExclude` via pure `computeOutputWatcherExcludes`
