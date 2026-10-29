@@ -266,15 +266,21 @@ interface OpenMCTally {
 
 ## Meshes
 
-Meshes are used by tally filters and variance reduction. Three coordinate systems are supported:
+Meshes are used by tally filters, mesh sources, and variance reduction. All five `openmc.mesh` types are supported:
 
-| Type            | Interface               | Key Properties                                       |
-| --------------- | ----------------------- | ---------------------------------------------------- |
-| **Regular**     | `OpenMCRegularMesh`     | `lowerLeft`, `upperRight`, `dimension: [nx, ny, nz]` |
-| **Cylindrical** | `OpenMCCylindricalMesh` | `origin`, `axis`, `rGrid`, `phiGrid`, `zGrid`        |
-| **Spherical**   | `OpenMCSphericalMesh`   | `origin`, `rGrid`, `thetaGrid`, `phiGrid`            |
+| Type             | Interface                | Key Properties                                                          |
+| ---------------- | ------------------------ | ----------------------------------------------------------------------- |
+| **Regular**      | `OpenMCRegularMesh`      | `lowerLeft`, `upperRight`, `dimension: [nx, ny, nz]`                    |
+| **Rectilinear**  | `OpenMCRectilinearMesh`  | `xGrid`, `yGrid`, `zGrid` (explicit, strictly increasing boundaries)    |
+| **Cylindrical**  | `OpenMCCylindricalMesh`  | `origin`, `axis`, `rGrid`, `phiGrid`, `zGrid`                           |
+| **Spherical**    | `OpenMCSphericalMesh`    | `origin`, `rGrid`, `thetaGrid`, `phiGrid`                               |
+| **Unstructured** | `OpenMCUnstructuredMesh` | `filename`, `library` (`moab`/`libmesh`), `lengthMultiplier`, `options` |
 
-**Concept:** All mesh types share `id` and `name` but have coordinate-system-specific grid definitions. The tally configurator renders a mesh preview using the bounding box for regular meshes and the grid arrays for curvilinear meshes.
+**Concept:** All mesh types share `id` and `name`; structured types carry coordinate-system-specific grid arrays, while unstructured meshes reference an external MOAB/Exodus file. `getMeshElementCount` derives element counts from grid lengths (unstructured counts require statepoint data and return `undefined`). Rectilinear grids are validated as ≥2 finite, strictly increasing points per axis; unstructured filenames are validated against the selected library's extensions (MOAB: `.h5m`/`.h5`/`.vtk`/Exodus; libMesh: Exodus `.e`/`.exo`/`.ex2`).
+
+Unstructured paths are stored project-relative when the file lives inside the project and resolved back to absolute paths on load, matching the DAGMC/MGXS path policy. XML import resolves relative `<filename>` values against the XML directory.
+
+Mesh filters may carry optional transforms: `meshTranslation` (cm, every release) and `meshRotation` (intrinsic Tait-Bryan `phi`/`theta`/`psi` degrees, 0.16.0+). Rotation emission is gated by the probed `OpenMCCompat.meshFilterRotation` capability; the UI warns and XML omits it on older environments.
 
 ---
 

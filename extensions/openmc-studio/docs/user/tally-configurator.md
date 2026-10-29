@@ -67,31 +67,31 @@ Filters restrict scoring to specific regions of phase space.
 
 Click **"Add Filter"** and choose a filter type:
 
-| Filter               | Description                      | Parameters                  |
-| -------------------- | -------------------------------- | --------------------------- |
-| `energy`             | Energy bins                      | Lower/upper bounds (eV)     |
-| `energyout`          | Outgoing energy bins             | Lower/upper bounds (eV)     |
-| `mu`                 | Cosine of scattering angle       | Bin edges (−1 to 1)         |
-| `polar`              | Polar angle                      | Bin edges (0 to π radians)  |
-| `azimuthal`          | Azimuthal angle                  | Bin edges (0 to 2π radians) |
-| `cell`               | Specific cells                   | List of cell IDs            |
-| `cellborn`           | Cell where particle was born     | List of cell IDs            |
-| `cellfrom`           | Cell particle just left          | List of cell IDs            |
-| `surface`            | Surface crossings                | List of surface IDs         |
-| `material`           | Specific materials               | List of material IDs        |
-| `universe`           | Specific universes               | List of universe IDs        |
-| `distribcell`        | Instances of a cell in a lattice | Cell ID                     |
-| `mesh`               | Structured mesh bins             | Mesh definition (see below) |
-| `delayedgroup`       | Delayed neutron precursor group  | Group numbers (1–6)         |
-| `energyfunction`     | Functional energy filter         | Energy-response pairs       |
-| `legendre`           | Legendre scattering moments      | Order (P0, P1, P2, ...)     |
-| `spatiallegendre`    | Spatial Legendre expansion       | Axis, order                 |
-| `sphericalharmonics` | Spherical harmonics moments      | Order                       |
-| `zernike`            | Zernike polynomial moments       | Order, radial basis         |
-| `zernikeradial`      | Radial-only Zernike moments      | Order                       |
-| `particle`           | Particle type                    | `neutron`, `photon`         |
-| `time`               | Time bins                        | Lower/upper bounds (s)      |
-| `meshsurface`        | Current crossing a mesh surface  | Mesh definition             |
+| Filter               | Description                      | Parameters                                       |
+| -------------------- | -------------------------------- | ------------------------------------------------ |
+| `energy`             | Energy bins                      | Lower/upper bounds (eV)                          |
+| `energyout`          | Outgoing energy bins             | Lower/upper bounds (eV)                          |
+| `mu`                 | Cosine of scattering angle       | Bin edges (−1 to 1)                              |
+| `polar`              | Polar angle                      | Bin edges (0 to π radians)                       |
+| `azimuthal`          | Azimuthal angle                  | Bin edges (0 to 2π radians)                      |
+| `cell`               | Specific cells                   | List of cell IDs                                 |
+| `cellborn`           | Cell where particle was born     | List of cell IDs                                 |
+| `cellfrom`           | Cell particle just left          | List of cell IDs                                 |
+| `surface`            | Surface crossings                | List of surface IDs                              |
+| `material`           | Specific materials               | List of material IDs                             |
+| `universe`           | Specific universes               | List of universe IDs                             |
+| `distribcell`        | Instances of a cell in a lattice | Cell ID                                          |
+| `mesh`               | Mesh element bins                | Mesh definition + optional transform (see below) |
+| `delayedgroup`       | Delayed neutron precursor group  | Group numbers (1–6)                              |
+| `energyfunction`     | Functional energy filter         | Energy-response pairs                            |
+| `legendre`           | Legendre scattering moments      | Order (P0, P1, P2, ...)                          |
+| `spatiallegendre`    | Spatial Legendre expansion       | Axis, order                                      |
+| `sphericalharmonics` | Spherical harmonics moments      | Order                                            |
+| `zernike`            | Zernike polynomial moments       | Order, radial basis                              |
+| `zernikeradial`      | Radial-only Zernike moments      | Order                                            |
+| `particle`           | Particle type                    | `neutron`, `photon`                              |
+| `time`               | Time bins                        | Lower/upper bounds (s)                           |
+| `meshsurface`        | Current crossing a mesh surface  | Mesh definition                                  |
 
 **Filter Examples:**
 
@@ -117,49 +117,77 @@ Click **"Add Nuclide"** and type a nuclide name. Repeat for each nuclide you nee
 
 ## Mesh Tallies
 
-Mesh tallies score quantities on a structured grid, producing spatially resolved results ideal for 3D visualization.
+Mesh tallies score quantities on a structured or unstructured grid, producing spatially resolved results ideal for 3D visualization.
 
 ### Creating a Mesh
 
-1. In the Tally Configurator, click **"Add Mesh"**.
-2. Choose a mesh type:
+1. In the Tally Configurator, open the **Meshes** tab.
+2. Click **"Add"**.
+3. Pick one of the five type cards (or the type select in a narrow panel):
 
-| Mesh Type       | Description                | Parameters                                                  |
-| --------------- | -------------------------- | ----------------------------------------------------------- |
-| **Regular**     | Cartesian rectangular grid | `x`, `y`, `z` lower/upper bounds and divisions              |
-| **Cylindrical** | `r`, `θ`, `z` grid         | `r` (cm), `θ` (radians), `z` (cm) bounds and divisions      |
-| **Spherical**   | `r`, `θ`, `φ` grid         | `r` (cm), `θ` (polar), `φ` (azimuthal) bounds and divisions |
+| Mesh Type        | Description                         | Parameters                                                             |
+| ---------------- | ----------------------------------- | ---------------------------------------------------------------------- |
+| **Regular**      | Even Cartesian rectangular grid     | `x`, `y`, `z` lower/upper bounds and divisions                         |
+| **Rectilinear**  | Cartesian grid with explicit planes | `x`, `y`, `z` boundary lists, or lower/upper bounds + divisions helper |
+| **Cylindrical**  | `r`, `φ`, `z` grid                  | `r` (cm), `φ` (radians), `z` (cm) boundaries                           |
+| **Spherical**    | `r`, `θ`, `φ` grid                  | `r` (cm), `θ` (polar), `φ` (azimuthal) boundaries                      |
+| **Unstructured** | External MOAB or Exodus mesh        | file, library, length multiplier, optional MOAB search options         |
 
 ### Regular Mesh Configuration
 
-| Parameter         | Description                  | Example             |
-| ----------------- | ---------------------------- | ------------------- |
-| **X Min / X Max** | Bounding box in X            | `-10.0` to `10.0`   |
-| **Y Min / Y Max** | Bounding box in Y            | `-10.0` to `10.0`   |
-| **Z Min / Z Max** | Bounding box in Z            | `-100.0` to `100.0` |
-| **X Divisions**   | Number of mesh elements in X | `20`                |
-| **Y Divisions**   | Number of mesh elements in Y | `20`                |
-| **Z Divisions**   | Number of mesh elements in Z | `200`               |
+| Parameter       | Description          | Example          |
+| --------------- | -------------------- | ---------------- |
+| **Lower Left**  | Bounding box minimum | `-10, -10, -100` |
+| **Upper Right** | Bounding box maximum | `10, 10, 100`    |
+| **Dimension**   | Cells in X, Y, Z     | `20, 20, 200`    |
 
-### Cylindrical Mesh Configuration
+Use **Set from Geometry Bounds** when a DAGMC model is loaded to fill the bounds automatically.
 
-| Parameter                 | Description        | Example                  |
-| ------------------------- | ------------------ | ------------------------ |
-| **R Min / R Max**         | Inner/outer radius | `0.0` to `10.0`          |
-| **Theta Min / Theta Max** | Angular range      | `0.0` to `6.283185` (2π) |
-| **Z Min / Z Max**         | Axial range        | `-100.0` to `100.0`      |
-| **R Divisions**           | Radial elements    | `10`                     |
-| **Theta Divisions**       | Angular sectors    | `16`                     |
-| **Z Divisions**           | Axial elements     | `100`                    |
+### Rectilinear Mesh Configuration
+
+Each axis uses a token editor. Boundaries include both endpoints and must strictly increase; at least
+two values are required. The editor shows the cell count per axis and the total element count, and
+reports invalid input inline instead of discarding it.
+
+- Type space- or comma-separated values, e.g. `0 0.5 1 2 4`.
+- Remove individual boundaries from the token row under the input.
+- **From bounds + divisions** fills all three axes with evenly spaced boundaries: enter lower/upper
+  and a division count per axis, then click **Apply to grids**.
+
+### Unstructured Mesh Configuration
+
+| Parameter             | Description                                                                           |
+| --------------------- | ------------------------------------------------------------------------------------- |
+| **Mesh file**         | Path to the mesh file; **Browse** filters `.h5m`, `.h5`, `.vtk`, `.e`, `.exo`, `.ex2` |
+| **Library**           | **MOAB** (HDF5/VTK/Exodus) or **libMesh** (Exodus only)                               |
+| **Length multiplier** | Multiplies every mesh coordinate; default `1` (use `100` for metres-authored files)   |
+| **Advanced options**  | MOAB `AdaptiveKDTree` parameters, e.g. `MAX_DEPTH=20;PLANE_SET=2;`                    |
+
+The editor shows the file name and size, warns when the file is missing, and reports an extension
+that does not match the selected library. Paths inside the project are stored project-relative when
+the project is saved. Unstructured tallies also require an OpenMC binary built with MOAB or libMesh
+support; the panel names the missing Python package when the MOAB package is unavailable.
 
 ### Assigning a Mesh Filter
 
 1. Create or edit a tally.
 2. Add a `mesh` filter.
-3. Select the mesh you defined from the dropdown.
+3. Select the mesh you defined from the dropdown (the type is shown next to the name).
 4. The tally now scores on every mesh element.
 
-> **Tip:** Fine mesh tallies increase memory usage and simulation time. Start coarse and refine as needed. Use the mesh preview button to visualize the grid overlay on your geometry.
+### Mesh Filter Transforms
+
+Mesh filters support an optional rigid transform under **Mesh transform** in the filter editor:
+
+- **Translate mesh (cm)** — shift the mesh by X/Y/Z for this filter only.
+- **Rotate mesh (degrees)** — rotate by `phi`, `theta`, `psi` using OpenMC's intrinsic Tait-Bryan
+  convention (`Rz(psi) Ry(theta) Rx(phi)`). Rotation requires OpenMC 0.16 or newer.
+
+Configured transforms show `translated` / `rotated` badges on the filter. On environments without
+mesh-filter rotation, the editor shows an inline warning and generated XML omits the rotation instead
+of writing input OpenMC cannot read.
+
+> **Tip:** Fine mesh tallies increase memory usage and simulation time. Start coarse and refine as needed. Mesh results appear in the Statepoint Viewer after a run; unstructured tallies route to the VTK viewer when available.
 
 ---
 

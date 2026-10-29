@@ -31,6 +31,9 @@
  */
 
 import { describe, it, expect } from 'vitest';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 
 import { OpenMCStudioBackendServiceImpl } from './openmc-studio-backend-service';
 import { OpenMCState } from '../common/openmc-state-schema';
@@ -743,6 +746,95 @@ describe('validateState geometry model', () => {
         const result = await backend.validateState({ state });
 
         expect(result.issues.some((issue) => issue.severity === 'error' && issue.message.includes('does not point back'))).toBe(true);
+    });
+});
+
+describe('validateState mesh authoring', () => {
+    it('errors on invalid rectilinear grids', async () => {
+        const state = buildState();
+        state.meshes = [{ type: 'rectilinear', id: 4, xGrid: [0, 2, 1], yGrid: [0], zGrid: [0, 1] }];
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const result = await backend.validateState({ state });
+
+        expect(
+            result.issues.some((i) => i.severity === 'error' && i.message.includes('x-grid') && i.message.includes('strictly increase'))
+        ).toBe(true);
+        expect(
+            result.issues.some((i) => i.severity === 'error' && i.message.includes('y-grid') && i.message.includes('at least two'))
+        ).toBe(true);
+    });
+
+    it('errors when an unstructured file extension does not match the library', async () => {
+        const state = buildState();
+        state.meshes = [{ type: 'unstructured', id: 5, filename: '/meshes/core.vtk', library: 'libmesh' }];
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const result = await backend.validateState({ state });
+
+        expect(
+            result.issues.some((i) => i.severity === 'error' && i.message.includes('.vtk is not supported by the libmesh library'))
+        ).toBe(true);
+    });
+
+    it('errors when an absolute unstructured mesh file is missing', async () => {
+        const state = buildState();
+        state.meshes = [{ type: 'unstructured', id: 5, filename: '/definitely/missing/core.h5m', library: 'moab' }];
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const result = await backend.validateState({ state });
+
+        expect(result.issues.some((i) => i.severity === 'error' && i.message.includes('file does not exist'))).toBe(true);
+    });
+
+    it('errors when a mesh filter references a missing mesh', async () => {
+        const state = buildState();
+        state.tallies = [
+            {
+                id: 1,
+                name: 'Mesh flux',
+                scores: ['flux'],
+                nuclides: ['total'],
+                filters: [{ type: 'mesh', bins: [99], meshId: 99 }]
+            }
+        ];
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const result = await backend.validateState({ state });
+
+        expect(result.issues.some((i) => i.severity === 'error' && i.message.includes('references mesh 99 which does not exist'))).toBe(
+            true
+        );
+    });
+
+    it('accepts a valid rectilinear grid and an existing unstructured file', async () => {
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openmc-mesh-valid-'));
+        const meshFile = path.join(tempDir, 'mesh.h5m');
+        fs.writeFileSync(meshFile, 'placeholder');
+
+        const state = buildState();
+        state.meshes = [
+            { type: 'rectilinear', id: 4, xGrid: [0, 1, 2], yGrid: [0, 1], zGrid: [-1, 1] },
+            { type: 'unstructured', id: 5, filename: meshFile, library: 'moab' }
+        ];
+        state.tallies = [
+            {
+                id: 1,
+                name: 'Mesh flux',
+                scores: ['flux'],
+                nuclides: ['total'],
+                filters: [{ type: 'mesh', bins: [4], meshId: 4 }]
+            }
+        ];
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const result = await backend.validateState({ state });
+
+        expect(result.issues.some((i) => i.message.includes('grid is invalid'))).toBe(false);
+        expect(result.issues.some((i) => i.message.includes('file does not exist'))).toBe(false);
+        expect(result.issues.some((i) => i.message.includes('which does not exist'))).toBe(false);
+
+        fs.rmSync(tempDir, { recursive: true, force: true });
     });
 });
 

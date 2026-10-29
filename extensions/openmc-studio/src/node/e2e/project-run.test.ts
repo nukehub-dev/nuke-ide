@@ -71,6 +71,15 @@ const TOKAMAK_OK = (() => {
     return proc.stdout?.trim() === 'True';
 })();
 
+/** Feature probe: does the env's openmc support MeshFilter.rotation (0.16.0+)? */
+const MESH_ROTATION_OK = (() => {
+    if (!PYTHON) {
+        return false;
+    }
+    const proc = spawnSync(PYTHON, ['-c', 'import openmc; print(hasattr(openmc.MeshFilter, "rotation"))'], { encoding: 'utf-8' });
+    return proc.stdout?.trim() === 'True';
+})();
+
 /** Load and migrate a fixture project, returning the state. */
 function loadProjectState(name: string): OpenMCState {
     const raw = fs.readFileSync(path.join(PROJECTS_DIR, `${name}.nuke-openmc`), 'utf-8');
@@ -79,13 +88,27 @@ function loadProjectState(name: string): OpenMCState {
 }
 
 /** Generate the full XML set for a state into a fresh temp directory. */
-async function generateToTempDir(state: OpenMCState): Promise<string> {
+async function generateToTempDir(
+    state: OpenMCState,
+    randomRayCompat?: {
+        raySourceFormat: 'direct' | 'wrapper';
+        adjointSource: boolean;
+        tokamakSource: boolean;
+        s2SampleMethod: boolean;
+        depletionSubsteps: boolean;
+        depletionKeffSearch: boolean;
+        depletionExternalSourceRate: boolean;
+        depletionContinuation: boolean;
+        meshFilterRotation: boolean;
+    }
+): Promise<string> {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'openmc-e2e-'));
     const service = new XMLGenerationService();
     const result = await service.generateXML({
         state,
         outputDirectory: dir,
-        files: { materials: true, geometry: true, settings: true, tallies: true, plots: false }
+        files: { materials: true, geometry: true, settings: true, tallies: true, plots: false },
+        randomRayCompat
     });
     expect(result.success).toBe(true);
     return dir;
@@ -326,6 +349,48 @@ describe('project-file e2e (real OpenMC)', () => {
 
             const statepoints = fs.readdirSync(dir).filter((f) => f.startsWith('statepoint'));
             expect(statepoints.length).toBeGreaterThan(0);
+        },
+        RUN_TIMEOUT
+    );
+
+    it.skipIf(!CAN_RUN)(
+        'rectilinear mesh project: mesh filter tallies flux and reaches the statepoint',
+        async () => {
+            const state = loadProjectState('mesh-rectilinear');
+            const filter = state.tallies[0].filters[0];
+            if (MESH_ROTATION_OK) {
+                filter.meshRotation = [10, 20, 30];
+            }
+            const dir = await generateToTempDir(state, {
+                raySourceFormat: 'direct',
+                adjointSource: false,
+                tokamakSource: false,
+                s2SampleMethod: false,
+                depletionSubsteps: false,
+                depletionKeffSearch: false,
+                depletionExternalSourceRate: true,
+                depletionContinuation: true,
+                meshFilterRotation: MESH_ROTATION_OK
+            });
+            tempDirs.push(dir);
+
+            const talliesXml = fs.readFileSync(path.join(dir, 'tallies.xml'), 'utf-8');
+            expect(talliesXml).toContain('<mesh id="1" type="rectilinear" name="Pincell grid">');
+            expect(talliesXml).toContain('<x_grid>-0.63 0 0.63</x_grid>');
+            expect(talliesXml).toContain('translation="0 0 0"');
+            if (MESH_ROTATION_OK) {
+                expect(talliesXml).toContain('rotation="10 20 30"');
+            } else {
+                expect(talliesXml).not.toContain('rotation=');
+            }
+
+            runOpenMC(dir);
+
+            const statepoints = fs.readdirSync(dir).filter((f) => f.startsWith('statepoint'));
+            expect(statepoints.length).toBeGreaterThan(0);
+            expect(evalInStatepoint(dir, 'len(sp.tallies)')).toBe('1');
+            const total = parseFloat(evalInStatepoint(dir, 'float(sum(sp.get_tally(scores=["flux"]).mean.ravel()))'));
+            expect(total).toBeGreaterThan(0);
         },
         RUN_TIMEOUT
     );

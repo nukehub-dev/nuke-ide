@@ -43,6 +43,16 @@ The main backend service interface is intentionally broad — it is the single R
 | ------------------------- | ----------------------------------------------------------------------- |
 | `setPythonConfig(config)` | Sets Python path / conda env (shared with nuke-visualizer preferences). |
 
+### Files and Compatibility
+
+| Method                  | Purpose                                                                                                |
+| ----------------------- | ------------------------------------------------------------------------------------------------------ |
+| `getOpenMCCompat()`     | Probes the configured Python environment once and caches feature capabilities (never version parsing). |
+| `checkFileExists(path)` | Stats an absolute local path for the mesh editor's missing-file hint (exists + size + diagnostic).     |
+
+The compatibility probe runs Python asynchronously so unrelated JSON-RPC calls stay responsive while an
+environment is detected.
+
 ### XML Generation
 
 | Method                   | Purpose                                                                                             |

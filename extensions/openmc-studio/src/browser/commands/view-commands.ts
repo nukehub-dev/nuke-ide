@@ -46,6 +46,7 @@ import { VolumeCalcWidget } from '../widgets/volume-calc/volume-calc-widget';
 import { NativePlottingWidget } from '../widgets/native-plotting/native-plotting-widget';
 import { MgxsGeneratorWidget } from '../widgets/mgxs-generator/mgxs-generator-widget';
 import { OpenMCPythonExporter } from '../script-generator/python-exporter';
+import { OpenMCStudioService } from '../openmc-studio-service';
 
 export namespace OpenMCViewCommands {
     /** Command category for all view-opening commands. */
@@ -155,6 +156,9 @@ export class ViewCommands {
     @inject(OpenMCPythonExporter)
     protected readonly pythonExporter: OpenMCPythonExporter;
 
+    @inject(OpenMCStudioService)
+    protected readonly studioService: OpenMCStudioService;
+
     /**
      * Register view commands with the command registry.
      * @param registry - The Theia command registry
@@ -185,7 +189,13 @@ export class ViewCommands {
         });
 
         registry.registerCommand(OpenMCViewCommands.OPEN_SCRIPT_GENERATOR, {
-            execute: () => this.pythonExporter.exportToPython()
+            execute: async () => {
+                const compat = await this.studioService.getOpenMCCompat();
+                return this.pythonExporter.exportToPython({
+                    compat,
+                    meshFilterRotationSupported: compat.meshFilterRotation
+                });
+            }
         });
 
         registry.registerCommand(OpenMCViewCommands.OPEN_SIMULATION_COMPARISON, {

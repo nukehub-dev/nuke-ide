@@ -420,6 +420,184 @@ describe('settings.xml round-trip', () => {
         expect(imported.state!.tallies).toEqual(state.tallies);
     });
 
+    it('round-trips rectilinear/unstructured meshes and mesh-filter transforms', async () => {
+        const meshDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openmc-mesh-authoring-'));
+        const meshFile = path.join(meshDir, 'core.h5m');
+        fs.writeFileSync(meshFile, 'unstructured mesh placeholder');
+
+        const state = buildTalliesTestState();
+        state.meshes.push({
+            type: 'rectilinear',
+            id: 4,
+            name: 'Axial grid',
+            xGrid: [-1, 0, 1],
+            yGrid: [-1, 0, 1],
+            zGrid: [-5, 0, 5, 10]
+        });
+        state.meshes.push({
+            type: 'unstructured',
+            id: 5,
+            name: 'Core mesh',
+            filename: meshFile,
+            library: 'moab',
+            lengthMultiplier: 2.5,
+            options: 'MAX_DEPTH=20;PLANE_SET=2;'
+        });
+        state.tallies = [
+            {
+                id: 1,
+                name: 'Transformed rectilinear flux',
+                scores: ['flux'],
+                nuclides: ['total'],
+                filters: [
+                    {
+                        type: 'mesh',
+                        bins: [4],
+                        meshId: 4,
+                        meshTranslation: [1, 2, 3],
+                        meshRotation: [10, 20, 30]
+                    }
+                ]
+            },
+            {
+                id: 2,
+                name: 'Unstructured flux',
+                scores: ['flux'],
+                nuclides: ['total'],
+                filters: [{ type: 'mesh', bins: [5], meshId: 5 }]
+            }
+        ];
+
+        const generator = new XMLGenerationService();
+        const result = await generator.generateXML({
+            state,
+            outputDirectory: meshDir,
+            files: { materials: true, geometry: true, settings: true, tallies: true, plots: false },
+            randomRayCompat: {
+                raySourceFormat: 'wrapper',
+                adjointSource: true,
+                tokamakSource: true,
+                s2SampleMethod: true,
+                depletionSubsteps: false,
+                depletionKeffSearch: false,
+                depletionExternalSourceRate: true,
+                depletionContinuation: true,
+                meshFilterRotation: true
+            }
+        });
+        expect(result.success).toBe(true);
+
+        const xml = fs.readFileSync(path.join(meshDir, 'tallies.xml'), 'utf-8');
+        expect(xml).toContain('<mesh id="4" type="rectilinear" name="Axial grid">');
+        expect(xml).toContain('<x_grid>-1 0 1</x_grid>');
+        expect(xml).toContain('<y_grid>-1 0 1</y_grid>');
+        expect(xml).toContain('<z_grid>-5 0 5 10</z_grid>');
+        expect(xml).toContain('<mesh id="5" type="unstructured" name="Core mesh" library="moab"');
+        expect(xml).toContain('options="MAX_DEPTH=20;PLANE_SET=2;"');
+        expect(xml).toContain('length_multiplier="2.5"');
+        // Absolute paths become run-directory-relative so decks stay portable.
+        expect(xml).toContain('<filename>core.h5m</filename>');
+        expect(xml).toContain('type="mesh" translation="1 2 3" rotation="10 20 30"');
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const imported = await backend.importXML({ directory: meshDir });
+        expect(imported.success).toBe(true);
+        expect(imported.state!.meshes).toEqual(state.meshes);
+        expect(imported.state!.tallies).toEqual(state.tallies);
+
+        fs.rmSync(meshDir, { recursive: true, force: true });
+    });
+
+    it('omits mesh-filter rotation with a warning on environments without the capability', async () => {
+        const state = buildTalliesTestState();
+        state.tallies = [
+            {
+                id: 1,
+                name: 'Translated mesh',
+                scores: ['flux'],
+                nuclides: ['total'],
+                filters: [{ type: 'mesh', bins: [1], meshId: 1, meshTranslation: [1, 2, 3], meshRotation: [10, 20, 30] }]
+            }
+        ];
+
+        const generator = new XMLGenerationService();
+        const result = await generator.generateXML({
+            state,
+            outputDirectory: tempDir,
+            files: { materials: true, geometry: true, settings: true, tallies: true, plots: false },
+            randomRayCompat: {
+                raySourceFormat: 'direct',
+                adjointSource: false,
+                tokamakSource: false,
+                s2SampleMethod: false,
+                depletionSubsteps: false,
+                depletionKeffSearch: false,
+                depletionExternalSourceRate: true,
+                depletionContinuation: true,
+                meshFilterRotation: false
+            }
+        });
+        expect(result.success).toBe(true);
+        const xml = fs.readFileSync(path.join(tempDir, 'tallies.xml'), 'utf-8');
+        expect(xml).toContain('type="mesh" translation="1 2 3"');
+        expect(xml).not.toContain('rotation="10 20 30"');
+        expect(result.warnings?.some((warning) => warning.includes('rotation') && warning.includes('0.16'))).toBe(true);
+    });
+
+    it('resolves relative unstructured mesh filenames against the XML directory on import', async () => {
+        const importDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openmc-mesh-import-'));
+        fs.mkdirSync(path.join(importDir, 'meshes'));
+        fs.writeFileSync(
+            path.join(importDir, 'materials.xml'),
+            [
+                '<?xml version="1.0"?>',
+                '<materials>',
+                '  <material id="1" name="Water">',
+                '    <density value="1.0" units="g/cm3"/>',
+                '    <nuclide name="H1" ao="2.0"/>',
+                '  </material>',
+                '</materials>'
+            ].join('\n')
+        );
+        fs.writeFileSync(
+            path.join(importDir, 'tallies.xml'),
+            [
+                '<?xml version="1.0"?>',
+                '<tallies>',
+                '  <mesh id="9" type="unstructured" name="Remote core" library="libmesh" length_multiplier="3" options="MAX_DEPTH=10;">',
+                '    <filename>meshes/core.exo</filename>',
+                '  </mesh>',
+                '  <filter id="1" type="mesh" translation="4 5 6" rotation="7 8 9">',
+                '    <bins>9</bins>',
+                '  </filter>',
+                '  <tally id="1">',
+                '    <filters>1</filters>',
+                '    <scores>flux</scores>',
+                '  </tally>',
+                '</tallies>'
+            ].join('\n')
+        );
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const imported = await backend.importXML({ directory: importDir });
+        expect(imported.success).toBe(true);
+        expect(imported.state!.meshes).toEqual([
+            {
+                type: 'unstructured',
+                id: 9,
+                name: 'Remote core',
+                filename: path.join(importDir, 'meshes', 'core.exo'),
+                library: 'libmesh',
+                lengthMultiplier: 3,
+                options: 'MAX_DEPTH=10;'
+            }
+        ]);
+        expect(imported.state!.tallies[0].filters[0].meshTranslation).toEqual([4, 5, 6]);
+        expect(imported.state!.tallies[0].filters[0].meshRotation).toEqual([7, 8, 9]);
+
+        fs.rmSync(importDir, { recursive: true, force: true });
+    });
+
     it('round-trips a MeshSource with per-element sub-sources (mesh lives in settings.xml)', async () => {
         // Fresh directory: this suite shares tempDir and tallies.xml is only
         // written when tallies exist — avoid stale files from earlier tests
@@ -787,7 +965,8 @@ describe('settings.xml round-trip', () => {
                 depletionSubsteps: false,
                 depletionKeffSearch: false,
                 depletionExternalSourceRate: true,
-                depletionContinuation: true
+                depletionContinuation: true,
+                meshFilterRotation: true
             }
         });
 
@@ -848,7 +1027,8 @@ describe('settings.xml round-trip', () => {
                 depletionSubsteps: false,
                 depletionKeffSearch: false,
                 depletionExternalSourceRate: true,
-                depletionContinuation: true
+                depletionContinuation: true,
+                meshFilterRotation: true
             }
         });
 
@@ -929,7 +1109,8 @@ describe('settings.xml round-trip', () => {
                 depletionSubsteps: false,
                 depletionKeffSearch: false,
                 depletionExternalSourceRate: true,
-                depletionContinuation: true
+                depletionContinuation: true,
+                meshFilterRotation: true
             }
         });
         settingsXml = fs.readFileSync(path.join(s2Dir, 'settings.xml'), 'utf-8');
@@ -2022,7 +2203,8 @@ describe('settings.xml round-trip', () => {
                 depletionSubsteps: true,
                 depletionKeffSearch: true,
                 depletionExternalSourceRate: true,
-                depletionContinuation: true
+                depletionContinuation: true,
+                meshFilterRotation: true
             }
         });
 

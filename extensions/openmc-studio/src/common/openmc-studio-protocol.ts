@@ -466,6 +466,11 @@ export interface OpenMCCompat {
     sharedSecondaryBank?: boolean;
     /** Whether surface-grazing cutoffs exist (0.16.0+) */
     surfaceGrazing?: boolean;
+    /**
+     * Whether `openmc.MeshFilter.rotation` exists and accepts Euler angles
+     * (0.16.0+). MeshFilter translation is supported by every release.
+     */
+    meshFilterRotation?: boolean;
 }
 
 /** Release-compatible default (stable releases are the common case). */
@@ -480,7 +485,8 @@ export const DEFAULT_OPENMC_COMPAT: OpenMCCompat = {
     depletionExternalSourceRate: true,
     depletionContinuation: true,
     sharedSecondaryBank: false,
-    surfaceGrazing: false
+    surfaceGrazing: false,
+    meshFilterRotation: false
 };
 
 /** Result of XML generation */
@@ -950,6 +956,13 @@ export interface OpenMCStudioBackendService {
      * random ray adjoint / s2 sampling) before XML generation.
      */
     getOpenMCCompat(): Promise<OpenMCCompat>;
+
+    /**
+     * Check a local file for the mesh editor's missing-file hint.
+     * @param filePath - Absolute path to check.
+     * @returns Existence, size in bytes, and a diagnostic on failure.
+     */
+    checkFileExists(filePath: string): Promise<{ exists: boolean; size?: number; error?: string }>;
 
     // === XML Generation ===
 

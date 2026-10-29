@@ -385,6 +385,16 @@
     color: var(--theia-inputValidation-errorBorder);
 }
 
+.tally-configurator-container .mesh-type-badge.rectilinear {
+    background: var(--theia-textLink-activeForeground);
+    color: var(--theia-editor-background);
+}
+
+.tally-configurator-container .mesh-type-badge.unstructured {
+    background: var(--theia-badge-background);
+    color: var(--theia-badge-foreground);
+}
+
 .tally-configurator-container .mesh-item-details {
     font-size: 12px;
     color: var(--theia-descriptionForeground);
@@ -910,6 +920,445 @@
     gap: 20px;
 }
 
+.tally-configurator-container .mesh-summary {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 16px 0;
+    padding: 10px 12px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editorWidget-background);
+}
+
+.tally-configurator-container .mesh-summary-text {
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+    overflow-wrap: anywhere;
+}
+
+.tally-configurator-container .mesh-item-info {
+    flex-wrap: wrap;
+}
+
+.tally-configurator-container .mesh-type-badge {
+    white-space: nowrap;
+}
+
+/* Type selector: cards on wide panels, compact select under the container breakpoint */
+.tally-configurator-container .mesh-type-cards {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    padding: 2px 2px 6px 2px;
+    scrollbar-width: thin;
+}
+
+.tally-configurator-container .mesh-type-card {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    column-gap: 8px;
+    row-gap: 2px;
+    align-items: center;
+    flex: 0 0 auto;
+    min-width: 138px;
+    padding: 10px 12px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editor-background);
+    color: var(--theia-foreground);
+    font-family: var(--theia-ui-font-family);
+    text-align: left;
+    cursor: pointer;
+}
+
+.tally-configurator-container .mesh-type-card:hover {
+    border-color: var(--theia-focusBorder);
+}
+
+.tally-configurator-container .mesh-type-card.active {
+    border-color: var(--theia-focusBorder);
+    box-shadow: 0 0 0 1px var(--theia-focusBorder);
+    background: var(--theia-editorWidget-background);
+}
+
+.tally-configurator-container .mesh-type-card:focus-visible {
+    outline: 1px solid var(--theia-focusBorder);
+    outline-offset: 2px;
+}
+
+.tally-configurator-container .mesh-type-card i {
+    grid-row: span 2;
+    font-size: 18px;
+    color: var(--theia-focusBorder);
+}
+
+.tally-configurator-container .mesh-type-card-label {
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.tally-configurator-container .mesh-type-card-hint {
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+}
+
+.tally-configurator-container .mesh-type-select {
+    display: none;
+}
+
+/* Rectilinear token/table grids */
+.tally-configurator-container .mesh-grid-editors {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.tally-configurator-container .mesh-grid-editor {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px 12px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editorWidget-background);
+    min-width: 0;
+}
+
+.tally-configurator-container .mesh-grid-editor.invalid {
+    border-color: var(--theia-inputValidation-errorBorder);
+}
+
+.tally-configurator-container .mesh-grid-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+}
+
+.tally-configurator-container .mesh-grid-header label {
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.tally-configurator-container .mesh-grid-count {
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+}
+
+.tally-configurator-container .mesh-grid-input {
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    font-family: var(--theia-code-font-family);
+}
+
+.tally-configurator-container .mesh-grid-tokens {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    max-height: 96px;
+    overflow: auto;
+}
+
+.tally-configurator-container .mesh-grid-token {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 1px 2px 1px 6px;
+    border-radius: 4px;
+    background: var(--theia-badge-background);
+    color: var(--theia-badge-foreground);
+    font-family: var(--theia-code-font-family);
+    font-size: 11px;
+}
+
+.tally-configurator-container .mesh-grid-token-remove {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    padding: 0 2px;
+    font-size: 11px;
+    opacity: 0.7;
+}
+
+.tally-configurator-container .mesh-grid-token-remove:hover {
+    opacity: 1;
+}
+
+.tally-configurator-container .mesh-grid-token-remove:focus-visible {
+    outline: 1px solid var(--theia-focusBorder);
+}
+
+.tally-configurator-container .mesh-grid-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 16px;
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+    font-family: var(--theia-code-font-family);
+}
+
+.tally-configurator-container .mesh-grid-helper {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px;
+    border: 1px dashed var(--theia-panel-border);
+    border-radius: 6px;
+}
+
+.tally-configurator-container .mesh-grid-helper-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 10px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.tally-configurator-container .mesh-grid-helper-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.tally-configurator-container .mesh-grid-helper-row {
+    display: grid;
+    grid-template-columns: 22px repeat(3, minmax(78px, 1fr));
+    gap: 8px;
+    align-items: end;
+}
+
+.tally-configurator-container .mesh-grid-helper-axis {
+    font-weight: 700;
+    color: var(--theia-focusBorder);
+    font-family: var(--theia-code-font-family);
+    padding-bottom: 6px;
+}
+
+.tally-configurator-container .mesh-grid-helper-row label {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+    min-width: 0;
+}
+
+.tally-configurator-container .mesh-grid-helper-row input {
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+}
+
+.tally-configurator-container .mesh-grid-helper-apply {
+    align-self: flex-start;
+}
+
+/* Unstructured mesh file control */
+.tally-configurator-container .mesh-file-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+.tally-configurator-container .mesh-file-input {
+    flex: 1 1 180px;
+    min-width: 0;
+}
+
+.tally-configurator-container .mesh-file-browse,
+.tally-configurator-container .mesh-file-recheck {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    white-space: nowrap;
+}
+
+.tally-configurator-container .mesh-file-recheck {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 4px;
+    background: var(--theia-button-secondaryBackground);
+    color: var(--theia-button-secondaryForeground);
+    cursor: pointer;
+}
+
+.tally-configurator-container .mesh-file-recheck:hover {
+    background: var(--theia-button-secondaryHoverBackground);
+}
+
+.tally-configurator-container .mesh-file-status {
+    display: flex;
+    align-items: flex-start;
+    gap: 4px;
+    margin: 4px 0 0 0;
+    font-size: 11px;
+    line-height: 1.4;
+    color: var(--theia-descriptionForeground);
+    overflow-wrap: anywhere;
+}
+
+.tally-configurator-container .mesh-file-status.ok {
+    color: var(--theia-focusBorder);
+}
+
+.tally-configurator-container .mesh-file-warning {
+    display: flex;
+    align-items: flex-start;
+    gap: 4px;
+    margin: 4px 0 0 0;
+    font-size: 11px;
+    line-height: 1.4;
+    color: var(--theia-editorWarning-foreground, var(--theia-errorForeground));
+    overflow-wrap: anywhere;
+}
+
+.tally-configurator-container .mesh-dependency-hint {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 6px;
+    margin: 4px 0 0 0;
+    padding-top: 8px;
+    border-top: 1px solid var(--theia-panel-border);
+    font-size: 11px;
+    line-height: 1.4;
+    color: var(--theia-descriptionForeground);
+}
+
+.tally-configurator-container .mesh-dependency-hint.warning {
+    color: var(--theia-editorWarning-foreground, var(--theia-errorForeground));
+}
+
+.tally-configurator-container .mesh-dependency-check {
+    flex: 0 0 auto;
+    align-self: flex-start;
+    margin-left: auto;
+    padding: 2px 8px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 4px;
+    background: var(--theia-button-secondaryBackground);
+    color: var(--theia-button-secondaryForeground);
+    font-family: var(--theia-ui-font-family);
+    font-size: 11px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.tally-configurator-container .mesh-dependency-check:hover:not(:disabled) {
+    background: var(--theia-button-secondaryHoverBackground);
+}
+
+.tally-configurator-container .mesh-dependency-check:disabled {
+    opacity: 0.7;
+    cursor: default;
+}
+
+/* Mesh-filter transform (Advanced) */
+.tally-configurator-container .mesh-transform {
+    margin-top: 8px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editorWidget-background);
+}
+
+.tally-configurator-container .mesh-transform-summary {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+    padding: 8px 10px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    list-style: none;
+}
+
+.tally-configurator-container .mesh-transform-summary::-webkit-details-marker {
+    display: none;
+}
+
+.tally-configurator-container .mesh-transform-summary:focus-visible {
+    outline: 1px solid var(--theia-focusBorder);
+    outline-offset: -1px;
+}
+
+.tally-configurator-container .mesh-transform-summary-hint {
+    font-size: 11px;
+    font-weight: 400;
+    color: var(--theia-descriptionForeground);
+}
+
+.tally-configurator-container .mesh-transform-body {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 0 10px 10px 10px;
+}
+
+.tally-configurator-container .mesh-transform-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.tally-configurator-container .mesh-transform-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.tally-configurator-container .mesh-transform-fields {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.tally-configurator-container .mesh-transform-fields label {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+}
+
+.tally-configurator-container .mesh-transform-fields input {
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+}
+
+.tally-configurator-container .mesh-transform-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: var(--theia-badge-background);
+    color: var(--theia-badge-foreground);
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    white-space: nowrap;
+}
+
 .tally-configurator-container .editor-toolbar .add-button {
     display: flex;
     align-items: center;
@@ -1126,5 +1575,45 @@
 
     .tally-configurator-container .coord-inputs {
         flex-wrap: wrap;
+    }
+
+    .tally-configurator-container .mesh-type-cards {
+        display: none;
+    }
+
+    .tally-configurator-container .mesh-type-select {
+        display: block;
+    }
+
+    .tally-configurator-container .mesh-summary {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .tally-configurator-container .mesh-grid-helper-row {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .tally-configurator-container .mesh-grid-helper-axis {
+        grid-column: 1 / -1;
+        padding-bottom: 0;
+    }
+
+    .tally-configurator-container .mesh-transform-summary {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .tally-configurator-container .mesh-transform-fields {
+        grid-template-columns: 1fr;
+    }
+
+    .tally-configurator-container .mesh-file-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .tally-configurator-container .mesh-file-browse {
+        justify-content: center;
     }
 }

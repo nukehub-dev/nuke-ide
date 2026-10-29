@@ -53,7 +53,8 @@ const WRAPPER_FULL: OpenMCCompat = {
     depletionExternalSourceRate: true,
     depletionContinuation: true,
     sharedSecondaryBank: true,
-    surfaceGrazing: true
+    surfaceGrazing: true,
+    meshFilterRotation: true
 };
 const DIRECT_MIN: OpenMCCompat = {
     raySourceFormat: 'direct',
@@ -66,7 +67,8 @@ const DIRECT_MIN: OpenMCCompat = {
     depletionExternalSourceRate: true,
     depletionContinuation: true,
     sharedSecondaryBank: false,
-    surfaceGrazing: false
+    surfaceGrazing: false,
+    meshFilterRotation: false
 };
 
 /** Probe subclass with the python spawn mocked out. */
@@ -74,7 +76,7 @@ class MockProbe extends OpenMCCompatProbeService {
     probeCalls: string[] = [];
     probeResult: OpenMCCompat | undefined;
 
-    protected runProbe(pythonCommand: string): OpenMCCompat | undefined {
+    protected async runProbe(pythonCommand: string): Promise<OpenMCCompat | undefined> {
         this.probeCalls.push(pythonCommand);
         return this.probeResult;
     }
@@ -122,7 +124,7 @@ describe('OpenMCCompatProbeService', () => {
         const probe = makeProbe('/fake/python', undefined);
         expect(
             (probe as any).parseProbeOutput(
-                'direct no-adjoint no-tokamak s2 no-substeps no-keff-search external-rate continuation no-shared-bank no-grazing no-decay\n'
+                'direct no-adjoint no-tokamak s2 no-substeps no-keff-search external-rate continuation no-shared-bank no-grazing no-decay no-mesh-rotation\n'
             )
         ).toEqual({
             ...DIRECT_MIN,
@@ -136,7 +138,8 @@ describe('OpenMCCompatProbeService', () => {
             ...WRAPPER_FULL,
             sharedSecondaryBank: false,
             surfaceGrazing: false,
-            decaySpectrum: false
+            decaySpectrum: false,
+            meshFilterRotation: false
         });
         expect(
             (probe as any).parseProbeOutput(
@@ -154,9 +157,17 @@ describe('OpenMCCompatProbeService', () => {
         const probe = makeProbe('/fake/python', undefined);
         expect(
             (probe as any).parseProbeOutput(
-                'wrapper adjoint tokamak s2 substeps keff-search external-rate continuation shared-bank grazing decay\n'
+                'wrapper adjoint tokamak s2 substeps keff-search external-rate continuation shared-bank grazing decay mesh-rotation\n'
             )
         ).toEqual(WRAPPER_FULL);
+    });
+
+    it('parses a legacy four-token probe line with release defaults', () => {
+        const probe = makeProbe('/fake/python', undefined);
+        expect((probe as any).parseProbeOutput('direct no-adjoint no-tokamak s2\n')).toEqual({
+            ...DIRECT_MIN,
+            s2SampleMethod: true
+        });
     });
 
     it('rejects malformed probe output', () => {

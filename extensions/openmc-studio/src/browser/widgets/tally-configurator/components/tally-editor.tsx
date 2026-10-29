@@ -48,6 +48,8 @@ interface TallyEditorProps {
     triggerBatchInterval?: number;
     /** Multi-group (random ray) mode — forwarded to the score selector hint */
     multiGroup?: boolean;
+    /** Whether the configured OpenMC supports mesh-filter rotation (0.16+) */
+    meshRotationSupported?: boolean;
     /** Callback when tally properties change */
     onUpdate: (updates: Partial<OpenMCTally>) => void;
 }
@@ -63,7 +65,15 @@ interface TallyEditorProps {
  * @see {@link FilterBuilder}
  * @see {@link NuclideSelector}
  */
-export const TallyEditor: React.FC<TallyEditorProps> = ({ tally, meshes, materials, triggerBatchInterval, multiGroup, onUpdate }) => {
+export const TallyEditor: React.FC<TallyEditorProps> = ({
+    tally,
+    meshes,
+    materials,
+    triggerBatchInterval,
+    multiGroup,
+    meshRotationSupported,
+    onUpdate
+}) => {
     const hasMeshFilter = tally.filters.some((f) => f.type === 'mesh');
     const isTrackLength = tally.estimator === 'tracklength';
     const showTrackLengthWarning = isTrackLength && !hasMeshFilter;
@@ -152,7 +162,12 @@ export const TallyEditor: React.FC<TallyEditorProps> = ({ tally, meshes, materia
                         Filters
                     </h4>
                     <p className="section-description">Limit tally scoring to specific regions, energies, or cells.</p>
-                    <FilterBuilder filters={tally.filters} meshes={meshes} onUpdate={(filters) => onUpdate({ filters })} />
+                    <FilterBuilder
+                        filters={tally.filters}
+                        meshes={meshes}
+                        meshRotationSupported={meshRotationSupported}
+                        onUpdate={(filters) => onUpdate({ filters })}
+                    />
                 </div>
 
                 <div className="editor-section">

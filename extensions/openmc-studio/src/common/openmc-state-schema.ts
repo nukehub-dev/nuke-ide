@@ -1438,6 +1438,19 @@ export interface OpenMCTallyFilter {
     responseValues?: number[];
     /** For energyfunction filter: interpolation scheme */
     interpolation?: 'histogram' | 'linear-linear' | 'linear-log' | 'log-linear' | 'log-log';
+    /**
+     * MeshFilter translation in cm (OpenMC 0.15.3+). Serializes as the
+     * `translation` attribute of `<filter type="mesh">` and maps to
+     * `openmc.MeshFilter.translation`.
+     */
+    meshTranslation?: [number, number, number];
+    /**
+     * MeshFilter rotation in degrees (OpenMC 0.16.0+). Intrinsic Tait-Bryan
+     * angles (phi, theta, psi) applied as Rz(psi) Ry(theta) Rx(phi). Serializes
+     * as the `rotation` attribute of `<filter type="mesh">`; omitted with a
+     * warning on environments that lack MeshFilter.rotation.
+     */
+    meshRotation?: [number, number, number];
 }
 
 /** Tally score types */
@@ -1542,12 +1555,13 @@ export interface OpenMCTally {
 
 /**
  * Mesh definitions for tally filters and variance reduction.
- * Supports regular (Cartesian), cylindrical, and spherical meshes.
+ * Supports regular (Cartesian), rectilinear, cylindrical, spherical, and
+ * unstructured meshes (openmc.mesh).
  * @see {@link OpenMCMesh}
  */
 
 /** Mesh types */
-export type OpenMCMeshType = 'regular' | 'cylindrical' | 'spherical';
+export type OpenMCMeshType = 'regular' | 'rectilinear' | 'cylindrical' | 'spherical' | 'unstructured';
 
 /** Regular (Cartesian) mesh */
 export interface OpenMCRegularMesh {
@@ -1562,6 +1576,49 @@ export interface OpenMCRegularMesh {
     upperRight: [number, number, number];
     /** Number of mesh cells in each dimension */
     dimension: [number, number, number];
+}
+
+/**
+ * Rectilinear mesh: explicit boundaries on each Cartesian axis
+ * (openmc.RectilinearMesh). Grid arrays include both endpoints and must
+ * strictly increase; each axis needs at least two points.
+ */
+export interface OpenMCRectilinearMesh {
+    type: 'rectilinear';
+    /** Unique mesh ID */
+    id: number;
+    /** Mesh name */
+    name?: string;
+    /** X-axis boundaries in cm */
+    xGrid: number[];
+    /** Y-axis boundaries in cm */
+    yGrid: number[];
+    /** Z-axis boundaries in cm */
+    zGrid: number[];
+}
+
+/** Unstructured mesh library (openmc.UnstructuredMesh) */
+export type OpenMCUnstructuredMeshLibrary = 'moab' | 'libmesh';
+
+/**
+ * Unstructured mesh: an external MOAB/Exodus mesh file read at run time
+ * (openmc.UnstructuredMesh). The filename may be absolute or relative to the
+ * project/run directory.
+ */
+export interface OpenMCUnstructuredMesh {
+    type: 'unstructured';
+    /** Unique mesh ID */
+    id: number;
+    /** Mesh name */
+    name?: string;
+    /** Path to the mesh file (.h5m/.h5/.vtk for MOAB; .e/.exo/.ex2 for libMesh) */
+    filename: string;
+    /** Mesh library used to read the file */
+    library: OpenMCUnstructuredMeshLibrary;
+    /** Constant multiplier applied to mesh coordinates */
+    lengthMultiplier?: number;
+    /** MOAB AdaptiveKDTree search options (e.g. 'MAX_DEPTH=20;PLANE_SET=2;') */
+    options?: string;
 }
 
 /** Cylindrical mesh */
@@ -1601,7 +1658,7 @@ export interface OpenMCSphericalMesh {
 }
 
 /** Mesh definition (union of all mesh types) */
-export type OpenMCMesh = OpenMCRegularMesh | OpenMCCylindricalMesh | OpenMCSphericalMesh;
+export type OpenMCMesh = OpenMCRegularMesh | OpenMCRectilinearMesh | OpenMCCylindricalMesh | OpenMCSphericalMesh | OpenMCUnstructuredMesh;
 
 // ============================================================================
 // Variance Reduction

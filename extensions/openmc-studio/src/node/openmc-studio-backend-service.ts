@@ -37,6 +37,7 @@
 import { injectable, inject } from '@theia/core/shared/inversify';
 import { resolvePythonScript } from 'nuke-core/lib/node/utils/script-resolver';
 import { BackendApplicationContribution } from '@theia/core/lib/node';
+import * as path from 'path';
 
 import {
     OpenMCStudioBackendService,
@@ -93,7 +94,12 @@ import {
     plotSupportsOverlaps,
     validatePlotAppearance
 } from '../common/plot-appearance';
-import { getMeshElementCount } from '../common/mesh-utils';
+import {
+    getMeshElementCount,
+    inferUnstructuredMeshLibrary,
+    validateRectilinearMesh,
+    validateUnstructuredMeshFilename
+} from '../common/mesh-utils';
 import { parseAngleXml, parseSpatialXml, parseTimeXml, parseUnivariateXml, validateSourceDistributions } from '../common/source-utils';
 import { migrateProjectFile } from '../common/openmc-state-migration';
 import { validateDepletionAdvanced, parseDepletionBlock } from '../common/depletion-config';
@@ -211,6 +217,28 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
     }
 
     /**
+     * Check a local file for the mesh editor's missing-file hint.
+     * @param filePath - Absolute path to check.
+     * @returns Existence, size in bytes, and a diagnostic on failure.
+     */
+    async checkFileExists(filePath: string): Promise<{ exists: boolean; size?: number; error?: string }> {
+        try {
+            const fs = await import('fs');
+            const path = await import('path');
+            if (!path.isAbsolute(filePath)) {
+                return { exists: false, error: 'path is not absolute' };
+            }
+            const stat = fs.statSync(filePath);
+            if (stat.isDirectory()) {
+                return { exists: false, error: 'path is a directory' };
+            }
+            return { exists: true, size: stat.size };
+        } catch (error) {
+            return { exists: false, error: error instanceof Error ? error.message : String(error) };
+        }
+    }
+
+    /**
      * Fill in the OpenMC version compatibility from the environment probe
      * unless the caller already specified it. Applied on every
      * frontend-driven generation (XML export, run preparation, project save).
@@ -283,7 +311,7 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             let settingsMeshes: OpenMCMesh[] = [];
             if (fs.existsSync(settingsPath)) {
                 try {
-                    const settingsData = await this.parseSettingsXML(settingsPath);
+                    const settingsData = await this.parseSettingsXML(settingsPath, request.directory);
                     state.settings = settingsData.settings;
                     state.depletion = settingsData.depletion;
                     settingsMeshes = settingsData.meshes;
@@ -314,7 +342,7 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             const talliesPath = path.join(request.directory, 'tallies.xml');
             if (fs.existsSync(talliesPath)) {
                 try {
-                    const talliesData = await this.parseTalliesXML(talliesPath);
+                    const talliesData = await this.parseTalliesXML(talliesPath, request.directory);
                     state.tallies = talliesData.tallies;
                     state.meshes = talliesData.meshes;
                     warnings.push(...talliesData.warnings);
@@ -1025,7 +1053,8 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
     }
 
     private async parseSettingsXML(
-        filePath: string
+        filePath: string,
+        baseDirectory?: string
     ): Promise<{ settings: any; depletion?: OpenMCDepletion; weightWindowGenerator?: any; meshes: OpenMCMesh[]; warnings: string[] }> {
         const fs = await import('fs');
         const xml2js = await import('xml2js');
@@ -1587,7 +1616,7 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             const meshElems = Array.isArray(s.mesh) ? s.mesh : s.mesh ? [s.mesh] : [];
             for (const meshElem of meshElems) {
                 if (referencedMeshIds.has(parseInt(meshElem.$?.id))) {
-                    sourceMeshes.push(this.parseMeshElement(meshElem));
+                    sourceMeshes.push(this.parseMeshElement(meshElem, baseDirectory));
                 }
             }
             for (const id of referencedMeshIds) {
@@ -1794,7 +1823,10 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
      * @param filePath - Path to tallies.xml
      * @returns Parsed tallies, meshes, and warnings
      */
-    private async parseTalliesXML(filePath: string): Promise<{ tallies: OpenMCTally[]; meshes: OpenMCMesh[]; warnings: string[] }> {
+    private async parseTalliesXML(
+        filePath: string,
+        baseDirectory?: string
+    ): Promise<{ tallies: OpenMCTally[]; meshes: OpenMCMesh[]; warnings: string[] }> {
         const fs = await import('fs');
         const xml2js = await import('xml2js');
 
@@ -1816,7 +1848,7 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
         // Meshes
         const meshElems = Array.isArray(t.mesh) ? t.mesh : t.mesh ? [t.mesh] : [];
         for (const meshElem of meshElems) {
-            meshes.push(this.parseMeshElement(meshElem));
+            meshes.push(this.parseMeshElement(meshElem, baseDirectory));
         }
 
         // Filter definitions (top-level, referenced by ID from tallies)
@@ -1825,7 +1857,7 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
         for (const filterElem of filterElems) {
             const id = parseInt(filterElem.$?.id);
             if (!isNaN(id)) {
-                filterDefs.set(id, this.parseFilterElement(filterElem));
+                filterDefs.set(id, this.parseFilterElement(filterElem, warnings));
             }
         }
 
@@ -1929,16 +1961,52 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
     }
 
     /**
-     * Parse a <mesh> element from tallies.xml.
+     * Parse a <mesh> element from tallies.xml/settings.xml.
+     *
+     * @param meshElem - Parsed XML element.
+     * @param baseDirectory - Directory containing the XML file; relative
+     * unstructured mesh filenames resolve against it.
      */
-    private parseMeshElement(meshElem: any): OpenMCMesh {
+    private parseMeshElement(meshElem: any, baseDirectory?: string): OpenMCMesh {
         const id = parseInt(meshElem.$?.id) || 0;
         const type = meshElem.$?.type || 'regular';
+        const name = meshElem.$?.name || undefined;
+
+        if (type === 'rectilinear') {
+            return {
+                type: 'rectilinear',
+                id,
+                name,
+                xGrid: meshElem.x_grid ? this.parseNumberList(meshElem.x_grid) : [],
+                yGrid: meshElem.y_grid ? this.parseNumberList(meshElem.y_grid) : [],
+                zGrid: meshElem.z_grid ? this.parseNumberList(meshElem.z_grid) : []
+            };
+        }
+
+        if (type === 'unstructured') {
+            const rawFilename = meshElem.filename ? meshElem.filename.toString().trim() : '';
+            const filename =
+                rawFilename && baseDirectory && !path.isAbsolute(rawFilename) ? path.resolve(baseDirectory, rawFilename) : rawFilename;
+            const explicitLibrary = meshElem.$?.library === 'libmesh' ? 'libmesh' : meshElem.$?.library === 'moab' ? 'moab' : undefined;
+            const library = explicitLibrary ?? inferUnstructuredMeshLibrary(filename) ?? 'moab';
+            const lengthMultiplier = meshElem.$?.length_multiplier !== undefined ? parseFloat(meshElem.$.length_multiplier) : undefined;
+            const options = meshElem.$?.options ? meshElem.$.options.toString() : undefined;
+            return {
+                type: 'unstructured',
+                id,
+                name,
+                filename,
+                library,
+                lengthMultiplier,
+                options
+            };
+        }
 
         if (type === 'cylindrical') {
             return {
                 type: 'cylindrical',
                 id,
+                name,
                 origin: meshElem.origin ? (this.parseNumberList(meshElem.origin) as [number, number, number]) : undefined,
                 axis: meshElem.axis ? (this.parseNumberList(meshElem.axis) as [number, number, number]) : undefined,
                 rGrid: meshElem.r_grid ? this.parseNumberList(meshElem.r_grid) : [],
@@ -1951,6 +2019,7 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             return {
                 type: 'spherical',
                 id,
+                name,
                 origin: meshElem.origin ? (this.parseNumberList(meshElem.origin) as [number, number, number]) : undefined,
                 rGrid: meshElem.r_grid ? this.parseNumberList(meshElem.r_grid) : [],
                 thetaGrid: meshElem.theta_grid ? this.parseNumberList(meshElem.theta_grid) : [],
@@ -1961,6 +2030,7 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
         return {
             type: 'regular',
             id,
+            name,
             lowerLeft: meshElem.lower_left ? (this.parseNumberList(meshElem.lower_left) as [number, number, number]) : [0, 0, 0],
             upperRight: meshElem.upper_right ? (this.parseNumberList(meshElem.upper_right) as [number, number, number]) : [0, 0, 0],
             dimension: meshElem.dimension
@@ -1971,8 +2041,11 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
 
     /**
      * Parse a <filter> element from tallies.xml into schema form.
+     *
+     * @param filterElem - Parsed XML element.
+     * @param warnings - Optional warning sink for unsupported rotation matrices.
      */
-    private parseFilterElement(filterElem: any): OpenMCTallyFilter {
+    private parseFilterElement(filterElem: any, warnings?: string[]): OpenMCTallyFilter {
         const type = filterElem.$?.type || 'cell';
         const filter: OpenMCTallyFilter = { type, bins: [] };
 
@@ -1982,6 +2055,30 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                 const meshIds = filterElem.bins ? this.parseNumberList(filterElem.bins).map((n) => Math.trunc(n)) : [];
                 filter.bins = meshIds;
                 filter.meshId = meshIds[0];
+                if (filterElem.$?.translation) {
+                    const translation = this.parseNumberList(filterElem.$.translation);
+                    if (translation.length === 3) {
+                        filter.meshTranslation = translation as [number, number, number];
+                    } else {
+                        warnings?.push(
+                            `Mesh filter ${filterElem.$?.id ?? ''} has a translation with ${translation.length} values (expected 3); ignored`
+                        );
+                    }
+                }
+                if (filterElem.$?.rotation) {
+                    const rotation = this.parseNumberList(filterElem.$.rotation);
+                    if (rotation.length === 3) {
+                        filter.meshRotation = rotation as [number, number, number];
+                    } else if (rotation.length === 9) {
+                        warnings?.push(
+                            `Mesh filter ${filterElem.$?.id ?? ''} uses a 3×3 rotation matrix; only intrinsic Euler angles (phi theta psi) are editable and the matrix was ignored`
+                        );
+                    } else {
+                        warnings?.push(
+                            `Mesh filter ${filterElem.$?.id ?? ''} has a rotation with ${rotation.length} values (expected 3); ignored`
+                        );
+                    }
+                }
                 break;
             }
 
@@ -2753,6 +2850,91 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             });
         }
 
+        // Mesh definitions: structured grids must be usable by OpenMC and
+        // unstructured files must match the selected library.
+        const fs = await import('fs');
+        for (const mesh of meshes ?? []) {
+            const label = mesh.name ? `Mesh ${mesh.id} (${mesh.name})` : `Mesh ${mesh.id}`;
+            if (mesh.type === 'rectilinear') {
+                for (const issue of validateRectilinearMesh(mesh)) {
+                    issues.push({
+                        severity: 'error',
+                        category: 'tallies',
+                        message: `${label} ${issue.axis}-grid is invalid: ${issue.message}`,
+                        suggestion: `Fix the ${issue.axis.toUpperCase()} grid in the Tally Configurator — rectilinear grids need at least two strictly increasing boundaries`
+                    });
+                }
+            } else if (mesh.type === 'unstructured') {
+                if (mesh.lengthMultiplier !== undefined && (!Number.isFinite(mesh.lengthMultiplier) || mesh.lengthMultiplier <= 0)) {
+                    issues.push({
+                        severity: 'error',
+                        category: 'tallies',
+                        message: `${label} length multiplier must be greater than 0`,
+                        suggestion: 'Set a positive length multiplier (default 1 applies no scaling)'
+                    });
+                }
+                const filenameError = validateUnstructuredMeshFilename(mesh.filename, mesh.library);
+                if (filenameError) {
+                    issues.push({
+                        severity: 'error',
+                        category: 'tallies',
+                        message: `${label}: ${filenameError}`,
+                        suggestion: 'Choose a mesh file whose extension matches the selected MOAB/libMesh library'
+                    });
+                } else if (!path.isAbsolute(mesh.filename)) {
+                    issues.push({
+                        severity: 'warning',
+                        category: 'tallies',
+                        message: `${label} uses a project-relative mesh file (${mesh.filename}) that cannot be verified before generation`,
+                        suggestion: 'Save the project (paths resolve on load) or choose the file again to store an absolute path'
+                    });
+                } else {
+                    try {
+                        if (!fs.existsSync(mesh.filename)) {
+                            issues.push({
+                                severity: 'error',
+                                category: 'tallies',
+                                message: `${label} file does not exist: ${mesh.filename}`,
+                                suggestion: 'Choose an existing mesh file in the Tally Configurator or copy it back to that path'
+                            });
+                        }
+                    } catch {
+                        issues.push({
+                            severity: 'warning',
+                            category: 'tallies',
+                            message: `${label} file could not be checked: ${mesh.filename}`,
+                            suggestion: 'Verify the file exists and is readable before running'
+                        });
+                    }
+                }
+            }
+        }
+
+        // Mesh filters: every mesh/meshsurface filter must reference a mesh.
+        const meshIds = new Set((meshes ?? []).map((mesh) => mesh.id));
+        for (const tally of tallies ?? []) {
+            for (const filter of tally.filters ?? []) {
+                if (filter.type !== 'mesh' && filter.type !== 'meshsurface') {
+                    continue;
+                }
+                if (filter.meshId === undefined || filter.meshId === 0) {
+                    issues.push({
+                        severity: 'error',
+                        category: 'tallies',
+                        message: `Tally ${tally.id}${tally.name ? ` (${tally.name})` : ''} has a ${filter.type} filter with no mesh selected`,
+                        suggestion: 'Select a mesh in the filter editor or create one in the Tally Configurator'
+                    });
+                } else if (!meshIds.has(filter.meshId)) {
+                    issues.push({
+                        severity: 'error',
+                        category: 'tallies',
+                        message: `Tally ${tally.id}${tally.name ? ` (${tally.name})` : ''} references mesh ${filter.meshId} which does not exist`,
+                        suggestion: 'Choose an existing mesh in the filter editor or re-create the deleted mesh'
+                    });
+                }
+            }
+        }
+
         // IFP kinetics: requires eigenvalue mode; ifp_n_generation must not exceed inactive batches
         if (settings.kinetics?.enabled) {
             const eigenRun = settings.run.mode === 'eigenvalue' ? settings.run : undefined;
@@ -3392,6 +3574,12 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                     project.state.settings.randomRay.mgxsLibraryPath
                 );
             }
+            // Unstructured mesh files are stored project-relative when possible.
+            for (const mesh of project.state.meshes ?? []) {
+                if (mesh.type === 'unstructured' && mesh.filename && !path.isAbsolute(mesh.filename)) {
+                    mesh.filename = path.resolve(projectDir, mesh.filename);
+                }
+            }
 
             return {
                 success: true,
@@ -3448,6 +3636,17 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                     }
                 } catch {
                     // ignore
+                }
+            }
+            for (const mesh of stateToSave.meshes ?? []) {
+                if (mesh.type === 'unstructured' && mesh.filename && path.isAbsolute(mesh.filename)) {
+                    try {
+                        if (fs.existsSync(mesh.filename)) {
+                            mesh.filename = path.relative(projectDir, mesh.filename);
+                        }
+                    } catch {
+                        // ignore
+                    }
                 }
             }
 

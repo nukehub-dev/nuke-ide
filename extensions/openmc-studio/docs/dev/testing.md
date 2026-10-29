@@ -27,7 +27,7 @@ npx vitest run extensions/openmc-studio
 Two e2e layers execute real OpenMC runs and skip cleanly when their environment variables are unset:
 
 - **`tests/e2e/`** (pytest, driver level) — pincell fixtures built with the openmc API driving the Python scripts directly: CMFD, depletion, k-eff search, volume, MGXS, collision tracks, DAGMC assets, native plotting, chain building. All tests carry the `@pytest.mark.e2e` marker.
-- **`src/node/e2e/`** (vitest, project level) — small hand-written `.nuke-openmc` fixtures under `src/node/e2e/projects/` → migration → XML generation → real runs; `codegen-run.test.ts` additionally executes the exporter's generated `model.py`. `geometry-core.test.ts` loads generated lattice/transform/periodic XML with the real OpenMC Python API, compares it against the exporter's `model.py`, and needs only `NUKE_TEST_PYTHON`; its transport case additionally needs `OPENMC_CROSS_SECTIONS`.
+- **`src/node/e2e/`** (vitest, project level) — small hand-written `.nuke-openmc` fixtures under `src/node/e2e/projects/` → migration → XML generation → real runs; `codegen-run.test.ts` additionally executes the exporter's generated `model.py`. `geometry-core.test.ts` loads generated lattice/transform/periodic XML with the real OpenMC Python API, compares it against the exporter's `model.py`, and needs only `NUKE_TEST_PYTHON`; its transport case additionally needs `OPENMC_CROSS_SECTIONS`. `mesh-rectilinear.nuke-openmc` runs a rectilinear mesh tally; mesh-filter rotation is added only when the environment's `openmc.MeshFilter.rotation` probe succeeds. Unstructured mesh runs stay gated on a build/library that is not part of the minimal profile.
 
 Environment variables (all optional):
 

@@ -51,8 +51,10 @@ import {
     OpenMCTally,
     OpenMCMesh,
     OpenMCRegularMesh,
+    OpenMCRectilinearMesh,
     OpenMCCylindricalMesh,
     OpenMCSphericalMesh,
+    OpenMCUnstructuredMesh,
     OpenMCLattice,
     OpenMCEigenvalueSettings,
     OpenMCFixedSourceSettings,
@@ -75,6 +77,17 @@ import {
     generateUnivariateXml,
     sourceUsesDecaySpectrum
 } from '../common/source-utils';
+import { validateRectilinearMesh, validateUnstructuredMeshFilename } from '../common/mesh-utils';
+
+/** Context for mesh XML emission (validation warnings + path resolution). */
+interface MeshEmissionContext {
+    /** Generation warnings collected into the result. */
+    warnings?: string[];
+    /** Project directory used to resolve relative unstructured filenames. */
+    projectDirectory?: string;
+    /** Output directory used to emit run-relative unstructured filenames. */
+    outputDirectory?: string;
+}
 
 import { OpenMCStudioClient } from '../common/openmc-studio-protocol';
 
@@ -221,7 +234,13 @@ export class XMLGenerationService {
             // Generate tallies.xml (also when only auto-generated IFP kinetics tallies would be present)
             if (request.files.tallies && (request.state.tallies.length > 0 || request.state.settings.kinetics?.enabled)) {
                 const talliesPath = path.join(request.outputDirectory, 'tallies.xml');
-                const talliesXml = this.generateTalliesXML(request.state, warnings);
+                const talliesXml = this.generateTalliesXML(
+                    request.state,
+                    warnings,
+                    request.randomRayCompat ?? DEFAULT_OPENMC_COMPAT,
+                    projectDirectory,
+                    request.outputDirectory
+                );
                 fs.writeFileSync(talliesPath, talliesXml);
                 generatedFiles.push(talliesPath);
                 this.log(`Generated tallies.xml`);
@@ -856,7 +875,7 @@ export class XMLGenerationService {
                 if (meshId !== undefined && !emittedMeshIds.has(meshId)) {
                     const mesh = state.meshes.find((m) => m.id === meshId);
                     if (mesh) {
-                        lines.push(this.generateMeshElement(mesh));
+                        lines.push(this.generateMeshElement(mesh, { warnings, projectDirectory, outputDirectory: projectDirectory }));
                         emittedMeshIds.add(meshId);
                     } else {
                         this.log(`Warning: Source references mesh ${meshId} which is not in state.meshes`);
@@ -1182,7 +1201,7 @@ export class XMLGenerationService {
             if (rr.sourceRegionMeshId !== undefined) {
                 const srMesh = state.meshes.find((m) => m.id === rr.sourceRegionMeshId && m.type === 'regular');
                 if (srMesh) {
-                    lines.push(this.generateMeshElement(srMesh));
+                    lines.push(this.generateMeshElement(srMesh, { warnings, projectDirectory, outputDirectory: projectDirectory }));
                     emittedMeshIds.add(rr.sourceRegionMeshId);
                 }
             }
@@ -1446,7 +1465,7 @@ export class XMLGenerationService {
                 }
                 const vrMesh = state.meshes.find((m) => m.id === meshId && m.type === 'regular');
                 if (vrMesh) {
-                    lines.push(this.generateMeshElement(vrMesh));
+                    lines.push(this.generateMeshElement(vrMesh, { warnings, projectDirectory, outputDirectory: projectDirectory }));
                     emittedMeshIds.add(meshId);
                 }
             }
@@ -1929,7 +1948,13 @@ export class XMLGenerationService {
         return ids;
     }
 
-    private generateTalliesXML(state: OpenMCState, warnings?: string[]): string {
+    private generateTalliesXML(
+        state: OpenMCState,
+        warnings?: string[],
+        compat: OpenMCCompat = DEFAULT_OPENMC_COMPAT,
+        projectDirectory?: string,
+        outputDirectory?: string
+    ): string {
         const lines: string[] = ['<?xml version="1.0"?>', '<tallies>', ''];
 
         // Add meshes first. Meshes referenced by settings-level features live
@@ -1940,7 +1965,7 @@ export class XMLGenerationService {
         const settingsMeshIds = this.getSettingsMeshIds(state);
         for (const mesh of state.meshes) {
             if (!settingsMeshIds.has(mesh.id)) {
-                lines.push(this.generateMeshElement(mesh));
+                lines.push(this.generateMeshElement(mesh, { warnings, projectDirectory, outputDirectory }));
             }
         }
 
@@ -1995,7 +2020,7 @@ export class XMLGenerationService {
 
         // Generate filter elements at the top level
         for (const filter of filterMap.values()) {
-            lines.push(this.generateFilterElement(filter));
+            lines.push(this.generateFilterElement(filter, compat, warnings));
         }
 
         // Add tallies with filter references
@@ -2021,26 +2046,53 @@ export class XMLGenerationService {
             filter.center ? `${filter.center.x},${filter.center.y},${filter.center.r}` : undefined,
             filter.energyValues?.join(','),
             filter.responseValues?.join(','),
-            filter.interpolation
+            filter.interpolation,
+            filter.meshTranslation?.join(','),
+            filter.meshRotation?.join(',')
         ]
             .filter((v) => v !== undefined)
             .join(':');
         return paramKey ? `${baseKey}:${paramKey}` : baseKey;
     }
 
-    private generateMeshElement(mesh: OpenMCMesh): string {
+    /**
+     * Emit a `<mesh>` element for any supported mesh type.
+     *
+     * Rectilinear grids are checked for finite, strictly increasing boundaries;
+     * unstructured filenames are checked against the selected library and the
+     * filesystem. Problems are reported as generation warnings — the element is
+     * still written so the user's data is never silently dropped.
+     *
+     * @param mesh - Mesh to emit.
+     * @param context - Generation warnings and path-resolution directories.
+     * @returns Formatted `<mesh>` XML.
+     */
+    private generateMeshElement(mesh: OpenMCMesh, context: MeshEmissionContext = {}): string {
         const lines: string[] = [];
+        const nameAttr = mesh.name ? ` name="${this.escapeXml(mesh.name)}"` : '';
 
         if (mesh.type === 'regular') {
             const regularMesh = mesh as OpenMCRegularMesh;
-            lines.push(`  <mesh id="${mesh.id}" type="regular">`);
+            lines.push(`  <mesh id="${mesh.id}" type="regular"${nameAttr}>`);
             lines.push(`    <lower_left>${regularMesh.lowerLeft.join(' ')}</lower_left>`);
             lines.push(`    <upper_right>${regularMesh.upperRight.join(' ')}</upper_right>`);
             lines.push(`    <dimension>${regularMesh.dimension.join(' ')}</dimension>`);
             lines.push('  </mesh>');
+        } else if (mesh.type === 'rectilinear') {
+            const rectMesh = mesh as OpenMCRectilinearMesh;
+            for (const issue of validateRectilinearMesh(rectMesh)) {
+                context.warnings?.push(
+                    `Mesh ${mesh.id} ${issue.axis}_grid is invalid: ${issue.message}. OpenMC will reject this mesh — fix the grid in the Tally Configurator`
+                );
+            }
+            lines.push(`  <mesh id="${mesh.id}" type="rectilinear"${nameAttr}>`);
+            lines.push(`    <x_grid>${rectMesh.xGrid.join(' ')}</x_grid>`);
+            lines.push(`    <y_grid>${rectMesh.yGrid.join(' ')}</y_grid>`);
+            lines.push(`    <z_grid>${rectMesh.zGrid.join(' ')}</z_grid>`);
+            lines.push('  </mesh>');
         } else if (mesh.type === 'cylindrical') {
             const cylMesh = mesh as OpenMCCylindricalMesh;
-            lines.push(`  <mesh id="${mesh.id}" type="cylindrical">`);
+            lines.push(`  <mesh id="${mesh.id}" type="cylindrical"${nameAttr}>`);
             if (cylMesh.origin) {
                 lines.push(`    <origin>${cylMesh.origin.join(' ')}</origin>`);
             }
@@ -2053,7 +2105,7 @@ export class XMLGenerationService {
             lines.push('  </mesh>');
         } else if (mesh.type === 'spherical') {
             const sphMesh = mesh as OpenMCSphericalMesh;
-            lines.push(`  <mesh id="${mesh.id}" type="spherical">`);
+            lines.push(`  <mesh id="${mesh.id}" type="spherical"${nameAttr}>`);
             if (sphMesh.origin) {
                 lines.push(`    <origin>${sphMesh.origin.join(' ')}</origin>`);
             }
@@ -2061,10 +2113,63 @@ export class XMLGenerationService {
             lines.push(`    <theta_grid>${sphMesh.thetaGrid.join(' ')}</theta_grid>`);
             lines.push(`    <phi_grid>${sphMesh.phiGrid.join(' ')}</phi_grid>`);
             lines.push('  </mesh>');
+        } else {
+            const unstructured = mesh as OpenMCUnstructuredMesh;
+            const validationError = validateUnstructuredMeshFilename(unstructured.filename, unstructured.library);
+            if (validationError) {
+                context.warnings?.push(`Mesh ${mesh.id}: ${validationError}. OpenMC will reject this mesh at run time`);
+            }
+            const lengthMultiplier =
+                unstructured.lengthMultiplier !== undefined && unstructured.lengthMultiplier !== 1
+                    ? ` length_multiplier="${unstructured.lengthMultiplier}"`
+                    : '';
+            const optionsAttr = unstructured.options ? ` options="${this.escapeXml(unstructured.options)}"` : '';
+            const library = unstructured.library ?? 'moab';
+            lines.push(`  <mesh id="${mesh.id}" type="unstructured"${nameAttr} library="${library}"${optionsAttr}${lengthMultiplier}>`);
+            lines.push(`    <filename>${this.escapeXml(this.resolveUnstructuredMeshFilename(unstructured, context))}</filename>`);
+            lines.push('  </mesh>');
         }
 
         lines.push('');
         return lines.join('\n');
+    }
+
+    /**
+     * Resolve an unstructured mesh filename for XML emission and warn when the
+     * file cannot be found.
+     *
+     * Absolute paths are rewritten relative to the run directory when possible
+     * (the same pattern as DAGMC geometry), so generated decks stay portable.
+     *
+     * @param mesh - Unstructured mesh.
+     * @param context - Path-resolution directories and warnings.
+     * @returns Filename text for the `<filename>` element.
+     */
+    private resolveUnstructuredMeshFilename(mesh: OpenMCUnstructuredMesh, context: MeshEmissionContext): string {
+        const filename = mesh.filename ?? '';
+        if (!filename) {
+            return filename;
+        }
+        const baseDirectory = context.projectDirectory || context.outputDirectory;
+        const absolute = path.isAbsolute(filename) || !baseDirectory ? filename : path.resolve(baseDirectory, filename);
+
+        try {
+            if (!fs.existsSync(absolute)) {
+                context.warnings?.push(
+                    `Unstructured mesh ${mesh.id} file not found: ${absolute}. Place the file next to the project or choose it again in the Tally Configurator`
+                );
+            }
+        } catch {
+            // A stat failure is already surfaced by the missing-file check on export.
+        }
+
+        if (context.outputDirectory && path.isAbsolute(absolute)) {
+            const relative = path.relative(context.outputDirectory, absolute).replace(/\\/g, '/');
+            if (relative && !path.isAbsolute(relative)) {
+                return relative;
+            }
+        }
+        return filename;
     }
     private generateTallyElement(
         tally: OpenMCTally,
@@ -2130,16 +2235,33 @@ export class XMLGenerationService {
         return lines.join('\n');
     }
 
-    private generateFilterElement(filter: any): string {
+    private generateFilterElement(filter: any, compat: OpenMCCompat = DEFAULT_OPENMC_COMPAT, warnings?: string[]): string {
         const lines: string[] = [];
 
         switch (filter.type) {
             case 'mesh':
-            case 'meshsurface':
-                // Mesh-based filters reference the mesh ID in <bins>
-                lines.push(`  <filter id="${filter.id}" type="${filter.type}">`);
+            case 'meshsurface': {
+                // Mesh-based filters reference the mesh ID in <bins>. MeshFilter
+                // translation is a 0.15.3+ attribute; rotation is 0.16.0+
+                // (openmc/filter.py MeshFilter.to_xml_element) and is gated by
+                // the probed capability.
+                const translation = filter.meshTranslation as [number, number, number] | undefined;
+                const rotation = filter.meshRotation as [number, number, number] | undefined;
+                const translationAttr = translation ? ` translation="${translation.join(' ')}"` : '';
+                let rotationAttr = '';
+                if (rotation && filter.type === 'mesh') {
+                    if (compat.meshFilterRotation) {
+                        rotationAttr = ` rotation="${rotation.join(' ')}"`;
+                    } else {
+                        warnings?.push(
+                            `Mesh filter rotation (${rotation.join(', ')}) requires OpenMC 0.16 or newer and was omitted from tallies.xml — remove the rotation or update the Python environment`
+                        );
+                    }
+                }
+                lines.push(`  <filter id="${filter.id}" type="${filter.type}"${translationAttr}${rotationAttr}>`);
                 lines.push(`    <bins>${filter.meshId ?? filter.bins.join(' ')}</bins>`);
                 break;
+            }
 
             case 'legendre':
             case 'spatiallegendre':

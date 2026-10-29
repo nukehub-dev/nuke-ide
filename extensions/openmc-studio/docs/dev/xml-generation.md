@@ -291,15 +291,22 @@ Maps `OpenMCState.tallies` + `OpenMCState.meshes` → `<tallies>`.
 
 ### State → XML Mapping
 
-| State Field                     | XML Element                                | Notes                                   |
-| ------------------------------- | ------------------------------------------ | --------------------------------------- |
-| `mesh.id` + `mesh.type`         | `<mesh id="..." type="...">`               | `regular`, `cylindrical`, `spherical`   |
-| `mesh.dimension`                | `<dimension>`                              | For regular meshes                      |
-| `mesh.lowerLeft` / `upperRight` | `<lower_left>` / `<upper_right>`           | For regular meshes                      |
-| `tally.id` + `tally.name`       | `<tally id="..." name="...">`              | Name is optional                        |
-| `tally.filters[]`               | `<filter id="...">` + `<filters>` on tally | Filters are deduplicated across tallies |
-| `tally.scores[]`                | `<scores>`                                 | e.g., `flux`, `fission`, `absorption`   |
-| `tally.nuclides[]`              | `<nuclides>`                               | `total` or specific nuclides            |
+| State Field                      | XML Element                                | Notes                                                                              |
+| -------------------------------- | ------------------------------------------ | ---------------------------------------------------------------------------------- |
+| `mesh.id` + `mesh.type`          | `<mesh id="..." type="..." name="...">`    | `regular`, `rectilinear`, `cylindrical`, `spherical`, `unstructured`               |
+| `mesh.dimension`                 | `<dimension>`                              | For regular meshes                                                                 |
+| `mesh.lowerLeft` / `upperRight`  | `<lower_left>` / `<upper_right>`           | For regular meshes                                                                 |
+| `mesh.xGrid` / `yGrid` / `zGrid` | `<x_grid>` / `<y_grid>` / `<z_grid>`       | Rectilinear meshes; validated for ≥2 finite, strictly increasing boundaries        |
+| `mesh.filename`                  | `<filename>`                               | Unstructured meshes; absolute paths are rewritten relative to the run directory    |
+| `mesh.library`                   | `library="..."`                            | Unstructured meshes (`moab`/`libmesh`); extension mismatch and missing files warn  |
+| `mesh.lengthMultiplier`          | `length_multiplier="..."`                  | Unstructured meshes; omitted when 1 (OpenMC default)                               |
+| `mesh.options`                   | `options="..."`                            | Unstructured MOAB search-tree options                                              |
+| `filter.meshTranslation`         | `translation="..."`                        | `mesh`/`meshsurface` filters; 0.15.3+                                              |
+| `filter.meshRotation`            | `rotation="..."`                           | `mesh` filters only; 0.16.0+ and gated by `OpenMCCompat.meshFilterRotation`        |
+| `tally.id` + `tally.name`        | `<tally id="..." name="...">`              | Name is optional                                                                   |
+| `tally.filters[]`                | `<filter id="...">` + `<filters>` on tally | Filters are deduplicated across tallies (transform attributes are part of the key) |
+| `tally.scores[]`                 | `<scores>`                                 | e.g., `flux`, `fission`, `absorption`                                              |
+| `tally.nuclides[]`               | `<nuclides>`                               | `total` or specific nuclides                                                       |
 
 ### Filter Deduplication
 
@@ -318,6 +325,13 @@ for (const tally of state.tallies) {
     }
 }
 ```
+
+`MeshFilter` also supports `translation` (all supported releases) and `rotation` (0.16.0+), emitted as
+space-separated attributes on `<filter type="mesh">` and imported back into `meshTranslation` /
+`meshRotation`. Rotation is an intrinsic Tait-Bryan rotation (`Rz(psi) Ry(theta) Rx(phi)`); when
+`OpenMCCompat.meshFilterRotation` is false the generator emits a warning and omits the attribute, and
+the Python exporter mirrors this with an explanatory comment instead of emitting a setter that would
+not exist.
 
 ---
 

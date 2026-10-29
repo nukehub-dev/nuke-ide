@@ -47,10 +47,13 @@ All files under `extensions/openmc-studio/` except generated artifacts (`lib/`, 
 
 ## Work Guidance
 
-- Meshes/sources/bounds: `getSettingsMeshIds` is the single settings-level mesh inventory (emitted once, skipped in tallies.xml);
-  `mesh` sources need exactly `n_elements` sub-sources (independent `mesh` spatial is a separate single-energy model); `tokamak`
-  sources need 0.16.0+ (`muir` serializes lossy as `normal`); shared bounding-box logic lives in `geometry-bounds.ts`. See
-  `docs/dev/state-model.md` and `docs/dev/xml-generation.md`.
+- Meshes/sources/bounds: `getSettingsMeshIds` is the single settings-level mesh inventory (emitted once, skipped in tallies.xml); five
+  mesh types (regular/rectilinear/cylindrical/spherical/unstructured) round-trip through schema, XML, and Python with project-relative
+  unstructured paths; `mesh` sources need exactly `n_elements` sub-sources (independent `mesh` spatial is a separate single-energy
+  model); `tokamak` sources need 0.16.0+ (`muir` serializes lossy as `normal`); shared bounding-box logic lives in `geometry-bounds.ts`.
+  See `docs/dev/state-model.md` and `docs/dev/xml-generation.md`.
+- Mesh-filter transforms: `meshTranslation` emits for `mesh`/`meshsurface`; `meshRotation` (intrinsic Tait-Bryan degrees) is 0.16.0+
+  gated by the probed `OpenMCCompat.meshFilterRotation`, omitted with a warning otherwise. See `docs/dev/xml-generation.md`.
 - Source distributions use one `OpenMCUnivariate` model and editor (`common/source-utils.ts`, `tabs/settings/source-distributions.tsx`)
   for energy, time, spatial coordinates, mu/phi, and nested mixtures; XML/Python import+export must stay symmetric. `Legendre` and
   tabular `ignore_negative` are deliberately absent; decay spectra are 0.16-gated by `OpenMCCompat.decaySpectrum`.

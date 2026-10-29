@@ -40,6 +40,7 @@
  * - `s2SampleMethod` — random ray `sample_method: 's2'` acceptance
  * - `sharedSecondaryBank` — `Settings.shared_secondary_bank` existence (0.16.0+)
  * - `surfaceGrazing` — `Settings.surface_grazing_cutoff` existence (0.16.0+)
+ * - `meshFilterRotation` — `openmc.MeshFilter.rotation` existence (0.16.0+)
  *
  * Results are cached per python command; on any probe failure the
  * release-compatible default is returned (stable releases are the common case).
@@ -53,15 +54,16 @@ import { OpenMCCompat, DEFAULT_OPENMC_COMPAT } from '../common/openmc-studio-pro
 import { OpenMCValidationBackendService } from './openmc-validation-backend-service';
 
 /**
- * Python one-liner: prints eleven space-separated tokens —
+ * Python one-liner: prints twelve space-separated tokens —
  * `<direct|wrapper> <adjoint|no-adjoint> <tokamak|no-tokamak> <s2|no-s2>
  * <substeps|no-substeps> <keff-search|no-keff-search>
  * <external-rate|no-external-rate> <continuation|no-continuation>
- * <shared-bank|no-shared-bank> <grazing|no-grazing> <decay|no-decay>`.
+ * <shared-bank|no-shared-bank> <grazing|no-grazing> <decay|no-decay>
+ * <mesh-rotation|no-mesh-rotation>`.
  *
- * Depletion, 0.16 settings, and decay-spectrum capabilities are detected by
- * introspection (never version strings): constructor parameters, public
- * Integrator methods, and Settings/stats attributes.
+ * Depletion, 0.16 settings, decay-spectrum, and mesh-filter capabilities are
+ * detected by introspection (never version strings): constructor parameters,
+ * public Integrator methods, and Settings/stats/MeshFilter attributes.
  */
 const OPENMC_COMPAT_PROBE_SCRIPT = `
 import inspect
@@ -97,7 +99,8 @@ continuation = 'continue_timesteps' in _params and hasattr(openmc.deplete, 'Resu
 shared_bank = hasattr(openmc.Settings(), 'shared_secondary_bank')
 grazing = hasattr(openmc.Settings(), 'surface_grazing_cutoff')
 decay = hasattr(openmc.stats, 'DecaySpectrum')
-print('{} {} {} {} {} {} {} {} {} {} {}'.format(
+mesh_rotation = hasattr(openmc.MeshFilter, 'rotation')
+print('{} {} {} {} {} {} {} {} {} {} {} {}'.format(
     fmt,
     'adjoint' if adj else 'no-adjoint',
     'tokamak' if tok else 'no-tokamak',
@@ -108,7 +111,8 @@ print('{} {} {} {} {} {} {} {} {} {} {}'.format(
     'continuation' if continuation else 'no-continuation',
     'shared-bank' if shared_bank else 'no-shared-bank',
     'grazing' if grazing else 'no-grazing',
-    'decay' if decay else 'no-decay'))
+    'decay' if decay else 'no-decay',
+    'mesh-rotation' if mesh_rotation else 'no-mesh-rotation'))
 `;
 
 const PROBE_TIMEOUT_MS = 30000;
@@ -143,34 +147,46 @@ export class OpenMCCompatProbeService {
         if (cached) {
             return cached;
         }
-        const compat = this.runProbe(pythonCommand) ?? DEFAULT_OPENMC_COMPAT;
+        const compat = (await this.runProbe(pythonCommand)) ?? DEFAULT_OPENMC_COMPAT;
         this.cache.set(pythonCommand, compat);
         console.log(`[OpenMC Compat Probe] ${pythonCommand}: ${JSON.stringify(compat)}`);
         return compat;
     }
 
     /**
-     * Run the probe script against a python command.
+     * Run the probe script against a python command without blocking the
+     * backend event loop (other JSON-RPC requests must stay responsive while
+     * Python starts up).
      * @param pythonCommand - Python executable path
      * @returns Probe result, or undefined on any failure
      */
-    protected runProbe(pythonCommand: string): OpenMCCompat | undefined {
-        try {
-            const result = cp.spawnSync(pythonCommand, ['-c', OPENMC_COMPAT_PROBE_SCRIPT], {
-                encoding: 'utf-8',
-                timeout: PROBE_TIMEOUT_MS
+    protected async runProbe(pythonCommand: string): Promise<OpenMCCompat | undefined> {
+        return new Promise<OpenMCCompat | undefined>((resolve) => {
+            let stdout = '';
+            let settled = false;
+            const finish = (value: OpenMCCompat | undefined) => {
+                if (settled) {
+                    return;
+                }
+                settled = true;
+                clearTimeout(timer);
+                resolve(value);
+            };
+            const child = cp.spawn(pythonCommand, ['-c', OPENMC_COMPAT_PROBE_SCRIPT], { stdio: ['ignore', 'pipe', 'pipe'] });
+            const timer = setTimeout(() => {
+                child.kill();
+                finish(undefined);
+            }, PROBE_TIMEOUT_MS);
+            child.stdout?.on('data', (chunk: Buffer) => {
+                stdout += chunk.toString();
             });
-            if (result.error || result.status !== 0) {
-                return undefined;
-            }
-            return this.parseProbeOutput(result.stdout);
-        } catch {
-            return undefined;
-        }
+            child.on('error', () => finish(undefined));
+            child.on('close', (code) => finish(code === 0 ? this.parseProbeOutput(stdout) : undefined));
+        });
     }
 
     /**
-     * Parse the probe's eleven-token output line. Tokens after the original
+     * Parse the probe's twelve-token output line. Tokens after the original
      * four are optional so older probe output still parses (falling back to
      * the release-compatible defaults for missing capabilities).
      * @param stdout - Probe stdout
@@ -183,9 +199,20 @@ export class OpenMCCompatProbeService {
             .map((l) => l.trim())
             .filter((l) => l.length > 0)
             .pop();
-        const [format, adjoint, tokamak, s2, substeps, keffSearch, externalRate, continuation, sharedBank, grazing, decay] = (
-            line ?? ''
-        ).split(/\s+/);
+        const [
+            format,
+            adjoint,
+            tokamak,
+            s2,
+            substeps,
+            keffSearch,
+            externalRate,
+            continuation,
+            sharedBank,
+            grazing,
+            decay,
+            meshRotation
+        ] = (line ?? '').split(/\s+/);
         if (format !== 'direct' && format !== 'wrapper') {
             return undefined;
         }
@@ -201,7 +228,8 @@ export class OpenMCCompatProbeService {
                 externalRate === 'external-rate' || (!externalRate && DEFAULT_OPENMC_COMPAT.depletionExternalSourceRate),
             depletionContinuation: continuation === 'continuation' || (!continuation && DEFAULT_OPENMC_COMPAT.depletionContinuation),
             sharedSecondaryBank: sharedBank === 'shared-bank',
-            surfaceGrazing: grazing === 'grazing'
+            surfaceGrazing: grazing === 'grazing',
+            meshFilterRotation: meshRotation === 'mesh-rotation'
         };
     }
 }

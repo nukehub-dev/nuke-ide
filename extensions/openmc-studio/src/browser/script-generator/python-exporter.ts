@@ -57,8 +57,10 @@ import {
     OpenMCTally,
     OpenMCMesh,
     OpenMCRegularMesh,
+    OpenMCRectilinearMesh,
     OpenMCCylindricalMesh,
     OpenMCSphericalMesh,
+    OpenMCUnstructuredMesh,
     OpenMCSource,
     OpenMCSourceConstraints,
     OpenMCEigenvalueSettings,
@@ -90,6 +92,13 @@ export interface PythonExportOptions {
     includeShebang?: boolean;
     /** Probed OpenMC capabilities (0.16-only settings are gated when known). */
     compat?: OpenMCCompat;
+    /**
+     * Whether the target OpenMC supports `openmc.MeshFilter.rotation`
+     * (0.16.0+). Mirrors the probed XML capability; when false, rotation is
+     * omitted with a comment instead of emitting code that cannot run.
+     * Callers may omit this and derive it from `compat.meshFilterRotation`.
+     */
+    meshFilterRotationSupported?: boolean;
 }
 
 /** Result of a Python export operation. */
@@ -292,6 +301,9 @@ export class OpenMCPythonExporter {
         }
 
         lines.push('import openmc');
+        if (this.needsScriptRelativeMeshPath(state)) {
+            lines.push('import os');
+        }
         if (state.depletion?.enabled) {
             lines.push('import openmc.deplete');
             if (state.depletion.reactivityControl && state.depletion.reactivityControl.enabled !== false) {
@@ -488,11 +500,50 @@ export class OpenMCPythonExporter {
         }
 
         lines.push('import openmc');
+        if (this.needsScriptRelativeMeshPath(state)) {
+            lines.push('import os');
+        }
         lines.push('');
 
         lines.push(...this.generateTallyMeshCode(state, options));
 
         return lines.join('\n');
+    }
+
+    /**
+     * Whether any unstructured mesh uses a project-relative filename that the
+     * generated script must resolve against its own directory.
+     *
+     * @param state - Current simulation state.
+     * @returns True when `import os` and `_script_dir` are required.
+     */
+    private needsScriptRelativeMeshPath(state: OpenMCState): boolean {
+        return (state.meshes ?? []).some(
+            (mesh) => mesh.type === 'unstructured' && !!mesh.filename && !this.isAbsoluteFilename(mesh.filename)
+        );
+    }
+
+    /**
+     * Test whether a path is absolute (POSIX, Windows drive, or UNC).
+     *
+     * @param filename - Path to inspect.
+     * @returns True for absolute paths.
+     */
+    private isAbsoluteFilename(filename: string): boolean {
+        return filename.startsWith('/') || filename.startsWith('\\\\') || /^[A-Za-z]:[\\/]/.test(filename);
+    }
+
+    /**
+     * Build a Python expression for an unstructured mesh filename. Relative
+     * paths resolve against the exported script's directory so project-relative
+     * paths keep working when the script is run from elsewhere.
+     *
+     * @param filename - Mesh filename from state.
+     * @returns Python expression yielding the path.
+     */
+    private formatPythonMeshFilename(filename: string): string {
+        const quoted = `"${this.escapePythonString(filename)}"`;
+        return this.isAbsoluteFilename(filename) || !filename ? quoted : `os.path.join(_script_dir, ${quoted})`;
     }
 
     /**
@@ -1827,6 +1878,9 @@ export class OpenMCPythonExporter {
 
         // Meshes
         if (state.meshes.length > 0) {
+            if (this.needsScriptRelativeMeshPath(state)) {
+                lines.push('_script_dir = os.path.dirname(os.path.abspath(__file__))');
+            }
             if (options.includeComments) {
                 lines.push('# Meshes');
             }
@@ -1847,7 +1901,7 @@ export class OpenMCPythonExporter {
                 lines.push('# Tallies');
             }
             for (const tally of effectiveTallies) {
-                lines.push(...this.generateTallyCode(tally, state));
+                lines.push(...this.generateTallyCode(tally, state, options));
             }
             lines.push('');
         }
@@ -1876,6 +1930,24 @@ export class OpenMCPythonExporter {
             lines.push(`mesh_${mesh.id}.lower_left = [${regularMesh.lowerLeft.join(', ')}]`);
             lines.push(`mesh_${mesh.id}.upper_right = [${regularMesh.upperRight.join(', ')}]`);
             lines.push(`mesh_${mesh.id}.dimension = [${regularMesh.dimension.join(', ')}]`);
+        } else if (mesh.type === 'rectilinear') {
+            const rectMesh = mesh as OpenMCRectilinearMesh;
+            lines.push(`mesh_${mesh.id} = openmc.RectilinearMesh(mesh_id=${mesh.id})`);
+            lines.push(`mesh_${mesh.id}.x_grid = [${rectMesh.xGrid.join(', ')}]`);
+            lines.push(`mesh_${mesh.id}.y_grid = [${rectMesh.yGrid.join(', ')}]`);
+            lines.push(`mesh_${mesh.id}.z_grid = [${rectMesh.zGrid.join(', ')}]`);
+        } else if (mesh.type === 'unstructured') {
+            const unstructured = mesh as OpenMCUnstructuredMesh;
+            const lengthMultiplier =
+                unstructured.lengthMultiplier !== undefined && unstructured.lengthMultiplier !== 1
+                    ? `, length_multiplier=${unstructured.lengthMultiplier}`
+                    : '';
+            const options = unstructured.options ? `, options="${this.escapePythonString(unstructured.options)}"` : '';
+            lines.push(
+                `mesh_${mesh.id} = openmc.UnstructuredMesh(${this.formatPythonMeshFilename(
+                    unstructured.filename
+                )}, library="${unstructured.library}"${lengthMultiplier}${options}, mesh_id=${mesh.id})`
+            );
         } else if (mesh.type === 'cylindrical') {
             const cylMesh = mesh as OpenMCCylindricalMesh;
             lines.push(`mesh_${mesh.id} = openmc.CylindricalMesh(mesh_id=${mesh.id})`);
@@ -1905,9 +1977,10 @@ export class OpenMCPythonExporter {
      *
      * @param tally - The {@link OpenMCTally} to convert.
      * @param state - The current {@link OpenMCState} for mesh lookups.
+     * @param options - Export options (gates 0.16-only mesh rotation).
      * @returns An array of code lines.
      */
-    private generateTallyCode(tally: OpenMCTally, state: OpenMCState): string[] {
+    private generateTallyCode(tally: OpenMCTally, state: OpenMCState, options: PythonExportOptions): string[] {
         const lines: string[] = [];
 
         lines.push(`tally_${tally.id} = openmc.Tally(name="${this.escapePythonString(tally.name || '')}", tally_id=${tally.id})`);
@@ -1940,6 +2013,20 @@ export class OpenMCPythonExporter {
                     case 'mesh':
                         if (filter.meshId) {
                             lines.push(`${filterVar} = openmc.MeshFilter(mesh_${filter.meshId})`);
+                            if (filter.meshTranslation) {
+                                lines.push(`${filterVar}.translation = [${filter.meshTranslation.join(', ')}]`);
+                            }
+                            if (filter.meshRotation) {
+                                if (options.meshFilterRotationSupported ?? options.compat?.meshFilterRotation ?? false) {
+                                    lines.push(`${filterVar}.rotation = [${filter.meshRotation.join(', ')}]`);
+                                } else {
+                                    lines.push(
+                                        `# Mesh filter rotation ${filter.meshRotation.join(
+                                            ' '
+                                        )} requires OpenMC 0.16 or newer and was omitted from this script`
+                                    );
+                                }
+                            }
                         }
                         break;
                     case 'cell':

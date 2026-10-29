@@ -29,6 +29,7 @@ import * as React from 'react';
 import { Tooltip, NukeSelect } from 'nuke-essentials/lib/theme/browser/components';
 import { OpenMCTallyFilter, OpenMCTallyFilterType, OpenMCMesh } from '../../../../common/openmc-state-schema';
 import { OPENMC_FILTERS, getFilterDescriptor, createDefaultFilter } from '../../../../common/filters-catalog';
+import { MESH_TYPE_LABELS } from '../../../../common/mesh-utils';
 
 /**
  * Props for the {@link FilterBuilder} component.
@@ -38,6 +39,8 @@ interface FilterBuilderProps {
     filters: OpenMCTallyFilter[];
     /** Available meshes for mesh filters */
     meshes: OpenMCMesh[];
+    /** Whether the configured OpenMC supports mesh-filter rotation (0.16+) */
+    meshRotationSupported?: boolean;
     /** Callback when filters are updated */
     onUpdate: (filters: OpenMCTallyFilter[]) => void;
 }
@@ -55,7 +58,7 @@ const DELAYED_GROUPS = [1, 2, 3, 4, 5, 6];
  *
  * @see {@link TallyEditor}
  */
-export const FilterBuilder: React.FC<FilterBuilderProps> = ({ filters, meshes, onUpdate }) => {
+export const FilterBuilder: React.FC<FilterBuilderProps> = ({ filters, meshes, meshRotationSupported, onUpdate }) => {
     /** Add a new filter of the given type with catalog defaults. */
     const addFilter = (type: OpenMCTallyFilterType) => {
         onUpdate([...filters, createDefaultFilter(type, meshes.length > 0 ? meshes[0].id : undefined)]);
@@ -97,21 +100,128 @@ export const FilterBuilder: React.FC<FilterBuilderProps> = ({ filters, meshes, o
         );
     };
 
-    /** Render the mesh selector for mesh-based filters. */
-    const renderMeshSelect = (filter: OpenMCTallyFilter, index: number): React.ReactNode => (
-        <div className="form-group">
-            <label>Mesh</label>
-            <NukeSelect
-                value={String(filter.meshId)}
-                options={[
-                    { value: '0', label: 'Select Mesh' },
-                    ...meshes.map((m) => ({ value: String(m.id), label: m.name || `Mesh ${m.id}` }))
-                ]}
-                onChange={(value: string) => updateFilter(index, { meshId: parseInt(value, 10), bins: [parseInt(value, 10)] })}
-                ariaLabel="Mesh"
-            />
-        </div>
-    );
+    /** Render the mesh selector and transform controls for mesh-based filters. */
+    const renderMeshSelect = (filter: OpenMCTallyFilter, index: number): React.ReactNode => {
+        const selectedMesh = meshes.find((mesh) => mesh.id === filter.meshId);
+        const missingMesh = (filter.meshId ?? 0) > 0 && !selectedMesh;
+        return (
+            <>
+                <div className="form-group">
+                    <label>Mesh</label>
+                    <NukeSelect
+                        value={String(filter.meshId ?? 0)}
+                        options={[
+                            { value: '0', label: 'Select Mesh' },
+                            ...meshes.map((m) => ({
+                                value: String(m.id),
+                                label: `${m.name || `Mesh ${m.id}`} · ${MESH_TYPE_LABELS[m.type]}`
+                            }))
+                        ]}
+                        onChange={(value: string) => updateFilter(index, { meshId: parseInt(value, 10), bins: [parseInt(value, 10)] })}
+                        ariaLabel="Mesh"
+                    />
+                    {missingMesh && (
+                        <p className="validation-error">
+                            <i className="codicon codicon-error"></i>
+                            This filter references mesh {filter.meshId}, which no longer exists. Select another mesh or re-create it.
+                        </p>
+                    )}
+                </div>
+                {filter.type === 'mesh' && renderMeshTransform(filter, index)}
+            </>
+        );
+    };
+
+    /** Render optional MeshFilter translation/rotation controls under Advanced. */
+    const renderMeshTransform = (filter: OpenMCTallyFilter, index: number): React.ReactNode => {
+        const translation = filter.meshTranslation;
+        const rotation = filter.meshRotation;
+        const updateVector = (field: 'meshTranslation' | 'meshRotation', component: number, value: string) => {
+            const base = (filter[field] ?? [0, 0, 0]) as [number, number, number];
+            const next = [...base] as [number, number, number];
+            const parsed = parseFloat(value);
+            next[component] = Number.isFinite(parsed) ? parsed : 0;
+            updateFilter(index, { [field]: next });
+        };
+        return (
+            <details className="mesh-transform">
+                <summary className="mesh-transform-summary">
+                    <span>
+                        <i className="codicon codicon-symbol-ruler"></i> Mesh transform
+                    </span>
+                    <span className="mesh-transform-summary-hint">
+                        {translation || rotation ? 'configured' : 'optional translation / rotation'}
+                    </span>
+                </summary>
+                <div className="mesh-transform-body">
+                    <div className="mesh-transform-group">
+                        <label className="mesh-transform-toggle">
+                            <input
+                                type="checkbox"
+                                checked={!!translation}
+                                onChange={(e) => updateFilter(index, { meshTranslation: e.target.checked ? [0, 0, 0] : undefined })}
+                            />
+                            <span>Translate mesh (cm)</span>
+                        </label>
+                        {translation && (
+                            <div className="mesh-transform-fields">
+                                {(['X', 'Y', 'Z'] as const).map((axis, component) => (
+                                    <label key={axis}>
+                                        {axis}
+                                        <input
+                                            type="number"
+                                            step="any"
+                                            aria-label={`Translation ${axis}`}
+                                            value={translation[component]}
+                                            onChange={(e) => updateVector('meshTranslation', component, e.target.value)}
+                                        />
+                                    </label>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                    <div className="mesh-transform-group">
+                        <label className="mesh-transform-toggle">
+                            <input
+                                type="checkbox"
+                                checked={!!rotation}
+                                onChange={(e) => updateFilter(index, { meshRotation: e.target.checked ? [0, 0, 0] : undefined })}
+                            />
+                            <span>Rotate mesh (degrees)</span>
+                        </label>
+                        {rotation && (
+                            <>
+                                <div className="mesh-transform-fields">
+                                    {(['phi', 'theta', 'psi'] as const).map((axis, component) => (
+                                        <label key={axis}>
+                                            {axis}
+                                            <input
+                                                type="number"
+                                                step="any"
+                                                aria-label={`Rotation ${axis}`}
+                                                value={rotation[component]}
+                                                onChange={(e) => updateVector('meshRotation', component, e.target.value)}
+                                            />
+                                        </label>
+                                    ))}
+                                </div>
+                                <p className="form-hint">
+                                    Intrinsic Tait-Bryan angles applied as Rz(psi) Ry(theta) Rx(phi), exactly as OpenMC's MeshFilter.
+                                </p>
+                                {meshRotationSupported === false && (
+                                    <p className="validation-warning">
+                                        <i className="codicon codicon-warning"></i>
+                                        Mesh rotation requires OpenMC 0.16 or newer. This environment does not support it, so the rotation
+                                        is omitted from generated XML. Remove the rotation or update the Python environment.
+                                    </p>
+                                )}
+                            </>
+                        )}
+                    </div>
+                </div>
+            </details>
+        );
+    };
 
     /** Render the delayed-group checkbox list (groups 1-6). */
     const renderDelayedGroups = (filter: OpenMCTallyFilter, index: number): React.ReactNode => (
@@ -403,6 +513,21 @@ export const FilterBuilder: React.FC<FilterBuilderProps> = ({ filters, meshes, o
                     <div key={index} className="filter-item">
                         <div className="filter-header">
                             <span className="filter-type-badge">{filter.type}</span>
+                            {filter.type === 'mesh' && filter.meshRotation && (
+                                <Tooltip
+                                    content="Mesh rotated with intrinsic Tait-Bryan angles (phi, theta, psi) applied as Rz(psi) Ry(theta) Rx(phi)"
+                                    position="top"
+                                >
+                                    <span className="mesh-transform-badge">
+                                        <i className="codicon codicon-refresh"></i> rotated
+                                    </span>
+                                </Tooltip>
+                            )}
+                            {filter.type === 'mesh' && filter.meshTranslation && (
+                                <span className="mesh-transform-badge">
+                                    <i className="codicon codicon-move"></i> translated
+                                </span>
+                            )}
                             <Tooltip content="Remove filter" position="top">
                                 <button className="remove-filter-btn" onClick={() => removeFilter(index)}>
                                     <i className="codicon codicon-trash"></i>
