@@ -95,7 +95,7 @@ export class OptimizationBackendService {
      * Fill in the OpenMC version compatibility from the environment probe
      * unless the caller already specified it (same contract as the main
      * backend service's `withOpenMCCompat`) — sweeping a random-ray project
-     * on a post-0.15.3 dev env must emit the wrapper ray_source format.
+     * on a 0.16.0+ env must emit the wrapper ray_source format.
      * @param request - Generation request
      * @returns Request with randomRayCompat resolved
      */

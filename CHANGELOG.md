@@ -287,6 +287,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - openmc-studio: collapsed tab labels use the shared nuke-essentials tooltip instead of native title hints.
 - openmc-studio: Native Plotting uses one plot-type chooser when empty, keeps a live plot selected, and clears stale outputs before rendering.
 - openmc-studio: solid ray-trace plots default to all-opaque domains so they no longer render a blank image.
+- openmc-studio: OpenMC 0.16.0 support — typed plots, PPM fallback for builds without libpng, and updated TokamakSource gates.
 
 ### Removed
 

@@ -62,7 +62,7 @@ const RUN_TIMEOUT = 120_000;
 /** Repo-local DAGMC test asset (committed). */
 const FUEL_PIN_H5M = path.resolve(__dirname, '../../../tests/e2e/assets/fuel_pin.h5m');
 
-/** Feature probe: does the env's openmc have TokamakSource (0.15.4+)? */
+/** Feature probe: does the env's openmc have TokamakSource (0.16.0+)? */
 const TOKAMAK_OK = (() => {
     if (!PYTHON) {
         return false;
@@ -149,7 +149,7 @@ describe('project-file e2e (real OpenMC)', () => {
             console.warn('NUKE_E2E_CHAIN not set or missing — depletion e2e will skip');
         }
         if (CAN_RUN && !TOKAMAK_OK) {
-            console.warn('openmc has no TokamakSource (needs 0.15.4+) — tokamak e2e will skip');
+            console.warn('openmc has no TokamakSource (needs 0.16.0+) — tokamak e2e will skip');
         }
         tempDirs = [];
     });
@@ -404,7 +404,7 @@ describe('project-file e2e (real OpenMC)', () => {
     );
 
     it.skipIf(!CAN_RUN || !TOKAMAK_OK)(
-        'tokamak-source project: fixed-source TokamakSource run produces a statepoint (0.15.4+)',
+        'tokamak-source project: fixed-source TokamakSource run produces a statepoint (0.16.0+)',
         async () => {
             const state = loadProjectState('tokamak-source');
             const dir = await generateToTempDir(state);

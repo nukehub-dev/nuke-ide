@@ -79,7 +79,7 @@ export class SettingsTabContribution implements DashboardTabContribution {
 
     /**
      * Fetch the OpenMC compatibility descriptor once and re-render when it
-     * arrives (gates the tokamak source type on 0.15.3 and older).
+     * arrives (gates the tokamak source type on older releases).
      * @param host - Simulation dashboard widget host.
      */
     private requestCompat(host: SimulationDashboardWidget): void {
@@ -373,7 +373,7 @@ export class SettingsTabContribution implements DashboardTabContribution {
                                         <span className="strength-chip">×{source.strength ?? 1.0}</span>
                                         <div className="segmented-control">
                                             {(['independent', 'file', 'compiled', 'mesh', 'tokamak'] as const).map((type) => {
-                                                // TokamakSource is 0.15.4+ — block switching to it on
+                                                // TokamakSource is 0.16.0+ — block switching to it on
                                                 // unsupported envs; an existing tokamak source stays shown
                                                 const tokamakGated =
                                                     type === 'tokamak' && this.compat !== undefined && !this.compat.tokamakSource;
@@ -398,7 +398,7 @@ export class SettingsTabContribution implements DashboardTabContribution {
                                                 return tokamakGated ? (
                                                     <Tooltip
                                                         key={type}
-                                                        content="TokamakSource requires OpenMC ≥ 0.15.4 (not available in the configured env)"
+                                                        content="TokamakSource requires OpenMC ≥ 0.16.0 (not available in the configured env)"
                                                         position="top"
                                                     >
                                                         {segment}
@@ -427,7 +427,7 @@ export class SettingsTabContribution implements DashboardTabContribution {
                                                 renderTokamakSourceEditor(host, source as OpenMCTokamakSource, index)}
                                             {sourceType === 'tokamak' && this.compat && !this.compat.tokamakSource && (
                                                 <span className="form-hint">
-                                                    TokamakSource requires OpenMC ≥ 0.15.4 — it will be omitted from settings.xml with the
+                                                    TokamakSource requires OpenMC ≥ 0.16.0 — it will be omitted from settings.xml with the
                                                     configured environment.
                                                 </span>
                                             )}

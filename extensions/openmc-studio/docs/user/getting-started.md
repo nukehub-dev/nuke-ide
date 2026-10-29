@@ -12,8 +12,8 @@ OpenMC Studio requires a working OpenMC installation with cross-section data and
 
 | Component          | Required? | Notes                                                                 |
 | ------------------ | --------- | --------------------------------------------------------------------- |
-| OpenMC             | Yes       | Monte Carlo transport code; install via conda or build from source    |
-| Python             | Yes       | 3.9 or newer                                                          |
+| OpenMC             | Yes       | 0.15.3 or 0.16.0; install via conda or build from source              |
+| Python             | Yes       | 3.12+ for OpenMC 0.16; 3.9–3.11 only with OpenMC 0.15.3               |
 | Cross-section data | Yes       | ENDF/B-VII.1, ENDF/B-VIII.0, or JEFF; set via `OPENMC_CROSS_SECTIONS` |
 | MPI (optional)     | No        | For parallel execution; `mpi4py` recommended                          |
 
@@ -74,7 +74,7 @@ Before building any models, verify your environment:
 | ----------------- | ---------------------------------------------- |
 | Python executable | Selected interpreter responds                  |
 | `openmc` import   | OpenMC Python package is importable            |
-| OpenMC version    | Compatible version (≥0.13 recommended)         |
+| OpenMC version    | Supported line: 0.15.3 or 0.16.0+              |
 | Cross sections    | `OPENMC_CROSS_SECTIONS` is set and file exists |
 | HDF5 support      | `h5py` is installed and functional             |
 | MPI (optional)    | `mpi4py` and `mpirun` are available            |

@@ -29,6 +29,8 @@ Click an add button to append a plot definition; each plot has a name and a **Co
 
 Solid ray-trace plots render every material/cell opaque when **Opaque Domain IDs** is empty; add IDs to reveal interior regions.
 
+If OpenMC is built without libpng (some conda builds), it writes PPM files instead of PNG. Native Plotting automatically converts them to PNG previews with Pillow.
+
 ## Outputs
 
 - **Slice and ray-trace plots** produce PNG images, opened with the IDE's default image handler.

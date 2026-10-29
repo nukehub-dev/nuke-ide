@@ -250,6 +250,18 @@ class TestMainCompatibilityGuard:
 
 
 class TestRunGenerateMgxs:
+    def test_particle_count_kwarg_prefers_modern_particles(self):
+        """0.16's particles keyword wins; legacy signatures keep nparticles."""
+
+        def modern(**kwargs):
+            return kwargs
+
+        def legacy(nparticles=2000):
+            return nparticles
+
+        assert generate_mgxs._particle_count_kwarg(modern, 10) == {"particles": 10}
+        assert generate_mgxs._particle_count_kwarg(legacy, 10) == {"nparticles": 10}
+
     def test_convert_kwargs(self, fake_openmc_module, tmp_path):
         """convert_to_multigroup receives method/groups/correction/temperatures/particles/output."""
         _write_model_xml(tmp_path)
@@ -270,7 +282,8 @@ class TestRunGenerateMgxs:
         call = _FakeModel.last_instance.convert_calls[0]
         assert call["method"] == "stochastic_slab"
         assert call["groups"] == "XMAS-172"
-        assert call["nparticles"] == 5000
+        assert call["particles"] == 5000
+        assert "nparticles" not in call
         assert call["correction"] == "P0"
         assert call["temperatures"] == [300.0, 600.0]
         assert call["mgxs_path"] == "mgxs.h5"
@@ -293,6 +306,7 @@ class TestRunGenerateMgxs:
         generate_mgxs.run_generate_mgxs(args)
         call = _FakeModel.last_instance.convert_calls[0]
         assert call["correction"] is None
+        assert "particles" not in call
         assert "nparticles" not in call
 
     def test_random_ray_conversion_exports_settings(self, fake_openmc_module, tmp_path):

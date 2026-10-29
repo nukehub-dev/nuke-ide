@@ -742,9 +742,9 @@ export class XMLGenerationService {
         if (settings.sources && settings.sources.length > 0) {
             let validSources = 0;
             for (const source of settings.sources) {
-                // TokamakSource is 0.15.4+ — drop on unsupported envs with a warning
+                // TokamakSource is 0.16.0+ — drop on unsupported envs with a warning
                 if (source.type === 'tokamak' && !compat.tokamakSource) {
-                    warnings?.push('Tokamak source requires OpenMC >= 0.15.4; the tokamak source was not written to settings.xml');
+                    warnings?.push('Tokamak source requires OpenMC >= 0.16.0; the tokamak source was not written to settings.xml');
                     continue;
                 }
                 const sourceXml = this.generateSourceElement(source);
@@ -1013,7 +1013,7 @@ export class XMLGenerationService {
             }
             if (rr.raySource) {
                 // Release 0.15.3 reads <source> directly under <random_ray>;
-                // post-0.15.3 dev wraps it in <ray_source> (src/settings.cpp:284-289)
+                // 0.16.0+ wraps it in <ray_source> (src/settings.cpp:284-289)
                 const wrap = compat.raySourceFormat === 'wrapper';
                 if (wrap) {
                     lines.push('    <ray_source>');
@@ -1044,7 +1044,7 @@ export class XMLGenerationService {
                     lines.push('    </adjoint_source>');
                 } else {
                     warnings?.push(
-                        'Random ray adjoint source requires a post-0.15.3 OpenMC; the configured adjoint source was not written to settings.xml'
+                        'Random ray adjoint source requires OpenMC 0.16.0+; the configured adjoint source was not written to settings.xml'
                     );
                 }
             }

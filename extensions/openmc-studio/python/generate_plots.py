@@ -146,6 +146,32 @@ def build_plot(config, geometry, materials):
     return plot
 
 
+def _convert_ppm_to_png(ppm_path: Path, png_path: Path):
+    """Convert OpenMC's PPM fallback output to a PNG preview.
+
+    OpenMC builds without libpng write ``plot_<id>.png.ppm`` even when the
+    configured filename ends in ``.png``. The IDE image viewer expects PNG, so
+    convert with Pillow (a matplotlib dependency of OpenMC) and remove the
+    intermediate file.
+
+    Args:
+        ppm_path: PPM file written by ``openmc -p``.
+        png_path: Destination PNG path.
+    """
+    try:
+        from PIL import Image
+    except ImportError as exc:
+        raise RuntimeError(
+            "This OpenMC build has no libpng support and Pillow is not installed; "
+            "install Pillow or use an OpenMC build compiled with libpng."
+        ) from exc
+
+    log_progress(f"Converting {ppm_path.name} to {png_path.name} (OpenMC built without libpng)")
+    with Image.open(ppm_path) as image:
+        image.save(png_path, format="PNG")
+    ppm_path.unlink(missing_ok=True)
+
+
 def run_generate_plots(args):
     """Build plots.xml, run OpenMC in plotting mode, and collect outputs.
 
@@ -171,10 +197,14 @@ def run_generate_plots(args):
     plots = [build_plot(config, geometry, materials) for config in configs]
 
     # Remove stale outputs from an earlier run so a failed render cannot be
-    # reported as a fresh file.
+    # reported as a fresh file. OpenMC builds without libpng append `.ppm`
+    # instead of writing PNG, so clean those names too.
     for config in configs:
         plot_id = int(config["id"])
-        suffixes = (".h5", ".vti") if config["type"] == "voxel" else (".png",)
+        if config["type"] == "voxel":
+            suffixes = (".h5", ".vti")
+        else:
+            suffixes = (".png", ".png.ppm", ".ppm")
         for suffix in suffixes:
             (working_dir / f"plot_{plot_id}{suffix}").unlink(missing_ok=True)
 
@@ -209,6 +239,12 @@ def run_generate_plots(args):
                         )
         else:
             png_path = working_dir / f"plot_{plot_id}.png"
+            if not png_path.exists():
+                ppm_path = working_dir / f"plot_{plot_id}.png.ppm"
+                if not ppm_path.exists():
+                    ppm_path = working_dir / f"plot_{plot_id}.ppm"
+                if ppm_path.exists():
+                    _convert_ppm_to_png(ppm_path, png_path)
             if png_path.exists():
                 files.append(
                     {"plotId": plot_id, "type": plot_type, "path": str(png_path), "kind": "png"}

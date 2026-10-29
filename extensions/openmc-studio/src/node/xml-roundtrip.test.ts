@@ -765,7 +765,7 @@ describe('settings.xml round-trip', () => {
             state,
             outputDirectory: tokamakDir,
             files: { materials: true, geometry: true, settings: true, tallies: false, plots: false },
-            // TokamakSource is gated on 0.15.4+ — mark the env as supporting it
+            // TokamakSource is gated on 0.16.0+ — mark the env as supporting it
             randomRayCompat: { raySourceFormat: 'direct', adjointSource: false, tokamakSource: true, s2SampleMethod: true }
         });
 
@@ -857,7 +857,7 @@ describe('settings.xml round-trip', () => {
 
         const settingsXml = fs.readFileSync(path.join(tokamakDir, 'settings.xml'), 'utf-8');
         expect(settingsXml).not.toContain('type="tokamak"');
-        expect(result.warnings?.some((w) => w.includes('Tokamak source requires OpenMC >= 0.15.4'))).toBe(true);
+        expect(result.warnings?.some((w) => w.includes('Tokamak source requires OpenMC >= 0.16.0'))).toBe(true);
 
         fs.rmSync(tokamakDir, { recursive: true, force: true });
     });
@@ -1595,7 +1595,7 @@ describe('settings.xml round-trip', () => {
             state,
             outputDirectory: tempDir,
             files: { materials: true, geometry: true, settings: true, tallies: false, plots: false },
-            // Post-0.15.3 dev format: wrapped <ray_source> + <adjoint_source>
+            // Post-0.15.3 format: wrapped <ray_source> + <adjoint_source>
             randomRayCompat: { raySourceFormat: 'wrapper', adjointSource: true, tokamakSource: true, s2SampleMethod: true }
         });
 
@@ -1652,7 +1652,7 @@ describe('settings.xml round-trip', () => {
         expect(xml).not.toContain('<ray_source>');
         expect(xml).toContain('    <source type="independent" strength="1" particle="neutron">');
         expect(xml).toContain('<parameters>-10 -10 -10 10 10 10</parameters>');
-        // adjoint_source is post-0.15.3-only: dropped with a warning
+        // adjoint_source is 0.16.0+: dropped with a warning
         expect(xml).not.toContain('<adjoint_source>');
         expect(result.warnings?.some((w) => w.includes('adjoint source'))).toBe(true);
 
@@ -1690,7 +1690,7 @@ describe('settings.xml round-trip', () => {
         expect(imported.state!.settings.randomRay!.raySource).toEqual({ lowerLeft: [-1, -1, -1], upperRight: [1, 1, 1] });
     });
 
-    it('parses the wrapper (post-0.15.3) ray_source form from hand-written XML', async () => {
+    it('parses the wrapper (0.16.0+) ray_source form from hand-written XML', async () => {
         const settingsXml = `<?xml version="1.0"?>
 <settings>
   <run_mode>eigenvalue</run_mode>

@@ -40,7 +40,7 @@ All files under `extensions/openmc-studio/` except generated artifacts (`lib/`, 
 ## Work Guidance
 
 - Meshes/sources/bounds: `getSettingsMeshIds` is the single settings-level mesh inventory (emitted once, skipped in tallies.xml); `mesh`
-  sources need exactly `n_elements` sub-sources; `tokamak` sources need 0.15.4+ (`muir` serializes lossy as `normal`); shared
+  sources need exactly `n_elements` sub-sources; `tokamak` sources need 0.16.0+ (`muir` serializes lossy as `normal`); shared
   bounding-box logic lives in `geometry-bounds.ts`. See `docs/dev/state-model.md` and `docs/dev/xml-generation.md`.
 - Shared widget CSS: `widgets/shared/openmc-widget.css` is the opt-in design system (root gets `openmc-widget` class, accent
   `--theia-focusBorder`, Theia vars only). Dashboard tabs are `DashboardTabContribution`s; new scalar settings belong in the
@@ -59,8 +59,8 @@ All files under `extensions/openmc-studio/` except generated artifacts (`lib/`, 
   MG-conversion form values are session-scoped, sweeps/depletion/plots are project state. See `docs/dev/widget-patterns.md`.
 - Native Plotting: `generate_plots.py` owns `plots.xml` (UI XML generation passes `plots: false`), stale plot outputs are
   removed before rendering, the first plot is auto-selected after a project load or deletion, and solid ray-trace plots
-  default to all-opaque domains so they never render a blank scene. See `docs/user/native-plotting.md` and
-  `docs/dev/widget-patterns.md`.
+  default to all-opaque domains so they never render a blank scene. Builds without libpng emit PPM, converted to PNG.
+  See `docs/user/native-plotting.md` and `docs/dev/widget-patterns.md`.
 - Assets + nuke-cad seam: `dagmcFile`, `dagmcInfo.filePath`, and relative `mgxsLibrary` resolve against
   `XMLGenerationRequest.projectDirectory`;
   `openmc.project.importNukeCAD` loads `.h5m` + sibling `.regions.json` into placeholder materials reusing the DAGMC machinery.

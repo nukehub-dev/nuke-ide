@@ -32,11 +32,10 @@
  * capabilities (never version parsing):
  *
  * - `raySourceFormat` — the random ray `ray_source` XML format (direct
- *   `<source>` in release 0.15.3 vs the `<ray_source>` wrapper in post-0.15.3
- *   dev), detected from what `Settings.to_xml_element()` actually writes
- * - `adjointSource` — random ray adjoint source support (post-0.15.3 only;
- *   release rejects the key with ValueError)
- * - `tokamakSource` — `openmc.TokamakSource` existence (0.15.4+)
+ *   `<source>` in OpenMC 0.15.3 vs the `<ray_source>` wrapper in 0.16.0+),
+ *   detected from what `Settings.to_xml_element()` actually writes
+ * - `adjointSource` — random ray adjoint source support (0.16.0+)
+ * - `tokamakSource` — `openmc.TokamakSource` existence (0.16.0+)
  * - `s2SampleMethod` — random ray `sample_method: 's2'` acceptance
  *
  * Results are cached per python command; on any probe failure the

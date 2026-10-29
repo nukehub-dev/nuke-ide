@@ -627,7 +627,7 @@ export interface OpenMCMeshSource extends OpenMCSourceBase {
 
 /**
  * Tokamak neutron source (openmc.TokamakSource, source.py:901 — versionadded
- * 0.15.4). Samples positions from a Miller-style flux-surface parameterization
+ * 0.16.0). Samples positions from a Miller-style flux-surface parameterization
  * with a user-provided emission profile S(r/a). NOTE: this class has no
  * ion-temperature or fuel-composition model — the neutron energy comes from
  * an explicit energy distribution (single distribution applied at all radii;

@@ -938,8 +938,8 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             if (rr.adjoint !== undefined) {
                 randomRay.adjoint = this.parseXmlBool(rr.adjoint);
             }
-            // ray_source: post-0.15.3 wraps <source> in <ray_source>; release
-            // 0.15.3 puts <source> directly under <random_ray> — accept both
+            // ray_source: 0.16.0+ wraps <source> in <ray_source>; 0.15.3
+            // puts <source> directly under <random_ray> — accept both
             const raySourceElem = rr.ray_source?.source ?? rr.source;
             const raySrc = Array.isArray(raySourceElem) ? raySourceElem[0] : raySourceElem;
             if (raySrc?.space?.parameters) {
@@ -1901,7 +1901,7 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
      */
     /**
      * Validate a tokamak source against openmc.TokamakSource's own rules
-     * (source.py setters + _validate, versionadded 0.15.4).
+     * (source.py setters + _validate, versionadded 0.16.0).
      * @param source - The tokamak source to validate.
      * @param issues - Issue list to append to.
      */

@@ -192,7 +192,7 @@ interface OpenMCSource {
 
 The source model is a discriminated union (`independent` | `file` | `compiled` | `mesh` | `tokamak`; absent `type` means `independent`)
 with optional per-source `constraints` (fixed-source random ray requires material/cell/universe domain constraints). The `mesh` variant
-references a state mesh by `meshId` with exactly one independent sub-source per mesh element; the `tokamak` variant (0.15.4+) models Miller
+references a state mesh by `meshId` with exactly one independent sub-source per mesh element; the `tokamak` variant (0.16.0+) models Miller
 flux-surface geometry plus an `{r, s}` emission profile and a single energy distribution (`muir` serializes lossy as `normal`).
 
 ### Entropy Mesh

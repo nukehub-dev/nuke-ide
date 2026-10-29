@@ -423,18 +423,18 @@ export interface XMLGenerationRequest {
 /**
  * OpenMC version compatibility, detected at runtime per python environment
  * (never version parsing). Covers the settings.xml format skew between
- * release 0.15.3 and post-0.15.3 dev plus feature support gates.
+ * OpenMC 0.15.3 and 0.16.0+ plus feature support gates.
  */
 export interface OpenMCCompat {
     /**
-     * ray_source emission: `direct` = release 0.15.3 (`<random_ray><source>`);
-     * `wrapper` = post-0.15.3 dev (`<ray_source><source>`,
+     * ray_source emission: `direct` = OpenMC 0.15.3 (`<random_ray><source>`);
+     * `wrapper` = OpenMC 0.16.0+ (`<ray_source><source>`,
      * settings.py:2006+ / src/settings.cpp:284-289)
      */
     raySourceFormat: 'direct' | 'wrapper';
-    /** Whether the environment supports `<adjoint_source>` (post-0.15.3 only) */
+    /** Whether the environment supports `<adjoint_source>` (0.16.0+) */
     adjointSource: boolean;
-    /** Whether `openmc.TokamakSource` exists (0.15.4+) */
+    /** Whether `openmc.TokamakSource` exists (0.16.0+) */
     tokamakSource: boolean;
     /** Whether random ray `sample_method: 's2'` is accepted */
     s2SampleMethod: boolean;

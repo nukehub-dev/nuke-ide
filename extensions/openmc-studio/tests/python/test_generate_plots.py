@@ -249,9 +249,9 @@ class TestOpenMCIntegration:
         """The openmc plot classes accept the constructor args the script passes."""
         openmc = pytest.importorskip("openmc")
         if not hasattr(openmc, "SlicePlot"):
-            # Typed plot classes (SlicePlot/ray-trace) are post-0.15.3 additions;
+            # Typed plot classes were added in OpenMC 0.16.0;
             # release 0.15.3 only has the legacy openmc.Plot API.
-            pytest.skip("typed plot classes require post-0.15.3 OpenMC")
+            pytest.skip("typed plot classes require OpenMC 0.16.0+")
 
         slice_plot = openmc.SlicePlot(plot_id=1, name="test")
         slice_plot.basis = "xy"
@@ -383,6 +383,32 @@ class TestRunGeneratePlots:
 
         assert result["success"] is True
         assert result["files"] == []
+
+    def test_ppm_fallback_is_converted_to_png(self, monkeypatch, tmp_path):
+        """Builds without libpng write .png.ppm; convert so the IDE can preview it."""
+        pytest.importorskip("PIL", reason="PPM conversion uses Pillow")
+        fake = _fake_openmc_full(tmp_path)
+
+        def plot_geometry(cwd):
+            # 2x2 RGB PPM; this is what OpenMC emits without libpng.
+            (tmp_path / "plot_1.png.ppm").write_bytes(b"P6\n2 2\n255\n" + bytes([255, 0, 0] * 4))
+
+        fake.plot_geometry = plot_geometry
+        monkeypatch.setitem(sys.modules, "openmc", fake)
+        config = tmp_path / "plots.json"
+        config.write_text(json.dumps([{"id": 1, "type": "slice"}]))
+        args = types.SimpleNamespace(
+            working_directory=str(tmp_path), plots_config=str(config), convert_vtk=False
+        )
+
+        result = generate_plots.run_generate_plots(args)
+
+        assert result["success"] is True
+        assert result["files"] == [
+            {"plotId": 1, "type": "slice", "path": str(tmp_path / "plot_1.png"), "kind": "png"}
+        ]
+        assert (tmp_path / "plot_1.png").read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
+        assert not (tmp_path / "plot_1.png.ppm").exists()
 
     def test_stale_outputs_are_removed_before_render(self, monkeypatch, tmp_path):
         """An earlier run's plot files cannot masquerade as fresh output."""

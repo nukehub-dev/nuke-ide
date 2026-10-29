@@ -199,7 +199,7 @@ def load_model(working_dir: Path):
 def _call_with_supported_kwargs(fn, **kwargs):
     """Call fn with only the kwargs its signature accepts (version tolerance).
 
-    Post-0.15.3 ``convert_to_multigroup`` gained ``temperatures`` and
+    OpenMC 0.16 ``convert_to_multigroup`` gained ``temperatures`` and
     ``overwrite_mgxs_library``; release 0.15.3 rejects them. Dropped keys are
     reported instead of crashing on old versions.
     """
@@ -216,6 +216,22 @@ def _call_with_supported_kwargs(fn, **kwargs):
             f"Note: this OpenMC version ignores unsupported convert kwargs: {', '.join(dropped)}"
         )
     return fn(**accepted)
+
+
+def _particle_count_kwarg(fn, count):
+    """Return the particle-count keyword for ``convert_to_multigroup``.
+
+    0.16 added ``particles`` and deprecated ``nparticles``; older releases
+    only expose ``nparticles`` and have no ``**kwargs``.
+    """
+    import inspect
+
+    params = inspect.signature(fn).parameters
+    if "particles" in params or any(
+        p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values()
+    ):
+        return {"particles": count}
+    return {"nparticles": count}
 
 
 def _run_nuclide_wise(args, working_dir: Path):
@@ -319,7 +335,7 @@ def run_generate_mgxs(args):
         "temperatures": temperatures,
     }
     if args.particles:
-        convert_kwargs["nparticles"] = args.particles
+        convert_kwargs.update(_particle_count_kwarg(model.convert_to_multigroup, args.particles))
 
     log_progress(
         f"Generating MGXS library: method={args.method}, groups={args.groups}, output={args.output}"
