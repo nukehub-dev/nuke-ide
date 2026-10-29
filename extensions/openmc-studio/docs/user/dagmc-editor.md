@@ -22,6 +22,8 @@ Click any `.h5m` file in the Explorer.
 
 ## Tabs
 
+The Volumes / Materials / Groups / Overrides / Properties / Faceting tab bar scrolls horizontally and collapses to icon-only tabs with tooltips when the editor panel is narrow. Volume and material grids stack to one column, and wide tables scroll inside their card.
+
 ### Volumes
 
 Displays all volumes in a scrollable grid. Each card shows:

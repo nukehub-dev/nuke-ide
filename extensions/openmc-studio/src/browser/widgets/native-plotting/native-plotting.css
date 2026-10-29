@@ -136,3 +136,27 @@
 .native-plotting-widget .generated-files-list li {
     padding: 4px 0;
 }
+
+@container (max-width: 760px) {
+    .native-plotting-widget .native-plotting-body {
+        flex-direction: column;
+        overflow-y: auto;
+    }
+
+    .native-plotting-widget .plot-list-panel {
+        width: 100%;
+        min-width: 0;
+        max-height: 42%;
+        border-right: none;
+        border-bottom: 1px solid var(--theia-panel-border);
+    }
+
+    .native-plotting-widget .plot-config-panel {
+        padding: 12px;
+        overflow: visible;
+    }
+
+    .native-plotting-widget .plot-generate-actions {
+        flex-wrap: wrap;
+    }
+}

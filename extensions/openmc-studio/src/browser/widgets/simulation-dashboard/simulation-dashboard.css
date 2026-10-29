@@ -15,6 +15,7 @@
     color: var(--theia-editor-foreground);
     font-family: var(--theia-ui-font-family);
     animation: dashboard-fade-in 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    container-type: inline-size;
 }
 
 @keyframes dashboard-fade-in {
@@ -163,11 +164,18 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
     padding: 16px 20px;
     background: var(--theia-titleBar-activeBackground);
     border-bottom: 1px solid var(--theia-panel-border);
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
     animation: header-slide-down 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.simulation-dashboard .project-info {
+    flex: 1 1 240px;
+    min-width: 0;
 }
 
 .simulation-dashboard .project-info h2 {
@@ -182,6 +190,8 @@
     padding: 4px 8px;
     border-radius: 6px;
     transition: background 150ms;
+    max-width: 100%;
+    overflow-wrap: anywhere;
 }
 
 .simulation-dashboard .project-info h2:hover {
@@ -217,6 +227,7 @@
 .simulation-dashboard .project-name-edit {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: 8px;
 }
 
@@ -226,6 +237,8 @@
     color: var(--theia-input-foreground);
     border: 1px solid var(--theia-input-border);
     border-radius: 4px;
+    max-width: 100%;
+    box-sizing: border-box;
 }
 
 .simulation-dashboard .project-name-input {
@@ -249,6 +262,7 @@
 
 .simulation-dashboard .project-actions {
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
 }
 
@@ -276,6 +290,12 @@
     border-bottom: 1px solid var(--theia-panel-border);
     padding: 0 12px;
     gap: 4px;
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+
+.simulation-dashboard .dashboard-tabs::-webkit-scrollbar {
+    display: none;
 }
 
 .simulation-dashboard .tab-button {
@@ -286,6 +306,7 @@
     cursor: pointer;
     display: flex;
     align-items: center;
+    flex: 0 0 auto;
     gap: 8px;
     font-size: 13px;
     font-weight: 500;
@@ -451,6 +472,7 @@
 .simulation-dashboard .source-editor .form-row {
     display: flex;
     gap: 12px;
+    flex-wrap: wrap;
     margin-bottom: 12px;
 }
 
@@ -459,7 +481,7 @@
 }
 
 .simulation-dashboard .source-editor .form-group {
-    flex: 1;
+    flex: 1 1 170px;
     min-width: 0;
 }
 
@@ -1105,6 +1127,7 @@
 /* Simulation Actions */
 .simulation-dashboard .simulation-actions {
     display: flex;
+    flex-wrap: wrap;
     gap: 12px;
     margin-bottom: 20px;
     justify-content: center;
@@ -1121,6 +1144,8 @@
     justify-content: center;
     gap: 8px;
     min-width: 140px;
+    flex: 0 0 auto;
+    white-space: nowrap;
 }
 
 .simulation-dashboard .simulation-actions button.large {
@@ -1333,6 +1358,74 @@
 /* ============================================================================
    Responsive Adjustments
    ============================================================================ */
+@container (max-width: 940px) {
+    .simulation-dashboard .tab-label {
+        display: none;
+    }
+
+    .simulation-dashboard .tab-button {
+        padding: 12px 14px;
+    }
+}
+
+@container (max-width: 640px) {
+    .simulation-dashboard .dashboard-header {
+        align-items: flex-start;
+        padding: 12px 14px;
+    }
+
+    .simulation-dashboard .dashboard-content {
+        padding: 14px;
+    }
+
+    .simulation-dashboard .form-row,
+    .simulation-dashboard .source-editor .form-row {
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .simulation-dashboard .form-row .form-group,
+    .simulation-dashboard .source-editor .form-group {
+        flex: 1 1 auto;
+        width: 100%;
+        min-width: 100%;
+        max-width: 100%;
+    }
+
+    .simulation-dashboard .simulation-actions,
+    .simulation-dashboard .wwinp-actions {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .simulation-dashboard .nuclide-row {
+        flex-wrap: wrap;
+    }
+
+    .simulation-dashboard .checklist-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@container (max-width: 520px) {
+    .simulation-dashboard .project-actions {
+        width: 100%;
+    }
+
+    .simulation-dashboard .checkbox-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .simulation-dashboard .track-row {
+        grid-template-columns: 1fr 1fr 1fr auto;
+        gap: 6px;
+    }
+
+    .simulation-dashboard .track-row.track-header {
+        display: none;
+    }
+}
+
 @media (max-width: 768px) {
     .simulation-dashboard .form-row {
         flex-direction: column;

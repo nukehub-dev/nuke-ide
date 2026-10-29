@@ -84,7 +84,7 @@ export class NativePlottingWidget extends ReactWidget {
         this.title.label = NativePlottingWidget.LABEL;
         this.title.caption = NativePlottingWidget.LABEL;
         this.title.closable = true;
-        this.title.iconClass = 'codicon codicon-graph';
+        this.title.iconClass = 'codicon codicon-openmc-plot';
 
         this.stateManager.onStateChange(() => this.update());
         this.stateManager.onStateReload(() => this.update());
@@ -550,7 +550,7 @@ export class NativePlottingWidget extends ReactWidget {
                 <div className="openmc-header">
                     <div className="header-info">
                         <h2>
-                            <i className="codicon codicon-graph"></i>
+                            <i className="codicon codicon-openmc-plot"></i>
                             Native Plotting
                         </h2>
                         <p className="header-description">Render geometry plots with OpenMC's built-in plotter</p>
@@ -582,7 +582,7 @@ export class NativePlottingWidget extends ReactWidget {
                     <div className="plot-list-panel">
                         <div className="plot-list-header">
                             <h4>
-                                <i className="codicon codicon-graph"></i> Plots
+                                <i className="codicon codicon-openmc-plot"></i> Plots
                             </h4>
                             <div className="plot-add-buttons">
                                 <Tooltip content="Add slice plot" position="bottom">
@@ -609,7 +609,7 @@ export class NativePlottingWidget extends ReactWidget {
                         </div>
                         {plots.length === 0 ? (
                             <div className="empty-state">
-                                <i className="codicon codicon-graph"></i>
+                                <i className="codicon codicon-openmc-plot"></i>
                                 <p>No plots configured</p>
                                 <p className="empty-hint">Add a plot type above to get started</p>
                             </div>

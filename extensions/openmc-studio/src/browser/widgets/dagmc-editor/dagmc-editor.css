@@ -12,6 +12,7 @@
     color: var(--theia-editor-foreground);
     font-family: var(--theia-ui-font-family);
     animation: dagmc-fade-in 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    container-type: inline-size;
 }
 
 @keyframes dagmc-fade-in {
@@ -55,10 +56,17 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
     padding: 16px 20px;
     background: var(--theia-titleBar-activeBackground);
     border-bottom: 1px solid var(--theia-panel-border);
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+.dagmc-editor-header .header-info {
+    flex: 1 1 240px;
+    min-width: 0;
 }
 
 .dagmc-editor .theia-button {
@@ -76,6 +84,7 @@
     align-items: center;
     gap: 10px;
     color: var(--theia-foreground);
+    overflow-wrap: anywhere;
 }
 
 .dagmc-editor-header .header-info h2 i {
@@ -87,10 +96,12 @@
     margin: 4px 0 0 0;
     font-size: 12px;
     color: var(--theia-descriptionForeground);
+    overflow-wrap: anywhere;
 }
 
 .dagmc-editor-header .header-stats {
     display: flex;
+    flex-wrap: wrap;
     gap: 24px;
     margin-right: 16px;
 }
@@ -118,6 +129,7 @@
 
 .dagmc-editor-header .header-actions {
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
 }
 
@@ -227,6 +239,12 @@
     border-bottom: 1px solid var(--theia-panel-border);
     padding: 0 12px;
     gap: 4px;
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+
+.dagmc-editor-tabs::-webkit-scrollbar {
+    display: none;
 }
 
 .dagmc-editor-tabs .tab-button {
@@ -237,6 +255,7 @@
     cursor: pointer;
     display: flex;
     align-items: center;
+    flex: 0 0 auto;
     gap: 8px;
     font-size: 13px;
     font-weight: 500;
@@ -634,7 +653,7 @@
 
 .dagmc-editor .volumes-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
     gap: 20px;
     padding-bottom: 20px;
 }
@@ -1006,7 +1025,7 @@
 
 .dagmc-editor .materials-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
     gap: 16px;
 }
 
@@ -1158,7 +1177,7 @@
 
 .dagmc-editor .groups-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
     gap: 16px;
 }
 
@@ -1524,6 +1543,11 @@
         align-items: flex-start;
     }
 
+    .dagmc-editor .dagmc-editor-header .header-info {
+        flex: 0 0 auto;
+        width: 100%;
+    }
+
     .dagmc-editor .dagmc-editor-header .header-stats {
         width: 100%;
         justify-content: space-around;
@@ -1745,7 +1769,7 @@
 /* Volumes table */
 .dagmc-editor .properties-tab .volumes-table-wrapper {
     max-height: 400px;
-    overflow-y: auto;
+    overflow: auto;
 }
 
 .dagmc-editor .properties-tab .volumes-data-table {
@@ -2380,4 +2404,97 @@
 .dagmc-editor .overrides-tab {
     padding: 16px;
     overflow-y: auto;
+}
+
+/* Narrow-panel layout: the DAGMC editor usually lives in a split editor, so
+   respond to its own width rather than the viewport. */
+.dagmc-editor .table-scroll {
+    max-width: 100%;
+    overflow-x: auto;
+}
+
+@container (max-width: 1000px) {
+    .dagmc-editor .properties-tab .properties-stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .dagmc-editor .properties-tab .properties-layout-two-col {
+        grid-template-columns: 1fr;
+    }
+}
+
+@container (max-width: 900px) {
+    .dagmc-editor .properties-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .dagmc-editor .volumes-grid,
+    .dagmc-editor .materials-grid,
+    .dagmc-editor .groups-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .dagmc-editor .dagmc-editor-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 12px;
+    }
+
+    .dagmc-editor .dagmc-editor-header .header-info {
+        flex: 0 0 auto;
+        width: 100%;
+    }
+
+    .dagmc-editor .dagmc-editor-header .header-stats {
+        width: 100%;
+        justify-content: space-around;
+        margin-right: 0;
+    }
+
+    .dagmc-editor .dagmc-tab-header {
+        flex-wrap: wrap;
+        gap: 12px;
+    }
+
+    .dagmc-editor .dagmc-tab-header .tab-title-group {
+        flex-wrap: wrap;
+        gap: 12px;
+    }
+}
+
+@container (max-width: 700px) {
+    .dagmc-editor .dagmc-editor-content {
+        padding: 14px;
+    }
+
+    .dagmc-editor .overrides-tab {
+        padding: 12px;
+    }
+
+    .dagmc-editor .tab-label {
+        display: none;
+    }
+
+    .dagmc-editor .dagmc-editor-tabs .tab-button {
+        padding: 12px 14px;
+    }
+}
+
+@container (max-width: 520px) {
+    .dagmc-editor .properties-tab .properties-stats-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .dagmc-editor .dagmc-editor-header .header-actions {
+        width: 100%;
+    }
+
+    .dagmc-editor .graveyard-banner-actions {
+        width: 100%;
+    }
+
+    .dagmc-editor .dagmc-graveyard-banner {
+        flex-direction: column;
+        align-items: flex-start;
+    }
 }

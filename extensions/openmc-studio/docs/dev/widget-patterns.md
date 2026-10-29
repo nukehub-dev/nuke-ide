@@ -445,6 +445,40 @@ with Theia CSS vars only (tally-configurator keeps its own scoped sheet).
 import { Tooltip, ColorPicker } from 'nuke-essentials/lib/theme/browser/components';
 ```
 
+### Domain Icons
+
+Domain chrome (widget titles, dashboard tabs, Nuke Tools rows, section headings, and empty states) uses the
+theme-aware mask set in `src/browser/icons/openmc-icon-classes.css`. The classes are `codicon-openmc-<name>` and
+are imported once by the frontend module; they work anywhere a codicon does, including Nuke Tools `icon:
+'openmc-<name>'` entries. Sizing is `1em`, so the parent font-size controls the glyph.
+
+- Use domain icons for OpenMC concepts: `openmc-atom`, `openmc-geometry`, `openmc-surface`, `openmc-cell`,
+  `openmc-universe`, `openmc-mesh`, `openmc-grid`, `openmc-material`, `openmc-tally`, `openmc-statepoint`,
+  `openmc-depletion`, `openmc-variance`, `openmc-source`, `openmc-run`, `openmc-compare`, `openmc-optimize`,
+  `openmc-plot`, `openmc-mgxs`, `openmc-volume`, `openmc-validate`.
+- Keep generic codicons for universal utilities: add, save, edit, trash, close, chevrons, warnings, and errors.
+  Draw each OpenMC domain glyph as one coherent shape; do not compose detached symbols (grid + bars) into one icon.
+
+Project identity uses `.openmc-brand-openmc`, a monochrome mask of the official OpenMC mark (from the OpenMC
+docs, MIT), so it follows the active theme foreground. DAGMC keeps the theme-aware `openmc-mesh` domain icon
+instead of the colorful Svalinn mark: DAGMC has no standalone upstream logo, and the Svalinn asset is a
+multi-color raster that does not adapt cleanly to light/dark themes or 16 px title-bar sizes.
+
+### Responsive Layout
+
+Widget roots opt into CSS width containment (`.openmc-widget`, `.simulation-dashboard`, `.csg-builder`,
+`.dagmc-editor`, `.optimization-widget`, `.simulation-comparison`, `.tally-configurator-container`). Prefer
+`@container (max-width: …)` over viewport `@media` queries so panels reflow inside split editors and docked
+sidebars. The shared narrow rules live at the end of `openmc-widget.css`.
+
+- Tab rows scroll horizontally; wrap the label in `.tab-label`, wrap the button in the shared nuke-essentials
+  `Tooltip`, and set `aria-label`. Never use native `title` attributes for product tooltips.
+  Narrow container rules hide `.tab-label` to leave icon-only tabs while keeping the accessible name.
+- Headers wrap and their `.header-info` flex item gets `min-width: 0`; descriptions use `overflow-wrap: anywhere`.
+- `.form-row` wraps with a `170px` basis and stacks under `640px`; fixed grids use
+  `minmax(min(100%, <basis>), 1fr)` or a container override.
+- Wide result tables live in a scroll container (`overflow-x: auto`) instead of widening the panel.
+
 ---
 
 ## Widget Reference

@@ -56,7 +56,7 @@ export const MeshPanel: React.FC<MeshPanelProps> = ({ meshes, selectedMeshId, on
         <div className="mesh-list-panel">
             <div className="panel-header">
                 <h3>
-                    <i className="codicon codicon-table"></i>
+                    <i className="codicon codicon-openmc-grid"></i>
                     Meshes ({meshes.length})
                 </h3>
                 <Tooltip content="Create a new mesh" position="bottom">
@@ -68,7 +68,7 @@ export const MeshPanel: React.FC<MeshPanelProps> = ({ meshes, selectedMeshId, on
             <div className="list-container">
                 {meshes.length === 0 ? (
                     <div className="empty-state">
-                        <i className="codicon codicon-table"></i>
+                        <i className="codicon codicon-openmc-grid"></i>
                         <p>No meshes defined</p>
                         <p className="empty-hint">Click "Add" to create a new mesh</p>
                     </div>

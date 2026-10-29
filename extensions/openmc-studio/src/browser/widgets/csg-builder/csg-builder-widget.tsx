@@ -289,7 +289,7 @@ export class CSGBuilderWidget extends ReactWidget {
         this.title.label = CSGBuilderWidget.LABEL;
         this.title.caption = CSGBuilderWidget.LABEL;
         this.title.closable = true;
-        this.title.iconClass = 'codicon codicon-graph';
+        this.title.iconClass = 'codicon codicon-openmc-geometry';
 
         // Listen to state changes (both change events and reload events)
         this.stateManager.onStateChange(() => {
@@ -357,7 +357,7 @@ export class CSGBuilderWidget extends ReactWidget {
             <div className="csg-builder-header">
                 <div className="header-info">
                     <h2>
-                        <i className="codicon codicon-graph"></i>
+                        <i className="codicon codicon-openmc-geometry"></i>
                         CSG Geometry Builder
                     </h2>
                     <p className="header-description">Constructive Solid Geometry editor for OpenMC</p>
@@ -366,7 +366,7 @@ export class CSGBuilderWidget extends ReactWidget {
                     {isDagmcMode ? (
                         <Tooltip content="Edit DAGMC geometry" position="bottom">
                             <button className="theia-button secondary dagmc-editor-btn" onClick={() => this.openDagmcEditor()}>
-                                <i className="codicon codicon-file-code"></i>
+                                <i className="codicon codicon-openmc-mesh"></i>
                                 DAGMC Editor
                             </button>
                         </Tooltip>
@@ -390,7 +390,7 @@ export class CSGBuilderWidget extends ReactWidget {
                     </Tooltip>
                     <Tooltip content="Import CAD file (STEP/IGES/DAGMC)" position="bottom">
                         <button className="theia-button secondary" onClick={() => this.importCADFile()}>
-                            <i className="codicon codicon-file-code"></i>
+                            <i className="codicon codicon-openmc-mesh"></i>
                             Import CAD
                         </button>
                     </Tooltip>
@@ -423,26 +423,28 @@ export class CSGBuilderWidget extends ReactWidget {
         const isDagmcMode = !!state.settings.dagmcFile;
 
         const tabs: { id: CSGBuilderTab; label: string; icon: string }[] = [
-            { id: 'surfaces', label: 'Surfaces', icon: 'codicon-circle' },
-            { id: 'cells', label: 'Cells', icon: 'codicon-package' },
-            { id: 'universes', label: 'Universes', icon: 'codicon-layers' }
+            { id: 'surfaces', label: 'Surfaces', icon: 'codicon-openmc-surface' },
+            { id: 'cells', label: 'Cells', icon: 'codicon-openmc-cell' },
+            { id: 'universes', label: 'Universes', icon: 'codicon-openmc-universe' }
         ];
 
         return (
             <div className="csg-builder-tabs">
                 {tabs.map((tab) => (
-                    <button
-                        key={tab.id}
-                        className={`tab-button ${this.activeTab === tab.id ? 'active' : ''} ${isDagmcMode ? 'dagmc-mode' : ''}`}
-                        onClick={() => {
-                            this.activeTab = tab.id;
-                            this.cancelForm();
-                            this.update();
-                        }}
-                    >
-                        <i className={`codicon ${tab.icon}`}></i>
-                        {tab.label}
-                    </button>
+                    <Tooltip key={tab.id} content={tab.label} position="bottom">
+                        <button
+                            className={`tab-button ${this.activeTab === tab.id ? 'active' : ''} ${isDagmcMode ? 'dagmc-mode' : ''}`}
+                            aria-label={tab.label}
+                            onClick={() => {
+                                this.activeTab = tab.id;
+                                this.cancelForm();
+                                this.update();
+                            }}
+                        >
+                            <i className={`codicon ${tab.icon}`}></i>
+                            <span className="tab-label">{tab.label}</span>
+                        </button>
+                    </Tooltip>
                 ))}
             </div>
         );
@@ -482,7 +484,7 @@ export class CSGBuilderWidget extends ReactWidget {
                         </div>
                         <div className="surface-gallery">
                             {SURFACE_TEMPLATES.map((template) => (
-                                <Tooltip key={template.type} content={template.description} position="right">
+                                <Tooltip key={template.type} content={template.description} position="right" stretch>
                                     <button
                                         className={`surface-card ${this.creatingSurfaceType === template.type ? 'creating' : ''}`}
                                         onClick={() => this.startCreateSurface(template)}
@@ -510,7 +512,7 @@ export class CSGBuilderWidget extends ReactWidget {
                         <div className="surfaces-list">
                             {state.geometry.surfaces.length === 0 ? (
                                 <div className="empty-state">
-                                    <i className="codicon codicon-circle"></i>
+                                    <i className="codicon codicon-openmc-surface"></i>
                                     <p>No surfaces defined yet.</p>
                                     <p className="empty-hint">Select a surface type from the gallery to create one.</p>
                                 </div>
@@ -574,7 +576,7 @@ export class CSGBuilderWidget extends ReactWidget {
                 <div className="dagmc-info-panel">
                     <div className="dagmc-header">
                         <div className="dagmc-icon">
-                            <i className="codicon codicon-file-code"></i>
+                            <i className="codicon codicon-openmc-mesh"></i>
                         </div>
                         <div className="dagmc-title">
                             <h3>DAGMC Faceted Geometry</h3>
@@ -646,7 +648,7 @@ export class CSGBuilderWidget extends ReactWidget {
                     {info && info.volumes && info.volumes.length > 0 && (
                         <div className="dagmc-volumes-section">
                             <h4>
-                                <i className="codicon codicon-package"></i> Volumes ({info.volumes.length})
+                                <i className="codicon codicon-openmc-mesh"></i> Volumes ({info.volumes.length})
                             </h4>
                             <div className="dagmc-volumes-list">
                                 {info.volumes.map((vol) => (
@@ -859,7 +861,7 @@ export class CSGBuilderWidget extends ReactWidget {
                 <div className="cells-list">
                     {state.geometry.cells.length === 0 ? (
                         <div className="empty-state">
-                            <i className="codicon codicon-package"></i>
+                            <i className="codicon codicon-openmc-cell"></i>
                             <p>No cells defined yet. Click "Add Cell" to create one.</p>
                         </div>
                     ) : (
@@ -934,7 +936,7 @@ export class CSGBuilderWidget extends ReactWidget {
                 <div className="cells-tab dagmc-mode">
                     <div className="tab-toolbar">
                         <h3>
-                            <i className="codicon codicon-file-code"></i> DAGMC Volumes
+                            <i className="codicon codicon-openmc-mesh"></i> DAGMC Volumes
                         </h3>
                         <span className="dagmc-badge">DAGMC Mode</span>
                     </div>
@@ -944,7 +946,7 @@ export class CSGBuilderWidget extends ReactWidget {
                         </p>
                     </div>
                     <div className="empty-state">
-                        <i className="codicon codicon-file-code"></i>
+                        <i className="codicon codicon-openmc-mesh"></i>
                         <p>DAGMC file loaded: {dagmcFile?.split('/').pop() || dagmcFile}</p>
                         <p className="empty-hint">Open this file directly in CSG Builder to see detailed volume information.</p>
                     </div>
@@ -956,7 +958,7 @@ export class CSGBuilderWidget extends ReactWidget {
             <div className="cells-tab dagmc-mode">
                 <div className="tab-toolbar">
                     <h3>
-                        <i className="codicon codicon-file-code"></i> DAGMC Volumes
+                        <i className="codicon codicon-openmc-mesh"></i> DAGMC Volumes
                     </h3>
                     <span className="dagmc-badge">DAGMC Mode</span>
                 </div>
@@ -971,7 +973,7 @@ export class CSGBuilderWidget extends ReactWidget {
                 <div className="cells-list dagmc-volumes-list">
                     {info.volumes.length === 0 ? (
                         <div className="empty-state">
-                            <i className="codicon codicon-package"></i>
+                            <i className="codicon codicon-openmc-mesh"></i>
                             <p>No volumes found in DAGMC file.</p>
                         </div>
                     ) : (
@@ -1093,7 +1095,7 @@ export class CSGBuilderWidget extends ReactWidget {
                                         this.update();
                                     }}
                                 >
-                                    <i className="codicon codicon-layers"></i>
+                                    <i className="codicon codicon-openmc-universe"></i>
                                     <span>Universe</span>
                                     <small>Nested geometry</small>
                                 </button>

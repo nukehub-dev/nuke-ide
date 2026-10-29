@@ -40,7 +40,7 @@ import { DashboardTabContribution } from './tab-registry';
 export class TalliesTabContribution implements DashboardTabContribution {
     readonly id = 'tallies';
     readonly label = 'Tallies';
-    readonly icon = 'graph-line';
+    readonly icon = 'openmc-tally';
     readonly order = 2;
 
     /**

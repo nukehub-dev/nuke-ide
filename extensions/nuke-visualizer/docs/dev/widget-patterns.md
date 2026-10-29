@@ -154,6 +154,8 @@ instead of generic repo/database glyphs.
 Title, command, and Nuke Tools `iconClass` hooks use `nuke-visualizer-icon nuke-visualizer-icon-<domain>` for
 the domain panels (geometry, overlap, materials, nuclear, tally, statepoint). The classes live in
 `src/browser/icons/domain-icon-classes.css` and are CSS masks so they follow the active theme color.
+Keep each domain glyph one coherent symbol; do not compose detached pieces (for example a grid plus bars)
+into one icon.
 
 ### Advantages
 

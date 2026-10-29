@@ -158,7 +158,7 @@ export class MgxsGeneratorWidget extends ReactWidget {
         this.title.label = MgxsGeneratorWidget.LABEL;
         this.title.caption = MgxsGeneratorWidget.LABEL;
         this.title.closable = true;
-        this.title.iconClass = 'codicon codicon-library';
+        this.title.iconClass = 'codicon codicon-openmc-mgxs';
 
         this.stateManager.onStateChange(() => this.update());
         this.stateManager.onStateReload(() => this.update());
@@ -678,7 +678,7 @@ export class MgxsGeneratorWidget extends ReactWidget {
                 <div className="openmc-header">
                     <div className="header-info">
                         <h2>
-                            <i className="codicon codicon-library"></i>
+                            <i className="codicon codicon-openmc-mgxs"></i>
                             MGXS Generator
                         </h2>
                         <p className="header-description">Multi-group cross section library from continuous-energy solves</p>

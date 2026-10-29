@@ -161,7 +161,7 @@ export class SimulationDashboardWidget extends ReactWidget {
         this.title.label = SimulationDashboardWidget.LABEL;
         this.title.caption = SimulationDashboardWidget.LABEL;
         this.title.closable = true;
-        this.title.iconClass = 'codicon codicon-dashboard';
+        this.title.iconClass = 'openmc-brand openmc-brand-openmc';
 
         // Listen to state changes
         this.stateManager.onStateChange(() => this.update());
@@ -438,7 +438,7 @@ export class SimulationDashboardWidget extends ReactWidget {
                     ) : (
                         <Tooltip content="Click to rename" position="bottom">
                             <h2 onClick={() => this.startEditProjectName()}>
-                                <i className="codicon codicon-symbol-method"></i>
+                                <span className="openmc-brand openmc-brand-openmc openmc-brand-header" aria-hidden="true"></span>
                                 {state.metadata.name}
                                 <i className="codicon codicon-edit edit-icon"></i>
                             </h2>
@@ -483,17 +483,19 @@ export class SimulationDashboardWidget extends ReactWidget {
         return (
             <div className="dashboard-tabs">
                 {tabs.map((tab) => (
-                    <button
-                        key={tab.id}
-                        className={`tab-button ${this.activeTab === tab.id ? 'active' : ''}`}
-                        onClick={() => {
-                            this.activeTab = tab.id;
-                            this.update();
-                        }}
-                    >
-                        <i className={`codicon codicon-${tab.icon}`}></i>
-                        {tab.label}
-                    </button>
+                    <Tooltip key={tab.id} content={tab.label} position="bottom">
+                        <button
+                            className={`tab-button ${this.activeTab === tab.id ? 'active' : ''}`}
+                            aria-label={tab.label}
+                            onClick={() => {
+                                this.activeTab = tab.id;
+                                this.update();
+                            }}
+                        >
+                            <i className={`codicon codicon-${tab.icon}`}></i>
+                            <span className="tab-label">{tab.label}</span>
+                        </button>
+                    </Tooltip>
                 ))}
             </div>
         );

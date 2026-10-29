@@ -40,7 +40,7 @@ import { DashboardTabContribution } from './tab-registry';
 export class MaterialsTabContribution implements DashboardTabContribution {
     readonly id = 'materials';
     readonly label = 'Materials';
-    readonly icon = 'symbol-color';
+    readonly icon = 'openmc-material';
     readonly order = 1;
 
     /** Whether the material creation/editing form is currently shown. */
@@ -298,12 +298,12 @@ export class MaterialsTabContribution implements DashboardTabContribution {
                 <div className="materials-list">
                     {state.materials.length === 0 && !hasDagmcMaterials ? (
                         <div className="empty-state">
-                            <i className="codicon codicon-info"></i>
+                            <i className="codicon codicon-openmc-material"></i>
                             <p>No materials defined. Click "Add Material" to create your first material.</p>
                         </div>
                     ) : state.materials.length === 0 && hasDagmcMaterials ? (
                         <div className="empty-state dagmc-info">
-                            <i className="codicon codicon-file-code"></i>
+                            <i className="codicon codicon-openmc-mesh"></i>
                             <p>No OpenMC materials defined yet.</p>
                             <p className="empty-hint">
                                 DAGMC geometry has {Object.keys(dagmcMaterials).length} material(s). Create matching materials above.

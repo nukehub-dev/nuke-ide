@@ -314,44 +314,40 @@ import argparse
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Load cross section data')
-    parser.add_argument('nuclide', help='Nuclide name, e.g., U235')
-    parser.add_argument('reaction', help='Reaction type, e.g., total, fission')
-    parser.add_argument('--json', action='store_true', help='Output as JSON')
+    parser = argparse.ArgumentParser(description="Load cross section data")
+    parser.add_argument("nuclide", help="Nuclide name, e.g., U235")
+    parser.add_argument("reaction", help="Reaction type, e.g., total, fission")
+    parser.add_argument("--json", action="store_true", help="Output as JSON")
     args = parser.parse_args()
 
     try:
         import openmc
     except ImportError:
-        print(json.dumps({
-            'success': False,
-            'error': 'openmc is required for cross section loading'
-        }))
+        print(
+            json.dumps({"success": False, "error": "openmc is required for cross section loading"})
+        )
         sys.exit(0)
 
     try:
         # Example: load from ENDF data
-        data = openmc.data.IncidentNeutron.from_hdf5(f'{args.nuclide}.h5')
+        data = openmc.data.IncidentNeutron.from_hdf5(f"{args.nuclide}.h5")
         reaction = data[args.reaction]
 
         result = {
-            'success': True,
-            'nuclide': args.nuclide,
-            'reaction': args.reaction,
-            'energies': reaction.xs['294K'].x.tolist(),
-            'values': reaction.xs['294K'].y.tolist()
+            "success": True,
+            "nuclide": args.nuclide,
+            "reaction": args.reaction,
+            "energies": reaction.xs["294K"].x.tolist(),
+            "values": reaction.xs["294K"].y.tolist(),
         }
         print(json.dumps(result))
         sys.exit(0)
     except Exception as e:
-        print(json.dumps({
-            'success': False,
-            'error': str(e)
-        }))
+        print(json.dumps({"success": False, "error": str(e)}))
         sys.exit(0)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
 ```
 

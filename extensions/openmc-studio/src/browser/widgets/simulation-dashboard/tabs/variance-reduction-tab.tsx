@@ -41,7 +41,7 @@ import { DashboardTabContribution } from './tab-registry';
 export class VarianceReductionTabContribution implements DashboardTabContribution {
     readonly id = 'variance-reduction';
     readonly label = 'Variance Reduction';
-    readonly icon = 'dashboard';
+    readonly icon = 'openmc-variance';
     readonly order = 4;
 
     /**

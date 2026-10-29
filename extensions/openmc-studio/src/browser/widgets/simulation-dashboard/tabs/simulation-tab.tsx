@@ -43,7 +43,7 @@ import { DashboardTabContribution } from './tab-registry';
 export class SimulationTabContribution implements DashboardTabContribution {
     readonly id = 'simulation';
     readonly label = 'Simulation';
-    readonly icon = 'play';
+    readonly icon = 'openmc-run';
     readonly order = 6;
 
     /** Setup checklist collapse override (undefined = auto: collapsed when ready). */

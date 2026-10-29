@@ -29,10 +29,10 @@ from pathlib import Path
 
 
 def main():
-    parser = argparse.ArgumentParser(description='My backend service')
-    parser.add_argument('input_file', help='Path to input file')
-    parser.add_argument('--output', '-o', help='Output file path')
-    parser.add_argument('--verbose', '-v', action='store_true', help='Verbose output')
+    parser = argparse.ArgumentParser(description="My backend service")
+    parser.add_argument("input_file", help="Path to input file")
+    parser.add_argument("--output", "-o", help="Output file path")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
 
     args = parser.parse_args()
 
@@ -50,15 +50,10 @@ def main():
 
 
 def do_work(input_file: str, output: str | None, verbose: bool) -> dict:
-    return {
-        'success': True,
-        'inputFile': input_file,
-        'outputFile': output,
-        'data': {}
-    }
+    return {"success": True, "inputFile": input_file, "outputFile": output, "data": {}}
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
 ```
 
@@ -81,17 +76,14 @@ The Node.js backend parses stdout as JSON. Your script must print **exactly one 
 import json
 
 # Success
-result = {
-    'success': True,
-    'data': { ... }
-}
+result = {"success": True, "data": {...}}
 print(json.dumps(result))
 
 # Error (still JSON, but success=false)
 result = {
-    'success': False,
-    'error': 'Missing dependency: openmc',
-    'traceback': traceback.format_exc()
+    "success": False,
+    "error": "Missing dependency: openmc",
+    "traceback": traceback.format_exc(),
 }
 print(json.dumps(result))
 ```
@@ -103,6 +95,7 @@ Statepoint data frequently contains numpy arrays and `uncertainties` objects. Us
 ```python
 import numpy as np
 
+
 class NumpyEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, np.integer):
@@ -112,6 +105,7 @@ class NumpyEncoder(json.JSONEncoder):
         if isinstance(obj, np.ndarray):
             return obj.tolist()
         return super().default(obj)
+
 
 print(json.dumps(result, cls=NumpyEncoder))
 ```
@@ -137,10 +131,11 @@ try:
     import openmc
     import h5py
 except ImportError as e:
-    print(json.dumps({
-        'success': False,
-        'error': f'Missing dependency: {e}. Please install openmc and h5py.'
-    }))
+    print(
+        json.dumps(
+            {"success": False, "error": f"Missing dependency: {e}. Please install openmc and h5py."}
+        )
+    )
     sys.exit(0)  # Return JSON error so frontend can display it
 ```
 
@@ -273,23 +268,20 @@ from pathlib import Path
 
 
 def main():
-    parser = argparse.ArgumentParser(description='DAGMC volume statistics')
-    parser.add_argument('file', help='Path to DAGMC .h5m file')
-    parser.add_argument('--json', action='store_true', help='Output as JSON')
+    parser = argparse.ArgumentParser(description="DAGMC volume statistics")
+    parser.add_argument("file", help="Path to DAGMC .h5m file")
+    parser.add_argument("--json", action="store_true", help="Output as JSON")
     args = parser.parse_args()
 
     file_path = Path(args.file)
     if not file_path.exists():
-        print(json.dumps({'success': False, 'error': f'File not found: {args.file}'}))
+        print(json.dumps({"success": False, "error": f"File not found: {args.file}"}))
         sys.exit(1)
 
     try:
         import pymoab
     except ImportError:
-        print(json.dumps({
-            'success': False,
-            'error': 'pymoab is required for DAGMC operations'
-        }))
+        print(json.dumps({"success": False, "error": "pymoab is required for DAGMC operations"}))
         sys.exit(0)
 
     mb = pymoab.core.Core()
@@ -300,17 +292,17 @@ def main():
     surfaces = mb.get_entities_by_dimension(0, 2)
 
     result = {
-        'success': True,
-        'file': str(file_path),
-        'volumeCount': len(volumes),
-        'surfaceCount': len(surfaces),
+        "success": True,
+        "file": str(file_path),
+        "volumeCount": len(volumes),
+        "surfaceCount": len(surfaces),
     }
 
     print(json.dumps(result))
     sys.exit(0)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
 ```
 

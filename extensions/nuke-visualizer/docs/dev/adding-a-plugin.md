@@ -144,13 +144,14 @@ python/plugins/moose/
 
 ```python
 """MOOSE visualization plugin for NukeIDE."""
+
 import sys
 
-_COMMAND_MODULES = ['info', 'convert']
+_COMMAND_MODULES = ["info", "convert"]
 
 for mod_name in _COMMAND_MODULES:
     try:
-        __import__(f'plugins.moose.commands.{mod_name}')
+        __import__(f"plugins.moose.commands.{mod_name}")
     except Exception as e:
         print(f"[MOOSE Plugin] '{mod_name}' not loaded: {e}", file=sys.stderr)
 
@@ -167,8 +168,9 @@ REQUIREMENTS = ["moose", "vtk"]
 from nuke_viz.plugin import command, arg
 import json
 
-@command('moose.info', help='Get MOOSE mesh info')
-@arg('--file', required=True, help='Path to Exodus or input file')
+
+@command("moose.info", help="Get MOOSE mesh info")
+@arg("--file", required=True, help="Path to Exodus or input file")
 def cmd_info(args):
     # Your logic to read MOOSE output/exodus files
     result = {"numElements": 1000, "numNodes": 500, "variables": ["temp", "disp"]}

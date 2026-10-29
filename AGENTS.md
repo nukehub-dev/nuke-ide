@@ -97,6 +97,10 @@ When the user requests a durable behavior change, record it here or in the relev
 - Never reference `.planning/`, Wave/phase IDs, planning briefs, or roadmap labels in tracked source,
   tests, docs, or comments. Describe the stable technical contract instead; planning material stays local
   and gitignored.
+- Use the shared nuke-essentials `Tooltip` for product hover/focus tooltips. Native `title` attributes are
+  not the product tooltip and must not be used for UI hints.
+- Keep a domain icon one coherent glyph. Do not compose detached symbols (for example a grid plus bars) into
+  a single icon; redraw it as one shape.
 - Keep domain-standard notation where renaming would reduce correctness: MGXS `P0`, quartiles `Q1/Q3`,
   `F1`, and DOM capture phase are not planning labels.
 

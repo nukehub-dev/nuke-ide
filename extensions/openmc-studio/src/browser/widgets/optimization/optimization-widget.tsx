@@ -143,7 +143,7 @@ export class OptimizationWidget extends ReactWidget {
         this.title.label = OptimizationWidget.LABEL;
         this.title.caption = OptimizationWidget.LABEL;
         this.title.closable = true;
-        this.title.iconClass = 'codicon codicon-symbol-variable';
+        this.title.iconClass = 'codicon codicon-openmc-optimize';
 
         // Reset widget state for fresh instance
         this.resetWidgetState();
@@ -335,7 +335,7 @@ export class OptimizationWidget extends ReactWidget {
             <div className="optimization-header">
                 <div className="optimization-info">
                     <h2>
-                        <i className="codicon codicon-symbol-variable"></i>
+                        <i className="codicon codicon-openmc-optimize"></i>
                         Optimization Study
                     </h2>
                     <p className="optimization-description">
@@ -397,26 +397,28 @@ export class OptimizationWidget extends ReactWidget {
      */
     protected renderTabs(): React.ReactNode {
         const tabs = [
-            { id: 'sweeps', label: 'Parameter Sweeps', icon: 'codicon-list-selection' },
-            { id: 'runner', label: 'Batch Runner', icon: 'codicon-play' },
-            { id: 'results', label: 'Results', icon: 'codicon-list-flat' },
-            { id: 'analysis', label: 'Analysis', icon: 'codicon-graph-line' }
+            { id: 'sweeps', label: 'Parameter Sweeps', icon: 'codicon-openmc-optimize' },
+            { id: 'runner', label: 'Batch Runner', icon: 'codicon-openmc-run' },
+            { id: 'results', label: 'Results', icon: 'codicon-openmc-tally' },
+            { id: 'analysis', label: 'Analysis', icon: 'codicon-openmc-plot' }
         ] as const;
 
         return (
             <div className="optimization-tabs">
                 {tabs.map((tab) => (
-                    <button
-                        key={tab.id}
-                        className={`tab-button ${this.activeTab === tab.id ? 'active' : ''}`}
-                        onClick={() => {
-                            this.activeTab = tab.id;
-                            this.update();
-                        }}
-                    >
-                        <i className={`codicon ${tab.icon}`}></i>
-                        {tab.label}
-                    </button>
+                    <Tooltip key={tab.id} content={tab.label} position="bottom">
+                        <button
+                            className={`tab-button ${this.activeTab === tab.id ? 'active' : ''}`}
+                            aria-label={tab.label}
+                            onClick={() => {
+                                this.activeTab = tab.id;
+                                this.update();
+                            }}
+                        >
+                            <i className={`codicon ${tab.icon}`}></i>
+                            <span className="tab-label">{tab.label}</span>
+                        </button>
+                    </Tooltip>
                 ))}
             </div>
         );
@@ -428,24 +430,26 @@ export class OptimizationWidget extends ReactWidget {
      */
     protected renderModeSelector(): React.ReactNode {
         const modes = [
-            { id: 'sweep', label: 'Parameter Sweep', icon: 'codicon-list-selection' },
-            { id: 'search', label: 'Criticality Search', icon: 'codicon-target' }
+            { id: 'sweep', label: 'Parameter Sweep', icon: 'codicon-openmc-optimize' },
+            { id: 'search', label: 'Criticality Search', icon: 'codicon-openmc-atom' }
         ] as const;
 
         return (
             <div className="optimization-tabs mode-selector">
                 {modes.map((mode) => (
-                    <button
-                        key={mode.id}
-                        className={`tab-button ${this.workspaceMode === mode.id ? 'active' : ''}`}
-                        onClick={() => {
-                            this.workspaceMode = mode.id;
-                            this.update();
-                        }}
-                    >
-                        <i className={`codicon ${mode.icon}`}></i>
-                        {mode.label}
-                    </button>
+                    <Tooltip key={mode.id} content={mode.label} position="bottom">
+                        <button
+                            className={`tab-button ${this.workspaceMode === mode.id ? 'active' : ''}`}
+                            aria-label={mode.label}
+                            onClick={() => {
+                                this.workspaceMode = mode.id;
+                                this.update();
+                            }}
+                        >
+                            <i className={`codicon ${mode.icon}`}></i>
+                            <span className="tab-label">{mode.label}</span>
+                        </button>
+                    </Tooltip>
                 ))}
             </div>
         );
@@ -483,7 +487,7 @@ export class OptimizationWidget extends ReactWidget {
                 <div className="sweep-card editing">
                     <div className="sweep-editor">
                         <h4>
-                            <i className="codicon codicon-target"></i> Criticality Search
+                            <i className="codicon codicon-openmc-atom"></i> Criticality Search
                         </h4>
                         <p className="section-description">
                             Find the parameter value that produces the target k-effective (openmc.search_for_keff). Each iteration is a full
@@ -647,28 +651,30 @@ export class OptimizationWidget extends ReactWidget {
                                         </button>
                                     </div>
                                     {result.iterations.length > 0 && (
-                                        <table className="results-table">
-                                            <thead>
-                                                <tr>
-                                                    <th>#</th>
-                                                    <th>Guess</th>
-                                                    <th>k-eff</th>
-                                                    <th>|k-eff − target|</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {result.iterations.map((iter) => (
-                                                    <tr key={iter.iteration}>
-                                                        <td>{iter.iteration}</td>
-                                                        <td>{iter.guess}</td>
-                                                        <td>
-                                                            {iter.keff.toFixed(5)} ± {(iter.keffStd ?? 0).toFixed(5)}
-                                                        </td>
-                                                        <td>{Math.abs(iter.keff - result.target).toFixed(5)}</td>
+                                        <div className="results-table-container">
+                                            <table className="results-table">
+                                                <thead>
+                                                    <tr>
+                                                        <th>#</th>
+                                                        <th>Guess</th>
+                                                        <th>k-eff</th>
+                                                        <th>|k-eff − target|</th>
                                                     </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
+                                                </thead>
+                                                <tbody>
+                                                    {result.iterations.map((iter) => (
+                                                        <tr key={iter.iteration}>
+                                                            <td>{iter.iteration}</td>
+                                                            <td>{iter.guess}</td>
+                                                            <td>
+                                                                {iter.keff.toFixed(5)} ± {(iter.keffStd ?? 0).toFixed(5)}
+                                                            </td>
+                                                            <td>{Math.abs(iter.keff - result.target).toFixed(5)}</td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
                                     )}
                                 </>
                             ) : (
@@ -803,7 +809,7 @@ export class OptimizationWidget extends ReactWidget {
 
                     {sweeps.length === 0 ? (
                         <div className="empty-state">
-                            <i className="codicon codicon-symbol-variable"></i>
+                            <i className="codicon codicon-openmc-optimize"></i>
                             <p>No parameter sweeps defined yet.</p>
                             <p className="empty-hint">Add a sweep to vary parameters across multiple simulations.</p>
                             <div className="empty-actions">
@@ -1357,9 +1363,11 @@ export class OptimizationWidget extends ReactWidget {
                             <div className="validation-header">
                                 <i className={`codicon ${hasErrors ? 'codicon-error' : 'codicon-warning'}`}></i>
                                 <span>{hasErrors ? 'Configuration Issues Found' : 'Configuration Warnings'}</span>
-                                <button className="validation-close" onClick={() => this.toggleValidationDetails()} title="Hide details">
-                                    <i className="codicon codicon-chevron-up"></i>
-                                </button>
+                                <Tooltip content="Hide details" position="top">
+                                    <button className="validation-close" onClick={() => this.toggleValidationDetails()}>
+                                        <i className="codicon codicon-chevron-up"></i>
+                                    </button>
+                                </Tooltip>
                             </div>
                             <div className="validation-content">
                                 {this.runnerValidation.errors.map((error, idx) => (
@@ -1397,7 +1405,7 @@ export class OptimizationWidget extends ReactWidget {
 
                     {sweeps.length === 0 && (
                         <div className="runner-empty-state">
-                            <i className="codicon codicon-list-selection"></i>
+                            <i className="codicon codicon-openmc-run"></i>
                             <p>No sweeps enabled</p>
                             <span>
                                 Enable at least one sweep in the <strong>Parameter Sweeps</strong> tab to start a batch run.
@@ -2159,7 +2167,7 @@ export class OptimizationWidget extends ReactWidget {
         if (runs.length === 0) {
             return (
                 <div className="empty-state">
-                    <i className="codicon codicon-graph"></i>
+                    <i className="codicon codicon-openmc-plot"></i>
                     <p>No completed runs to analyze.</p>
                     <p className="empty-hint">Complete an optimization run to see analysis plots.</p>
                 </div>
@@ -2181,7 +2189,7 @@ export class OptimizationWidget extends ReactWidget {
         if (results.length === 0) {
             return (
                 <div className="empty-state">
-                    <i className="codicon codicon-graph"></i>
+                    <i className="codicon codicon-openmc-plot"></i>
                     <p>No valid results to display.</p>
                     <p className="empty-hint">Run optimization with valid k-eff values.</p>
                 </div>

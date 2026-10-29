@@ -47,6 +47,17 @@ Click the project name in the header to rename it.
 | **Random Ray**         | Multi-group energy mode and the random ray solver                                 |
 | **Simulation**         | Setup checklist, run controls, restart, kinetics (IFP), live console              |
 
+### Narrow Windows
+
+The dashboard responds to the width of its own editor panel, not just the browser window. In a split editor or a narrow dock:
+
+- Header actions wrap below the project name, and long project names/descriptions wrap instead of clipping.
+- The tab row scrolls horizontally; when space is tight, tabs collapse to their domain icons and keep the label as a tooltip.
+- Multi-column form rows stack, and wide result tables scroll inside their card.
+- Section cards and content padding tighten so controls stay usable down to phone-width panels.
+
+The same behavior applies to the CSG Builder, DAGMC Editor, Tally Configurator, Optimization, and Simulation Comparison windows.
+
 ---
 
 ## Settings Tab

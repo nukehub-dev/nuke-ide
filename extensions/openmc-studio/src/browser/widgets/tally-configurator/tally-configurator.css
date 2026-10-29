@@ -45,16 +45,24 @@
     color: var(--theia-editor-foreground);
     font-family: var(--theia-ui-font-family);
     animation: builder-fade-in 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    container-type: inline-size;
 }
 
 .tally-configurator-container .tally-configurator-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
     padding: 16px 20px;
     background: var(--theia-titleBar-activeBackground);
     border-bottom: 1px solid var(--theia-panel-border);
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+.tally-configurator-container .tally-configurator-header .header-info {
+    flex: 1 1 240px;
+    min-width: 0;
 }
 
 .tally-configurator-container .tally-configurator-header .header-info h2 {
@@ -65,6 +73,7 @@
     align-items: center;
     gap: 8px;
     color: var(--theia-foreground);
+    overflow-wrap: anywhere;
 }
 
 .tally-configurator-container .tally-configurator-header .header-info h2 i {
@@ -76,10 +85,12 @@
     margin: 4px 0 0 0;
     font-size: 12px;
     color: var(--theia-descriptionForeground);
+    overflow-wrap: anywhere;
 }
 
 .tally-configurator-container .tally-configurator-header .header-stats {
     display: flex;
+    flex-wrap: wrap;
     gap: 24px;
 }
 
@@ -110,6 +121,12 @@
     border-bottom: 1px solid var(--theia-panel-border);
     padding: 0 12px;
     gap: 4px;
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+
+.tally-configurator-container .tally-configurator-tabs::-webkit-scrollbar {
+    display: none;
 }
 
 .tally-configurator-container .tab-button {
@@ -120,6 +137,7 @@
     cursor: pointer;
     display: flex;
     align-items: center;
+    flex: 0 0 auto;
     gap: 8px;
     font-size: 13px;
     font-weight: 500;
@@ -571,6 +589,7 @@
 
 .tally-configurator-container .form-row {
     display: flex;
+    flex-wrap: wrap;
     gap: 16px;
     margin-bottom: 16px;
 }
@@ -580,7 +599,8 @@
 }
 
 .tally-configurator-container .form-row .form-group {
-    flex: 1;
+    flex: 1 1 170px;
+    min-width: 0;
     margin-bottom: 0;
 }
 
@@ -603,7 +623,7 @@
 /* Tally Editor Specific Styles */
 .tally-configurator-container .editor-sections {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
     gap: 30px;
 }
 
@@ -1017,4 +1037,94 @@
 /* Derivative editor: single-row layout */
 .tally-configurator-container .derivative-editor .form-row {
     align-items: flex-end;
+}
+
+/* Narrow-panel layout: stack the list above the editor and let wide form
+   grids collapse instead of clipping. */
+@container (max-width: 800px) {
+    .tally-configurator-container .tally-configurator-header {
+        align-items: flex-start;
+        padding: 12px 14px;
+    }
+
+    .tally-configurator-container .tally-configurator-header .header-stats {
+        gap: 16px;
+    }
+
+    .tally-configurator-container .tallies-tab-container,
+    .tally-configurator-container .meshes-tab-container {
+        flex-direction: column;
+        overflow-y: auto;
+    }
+
+    .tally-configurator-container .left-panel {
+        width: 100%;
+        max-height: 55%;
+        border-right: none;
+        border-bottom: 1px solid var(--theia-panel-border);
+        overflow: hidden;
+    }
+
+    .tally-configurator-container .tally-list-panel,
+    .tally-configurator-container .mesh-list-panel,
+    .tally-configurator-container .list-container,
+    .tally-configurator-container .tally-editor-panel,
+    .tally-configurator-container .mesh-editor-panel {
+        min-height: 0;
+    }
+
+    .tally-configurator-container .tally-editor-panel,
+    .tally-configurator-container .mesh-editor-panel {
+        padding: 14px;
+    }
+
+    .tally-configurator-container .quick-add-panel {
+        padding: 10px 12px;
+    }
+
+    .tally-configurator-container .template-buttons {
+        flex-direction: row;
+        flex-wrap: wrap;
+    }
+
+    .tally-configurator-container .template-buttons button {
+        flex: 1 1 110px;
+    }
+
+    .tally-configurator-container .empty-state {
+        padding: 18px 12px;
+    }
+
+    .tally-configurator-container .empty-state i {
+        font-size: 32px;
+        margin-bottom: 6px;
+    }
+}
+
+@container (max-width: 540px) {
+    .tally-configurator-container .tab-label {
+        display: none;
+    }
+
+    .tally-configurator-container .tab-button {
+        padding: 12px 14px;
+    }
+
+    .tally-configurator-container .form-row {
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .tally-configurator-container .form-row .form-group {
+        flex: 1 1 auto;
+        width: 100%;
+    }
+
+    .tally-configurator-container .score-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .tally-configurator-container .coord-inputs {
+        flex-wrap: wrap;
+    }
 }

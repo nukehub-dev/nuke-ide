@@ -201,7 +201,7 @@ export class SettingsTabContribution implements DashboardTabContribution {
                     </div>
                 </div>
 
-                <CollapsibleSection title="General" icon="run">
+                <CollapsibleSection title="General" icon="openmc-run">
                     <div className="form-group">
                         <label>Run Mode</label>
                         <NukeSelect
@@ -344,7 +344,7 @@ export class SettingsTabContribution implements DashboardTabContribution {
 
                 <CollapsibleSection
                     title="Sources"
-                    icon="source-control"
+                    icon="openmc-source"
                     actions={
                         <button className="theia-button secondary small" onClick={() => this.addSource(host)}>
                             <i className="codicon codicon-add"></i> Add Source
@@ -353,7 +353,7 @@ export class SettingsTabContribution implements DashboardTabContribution {
                 >
                     {settings.sources.length === 0 ? (
                         <div className="empty-state">
-                            <i className="codicon codicon-info"></i>
+                            <i className="codicon codicon-openmc-source"></i>
                             <p>
                                 No sources defined. {runSettings.mode === 'eigenvalue' && 'A default point source at origin will be used.'}
                             </p>
@@ -454,7 +454,7 @@ export class SettingsTabContribution implements DashboardTabContribution {
                     {renderAdvancedSection(host, state)}
                 </CollapsibleSection>
 
-                <CollapsibleSection title="Convergence" icon="graph" defaultOpen={false}>
+                <CollapsibleSection title="Convergence" icon="openmc-plot" defaultOpen={false}>
                     {renderConvergenceSection(host, state, (s) => this.calculateGeometryBounds(s))}
                 </CollapsibleSection>
             </div>

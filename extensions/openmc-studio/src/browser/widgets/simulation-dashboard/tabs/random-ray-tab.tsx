@@ -52,7 +52,7 @@ import { calculateGeometryBounds } from './settings/geometry-bounds';
 export class RandomRayTabContribution implements DashboardTabContribution {
     readonly id = 'random-ray';
     readonly label = 'Random Ray';
-    readonly icon = 'zap';
+    readonly icon = 'openmc-source';
     readonly order = 5;
 
     @inject(PreferenceService)

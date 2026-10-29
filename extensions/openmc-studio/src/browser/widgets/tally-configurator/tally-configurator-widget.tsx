@@ -30,6 +30,7 @@ import { injectable, inject, postConstruct } from '@theia/core/shared/inversify'
 import { ReactWidget } from '@theia/core/lib/browser';
 import { OpenMCStateManager } from '../../openmc-state-manager';
 import { NukeCoreStatusBarVisibility, NukeCoreStatusBarVisibilityService } from 'nuke-core/lib/common';
+import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
 import { OpenMCTally, OpenMCMesh } from '../../../common/openmc-state-schema';
 import { MeshPanel } from './components/mesh-panel';
 import { MeshEditor } from './components/mesh-editor';
@@ -89,7 +90,7 @@ export class TallyConfiguratorWidget extends ReactWidget {
         this.title.label = TallyConfiguratorWidget.LABEL;
         this.title.caption = TallyConfiguratorWidget.LABEL;
         this.title.closable = true;
-        this.title.iconClass = 'codicon codicon-graph-line';
+        this.title.iconClass = 'codicon codicon-openmc-tally';
 
         this.toDispose.push(this.stateManager.onStateChange(() => this.update()));
         this.update();
@@ -144,7 +145,7 @@ export class TallyConfiguratorWidget extends ReactWidget {
             <div className="tally-configurator-header">
                 <div className="header-info">
                     <h2>
-                        <i className="codicon codicon-graph-line"></i>
+                        <i className="codicon codicon-openmc-tally"></i>
                         Tally & Mesh Configurator
                     </h2>
                     <p className="header-description">
@@ -175,21 +176,23 @@ export class TallyConfiguratorWidget extends ReactWidget {
      */
     private renderTabs(): React.ReactNode {
         const tabs = [
-            { id: 'tallies', label: 'Tallies', icon: 'codicon-graph-line' },
-            { id: 'meshes', label: 'Meshes', icon: 'codicon-table' }
+            { id: 'tallies', label: 'Tallies', icon: 'codicon-openmc-tally' },
+            { id: 'meshes', label: 'Meshes', icon: 'codicon-openmc-grid' }
         ];
 
         return (
             <div className="tally-configurator-tabs">
                 {tabs.map((tab) => (
-                    <button
-                        key={tab.id}
-                        className={`tab-button ${this.state.activeTab === tab.id ? 'active' : ''}`}
-                        onClick={() => this.setState({ activeTab: tab.id as 'tallies' | 'meshes' })}
-                    >
-                        <i className={`codicon ${tab.icon}`}></i>
-                        {tab.label}
-                    </button>
+                    <Tooltip key={tab.id} content={tab.label} position="bottom">
+                        <button
+                            className={`tab-button ${this.state.activeTab === tab.id ? 'active' : ''}`}
+                            aria-label={tab.label}
+                            onClick={() => this.setState({ activeTab: tab.id as 'tallies' | 'meshes' })}
+                        >
+                            <i className={`codicon ${tab.icon}`}></i>
+                            <span className="tab-label">{tab.label}</span>
+                        </button>
+                    </Tooltip>
                 ))}
             </div>
         );

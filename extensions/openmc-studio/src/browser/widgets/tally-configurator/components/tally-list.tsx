@@ -56,7 +56,7 @@ export const TallyList: React.FC<TallyListProps> = ({ tallies, selectedTallyId, 
         <div className="tally-list-panel">
             <div className="panel-header">
                 <h3>
-                    <i className="codicon codicon-graph-line"></i>
+                    <i className="codicon codicon-openmc-tally"></i>
                     Tallies ({tallies.length})
                 </h3>
                 <Tooltip content="Create a new tally" position="bottom">
@@ -68,7 +68,7 @@ export const TallyList: React.FC<TallyListProps> = ({ tallies, selectedTallyId, 
             <div className="list-container">
                 {tallies.length === 0 ? (
                     <div className="empty-state">
-                        <i className="codicon codicon-graph-line"></i>
+                        <i className="codicon codicon-openmc-tally"></i>
                         <p>No tallies defined</p>
                         <p className="empty-hint">Click "Add" to create a new tally</p>
                     </div>

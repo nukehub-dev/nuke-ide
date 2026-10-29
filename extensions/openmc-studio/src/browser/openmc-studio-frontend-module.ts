@@ -91,6 +91,7 @@ import { MgxsGeneratorWidget } from './widgets/mgxs-generator/mgxs-generator-wid
 import { bindOpenMCStudioPreferences } from './openmc-studio-preferences';
 
 // Import CSS
+import './icons/openmc-icon-classes.css';
 import './widgets/shared/openmc-widget.css';
 import './widgets/simulation-dashboard/simulation-dashboard.css';
 import './widgets/csg-builder/csg-builder.css';

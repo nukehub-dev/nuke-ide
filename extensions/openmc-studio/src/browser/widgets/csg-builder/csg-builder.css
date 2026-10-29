@@ -16,6 +16,7 @@
     font-family: var(--theia-ui-font-family);
     animation: builder-fade-in 0.4s cubic-bezier(0.4, 0, 0.2, 1);
     position: relative;
+    container-type: inline-size;
 }
 
 @keyframes builder-fade-in {
@@ -58,10 +59,17 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
     padding: 16px 20px;
     background: var(--theia-titleBar-activeBackground);
     border-bottom: 1px solid var(--theia-panel-border);
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+.csg-builder .header-info {
+    flex: 1 1 240px;
+    min-width: 0;
 }
 
 .csg-builder .header-info h2 {
@@ -72,6 +80,7 @@
     align-items: center;
     gap: 8px;
     color: var(--theia-foreground);
+    overflow-wrap: anywhere;
 }
 
 .csg-builder .header-info h2 i {
@@ -83,10 +92,12 @@
     margin: 4px 0 0 0;
     font-size: 12px;
     color: var(--theia-descriptionForeground);
+    overflow-wrap: anywhere;
 }
 
 .csg-builder .header-stats {
     display: flex;
+    flex-wrap: wrap;
     gap: 24px;
 }
 
@@ -120,6 +131,12 @@
     border-bottom: 1px solid var(--theia-panel-border);
     padding: 0 12px;
     gap: 4px;
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+
+.csg-builder .csg-builder-tabs::-webkit-scrollbar {
+    display: none;
 }
 
 .csg-builder .tab-button {
@@ -130,6 +147,7 @@
     cursor: pointer;
     display: flex;
     align-items: center;
+    flex: 0 0 auto;
     gap: 8px;
     font-size: 13px;
     font-weight: 500;
@@ -825,8 +843,9 @@
    ============================================================================ */
 .csg-builder .header-actions {
     margin-left: auto;
-    margin-right: 24px;
+    margin-right: 0;
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
     align-items: center;
 }
@@ -1509,10 +1528,12 @@
 .csg-builder .form-row {
     display: flex;
     gap: 12px;
+    flex-wrap: wrap;
 }
 
 .csg-builder .form-row .form-group {
-    flex: 1;
+    flex: 1 1 170px;
+    min-width: 0;
 }
 
 .csg-builder .form-actions {
@@ -1627,6 +1648,65 @@
 /* ============================================================================
    Responsive Adjustments
    ============================================================================ */
+@container (max-width: 900px) {
+    .csg-builder .surfaces-layout {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto 1fr;
+    }
+
+    .csg-builder .surface-gallery-section {
+        max-height: 300px;
+    }
+}
+
+@container (max-width: 640px) {
+    .csg-builder .csg-builder-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 12px;
+        padding: 12px 14px;
+    }
+
+    .csg-builder .header-info {
+        flex: 0 0 auto;
+        width: 100%;
+    }
+
+    .csg-builder .header-actions {
+        margin-left: 0;
+        width: 100%;
+    }
+
+    .csg-builder .header-stats {
+        width: 100%;
+        justify-content: space-around;
+        gap: 16px;
+    }
+
+    .csg-builder .csg-builder-content {
+        padding: 14px;
+    }
+
+    .csg-builder .form-row {
+        flex-direction: column;
+    }
+
+    .csg-builder .form-row .form-group {
+        flex: 1 1 auto;
+        width: 100%;
+    }
+}
+
+@container (max-width: 460px) {
+    .csg-builder .tab-label {
+        display: none;
+    }
+
+    .csg-builder .tab-button {
+        padding: 12px 14px;
+    }
+}
+
 @media (max-width: 768px) {
     .csg-builder .surface-gallery {
         grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
@@ -1648,6 +1728,16 @@
         flex-direction: column;
         align-items: flex-start;
         gap: 12px;
+    }
+
+    .csg-builder .header-info {
+        flex: 0 0 auto;
+        width: 100%;
+    }
+
+    .csg-builder .header-actions {
+        margin-left: 0;
+        width: 100%;
     }
 }
 

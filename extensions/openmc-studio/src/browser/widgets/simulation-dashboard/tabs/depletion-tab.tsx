@@ -43,7 +43,7 @@ import { DashboardTabContribution } from './tab-registry';
 export class DepletionTabContribution implements DashboardTabContribution {
     readonly id = 'depletion';
     readonly label = 'Depletion';
-    readonly icon = 'history';
+    readonly icon = 'openmc-depletion';
     readonly order = 3;
 
     /**

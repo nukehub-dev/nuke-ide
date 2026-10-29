@@ -195,6 +195,7 @@ This guide covers the most common issues encountered when building, running, and
 
    ```python
    from pydagmc import Model
+
    m = Model("model.h5m")
    for v in m.volumes:
        try:

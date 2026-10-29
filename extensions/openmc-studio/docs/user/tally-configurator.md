@@ -24,6 +24,8 @@ In the Simulation Dashboard, go to the **Tallies** tab and click **"Open Tally C
 
 The left panel shows all tallies in the project. Click a tally to edit it, or click **"Add Tally"** to create a new one.
 
+In a narrow editor panel the tally list stacks above the editor instead of squeezing both side by side; wide score/filter grids collapse to one column.
+
 | Column            | Description                |
 | ----------------- | -------------------------- |
 | **ID**            | Unique tally identifier    |

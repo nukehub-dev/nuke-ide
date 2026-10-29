@@ -82,28 +82,27 @@ export const DomainGeometryIcon: React.FC<DomainIconProps> = (props) => (
 );
 
 /**
- * Statepoint file: a database cylinder with a small k-effective curve beside
- * it, echoing the k-effective plot shown for statepoints.
+ * Statepoint file: a database cylinder paired with a compact k-effective chart
+ * so the result-file glyph reads as simulation output instead of a plug/wire.
  */
 export const DomainStatepointIcon: React.FC<DomainIconProps> = (props) => (
     <DomainIconSvg {...props}>
-        <ellipse cx="25" cy="16" rx="14" ry="5.5" />
-        <path d="M11 16v30c0 3 6.3 5.5 14 5.5s14-2.5 14-5.5V16" />
-        <path d="M11 31c0 3 6.3 5.5 14 5.5s14-2.5 14-5.5" />
-        <path d="M42 32c3 0 3.5-8 7-8s4 6 7 2" />
-        <circle cx="42" cy="32" r="1.75" />
-        <circle cx="56" cy="26" r="1.75" />
+        <ellipse cx="23" cy="15" rx="13" ry="5" />
+        <path d="M10 15v32c0 2.8 5.8 5 13 5s13-2.2 13-5V15" />
+        <path d="M10 29c0 2.8 5.8 5 13 5s13-2.2 13-5" />
+        <path d="M41 50V32h15" />
+        <path d="M44 45l4-5 4 3 4-7" />
+        <circle cx="56" cy="36" r="1.6" />
     </DomainIconSvg>
 );
 
 /**
- * Tally: a mesh grid with three tally bars of increasing height.
+ * Tally: one clean histogram, not a grid plus a detached bar chart.
  */
 export const DomainTallyIcon: React.FC<DomainIconProps> = (props) => (
     <DomainIconSvg {...props}>
-        <rect x="6" y="9" width="26" height="26" rx="3" />
-        <path d="M14.7 9v26M23.3 9v26M6 17.7h26M6 26.3h26" />
-        <path d="M42 54V42M50 54V36M58 54V28" strokeWidth={4} />
+        <path d="M8 54h48" />
+        <path d="M16 54V38M24 54V28M32 54V42M40 54V20M48 54V32" strokeWidth={4} />
     </DomainIconSvg>
 );
 

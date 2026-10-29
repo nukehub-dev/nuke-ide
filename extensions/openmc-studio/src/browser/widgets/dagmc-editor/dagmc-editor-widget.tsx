@@ -213,7 +213,7 @@ export class DAGMCEditorWidget extends ReactWidget {
         this.title.label = DAGMCEditorWidget.LABEL;
         this.title.caption = DAGMCEditorWidget.LABEL;
         this.title.closable = true;
-        this.title.iconClass = 'codicon codicon-file-code';
+        this.title.iconClass = 'codicon codicon-openmc-mesh';
 
         // Listen to state changes
         this.stateManager.onStateChange(() => {
@@ -445,7 +445,7 @@ export class DAGMCEditorWidget extends ReactWidget {
             <div className="dagmc-editor-header">
                 <div className="header-info">
                     <h2>
-                        <i className="codicon codicon-file-code"></i>
+                        <i className="codicon codicon-openmc-mesh"></i>
                         DAGMC Editor
                     </h2>
                     <p className="header-description">
@@ -495,7 +495,7 @@ export class DAGMCEditorWidget extends ReactWidget {
                     </Tooltip>
                     <Tooltip content="Import CAD/DAGMC file (STEP/IGES/BREP/STL/H5M)" position="bottom">
                         <button className="theia-button secondary" onClick={() => this.importCADFile()}>
-                            <i className="codicon codicon-file-add"></i>
+                            <i className="codicon codicon-openmc-mesh"></i>
                             Import CAD
                         </button>
                     </Tooltip>
@@ -510,9 +510,9 @@ export class DAGMCEditorWidget extends ReactWidget {
      */
     private renderTabs(): React.ReactNode {
         const tabs: { id: EditorTab; label: string; icon: string; count?: number }[] = [
-            { id: 'volumes', label: 'Volumes', icon: 'package', count: this.modelData?.volumeCount },
-            { id: 'materials', label: 'Materials', icon: 'symbol-color', count: Object.keys(this.modelData?.materials || {}).length },
-            { id: 'groups', label: 'Groups', icon: 'folder', count: this.modelData?.groups.length },
+            { id: 'volumes', label: 'Volumes', icon: 'openmc-mesh', count: this.modelData?.volumeCount },
+            { id: 'materials', label: 'Materials', icon: 'openmc-material', count: Object.keys(this.modelData?.materials || {}).length },
+            { id: 'groups', label: 'Groups', icon: 'openmc-universe', count: this.modelData?.groups.length },
             { id: 'overrides', label: 'Overrides', icon: 'arrow-swap' },
             { id: 'properties', label: 'Properties', icon: 'info' },
             { id: 'faceting', label: 'Faceting', icon: 'settings-gear' }
@@ -521,18 +521,20 @@ export class DAGMCEditorWidget extends ReactWidget {
         return (
             <div className="dagmc-editor-tabs">
                 {tabs.map((tab) => (
-                    <button
-                        key={tab.id}
-                        className={`tab-button ${this.activeTab === tab.id ? 'active' : ''}`}
-                        onClick={() => {
-                            this.activeTab = tab.id;
-                            this.update();
-                        }}
-                    >
-                        <i className={`codicon codicon-${tab.icon}`}></i>
-                        {tab.label}
-                        {tab.count !== undefined && tab.count > 0 && <span className="count-badge">{tab.count}</span>}
-                    </button>
+                    <Tooltip key={tab.id} content={tab.label} position="bottom">
+                        <button
+                            className={`tab-button ${this.activeTab === tab.id ? 'active' : ''}`}
+                            aria-label={tab.label}
+                            onClick={() => {
+                                this.activeTab = tab.id;
+                                this.update();
+                            }}
+                        >
+                            <i className={`codicon codicon-${tab.icon}`}></i>
+                            <span className="tab-label">{tab.label}</span>
+                            {tab.count !== undefined && tab.count > 0 && <span className="count-badge">{tab.count}</span>}
+                        </button>
+                    </Tooltip>
                 ))}
             </div>
         );
@@ -574,7 +576,7 @@ export class DAGMCEditorWidget extends ReactWidget {
         if (!this.modelData) {
             return (
                 <div className="dagmc-editor-content empty">
-                    <i className="codicon codicon-file-code"></i>
+                    <i className="codicon codicon-openmc-mesh"></i>
                     <h3>No DAGMC File Loaded</h3>
                     <p className="hint">
                         Open a DAGMC file to view and edit volumes, materials, and groups. You can also load a DAGMC file from the
@@ -635,7 +637,7 @@ export class DAGMCEditorWidget extends ReactWidget {
                 <div className="dagmc-tab-header">
                     <div className="tab-title-group">
                         <h3>
-                            <i className="codicon codicon-package"></i> Volumes
+                            <i className="codicon codicon-openmc-mesh"></i> Volumes
                         </h3>
                         <div className="filter-pills">
                             <button
@@ -742,7 +744,7 @@ export class DAGMCEditorWidget extends ReactWidget {
                 <div className="volume-card-main">
                     <div className="volume-header">
                         <div className="volume-icon">
-                            <i className="codicon codicon-package"></i>
+                            <i className="codicon codicon-openmc-mesh"></i>
                         </div>
                         <div className="volume-info">
                             <div className="volume-id">Volume #{volume.id}</div>
@@ -754,7 +756,7 @@ export class DAGMCEditorWidget extends ReactWidget {
                     </div>
 
                     <div className="volume-material-chip">
-                        <i className="codicon codicon-symbol-color"></i>
+                        <i className="codicon codicon-openmc-material"></i>
                         <span className={`material-name ${volume.material ? '' : 'unassigned'}`}>{volume.material || 'UNASSIGNED'}</span>
                     </div>
                 </div>
@@ -796,7 +798,7 @@ export class DAGMCEditorWidget extends ReactWidget {
             <div className="volume-details-panel">
                 <div className="details-header">
                     <h4>
-                        <i className="codicon codicon-package"></i> Volume #{volume.id}
+                        <i className="codicon codicon-openmc-mesh"></i> Volume #{volume.id}
                     </h4>
                     <button
                         className="close-btn"
@@ -815,7 +817,7 @@ export class DAGMCEditorWidget extends ReactWidget {
                             {this.editingMaterial?.volumeId === volume.id ? (
                                 <div className="material-editor-inline">
                                     <div className="editor-input-wrapper">
-                                        <i className="codicon codicon-symbol-color"></i>
+                                        <i className="codicon codicon-openmc-material"></i>
                                         <input
                                             type="text"
                                             value={this.editingMaterial.newMaterial}
@@ -861,7 +863,7 @@ export class DAGMCEditorWidget extends ReactWidget {
                                 </div>
                             ) : (
                                 <div className={`detail-material ${volume.material ? 'assigned' : 'unassigned'}`}>
-                                    <i className="codicon codicon-symbol-color"></i>
+                                    <i className="codicon codicon-openmc-material"></i>
                                     <span className="material-text">{volume.material || 'No material assigned'}</span>
                                     <Tooltip content="Edit Material" position="top">
                                         <button
@@ -961,7 +963,7 @@ export class DAGMCEditorWidget extends ReactWidget {
             <div className="materials-tab dagmc-tab-content">
                 <div className="dagmc-tab-header">
                     <h3>
-                        <i className="codicon codicon-symbol-color"></i> Materials
+                        <i className="codicon codicon-openmc-material"></i> Materials
                     </h3>
                     <div className="header-actions">
                         <span className="count-badge">{materials.length} Materials</span>
@@ -970,7 +972,7 @@ export class DAGMCEditorWidget extends ReactWidget {
                 <div className="materials-grid">
                     {materials.length === 0 ? (
                         <div className="empty-state-mini">
-                            <i className="codicon codicon-symbol-color"></i>
+                            <i className="codicon codicon-openmc-material"></i>
                             <h3>No Materials Defined</h3>
                             <p className="hint">Assign materials to volumes to see them here.</p>
                         </div>
@@ -988,7 +990,7 @@ export class DAGMCEditorWidget extends ReactWidget {
                                     <div className="material-card-main">
                                         <div className="material-header">
                                             <div className="material-icon">
-                                                <i className="codicon codicon-symbol-color"></i>
+                                                <i className="codicon codicon-openmc-material"></i>
                                             </div>
                                             <div className="material-info">
                                                 <div className="material-name">{name}</div>
@@ -1054,7 +1056,7 @@ export class DAGMCEditorWidget extends ReactWidget {
                 <div className="dagmc-tab-header">
                     <div className="tab-title-group">
                         <h3>
-                            <i className="codicon codicon-folder"></i> Groups
+                            <i className="codicon codicon-openmc-universe"></i> Groups
                         </h3>
                         <button
                             className={`theia-button ${this.showCreateGroup ? 'secondary' : 'primary'} small`}
@@ -1078,7 +1080,7 @@ export class DAGMCEditorWidget extends ReactWidget {
                             <div className="input-group">
                                 <label>New Group Name</label>
                                 <div className="input-wrapper">
-                                    <i className="codicon codicon-folder"></i>
+                                    <i className="codicon codicon-openmc-universe"></i>
                                     <input
                                         type="text"
                                         placeholder="e.g., mat:fuel or boundary:vacuum"
@@ -1116,7 +1118,7 @@ export class DAGMCEditorWidget extends ReactWidget {
                 <div className="groups-grid">
                     {this.modelData.groups.length === 0 ? (
                         <div className="empty-state-mini">
-                            <i className="codicon codicon-folder"></i>
+                            <i className="codicon codicon-openmc-universe"></i>
                             <p>No groups defined in this model</p>
                         </div>
                     ) : (
@@ -1237,39 +1239,41 @@ export class DAGMCEditorWidget extends ReactWidget {
                     <h3>
                         <i className="codicon codicon-symbol-numeric"></i> Per-Cell Overrides
                     </h3>
-                    <table className="override-table">
-                        <thead>
-                            <tr>
-                                <th>Volume</th>
-                                <th>Current Material</th>
-                                <th>Override With</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {this.modelData.volumes.map((volume) => (
-                                <tr key={volume.id}>
-                                    <td>#{volume.id}</td>
-                                    <td>{volume.material || <em>unassigned</em>}</td>
-                                    <td>
-                                        <NukeSelect
-                                            value="__keep__"
-                                            options={[
-                                                { value: '__keep__', label: 'Change...' },
-                                                ...projectMaterials.map((mat) => ({ value: mat.name, label: mat.name })),
-                                                { value: '', label: '(remove assignment)' }
-                                            ]}
-                                            onChange={(value: string) => {
-                                                if (value !== '__keep__') {
-                                                    this.assignMaterial(volume.id, value);
-                                                }
-                                            }}
-                                            ariaLabel="Override material"
-                                        />
-                                    </td>
+                    <div className="table-scroll">
+                        <table className="override-table">
+                            <thead>
+                                <tr>
+                                    <th>Volume</th>
+                                    <th>Current Material</th>
+                                    <th>Override With</th>
                                 </tr>
-                            ))}
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody>
+                                {this.modelData.volumes.map((volume) => (
+                                    <tr key={volume.id}>
+                                        <td>#{volume.id}</td>
+                                        <td>{volume.material || <em>unassigned</em>}</td>
+                                        <td>
+                                            <NukeSelect
+                                                value="__keep__"
+                                                options={[
+                                                    { value: '__keep__', label: 'Change...' },
+                                                    ...projectMaterials.map((mat) => ({ value: mat.name, label: mat.name })),
+                                                    { value: '', label: '(remove assignment)' }
+                                                ]}
+                                                onChange={(value: string) => {
+                                                    if (value !== '__keep__') {
+                                                        this.assignMaterial(volume.id, value);
+                                                    }
+                                                }}
+                                                ariaLabel="Override material"
+                                            />
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
 
                 <div className="settings-section">
@@ -1442,7 +1446,7 @@ export class DAGMCEditorWidget extends ReactWidget {
                 <div className="properties-stats-grid">
                     <div className="stat-card">
                         <div className="stat-icon volumes">
-                            <i className="codicon codicon-package"></i>
+                            <i className="codicon codicon-openmc-mesh"></i>
                         </div>
                         <div className="stat-info">
                             <div className="stat-value">{volumeCount}</div>
@@ -1451,7 +1455,7 @@ export class DAGMCEditorWidget extends ReactWidget {
                     </div>
                     <div className="stat-card">
                         <div className="stat-icon surfaces">
-                            <i className="codicon codicon-layers"></i>
+                            <i className="codicon codicon-openmc-surface"></i>
                         </div>
                         <div className="stat-info">
                             <div className="stat-value">{surfaceCount}</div>
@@ -1469,7 +1473,7 @@ export class DAGMCEditorWidget extends ReactWidget {
                     </div>
                     <div className="stat-card">
                         <div className="stat-icon materials">
-                            <i className="codicon codicon-symbol-color"></i>
+                            <i className="codicon codicon-openmc-material"></i>
                         </div>
                         <div className="stat-info">
                             <div className="stat-value">{Object.keys(materials).length}</div>
@@ -1617,15 +1621,15 @@ export class DAGMCEditorWidget extends ReactWidget {
                             <div className="step-title">Current Model</div>
                             <div className="current-stats-bar">
                                 <div className="stat-pill">
-                                    <i className="codicon codicon-file-code"></i>
+                                    <i className="codicon codicon-openmc-mesh"></i>
                                     <span>{this.modelData.fileName}</span>
                                 </div>
                                 <div className="stat-pill">
-                                    <i className="codicon codicon-package"></i>
+                                    <i className="codicon codicon-openmc-mesh"></i>
                                     <span>{this.modelData.volumeCount} vols</span>
                                 </div>
                                 <div className="stat-pill">
-                                    <i className="codicon codicon-layers"></i>
+                                    <i className="codicon codicon-openmc-surface"></i>
                                     <span>{this.modelData.surfaceCount} surfs</span>
                                 </div>
                                 <div className="stat-pill">
@@ -1702,7 +1706,7 @@ export class DAGMCEditorWidget extends ReactWidget {
                                 </div>
                             ) : (
                                 <div className="source-cad-missing">
-                                    <i className="codicon codicon-file-code"></i>
+                                    <i className="codicon codicon-openmc-mesh"></i>
                                     <span>No source CAD selected</span>
                                     <button className="theia-button secondary" onClick={() => this.browseForSourceCad()}>
                                         <i className="codicon codicon-folder-opened"></i> Browse...

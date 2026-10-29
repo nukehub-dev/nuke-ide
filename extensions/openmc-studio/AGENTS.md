@@ -45,6 +45,11 @@ All files under `extensions/openmc-studio/` except generated artifacts (`lib/`, 
 - Shared widget CSS: `widgets/shared/openmc-widget.css` is the opt-in design system (root gets `openmc-widget` class, accent
   `--theia-focusBorder`, Theia vars only). Dashboard tabs are `DashboardTabContribution`s; new scalar settings belong in the
   Advanced section (`advanced-section.tsx`). See `docs/dev/widget-patterns.md` and `docs/dev/adding-a-widget.md`.
+- Domain chrome uses `codicon-openmc-*` masks from `src/browser/icons/openmc-icon-classes.css`; generic codicons stay for
+  utility actions. Project identity uses the theme-aware `openmc-brand-openmc` mask; DAGMC keeps the mesh icon because
+  upstream has no theme-safe standalone mark. Hover labels use the shared nuke-essentials `Tooltip`, never native
+  `title` attributes. Widget roots set `container-type: inline-size`, narrow layouts use `@container` (tab labels collapse
+  to icon-only, headers wrap, tables scroll), never viewport-only breakpoints.
 - Tally model: extend `scores-catalog.ts` / `filters-catalog.ts`, not the components; per-tally `triggers` auto-emit run-level
   `<trigger><active>true</active>`; `derivative` perturbs a material only (top-level `<derivative>`, tally references by ID).
   See `docs/dev/xml-generation.md`.

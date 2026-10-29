@@ -114,7 +114,7 @@ export class OpenMCToolsContribution implements NukeToolsContribution {
             sectionOrder: 'c',
             categoryOrder: 'b',
             order: 'a',
-            icon: 'layout',
+            icon: 'openmc-geometry',
             description: 'Open the constructive solid geometry builder.'
         });
 
@@ -126,7 +126,7 @@ export class OpenMCToolsContribution implements NukeToolsContribution {
             sectionOrder: 'c',
             categoryOrder: 'b',
             order: 'b',
-            icon: 'server-process',
+            icon: 'openmc-mesh',
             description: 'Open the DAGMC geometry editor.'
         });
 
@@ -139,7 +139,7 @@ export class OpenMCToolsContribution implements NukeToolsContribution {
             sectionOrder: 'c',
             categoryOrder: 'c',
             order: 'a',
-            icon: 'dashboard',
+            iconClass: 'openmc-brand openmc-brand-openmc',
             description: 'Open the simulation dashboard.'
         });
 
@@ -151,7 +151,7 @@ export class OpenMCToolsContribution implements NukeToolsContribution {
             sectionOrder: 'c',
             categoryOrder: 'c',
             order: 'b',
-            icon: 'check',
+            icon: 'openmc-validate',
             description: 'Validate the current OpenMC model.',
             requiresProject: true
         });
@@ -191,7 +191,7 @@ export class OpenMCToolsContribution implements NukeToolsContribution {
             sectionOrder: 'c',
             categoryOrder: 'e',
             order: 'a',
-            icon: 'checklist',
+            icon: 'openmc-tally',
             description: 'Configure simulation tallies.',
             requiresProject: true
         });
@@ -204,7 +204,7 @@ export class OpenMCToolsContribution implements NukeToolsContribution {
             sectionOrder: 'c',
             categoryOrder: 'e',
             order: 'b',
-            icon: 'history',
+            icon: 'openmc-depletion',
             description: 'Open the depletion analysis dashboard.',
             requiresProject: true
         });
@@ -217,7 +217,7 @@ export class OpenMCToolsContribution implements NukeToolsContribution {
             sectionOrder: 'c',
             categoryOrder: 'e',
             order: 'c',
-            icon: 'filter',
+            icon: 'openmc-variance',
             description: 'Configure variance reduction settings.',
             requiresProject: true
         });
@@ -243,7 +243,7 @@ export class OpenMCToolsContribution implements NukeToolsContribution {
             sectionOrder: 'c',
             categoryOrder: 'e',
             order: 'e',
-            icon: 'rocket',
+            icon: 'openmc-optimize',
             description: 'Open the optimization study widget.'
         });
 
@@ -255,7 +255,7 @@ export class OpenMCToolsContribution implements NukeToolsContribution {
             sectionOrder: 'c',
             categoryOrder: 'e',
             order: 'f',
-            icon: 'symbol-ruler',
+            icon: 'openmc-volume',
             description: 'Open the stochastic volume calculation widget.',
             requiresProject: true
         });
@@ -268,7 +268,7 @@ export class OpenMCToolsContribution implements NukeToolsContribution {
             sectionOrder: 'c',
             categoryOrder: 'e',
             order: 'g',
-            icon: 'graph',
+            icon: 'openmc-plot',
             description: 'Open the native OpenMC plotting widget.'
         });
 
@@ -280,7 +280,7 @@ export class OpenMCToolsContribution implements NukeToolsContribution {
             sectionOrder: 'c',
             categoryOrder: 'e',
             order: 'h',
-            icon: 'circuit-board',
+            icon: 'openmc-mgxs',
             description: 'Open the multi-group cross-section generator.',
             requiresProject: true
         });

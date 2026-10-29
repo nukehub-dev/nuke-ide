@@ -48,7 +48,7 @@ export namespace OpenMCSimulationCommands {
         id: 'openmc.simulation.run',
         category: CATEGORY,
         label: 'Run Simulation',
-        iconClass: 'codicon codicon-play'
+        iconClass: 'codicon codicon-openmc-run'
     };
 
     /** Stop an actively running OpenMC simulation. */
@@ -64,7 +64,7 @@ export namespace OpenMCSimulationCommands {
         id: 'openmc.simulation.validate',
         category: CATEGORY,
         label: 'Validate Model',
-        iconClass: 'codicon codicon-check'
+        iconClass: 'codicon codicon-openmc-validate'
     };
 
     /** Generate OpenMC XML input files from the current model. */

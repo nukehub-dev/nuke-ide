@@ -166,7 +166,7 @@ export class SimulationComparisonWidget extends ReactWidget {
         this.title.label = SimulationComparisonWidget.LABEL;
         this.title.caption = SimulationComparisonWidget.LABEL;
         this.title.closable = true;
-        this.title.iconClass = 'codicon codicon-git-compare';
+        this.title.iconClass = 'codicon codicon-openmc-compare';
         this.update();
     }
 
@@ -208,7 +208,7 @@ export class SimulationComparisonWidget extends ReactWidget {
             <div className="comparison-header">
                 <div className="header-info">
                     <h2>
-                        <i className="codicon codicon-git-compare"></i>
+                        <i className="codicon codicon-openmc-compare"></i>
                         Simulation Comparison
                     </h2>
                     <p className="header-description">{description}</p>
@@ -259,37 +259,39 @@ export class SimulationComparisonWidget extends ReactWidget {
         const hasEigenvalue = this.statepoints.some((s) => s.loaded && s.kEff);
         const hasDepletion = this.depletionResults.size > 0;
 
-        const tabs: { id: ComparisonTab; label: string; icon: string }[] = [{ id: 'overview', label: 'Overview', icon: 'preview' }];
+        const tabs: { id: ComparisonTab; label: string; icon: string }[] = [{ id: 'overview', label: 'Overview', icon: 'openmc-compare' }];
 
         if (hasEigenvalue) {
-            tabs.push({ id: 'keff', label: 'k-effective', icon: 'symbol-numeric' });
+            tabs.push({ id: 'keff', label: 'k-effective', icon: 'openmc-atom' });
         }
 
-        tabs.push({ id: 'tallies', label: 'Tallies', icon: 'graph' });
+        tabs.push({ id: 'tallies', label: 'Tallies', icon: 'openmc-tally' });
 
         if (hasEigenvalue) {
             tabs.push({ id: 'statistics', label: 'Statistics', icon: 'pie-chart' });
-            tabs.push({ id: 'convergence', label: 'Convergence', icon: 'history' });
+            tabs.push({ id: 'convergence', label: 'Convergence', icon: 'openmc-plot' });
         }
 
         if (hasDepletion) {
-            tabs.push({ id: 'burnup', label: 'Burnup', icon: 'flame' });
+            tabs.push({ id: 'burnup', label: 'Burnup', icon: 'openmc-depletion' });
         }
 
         return (
             <div className="comparison-tabs">
                 {tabs.map((tab) => (
-                    <button
-                        key={tab.id}
-                        className={`tab-button ${this.activeTab === tab.id ? 'active' : ''}`}
-                        onClick={() => {
-                            this.activeTab = tab.id;
-                            this.update();
-                        }}
-                    >
-                        <i className={`codicon codicon-${tab.icon}`}></i>
-                        {tab.label}
-                    </button>
+                    <Tooltip key={tab.id} content={tab.label} position="bottom">
+                        <button
+                            className={`tab-button ${this.activeTab === tab.id ? 'active' : ''}`}
+                            aria-label={tab.label}
+                            onClick={() => {
+                                this.activeTab = tab.id;
+                                this.update();
+                            }}
+                        >
+                            <i className={`codicon codicon-${tab.icon}`}></i>
+                            <span className="tab-label">{tab.label}</span>
+                        </button>
+                    </Tooltip>
                 ))}
             </div>
         );
@@ -317,7 +319,7 @@ export class SimulationComparisonWidget extends ReactWidget {
                 <div className="comparison-content empty-dashboard">
                     <div className="welcome-section">
                         <div className="welcome-icon">
-                            <i className="codicon codicon-git-compare"></i>
+                            <i className="codicon codicon-openmc-compare"></i>
                         </div>
                         <h3>Simulation Comparison & Analysis</h3>
                         <p>Select your simulation output files to begin side-by-side comparison and statistical analysis.</p>
@@ -326,7 +328,7 @@ export class SimulationComparisonWidget extends ReactWidget {
                     <div className="get-started-grid">
                         <div className="start-card" onClick={() => this.openAddDialog()}>
                             <div className="card-icon statepoint">
-                                <i className="codicon codicon-database"></i>
+                                <i className="codicon codicon-openmc-statepoint"></i>
                             </div>
                             <div className="card-content">
                                 <h4>Statepoint Files</h4>
@@ -339,7 +341,7 @@ export class SimulationComparisonWidget extends ReactWidget {
 
                         <div className="start-card" onClick={() => this.openAddDepletionDialog()}>
                             <div className="card-icon depletion">
-                                <i className="codicon codicon-flame"></i>
+                                <i className="codicon codicon-openmc-depletion"></i>
                             </div>
                             <div className="card-content">
                                 <h4>Depletion Results</h4>
@@ -1402,17 +1404,18 @@ export class SimulationComparisonWidget extends ReactWidget {
                             >
                                 <i className="codicon codicon-graph-line"></i> Nuclides
                             </button>
-                            <button
-                                className={`theia-button secondary small ${this.burnupPlotType === 'keff' ? 'active' : ''}`}
-                                onClick={() => {
-                                    this.burnupPlotType = 'keff';
-                                    this.update();
-                                }}
-                                disabled={!data.keff}
-                                title={!data.keff ? 'No k-effective data available' : ''}
-                            >
-                                <i className="codicon codicon-pulse"></i> k-effective
-                            </button>
+                            <Tooltip content={!data.keff ? 'No k-effective data available' : 'Plot k-effective'} position="top">
+                                <button
+                                    className={`theia-button secondary small ${this.burnupPlotType === 'keff' ? 'active' : ''}`}
+                                    onClick={() => {
+                                        this.burnupPlotType = 'keff';
+                                        this.update();
+                                    }}
+                                    disabled={!data.keff}
+                                >
+                                    <i className="codicon codicon-pulse"></i> k-effective
+                                </button>
+                            </Tooltip>
                         </div>
                     </div>
 

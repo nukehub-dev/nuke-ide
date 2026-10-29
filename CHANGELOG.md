@@ -240,6 +240,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - openmc-studio: random ray support with dashboard tab, MGXS generator window, and FW-CADIS weight-window generation.
 - openmc-studio: DAGMC material overrides plus auto ID toggles and sync-for-depletion.
 - openmc-studio: single-particle restart runs with track capture and post-run track handoff.
+- openmc-studio: domain icons replace generic codicons in widget titles, dashboard tabs, Nuke Tools rows, section headers, and empty states.
+- openmc-studio: dashboard header uses a theme-aware OpenMC mark; tally and depletion icons are redrawn as a bar-with-error and a decay curve.
 - Testing: Playwright UI smoke suite (`yarn test:ui`) covering boot, dashboard tabs, project flow, and windows in weekly CI.
 - Testing: weekly upstream-OpenMC-develop CI lane with the Python suite on a cached conda full profile.
 - Testing: end-to-end layer running real OpenMC drivers and project-file fixtures, env-gated and skipping cleanly otherwise.
@@ -279,6 +281,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-visualizer: Dataset Inspector tables add sticky row numbers/headers, hover rows, an Association label, and grouped row counts.
 - nuke-visualizer: viewer tab titles drop the redundant Native prefix (DAGMC, VTK, Tally, Geometry, and Exodus viewers).
 - nuke-visualizer: Viewer Settings rows keep full labels in narrow sidebars, section badges are plain integers, and categorical color modes hide scalar-only controls; DAGMC Outline mirrors the CAD header and 24 px row treatment.
+- nuke-visualizer: statepoint and tally empty-state illustrations now pair a database with a k-eff chart and use one histogram; tally, statepoint, and overlap title/command/Nuke Tools icons match.
+- openmc-studio: dashboard, geometry, tally, optimization, and comparison windows reflow to narrow editor panels with wrapping headers, icon-only scrollable tabs, stacked forms, and scrolling result tables.
+- openmc-studio: collapsed tab labels use the shared nuke-essentials tooltip instead of native title hints.
 
 ### Removed
 
@@ -461,6 +466,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-visualizer: headless command failures return one JSON error without tracebacks, and every registered command has a CLI help contract.
 - nukelab-integration: expired server tokens re-mint silently so file transfers never hang on Preparing download.
 - openmc-studio: DAGMC universes sync before CoupledOperator creation so coupled depletion runs.
+- openmc-studio: surface template cards fill the gallery column and empty-state glyphs sit centered in their cards.
+- openmc-studio: dashboard tab labels no longer overlap in crowded rows; icon-only collapse engages before the row clips.
+- openmc-studio: simulation action buttons wrap instead of clipping their labels, and the DAGMC cube icon is redrawn with a clean shaded face.
 - openmc-studio: FW-CADIS generation validated against random-ray mode; repeat CAD conversions stop duplicating graveyards.
 - openmc-studio: nuclide-wise MGXS with random-ray sets the energy mode directly instead of via the rejecting converter.
 - openmc-studio: run output directory excluded from the file watcher to stop file-manager lag.

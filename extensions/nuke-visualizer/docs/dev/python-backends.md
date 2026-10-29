@@ -44,9 +44,10 @@ Commands are plain functions decorated with `@command` and `@arg`:
 from nuke_viz.plugin import command, arg
 import json
 
-@command('myplugin.greet', help='Say hello')
-@arg('name', help='Who to greet')
-@arg('--loud', action='store_true', help='Use uppercase')
+
+@command("myplugin.greet", help="Say hello")
+@arg("name", help="Who to greet")
+@arg("--loud", action="store_true", help="Use uppercase")
 def cmd_greet(args):
     message = f"Hello, {args.name}!"
     if args.loud:
@@ -70,13 +71,12 @@ def cmd_greet(args):
 Python evaluates decorators **bottom-up**, so declare positional arguments **top-down**:
 
 ```python
-@command('openmc.spectrum', help='Get energy spectrum data')
-@arg('statepoint', help='Path to statepoint file')      # first positional
-@arg('tally_id', type=int, help='Tally ID')             # second positional
-@arg('--score-index', help='Score index')               # optional flag
-@arg('--nuclide-index', help='Nuclide index')           # optional flag
-def cmd_spectrum(args):
-    ...
+@command("openmc.spectrum", help="Get energy spectrum data")
+@arg("statepoint", help="Path to statepoint file")  # first positional
+@arg("tally_id", type=int, help="Tally ID")  # second positional
+@arg("--score-index", help="Score index")  # optional flag
+@arg("--nuclide-index", help="Nuclide index")  # optional flag
+def cmd_spectrum(args): ...
 ```
 
 This produces `usage: server.py openmc.spectrum statepoint tally_id [--score-index ...]`.
@@ -122,11 +122,11 @@ If a command module requires heavy dependencies (e.g., `openmc`, `vtk`), wrap im
 
 ```python
 # python/plugins/openmc/plugin.py
-_COMMAND_MODULES = ['basic', 'spectrum', 'geometry', ...]
+_COMMAND_MODULES = ["basic", "spectrum", "geometry", ...]
 
 for mod_name in _COMMAND_MODULES:
     try:
-        __import__(f'plugins.openmc.commands.{mod_name}')
+        __import__(f"plugins.openmc.commands.{mod_name}")
     except Exception as e:
         print(f"[OpenMC Plugin] '{mod_name}' not loaded: {e}", file=sys.stderr)
 ```
@@ -141,10 +141,12 @@ Commands run, print JSON, and exit. Nothing binds a port and nothing serves HTTP
 # python/plugins/base/commands/convert.py
 from nuke_viz.plugin import command, arg
 
-@command('base.convert-step', help='Convert STEP to VTK')
-@arg('--file', required=True, help='Input file path')
+
+@command("base.convert-step", help="Convert STEP to VTK")
+@arg("--file", required=True, help="Input file path")
 def cmd_convert_step(args):
     from plugins.base.lib.step import convert_step_to_vtk_cached
+
     result = convert_step_to_vtk_cached(args.file)
     print(json.dumps(result))
     return 0
@@ -181,8 +183,8 @@ python server.py base.convert-gmsh --file /path/to/mesh.msh
 Everything printed to stdout is streamed to the IDE's output channel:
 
 ```python
-print("Loading mesh...")        # Appears in output channel
-print(f"Result: {data}")        # Appears in output channel
+print("Loading mesh...")  # Appears in output channel
+print(f"Result: {data}")  # Appears in output channel
 ```
 
 ### Structured Warnings
@@ -191,6 +193,7 @@ To show a warning toast in the IDE, use the framework helper or print manually:
 
 ```python
 from nuke_viz.logging import warning
+
 warning("Tally mesh does not align with geometry", warning_type="spatial_warning")
 ```
 
@@ -198,6 +201,7 @@ Or print directly:
 
 ```python
 import json
+
 print(f"NUKE_IDE_WARNING:{json.dumps({'type': 'spatial_warning', 'message': '...'})}")
 ```
 
@@ -209,6 +213,7 @@ Print to stderr and exit non-zero:
 
 ```python
 import sys
+
 print("Failed to load HDF5 file", file=sys.stderr)
 sys.exit(1)
 ```
@@ -235,6 +240,7 @@ In Python, verify the file exists before opening:
 
 ```python
 import os
+
 if not os.path.exists(file_path):
     print(f"File not found: {file_path}", file=sys.stderr)
     sys.exit(1)
@@ -360,10 +366,12 @@ Format conversion (e.g., DAGMC → VTK, STEP → VTK, Gmsh → VTK) is implement
 from nuke_viz.plugin import command, arg
 import json
 
-@command('base.convert-step', help='Convert STEP to VTK')
-@arg('--file', required=True, help='Input file path')
+
+@command("base.convert-step", help="Convert STEP to VTK")
+@arg("--file", required=True, help="Input file path")
 def cmd_convert_step(args):
     from plugins.base.lib.step import convert_step_to_vtk_cached
+
     result = convert_step_to_vtk_cached(args.file)
     print(json.dumps(result))
     return 0

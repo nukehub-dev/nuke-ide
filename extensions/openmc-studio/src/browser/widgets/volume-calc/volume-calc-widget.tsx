@@ -86,7 +86,7 @@ export class VolumeCalcWidget extends ReactWidget {
         this.title.label = VolumeCalcWidget.LABEL;
         this.title.caption = VolumeCalcWidget.LABEL;
         this.title.closable = true;
-        this.title.iconClass = 'codicon codicon-symbol-ruler';
+        this.title.iconClass = 'codicon codicon-openmc-volume';
 
         this.stateManager.onStateChange(() => this.update());
         this.stateManager.onStateReload(() => this.update());
@@ -276,7 +276,7 @@ export class VolumeCalcWidget extends ReactWidget {
                 <div className="openmc-header">
                     <div className="header-info">
                         <h2>
-                            <i className="codicon codicon-symbol-ruler"></i>
+                            <i className="codicon codicon-openmc-volume"></i>
                             Volume Calculation
                         </h2>
                         <p className="header-description">Stochastic volume estimation for cells, materials, and universes</p>
@@ -307,7 +307,7 @@ export class VolumeCalcWidget extends ReactWidget {
                 <div className="volume-calc-body">
                     <div className="settings-section">
                         <h3>
-                            <i className="codicon codicon-symbol-ruler"></i> Domains
+                            <i className="codicon codicon-openmc-volume"></i> Domains
                         </h3>
                         <div className="form-row">
                             <div className="form-group">
@@ -342,7 +342,7 @@ export class VolumeCalcWidget extends ReactWidget {
                         </div>
                         {domains.length === 0 ? (
                             <div className="empty-state">
-                                <i className="codicon codicon-info"></i>
+                                <i className="codicon codicon-openmc-volume"></i>
                                 <p>No {this.domainType}s defined in the current model.</p>
                             </div>
                         ) : (
@@ -446,33 +446,35 @@ export class VolumeCalcWidget extends ReactWidget {
                     {this.results && (
                         <div className="settings-section">
                             <h3>
-                                <i className="codicon codicon-table"></i> Results
+                                <i className="codicon codicon-openmc-volume"></i> Results
                             </h3>
-                            <table className="volume-results-table">
-                                <thead>
-                                    <tr>
-                                        <th>Domain</th>
-                                        <th>Volume (cm³)</th>
-                                        <th>± σ</th>
-                                        <th>Atoms Estimate</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {this.results.map((r) => {
-                                        const totalAtoms = Object.values(r.atoms ?? {}).reduce((sum, a) => sum + a.value, 0);
-                                        return (
-                                            <tr key={r.id}>
-                                                <td>
-                                                    {this.domainType} #{r.id}
-                                                </td>
-                                                <td>{r.volume.toExponential(6)}</td>
-                                                <td>{r.stdDev.toExponential(3)}</td>
-                                                <td>{totalAtoms > 0 ? totalAtoms.toExponential(4) : '—'}</td>
-                                            </tr>
-                                        );
-                                    })}
-                                </tbody>
-                            </table>
+                            <div className="table-scroll">
+                                <table className="volume-results-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Domain</th>
+                                            <th>Volume (cm³)</th>
+                                            <th>± σ</th>
+                                            <th>Atoms Estimate</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {this.results.map((r) => {
+                                            const totalAtoms = Object.values(r.atoms ?? {}).reduce((sum, a) => sum + a.value, 0);
+                                            return (
+                                                <tr key={r.id}>
+                                                    <td>
+                                                        {this.domainType} #{r.id}
+                                                    </td>
+                                                    <td>{r.volume.toExponential(6)}</td>
+                                                    <td>{r.stdDev.toExponential(3)}</td>
+                                                    <td>{totalAtoms > 0 ? totalAtoms.toExponential(4) : '—'}</td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
                             {this.domainType === 'material' && (
                                 <button className="theia-button primary" onClick={() => this.adoptVolumes()}>
                                     <i className="codicon codicon-check"></i> Adopt Volumes into Materials
