@@ -181,6 +181,22 @@ python server.py base.convert-gmsh --file /path/to/mesh.msh
 
 ---
 
+## Analysis Commands
+
+The statepoint reader (`openmc.statepoint-info`) carries the Shannon-entropy history (`entropy`), CMFD entropy (`cmfdEntropy`, read from `cmfd/entropy` with a `cmfd_entropy` fallback), the CMFD solver start batch, and `nInactive`/`nBatches`. The statepoint viewer renders entropy only from these fields.
+
+Depletion analysis commands reuse `openmc.deplete.Results` and `openmc.Material`:
+
+| Command                           | Output                                                              |
+| --------------------------------- | ------------------------------------------------------------------- |
+| `openmc.depletion-contact-dose`   | Total and per-nuclide contact dose rates for every state            |
+| `openmc.depletion-decay-spectrum` | Discrete decay lines / continuous components at one time index      |
+| `openmc.dose-coefficients`        | ICRP-74 / ICRP-116 reference table + available particles/geometries |
+
+The helpers live in `python/plugins/openmc/lib/depletion_analysis.py` (contact dose and spectrum shaping) and `commands/nuclear_data.py` (dose coefficients). The commands resolve the chain from `--chain-file`, then `OPENMC_CHAIN_FILE`, then `openmc.config['chain_file']`; a missing chain is a clean JSON error because decay-photon data is chain-backed. Chain file paths and unit strings are carried in the JSON response, never inferred in the UI.
+
+---
+
 ## Logging & Warnings
 
 ### Standard Output

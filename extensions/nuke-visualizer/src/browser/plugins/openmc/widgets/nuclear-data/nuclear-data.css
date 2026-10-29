@@ -9,6 +9,7 @@
     overflow: hidden;
     background: var(--theia-editor-background);
     color: var(--theia-foreground);
+    container-type: inline-size;
 }
 
 /* Header */
@@ -496,4 +497,176 @@
 .nuclear-data-widget .endf-detail-table th.numeric,
 .nuclear-data-widget .endf-detail-table td.numeric {
     text-align: right;
+}
+
+/* Dose-coefficient reference tab */
+.dose-tab {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 12px;
+    min-height: 0;
+    overflow: auto;
+}
+
+.dose-toolbar {
+    display: flex;
+    align-items: flex-end;
+    flex-wrap: wrap;
+    gap: 10px 14px;
+    padding: 8px 10px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-sideBar-background);
+}
+
+.dose-toolbar-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+
+.dose-toolbar-label {
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+    white-space: nowrap;
+}
+
+.dose-scale-toggle {
+    margin-left: auto;
+}
+
+.dose-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.dose-summary {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.dose-summary-card {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 9px 11px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-sideBar-background);
+    font-size: 11px;
+}
+
+.dose-summary-card span {
+    color: var(--theia-descriptionForeground);
+}
+
+.dose-summary-card strong {
+    font-size: 13px;
+}
+
+.dose-chart {
+    min-height: 300px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editor-background);
+    padding: 4px;
+}
+
+.dose-table-card {
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.dose-table-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 8px 10px;
+    background: var(--theia-sideBar-background);
+    border-bottom: 1px solid var(--theia-panel-border);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.dose-table-scroll {
+    max-height: 280px;
+    overflow: auto;
+}
+
+.dose-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.dose-table th,
+.dose-table td {
+    padding: 5px 10px;
+    text-align: left;
+    border-bottom: 1px solid var(--theia-panel-border);
+    white-space: nowrap;
+}
+
+.dose-table th {
+    position: sticky;
+    top: 0;
+    background: var(--theia-sideBar-background);
+}
+
+.dose-table .numeric {
+    text-align: right;
+    font-family: var(--theia-code-font-family);
+}
+
+.dose-loading {
+    min-height: 260px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    color: var(--theia-descriptionForeground);
+    font-size: 12px;
+}
+
+.dose-muted {
+    color: var(--theia-descriptionForeground);
+    font-weight: 400;
+}
+
+.dose-caveat {
+    margin: 0;
+    color: var(--theia-descriptionForeground);
+    font-size: 11px;
+    line-height: 1.45;
+}
+
+@container (max-width: 720px) {
+    .dose-toolbar {
+        align-items: stretch;
+    }
+
+    .dose-toolbar-group {
+        flex: 1 1 160px;
+    }
+
+    .dose-scale-toggle {
+        margin-left: 0;
+    }
+
+    .dose-summary {
+        grid-template-columns: 1fr;
+    }
+
+    .dose-chart {
+        min-height: 250px;
+    }
 }

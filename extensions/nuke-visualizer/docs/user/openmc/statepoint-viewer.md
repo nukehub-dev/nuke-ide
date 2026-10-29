@@ -23,7 +23,7 @@ Press `Ctrl+Shift+P`, type **"View Statepoint"**, and select a file.
 
 ## Viewer Layout
 
-The Statepoint Viewer is organized into tabs: **Overview** (run configuration), **K-Effective** (convergence), **Kinetics (IFP)** (only for statepoints with IFP tallies), **Tallies**, and **Performance** (runtime breakdown).
+The Statepoint Viewer is organized into tabs: **Overview** (run configuration), **K-Effective** (convergence), **Entropy** (Shannon-entropy convergence), **Kinetics (IFP)** (only for statepoints with IFP tallies), **Tallies**, and **Performance** (runtime breakdown).
 
 ### Simulation Metadata
 
@@ -153,6 +153,21 @@ A line chart is shown at the top of the viewer:
   - Cumulative mean ± 2σ (shaded confidence band)
 
 This helps you judge whether the simulation reached convergence.
+
+---
+
+## Entropy Convergence
+
+The **Entropy** tab plots the Shannon entropy of the fission source per batch when the run had an entropy mesh. It shows:
+
+- the entropy history with a vertical marker at the end of the inactive batches,
+- the final entropy in bits,
+- the change over the last active batches and a trend hint (stable or still changing),
+- a **CMFD entropy** toggle when the statepoint also contains CMFD entropy history (CMFD entropy starts at the CMFD solver batch).
+
+Entropy is a source-convergence diagnostic, not a tally convergence test. A stable entropy trace is a useful hint, but confirm convergence with k-effective and tally statistics.
+
+If the statepoint has no entropy history, the tab explains that an entropy mesh was not configured and links to the Simulation Dashboard's Convergence settings. Fixed-source runs do not produce entropy.
 
 ---
 

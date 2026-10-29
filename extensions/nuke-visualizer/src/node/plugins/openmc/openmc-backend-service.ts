@@ -52,6 +52,11 @@ import {
     OpenMCKineticsResult,
     OpenMCVtkFileInfo,
     OpenMCParticleRestart,
+    DepletionDoseQuantity,
+    OpenMCDepletionContactDoseResult,
+    OpenMCDepletionDecaySpectrumResult,
+    DoseCoefficientsRequest,
+    DoseCoefficientsResult,
     NuclearDataLibraryRequest,
     NuclearDataLibraryResult,
     NuclideDetailRequest,
@@ -315,6 +320,24 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
         return this.depletionService.getDepletionData(filePath, materialIndex, nuclides, includeActivity);
     }
 
+    async getDepletionContactDose(
+        filePath: string,
+        materialIndex: number,
+        doseQuantity: DepletionDoseQuantity,
+        buildUp: number,
+        byNuclide: boolean
+    ): Promise<OpenMCDepletionContactDoseResult> {
+        return this.depletionService.getContactDose(filePath, materialIndex, doseQuantity, buildUp, byNuclide);
+    }
+
+    async getDepletionDecaySpectrum(
+        filePath: string,
+        materialIndex: number,
+        timeIndex: number
+    ): Promise<OpenMCDepletionDecaySpectrumResult> {
+        return this.depletionService.getDecaySpectrum(filePath, materialIndex, timeIndex);
+    }
+
     // === Geometry Hierarchy Viewer ===
 
     async getGeometryHierarchy(filePath: string): Promise<any> {
@@ -451,6 +474,10 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
 
     async getNuclideDetail(request: NuclideDetailRequest): Promise<NuclideDetailResult> {
         return this.outputService.getNuclideDetail(request);
+    }
+
+    async getDoseCoefficients(request: DoseCoefficientsRequest): Promise<DoseCoefficientsResult> {
+        return this.outputService.getDoseCoefficients(request);
     }
 
     async getNCrystalMaterials(request: NCrystalMaterialsRequest): Promise<NCrystalMaterialsResult> {

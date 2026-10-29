@@ -78,6 +78,13 @@ All files under `extensions/nuke-visualizer/` except generated artifacts (`lib/`
   `openmc-studio/python/derive_tallies.py` through nuke-core, and renders mean/std with a DERIVED badge
   (bins/plot/CSV/comparison). Definitions are analysis-only and never enter simulation XML/Python; keep the
   viewer free of OpenMC Studio TS imports. See `docs/user/openmc/statepoint-viewer.md`.
+- Entropy convergence: `openmc.statepoint-info` returns `entropy`, `cmfdEntropy` (HDF5 `cmfd/entropy`, with a
+  `cmfd_entropy` fallback), `cmfdEntropyStartBatch`, and `nInactive`/`nBatches`; the Entropy tab owns the
+  inactive marker and the trend hint. Never infer convergence from k alone.
+- Depletion analysis: `openmc.depletion-contact-dose` / `openmc.depletion-decay-spectrum` reuse
+  `openmc.deplete.Results` + `openmc.Material` (no duplicated physics); chain resolution is
+  `--chain-file` → `OPENMC_CHAIN_FILE` → `openmc.config`. Units live in labels and JSON (`Gy/h`, `Sv/h`, `Bq`).
+  See `docs/user/openmc/depletion.md`.
 - Comparison workspace (`viewer-core/comparison-session.ts`, `comparison-layout.ts`,
   `visualizer-comparison-contribution.ts`) groups already-open or browsed native/DAGMC viewers into split panes;
   four panes use a 2x2 grid, camera links apply direction only across files, and the shared range is the union of
@@ -96,8 +103,10 @@ All files under `extensions/nuke-visualizer/` except generated artifacts (`lib/`
   `*voxel*.h5`/`plot_*.h5` → random-ray widget; plain random-ray `.vtk` opens only via `openmc.open-random-ray-results`.
 - Kinetics IFP results stay in the statepoint viewer (no registry entry): conditional tab via
   `kinetics-utils.ts::hasIfpTallies`, lazy-loading `openmc.kinetics`; see `docs/dev/output-viewers.md`.
-- Nuclear Data browser (`widgets/nuclear-data/`) covers the cross_sections.xml library plus the NCrystal tab
-  (`ncrystal-materials/info/xs`, optional dep) and the ENDF tab (`endf-evaluations/detail`, `nuke.endfLibrary` pref).
+- Nuclear Data browser (`widgets/nuclear-data/`) covers the cross_sections.xml library, the read-only ICRP-74/116
+  dose-coefficient tab (`openmc.dose-coefficients`; particle/geometry availability comes from OpenMC's table
+  catalog), the NCrystal tab (`ncrystal-materials/info/xs`, optional dep), and the ENDF tab
+  (`endf-evaluations/detail`, `nuke.endfLibrary` pref).
 - Shared HDF5 readers live in `python/plugins/openmc/lib/output_readers.py` (pure JSON-safe dicts, `OutputReaderError`,
   limits/decimation server-side); see `docs/dev/output-viewers.md`.
 - 3D navigation is `viewer-core/orbit-controls.ts` OrbitControls only (`ORBIT_DAMPING_FACTOR`,

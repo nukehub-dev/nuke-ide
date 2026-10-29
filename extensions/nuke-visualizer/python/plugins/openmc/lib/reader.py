@@ -1279,14 +1279,15 @@ class OpenMCDepletionReader:
             else:
                 n_materials = 0
 
-            # Get time data - depletion time is in seconds
-            # Use 'time' dataset which has [start, end] in days for each step
+            # Get time data - the 'time' dataset holds [start, end] in seconds
+            # per state. Use the beginning-of-step value (OpenMC's own Results
+            # convention), so step 0 is t=0 and the final state keeps the run's
+            # last time instead of duplicating the previous end.
             if "time" in f:
-                time_data = f["time"][()]  # Shape: (n_steps, 2) - [start, end] days
+                time_data = f["time"][()]  # Shape: (n_states, 2) - [start, end] seconds
                 n_steps = time_data.shape[0]
-                # Use end time of each step
-                time_days = time_data[:, 1].tolist()
-                time_seconds = [t * 24 * 3600 for t in time_days]
+                time_seconds = time_data[:, 0].tolist()
+                time_days = [t / (24 * 3600) for t in time_seconds]
             elif "depletion time" in f:
                 # Fallback to depletion time in seconds
                 dep_time = f["depletion time"][()]

@@ -132,6 +132,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-core: Nuke Tools sidebar aggregates every Nuke command in a searchable, categorized, state-aware left-panel view.
 - nuke-essentials: shared UI components (dialog, toolbar, empty state, loading overlay, panel, form layout) on the theme module.
 - nuke-essentials + nuke-visualizer + nuke-cad: shared viewer chrome (orientation cube, nav bar, view badge, status line) in all 3D views.
+- nuke-visualizer: OpenMC analysis adds entropy convergence, photon contact dose, decay-photon spectra, and an ICRP dose-coefficient reference tab.
 - nuke-visualizer: ParaView-style color mapping with a 34-preset library, custom range, invert/log toggles, and component selection.
 - nuke-visualizer: native 3D output viewers (tracks, collision-track, weight-windows, voxel) render in-IDE with instant color-by.
 - nuke-visualizer: native tally, source, overlay/slice, `geometry.xml`, and multiblock viewers with clip and pick sync.
@@ -436,6 +437,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-essentials: stretched-wrapper tooltips track their control across scroll and resize.
 - nuke-essentials + nuke-visualizer: shared checkbox/slider/search/switch/badge controls used by viewer sidebars and outline panels.
 - nuke-essentials + nuke-visualizer + openmc-studio + nuke-cad: shared NukeSelect replaces all builtin selects so dropdowns never clip.
+- nuke-visualizer: depletion time axes start at the initial state and report days from OpenMC's seconds-based results.
 - nuke-visualizer: DAGMC Outline always binds on viewer open instead of sitting empty.
 - nuke-visualizer: Dataset Inspector binds DAGMC viewers and aggregates all volume-block arrays, tables, and area integrals.
 - nuke-visualizer: Plotly charts follow the active light/dark theme, including axis, legend, and toolbar colors.

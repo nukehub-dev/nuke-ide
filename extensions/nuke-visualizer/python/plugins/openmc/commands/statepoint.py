@@ -43,6 +43,9 @@ def cmd_statepoint_info(args):
                 "kColAbs": None,
                 "kColTra": None,
                 "kAbsTra": None,
+                "entropy": None,
+                "cmfdEntropy": None,
+                "cmfdEntropyStartBatch": None,
                 "nSourceParticles": 0,
                 "hasSourceBank": False,
                 "runtime": {},
@@ -117,6 +120,31 @@ def cmd_statepoint_info(args):
                 result["kColTra"] = float(f["k_col_tra"][()])
             if "k_abs_tra" in f:
                 result["kAbsTra"] = float(f["k_abs_tra"][()])
+
+            # Shannon entropy is written only when an entropy mesh is configured.
+            if "entropy" in f:
+                entropy = f["entropy"][...]
+                if getattr(entropy, "size", 0) > 0:
+                    result["entropy"] = [float(value) for value in entropy.flat]
+
+            # CMFD writes its entropy history under `cmfd/entropy`; older/hand-
+            # written files may use `cmfd/cmfd_entropy`, so accept both.
+            if "cmfd" in f:
+                cmfd_group = f["cmfd"]
+                cmfd_on = cmfd_group.attrs.get("cmfd_on", True)
+                if bool(cmfd_on):
+                    for key in ("entropy", "cmfd_entropy"):
+                        if key in cmfd_group:
+                            cmfd_entropy = cmfd_group[key][...]
+                            if getattr(cmfd_entropy, "size", 0) > 0:
+                                result["cmfdEntropy"] = [
+                                    float(value) for value in cmfd_entropy.flat
+                                ]
+                                break
+                    if result["cmfdEntropy"] is not None:
+                        solver_begin = cmfd_group.attrs.get("solver_begin")
+                        if solver_begin is not None:
+                            result["cmfdEntropyStartBatch"] = int(solver_begin)
 
             # Source bank
             if "source_bank" in f:

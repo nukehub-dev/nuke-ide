@@ -250,3 +250,65 @@ def test_data_api_surface_matches_assumptions():
     assert hasattr(openmc.data.IncidentNeutron, "from_hdf5")
     assert 18 in openmc.data.REACTION_NAME
     assert isinstance(openmc.config.get("cross_sections"), (type(None), __import__("pathlib").Path))
+
+
+# ---------------------------------------------------------------------------
+# Dose coefficients
+# ---------------------------------------------------------------------------
+
+
+def _install_fake_dose(monkeypatch, catalog):
+    fake_openmc = types.ModuleType("openmc")
+    fake_data = types.ModuleType("openmc.data")
+    fake_data.dose_coefficients = lambda particle, geometry, source, quantity: (
+        [1.0e4, 1.0e6],
+        [0.1, 0.2],
+    )
+    fake_openmc.data = fake_data
+    monkeypatch.setitem(sys.modules, "openmc", fake_openmc)
+    monkeypatch.setitem(sys.modules, "openmc.data", fake_data)
+    monkeypatch.setattr(nuclear_data, "_dose_table_catalog", lambda: catalog)
+
+
+def test_read_dose_coefficients_reports_catalog_and_units(monkeypatch):
+    catalog = {
+        ("icrp116", "effective", "photon"): ("AP", "PA", "ISO"),
+        ("icrp116", "effective", "neutron"): ("AP", "PA", "ISO"),
+        ("icrp116", "effective", "photon kerma"): ("AP", "PA", "ISO"),
+    }
+    _install_fake_dose(monkeypatch, catalog)
+
+    payload = nuclear_data.read_dose_coefficients("photon", "icrp116", "effective", "AP")
+
+    assert payload["success"] is True
+    assert payload["units"] == "pSv cm^2"
+    assert payload["energyEv"] == [1.0e4, 1.0e6]
+    assert payload["availableParticles"] == ["neutron", "photon", "photon kerma"]
+    assert payload["availableGeometries"] == ["AP", "PA", "ISO"]
+
+    kerma = nuclear_data.read_dose_coefficients("photon kerma", "icrp116", "effective", "PA")
+    assert kerma["units"] == "Sv/Gy"
+
+
+def test_read_dose_coefficients_rejects_unsupported_particle_and_geometry(monkeypatch):
+    _install_fake_dose(monkeypatch, {("icrp116", "effective", "photon"): ("AP", "PA")})
+
+    with pytest.raises(ValueError, match="Available particles"):
+        nuclear_data.read_dose_coefficients("electron", "icrp116", "effective", "AP")
+    with pytest.raises(ValueError, match="Available geometries"):
+        nuclear_data.read_dose_coefficients("photon", "icrp116", "effective", "LLAT")
+
+
+def test_dose_coefficients_command_success_and_error(monkeypatch, capsys):
+    _install_fake_dose(monkeypatch, {("icrp116", "effective", "photon"): ("AP",)})
+
+    args = _parse(nuclear_data.cmd_dose_coefficients, [])
+    assert nuclear_data.cmd_dose_coefficients(args) == 0
+    payload = _stdout_json(capsys)
+    assert payload["success"] is True
+
+    args = _parse(nuclear_data.cmd_dose_coefficients, ["--particle", "electron"])
+    assert nuclear_data.cmd_dose_coefficients(args) == 1
+    payload = _stdout_json(capsys)
+    assert payload["success"] is False
+    assert payload["availableParticles"] == ["photon"]

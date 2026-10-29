@@ -196,33 +196,36 @@ IFP kinetics results live in ordinary `statepoint*.h5` files, so they have no re
 
 ## Key Files
 
-| Purpose                    | File                                                                                     |
-| -------------------------- | ---------------------------------------------------------------------------------------- |
-| Viewer registry            | `src/browser/output-viewer/output-viewer-registry.ts`                                    |
-| Filename patterns          | `src/browser/output-viewer/output-file-patterns.ts`                                      |
-| Viewer base class          | `src/browser/plugins/openmc/widgets/native-vtk-viewer-widget.tsx`                        |
-| Calculator + histogram UI  | `src/browser/plugins/openmc/widgets/derived-field-panel.tsx`                             |
-| Derived-field expressions  | `src/browser/viewer-core/derived-fields.ts` (pure, vitest-covered)                       |
-| Glyph layout math          | `src/browser/viewer-core/glyph-layout.ts` (pure, vitest-covered)                         |
-| Volume transfer + raycast  | `src/browser/viewer-core/volume-transfer.ts`, `volume-raycast.ts`                        |
-| Orthoslice math + preview  | `src/browser/viewer-core/slice-view.ts`, `viewer-settings/slice-preview.tsx`             |
-| Capped clip geometry       | `src/browser/viewer-core/capped-clip.ts` (pure, vitest-covered)                          |
-| Dataset Inspector          | `src/browser/dataset-inspector/`                                                         |
-| Statistics core + panel    | `src/browser/viewer-core/statistics.ts`, `widgets/statistics-panel.tsx`                  |
-| Screenshot capture + menu  | `src/browser/viewer-core/canvas-screenshot.ts`, `widgets/viewer-export-menu.tsx`         |
-| Find Data query + overlay  | `viewer-core/selection-query.ts`, `selection-overlay.ts`, `widgets/find-data-dialog.tsx` |
-| Axes grid math + overlay   | `viewer-core/axes-grid.ts`, `viewer-settings/axes-grid-overlay.tsx`                      |
-| Saved viewer state         | `viewer-core/viewer-state.ts`, `viewer-settings/viewer-settings-widget.tsx`              |
-| Dataset export command     | `python/plugins/base/commands/export.py`, `lib/export.py`                                |
-| Mesh-quality popover       | `widgets/viewer-quality-menu.tsx`, `base.mesh-quality`                                   |
-| Tally series command       | `python/plugins/openmc/commands/tally_series.py`, `lib/tally_series.py`                  |
-| Tally series widget/model  | `widgets/statepoint/tally-series-widget.tsx`, `tally-series-model.ts`                    |
-| Comparison session/range   | `viewer-core/comparison-session.ts` (pure, vitest-covered)                               |
-| Comparison pane layout     | `viewer-core/comparison-layout.ts` (pure, vitest-covered)                                |
-| Comparison command         | `contributions/visualizer-comparison-contribution.ts`                                    |
-| Probe command              | `python/plugins/base/commands/probe.py`, `lib/probe.py`                                  |
-| Probe dialog/model         | `widgets/probe-dialog.tsx`, `viewer-core/probe-model.ts`                                 |
-| Split-drag helper          | `src/browser/plugins/openmc/widgets/drag-split.ts`                                       |
-| Backend conversion service | `src/node/plugins/openmc/services/openmc-output-service.ts`                              |
-| VTK converters (Python)    | `python/plugins/openmc/lib/output_vtk.py`                                                |
-| Summary → XML (Python)     | `python/plugins/openmc/lib/geometry_parser.py`                                           |
+| Purpose                    | File                                                                                         |
+| -------------------------- | -------------------------------------------------------------------------------------------- |
+| Viewer registry            | `src/browser/output-viewer/output-viewer-registry.ts`                                        |
+| Filename patterns          | `src/browser/output-viewer/output-file-patterns.ts`                                          |
+| Viewer base class          | `src/browser/plugins/openmc/widgets/native-vtk-viewer-widget.tsx`                            |
+| Calculator + histogram UI  | `src/browser/plugins/openmc/widgets/derived-field-panel.tsx`                                 |
+| Derived-field expressions  | `src/browser/viewer-core/derived-fields.ts` (pure, vitest-covered)                           |
+| Glyph layout math          | `src/browser/viewer-core/glyph-layout.ts` (pure, vitest-covered)                             |
+| Volume transfer + raycast  | `src/browser/viewer-core/volume-transfer.ts`, `volume-raycast.ts`                            |
+| Orthoslice math + preview  | `src/browser/viewer-core/slice-view.ts`, `viewer-settings/slice-preview.tsx`                 |
+| Capped clip geometry       | `src/browser/viewer-core/capped-clip.ts` (pure, vitest-covered)                              |
+| Dataset Inspector          | `src/browser/dataset-inspector/`                                                             |
+| Statistics core + panel    | `src/browser/viewer-core/statistics.ts`, `widgets/statistics-panel.tsx`                      |
+| Screenshot capture + menu  | `src/browser/viewer-core/canvas-screenshot.ts`, `widgets/viewer-export-menu.tsx`             |
+| Find Data query + overlay  | `viewer-core/selection-query.ts`, `selection-overlay.ts`, `widgets/find-data-dialog.tsx`     |
+| Axes grid math + overlay   | `viewer-core/axes-grid.ts`, `viewer-settings/axes-grid-overlay.tsx`                          |
+| Saved viewer state         | `viewer-core/viewer-state.ts`, `viewer-settings/viewer-settings-widget.tsx`                  |
+| Dataset export command     | `python/plugins/base/commands/export.py`, `lib/export.py`                                    |
+| Mesh-quality popover       | `widgets/viewer-quality-menu.tsx`, `base.mesh-quality`                                       |
+| Tally series command       | `python/plugins/openmc/commands/tally_series.py`, `lib/tally_series.py`                      |
+| Tally series widget/model  | `widgets/statepoint/tally-series-widget.tsx`, `tally-series-model.ts`                        |
+| Entropy convergence        | `python/plugins/openmc/commands/statepoint.py`, `widgets/statepoint/entropy-convergence*`    |
+| Depletion analysis         | `python/plugins/openmc/lib/depletion_analysis.py`, `widgets/depletion/depletion-analysis.ts` |
+| Dose-coefficient reference | `python/plugins/openmc/commands/nuclear_data.py`, `widgets/nuclear-data/dose-*`              |
+| Comparison session/range   | `viewer-core/comparison-session.ts` (pure, vitest-covered)                                   |
+| Comparison pane layout     | `viewer-core/comparison-layout.ts` (pure, vitest-covered)                                    |
+| Comparison command         | `contributions/visualizer-comparison-contribution.ts`                                        |
+| Probe command              | `python/plugins/base/commands/probe.py`, `lib/probe.py`                                      |
+| Probe dialog/model         | `widgets/probe-dialog.tsx`, `viewer-core/probe-model.ts`                                     |
+| Split-drag helper          | `src/browser/plugins/openmc/widgets/drag-split.ts`                                           |
+| Backend conversion service | `src/node/plugins/openmc/services/openmc-output-service.ts`                                  |
+| VTK converters (Python)    | `python/plugins/openmc/lib/output_vtk.py`                                                    |
+| Summary → XML (Python)     | `python/plugins/openmc/lib/geometry_parser.py`                                               |

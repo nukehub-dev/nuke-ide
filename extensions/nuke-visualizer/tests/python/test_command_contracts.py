@@ -109,6 +109,8 @@ _MISSING_INPUT_CASES = [
     _case("openmc.depletion-summary", [_MISSING_PATH], ("h5py", "vtk")),
     _case("openmc.depletion-materials", [_MISSING_PATH], ("h5py", "vtk")),
     _case("openmc.depletion-data", [_MISSING_PATH, "0"], ("h5py", "vtk")),
+    _case("openmc.depletion-contact-dose", [_MISSING_PATH, "0"]),
+    _case("openmc.depletion-decay-spectrum", [_MISSING_PATH, "0", "0"]),
     _case("openmc.kinetics", [_MISSING_PATH], ("h5py",)),
     _case("openmc.particle-restart", [_MISSING_PATH], ("h5py",)),
     _case("openmc.xs-plot", ["--reactions", "102"], ("openmc",)),

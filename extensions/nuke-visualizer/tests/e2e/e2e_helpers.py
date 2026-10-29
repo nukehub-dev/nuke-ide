@@ -25,3 +25,13 @@ def require_cross_sections():
     if not os.path.exists(xs):
         pytest.skip(f"OPENMC_CROSS_SECTIONS points at a missing file: {xs}")
     return xs
+
+
+def require_chain():
+    """Return OPENMC_CHAIN_FILE (depletion chain) or skip when unset/missing."""
+    chain = os.environ.get("OPENMC_CHAIN_FILE")
+    if not chain:
+        pytest.skip("OPENMC_CHAIN_FILE not set — point it at a depletion chain XML")
+    if not os.path.exists(chain):
+        pytest.skip(f"OPENMC_CHAIN_FILE points at a missing file: {chain}")
+    return chain

@@ -54,6 +54,8 @@ import {
     EndfEvaluationsResult,
     EndfDetailRequest,
     EndfDetailResult,
+    DoseCoefficientsRequest,
+    DoseCoefficientsResult,
     OpenMCTallyMeshVtkOptions,
     OpenMCSourceVtkOptions,
     OpenMCOverlayVtkOptions,
@@ -231,6 +233,23 @@ export class OpenMCOutputService {
             args.push('--top', String(request.top));
         }
         return this.executeCommandJson<EndfDetailResult>(args, 120000);
+    }
+
+    async getDoseCoefficients(request: DoseCoefficientsRequest): Promise<DoseCoefficientsResult> {
+        return this.executeCommandJson<DoseCoefficientsResult>(
+            [
+                'openmc.dose-coefficients',
+                '--particle',
+                request.particle,
+                '--data-source',
+                request.dataSource,
+                '--dose-quantity',
+                request.doseQuantity,
+                '--geometry',
+                request.geometry
+            ],
+            30000
+        );
     }
 
     async convertTallyMeshToVtk(statepointPath: string, options?: OpenMCTallyMeshVtkOptions): Promise<OpenMCVtkConversionResult> {

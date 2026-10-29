@@ -31,7 +31,8 @@ import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { codicon } from '@theia/core/lib/browser/widgets/widget';
 import { Message } from '@lumino/messaging';
 import './statepoint-viewer.css';
-import { Emitter, Event } from '@theia/core';
+import { Emitter, Event, CommandRegistry } from '@theia/core';
+import { EntropyConvergence } from './entropy-convergence';
 import { FileDialogService } from '@theia/filesystem/lib/browser/file-dialog';
 import { QuickInputService, WidgetManager, ApplicationShell } from '@theia/core/lib/browser';
 import { OpenMCService } from '../../openmc-service';
@@ -90,6 +91,9 @@ export class OpenMCStatepointViewerWidget extends ReactWidget {
 
     @inject(FileService)
     protected readonly fileService!: FileService;
+
+    @inject(CommandRegistry)
+    protected readonly commandRegistry!: CommandRegistry;
 
     private statepointUri: URI | null = null;
     private statepointInfo: OpenMCStatepointFullInfo | null = null;
@@ -696,6 +700,13 @@ export class OpenMCStatepointViewerWidget extends ReactWidget {
                             <i className={codicon('flame')}></i>
                             K-Effective
                         </button>
+                        <button
+                            className={`tab ${this.activeTab === 'entropy' ? 'active' : ''}`}
+                            onClick={() => this.setActiveTab('entropy')}
+                        >
+                            <i className={codicon('pulse')}></i>
+                            Entropy
+                        </button>
                         {this.hasKineticsTallies() && (
                             <button
                                 className={`tab ${this.activeTab === 'ifp-kinetics' ? 'active' : ''}`}
@@ -726,6 +737,7 @@ export class OpenMCStatepointViewerWidget extends ReactWidget {
                 <div className="content">
                     {this.activeTab === 'overview' && this.renderOverview()}
                     {this.activeTab === 'kinetics' && this.renderKinetics()}
+                    {this.activeTab === 'entropy' && this.renderEntropy()}
                     {this.activeTab === 'ifp-kinetics' && this.hasKineticsTallies() && this.renderIfpKinetics()}
                     {this.activeTab === 'tallies' && this.renderTallies()}
                     {this.activeTab === 'performance' && this.renderPerformance()}
@@ -942,6 +954,32 @@ export class OpenMCStatepointViewerWidget extends ReactWidget {
                 </div>
             </div>
         );
+    }
+
+    private renderEntropy(): React.ReactNode {
+        const info = this.statepointInfo!;
+        return (
+            <EntropyConvergence
+                source={{
+                    entropy: info.entropy,
+                    cmfdEntropy: info.cmfdEntropy,
+                    cmfdEntropyStartBatch: info.cmfdEntropyStartBatch,
+                    nInactive: info.nInactive,
+                    nBatches: info.nBatches
+                }}
+                onOpenSettings={
+                    this.commandRegistry.getCommand('openmc.openSimulationDashboard') ? () => this.openSimulationDashboard() : undefined
+                }
+            />
+        );
+    }
+
+    private async openSimulationDashboard(): Promise<void> {
+        try {
+            await this.commandRegistry.executeCommand('openmc.openSimulationDashboard');
+        } catch (error) {
+            console.error('[StatepointViewer] Could not open the Simulation Dashboard:', error);
+        }
     }
 
     private renderKinetics(): React.ReactNode {

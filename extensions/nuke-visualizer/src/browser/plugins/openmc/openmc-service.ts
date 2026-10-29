@@ -45,6 +45,11 @@ import {
     OpenMCKineticsResult,
     OpenMCDerivedTallyDefinition,
     OpenMCDerivedTallyEvaluation,
+    DepletionDoseQuantity,
+    OpenMCDepletionContactDoseResult,
+    OpenMCDepletionDecaySpectrumResult,
+    DoseCoefficientsRequest,
+    DoseCoefficientsResult,
     OPENMC_REQUIREMENTS
 } from '../../../common/openmc-protocol';
 import { VisualizerWidget } from '../../visualizer-widget';
@@ -1421,6 +1426,33 @@ export class OpenMCService {
             this.messageService.error(`Failed to load depletion data: ${error}`);
             throw error;
         }
+    }
+
+    /**
+     * Photon contact dose rate for one activated material (OpenMC CDR model).
+     */
+    async getDepletionContactDose(
+        fileUri: URI,
+        materialIndex: number,
+        doseQuantity: DepletionDoseQuantity,
+        buildUp: number,
+        byNuclide: boolean
+    ): Promise<OpenMCDepletionContactDoseResult> {
+        return this.openmcBackend.getDepletionContactDose(fileUri.path.toString(), materialIndex, doseQuantity, buildUp, byNuclide);
+    }
+
+    /**
+     * Decay-photon spectrum for one material at one depletion time index.
+     */
+    async getDepletionDecaySpectrum(fileUri: URI, materialIndex: number, timeIndex: number): Promise<OpenMCDepletionDecaySpectrumResult> {
+        return this.openmcBackend.getDepletionDecaySpectrum(fileUri.path.toString(), materialIndex, timeIndex);
+    }
+
+    /**
+     * Read the shipped ICRP dose-coefficient table (nuclear data reference).
+     */
+    async getDoseCoefficients(request: DoseCoefficientsRequest): Promise<DoseCoefficientsResult> {
+        return this.openmcBackend.getDoseCoefficients(request);
     }
 
     /**

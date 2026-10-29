@@ -45,6 +45,7 @@ import { startSplitDrag } from '../drag-split';
 import { XSPlotWidget } from '../plotting/xs-plot-widget';
 import { NCrystalTab } from './ncrystal-tab';
 import { EndfTab } from './endf-tab';
+import { DoseTab } from './dose-tab';
 import './nuclear-data.css';
 
 /**
@@ -89,7 +90,7 @@ export class NuclearDataWidget extends ReactWidget {
     private selectedNuclide?: string;
     private detail?: NuclideDetailResult;
     private detailLoading = false;
-    private activeTab: 'library' | 'ncrystal' | 'endf' = 'library';
+    private activeTab: 'library' | 'dose' | 'ncrystal' | 'endf' = 'library';
 
     /** Initialize widget id, title, and load the default library. */
     @postConstruct()
@@ -262,6 +263,15 @@ export class NuclearDataWidget extends ReactWidget {
                         <i className="codicon codicon-library"></i> Library
                     </button>
                     <button
+                        className={`nuclear-data-tab ${this.activeTab === 'dose' ? 'active' : ''}`}
+                        onClick={() => {
+                            this.activeTab = 'dose';
+                            this.update();
+                        }}
+                    >
+                        <i className="codicon codicon-shield"></i> Dose coefficients
+                    </button>
+                    <button
                         className={`nuclear-data-tab ${this.activeTab === 'ncrystal' ? 'active' : ''}`}
                         onClick={() => {
                             this.activeTab = 'ncrystal';
@@ -282,6 +292,7 @@ export class NuclearDataWidget extends ReactWidget {
                 </div>
 
                 {this.activeTab === 'library' && this.renderLibraryTab()}
+                {this.activeTab === 'dose' && <DoseTab backendService={this.backendService} />}
                 {this.activeTab === 'ncrystal' && (
                     <NCrystalTab backendService={this.backendService} fileDialogService={this.fileDialogService} />
                 )}

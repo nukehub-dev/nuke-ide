@@ -3,6 +3,7 @@
 The Nuclear Data window is a read-only browser for nuclear data. It is tabbed:
 
 - **Library** — the configured cross-section data library (`cross_sections.xml`, HDF5). Use it to check which nuclides and temperatures your library actually provides before running, and to jump straight into cross-section plotting.
+- **Dose coefficients** — read-only ICRP-74 / ICRP-116 fluence-to-dose reference tables (effective dose and ambient dose equivalent H*(10)).
 - **NCrystal** — NCrystal `.ncmat` materials (thermal neutron scattering, S(a,b)) with a cfg-string builder and cross-section plots.
 - **ENDF** — raw ENDF evaluations (decay, fission-product yields, reaction sections) from an ENDF library directory on disk.
 
@@ -38,6 +39,21 @@ The detail panel shows, for the selected nuclide:
 Click **Plot in XS Viewer** to open the nuclide in the [Cross-Section Plot](cross-sections.md), pre-selected and ready to plot.
 
 > **Tip:** A "(unresolved)" library path means the `nuke.openmcCrossSections` preference is not set — set it in preferences or use **Change Library…**.
+
+---
+
+## Dose Coefficients Tab
+
+The **Dose coefficients** tab is a read-only reference view over OpenMC's shipped ICRP-74 and ICRP-116 dose tables (`openmc.data.dose_coefficients`). It does not change the model.
+
+- **Data source:** ICRP-116 (effective dose) or ICRP-74 (effective and ambient).
+- **Quantity:** effective dose or ambient dose equivalent H\*(10).
+- **Particle:** photon, neutron, and (ICRP-116 effective) electron, positron, proton, helium ion, photon kerma, and muons/pions when tables exist.
+- **Geometry:** AP, PA, LLAT, RLAT, ROT, ISO for full tables; limited tables offer AP, PA, ISO. Ambient H\*(10) uses the single AP table.
+
+The chart plots the coefficient against energy in **MeV** (log x-axis) and the table lists the full energy grid. Units are carried in the column and axis labels: **pSv cm²** for fluence-to-dose and **Sv/Gy** for photon kerma. The same tables back the contact-dose and shutdown-dose views.
+
+ICRP-116 does not ship ambient H\*(10) tables; choose ICRP-74 for ambient coefficients.
 
 ---
 

@@ -57,19 +57,22 @@ the unavailable burnup option is labeled as such.
 
 Use the toolbar above the plot to switch types:
 
-| Plot Type         | Y-Axis                        | Use Case                             |
-| ----------------- | ----------------------------- | ------------------------------------ |
-| **Concentration** | atoms/barn-cm                 | Raw nuclide density                  |
-| **Mass**          | grams                         | Total mass per nuclide               |
-| **Mass Fraction** | % of total                    | Relative composition change          |
-| **Activity**      | Bq or Ci                      | Radioactivity for decay analysis     |
-| **Decay Heat**    | Watts                         | Thermal power from radioactive decay |
-| **Normalized**    | fraction of initial           | Relative change from start           |
-| **Stacked**       | cumulative mass/concentration | Overall composition pie-over-time    |
+| Plot Type                       | Y-Axis                        | Use Case                             |
+| ------------------------------- | ----------------------------- | ------------------------------------ |
+| **Concentration**               | atoms/barn-cm                 | Raw nuclide density                  |
+| **Mass**                        | grams                         | Total mass per nuclide               |
+| **Mass Fraction**               | % of total                    | Relative composition change          |
+| **Activity**                    | Bq or Ci                      | Radioactivity for decay analysis     |
+| **Decay Heat**                  | Watts                         | Thermal power from radioactive decay |
+| **Contact dose (absorbed-air)** | Gy/h                          | Photon contact dose from activation  |
+| **Contact dose (effective)**    | Sv/h                          | Effective photon contact dose        |
+| **Decay photon spectrum**       | photons/s (lines)             | Gamma lines from decay at one step   |
+| **Normalized**                  | fraction of initial           | Relative change from start           |
+| **Stacked**                     | cumulative mass/concentration | Overall composition pie-over-time    |
 
 ### X-Axis Options
 
-- **Time** — seconds (linear or log)
+- **Time** — days (linear or log)
 - **Burnup** — MWd/kg (if available)
 - **Step** — discrete step index
 
@@ -121,6 +124,34 @@ If you enable **"Include Activity"** when loading data:
 - Units: **Becquerels (Bq)** or **Curies (Ci)**.
 - Decay heat is shown in **Watts**.
 - Useful for shutdown heat removal and waste classification analysis.
+
+---
+
+## Photon Contact Dose Rate
+
+**Contact dose** plots the photon dose rate produced by the activated material at every depletion state:
+
+- **Absorbed-air** — absorbed dose in air, **Gy/h**.
+- **Effective** — effective dose from ICRP-116 photon coefficients, **Sv/h**.
+
+The calculation uses OpenMC's `Material.get_photon_contact_dose_rate` with a slab-geometry approximation and a photon build-up factor (default **2.0**, matching the FISPACT-II manual). Set the build-up factor in the chart toolbar and press Enter or leave the field to reload. Enable **By nuclide** to add a table of the largest contributors at the final state, with CSV export.
+
+> **Limitations:** contact dose is a slab approximation. It does not include Bremsstrahlung, and it only covers unstable nuclides whose decay-photon data is present in the depletion chain.
+
+Contact dose and decay spectra need a depletion chain with photon source data. Set `OPENMC_CHAIN_FILE` in the app environment (or point OpenMC at a chain file) before opening the viewer. If the material has no unstable nuclides with photon data, the viewer shows an explanatory empty state instead of a blank chart.
+
+---
+
+## Decay Photon Spectrum
+
+**Decay photon spectrum** shows the gamma lines emitted by the activated material at one depletion step:
+
+- Pick the step in the chart toolbar; the default is the final state.
+- The x-axis is photon energy in **MeV** (log scale); the y-axis defaults to log.
+- **Export CSV** writes one row per line (energy, intensity, unit, component).
+- Total material activity and the decay-photon intensity are shown above the chart.
+
+Most chain data produces discrete lines (photons/s at fixed energies). A chain with continuous photon spectra adds continuous components, plotted as spectral density per eV; the axis label and CSV `unit` column distinguish the two.
 
 ---
 

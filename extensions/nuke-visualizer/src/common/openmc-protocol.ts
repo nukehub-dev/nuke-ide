@@ -302,6 +302,18 @@ export interface OpenMCBackendService {
         includeActivity?: boolean
     ): Promise<OpenMCDepletionResponse>;
 
+    /** Photon contact dose rate for one activated material */
+    getDepletionContactDose(
+        filePath: string,
+        materialIndex: number,
+        doseQuantity: DepletionDoseQuantity,
+        buildUp: number,
+        byNuclide: boolean
+    ): Promise<OpenMCDepletionContactDoseResult>;
+
+    /** Decay-photon spectrum at one depletion time index */
+    getDepletionDecaySpectrum(filePath: string, materialIndex: number, timeIndex: number): Promise<OpenMCDepletionDecaySpectrumResult>;
+
     // === Geometry Hierarchy Viewer ===
 
     /** Get geometry hierarchy from OpenMC geometry file */
@@ -411,6 +423,9 @@ export interface OpenMCBackendService {
 
     /** Detail for one ENDF evaluation file (decay / yields / reactions) */
     getEndfDetail(request: EndfDetailRequest): Promise<EndfDetailResult>;
+
+    /** Read the shipped ICRP-74 / ICRP-116 dose-coefficient tables */
+    getDoseCoefficients(request: DoseCoefficientsRequest): Promise<DoseCoefficientsResult>;
 
     /** Convert a statepoint mesh tally to VTK image data (`.vti`, no server) for the native tally viewer */
     convertTallyMeshToVtk(statepointPath: string, options?: OpenMCTallyMeshVtkOptions): Promise<OpenMCVtkConversionResult>;
@@ -933,8 +948,85 @@ export interface OpenMCDepletionResponse {
     error?: string;
 }
 
+/** Contact dose quantity reported by the depletion viewer. */
+export type DepletionDoseQuantity = 'absorbed-air' | 'effective';
+
+/** One nuclide's contact dose contribution over time (Gy/h or Sv/h). */
+export interface OpenMCDepletionDoseNuclide {
+    /** Nuclide name (for example I135) */
+    nuclide: string;
+    /** Contact dose rate at each depletion state */
+    values: number[];
+}
+
+/** Photon contact dose rate for an activated material. */
+export interface OpenMCDepletionContactDoseResult {
+    success: boolean;
+    file?: string;
+    materialIndex: number;
+    materialName: string;
+    volume?: number | null;
+    doseQuantity: DepletionDoseQuantity;
+    /** Dose unit for `total` and `byNuclide` values. */
+    unit: 'Gy/h' | 'Sv/h';
+    buildUp: number;
+    timeSeconds: number[];
+    timeDays: number[];
+    total: number[];
+    /** Named contributions; present only when `byNuclide` was requested. */
+    byNuclide?: OpenMCDepletionDoseNuclide[];
+    contributingNuclides: number;
+    /** Set when no unstable nuclide has decay-photon data. */
+    emptyReason?: string;
+    caveat?: string;
+    error?: string;
+}
+
+/** One discrete decay-photon line. */
+export interface OpenMCDepletionDecayLine {
+    energyEv: number;
+    /** Photons per second at the line energy. */
+    intensity: number;
+}
+
+/** One continuous decay-photon component (spectral density per eV). */
+export interface OpenMCDepletionDecayCurve {
+    energyEv: number[];
+    intensityPerEv: number[];
+}
+
+/** Decay-photon spectrum for one material and time index. */
+export interface OpenMCDepletionDecaySpectrumResult {
+    success: boolean;
+    file?: string;
+    materialIndex: number;
+    materialName: string;
+    volume?: number | null;
+    timeIndex: number;
+    timeSeconds: number;
+    timeDays: number;
+    /** Total material activity [Bq]. */
+    totalActivityBq: number;
+    /** Integral of the decay-photon distribution [photons/s]. */
+    totalPhotonIntensityBq: number;
+    kind: 'discrete' | 'continuous' | 'mixture';
+    lines: OpenMCDepletionDecayLine[];
+    curves: OpenMCDepletionDecayCurve[];
+    emptyReason?: string;
+    error?: string;
+}
+
 /** Plot type for depletion visualization */
-export type DepletionPlotType = 'concentration' | 'mass' | 'activity' | 'decay_heat' | 'normalized' | 'stacked';
+export type DepletionPlotType =
+    | 'concentration'
+    | 'mass'
+    | 'activity'
+    | 'decay_heat'
+    | 'normalized'
+    | 'stacked'
+    | 'contact_dose_air'
+    | 'contact_dose_effective'
+    | 'decay_spectrum';
 
 /** Y-axis scale type */
 export type DepletionScaleType = 'linear' | 'log';
@@ -1485,6 +1577,14 @@ export interface OpenMCStatepointFullInfo {
     /** Absorption/transport k-estimator */
     kAbsTra?: number;
 
+    // Convergence
+    /** Shannon entropy of the fission source per batch [bits] */
+    entropy?: number[];
+    /** Shannon entropy of the CMFD fission source per batch [bits] */
+    cmfdEntropy?: number[];
+    /** First batch represented by `cmfdEntropy` (1-based) */
+    cmfdEntropyStartBatch?: number;
+
     // Source Distribution
     /** Number of source particles */
     nSourceParticles: number;
@@ -1914,6 +2014,38 @@ export interface NuclearDataLibraryResult {
     nuclideCount?: number;
     /** Per-nuclide entries, sorted by name */
     nuclides?: NuclearDataNuclideEntry[];
+    error?: string;
+}
+
+/** Dose-coefficient reference request (`openmc.dose-coefficients`) */
+export interface DoseCoefficientsRequest {
+    /** Incident particle (photon, neutron, electron, ...) */
+    particle: string;
+    /** ICRP data source */
+    dataSource: 'icrp74' | 'icrp116';
+    /** Effective dose or ambient dose equivalent H*(10) */
+    doseQuantity: 'effective' | 'ambient';
+    /** Irradiation geometry for effective dose */
+    geometry: string;
+}
+
+/** Dose-coefficient reference table */
+export interface DoseCoefficientsResult {
+    success: boolean;
+    particle?: string;
+    dataSource?: 'icrp74' | 'icrp116';
+    doseQuantity?: 'effective' | 'ambient';
+    geometry?: string;
+    /** Energy grid [eV] */
+    energyEv?: number[];
+    /** Coefficients in `units` */
+    response?: number[];
+    /** `pSv cm^2` or `Sv/Gy` for photon kerma */
+    units?: string;
+    /** Particles with tables for the selected source/quantity */
+    availableParticles?: string[];
+    /** Geometries available for the selected particle */
+    availableGeometries?: string[];
     error?: string;
 }
 
