@@ -71,8 +71,8 @@ export class SettingsTabContribution implements DashboardTabContribution {
     readonly icon = 'settings';
     readonly order = 0;
 
-    /** Indices of collapsed source cards (persisted per card index). */
-    private readonly collapsedSources = new Set<number>();
+    /** Explicit open/closed state per source card index (default: first opens, rest close). */
+    private readonly sourceCardOpen = new Map<number, boolean>();
 
     /** Probed OpenMC compatibility for feature gating (fetched once). */
     private compat?: OpenMCCompat;
@@ -127,8 +127,9 @@ export class SettingsTabContribution implements DashboardTabContribution {
      * @returns Whether the card should render collapsed.
      */
     private isSourceCardCollapsed(index: number, totalSources: number): boolean {
-        if (this.collapsedSources.has(index)) {
-            return true;
+        const explicitOpen = this.sourceCardOpen.get(index);
+        if (explicitOpen !== undefined) {
+            return !explicitOpen;
         }
         return index > 0 && totalSources > 1;
     }
@@ -139,11 +140,9 @@ export class SettingsTabContribution implements DashboardTabContribution {
      * @param index - Source index.
      */
     private toggleSourceCard(host: SimulationDashboardWidget, index: number): void {
-        if (this.collapsedSources.has(index)) {
-            this.collapsedSources.delete(index);
-        } else {
-            this.collapsedSources.add(index);
-        }
+        const totalSources = host.stateManager.getState().settings.sources.length;
+        const collapsed = this.isSourceCardCollapsed(index, totalSources);
+        this.sourceCardOpen.set(index, collapsed);
         host.update();
     }
 
@@ -384,14 +383,27 @@ export class SettingsTabContribution implements DashboardTabContribution {
                             return (
                                 <div key={index} className={`source-card${isCollapsed ? ' collapsed' : ''}`}>
                                     <div className="source-card-header">
-                                        <i
-                                            className={`codicon codicon-chevron-${isCollapsed ? 'right' : 'down'} source-card-chevron`}
+                                        <button
+                                            type="button"
+                                            className="source-card-toggle"
+                                            aria-expanded={!isCollapsed}
                                             onClick={() => this.toggleSourceCard(host, index)}
-                                        ></i>
-                                        <span className="source-card-title">Source {index + 1}</span>
-                                        <span className="strength-chip">×{source.strength ?? 1.0}</span>
+                                        >
+                                            <i
+                                                className={`codicon codicon-chevron-${isCollapsed ? 'right' : 'down'} source-card-chevron`}
+                                                aria-hidden="true"
+                                            ></i>
+                                            <span className="source-card-title">Source {index + 1}</span>
+                                            <span className="strength-chip">×{source.strength ?? 1.0}</span>
+                                        </button>
                                         <Tooltip content="Remove Source" position="top">
-                                            <button className="theia-button secondary small" onClick={() => this.removeSource(host, index)}>
+                                            <button
+                                                className="theia-button secondary small"
+                                                onClick={(event) => {
+                                                    event.stopPropagation();
+                                                    this.removeSource(host, index);
+                                                }}
+                                            >
                                                 <i className="codicon codicon-trash"></i>
                                             </button>
                                         </Tooltip>
@@ -506,10 +518,28 @@ export class SettingsTabContribution implements DashboardTabContribution {
         const settings = host.stateManager.getState().settings;
         const newSources = [...settings.sources] as OpenMCIndependentSource[];
         newSources.splice(index, 1);
+        this.shiftSourceCardState(index);
         host.stateManager.updateSettings({
             ...settings,
             sources: newSources
         });
+    }
+
+    /**
+     * Keep per-card open/closed state attached to the right source after a removal.
+     * @param removedIndex - Index of the removed source card.
+     */
+    private shiftSourceCardState(removedIndex: number): void {
+        const shifted = new Map<number, boolean>();
+        this.sourceCardOpen.forEach((open, index) => {
+            if (index < removedIndex) {
+                shifted.set(index, open);
+            } else if (index > removedIndex) {
+                shifted.set(index - 1, open);
+            }
+        });
+        this.sourceCardOpen.clear();
+        shifted.forEach((open, index) => this.sourceCardOpen.set(index, open));
     }
 
     /**

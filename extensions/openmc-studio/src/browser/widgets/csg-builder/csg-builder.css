@@ -513,8 +513,9 @@
 .csg-builder .surface-item-id {
     font-family: var(--theia-code-font-family);
     font-size: 11px;
-    color: var(--theia-descriptionForeground);
-    background: var(--theia-badge-background);
+    color: var(--theia-foreground);
+    background: var(--theia-editorWidget-background);
+    border: 1px solid var(--theia-panel-border);
     padding: 2px 8px;
     border-radius: 4px;
     font-weight: 600;
@@ -713,20 +714,25 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
     margin-bottom: 12px;
 }
 
 .csg-builder .cell-info {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 8px;
+    min-width: 0;
 }
 
 .csg-builder .cell-id {
     font-family: var(--theia-code-font-family);
     font-size: 11px;
-    color: var(--theia-descriptionForeground);
-    background: var(--theia-badge-background);
+    color: var(--theia-foreground);
+    background: var(--theia-editorWidget-background);
+    border: 1px solid var(--theia-panel-border);
     padding: 2px 8px;
     border-radius: 4px;
     font-weight: 600;
@@ -751,8 +757,9 @@
 }
 
 .csg-builder .cell-fill-badge.void {
-    background: var(--theia-badge-background);
-    color: var(--theia-badge-foreground);
+    background: var(--theia-editorWidget-background);
+    border: 1px solid var(--theia-panel-border);
+    color: var(--theia-descriptionForeground);
 }
 
 .csg-builder .cell-fill-badge.material {
@@ -774,7 +781,7 @@
 
 /* Left border color coding for cell cards */
 .csg-builder .cell-card.fill-void {
-    border-left: 3px solid var(--theia-badge-background);
+    border-left: 3px solid var(--theia-panel-border);
 }
 
 .csg-builder .cell-card.fill-material {
@@ -820,16 +827,26 @@
 }
 
 .csg-builder .cell-details label {
-    color: var(--theia-descriptionForeground);
+    flex: 0 0 80px;
     min-width: 80px;
+    color: var(--theia-descriptionForeground);
 }
 
 .csg-builder .cell-region,
 .csg-builder .cell-fill,
-.csg-builder .cell-temp {
+.csg-builder .cell-temp,
+.csg-builder .cell-bounds {
     display: flex;
     align-items: flex-start;
     gap: 8px;
+    min-width: 0;
+}
+
+.csg-builder .cell-bounds code {
+    flex: 1 1 auto;
+    min-width: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
 }
 
 .csg-builder .cell-region code {
@@ -979,8 +996,9 @@
 .csg-builder .universe-id {
     font-family: var(--theia-code-font-family);
     font-size: 11px;
-    color: var(--theia-descriptionForeground);
-    background: var(--theia-badge-background);
+    color: var(--theia-foreground);
+    background: var(--theia-editorWidget-background);
+    border: 1px solid var(--theia-panel-border);
     padding: 2px 8px;
     border-radius: 4px;
     font-weight: 600;
@@ -1091,8 +1109,9 @@
 .csg-builder .lattice-id {
     font-family: var(--theia-code-font-family);
     font-size: 11px;
-    color: var(--theia-descriptionForeground);
-    background: var(--theia-badge-background);
+    color: var(--theia-foreground);
+    background: var(--theia-editorWidget-background);
+    border: 1px solid var(--theia-panel-border);
     padding: 2px 8px;
     border-radius: 4px;
     font-weight: 600;
@@ -1273,7 +1292,8 @@
     font-size: 10px;
     padding: 2px 8px;
     border-radius: 4px;
-    background: var(--theia-badge-background);
+    background: var(--theia-editorWidget-background);
+    border: 1px solid var(--theia-panel-border);
     color: var(--theia-descriptionForeground);
     text-transform: uppercase;
 }
@@ -1575,6 +1595,18 @@
     box-shadow: 0 0 0 2px rgba(243, 117, 36, 0.2);
 }
 
+/* Match the form inputs' height and width so mixed select/input rows align. */
+.csg-builder .form-group .nuke-select {
+    width: 100%;
+}
+
+.csg-builder .form-group .nuke-select-trigger {
+    box-sizing: border-box;
+    min-height: 35px;
+    padding: 8px 10px;
+    font-size: 13px;
+}
+
 .csg-builder .form-row {
     display: flex;
     gap: 12px;
@@ -1659,7 +1691,7 @@
     padding: 30px 20px;
 }
 
-.csg-builder .empty-state i {
+.csg-builder .empty-state > i {
     font-size: 48px;
     margin-bottom: 12px;
     display: block;
@@ -1952,7 +1984,7 @@
 
 .csg-builder .dagmc-stats-grid {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 12px;
     margin: 20px 0;
 }
@@ -1961,6 +1993,8 @@
     display: flex;
     flex-direction: column;
     align-items: center;
+    min-width: 0;
+    max-width: 100%;
     padding: 16px 12px;
     border-radius: 8px;
     text-align: center;
@@ -1968,32 +2002,46 @@
 }
 
 .csg-builder .dagmc-stat-box.primary {
-    background: var(--theia-button-background);
-    color: var(--theia-button-foreground);
-    box-shadow: 0 2px 8px var(--theia-widget-shadow);
+    background: var(--theia-editorWidget-background);
+    border: 1px solid var(--theia-panel-border);
+    color: var(--theia-foreground);
 }
 
 .csg-builder .dagmc-stat-box.secondary {
-    background: var(--theia-inputValidation-infoBackground);
-    border: 1px solid var(--theia-inputValidation-infoBorder);
+    background: var(--theia-editorWidget-background);
+    border: 1px solid var(--theia-panel-border);
+    color: var(--theia-foreground);
 }
 
 .csg-builder .dagmc-stat-box .stat-value {
+    min-width: 0;
+    max-width: 100%;
     font-size: 24px;
     font-weight: 700;
     margin-bottom: 4px;
+    color: var(--theia-foreground);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .csg-builder .dagmc-stat-box.primary .stat-value {
-    color: var(--theia-button-foreground);
+    color: var(--theia-foreground);
+}
+
+.csg-builder .dagmc-stat-box .stat-value.compact {
+    font-size: 15px;
+    letter-spacing: -0.2px;
 }
 
 .csg-builder .dagmc-stat-box .stat-label {
+    max-width: 100%;
     font-size: 11px;
-    color: var(--theia-button-foreground);
+    color: var(--theia-descriptionForeground);
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    opacity: 0.9;
+    text-align: center;
+    overflow-wrap: anywhere;
 }
 
 .csg-builder .dagmc-materials-section,
@@ -2053,16 +2101,17 @@
 
 .csg-builder .dagmc-volume-item .volume-id {
     font-size: 12px;
-    color: var(--theia-descriptionForeground);
-    background: var(--theia-badge-background);
+    color: var(--theia-foreground);
+    background: var(--theia-editorWidget-background);
+    border: 1px solid var(--theia-panel-border);
     padding: 2px 8px;
     border-radius: 4px;
     margin-right: 12px;
 }
 
-@media (max-width: 600px) {
+@container (max-width: 640px) {
     .csg-builder .dagmc-stats-grid {
-        grid-template-columns: repeat(2, 1fr);
+        grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }
 
@@ -2121,7 +2170,8 @@
     gap: 4px;
     font-size: 12px;
     color: var(--theia-descriptionForeground);
-    background: var(--theia-badge-background);
+    background: var(--theia-editorWidget-background);
+    border: 1px solid var(--theia-panel-border);
     padding: 4px 10px;
     border-radius: 12px;
 }

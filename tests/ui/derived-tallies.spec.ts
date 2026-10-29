@@ -37,7 +37,10 @@ async function createDraft(page: Page, widget: ReturnType<Page['locator']>) {
     const panel = await openDerivedTab(page, widget);
     const empty = panel.locator('.derived-empty-state');
     if (await empty.isVisible()) {
-        await empty.getByRole('button', { name: 'Create Derived Tally' }).click();
+        const create = empty.getByRole('button', { name: 'Create Derived Tally' });
+        const iconSize = await create.locator('i').evaluate((element) => parseFloat(getComputedStyle(element).fontSize));
+        expect(iconSize).toBeLessThanOrEqual(16);
+        await create.click();
     } else {
         await panel.locator('.derived-list .add-button').click();
     }

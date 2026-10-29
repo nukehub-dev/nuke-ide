@@ -713,6 +713,8 @@ export class CSGBuilderWidget extends ReactWidget {
     private renderDAGMCSurfacesTab(state: OpenMCState, dagmcFile: string): React.ReactNode {
         const info = state.settings.dagmcInfo;
         const fileName = info?.fileName || dagmcFile.split('/').pop() || dagmcFile;
+        const vertexText = info?.vertices?.toLocaleString() ?? '—';
+        const surfaceAreaText = info?.totalSurfaceArea?.toLocaleString(undefined, { maximumFractionDigits: 0 }) ?? '—';
 
         return (
             <div className="surfaces-tab dagmc-mode">
@@ -749,19 +751,23 @@ export class CSGBuilderWidget extends ReactWidget {
                     {info && (
                         <div className="dagmc-stats-grid">
                             <div className="dagmc-stat-box primary">
-                                <span className="stat-value">{info.volumeCount}</span>
+                                <span className={`stat-value${this.statValueLengthClass(String(info.volumeCount))}`}>
+                                    {info.volumeCount}
+                                </span>
                                 <span className="stat-label">Volumes</span>
                             </div>
                             <div className="dagmc-stat-box primary">
-                                <span className="stat-value">{info.surfaceCount}</span>
+                                <span className={`stat-value${this.statValueLengthClass(String(info.surfaceCount))}`}>
+                                    {info.surfaceCount}
+                                </span>
                                 <span className="stat-label">Surfaces</span>
                             </div>
                             <div className="dagmc-stat-box primary">
-                                <span className="stat-value">{info.vertices?.toLocaleString()}</span>
+                                <span className={`stat-value${this.statValueLengthClass(vertexText)}`}>{vertexText}</span>
                                 <span className="stat-label">Triangles</span>
                             </div>
                             <div className="dagmc-stat-box secondary">
-                                <span className="stat-value">{info.totalSurfaceArea?.toFixed(0)}</span>
+                                <span className={`stat-value${this.statValueLengthClass(surfaceAreaText)}`}>{surfaceAreaText}</span>
                                 <span className="stat-label">Surface Area (cm²)</span>
                             </div>
                         </div>
@@ -817,6 +823,15 @@ export class CSGBuilderWidget extends ReactWidget {
                 )}
             </div>
         );
+    }
+
+    /**
+     * Shrink long DAGMC stat values so they stay inside their cards.
+     * @param value - Formatted stat value.
+     * @returns Extra class name for the stat value span.
+     */
+    private statValueLengthClass(value: string): string {
+        return value.length > 8 ? ' compact' : '';
     }
 
     /**

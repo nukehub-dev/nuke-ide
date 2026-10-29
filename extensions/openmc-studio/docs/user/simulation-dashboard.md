@@ -105,10 +105,11 @@ Global simulation parameters, organized into collapsible sections.
 
 ### Sources
 
-Click **Add Source** to append a collapsible source card. The card starts with a
-compact summary line (for example `Box [-10, 10]³ · Tabular 10 eV–14 MeV ·
-Isotropic · t = 0 s`) and then exposes collapsible sections. Only the selected
-type's fields render, so the panel stays readable at narrow widths.
+Click **Add Source** to append a collapsible source card. The first source opens
+by default; additional cards start collapsed and expand from their header. The
+card starts with a compact summary line (for example `Box [-10, 10]³ · Tabular
+10 eV–14 MeV · Isotropic · t = 0 s`) and then exposes collapsible sections. Only
+the selected type's fields render, so the panel stays readable at narrow widths.
 
 | Type            | What You Configure                                                                                                                                         |
 | --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |

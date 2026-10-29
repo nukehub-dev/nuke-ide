@@ -487,6 +487,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-visualizer: output viewer inputs gain focus/disabled styling and themed dropdown lists.
 - nuke-visualizer: headless command failures return one JSON error without tracebacks, and every registered command has a CLI help contract.
 - nukelab-integration: expired server tokens re-mint silently so file transfers never hang on Preparing download.
+- openmc-studio: secondary source cards expand from the header instead of staying permanently collapsed.
+- openmc-studio: theme-safe ID chips, DAGMC stat cards, empty-state buttons, and lattice selects align at editor-panel widths.
 - openmc-studio: DAGMC universes sync before CoupledOperator creation so coupled depletion runs.
 - openmc-studio: surface template cards fill the gallery column and empty-state glyphs sit centered in their cards.
 - openmc-studio: plot generation no longer reports stale output files from an earlier run.

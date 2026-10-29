@@ -75,7 +75,8 @@ export async function openFileByQuickOpen(page: Page, name: string, waitForClose
     await expect(input).toBeVisible({ timeout: 10_000 });
     await input.fill(name);
     const row = page.locator('.quick-input-widget .monaco-list-row', { hasText: name }).first();
-    await expect(row).toBeVisible({ timeout: 30_000 });
+    // The first Quick Open query warms the workspace index and can be slow.
+    await expect(row).toBeVisible({ timeout: 120_000 });
     await row.click();
     if (waitForClose) {
         await expect(input).toBeHidden();

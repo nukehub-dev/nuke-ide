@@ -791,10 +791,11 @@
     align-items: center;
     gap: 8px;
     padding: 4px 10px;
-    background: var(--theia-badge-background);
+    background: var(--theia-editorWidget-background);
+    border: 1px solid var(--theia-panel-border);
     border-radius: 6px;
     font-size: 12px;
-    color: var(--theia-badge-foreground);
+    color: var(--theia-foreground);
     max-width: 100%;
 }
 
@@ -1154,8 +1155,9 @@
     padding: 1px 6px;
     font-size: 10px;
     border-radius: 3px;
-    background: var(--theia-badge-background);
-    color: var(--theia-badge-foreground);
+    background: var(--theia-editorWidget-background);
+    border: 1px solid var(--theia-panel-border);
+    color: var(--theia-foreground);
     cursor: pointer;
 }
 
@@ -1465,10 +1467,11 @@
     display: inline-flex;
     align-items: center;
     padding: 4px 10px;
-    background: var(--theia-badge-background);
+    background: var(--theia-editorWidget-background);
+    border: 1px solid var(--theia-panel-border);
     border-radius: 4px;
     font-size: 12px;
-    color: var(--theia-badge-foreground);
+    color: var(--theia-foreground);
     font-family: var(--theia-monospace-font-family);
     transition: all 150ms ease;
 }

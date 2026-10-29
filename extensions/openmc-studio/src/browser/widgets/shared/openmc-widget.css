@@ -186,7 +186,7 @@
     animation: empty-fade-in 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-:is(.simulation-dashboard, .openmc-widget) .empty-state i {
+:is(.simulation-dashboard, .openmc-widget) .empty-state > i {
     font-size: 48px;
     margin-bottom: 12px;
     display: block;

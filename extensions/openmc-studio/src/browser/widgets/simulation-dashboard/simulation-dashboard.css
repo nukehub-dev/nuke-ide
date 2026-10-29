@@ -959,8 +959,9 @@
 .simulation-dashboard .material-id {
     font-family: var(--theia-code-font-family);
     font-size: 11px;
-    color: var(--theia-badge-foreground);
-    background: var(--theia-badge-background);
+    color: var(--theia-foreground);
+    background: var(--theia-editorWidget-background);
+    border: 1px solid var(--theia-panel-border);
     padding: 2px 8px;
     border-radius: 4px;
     font-weight: 600;
@@ -2045,10 +2046,11 @@
 }
 
 .simulation-dashboard .tally-id {
-    color: var(--theia-badge-foreground);
+    color: var(--theia-foreground);
     font-size: 11px;
     font-weight: 600;
-    background: var(--theia-badge-background);
+    background: var(--theia-editorWidget-background);
+    border: 1px solid var(--theia-panel-border);
     padding: 2px 6px;
     border-radius: 4px;
 }
@@ -3351,12 +3353,38 @@
     border-bottom: none;
 }
 
-.simulation-dashboard .source-card-chevron {
+.simulation-dashboard .source-card-toggle {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-weight: inherit;
+    text-align: left;
     cursor: pointer;
+}
+
+.simulation-dashboard .source-card-toggle:focus-visible {
+    outline: 1px solid var(--theia-focusBorder);
+    outline-offset: 2px;
+    border-radius: 4px;
+}
+
+.simulation-dashboard .source-card-chevron {
+    flex: 0 0 auto;
     color: var(--theia-focusBorder);
 }
 
 .simulation-dashboard .source-card-title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
     white-space: nowrap;
 }
 

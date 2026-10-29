@@ -91,4 +91,36 @@ test.describe('openmc source editor', () => {
 
         expect(errors, `console/page errors:\n${errors.join('\n')}`).toEqual([]);
     });
+
+    test('expands secondary source cards from the header', async ({ page }) => {
+        const errors = collectErrors(page);
+        await page.goto('/');
+        await waitForWorkbench(page);
+        await runCommand(page, 'Open Simulation Dashboard');
+
+        const dashboard = page.locator('.simulation-dashboard');
+        await expect(dashboard).toBeVisible({ timeout: 30_000 });
+        await dashboard.getByRole('button', { name: 'Settings', exact: true }).click();
+
+        const sourcesSection = dashboard.locator('.settings-section[data-section-title="Sources"]');
+        const addSource = sourcesSection.locator('h3 .theia-button');
+        const cards = dashboard.locator('.source-card');
+        await addSource.click();
+        await expect(cards).toHaveCount(2);
+        await addSource.click();
+        await expect(cards).toHaveCount(3);
+        const second = cards.nth(1);
+        const third = cards.nth(2);
+
+        await expect(second.locator('.source-card-toggle')).toHaveAttribute('aria-expanded', 'false');
+        await second.locator('.source-card-toggle').click();
+        await expect(second.locator('.source-card-toggle')).toHaveAttribute('aria-expanded', 'true');
+        await expect(second.locator('.source-card-body')).toBeVisible();
+
+        await third.locator('.source-card-toggle').click();
+        await expect(third.locator('.source-card-toggle')).toHaveAttribute('aria-expanded', 'true');
+        await expect(third.locator('.source-card-body')).toBeVisible();
+
+        expect(errors, `console/page errors:\n${errors.join('\n')}`).toEqual([]);
+    });
 });
