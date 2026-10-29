@@ -43,6 +43,8 @@ import {
     OpenMCHeatmapPlane,
     OpenMCSliceOptions,
     OpenMCKineticsResult,
+    OpenMCDerivedTallyDefinition,
+    OpenMCDerivedTallyEvaluation,
     OPENMC_REQUIREMENTS
 } from '../../../common/openmc-protocol';
 import { VisualizerWidget } from '../../visualizer-widget';
@@ -296,6 +298,23 @@ export class OpenMCService {
      */
     async getTallySeries(files: string[], options: OpenMCTallySeriesOptions): Promise<OpenMCTallySeries> {
         return this.openmcBackend.getTallySeries(files, options);
+    }
+
+    /**
+     * Evaluate persisted derived tallies against one statepoint.
+     * Returns `{ error }` instead of throwing so the viewer can render the
+     * failure inline next to the derived-tally list.
+     */
+    async getDerivedTallies(
+        statepointUri: URI,
+        definitions: OpenMCDerivedTallyDefinition[]
+    ): Promise<{ data?: OpenMCDerivedTallyEvaluation; error?: string }> {
+        try {
+            const data = await this.openmcBackend.getDerivedTallies(statepointUri.path.toString(), definitions);
+            return { data };
+        } catch (error) {
+            return { error: error instanceof Error ? error.message : String(error) };
+        }
     }
 
     /**

@@ -6,7 +6,7 @@ OpenMC Studio has four test layers with a tiered coverage policy: the logic laye
 
 ## Python Unit Tests
 
-`tests/python/` — pytest suites for the Python backends (`python/*.py`). They must pass with only `pytest` + `numpy` installed (the minimal CI profile); guard heavy imports with `pytest.importorskip` or module-level `HAS_*` flags, and force dependency absence in guard tests rather than assuming it.
+`tests/python/` — pytest suites for the Python backends (`python/*.py`). They must pass with only `pytest` + `numpy` installed (the minimal CI profile); guard heavy imports with `pytest.importorskip` or module-level `HAS_*` flags, and force dependency absence in guard tests rather than assuming it. `test_derive_tallies.py` drives the evaluator with fake tally/statepoint objects (ratio, scaling, sum/difference, shape mismatch, zero division, CLI JSON) without importing OpenMC; the real pincell capture/fission comparison lives in `tests/e2e/test_derive_tallies_e2e.py`.
 
 ```bash
 yarn test:python        # all extension pytest suites (minimal profile)
@@ -16,7 +16,11 @@ yarn test:python:full   # against a full-dependency Python (see below)
 
 ## TypeScript Unit Tests
 
-Vitest suites next to the code (`src/**/*.test.ts`) cover the state schema, XML round-trips, catalogs, and parameter paths:
+Vitest suites next to the code (`src/**/*.test.ts`) cover the state schema, XML round-trips, catalogs,
+parameter paths, and the pure derived-tally model (`derived-tallies.test.ts`: parse/format precedence,
+token round-trip, validation, bin estimates, reference evaluation). Export-absence tests assert derived
+tallies never reach `tallies.xml` or the Python model; the state CRUD suite covers add/update/delete and
+project round-trip.
 
 ```bash
 npx vitest run extensions/openmc-studio

@@ -15,6 +15,7 @@ OpenMCState
 ├── materials          # Nuclides, densities, S(α,β)
 ├── settings           # Run mode, sources, entropy mesh, output options
 ├── tallies            # Scores, filters, estimators
+├── derivedTallies     # Analysis-only score arithmetic (never simulation input)
 ├── meshes             # Regular, cylindrical, spherical
 ├── varianceReduction  # Weight-window sets/file/checkpoints, UFS
 ├── depletion          # Burnup chain, timesteps, power
@@ -269,6 +270,19 @@ interface OpenMCTally {
 **Concept:** Filters carry `bins` as a flat number array. The interpretation of those numbers depends on `type` (cell IDs vs energy bounds vs mesh IDs). Structured filters keep dedicated fields so the row order is explicit: `pairs` for `cellinstance` (cell ID + instance) and `meshmaterial` (zero-based mesh element + material ID), `nuclideBins` for `parentnuclide`, `reactionBins` for canonical `reaction` names, and `particleTypes` + `productionEnergyBins` for `particleproduction`. The flat OpenMC encoding is mirrored into `bins` for pair filters; XML generation, import, Python export, and the editor all share `src/common/tally-filter-utils.ts` so no path silently reorders bins. `reaction` and `particleproduction` are 0.16-only and are gated by `OpenMCCompat.reactionFilter` / `particleProductionFilter`.
 
 `multiplyDensity` and `higherMoments` are tally output options that are XML-representable. `sparse` and `with_batch_statistics` are Python/statepoint analysis options and deliberately have no schema field or UI control.
+
+### Derived tallies
+
+`OpenMCState.derivedTallies?: OpenMCDerivedTally[]` persists analysis-only expressions over existing
+tally scores and scalars (binary `+ - * /`, unary negation, parentheses). Each operand references a
+tally ID, score, and optional nuclide; the model also carries a name, optional description/unit, and
+plot color. Definitions are optional with safe defaults, so older projects load unchanged.
+
+The pure model and validation live in `src/common/derived-tallies.ts`: formula parse/format, editor
+tokens, name/tally/score/nuclide checks, scalar divide-by-zero, same-filter-type bin compatibility,
+and a bin estimate. Evaluation is never done in TypeScript for the viewer; `python/derive_tallies.py`
+reads the statepoint and applies OpenMC's independent-tally uncertainty formulas. Derived tallies are
+post-processing only and are never emitted by XML generation or the Python exporter.
 
 ---
 

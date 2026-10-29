@@ -319,6 +319,9 @@ export interface OpenMCBackendService {
     /** Get complete statepoint information */
     getStatepointFullInfo(statepointPath: string): Promise<OpenMCStatepointFullInfo>;
 
+    /** Evaluate persisted derived tallies against a statepoint (analysis-only) */
+    getDerivedTallies(statepointPath: string, definitions: OpenMCDerivedTallyDefinition[]): Promise<OpenMCDerivedTallyEvaluation>;
+
     /** Get k-generation data for convergence plot */
     getKGenerationData(statepointPath: string): Promise<OpenMCKGenerationData>;
 
@@ -1367,6 +1370,76 @@ export interface OpenMCOverlapVizData {
     }[];
     /** Cell IDs that have overlaps (for highlighting) */
     overlappingCellIds: number[];
+}
+
+// ============================================================================
+// Derived Tallies (post-processing)
+// ============================================================================
+
+/**
+ * Derived-tally definitions are persisted by OpenMC Studio in `.nuke-openmc`
+ * state; the statepoint viewer reads them without importing the other
+ * extension. These types mirror that JSON contract.
+ */
+export type OpenMCDerivedOperandDefinition =
+    { kind: 'tally'; tallyId: number; score: string; nuclide?: string } | { kind: 'scalar'; value: number };
+
+export type OpenMCDerivedExpressionDefinition =
+    | OpenMCDerivedOperandDefinition
+    | { kind: 'binary'; op: '+' | '-' | '*' | '/'; left: OpenMCDerivedExpressionDefinition; right: OpenMCDerivedExpressionDefinition }
+    | { kind: 'unary'; op: '-'; operand: OpenMCDerivedExpressionDefinition };
+
+/** One persisted derived tally (analysis-only; never a simulation input). */
+export interface OpenMCDerivedTallyDefinition {
+    id: number;
+    name: string;
+    description?: string;
+    expression: OpenMCDerivedExpressionDefinition;
+    unit?: string;
+    color?: string;
+}
+
+/** One result filter axis from a derived tally. */
+export interface OpenMCDerivedTallyAxis {
+    type: string;
+    bins: unknown[];
+}
+
+/** Evaluated derived-tally result from the shared evaluator script. */
+export interface OpenMCDerivedTallyResult {
+    id: number;
+    name: string;
+    description?: string;
+    formula: string;
+    unit?: string;
+    color?: string;
+    /** Flattened filter-major mean values (`filter bins x nuclides x 1 score`). */
+    mean: number[];
+    stdDev: number[];
+    totalBins: number;
+    filters: OpenMCDerivedTallyAxis[];
+    scores: string[];
+    nuclides: string[];
+    shape: { filterBins: number; nuclides: number; scores: number };
+    warnings?: string[];
+}
+
+/** One derived tally that failed for a statepoint. */
+export interface OpenMCDerivedTallyEvaluationError {
+    id?: number;
+    name?: string;
+    error: string;
+    traceback?: string;
+}
+
+/** Result of evaluating derived tallies against a statepoint. */
+export interface OpenMCDerivedTallyEvaluation {
+    success: boolean;
+    statepoint?: string;
+    derivedTallies: OpenMCDerivedTallyResult[];
+    errors: OpenMCDerivedTallyEvaluationError[];
+    error?: string;
+    traceback?: string;
 }
 
 // ============================================================================

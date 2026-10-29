@@ -31,7 +31,7 @@ import { FileService } from '@theia/filesystem/lib/browser/file-service';
 import URI from '@theia/core/lib/common/uri';
 import { WorkspaceService } from '@theia/workspace/lib/browser/workspace-service';
 import { QuickPickValue } from '@theia/core/lib/browser';
-import { GeometryDiscoveryStore, autoDetectGeometryPath } from './openmc-file-discovery-model';
+import { GeometryDiscoveryStore, autoDetectGeometryPath, autoDetectProjectPath } from './openmc-file-discovery-model';
 
 @injectable()
 export class OpenMCFileDiscovery {
@@ -200,6 +200,44 @@ export class OpenMCFileDiscovery {
             }
         };
         const hit = await autoDetectGeometryPath(directory.path.toString(), store, stopAt);
+        return hit === undefined ? undefined : new URI(`${scheme}://${hit}`);
+    }
+
+    /**
+     * Find the nearest `.nuke-openmc` project that stores derived tallies.
+     * The viewer uses this to display analysis-only derived results without a
+     * cross-extension dependency on OpenMC Studio.
+     */
+    async autoDetectProject(directory: URI, statepointTallyIds: readonly number[] = []): Promise<URI | undefined> {
+        const stopAt = this.workspaceService.workspace?.resource.path.toString();
+        const scheme = directory.scheme;
+        const store: GeometryDiscoveryStore = {
+            listFiles: async (dir) => {
+                try {
+                    const stat = await this.fileService.resolve(new URI(`${scheme}://${dir}`));
+                    return (stat.children ?? []).filter((child) => child.isFile).map((child) => child.name);
+                } catch {
+                    return undefined;
+                }
+            },
+            readText: async (path) => {
+                try {
+                    const content = await this.fileService.readFile(new URI(`${scheme}://${path}`));
+                    return content.value.toString();
+                } catch {
+                    return undefined;
+                }
+            },
+            fileExists: async (path) => {
+                try {
+                    const stat = await this.fileService.resolve(new URI(`${scheme}://${path}`));
+                    return stat.isFile;
+                } catch {
+                    return false;
+                }
+            }
+        };
+        const hit = await autoDetectProjectPath(directory.path.toString(), store, stopAt, statepointTallyIds);
         return hit === undefined ? undefined : new URI(`${scheme}://${hit}`);
     }
 }

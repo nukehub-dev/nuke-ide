@@ -145,6 +145,11 @@ export class XMLGenerationService {
     async generateXML(request: XMLGenerationRequest): Promise<XMLGenerationResult> {
         const generatedFiles: string[] = [];
         const warnings: string[] = [];
+        if ((request.state.derivedTallies?.length ?? 0) > 0) {
+            warnings.push(
+                'Derived tallies are analysis-only and are not included in simulation XML. Evaluate them from the statepoint viewer.'
+            );
+        }
 
         try {
             const fs = await import('fs');

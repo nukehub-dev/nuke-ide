@@ -42,6 +42,7 @@ import { MeshPanel } from './components/mesh-panel';
 import { MeshEditor, MeshFileInfo } from './components/mesh-editor';
 import { TallyList } from './components/tally-list';
 import { TallyEditor } from './components/tally-editor';
+import { DerivedTallyPanel } from './components/derived-tally-panel';
 
 /**
  * Internal state for the tally configurator widget.
@@ -51,8 +52,8 @@ interface TallyConfiguratorState {
     selectedTallyId?: number;
     /** ID of the currently selected mesh */
     selectedMeshId?: number;
-    /** Active tab: tallies or meshes */
-    activeTab: 'tallies' | 'meshes';
+    /** Active tab: simulation tallies, meshes, or analysis-only derived tallies */
+    activeTab: 'tallies' | 'meshes' | 'derived';
     /** Tally currently being edited (if any) */
     editingTally?: OpenMCTally;
     /** Mesh currently being edited (if any) */
@@ -165,7 +166,9 @@ export class TallyConfiguratorWidget extends ReactWidget {
                 {this.renderHeader()}
                 {this.renderTabs()}
                 <div className="tally-configurator-content">
-                    {this.state.activeTab === 'tallies' ? this.renderTalliesTab() : this.renderMeshesTab()}
+                    {this.state.activeTab === 'tallies' && this.renderTalliesTab()}
+                    {this.state.activeTab === 'meshes' && this.renderMeshesTab()}
+                    {this.state.activeTab === 'derived' && this.renderDerivedTab()}
                 </div>
             </div>
         );
@@ -179,6 +182,7 @@ export class TallyConfiguratorWidget extends ReactWidget {
         const state = this.stateManager.getState();
         const tallies = state.tallies || [];
         const meshes = state.meshes || [];
+        const derivedTallies = state.derivedTallies || [];
         const totalFilters = tallies.reduce((sum, tally) => sum + tally.filters.length, 0);
 
         return (
@@ -205,6 +209,10 @@ export class TallyConfiguratorWidget extends ReactWidget {
                         <span className="stat-value">{totalFilters}</span>
                         <span className="stat-label">Filters</span>
                     </div>
+                    <div className="stat-item">
+                        <span className="stat-value">{derivedTallies.length}</span>
+                        <span className="stat-label">Derived</span>
+                    </div>
                 </div>
             </div>
         );
@@ -217,7 +225,8 @@ export class TallyConfiguratorWidget extends ReactWidget {
     private renderTabs(): React.ReactNode {
         const tabs = [
             { id: 'tallies', label: 'Tallies', icon: 'codicon-openmc-tally' },
-            { id: 'meshes', label: 'Meshes', icon: 'codicon-openmc-grid' }
+            { id: 'meshes', label: 'Meshes', icon: 'codicon-openmc-grid' },
+            { id: 'derived', label: 'Derived Tallies', icon: 'codicon-openmc-derived' }
         ];
 
         return (
@@ -227,7 +236,7 @@ export class TallyConfiguratorWidget extends ReactWidget {
                         <button
                             className={`tab-button ${this.state.activeTab === tab.id ? 'active' : ''}`}
                             aria-label={tab.label}
-                            onClick={() => this.setState({ activeTab: tab.id as 'tallies' | 'meshes' })}
+                            onClick={() => this.setState({ activeTab: tab.id as 'tallies' | 'meshes' | 'derived' })}
                         >
                             <i className={`codicon ${tab.icon}`}></i>
                             <span className="tab-label">{tab.label}</span>
@@ -343,6 +352,24 @@ export class TallyConfiguratorWidget extends ReactWidget {
                     )}
                 </div>
             </div>
+        );
+    }
+
+    /**
+     * Render the analysis-only derived tallies tab.
+     * @returns Derived tallies React node.
+     */
+    protected renderDerivedTab(): React.ReactNode {
+        const state = this.stateManager.getState();
+        return (
+            <DerivedTallyPanel
+                derivedTallies={state.derivedTallies ?? []}
+                tallies={state.tallies}
+                meshes={state.meshes}
+                onAdd={(derivedTally) => this.stateManager.addDerivedTally(derivedTally)}
+                onUpdate={(id, updates) => this.stateManager.updateDerivedTally(id, updates)}
+                onDelete={(id) => this.stateManager.removeDerivedTally(id)}
+            />
         );
     }
 

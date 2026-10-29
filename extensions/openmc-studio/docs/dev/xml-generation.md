@@ -315,7 +315,10 @@ the enable flag, file, checkpoints, and `<ufs_mesh>`.
 
 ## tallies.xml
 
-Maps `OpenMCState.tallies` + `OpenMCState.meshes` → `<tallies>`.
+Maps `OpenMCState.tallies` + `OpenMCState.meshes` → `<tallies>`. `OpenMCState.derivedTallies`
+is analysis-only and is deliberately never mapped here (or in the Python exporter); it is evaluated
+against a statepoint by `python/derive_tallies.py`. XML generation adds an explicit warning when
+derived tallies exist, and the Python model script carries the same analysis-only comment.
 
 ### State → XML Mapping
 

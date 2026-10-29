@@ -54,6 +54,7 @@ import {
     OpenMCSurface,
     OpenMCCell,
     OpenMCTally,
+    OpenMCDerivedTally,
     OpenMCMesh,
     OpenMCSettings,
     OpenMCUniverse,
@@ -542,6 +543,75 @@ export class OpenMCStateManager {
 
             this._onStateChange.fire({
                 path: `tallies.${id}`,
+                type: 'delete',
+                oldValue
+            });
+        }
+    }
+
+    /**
+     * Add a derived tally (analysis-only; never a simulation input).
+     *
+     * @param derivedTally - The {@link OpenMCDerivedTally} to add.
+     */
+    addDerivedTally(derivedTally: OpenMCDerivedTally): void {
+        if (!this._state.derivedTallies) {
+            this._state.derivedTallies = [];
+        }
+        this._state.derivedTallies.push(derivedTally);
+        this.markDirty();
+
+        this._onStateChange.fire({
+            path: `derivedTallies.${derivedTally.id}`,
+            type: 'add',
+            value: derivedTally
+        });
+    }
+
+    /**
+     * Update an existing derived tally.
+     *
+     * @param id - The ID of the derived tally to update.
+     * @param updates - Partial derived-tally object with the new values.
+     */
+    updateDerivedTally(id: number, updates: Partial<OpenMCDerivedTally>): void {
+        const derivedTallies = this._state.derivedTallies;
+        if (!derivedTallies) {
+            return;
+        }
+        const index = derivedTallies.findIndex((entry) => entry.id === id);
+        if (index >= 0) {
+            const oldValue = derivedTallies[index];
+            derivedTallies[index] = { ...oldValue, ...updates };
+            this.markDirty();
+
+            this._onStateChange.fire({
+                path: `derivedTallies.${id}`,
+                type: 'update',
+                value: derivedTallies[index],
+                oldValue
+            });
+        }
+    }
+
+    /**
+     * Remove a derived tally by ID.
+     *
+     * @param id - The ID of the derived tally to remove.
+     */
+    removeDerivedTally(id: number): void {
+        const derivedTallies = this._state.derivedTallies;
+        if (!derivedTallies) {
+            return;
+        }
+        const index = derivedTallies.findIndex((entry) => entry.id === id);
+        if (index >= 0) {
+            const oldValue = derivedTallies[index];
+            derivedTallies.splice(index, 1);
+            this.markDirty();
+
+            this._onStateChange.fire({
+                path: `derivedTallies.${id}`,
                 type: 'delete',
                 oldValue
             });
@@ -1181,6 +1251,16 @@ export class OpenMCStateManager {
      */
     getNextTallyId(): number {
         const ids = this._state.tallies.map((t) => t.id);
+        return ids.length > 0 ? Math.max(...ids) + 1 : 1;
+    }
+
+    /**
+     * Get the next available derived-tally ID.
+     *
+     * @returns The smallest unused positive integer ID for derived tallies.
+     */
+    getNextDerivedTallyId(): number {
+        const ids = (this._state.derivedTallies ?? []).map((entry) => entry.id);
         return ids.length > 0 ? Math.max(...ids) + 1 : 1;
     }
 

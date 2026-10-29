@@ -102,6 +102,7 @@ export interface OpenMCBackendService {
   loadStatepoint(statepointPath: string): Promise<OpenMCStatepointInfo>;
   listTallies(statepointPath: string): Promise<OpenMCTallyInfo[]>;
   getStatepointFullInfo(statepointPath: string): Promise<OpenMCStatepointFullInfo>;
+  getDerivedTallies(statepointPath: string, definitions: OpenMCDerivedTallyDefinition[]): Promise<OpenMCDerivedTallyEvaluation>;
   getKGenerationData(statepointPath: string): Promise<OpenMCKGenerationData>;
 
   // Headless VTK converters (no visualize* servers — each writes VTK and exits)

@@ -74,6 +74,10 @@ All files under `extensions/nuke-visualizer/` except generated artifacts (`lib/`
 - Tally series (`openmc.tally-series` in `commands/tally_series.py` + `lib/tally_series.py`) reads sibling
   statepoints through `widgets/statepoint/tally-series-widget.tsx`; preload no per-step mesh, and pass the
   series-wide `viewRange` as the custom 3D range when Shared color range is on.
+- Derived tallies: the statepoint viewer discovers the sibling `.nuke-openmc` project, resolves
+  `openmc-studio/python/derive_tallies.py` through nuke-core, and renders mean/std with a DERIVED badge
+  (bins/plot/CSV/comparison). Definitions are analysis-only and never enter simulation XML/Python; keep the
+  viewer free of OpenMC Studio TS imports. See `docs/user/openmc/statepoint-viewer.md`.
 - Comparison workspace (`viewer-core/comparison-session.ts`, `comparison-layout.ts`,
   `visualizer-comparison-contribution.ts`) groups already-open or browsed native/DAGMC viewers into split panes;
   four panes use a 2x2 grid, camera links apply direction only across files, and the shared range is the union of

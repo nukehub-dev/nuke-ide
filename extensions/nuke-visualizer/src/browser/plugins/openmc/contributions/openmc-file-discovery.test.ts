@@ -35,10 +35,13 @@ import { describe, expect, it } from 'vitest';
 import {
     GeometryDiscoveryStore,
     autoDetectGeometryPath,
+    autoDetectProjectPath,
     dagmcFileFromProjectDoc,
+    derivedTalliesFromProjectDoc,
     isAbsoluteUri,
     joinPath,
     parentDir,
+    tallyIdsFromProjectDoc,
     uriToPath
 } from './openmc-file-discovery-model';
 
@@ -170,6 +173,54 @@ describe('autoDetectGeometryPath project pinning', () => {
             '/ws/w7x': { 'w7x.nuke-openmc': '{oops', 'geometry.xml': '<geometry/>' }
         });
         await expect(autoDetectGeometryPath('/ws/w7x/output', store, '/ws')).resolves.toBe('/ws/w7x/geometry.xml');
+    });
+});
+
+describe('derived-tally project discovery', () => {
+    const project = (tallyId: number, name = 'ratio') =>
+        JSON.stringify({
+            state: {
+                tallies: [{ id: tallyId }],
+                derivedTallies: [
+                    {
+                        id: 1,
+                        name,
+                        expression: { kind: 'tally', tallyId, score: 'flux' }
+                    }
+                ]
+            }
+        });
+
+    it('reads derived tallies and tally ids from a project document', () => {
+        const parsed = JSON.parse(project(3));
+        expect(derivedTalliesFromProjectDoc(parsed)).toHaveLength(1);
+        expect(derivedTalliesFromProjectDoc(parsed)[0].name).toBe('ratio');
+        expect(tallyIdsFromProjectDoc(parsed)).toEqual([3]);
+        expect(derivedTalliesFromProjectDoc({ state: { derivedTallies: [] } })).toEqual([]);
+        expect(derivedTalliesFromProjectDoc(null)).toEqual([]);
+        expect(tallyIdsFromProjectDoc({ state: { tallies: [{ id: 'x' }, { id: 2 }] } })).toEqual([2]);
+    });
+
+    it('finds the nearest project with derived tallies and prefers matching tally ids', async () => {
+        const store = stubStore({
+            '/ws/case/output': {
+                'statepoint.10.h5': '',
+                'a.nuke-openmc': project(99, 'unrelated'),
+                'b.nuke-openmc': project(1, 'matching')
+            },
+            '/ws/case': { 'parent.nuke-openmc': project(1, 'parent') }
+        });
+        await expect(autoDetectProjectPath('/ws/case/output', store, '/ws', [1])).resolves.toBe('/ws/case/output/b.nuke-openmc');
+        await expect(autoDetectProjectPath('/ws/case/output', store, '/ws', [2])).resolves.toBe('/ws/case/output/a.nuke-openmc');
+    });
+
+    it('walks up to a parent project and ignores projects without derived tallies', async () => {
+        const store = stubStore({
+            '/ws/case/output': { 'statepoint.10.h5': '', 'plain.nuke-openmc': JSON.stringify({ state: {} }) },
+            '/ws/case': { 'model.nuke-openmc': project(1) }
+        });
+        await expect(autoDetectProjectPath('/ws/case/output', store, '/ws', [1])).resolves.toBe('/ws/case/model.nuke-openmc');
+        await expect(autoDetectProjectPath('/ws/nothing/output', store, '/ws', [1])).resolves.toBeUndefined();
     });
 });
 

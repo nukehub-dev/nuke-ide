@@ -309,6 +309,11 @@ export class OpenMCPythonExporter {
             lines.push(`# Date: ${new Date().toISOString()}`);
             lines.push('');
         }
+        if ((state.derivedTallies?.length ?? 0) > 0) {
+            lines.push('# Derived tallies are analysis-only and are not part of this simulation script.');
+            lines.push('# Evaluate them against a statepoint; they are never emitted as openmc.Tally objects.');
+            lines.push('');
+        }
 
         lines.push('import openmc');
         if (this.needsScriptRelativeMeshPath(state)) {

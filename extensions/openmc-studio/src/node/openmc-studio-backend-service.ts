@@ -4678,6 +4678,87 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
     }
 
     /**
+     * Evaluate persisted derived tallies against one statepoint.
+     *
+     * Derived tallies are analysis-only: they are never written to
+     * `tallies.xml` or the OpenMC Python model. The evaluator lives in
+     * `python/derive_tallies.py` and shares the statepoint reader's JSON-stdout
+     * contract.
+     */
+    async evaluateDerivedTallies(request: {
+        statepointPath: string;
+        derivedTallies: import('../common/openmc-studio-protocol').EvaluateDerivedTalliesRequest['derivedTallies'];
+    }): Promise<import('../common/openmc-studio-protocol').EvaluateDerivedTalliesResult> {
+        const empty = {
+            derivedTallies: [],
+            errors: []
+        };
+        if (request.derivedTallies.length === 0) {
+            return { success: true, statepoint: request.statepointPath, ...empty };
+        }
+
+        const fs = await import('fs');
+        const path = await import('path');
+        const os = await import('os');
+        const { execSync } = await import('child_process');
+
+        let temporaryDirectory: string | undefined;
+        try {
+            if (!fs.existsSync(request.statepointPath)) {
+                return { success: false, error: `File not found: ${request.statepointPath}`, ...empty };
+            }
+            const scriptPath = resolvePythonScript({ packageName: 'openmc-studio', scriptName: 'derive_tallies.py' });
+            if (!scriptPath) {
+                return { success: false, error: 'Derived-tally evaluator script not found', ...empty };
+            }
+            const pythonInfo = (await this.runnerService['detectPythonCommand']?.()) || { command: 'python' };
+            const pythonCommand = pythonInfo.command || 'python';
+
+            temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'nuke-derived-tallies-'));
+            const definitionsPath = path.join(temporaryDirectory, 'derived-tallies.json');
+            fs.writeFileSync(definitionsPath, JSON.stringify(request.derivedTallies), 'utf-8');
+            this.log(`Evaluating ${request.derivedTallies.length} derived tallies against ${request.statepointPath}`);
+
+            let output: string;
+            try {
+                output = execSync(
+                    `"${pythonCommand}" "${scriptPath}" --statepoint "${request.statepointPath}" --definitions-file "${definitionsPath}" --json`,
+                    { encoding: 'utf-8', timeout: 120000, stdio: ['pipe', 'pipe', 'pipe'] }
+                );
+            } catch (execError: any) {
+                const stdout = execError.stdout ? execError.stdout.toString() : '';
+                if (stdout) {
+                    try {
+                        return { ...JSON.parse(stdout), statepoint: request.statepointPath };
+                    } catch {}
+                }
+                const stderr = execError.stderr ? execError.stderr.toString() : '';
+                return { success: false, error: `Derived-tally evaluation failed: ${stderr || execError.message}`, ...empty };
+            }
+
+            const result = JSON.parse(output);
+            return {
+                success: result.success !== false,
+                statepoint: result.statepoint ?? request.statepointPath,
+                derivedTallies: result.derivedTallies ?? [],
+                errors: result.errors ?? [],
+                error: result.error,
+                traceback: result.traceback
+            };
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            this.error(`Failed to evaluate derived tallies: ${message}`);
+            return { success: false, error: `Failed to evaluate derived tallies: ${message}`, ...empty };
+        } finally {
+            if (temporaryDirectory) {
+                try {
+                    fs.rmSync(temporaryDirectory, { recursive: true, force: true });
+                } catch {}
+            }
+        }
+    }
+
+    /**
      * Compare multiple statepoint files.
      * @param request - Comparison request with file paths
      * @returns Comparison statistics and results

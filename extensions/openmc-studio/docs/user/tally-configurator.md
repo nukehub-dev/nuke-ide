@@ -305,6 +305,58 @@ Derivatives are exported as top-level `<derivative>` elements in `tallies.xml`, 
 
 ---
 
+## Derived Tallies
+
+The **Derived Tallies** tab combines existing tally scores into ratios, sums, differences, products,
+and scalar-scaled expressions without writing Python. Derived tallies are **post-processing only**:
+they are stored in the `.nuke-openmc` project, evaluated against a statepoint, and never written to
+`tallies.xml` or the OpenMC Python model.
+
+### Building an Expression
+
+1. Create at least one simulation tally with a score.
+2. Open the **Derived Tallies** tab and click **Create Derived Tally**.
+3. Choose a **Tally**, its **Score**, and optionally one **Nuclide** (or keep all scored nuclides), then
+   click **Add operand**. A scalar constant can be added from the same row.
+4. Build the expression with the operator buttons (`+`, `−`, `×`, `÷`, parentheses). Backspace removes
+   the last token; **Clear** resets the expression. With the token editor focused, Backspace removes the
+   last token, Enter adds the selected operand, and Escape cancels the draft.
+5. Set the **Name**, optional **Unit** (used in plot labels), **Color**, and description, then save.
+
+The **Formula** preview shows the canonical expression, for example
+`T1[(n,gamma)] / T2[fission]`, and the preview reports how many result bins the current filters and
+nuclides will produce. A single energy filter plots as a spectrum; other filter combinations plot one
+bar per result bin and list the decoded filter labels in the bins table.
+
+### Validation
+
+The builder blocks saving when:
+
+- the expression is empty or malformed,
+- an operand references a tally, score, or nuclide that does not exist,
+- the expression divides by a scalar zero,
+- two reference tallies use the same filter type with different bins (the axes cannot be aligned),
+- or the name duplicates another derived tally.
+
+Messages state what is wrong and how to fix it. When a simulation tally is deleted, existing derived
+tallies that reference it show the missing-tally error instead of silently dropping the term.
+
+> **Uncertainty caveat:** result uncertainties use OpenMC's independent-tally propagation. Correlated
+> tallies can under-predict the true uncertainty.
+
+### Viewing Results
+
+Open a `statepoint*.h5` file beside the project. The Statepoint Viewer discovers the owning
+`.nuke-openmc` project, evaluates the persisted derived tallies, and lists them in the **Tallies** tab
+with a **DERIVED** badge. Each card shows the formula, unit, aggregate mean (or sum of bins) and
+standard deviation, and actions to plot the bins, show the per-filter-bin table, export CSV, or compare
+the same derived tally across sibling statepoints.
+
+The **Simulation Comparison** widget has a matching **Derived** tab: load statepoints from the same
+project and compare each derived tally's aggregate value and uncertainty across runs by ID/name.
+
+---
+
 ## Export and Import
 
 ### Export Tally Configuration

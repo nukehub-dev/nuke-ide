@@ -349,6 +349,13 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
         return this.statepointService.getStatepointFullInfo(statepointPath);
     }
 
+    async getDerivedTallies(
+        statepointPath: string,
+        definitions: import('../../../common/openmc-protocol').OpenMCDerivedTallyDefinition[]
+    ): Promise<import('../../../common/openmc-protocol').OpenMCDerivedTallyEvaluation> {
+        return this.statepointService.getDerivedTallies(statepointPath, definitions);
+    }
+
     async getKGenerationData(statepointPath: string): Promise<any> {
         return this.statepointService.getKGenerationData(statepointPath);
     }

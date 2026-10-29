@@ -341,6 +341,27 @@ if (stats.success) {
 
 ---
 
+## Derived Tallies
+
+`derive_tallies.py --statepoint <h5> --definitions-file <json>` evaluates persisted derived-tally
+expressions. It loads `openmc.StatePoint`, resolves each tally/score/nuclide operand, and applies the
+OpenMC uncertainty formulas (sum/difference in quadrature; product/ratio via relative errors, with
+non-finite moments written as zero). Filters with the same type but different bins are rejected with
+an actionable message; filters present on only one operand broadcast across the result axes. The
+payload returns flattened filter-major mean/std arrays plus filter/nuclide/score axes.
+
+Each definition fails independently (`errors[]`); missing OpenMC, unreadable statepoints, and missing
+definitions return `success: false` with one JSON object. When `openmc.StatePoint` cannot read a
+synthetic/minimal statepoint, the script falls back to reading the HDF5 `results` moments directly
+(`[sum, sum_sq]` per filter/score/nuclide bin) so committed UI fixtures stay viewable.
+
+The statepoint viewer in `nuke-visualizer` resolves this script from `openmc-studio` and passes the
+definitions read from the sibling `.nuke-openmc` project; it never imports OpenMC Studio's TypeScript.
+The Simulation Comparison widget calls the same evaluator through
+`OpenMCStudioBackendService.evaluateDerivedTallies`.
+
+---
+
 ## Domain Drivers
 
 ### CAD / DAGMC and the graveyard

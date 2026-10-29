@@ -117,7 +117,7 @@ Status events are one-shot pushes, so a reloaded frontend cannot discover in-fli
 | `readDepletionResults(request)` | Reads `depletion_results.h5` and returns material evolution data.                          |
 | `analyzeConvergence(request)`   | Computes running averages, drift, and convergence recommendations from a statepoint.       |
 
-**Concept:** Statepoint operations delegate to `python/statepoint_reader.py`. The backend spawns Python as a subprocess, captures JSON stdout, and returns the parsed result. This keeps HDF5 parsing logic out of TypeScript.
+**Concept:** Statepoint operations delegate to `python/statepoint_reader.py`. The backend spawns Python as a subprocess, captures JSON stdout, and returns the parsed result. This keeps HDF5 parsing logic out of TypeScript. `evaluateDerivedTallies(request)` uses the separate `python/derive_tallies.py` evaluator and returns analysis-only `OpenMCDerivedTallyResult` entries plus per-definition errors.
 
 ### CAD Import
 

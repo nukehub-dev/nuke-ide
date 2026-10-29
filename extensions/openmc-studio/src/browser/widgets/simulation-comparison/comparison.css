@@ -2345,6 +2345,87 @@
 
 /* Narrow-panel layout: stack the selectors above their result panels and
    keep wide k-eff/tally tables inside scrollable cards. */
+/* Derived tallies (analysis-only) */
+.simulation-comparison .derived-comparison-tab {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.simulation-comparison .derived-comparison-caveat {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 10px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--card-bg);
+    color: var(--secondary-text);
+    font-size: 11px;
+    overflow-wrap: anywhere;
+}
+
+.simulation-comparison .derived-comparison-card {
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--card-bg);
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+}
+
+.simulation-comparison .derived-comparison-card-header {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.simulation-comparison .derived-comparison-badge {
+    padding: 2px 7px;
+    border-radius: 4px;
+    background: var(--active-bg);
+    color: var(--theia-list-activeSelectionForeground, white);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+}
+
+.simulation-comparison .derived-comparison-unit {
+    color: var(--secondary-text);
+    font-size: 11px;
+}
+
+.simulation-comparison .derived-comparison-formula {
+    font-family: var(--theia-code-font-family);
+    font-size: 11px;
+    color: var(--secondary-text);
+    overflow-wrap: anywhere;
+}
+
+.simulation-comparison .derived-comparison-table-scroll {
+    max-width: 100%;
+    overflow-x: auto;
+}
+
+.simulation-comparison .comparison-table.derived {
+    width: 100%;
+    white-space: nowrap;
+}
+
+.simulation-comparison .derived-comparison-errors {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 11px;
+    color: var(--secondary-text);
+}
+
 @container (max-width: 900px) {
     .simulation-comparison .comparison-header {
         flex-direction: column;

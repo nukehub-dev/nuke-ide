@@ -82,6 +82,9 @@ All files under `extensions/openmc-studio/` except generated artifacts (`lib/`, 
 - Tally output: `multiplyDensity` (default true) and `higherMoments` are XML-representable; `sparse`/`with_batch_statistics` are
   Python/statepoint analysis options with no UI control. Random ray filters are restricted to the upstream allow-list
   (`cell`, `cellinstance`, `distribcell`, `energy`, `material`, `mesh`, `universe`). See `docs/dev/xml-generation.md`.
+- Derived tallies are analysis-only (`state.derivedTallies`, pure model in `common/derived-tallies.ts`): never emit to XML/Python;
+  evaluate with `python/derive_tallies.py` against a statepoint, keeping same-filter-type/different-bin shapes an explicit error.
+  The statepoint viewer reads the sibling `.nuke-openmc` definitions and resolves this script; see `docs/dev/state-model.md`.
 - CSG builder geometry edits use the pure `geometry-editor.ts` helpers and `geometry-state.ts` transitions; the validation banner and
   run readiness both render `validateGeometryModel` (never a second rule set). See `docs/dev/widget-patterns.md`.
 - Kinetics / CMFD: IFP tallies auto-append from `settings.kinetics` and re-derive on import (idempotent); CMFD is C-API-only (no

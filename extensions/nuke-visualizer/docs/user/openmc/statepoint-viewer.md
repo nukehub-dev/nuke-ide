@@ -118,6 +118,27 @@ whose only filter is the mesh are volume-weighted; other tallies use an
 unweighted sum. Use the headless `openmc.tally-series` command for explicit
 time values or scripted exports.
 
+### Derived Tallies
+
+When the statepoint sits beside an `.nuke-openmc` project that defines derived
+tallies, the **Tallies** tab shows a **Derived Tallies** section above the user
+tallies. Each card has a **DERIVED** badge and shows the stored formula, unit,
+aggregate mean (or sum of filter bins) and standard deviation, plus:
+
+| Action      | Result                                                                 |
+| ----------- | ---------------------------------------------------------------------- |
+| **Plot**    | Bar chart of mean ± standard deviation per result bin                  |
+| **Bins**    | Per-bin table with decoded filter labels, nuclide, mean, std. dev.     |
+| **Compare** | Evaluates the same derived tally across sibling statepoints            |
+| **CSV**     | Exports one row per filter bin with filter values, mean, and std. dev. |
+
+Derived results are analysis-only: they are evaluated on demand from the
+project definitions and are never added to simulation XML or Python. The
+uncertainty assumes the underlying tallies are independent; a matching caveat
+is shown in the section. If a definition references a tally/score/nuclide that
+is absent from the statepoint, the card reports the specific evaluation error
+instead of hiding it.
+
 ---
 
 ## k-Generation Convergence Plot

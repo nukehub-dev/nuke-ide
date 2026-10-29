@@ -15,7 +15,7 @@ New to OpenMC Studio? Start here:
 | [**Simulation Dashboard**](simulation-dashboard.md)   | Configure every aspect of a model across the Settings, Materials, Depletion, Variance Reduction, Random Ray, and Simulation tabs |
 | [**Geometry Workflows**](geometry.md)                 | Build CSG geometry with the interactive cell/surface tree, or import and edit DAGMC geometry                                     |
 | [**DAGMC Editor**](dagmc-editor.md)                   | View and edit faceted DAGMC geometry, manage group tags, apply material overrides, and run imprint/merge operations              |
-| [**Tally Configurator**](tally-configurator.md)       | Build tallies with mesh editors, filter builders, the score catalog, triggers, and derivatives                                   |
+| [**Tally Configurator**](tally-configurator.md)       | Build tallies with mesh editors, filter builders, the score catalog, triggers, derivatives, and derived-tally arithmetic         |
 | [**Optimization Framework**](optimization.md)         | Run parameter sweeps and criticality (k-eff) searches                                                                            |
 | [**Volume Calculation**](volume-calculation.md)       | Stochastic volume estimation for cells, materials, and universes                                                                 |
 | [**Native Plotting**](native-plotting.md)             | Slice, voxel, and ray-traced geometry plots via OpenMC's C++ plot mode                                                           |

@@ -36,15 +36,22 @@ import { FileDialogService } from '@theia/filesystem/lib/browser/file-dialog';
 import { QuickInputService, WidgetManager, ApplicationShell } from '@theia/core/lib/browser';
 import { OpenMCService } from '../../openmc-service';
 import { OpenMCFileDiscovery } from '../../contributions/openmc-file-discovery';
+import { derivedTalliesFromProjectDoc } from '../../contributions/openmc-file-discovery-model';
 import {
     OpenMCStatepointFullInfo,
     OpenMCTallyInfo,
     OpenMCKGenerationData,
     OpenMCKineticsResult,
+    OpenMCDerivedTallyDefinition,
+    OpenMCDerivedTallyEvaluationError,
+    OpenMCDerivedTallyResult,
     HDF5_FILE_FILTER,
     GEOMETRY_FILE_FILTER
 } from '../../../../../common/openmc-protocol';
 import { formatUncertainty, formatValue, hasIfpTallies, kineticsToCsv } from './kinetics-utils';
+import { aggregateDerivedResult, buildDerivedChart, derivedBinRows, derivedTallyToCsv } from './derived-tally-model';
+import { FileService } from '@theia/filesystem/lib/browser/file-service';
+import { seriesCandidatePaths } from './tally-series-model';
 import { URI } from '@theia/core/lib/common/uri';
 import { SimpleLoadingSpinner, LoadingAnimations } from 'nuke-essentials/lib/theme/browser/components/loading-spinner';
 import { NukeEmptyState, Tooltip } from 'nuke-essentials/lib/theme/browser/components';
@@ -81,6 +88,9 @@ export class OpenMCStatepointViewerWidget extends ReactWidget {
     @inject(ApplicationShell)
     protected readonly shell!: ApplicationShell;
 
+    @inject(FileService)
+    protected readonly fileService!: FileService;
+
     private statepointUri: URI | null = null;
     private statepointInfo: OpenMCStatepointFullInfo | null = null;
     private tallies: OpenMCTallyInfo[] = [];
@@ -91,6 +101,21 @@ export class OpenMCStatepointViewerWidget extends ReactWidget {
     private isLoading: boolean = false;
     private loadingMessage: string = 'Loading...';
     private activeTab: string = 'overview';
+
+    // Derived tallies are analysis-only definitions stored in the sibling
+    // `.nuke-openmc` project; the viewer evaluates them through OpenMC Studio's
+    // shared script and never adds them to the simulation model.
+    private derivedDefinitions: OpenMCDerivedTallyDefinition[] = [];
+    private derivedResults: OpenMCDerivedTallyResult[] = [];
+    private derivedErrors: OpenMCDerivedTallyEvaluationError[] = [];
+    private derivedError: string | null = null;
+    private derivedLoading = false;
+    private derivedProjectPath: string | null = null;
+    private derivedKey: string | null = null;
+    private readonly expandedDerivedBins = new Set<number>();
+    private readonly expandedDerivedPlots = new Set<number>();
+    private readonly derivedComparisons = new Map<number, Array<{ label: string; value: number; stdDev: number; error?: string }>>();
+    private readonly derivedComparisonLoading = new Set<number>();
 
     private readonly _onTallySelected = new Emitter<StatepointTallySelection>();
     readonly onTallySelected: Event<StatepointTallySelection> = this._onTallySelected.event;
@@ -243,6 +268,7 @@ export class OpenMCStatepointViewerWidget extends ReactWidget {
         this.kineticsError = null;
         this.kineticsLoading = false;
         this.update();
+        void this.loadDerivedTallies(uri);
     }
 
     clearStatepoint(): void {
@@ -253,7 +279,74 @@ export class OpenMCStatepointViewerWidget extends ReactWidget {
         this.kineticsData = null;
         this.kineticsError = null;
         this.kineticsLoading = false;
+        this.resetDerivedState();
         this.update();
+    }
+
+    private resetDerivedState(): void {
+        this.derivedDefinitions = [];
+        this.derivedResults = [];
+        this.derivedErrors = [];
+        this.derivedError = null;
+        this.derivedLoading = false;
+        this.derivedProjectPath = null;
+        this.derivedKey = null;
+        this.expandedDerivedBins.clear();
+        this.expandedDerivedPlots.clear();
+        this.derivedComparisons.clear();
+        this.derivedComparisonLoading.clear();
+    }
+
+    /**
+     * Discover the owning project, read its persisted definitions, and ask the
+     * backend evaluator for results. Guarded by a key so repeated setStatepoint
+     * calls (opener + contribution) do not launch duplicate Python jobs.
+     */
+    private async loadDerivedTallies(uri: URI): Promise<void> {
+        const tallyIds = this.tallies.map((tally) => tally.id);
+        const key = `${uri.toString()}|${tallyIds.join(',')}`;
+        if (this.derivedKey === key) {
+            return;
+        }
+        this.derivedKey = key;
+        this.derivedDefinitions = [];
+        this.derivedResults = [];
+        this.derivedErrors = [];
+        this.derivedError = null;
+        this.derivedProjectPath = null;
+        this.derivedLoading = true;
+        this.expandedDerivedBins.clear();
+        this.expandedDerivedPlots.clear();
+        this.derivedComparisons.clear();
+        this.derivedComparisonLoading.clear();
+        this.update();
+
+        try {
+            const projectUri = await this.fileDiscovery.autoDetectProject(uri.parent, tallyIds);
+            if (!projectUri) {
+                return;
+            }
+            const content = await this.fileService.readFile(projectUri);
+            const definitions = derivedTalliesFromProjectDoc(JSON.parse(content.value.toString()));
+            if (definitions.length === 0) {
+                return;
+            }
+            this.derivedDefinitions = definitions;
+            this.derivedProjectPath = projectUri.path.toString();
+            const { data, error } = await this.openmcService.getDerivedTallies(uri, definitions);
+            if (error) {
+                this.derivedError = error;
+            } else if (data) {
+                this.derivedResults = data.derivedTallies ?? [];
+                this.derivedErrors = data.errors ?? [];
+                this.derivedError = data.success ? null : (data.error ?? 'Derived-tally evaluation failed.');
+            }
+        } catch (error) {
+            this.derivedError = `Could not evaluate derived tallies: ${error instanceof Error ? error.message : String(error)}`;
+        } finally {
+            this.derivedLoading = false;
+            this.update();
+        }
     }
 
     protected async handleBrowse(): Promise<void> {
@@ -617,7 +710,7 @@ export class OpenMCStatepointViewerWidget extends ReactWidget {
                             onClick={() => this.setActiveTab('tallies')}
                         >
                             <i className={codicon('graph')}></i>
-                            Tallies ({this.tallies.length})
+                            Tallies ({this.tallies.length + this.derivedResults.length})
                         </button>
                         <button
                             className={`tab ${this.activeTab === 'performance' ? 'active' : ''}`}
@@ -1065,6 +1158,7 @@ export class OpenMCStatepointViewerWidget extends ReactWidget {
     private renderTallies(): React.ReactNode {
         return (
             <div className="tab-content">
+                {this.renderDerivedSection()}
                 <div className="tallies-header">
                     <div className="tallies-header-content">
                         <i className={codicon('graph')}></i>
@@ -1082,6 +1176,356 @@ export class OpenMCStatepointViewerWidget extends ReactWidget {
                 <div className="tallies-grid">{this.tallies.map((tally) => this.renderTallyCard(tally))}</div>
             </div>
         );
+    }
+
+    private renderDerivedSection(): React.ReactNode {
+        if (!this.derivedLoading && this.derivedDefinitions.length === 0 && !this.derivedError) {
+            return null;
+        }
+        return (
+            <section className="derived-results-section" aria-label="Derived tallies">
+                <div className="tallies-header derived-results-header">
+                    <div className="tallies-header-content">
+                        <i className={codicon('symbol-operator')}></i>
+                        <h3>Derived Tallies</h3>
+                        <span className="tallies-count">{this.derivedResults.length + this.derivedErrors.length}</span>
+                        <span className="derived-results-badge">POST-PROCESSING</span>
+                    </div>
+                    {this.derivedProjectPath && (
+                        <Tooltip content={`Definitions loaded from ${this.derivedProjectPath}`} position="top">
+                            <span className="derived-project-hint">{this.derivedProjectPath.split(/[\\/]/).pop()}</span>
+                        </Tooltip>
+                    )}
+                </div>
+                <p className="derived-independence-caveat">
+                    <i className={codicon('info')}></i>
+                    Uncertainty assumes independent tallies. Correlated tallies can under-predict the true uncertainty.
+                </p>
+
+                {this.derivedLoading && (
+                    <div className="derived-results-loading">
+                        <SimpleLoadingSpinner message="Evaluating derived tallies…" />
+                    </div>
+                )}
+                {this.derivedError && (
+                    <div className="derived-results-error" role="alert">
+                        <i className={codicon('error')}></i>
+                        <span>{this.derivedError}</span>
+                    </div>
+                )}
+                {this.derivedErrors.length > 0 && (
+                    <ul className="derived-results-errors">
+                        {this.derivedErrors.map((entry) => (
+                            <li key={`${entry.id ?? entry.name}`} className="derived-results-error">
+                                <i className={codicon('error')}></i>
+                                <span>
+                                    <strong>{entry.name ?? `Derived ${entry.id ?? ''}`}:</strong> {entry.error}
+                                </span>
+                            </li>
+                        ))}
+                    </ul>
+                )}
+                {!this.derivedLoading && !this.derivedError && this.derivedResults.length === 0 && this.derivedErrors.length === 0 && (
+                    <p className="derived-results-empty">No derived results were returned for this statepoint.</p>
+                )}
+                <div className="derived-results-grid">{this.derivedResults.map((result) => this.renderDerivedCard(result))}</div>
+            </section>
+        );
+    }
+
+    private renderDerivedCard(result: OpenMCDerivedTallyResult): React.ReactNode {
+        const aggregate = aggregateDerivedResult(result);
+        const rows = derivedBinRows(result);
+        const showBins = this.expandedDerivedBins.has(result.id);
+        const showPlot = this.expandedDerivedPlots.has(result.id);
+        const comparison = this.derivedComparisons.get(result.id);
+        const comparing = this.derivedComparisonLoading.has(result.id);
+        const chart = buildDerivedChart(result);
+        return (
+            <div
+                key={`derived-${result.id}`}
+                className="tally-card derived-card-result"
+                data-derived-tally-id={result.id}
+                style={{ borderLeftColor: result.color || 'var(--theia-focusBorder)' }}
+            >
+                <div className="tally-card-header">
+                    <div className="tally-card-id">
+                        <span className="derived-result-badge">DERIVED</span>
+                        <span className="derived-result-name">{result.name}</span>
+                    </div>
+                    <div className="tally-card-badges">
+                        {result.filters.map((axis) => (
+                            <span key={axis.type} className="tally-card-badge derived-filter-badge">
+                                {axis.type}
+                            </span>
+                        ))}
+                        {result.unit && <span className="tally-card-badge derived-unit-badge">{result.unit}</span>}
+                    </div>
+                </div>
+
+                <code className="derived-result-formula">{result.formula}</code>
+                {result.description && <p className="derived-result-description">{result.description}</p>}
+
+                <div className="derived-result-metrics">
+                    <div className="derived-result-metric">
+                        <span className="derived-result-metric-value">{formatValue(aggregate.value)}</span>
+                        <span className="derived-result-metric-label">{aggregate.bins === 1 ? 'Mean' : 'Sum of bins'}</span>
+                    </div>
+                    <div className="derived-result-metric">
+                        <span className="derived-result-metric-value">± {formatValue(aggregate.stdDev)}</span>
+                        <span className="derived-result-metric-label">Std. dev.</span>
+                    </div>
+                    <div className="derived-result-metric">
+                        <span className="derived-result-metric-value">{result.totalBins}</span>
+                        <span className="derived-result-metric-label">{result.totalBins === 1 ? 'Bin' : 'Bins'}</span>
+                    </div>
+                    <div className="derived-result-metric">
+                        <span className="derived-result-metric-value">
+                            {result.nuclides.length === 1 ? result.nuclides[0] : `${result.nuclides.length}`}
+                        </span>
+                        <span className="derived-result-metric-label">{result.nuclides.length === 1 ? 'Nuclide' : 'Nuclides'}</span>
+                    </div>
+                </div>
+
+                {result.warnings && result.warnings.length > 0 && (
+                    <ul className="derived-result-warnings">
+                        {result.warnings.map((warning) => (
+                            <li key={warning}>
+                                <i className={codicon('warning')}></i> {warning}
+                            </li>
+                        ))}
+                    </ul>
+                )}
+
+                <div className="tally-card-actions derived-result-actions">
+                    <Tooltip content="Plot mean with standard-deviation error bars" position="top">
+                        <button
+                            className={`tally-card-btn ${showPlot ? 'tally-card-btn--primary' : ''}`}
+                            aria-label={`Plot ${result.name}`}
+                            onClick={() => {
+                                if (showPlot) {
+                                    this.expandedDerivedPlots.delete(result.id);
+                                } else {
+                                    this.expandedDerivedPlots.add(result.id);
+                                }
+                                this.update();
+                            }}
+                        >
+                            <i className={codicon('graph-line')}></i>
+                            Plot
+                        </button>
+                    </Tooltip>
+                    <Tooltip content="Show the per-filter-bin table" position="top">
+                        <button
+                            className={`tally-card-btn ${showBins ? 'tally-card-btn--primary' : ''}`}
+                            aria-label={`Show bins for ${result.name}`}
+                            onClick={() => {
+                                if (showBins) {
+                                    this.expandedDerivedBins.delete(result.id);
+                                } else {
+                                    this.expandedDerivedBins.add(result.id);
+                                }
+                                this.update();
+                            }}
+                        >
+                            <i className={codicon('table')}></i>
+                            Bins
+                        </button>
+                    </Tooltip>
+                    <Tooltip content="Evaluate this derived tally in every sibling statepoint" position="top">
+                        <button
+                            className="tally-card-btn tally-card-btn--series"
+                            aria-label={`Compare ${result.name} across statepoints`}
+                            onClick={() => void this.compareDerivedTally(result)}
+                            disabled={comparing}
+                        >
+                            <i className={codicon('graph')}></i>
+                            Compare
+                        </button>
+                    </Tooltip>
+                    <Tooltip content="Export this derived tally as CSV" position="top">
+                        <button
+                            className="tally-card-btn"
+                            aria-label={`Export ${result.name} as CSV`}
+                            onClick={() => this.exportDerivedCsv(result)}
+                        >
+                            <i className={codicon('export')}></i>
+                            CSV
+                        </button>
+                    </Tooltip>
+                </div>
+
+                {showPlot && (
+                    <div className="derived-result-chart">
+                        <PlotlyComponent
+                            data={[
+                                {
+                                    x: chart.x,
+                                    y: chart.y,
+                                    type: 'bar',
+                                    marker: { color: result.color || '#4a9eff' },
+                                    error_y: { type: 'data', array: chart.errorY, visible: true },
+                                    hovertemplate: '%{x}<br>%{y:.6g} ± %{error_y.array:.3g}<extra></extra>'
+                                }
+                            ]}
+                            layout={{
+                                xaxis: { title: { text: chart.xTitle } },
+                                yaxis: { title: { text: chart.yTitle } },
+                                margin: { t: 20, r: 20, b: 50, l: 60 },
+                                showlegend: false
+                            }}
+                            config={{ displayModeBar: false }}
+                            style={{ width: '100%', height: '280px' }}
+                        />
+                    </div>
+                )}
+
+                {showBins && (
+                    <div className="derived-result-bins">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Bin</th>
+                                    {result.filters.map((axis) => (
+                                        <th key={axis.type}>{axis.type}</th>
+                                    ))}
+                                    <th>Nuclide</th>
+                                    <th>Mean</th>
+                                    <th>Std. dev.</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {rows.slice(0, 200).map((row) => (
+                                    <tr key={row.index}>
+                                        <td>{row.index + 1}</td>
+                                        {row.filterLabels.map((label, index) => (
+                                            <td key={`${row.index}-${index}`}>{label}</td>
+                                        ))}
+                                        <td>{row.nuclide}</td>
+                                        <td>{formatValue(row.mean)}</td>
+                                        <td>{formatValue(row.stdDev)}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                        {rows.length > 200 && (
+                            <p className="derived-bins-limit">
+                                Showing the first 200 of {rows.length} bins — export the CSV for the full table.
+                            </p>
+                        )}
+                    </div>
+                )}
+
+                {comparing && (
+                    <div className="derived-comparison-loading">
+                        <SimpleLoadingSpinner message="Comparing sibling statepoints…" />
+                    </div>
+                )}
+                {comparison && comparison.length > 0 && (
+                    <div className="derived-comparison">
+                        <div className="derived-comparison-header">
+                            <i className={codicon('graph')}></i>
+                            <span>Across statepoints</span>
+                        </div>
+                        <PlotlyComponent
+                            data={[
+                                {
+                                    x: comparison.map((entry) => entry.label),
+                                    y: comparison.map((entry) => entry.value),
+                                    type: 'bar',
+                                    marker: { color: result.color || '#4a9eff' },
+                                    error_y: {
+                                        type: 'data',
+                                        array: comparison.map((entry) => entry.stdDev),
+                                        visible: true
+                                    },
+                                    hovertemplate: '%{x}<br>%{y:.6g}<extra></extra>'
+                                }
+                            ]}
+                            layout={{
+                                xaxis: { title: { text: 'Statepoint' } },
+                                yaxis: { title: { text: result.unit ? `${result.name} [${result.unit}]` : result.name } },
+                                margin: { t: 20, r: 20, b: 60, l: 60 },
+                                showlegend: false
+                            }}
+                            config={{ displayModeBar: false }}
+                            style={{ width: '100%', height: '260px' }}
+                        />
+                        {comparison.some((entry) => entry.error) && (
+                            <ul className="derived-comparison-errors">
+                                {comparison
+                                    .filter((entry) => entry.error)
+                                    .map((entry) => (
+                                        <li key={entry.label}>
+                                            <i className={codicon('warning')}></i> {entry.label}: {entry.error}
+                                        </li>
+                                    ))}
+                            </ul>
+                        )}
+                    </div>
+                )}
+            </div>
+        );
+    }
+
+    private exportDerivedCsv(result: OpenMCDerivedTallyResult): void {
+        const csv = derivedTallyToCsv(result);
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        const safeName = result.name.replace(/[^A-Za-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || `derived-${result.id}`;
+        anchor.href = url;
+        anchor.download = `${safeName}.csv`;
+        anchor.click();
+        URL.revokeObjectURL(url);
+    }
+
+    private async compareDerivedTally(result: OpenMCDerivedTallyResult): Promise<void> {
+        const uri = this.statepointUri;
+        if (!uri || this.derivedComparisonLoading.has(result.id)) {
+            return;
+        }
+        this.derivedComparisonLoading.add(result.id);
+        this.update();
+        try {
+            const directory = await this.fileService.resolve(uri.parent);
+            const siblings = (directory.children ?? [])
+                .filter((child) => child.isFile && /^statepoint.*\.h5$|^openmc_simulation_n\d+\.h5$/i.test(child.name))
+                .map((child) => ({ name: child.name, path: child.resource.path.toString() }));
+            const files = seriesCandidatePaths(uri.path.toString(), siblings);
+            const entries: Array<{ label: string; value: number; stdDev: number; error?: string }> = [];
+            for (const path of files) {
+                const fileUri = new URI(path);
+                const { data, error } = await this.openmcService.getDerivedTallies(fileUri, this.derivedDefinitions);
+                if (error) {
+                    entries.push({ label: fileUri.path.base, value: 0, stdDev: 0, error });
+                    continue;
+                }
+                const match =
+                    data?.derivedTallies.find((candidate) => candidate.id === result.id) ??
+                    data?.derivedTallies.find((candidate) => candidate.name === result.name);
+                const evaluationError = data?.errors.find((candidate) => candidate.id === result.id || candidate.name === result.name);
+                if (!match) {
+                    entries.push({
+                        label: fileUri.path.base,
+                        value: 0,
+                        stdDev: 0,
+                        error: evaluationError?.error ?? 'Derived tally missing from this statepoint.'
+                    });
+                    continue;
+                }
+                const aggregate = aggregateDerivedResult(match);
+                entries.push({ label: fileUri.path.base, value: aggregate.value, stdDev: aggregate.stdDev });
+            }
+            this.derivedComparisons.set(result.id, entries);
+        } catch (error) {
+            this.derivedComparisons.set(result.id, [
+                { label: 'comparison', value: 0, stdDev: 0, error: error instanceof Error ? error.message : String(error) }
+            ]);
+        } finally {
+            this.derivedComparisonLoading.delete(result.id);
+            this.update();
+        }
     }
 
     private renderTallyCard(tally: OpenMCTallyInfo): React.ReactNode {

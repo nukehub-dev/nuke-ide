@@ -55,6 +55,27 @@ describe('migrateProjectFile', () => {
         expect(migratedState).toEqual(stateBefore);
     });
 
+    it('keeps derived tallies when they are present and leaves them absent on older files', () => {
+        const older = makeProject('1.1.0');
+        expect(migrateProjectFile(older).project.state.derivedTallies).toBeUndefined();
+
+        const current = makeProject(OPENMC_STATE_SCHEMA_VERSION);
+        current.state.derivedTallies = [
+            {
+                id: 1,
+                name: 'Capture / fission',
+                expression: {
+                    kind: 'binary',
+                    op: '/',
+                    left: { kind: 'tally', tallyId: 1, score: '(n,gamma)' },
+                    right: { kind: 'tally', tallyId: 2, score: 'fission' }
+                },
+                unit: 'ratio'
+            }
+        ];
+        expect(migrateProjectFile(current).project.state.derivedTallies).toEqual(current.state.derivedTallies);
+    });
+
     it('rejects a version with no migration path', () => {
         expect(() => migrateProjectFile(makeProject('0.9.0'))).toThrow(/Unsupported .nuke-openmc schema version/);
     });

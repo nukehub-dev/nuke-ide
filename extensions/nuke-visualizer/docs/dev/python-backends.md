@@ -158,6 +158,11 @@ The backend invokes the command, parses stdout JSON, and reads the converted fil
 
 ## Unified Entry Point
 
+Derived tallies are the one cross-extension seam: the Node statepoint service resolves
+`openmc-studio/python/derive_tallies.py` through nuke-core's script resolver and runs it with the
+visualizer's configured Python environment. The viewer reads the definitions from the sibling
+`.nuke-openmc` project, so nuke-visualizer never imports OpenMC Studio's TypeScript or Python modules.
+
 All commands are invoked through `server.py`:
 
 ```bash

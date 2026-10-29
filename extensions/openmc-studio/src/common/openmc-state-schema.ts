@@ -1655,6 +1655,49 @@ export interface OpenMCTally {
 }
 
 // ============================================================================
+// Derived Tallies (post-processing)
+// ============================================================================
+
+/**
+ * One leaf of a derived-tally expression: a tally score (optionally restricted
+ * to one nuclide) or a numeric constant.
+ *
+ * Derived tallies are analysis-only. They live in `.nuke-openmc` state and are
+ * evaluated against a statepoint by `python/derive_tallies.py`; they are never
+ * emitted to `tallies.xml` or the OpenMC Python model.
+ */
+export type OpenMCDerivedOperand = { kind: 'tally'; tallyId: number; score: string; nuclide?: string } | { kind: 'scalar'; value: number };
+
+/**
+ * Derived-tally expression tree. Operands are tally/score slices or scalars;
+ * binary operators are `+`, `-`, `*`, `/`; unary negation is supported.
+ *
+ * OpenMC tally arithmetic combines filters in all possible ways and multiplies
+ * uncertainty assuming independent tallies, so the evaluated result carries
+ * its own filter/nuclide axes rather than assuming a 1:1 bin match.
+ */
+export type OpenMCDerivedExpression =
+    | OpenMCDerivedOperand
+    | { kind: 'binary'; op: '+' | '-' | '*' | '/'; left: OpenMCDerivedExpression; right: OpenMCDerivedExpression }
+    | { kind: 'unary'; op: '-'; operand: OpenMCDerivedExpression };
+
+/** A persisted derived tally (post-processing only; never a simulation input). */
+export interface OpenMCDerivedTally {
+    /** Unique derived-tally ID (independent of simulation tally IDs) */
+    id: number;
+    /** Display name */
+    name: string;
+    /** Optional description of what the expression means */
+    description?: string;
+    /** Expression tree over tally scores and scalars */
+    expression: OpenMCDerivedExpression;
+    /** Optional unit label, e.g. "ratio", "cm^-2", "W" */
+    unit?: string;
+    /** Display color for plots */
+    color?: string;
+}
+
+// ============================================================================
 // Meshes
 // ============================================================================
 
@@ -2242,6 +2285,11 @@ export interface OpenMCState {
     settings: OpenMCSettings;
     /** Tallies */
     tallies: OpenMCTally[];
+    /**
+     * Analysis-only derived tallies. Optional so projects written before the
+     * feature load unchanged. Never emitted to simulation XML or Python.
+     */
+    derivedTallies?: OpenMCDerivedTally[];
     /** Meshes for tally filters */
     meshes: OpenMCMesh[];
     /** Variance reduction settings */

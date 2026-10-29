@@ -42,6 +42,8 @@
  * picker.
  */
 
+import type { OpenMCDerivedTallyDefinition } from '../../../../common/openmc-protocol';
+
 /** Well-known geometry names checked per directory, closest first. */
 export const AUTO_DETECT_WELL_KNOWN_NAMES: readonly string[] = ['geometry.h5m', 'dagmc.h5m', 'geometry.xml'];
 
@@ -72,6 +74,106 @@ export function dagmcFileFromProjectDoc(value: unknown): string | undefined {
     }
     const settings = (value as { state?: { settings?: { dagmcFile?: unknown } } }).state?.settings;
     return typeof settings?.dagmcFile === 'string' && settings.dagmcFile.length > 0 ? settings.dagmcFile : undefined;
+}
+
+/**
+ * Derived-tally definitions stored in a `.nuke-openmc` project document, or
+ * an empty list for anything else. Definitions are validated by the evaluator;
+ * this only checks the persisted shape.
+ */
+export function derivedTalliesFromProjectDoc(value: unknown): OpenMCDerivedTallyDefinition[] {
+    if (typeof value !== 'object' || value === null) {
+        return [];
+    }
+    const definitions = (value as { state?: { derivedTallies?: unknown } }).state?.derivedTallies;
+    if (!Array.isArray(definitions)) {
+        return [];
+    }
+    return definitions.filter((entry): entry is OpenMCDerivedTallyDefinition => {
+        return (
+            typeof entry === 'object' &&
+            entry !== null &&
+            typeof (entry as { id?: unknown }).id === 'number' &&
+            typeof (entry as { name?: unknown }).name === 'string' &&
+            typeof (entry as { expression?: unknown }).expression === 'object'
+        );
+    });
+}
+
+/** Simulation tally IDs referenced by a `.nuke-openmc` project document. */
+export function tallyIdsFromProjectDoc(value: unknown): number[] {
+    if (typeof value !== 'object' || value === null) {
+        return [];
+    }
+    const tallies = (value as { state?: { tallies?: unknown } }).state?.tallies;
+    if (!Array.isArray(tallies)) {
+        return [];
+    }
+    return tallies
+        .map((entry) => (typeof entry === 'object' && entry !== null ? (entry as { id?: unknown }).id : undefined))
+        .filter((id): id is number => typeof id === 'number');
+}
+
+interface ProjectCandidate {
+    path: string;
+    level: number;
+    matchingTallies: number;
+    name: string;
+}
+
+/**
+ * Find the nearest `.nuke-openmc` project with derived tallies, walking from
+ * the statepoint directory up to `stopAt`. A project whose simulation tally
+ * IDs overlap the statepoint's tally set wins over an unrelated project at the
+ * same level; otherwise the closest directory wins. Pure apart from the store.
+ */
+export async function autoDetectProjectPath(
+    startDir: string,
+    store: GeometryDiscoveryStore,
+    stopAt: string | undefined,
+    statepointTallyIds: readonly number[] = []
+): Promise<string | undefined> {
+    const tallySet = new Set(statepointTallyIds);
+    const candidates: ProjectCandidate[] = [];
+    let current: string | undefined = startDir;
+    for (let level = 0; level <= AUTO_DETECT_MAX_WALK_LEVELS && current !== undefined; level++) {
+        const files = await store.listFiles(current);
+        if (files !== undefined) {
+            const projects = files.filter((entry) => entry.toLowerCase().endsWith('.nuke-openmc')).sort();
+            for (const project of projects) {
+                const projectPath = joinPath(current, project);
+                const text = await store.readText(projectPath);
+                if (text === undefined) {
+                    continue;
+                }
+                try {
+                    const parsed = JSON.parse(text);
+                    const definitions = derivedTalliesFromProjectDoc(parsed);
+                    if (definitions.length === 0) {
+                        continue;
+                    }
+                    const matchingTallies = tallyIdsFromProjectDoc(parsed).filter((id) => tallySet.has(id)).length;
+                    candidates.push({ path: projectPath, level, matchingTallies, name: project });
+                } catch {
+                    continue;
+                }
+            }
+        }
+        if (current === stopAt) {
+            break;
+        }
+        current = parentDir(current);
+    }
+    candidates.sort((left, right) => {
+        if (left.level !== right.level) {
+            return left.level - right.level;
+        }
+        if (left.matchingTallies !== right.matchingTallies) {
+            return right.matchingTallies - left.matchingTallies;
+        }
+        return left.name < right.name ? -1 : left.name > right.name ? 1 : 0;
+    });
+    return candidates[0]?.path;
 }
 
 /** Parent directory of a `/a/b`-style path, or undefined at the root. Pure. */

@@ -460,6 +460,12 @@ are imported once by the frontend module; they work anywhere a codicon does, inc
 - Keep generic codicons for universal utilities: add, save, edit, trash, close, chevrons, warnings, and errors.
   Draw each OpenMC domain glyph as one coherent shape; do not compose detached symbols (grid + bars) into one icon.
 
+The Tally Configurator's **Derived Tallies** tab is token-first: operand/operator/parenthesis buttons
+plus Backspace/Enter/Escape, a read-only formula preview, inline validation, and a bin estimate. The
+persisted expression is parsed from the tokens (`common/derived-tallies.ts`), not concatenated at
+evaluation time. Only the definition lives in openmc-studio; results are rendered by the statepoint
+viewer in nuke-visualizer.
+
 Native Plotting keeps its common geometry fields visible and puts background, masking, and overlap
 highlighting in a collapsed **Appearance** section. Use the shared `ColorPicker`, `SearchableMultiSelect`,
 and `Tooltip`; the mask picker follows `colorBy` (cell or material IDs), and the section disables or

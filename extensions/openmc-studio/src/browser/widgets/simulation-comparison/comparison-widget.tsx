@@ -53,8 +53,11 @@ import {
     StatepointTally,
     StatisticalTests,
     KeffConvergenceAnalysis,
-    DepletionResults
+    DepletionResults,
+    EvaluateDerivedTalliesResult
 } from '../../../common/openmc-studio-protocol';
+import { aggregateDerivedBins, formatDerivedExpression } from '../../../common/derived-tallies';
+import { OpenMCStateManager } from '../../openmc-state-manager';
 
 // Import Plotly component from nuke-visualizer
 import { PlotlyComponent } from 'nuke-visualizer/lib/browser/plotly/plotly-component';
@@ -69,6 +72,8 @@ interface StatepointInfoExtended extends StatepointInfo {
     loading?: boolean;
     /** Whether the file was successfully loaded. */
     loaded?: boolean;
+    /** Analysis-only derived-tally results evaluated for this statepoint. */
+    derived?: EvaluateDerivedTalliesResult;
 }
 
 /**
@@ -106,7 +111,7 @@ const KeffChartBar: React.FC<{
 };
 
 /** Active tab in the simulation comparison widget. */
-type ComparisonTab = 'overview' | 'keff' | 'tallies' | 'statistics' | 'convergence' | 'burnup';
+type ComparisonTab = 'overview' | 'keff' | 'tallies' | 'derived' | 'statistics' | 'convergence' | 'burnup';
 
 /**
  * Widget for comparing k-effective values and tally results across multiple
@@ -140,6 +145,9 @@ export class SimulationComparisonWidget extends ReactWidget {
     @inject(FileService)
     protected readonly fileService!: FileService;
 
+    @inject(OpenMCStateManager)
+    protected readonly stateManager!: OpenMCStateManager;
+
     private statepoints: StatepointInfoExtended[] = [];
     private activeTab: ComparisonTab = 'overview';
     private selectedTallyId?: number;
@@ -167,6 +175,7 @@ export class SimulationComparisonWidget extends ReactWidget {
         this.title.caption = SimulationComparisonWidget.LABEL;
         this.title.closable = true;
         this.title.iconClass = 'codicon codicon-openmc-compare';
+        this.toDispose.push(this.stateManager.onStateChange(() => this.update()));
         this.update();
     }
 
@@ -266,6 +275,10 @@ export class SimulationComparisonWidget extends ReactWidget {
         }
 
         tabs.push({ id: 'tallies', label: 'Tallies', icon: 'openmc-tally' });
+
+        if (this.hasDerivedTallies()) {
+            tabs.push({ id: 'derived', label: 'Derived', icon: 'openmc-derived' });
+        }
 
         if (hasEigenvalue) {
             tabs.push({ id: 'statistics', label: 'Statistics', icon: 'pie-chart' });
@@ -368,6 +381,7 @@ export class SimulationComparisonWidget extends ReactWidget {
                 {this.activeTab === 'overview' && this.renderOverviewTab()}
                 {this.activeTab === 'keff' && this.renderKeffTab()}
                 {this.activeTab === 'tallies' && this.renderTalliesTab()}
+                {this.activeTab === 'derived' && this.renderDerivedTab()}
                 {this.activeTab === 'statistics' && this.renderStatisticsTab()}
                 {this.activeTab === 'convergence' && this.renderConvergenceTab()}
                 {this.activeTab === 'burnup' && this.renderBurnupTab()}
@@ -760,6 +774,109 @@ export class SimulationComparisonWidget extends ReactWidget {
                 </div>
             </div>
         );
+    }
+
+    /** True when the open project defines derived tallies. */
+    private hasDerivedTallies(): boolean {
+        return (this.stateManager.getState().derivedTallies ?? []).length > 0;
+    }
+
+    /**
+     * Render analysis-only derived tallies across loaded statepoints. Results
+     * are matched by definition ID, then by name, so renamed runs still align.
+     */
+    private renderDerivedTab(): React.ReactNode {
+        const definitions = this.stateManager.getState().derivedTallies ?? [];
+        const loaded = this.statepoints.filter((statepoint) => statepoint.loaded && !statepoint.error);
+        if (definitions.length === 0) {
+            return (
+                <div className="tab-content empty">
+                    <i className="codicon codicon-openmc-derived"></i>
+                    <h3>No Derived Tallies</h3>
+                    <p className="hint">Create analysis-only derived tallies in the Tally Configurator's Derived Tallies tab.</p>
+                </div>
+            );
+        }
+        return (
+            <div className="tab-content derived-comparison-tab">
+                <div className="derived-comparison-caveat">
+                    <i className="codicon codicon-info"></i>
+                    Uncertainty assumes independent tallies. Derived results are post-processing only and never enter simulation XML or
+                    Python.
+                </div>
+                {definitions.map((definition) => {
+                    const rows = loaded.map((statepoint) => {
+                        const result =
+                            statepoint.derived?.derivedTallies.find((entry) => entry.id === definition.id) ??
+                            statepoint.derived?.derivedTallies.find((entry) => entry.name === definition.name);
+                        const error = statepoint.derived?.errors.find(
+                            (entry) => entry.id === definition.id || entry.name === definition.name
+                        );
+                        return {
+                            statepoint,
+                            result,
+                            error: error?.error ?? (statepoint.derived?.error || undefined)
+                        };
+                    });
+                    return (
+                        <div className="derived-comparison-card" key={definition.id}>
+                            <div className="derived-comparison-card-header">
+                                <span className="derived-comparison-badge">DERIVED</span>
+                                <strong>{definition.name}</strong>
+                                {definition.unit && <span className="derived-comparison-unit">[{definition.unit}]</span>}
+                            </div>
+                            <code className="derived-comparison-formula">{formatDerivedExpression(definition.expression)}</code>
+                            <div className="derived-comparison-table-scroll">
+                                <table className="comparison-table derived">
+                                    <thead>
+                                        <tr>
+                                            <th>Statepoint</th>
+                                            <th>Bins</th>
+                                            <th>Mean / Sum</th>
+                                            <th>Std. dev.</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {rows.map(({ statepoint, result, error }) => {
+                                            const aggregate = result ? aggregateDerivedBins(result.mean, result.stdDev) : undefined;
+                                            return (
+                                                <tr key={statepoint.localId}>
+                                                    <td>{statepoint.fileName}</td>
+                                                    <td>{result ? result.totalBins : '—'}</td>
+                                                    <td>{aggregate ? this.formatComparisonNumber(aggregate.value) : '—'}</td>
+                                                    <td>{aggregate ? this.formatComparisonNumber(aggregate.stdDev) : '—'}</td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+                            {rows.some(({ error }) => error) && (
+                                <ul className="derived-comparison-errors">
+                                    {rows
+                                        .filter(({ error }) => error)
+                                        .map(({ statepoint, error }) => (
+                                            <li key={statepoint.localId}>
+                                                <i className="codicon codicon-warning"></i> {statepoint.fileName}: {error}
+                                            </li>
+                                        ))}
+                                </ul>
+                            )}
+                        </div>
+                    );
+                })}
+            </div>
+        );
+    }
+
+    private formatComparisonNumber(value: number): string {
+        if (!Number.isFinite(value)) {
+            return '—';
+        }
+        if (value === 0) {
+            return '0';
+        }
+        return Math.abs(value) >= 1e-3 && Math.abs(value) < 1e6 ? String(Number(value.toPrecision(6))) : value.toExponential(3);
     }
 
     /**
@@ -1895,6 +2012,10 @@ export class SimulationComparisonWidget extends ReactWidget {
 
             this.update();
 
+            if (result.success) {
+                await this.loadDerivedResults(statepoint);
+            }
+
             // If we have multiple loaded statepoints, fetch statistical comparison
             const loadedCount = this.statepoints.filter((s) => s.loaded).length;
             if (loadedCount >= 2) {
@@ -1906,6 +2027,28 @@ export class SimulationComparisonWidget extends ReactWidget {
             statepoint.error = error instanceof Error ? error.message : 'Failed to load statepoint';
             this.update();
         }
+    }
+
+    /** Evaluate the project's derived tallies for one loaded statepoint. */
+    private async loadDerivedResults(statepoint: StatepointInfoExtended): Promise<void> {
+        const derivedTallies = this.stateManager.getState().derivedTallies ?? [];
+        if (derivedTallies.length === 0) {
+            return;
+        }
+        try {
+            statepoint.derived = await this.backendService.evaluateDerivedTallies({
+                statepointPath: statepoint.filePath,
+                derivedTallies
+            });
+        } catch (error) {
+            statepoint.derived = {
+                success: false,
+                derivedTallies: [],
+                errors: [],
+                error: error instanceof Error ? error.message : String(error)
+            };
+        }
+        this.update();
     }
 
     /**
@@ -1982,6 +2125,21 @@ export class SimulationComparisonWidget extends ReactWidget {
                 lines.push('');
             }
         });
+
+        // Derived tallies (analysis-only)
+        if (this.hasDerivedTallies()) {
+            lines.push('Derived Tallies (analysis-only; uncertainty assumes independent tallies)');
+            lines.push('File,Derived ID,Name,Bins,Mean / Sum,Std Dev');
+            this.statepoints.forEach((sp) => {
+                sp.derived?.derivedTallies.forEach((result) => {
+                    const aggregate = aggregateDerivedBins(result.mean, result.stdDev);
+                    lines.push(
+                        `${sp.fileName},${result.id},"${result.name.replace(/"/g, '""')}",${result.totalBins},${aggregate.value},${aggregate.stdDev}`
+                    );
+                });
+            });
+            lines.push('');
+        }
 
         // Depletion results
         if (this.depletionResults.size > 0) {

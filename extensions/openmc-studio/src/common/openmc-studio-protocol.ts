@@ -46,6 +46,7 @@ import {
     OpenMCExternalSourceRate,
     OpenMCCmfdSettings,
     OpenMCShutdownDoseConfig,
+    OpenMCDerivedTally,
     OPENMC_STATE_SCHEMA_VERSION,
     DAGMCInfo
 } from './openmc-state-schema';
@@ -1303,6 +1304,9 @@ export interface OpenMCStudioBackendService {
     /** Read a single statepoint file and extract data */
     readStatepoint(request: ReadStatepointRequest): Promise<ReadStatepointResult>;
 
+    /** Evaluate persisted derived-tally expressions against a statepoint (analysis-only) */
+    evaluateDerivedTallies(request: EvaluateDerivedTalliesRequest): Promise<EvaluateDerivedTalliesResult>;
+
     /** Compare multiple statepoint files */
     compareStatepoints(request: CompareStatepointsRequest): Promise<CompareStatepointsResult>;
 
@@ -1792,6 +1796,59 @@ export interface StatepointInfo {
     date?: string;
     entropy?: number[];
     sourceParticles?: number;
+}
+
+/** One result filter axis from a derived tally, with OpenMC bin values. */
+export interface OpenMCDerivedTallyAxis {
+    /** OpenMC filter type (`cell`, `energy`, `mesh`, ...). */
+    type: string;
+    /** Logical filter bins (numbers, `[lo, hi]` pairs, or mesh indices). */
+    bins: unknown[];
+}
+
+/** Evaluated derived-tally result (analysis-only; never a simulation input). */
+export interface OpenMCDerivedTallyResult {
+    id: number;
+    name: string;
+    description?: string;
+    /** Canonical formula, e.g. `T1[flux] / T2[fission]`. */
+    formula: string;
+    unit?: string;
+    color?: string;
+    /** Flattened filter-major mean values (`filter bins x nuclides x 1 score`). */
+    mean: number[];
+    /** Flattened standard deviations in the same order as {@link mean}. */
+    stdDev: number[];
+    totalBins: number;
+    filters: OpenMCDerivedTallyAxis[];
+    scores: string[];
+    nuclides: string[];
+    shape: { filterBins: number; nuclides: number; scores: number };
+    warnings?: string[];
+}
+
+/** One derived tally that failed to evaluate against a statepoint. */
+export interface OpenMCDerivedTallyEvaluationError {
+    id?: number;
+    name?: string;
+    error: string;
+    traceback?: string;
+}
+
+/** Request to evaluate persisted derived tallies against a statepoint. */
+export interface EvaluateDerivedTalliesRequest {
+    statepointPath: string;
+    derivedTallies: OpenMCDerivedTally[];
+}
+
+/** Result of evaluating derived tallies against a statepoint. */
+export interface EvaluateDerivedTalliesResult {
+    success: boolean;
+    statepoint?: string;
+    derivedTallies: OpenMCDerivedTallyResult[];
+    errors: OpenMCDerivedTallyEvaluationError[];
+    error?: string;
+    traceback?: string;
 }
 
 /** Request to read a statepoint file */

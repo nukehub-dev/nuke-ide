@@ -133,6 +133,16 @@ A table shows the slope of the cumulative mean over the last N batches:
 
 ---
 
+## Derived Tally Comparison
+
+When the open project defines derived tallies, a **Derived** tab compares each persisted expression
+across the loaded statepoints. Rows show the aggregate mean (or sum of filter bins), standard
+deviation, and bin count per statepoint; results are matched by definition ID first and by name
+second. Missing tallies/scores/nuclides appear as inline errors instead of blank rows. The tab also
+notes that derived tallies are post-processing only and that uncertainty assumes independent tallies.
+
+---
+
 ## Exporting Comparison Data
 
 Click **"Export"** in the Comparison widget toolbar.
