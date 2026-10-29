@@ -79,3 +79,26 @@ describe('migrateProjectFile', () => {
         expect(result.project.state.geometry.lattices[0]).toMatchObject({ type: 'hex', orientation: 'x' });
     });
 });
+
+describe('source shape normalization', () => {
+    it('converts legacy time/angle params on current-version files', () => {
+        const project = makeProject(OPENMC_STATE_SCHEMA_VERSION);
+        project.state.settings.sources = [
+            {
+                type: 'independent',
+                spatial: { type: 'point', origin: [0, 0, 0] },
+                energy: { type: 'discrete', energies: [1e6] },
+                angle: { type: 'polar-azimuthal', params: { mu: 1, phi: 0 } },
+                time: { type: 'uniform', params: { min: 0, max: 1e-3 } }
+            }
+        ] as any;
+        const result = migrateProjectFile(project);
+        const source = result.project.state.settings.sources[0] as any;
+        expect(source.time).toEqual({ type: 'uniform', min: 0, max: 1e-3 });
+        expect(source.angle).toMatchObject({
+            type: 'mu-phi',
+            mu: { type: 'discrete', energies: [1], probabilities: [1] },
+            phi: { type: 'discrete', energies: [0], probabilities: [1] }
+        });
+    });
+});

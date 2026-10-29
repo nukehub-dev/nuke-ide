@@ -37,12 +37,12 @@ import {
     OpenMCMeshSource,
     OpenMCTokamakSource,
     OpenMCIndependentSource,
-    OpenMCSourceEnergy,
     OpenMCSurfaceSourceWrite
 } from '../../../../../common/openmc-state-schema';
 import { getMeshElementCount } from '../../../../../common/mesh-utils';
 import type { SimulationDashboardWidget } from '../../simulation-dashboard-widget';
 import { CollapsibleSection } from './collapsible-section';
+import { TimeEditor, UnivariateEditor } from './source-distributions';
 import { parseNumberList, arraysEqual } from './section-utils';
 
 /**
@@ -265,199 +265,6 @@ function defaultMeshSubSource(): OpenMCIndependentSource {
 }
 
 /**
- * Build a fresh energy distribution of the given type with sane defaults.
- * @param type - Energy distribution type.
- * @returns Default energy distribution.
- */
-function defaultEnergyOfType(type: OpenMCSourceEnergy['type']): OpenMCSourceEnergy {
-    switch (type) {
-        case 'uniform':
-            return { type: 'uniform', min: 0, max: 20e6 };
-        case 'maxwell':
-            return { type: 'maxwell', temperature: 293.6 };
-        case 'watt':
-            return { type: 'watt', a: 0.988e6, b: 2.249e-6 };
-        case 'normal':
-            return { type: 'normal', mean: 14.1e6, stdDev: 0.3e6 };
-        case 'muir':
-            return { type: 'muir', e0: 14.08e6, m_rat: 5.0, kt: 20000 };
-        default:
-            return { type: 'discrete', energies: [1e6] };
-    }
-}
-
-/**
- * Render the type-specific parameter fields for an energy distribution.
- * @param energy - Energy distribution to edit.
- * @param apply - Callback replacing the energy distribution.
- * @returns Parameter fields React node.
- */
-function renderEnergyParamFields(energy: OpenMCSourceEnergy, apply: (energy: OpenMCSourceEnergy) => void): React.ReactNode {
-    if (energy.type === 'uniform') {
-        return (
-            <>
-                <div className="form-group">
-                    <label>Min Energy (eV)</label>
-                    <input
-                        type="number"
-                        step="any"
-                        value={energy.min}
-                        onChange={(e) => apply({ ...energy, min: parseFloat(e.target.value) || 0 })}
-                    />
-                </div>
-                <div className="form-group">
-                    <label>Max Energy (eV)</label>
-                    <input
-                        type="number"
-                        step="any"
-                        value={energy.max}
-                        onChange={(e) => apply({ ...energy, max: parseFloat(e.target.value) || 0 })}
-                    />
-                </div>
-            </>
-        );
-    }
-    if (energy.type === 'maxwell') {
-        return (
-            <div className="form-group">
-                <label>Temperature (K)</label>
-                <input
-                    type="number"
-                    step="any"
-                    value={energy.temperature}
-                    onChange={(e) => apply({ ...energy, temperature: parseFloat(e.target.value) || 0 })}
-                />
-            </div>
-        );
-    }
-    if (energy.type === 'watt') {
-        return (
-            <>
-                <div className="form-group">
-                    <label>Watt a (eV)</label>
-                    <input
-                        type="number"
-                        step="any"
-                        value={energy.a}
-                        onChange={(e) => apply({ ...energy, a: parseFloat(e.target.value) || 0 })}
-                    />
-                </div>
-                <div className="form-group">
-                    <label>Watt b (1/eV)</label>
-                    <input
-                        type="number"
-                        step="any"
-                        value={energy.b}
-                        onChange={(e) => apply({ ...energy, b: parseFloat(e.target.value) || 0 })}
-                    />
-                </div>
-            </>
-        );
-    }
-    if (energy.type === 'normal') {
-        return (
-            <>
-                <div className="form-group">
-                    <label>Mean (eV)</label>
-                    <input
-                        type="number"
-                        step="any"
-                        value={energy.mean}
-                        onChange={(e) => apply({ ...energy, mean: parseFloat(e.target.value) || 0 })}
-                    />
-                </div>
-                <div className="form-group">
-                    <label>Std Dev (eV)</label>
-                    <input
-                        type="number"
-                        step="any"
-                        value={energy.stdDev}
-                        onChange={(e) => apply({ ...energy, stdDev: parseFloat(e.target.value) || 0 })}
-                    />
-                </div>
-            </>
-        );
-    }
-    if (energy.type === 'muir') {
-        return (
-            <>
-                <div className="form-group">
-                    <label>Mean Energy e0 (eV)</label>
-                    <input
-                        type="number"
-                        step="any"
-                        value={energy.e0}
-                        onChange={(e) => apply({ ...energy, e0: parseFloat(e.target.value) || 0 })}
-                    />
-                </div>
-                <div className="form-group">
-                    <label>Mass Ratio</label>
-                    <input
-                        type="number"
-                        step="any"
-                        value={energy.m_rat}
-                        onChange={(e) => apply({ ...energy, m_rat: parseFloat(e.target.value) || 0 })}
-                    />
-                </div>
-                <div className="form-group">
-                    <label>Ion Temp kt (eV)</label>
-                    <input
-                        type="number"
-                        step="any"
-                        value={energy.kt}
-                        onChange={(e) => apply({ ...energy, kt: parseFloat(e.target.value) || 0 })}
-                    />
-                </div>
-            </>
-        );
-    }
-    // discrete: single energy value
-    const discrete = energy as { energies?: number[] };
-    return (
-        <div className="form-group">
-            <label>Energy (eV)</label>
-            <input
-                type="number"
-                step="any"
-                value={discrete.energies?.[0] ?? 1e6}
-                onChange={(e) => apply({ type: 'discrete', energies: [parseFloat(e.target.value) || 1e6] })}
-            />
-        </div>
-    );
-}
-
-/**
- * Render the energy type select plus type-specific parameter fields.
- * Shared by the mesh sub-source editor and the tokamak source editor.
- * @param energy - Energy distribution to edit.
- * @param apply - Callback replacing the energy distribution.
- * @returns Energy editor React node.
- */
-function renderEnergyFields(energy: OpenMCSourceEnergy, apply: (energy: OpenMCSourceEnergy) => void): React.ReactNode {
-    return (
-        <>
-            <div className="form-group">
-                <label>Energy</label>
-                <NukeSelect
-                    value={energy.type}
-                    options={[
-                        { value: 'discrete', label: 'Discrete' },
-                        { value: 'uniform', label: 'Uniform' },
-                        { value: 'maxwell', label: 'Maxwell' },
-                        { value: 'watt', label: 'Watt' },
-                        { value: 'normal', label: 'Normal (Gaussian)' },
-                        { value: 'muir', label: 'Muir (D-T fusion)' }
-                    ]}
-                    onChange={(value: string) => apply(defaultEnergyOfType(value as OpenMCSourceEnergy['type']))}
-                    ariaLabel="Source energy type"
-                />
-            </div>
-            {renderEnergyParamFields(energy, apply)}
-        </>
-    );
-}
-
-/**
  * Render the editor for a mesh source (openmc.MeshSource): a mesh selector
  * plus one independent sub-source per mesh element. This OpenMC version
  * requires exactly mesh.n_elements sub-sources; the total strength is the
@@ -472,7 +279,8 @@ export function renderMeshSourceEditor(
     host: SimulationDashboardWidget,
     source: OpenMCMeshSource,
     index: number,
-    state: OpenMCState
+    state: OpenMCState,
+    decayUnsupportedReason?: string
 ): React.ReactNode {
     const meshes = state.meshes;
     const selectedMesh = source.meshId !== undefined ? meshes.find((m) => m.id === source.meshId) : undefined;
@@ -520,52 +328,46 @@ export function renderMeshSourceEditor(
             )}
 
             {subs.map((sub, j) => (
-                <div key={j} className="form-row">
-                    <div className="form-group">
-                        <label>Element {j + 1} · Strength</label>
-                        <input
-                            type="number"
-                            min={0}
-                            step="any"
-                            value={sub.strength ?? 1.0}
-                            onChange={(e) => updateSub(j, { strength: parseFloat(e.target.value) || 1.0 })}
-                        />
+                <div key={j} className="source-mesh-subsource">
+                    <div className="form-row">
+                        <div className="form-group">
+                            <label>Element {j + 1} · Strength</label>
+                            <input
+                                type="number"
+                                min={0}
+                                step="any"
+                                value={sub.strength ?? 1.0}
+                                onChange={(e) => updateSub(j, { strength: parseFloat(e.target.value) || 1.0 })}
+                            />
+                        </div>
+                        <div className="form-group">
+                            <label>Particle</label>
+                            <NukeSelect
+                                value={sub.particle ?? 'neutron'}
+                                options={[
+                                    { value: 'neutron', label: 'Neutron' },
+                                    { value: 'photon', label: 'Photon' }
+                                ]}
+                                onChange={(value: string) => updateSub(j, { particle: value as 'neutron' | 'photon' })}
+                                ariaLabel="Particle type"
+                            />
+                        </div>
+                        <div className="form-group">
+                            <label aria-hidden="true">&nbsp;</label>
+                            <Tooltip content="Remove Sub-source" position="top">
+                                <button className="theia-button secondary small" onClick={() => updateSubs(subs.filter((_, i) => i !== j))}>
+                                    <i className="codicon codicon-trash"></i>
+                                </button>
+                            </Tooltip>
+                        </div>
                     </div>
-                    <div className="form-group">
-                        <label>Particle</label>
-                        <NukeSelect
-                            value={sub.particle ?? 'neutron'}
-                            options={[
-                                { value: 'neutron', label: 'Neutron' },
-                                { value: 'photon', label: 'Photon' }
-                            ]}
-                            onChange={(value: string) => updateSub(j, { particle: value as 'neutron' | 'photon' })}
-                            ariaLabel="Particle type"
-                        />
-                    </div>
-                    <div className="form-group">
-                        <label>Energy</label>
-                        <NukeSelect
-                            value={sub.energy.type}
-                            options={[
-                                { value: 'discrete', label: 'Discrete' },
-                                { value: 'uniform', label: 'Uniform' },
-                                { value: 'maxwell', label: 'Maxwell' },
-                                { value: 'watt', label: 'Watt' }
-                            ]}
-                            onChange={(value: string) => updateSub(j, { energy: defaultEnergyOfType(value as OpenMCSourceEnergy['type']) })}
-                            ariaLabel="Sub-source energy type"
-                        />
-                    </div>
-                    {renderEnergyParamFields(sub.energy, (energy) => updateSub(j, { energy }))}
-                    <div className="form-group">
-                        <label aria-hidden="true">&nbsp;</label>
-                        <Tooltip content="Remove Sub-source" position="top">
-                            <button className="theia-button secondary small" onClick={() => updateSubs(subs.filter((_, i) => i !== j))}>
-                                <i className="codicon codicon-trash"></i>
-                            </button>
-                        </Tooltip>
-                    </div>
+                    <UnivariateEditor
+                        value={sub.energy}
+                        onChange={(energy) => updateSub(j, { energy })}
+                        domain="energy"
+                        compact
+                        decayUnsupportedReason={decayUnsupportedReason}
+                    />
                 </div>
             ))}
 
@@ -607,7 +409,12 @@ export function renderMeshSourceEditor(
  * @param index - Source index in the sources array.
  * @returns Tokamak source editor React node.
  */
-export function renderTokamakSourceEditor(host: SimulationDashboardWidget, source: OpenMCTokamakSource, index: number): React.ReactNode {
+export function renderTokamakSourceEditor(
+    host: SimulationDashboardWidget,
+    source: OpenMCTokamakSource,
+    index: number,
+    decayUnsupportedReason?: string
+): React.ReactNode {
     const update = (updates: Partial<OpenMCTokamakSource>): void => updateSourceAt(host, index, updates);
     const profile = source.profile ?? [];
 
@@ -747,8 +554,13 @@ export function renderTokamakSourceEditor(host: SimulationDashboardWidget, sourc
             <h4>
                 <i className="codicon codicon-pulse"></i> Energy &amp; Sampling
             </h4>
+            <UnivariateEditor
+                value={source.energy}
+                onChange={(energy) => update({ energy })}
+                domain="energy"
+                decayUnsupportedReason={decayUnsupportedReason}
+            />
             <div className="form-row">
-                {renderEnergyFields(source.energy, (energy) => update({ energy }))}
                 <div className="form-group">
                     <label>Strength</label>
                     <input
@@ -791,77 +603,12 @@ export function renderTokamakSourceEditor(host: SimulationDashboardWidget, sourc
                     />
                     <span className="form-hint">CDF sampling resolution (default 101)</span>
                 </div>
-                <div className="form-group">
-                    <label>Time Mode</label>
-                    <NukeSelect
-                        value={source.time?.type ?? 'none'}
-                        options={[
-                            { value: 'none', label: 'Born at t=0 (default)' },
-                            { value: 'delta', label: 'Delta (single time)' },
-                            { value: 'uniform', label: 'Uniform range' }
-                        ]}
-                        onChange={(value: string) => {
-                            const mode = value;
-                            if (mode === 'none') {
-                                update({ time: undefined });
-                            } else if (mode === 'delta') {
-                                update({ time: { type: 'delta', params: { time: 0 } } });
-                            } else {
-                                update({ time: { type: 'uniform', params: { min: 0, max: 1e-3 } } });
-                            }
-                        }}
-                        ariaLabel="Time mode"
-                    />
-                    <span className="form-hint">Per-radius energy lists are not modeled (single energy for all radii)</span>
-                </div>
-                {source.time?.type === 'delta' && (
-                    <div className="form-group">
-                        <label>Time (s)</label>
-                        <input
-                            type="number"
-                            step="any"
-                            value={source.time.params.time ?? 0}
-                            onChange={(e) => update({ time: { type: 'delta', params: { time: parseFloat(e.target.value) || 0 } } })}
-                        />
-                    </div>
-                )}
-                {source.time?.type === 'uniform' && (
-                    <>
-                        <div className="form-group">
-                            <label>Time Min (s)</label>
-                            <input
-                                type="number"
-                                step="any"
-                                value={source.time.params.min ?? 0}
-                                onChange={(e) =>
-                                    update({
-                                        time: {
-                                            type: 'uniform',
-                                            params: { min: parseFloat(e.target.value) || 0, max: source.time?.params.max ?? 1e-3 }
-                                        }
-                                    })
-                                }
-                            />
-                        </div>
-                        <div className="form-group">
-                            <label>Time Max (s)</label>
-                            <input
-                                type="number"
-                                step="any"
-                                value={source.time.params.max ?? 1e-3}
-                                onChange={(e) =>
-                                    update({
-                                        time: {
-                                            type: 'uniform',
-                                            params: { min: source.time?.params.min ?? 0, max: parseFloat(e.target.value) || 1e-3 }
-                                        }
-                                    })
-                                }
-                            />
-                        </div>
-                    </>
-                )}
             </div>
+            <h4>
+                <i className="codicon codicon-watch"></i> Time Distribution
+            </h4>
+            <TimeEditor value={source.time} onChange={(time) => update({ time })} />
+            <span className="form-hint">Per-radius energy lists are not modeled (single energy for all radii).</span>
         </div>
     );
 }

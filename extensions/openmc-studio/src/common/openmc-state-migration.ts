@@ -9,8 +9,9 @@
  * @module openmc-studio/common
  */
 
-import { OpenMCProjectFile, OPENMC_STATE_SCHEMA_VERSION } from './openmc-state-schema';
+import { OpenMCProjectFile, OpenMCSource, OPENMC_STATE_SCHEMA_VERSION } from './openmc-state-schema';
 import { normalizeGeometryForLoad } from './geometry-lattices';
+import { normalizeLegacySource } from './source-utils';
 
 /** A single migration step: upgrades a project file from one schema version to the next. */
 export type ProjectMigrationStep = (project: OpenMCProjectFile) => OpenMCProjectFile;
@@ -76,20 +77,26 @@ export function migrateProjectFile(project: OpenMCProjectFile): ProjectMigration
 
 /**
  * Canonicalize representation that is not tied to a schema version bump:
- * retired lattice types/fields and the root-universe flags are normalized on
- * every load, so old projects open unchanged and keep round-tripping.
+ * retired lattice types/fields, the root-universe flags, and legacy source
+ * time/angle shapes are normalized on every load, so old projects open
+ * unchanged and keep round-tripping.
  * @param project - Parsed project file.
- * @returns Project with canonical geometry.
+ * @returns Project with canonical geometry and sources.
  */
 function normalizeProjectFile(project: OpenMCProjectFile): OpenMCProjectFile {
     if (!project.state?.geometry) {
         return project;
     }
+    const sources = project.state.settings.sources;
     return {
         ...project,
         state: {
             ...project.state,
-            geometry: normalizeGeometryForLoad(project.state.geometry)
+            geometry: normalizeGeometryForLoad(project.state.geometry),
+            settings: {
+                ...project.state.settings,
+                sources: sources.map((source: OpenMCSource) => normalizeLegacySource(source))
+            }
         }
     };
 }

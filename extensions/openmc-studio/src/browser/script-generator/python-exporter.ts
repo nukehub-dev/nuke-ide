@@ -61,7 +61,6 @@ import {
     OpenMCSphericalMesh,
     OpenMCSource,
     OpenMCSourceConstraints,
-    OpenMCSourceEnergy,
     OpenMCEigenvalueSettings,
     OpenMCFixedSourceSettings,
     OpenMCPlotConfig,
@@ -69,6 +68,7 @@ import {
 } from '../../common/openmc-state-schema';
 import { getAutoIfpTallies } from '../../common/kinetics-ifp';
 import { generateCmfdCodeLines } from '../../common/cmfd';
+import { generateAngleCode, generateSpatialCode, generateTimeCode, generateUnivariateCode } from './source-codegen';
 import { getDepletionSolver, resolveDepletionSolver } from '../../common/depletion-solvers';
 import { isElementName } from '../../common/material-utils';
 import { generatePlotAppearancePythonLines } from '../../common/plot-appearance';
@@ -1692,6 +1692,8 @@ export class OpenMCPythonExporter {
         } else if (source.type === 'tokamak') {
             // Tokamak source (openmc/source.py:901): Miller flux-surface
             // geometry + emission profile S(r/a) + single energy distribution
+            const energyCode = generateUnivariateCode(source.energy, `${name}_energy`);
+            lines.push(...energyCode.lines);
             const args: string[] = [
                 `major_radius=${source.majorRadius}`,
                 `minor_radius=${source.minorRadius}`,
@@ -1700,7 +1702,7 @@ export class OpenMCPythonExporter {
                 `shafranov_shift=${source.shafranovShift}`,
                 `r_over_a=[${source.profile.map((p) => p.r).join(', ')}]`,
                 `emission_density=[${source.profile.map((p) => p.s).join(', ')}]`,
-                `energy=${this.generateEnergyExpression(source.energy)}`
+                `energy=${energyCode.expression}`
             ];
             if (source.phiStart !== undefined) {
                 args.push(`phi_start=${source.phiStart}`);
@@ -1715,7 +1717,9 @@ export class OpenMCPythonExporter {
                 args.push(`vertical_shift=${source.verticalShift}`);
             }
             if (source.time) {
-                args.push(`time=${this.generateTimeExpression(source.time)}`);
+                const timeCode = generateTimeCode(source.time, `${name}_time`);
+                lines.push(...timeCode.lines);
+                args.push(`time=${timeCode.expression}`);
             }
             if (source.strength !== undefined && source.strength !== 1) {
                 args.push(`strength=${source.strength}`);
@@ -1729,62 +1733,27 @@ export class OpenMCPythonExporter {
             lines.push(`${name} = openmc.IndependentSource()`);
 
             // Spatial distribution
-            const spatial = source.spatial;
-            switch (spatial.type) {
-                case 'point':
-                    const point = spatial as any;
-                    lines.push(`${name}.space = openmc.stats.Point([${point.origin.join(', ')}])`);
-                    break;
-                case 'box':
-                    const box = spatial as any;
-                    lines.push(`${name}.space = openmc.stats.Box([${box.lowerLeft.join(', ')}], [${box.upperRight.join(', ')}])`);
-                    break;
-                case 'sphere':
-                    const sphere = spatial as any;
-                    lines.push(`${name}.space = openmc.stats.Sphere([${sphere.center.join(', ')}], ${sphere.radius})`);
-                    break;
-                case 'cylinder':
-                    const cyl = spatial as any;
-                    lines.push(`${name}.space = openmc.stats.CylindricalIndependent(`);
-                    lines.push(`    r=openmc.stats.Uniform(0, ${cyl.radius}),`);
-                    lines.push(`    phi=openmc.stats.Uniform(0, 2*3.14159),`);
-                    lines.push(`    z=openmc.stats.Uniform(-${cyl.height / 2}, ${cyl.height / 2}),`);
-                    lines.push(`    origin=[${cyl.center.join(', ')}]`);
-                    lines.push(')');
-                    break;
+            const spaceCode = generateSpatialCode(source.spatial, `${name}_space`);
+            lines.push(...spaceCode.lines);
+            lines.push(`${name}.space = ${spaceCode.expression}`);
+
+            // Angular distribution
+            if (source.angle) {
+                const angleCode = generateAngleCode(source.angle, `${name}_angle`);
+                lines.push(...angleCode.lines);
+                lines.push(`${name}.angle = ${angleCode.expression}`);
             }
 
             // Energy distribution
-            const energy = source.energy;
-            if (energy) {
-                switch (energy.type) {
-                    case 'discrete':
-                        const discrete = energy as any;
-                        const energies = discrete.energies || [1e6];
-                        const probs = discrete.probabilities || energies.map(() => 1.0 / energies.length);
-                        lines.push(`${name}.energy = openmc.stats.Discrete([${energies.join(', ')}], [${probs.join(', ')}])`);
-                        break;
-                    case 'uniform':
-                        const uniform = energy as any;
-                        lines.push(`${name}.energy = openmc.stats.Uniform(${uniform.min}, ${uniform.max})`);
-                        break;
-                    case 'maxwell':
-                        const maxwell = energy as any;
-                        lines.push(`${name}.energy = openmc.stats.Maxwell(${maxwell.temperature})`);
-                        break;
-                    case 'watt':
-                        const watt = energy as any;
-                        lines.push(`${name}.energy = openmc.stats.WattFission(${watt.a}, ${watt.b})`);
-                        break;
-                    case 'normal':
-                        const normal = energy as any;
-                        lines.push(`${name}.energy = openmc.stats.Normal(${normal.mean}, ${normal.stdDev})`);
-                        break;
-                    case 'muir':
-                        const muir = energy as any;
-                        lines.push(`${name}.energy = openmc.stats.muir(${muir.e0}, ${muir.m_rat}, ${muir.kt})`);
-                        break;
-                }
+            const energyCode = generateUnivariateCode(source.energy, `${name}_energy`);
+            lines.push(...energyCode.lines);
+            lines.push(`${name}.energy = ${energyCode.expression}`);
+
+            // Time distribution (seconds)
+            if (source.time) {
+                const timeCode = generateTimeCode(source.time, `${name}_time`);
+                lines.push(...timeCode.lines);
+                lines.push(`${name}.time = ${timeCode.expression}`);
             }
 
             // Particle type
@@ -1838,60 +1807,6 @@ export class OpenMCPythonExporter {
             return [];
         }
         return [`${name}.constraints = {${entries.join(', ')}}`];
-    }
-
-    /**
-     * Generate a Python expression for a time distribution (used by
-     * TokamakSource's optional `time` argument; delta maps to delta_function,
-     * a single-point Discrete in OpenMC).
-     *
-     * @param time - The time distribution to convert.
-     * @returns A Python expression string for the distribution.
-     */
-    private generateTimeExpression(time: {
-        type: 'delta' | 'uniform' | 'discrete';
-        params: { times?: number[]; probabilities?: number[]; min?: number; max?: number; time?: number };
-    }): string {
-        if (time.type === 'delta') {
-            return `openmc.stats.delta_function(${time.params.time ?? 0})`;
-        }
-        if (time.type === 'uniform') {
-            return `openmc.stats.Uniform(${time.params.min ?? 0}, ${time.params.max ?? 1})`;
-        }
-        const times = time.params.times ?? [0];
-        const probs = time.params.probabilities ?? times.map(() => 1.0 / times.length);
-        return `openmc.stats.Discrete([${times.join(', ')}], [${probs.join(', ')}])`;
-    }
-
-    /**
-     * Generate a Python expression for an energy distribution (used where a
-     * distribution is passed as a constructor argument, e.g. TokamakSource).
-     *
-     * @param energy - The {@link OpenMCSourceEnergy} to convert.
-     * @returns A Python expression string for the distribution.
-     */
-    private generateEnergyExpression(energy: OpenMCSourceEnergy): string {
-        switch (energy.type) {
-            case 'uniform':
-                return `openmc.stats.Uniform(${energy.min}, ${energy.max})`;
-            case 'maxwell':
-                return `openmc.stats.Maxwell(${energy.temperature})`;
-            case 'watt':
-                return `openmc.stats.WattFission(${energy.a}, ${energy.b})`;
-            case 'normal':
-                return `openmc.stats.Normal(${energy.mean}, ${energy.stdDev})`;
-            case 'muir':
-                // Function form (deprecated Muir class removed in a future version)
-                return `openmc.stats.muir(${energy.e0}, ${energy.m_rat}, ${energy.kt})`;
-            case 'tabular':
-                return `openmc.stats.Tabular([${energy.energies.join(', ')}], [${energy.probabilities.join(', ')}])`;
-            default: {
-                const discrete = energy as { energies?: number[]; probabilities?: number[] };
-                const energies = discrete.energies || [1e6];
-                const probs = discrete.probabilities || energies.map(() => 1.0 / energies.length);
-                return `openmc.stats.Discrete([${energies.join(', ')}], [${probs.join(', ')}])`;
-            }
-        }
     }
 
     /**

@@ -222,19 +222,56 @@ weight cutoff merges into the single `<cutoff>` block, with `settings.cutoff` ta
 
 ### Source Distributions
 
-| Spatial Type | XML `type`    | Parameters                   |
-| ------------ | ------------- | ---------------------------- |
-| `point`      | `point`       | `origin: [x, y, z]`          |
-| `box`        | `box`         | `lowerLeft`, `upperRight`    |
-| `sphere`     | `spherical`   | `center`, `radius`           |
-| `cylinder`   | `cylindrical` | `center`, `radius`, `height` |
+Spatial, energy, angle, time, and nested mixture children share the serializer
+in `src/common/source-utils.ts`. Element names, attributes, and parameter
+ordering match `openmc/stats/univariate.py`, `openmc/stats/multivariate.py`, and
+`src/distribution*.cpp`:
 
-| Energy Type | XML `type` | Parameters    |
-| ----------- | ---------- | ------------- |
-| `discrete`  | `discrete` | `energies[]`  |
-| `uniform`   | `uniform`  | `min`, `max`  |
-| `maxwell`   | `maxwell`  | `temperature` |
-| `watt`      | `watt`     | `a`, `b`      |
+| Spatial Type  | XML `type`    | Shape                                                               |
+| ------------- | ------------- | ------------------------------------------------------------------- |
+| `point`       | `point`       | `<parameters>x y z</parameters>`                                    |
+| `box`         | `box`         | `<parameters>lx ly lz ux uy uz</parameters>`                        |
+| `sphere`      | `spherical`   | origin + uniform `r`/`cos_theta`/`phi` (canonical convenience form) |
+| `cylinder`    | `cylindrical` | origin + uniform `r`/`phi`/`z`; `r_dir`/`z_dir` for x/y axes        |
+| `cartesian`   | `cartesian`   | `<x>`, `<y>`, `<z>` univariate elements                             |
+| `cylindrical` | `cylindrical` | `r`/`phi`/`z` elements, origin, optional `r_dir`/`z_dir` attrs      |
+| `spherical`   | `spherical`   | `r`/`cos_theta`/`phi` elements, `origin` attr                       |
+| `pointcloud`  | `cloud`       | `<coords>` flattened x/y/z + optional `<strengths>`                 |
+| `mesh`        | `mesh`        | `mesh_id`, `volume_normalized`, optional `<strengths>`              |
+
+| Univariate Type  | XML `type`       | Shape                                                         |
+| ---------------- | ---------------- | ------------------------------------------------------------- |
+| `discrete`       | `discrete`       | `<parameters>` values then probabilities (not interleaved)    |
+| `uniform`        | `uniform`        | `parameters="a b"`                                            |
+| `maxwell`        | `maxwell`        | `parameters="theta"` (eV, not kelvin)                         |
+| `watt`           | `watt`           | `parameters="a b"`                                            |
+| `normal`         | `normal`         | `parameters="mean std_dev"`                                   |
+| `muir`           | `normal`         | `std_dev = sqrt(2 e0 kt / m_rat)` (no XML `muir` type)        |
+| `powerlaw`       | `powerlaw`       | `parameters="a b n"`                                          |
+| `tabular`        | `tabular`        | `interpolation` attr + `<parameters>` x values then densities |
+| `mixture`        | `mixture`        | repeated `<pair probability="..."><dist .../></pair>`         |
+| `decay-spectrum` | `decay_spectrum` | `volume` attr + `<nuclides>` + `<parameters>` densities       |
+
+Angles are `isotropic`, `monodirectional` (`reference_uvw`), or `mu-phi`
+(`reference_uvw`/`reference_vwu` plus `<mu>`/`<phi>`). Time uses the same
+univariate serializer with element name `time`; `delta` is a one-point
+discrete and imports back as `delta`. All time values are seconds.
+
+Source constraints are emitted after the distributions and remain orthogonal to
+the distribution types. Mesh spatial meshes are emitted once into settings.xml
+by `getSettingsMeshIds`, so tallies.xml skips them; source meshes are parsed
+back into `state.meshes` on import.
+
+**Boundaries.** `openmc.stats.Legendre` is not emitted or offered because
+`to_xml_element()` raises `NotImplementedError`. Tabular `ignore_negative` is a
+Python-only constructor flag and has no XML attribute, so the editor rejects
+negative densities rather than silently exporting different semantics.
+`decay-spectrum` is 0.16-only: XML generation drops the source with a warning on
+environments whose `OpenMCCompat.decaySpectrum` probe is false.
+
+Discrete XML uses OpenMC's native values-then-probabilities ordering. Older
+NukeIDE builds wrote interleaved pairs; re-open the project file (the schema
+normalizer preserves the state) rather than importing that legacy XML.
 
 ### Variance Reduction
 

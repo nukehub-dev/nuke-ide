@@ -47,9 +47,13 @@ All files under `extensions/openmc-studio/` except generated artifacts (`lib/`, 
 
 ## Work Guidance
 
-- Meshes/sources/bounds: `getSettingsMeshIds` is the single settings-level mesh inventory (emitted once, skipped in tallies.xml); `mesh`
-  sources need exactly `n_elements` sub-sources; `tokamak` sources need 0.16.0+ (`muir` serializes lossy as `normal`); shared
-  bounding-box logic lives in `geometry-bounds.ts`. See `docs/dev/state-model.md` and `docs/dev/xml-generation.md`.
+- Meshes/sources/bounds: `getSettingsMeshIds` is the single settings-level mesh inventory (emitted once, skipped in tallies.xml);
+  `mesh` sources need exactly `n_elements` sub-sources (independent `mesh` spatial is a separate single-energy model); `tokamak`
+  sources need 0.16.0+ (`muir` serializes lossy as `normal`); shared bounding-box logic lives in `geometry-bounds.ts`. See
+  `docs/dev/state-model.md` and `docs/dev/xml-generation.md`.
+- Source distributions use one `OpenMCUnivariate` model and editor (`common/source-utils.ts`, `tabs/settings/source-distributions.tsx`)
+  for energy, time, spatial coordinates, mu/phi, and nested mixtures; XML/Python import+export must stay symmetric. `Legendre` and
+  tabular `ignore_negative` are deliberately absent; decay spectra are 0.16-gated by `OpenMCCompat.decaySpectrum`.
 - Shared widget CSS: `widgets/shared/openmc-widget.css` is the opt-in design system (root gets `openmc-widget` class, accent
   `--theia-focusBorder`, Theia vars only). Dashboard tabs are `DashboardTabContribution`s; new scalar settings belong in the
   Advanced section (`advanced-section.tsx`). See `docs/dev/widget-patterns.md` and `docs/dev/adding-a-widget.md`.

@@ -68,6 +68,13 @@ import {
     plotSupportsOverlaps,
     toOpenMcMaskComponents
 } from '../common/plot-appearance';
+import {
+    generateAngleXml,
+    generateSpatialXml,
+    generateTimeXml,
+    generateUnivariateXml,
+    sourceUsesDecaySpectrum
+} from '../common/source-utils';
 
 import { OpenMCStudioClient } from '../common/openmc-studio-protocol';
 
@@ -816,6 +823,10 @@ export class XMLGenerationService {
                     warnings?.push('Tokamak source requires OpenMC >= 0.16.0; the tokamak source was not written to settings.xml');
                     continue;
                 }
+                if (sourceUsesDecaySpectrum(source) && !compat.decaySpectrum) {
+                    warnings?.push('Decay spectrum source energy requires OpenMC >= 0.16.0; the source was not written to settings.xml');
+                    continue;
+                }
                 const sourceXml = this.generateSourceElement(source);
                 if (sourceXml) {
                     lines.push(sourceXml);
@@ -836,13 +847,19 @@ export class XMLGenerationService {
             // (settings.py _create_source_subelement), NOT tallies.xml — the
             // tallies generator skips these ids (OpenMC mesh_memo pattern).
             for (const source of settings.sources) {
-                if (source.type === 'mesh' && source.meshId !== undefined && !emittedMeshIds.has(source.meshId)) {
-                    const mesh = state.meshes.find((m) => m.id === source.meshId);
+                const meshId =
+                    source.type === 'mesh'
+                        ? source.meshId
+                        : (source.type ?? 'independent') === 'independent' && (source as any).spatial?.type === 'mesh'
+                          ? ((source as any).spatial.meshId as number | undefined)
+                          : undefined;
+                if (meshId !== undefined && !emittedMeshIds.has(meshId)) {
+                    const mesh = state.meshes.find((m) => m.id === meshId);
                     if (mesh) {
                         lines.push(this.generateMeshElement(mesh));
-                        emittedMeshIds.add(source.meshId);
+                        emittedMeshIds.add(meshId);
                     } else {
-                        this.log(`Warning: Mesh source references mesh ${source.meshId} which is not in state.meshes`);
+                        this.log(`Warning: Source references mesh ${meshId} which is not in state.meshes`);
                     }
                 }
             }
@@ -1705,15 +1722,11 @@ export class XMLGenerationService {
             }
             // Optional time distribution (TokamakSource.time; delta is a
             // single-point discrete in OpenMC XML)
-            const time = source.time;
-            if (time?.type === 'delta' && time.params.time !== undefined) {
-                lines.push(`    <time type="discrete">\n      <parameters>${time.params.time} 1</parameters>\n    </time>`);
-            } else if (time?.type === 'uniform' && time.params.min !== undefined && time.params.max !== undefined) {
-                lines.push(`    <time type="uniform">\n      <parameters>${time.params.min} ${time.params.max}</parameters>\n    </time>`);
-            } else if (time?.type === 'discrete' && time.params.times && time.params.times.length > 0) {
-                const probs: number[] = time.params.probabilities ?? time.params.times.map(() => 1 / time.params.times!.length);
-                const interleaved: number[] = time.params.times.flatMap((v: number, i: number) => [v, probs[i]]);
-                lines.push(`    <time type="discrete">\n      <parameters>${interleaved.join(' ')}</parameters>\n    </time>`);
+            if (source.time) {
+                const timeLines = generateTimeXml(source.time, 4);
+                if (timeLines) {
+                    lines.push(timeLines);
+                }
             }
             const tokamakConstraints = this.generateSourceConstraintsElement(source.constraints);
             if (tokamakConstraints) {
@@ -1735,7 +1748,8 @@ export class XMLGenerationService {
         const particle = source.particle || 'neutron';
         lines.push(`  <source type="independent" strength="${strength}" particle="${particle}">`);
 
-        // Generate spatial distribution with parameters
+        // Generate spatial distribution with parameters. Element order matches
+        // IndependentSource.populate_xml_element: space, angle, energy, time.
         const spatialLines = this.generateSpatialElement(source.spatial);
         if (spatialLines) {
             lines.push(spatialLines);
@@ -1745,17 +1759,30 @@ export class XMLGenerationService {
             return '';
         }
 
-        if (source.energy) {
-            const energyLines = this.generateEnergyElement(source.energy);
-            if (energyLines) {
-                lines.push(energyLines);
-            }
-        }
-
         if (source.angle) {
             const angleLines = this.generateAngleElement(source.angle);
             if (angleLines) {
                 lines.push(angleLines);
+            } else {
+                this.log(`Warning: Skipping invalid angular distribution on source`);
+            }
+        }
+
+        if (source.energy) {
+            const energyLines = this.generateEnergyElement(source.energy);
+            if (energyLines) {
+                lines.push(energyLines);
+            } else {
+                this.log(`Warning: Skipping invalid energy distribution on source`);
+            }
+        }
+
+        if (source.time) {
+            const timeLines = generateTimeXml(source.time, 4);
+            if (timeLines) {
+                lines.push(timeLines);
+            } else {
+                this.log(`Warning: Skipping invalid time distribution on source`);
             }
         }
 
@@ -1800,103 +1827,44 @@ export class XMLGenerationService {
         return ['    <constraints>', ...lines, '    </constraints>'].join('\n');
     }
 
+    /**
+     * Serialize a spatial distribution. The shared helper owns element names,
+     * attributes, and parameter ordering for every OpenMC spatial type.
+     * @param spatial - Spatial distribution from the state model.
+     * @returns Indented `<space>` XML, or an empty string when invalid.
+     */
     private generateSpatialElement(spatial: any): string {
-        const type = spatial.type;
-
-        switch (type) {
-            case 'box':
-                const lowerLeft = spatial.lowerLeft || [-10, -10, -10];
-                const upperRight = spatial.upperRight || [10, 10, 10];
-                return `    <space type="box">\n      <parameters>${lowerLeft.join(' ')} ${upperRight.join(' ')}</parameters>\n    </space>`;
-
-            case 'point':
-                const origin = spatial.origin || [0, 0, 0];
-                return `    <space type="point">\n      <parameters>${origin.join(' ')}</parameters>\n    </space>`;
-
-            case 'sphere':
-                // OpenMC XML uses 'spherical' with independent distributions for r, theta, phi
-                const center = spatial.center || [0, 0, 0];
-                const radius = spatial.radius !== undefined ? spatial.radius : 1;
-                return `    <space type="spherical" origin="${center.join(' ')}">\n      <r type="uniform" parameters="0 ${radius}"/>\n      <cos_theta type="uniform" parameters="-1 1"/>\n      <phi type="uniform" parameters="0 6.28318530718"/>\n    </space>`;
-
-            case 'cylinder':
-                // OpenMC XML uses 'cylindrical' with independent distributions for r, phi, z
-                const cylCenter = spatial.center || [0, 0, 0];
-                const cylRadius = spatial.radius !== undefined ? spatial.radius : 1;
-                const height = spatial.height !== undefined ? spatial.height : 1;
-                return `    <space type="cylindrical" origin="${cylCenter.join(' ')}">\n      <r type="uniform" parameters="0 ${cylRadius}"/>\n      <phi type="uniform" parameters="0 6.28318530718"/>\n      <z type="uniform" parameters="-${height / 2} ${height / 2}"/>\n    </space>`;
-
-            default:
-                this.log(`Warning: Unknown spatial type '${type}', using default box`);
-                return '    <space type="box">\n      <parameters>-10 -10 -10 10 10 10</parameters>\n    </space>';
+        const xml = generateSpatialXml(spatial, 4);
+        if (!xml) {
+            this.log(`Warning: Invalid or unsupported spatial distribution '${spatial?.type}'`);
         }
+        return xml;
     }
 
+    /**
+     * Serialize an energy distribution (shared univariate helper).
+     * @param energy - Energy distribution from the state model.
+     * @returns Indented `<energy>` XML, or an empty string when invalid.
+     */
     private generateEnergyElement(energy: any): string {
-        const type = energy.type;
-
-        switch (type) {
-            case 'discrete':
-                const energies = energy.energies || [1e6];
-                // For discrete energy, parameters are: energy1 prob1 energy2 prob2 ...
-                // If only energies provided, assume equal probability (sum to 1)
-                const params: string[] = [];
-                const prob = 1.0 / energies.length;
-                for (const e of energies) {
-                    params.push(String(e));
-                    params.push(String(prob));
-                }
-                return `    <energy type="discrete">\n      <parameters>${params.join(' ')}</parameters>\n    </energy>`;
-
-            case 'uniform':
-                const min = energy.min !== undefined ? energy.min : 1e-5;
-                const max = energy.max !== undefined ? energy.max : 2e7;
-                return `    <energy type="uniform">\n      <parameters>${min} ${max}</parameters>\n    </energy>`;
-
-            case 'maxwell':
-                const temp = energy.temperature || 0.025;
-                return `    <energy type="maxwell">\n      <parameters>${temp}</parameters>\n    </energy>`;
-
-            case 'watt':
-                const a = energy.a || 0.988;
-                const b = energy.b || 2.249;
-                return `    <energy type="watt">\n      <parameters>${a} ${b}</parameters>\n    </energy>`;
-
-            case 'normal': {
-                return `    <energy type="normal">\n      <parameters>${energy.mean} ${energy.stdDev}</parameters>\n    </energy>`;
-            }
-
-            case 'muir': {
-                // muir() is a function returning a Normal in this OpenMC
-                // version: std_dev = sqrt(2 * e0 * kt / m_rat); XML is type
-                // 'normal' (univariate.py:1243-1267)
-                const stdDev = Math.sqrt((2 * energy.e0 * energy.kt) / energy.m_rat);
-                return `    <energy type="normal">\n      <parameters>${energy.e0} ${stdDev}</parameters>\n    </energy>`;
-            }
-
-            case 'tabular':
-                this.log(`Warning: Energy type '${type}' not fully implemented`);
-                return '';
-
-            default:
-                return '';
+        const xml = generateUnivariateXml(energy, 'energy', 4);
+        if (!xml) {
+            this.log(`Warning: Invalid or unsupported energy distribution '${energy?.type}'`);
         }
+        return xml;
     }
 
+    /**
+     * Serialize an angular distribution (shared helper).
+     * @param angle - Angular distribution from the state model.
+     * @returns Indented `<angle>` XML, or an empty string when invalid.
+     */
     private generateAngleElement(angle: any): string {
-        const type = angle.type;
-
-        switch (type) {
-            case 'isotropic':
-                return '    <angle type="isotropic"/>';
-
-            case 'monodirectional':
-                return '    <angle type="monodirectional"/>';
-
-            default:
-                this.log(`Warning: Angle type '${type}' not fully implemented`);
-                return '';
+        const xml = generateAngleXml(angle, 4);
+        if (!xml) {
+            this.log(`Warning: Invalid or unsupported angular distribution '${angle?.type}'`);
         }
+        return xml;
     }
 
     // ============================================================================
@@ -1924,6 +1892,12 @@ export class XMLGenerationService {
         for (const source of state.settings.sources ?? []) {
             if (source.type === 'mesh' && source.meshId !== undefined) {
                 ids.add(source.meshId);
+            }
+            if ((source.type ?? 'independent') === 'independent') {
+                const spatial = (source as any).spatial as { type?: string; meshId?: number } | undefined;
+                if (spatial?.type === 'mesh' && spatial.meshId !== undefined) {
+                    ids.add(spatial.meshId);
+                }
             }
         }
         if (state.settings.entropyMesh) {

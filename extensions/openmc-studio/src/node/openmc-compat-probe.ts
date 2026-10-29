@@ -36,6 +36,7 @@
  *   detected from what `Settings.to_xml_element()` actually writes
  * - `adjointSource` — random ray adjoint source support (0.16.0+)
  * - `tokamakSource` — `openmc.TokamakSource` existence (0.16.0+)
+ * - `decaySpectrum` — `openmc.stats.DecaySpectrum` existence (0.16.0+)
  * - `s2SampleMethod` — random ray `sample_method: 's2'` acceptance
  * - `sharedSecondaryBank` — `Settings.shared_secondary_bank` existence (0.16.0+)
  * - `surfaceGrazing` — `Settings.surface_grazing_cutoff` existence (0.16.0+)
@@ -52,15 +53,15 @@ import { OpenMCCompat, DEFAULT_OPENMC_COMPAT } from '../common/openmc-studio-pro
 import { OpenMCValidationBackendService } from './openmc-validation-backend-service';
 
 /**
- * Python one-liner: prints ten space-separated tokens —
+ * Python one-liner: prints eleven space-separated tokens —
  * `<direct|wrapper> <adjoint|no-adjoint> <tokamak|no-tokamak> <s2|no-s2>
  * <substeps|no-substeps> <keff-search|no-keff-search>
  * <external-rate|no-external-rate> <continuation|no-continuation>
- * <shared-bank|no-shared-bank> <grazing|no-grazing>`.
+ * <shared-bank|no-shared-bank> <grazing|no-grazing> <decay|no-decay>`.
  *
- * Depletion and 0.16 settings capabilities are detected by introspection
- * (never version strings): constructor parameters, public Integrator methods,
- * and Settings attributes.
+ * Depletion, 0.16 settings, and decay-spectrum capabilities are detected by
+ * introspection (never version strings): constructor parameters, public
+ * Integrator methods, and Settings/stats attributes.
  */
 const OPENMC_COMPAT_PROBE_SCRIPT = `
 import inspect
@@ -95,7 +96,8 @@ external_rate = bool(_Integrator is not None and hasattr(_Integrator, 'add_exter
 continuation = 'continue_timesteps' in _params and hasattr(openmc.deplete, 'Results')
 shared_bank = hasattr(openmc.Settings(), 'shared_secondary_bank')
 grazing = hasattr(openmc.Settings(), 'surface_grazing_cutoff')
-print('{} {} {} {} {} {} {} {} {} {}'.format(
+decay = hasattr(openmc.stats, 'DecaySpectrum')
+print('{} {} {} {} {} {} {} {} {} {} {}'.format(
     fmt,
     'adjoint' if adj else 'no-adjoint',
     'tokamak' if tok else 'no-tokamak',
@@ -105,7 +107,8 @@ print('{} {} {} {} {} {} {} {} {} {}'.format(
     'external-rate' if external_rate else 'no-external-rate',
     'continuation' if continuation else 'no-continuation',
     'shared-bank' if shared_bank else 'no-shared-bank',
-    'grazing' if grazing else 'no-grazing'))
+    'grazing' if grazing else 'no-grazing',
+    'decay' if decay else 'no-decay'))
 `;
 
 const PROBE_TIMEOUT_MS = 30000;
@@ -167,9 +170,9 @@ export class OpenMCCompatProbeService {
     }
 
     /**
-     * Parse the probe's ten-token output line. Tokens after the original four
-     * are optional so older probe output still parses (falling back to the
-     * release-compatible defaults for missing capabilities).
+     * Parse the probe's eleven-token output line. Tokens after the original
+     * four are optional so older probe output still parses (falling back to
+     * the release-compatible defaults for missing capabilities).
      * @param stdout - Probe stdout
      * @returns Parsed compatibility, or undefined if malformed
      */
@@ -180,7 +183,7 @@ export class OpenMCCompatProbeService {
             .map((l) => l.trim())
             .filter((l) => l.length > 0)
             .pop();
-        const [format, adjoint, tokamak, s2, substeps, keffSearch, externalRate, continuation, sharedBank, grazing] = (
+        const [format, adjoint, tokamak, s2, substeps, keffSearch, externalRate, continuation, sharedBank, grazing, decay] = (
             line ?? ''
         ).split(/\s+/);
         if (format !== 'direct' && format !== 'wrapper') {
@@ -190,6 +193,7 @@ export class OpenMCCompatProbeService {
             raySourceFormat: format,
             adjointSource: adjoint === 'adjoint',
             tokamakSource: tokamak === 'tokamak',
+            decaySpectrum: decay === 'decay',
             s2SampleMethod: s2 === 's2',
             depletionSubsteps: substeps === 'substeps',
             depletionKeffSearch: keffSearch === 'keff-search',

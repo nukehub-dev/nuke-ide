@@ -450,6 +450,8 @@ export interface OpenMCCompat {
     adjointSource: boolean;
     /** Whether `openmc.TokamakSource` exists (0.16.0+) */
     tokamakSource: boolean;
+    /** Whether `openmc.stats.DecaySpectrum` exists (0.16.0+) */
+    decaySpectrum?: boolean;
     /** Whether random ray `sample_method: 's2'` is accepted */
     s2SampleMethod: boolean;
     /** Whether `Integrator(..., substeps=...)` is accepted (0.16.0+) */
@@ -471,6 +473,7 @@ export const DEFAULT_OPENMC_COMPAT: OpenMCCompat = {
     raySourceFormat: 'direct',
     adjointSource: false,
     tokamakSource: false,
+    decaySpectrum: false,
     s2SampleMethod: false,
     depletionSubsteps: false,
     depletionKeffSearch: false,

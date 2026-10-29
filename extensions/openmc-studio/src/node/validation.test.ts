@@ -745,3 +745,33 @@ describe('validateState geometry model', () => {
         expect(result.issues.some((issue) => issue.severity === 'error' && issue.message.includes('does not point back'))).toBe(true);
     });
 });
+
+describe('validateState source distributions', () => {
+    it('reports malformed tabular, mixture, and time distributions with fixes', async () => {
+        const state = buildState();
+        state.settings.sources = [
+            {
+                id: 'bad source',
+                spatial: { type: 'point', origin: [0, 0, 0] },
+                energy: {
+                    type: 'mixture',
+                    probability: [0.2, 0.2],
+                    distributions: [
+                        { type: 'tabular', energies: [2, 1], probabilities: [1, 1, 1] },
+                        { type: 'uniform', min: 0, max: 1 }
+                    ]
+                },
+                time: { type: 'discrete', energies: [1, 0], probabilities: [0.5, 0.5] }
+            }
+        ];
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const result = await backend.validateState({ state });
+
+        const messages = result.issues.map((issue) => issue.message).join('\n');
+        expect(messages).toContain('bad source: Energy mixture component 1 x values must strictly increase');
+        expect(messages).toContain('bad source: Energy mixture component 1 table has 2 x values but 3 probabilities');
+        expect(messages).toContain('bad source: Time values are not ordered');
+        expect(result.issues.every((issue) => (issue.suggestion ?? '').length > 0)).toBe(true);
+    });
+});

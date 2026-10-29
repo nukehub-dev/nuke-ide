@@ -672,8 +672,7 @@ describe('settings.xml round-trip', () => {
         // muir() returns a Normal in this OpenMC version: std = sqrt(2*e0*kt/m_rat)
         const expectedStd = Math.sqrt((2 * 14.08e6 * 20000) / 5.0);
         const settingsXml = fs.readFileSync(path.join(muirDir, 'settings.xml'), 'utf-8');
-        expect(settingsXml).toContain('<energy type="normal">');
-        expect(settingsXml).toContain(`<parameters>${14.08e6} ${expectedStd}</parameters>`);
+        expect(settingsXml).toContain(`<energy type="normal" parameters="${14.08e6} ${expectedStd}"/>`);
         expect(settingsXml).not.toContain('type="muir"');
 
         const backend = new OpenMCStudioBackendServiceImpl();
@@ -745,7 +744,7 @@ describe('settings.xml round-trip', () => {
                 { r: 1, s: 0 }
             ],
             energy: { type: 'uniform' as const, min: 13e6, max: 15e6 },
-            time: { type: 'delta' as const, params: { time: 1e-6 } }
+            time: { type: 'delta' as const, time: 1e-6 }
         };
         const state: OpenMCState = {
             metadata: { version: '1.1.0', name: 'Tokamak Source Test', created: now, modified: now },
@@ -2277,5 +2276,310 @@ describe('void cells', () => {
         expect(imported.success).toBe(true);
         const voidCell = imported.state!.geometry.cells.find((cell) => cell.id === 2);
         expect(voidCell?.fillType).toBe('void');
+    });
+});
+
+describe('source distribution round-trip', () => {
+    /** Full compatibility descriptor with 0.16 source features enabled. */
+    const SOURCE_COMPAT = {
+        raySourceFormat: 'direct' as const,
+        adjointSource: false,
+        tokamakSource: true,
+        decaySpectrum: true,
+        s2SampleMethod: true,
+        depletionSubsteps: false,
+        depletionKeffSearch: false,
+        depletionExternalSourceRate: true,
+        depletionContinuation: true
+    };
+
+    /** Generate settings.xml, then import it and return both. */
+    async function generateAndImport(state: OpenMCState, compat = SOURCE_COMPAT) {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'openmc-source-'));
+        const generator = new XMLGenerationService();
+        const result = await generator.generateXML({
+            state,
+            outputDirectory: dir,
+            files: { materials: true, geometry: true, settings: true, tallies: false, plots: false },
+            randomRayCompat: compat
+        });
+        expect(result.success).toBe(true);
+        const xml = fs.readFileSync(path.join(dir, 'settings.xml'), 'utf-8');
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const imported = await backend.importXML({ directory: dir });
+        expect(imported.success).toBe(true);
+        fs.rmSync(dir, { recursive: true, force: true });
+        return { xml, imported, warnings: result.warnings ?? [] };
+    }
+
+    it('round-trips tabular energy, mu-phi direction, and tabular time', async () => {
+        const state = buildTestState();
+        state.settings.sources = [
+            {
+                spatial: { type: 'box', lowerLeft: [-10, -10, -10], upperRight: [10, 10, 10] },
+                energy: {
+                    type: 'tabular',
+                    energies: [1e-5, 1e3, 14e6],
+                    probabilities: [1e-12, 0.2, 0.8],
+                    interpolation: 'log-log'
+                },
+                angle: {
+                    type: 'mu-phi',
+                    mu: { type: 'uniform', min: -1, max: 1 },
+                    phi: { type: 'discrete', energies: [0, Math.PI], probabilities: [0.5, 0.5] },
+                    referenceUvW: [0, 0, 1],
+                    referenceVwu: [1, 0, 0]
+                },
+                time: {
+                    type: 'tabular',
+                    energies: [0, 1e-6, 1e-3],
+                    probabilities: [1, 1, 0],
+                    interpolation: 'linear-linear'
+                },
+                particle: 'neutron',
+                strength: 2
+            }
+        ];
+
+        const { xml, imported } = await generateAndImport(state);
+
+        expect(xml).toContain('<energy type="tabular" interpolation="log-log">');
+        expect(xml).toContain('<parameters>0.00001 1000 14000000 1e-12 0.2 0.8</parameters>');
+        expect(xml).toContain('<angle type="mu-phi" reference_uvw="0 0 1" reference_vwu="1 0 0">');
+        expect(xml).toContain('<mu type="uniform" parameters="-1 1"/>');
+        expect(xml).toContain('<phi type="discrete">');
+        expect(xml).toContain('<parameters>0 3.141592653589793 0.5 0.5</parameters>');
+        expect(xml).toContain('<time type="tabular" interpolation="linear-linear">');
+
+        expect(imported.state!.settings.sources).toEqual(state.settings.sources);
+    });
+
+    it('round-trips Cartesian spatial, power-law energy, monodirectional direction, and uniform time', async () => {
+        const state = buildTestState();
+        state.settings.sources = [
+            {
+                spatial: {
+                    type: 'cartesian',
+                    x: { type: 'discrete', energies: [-1, 1], probabilities: [0.25, 0.75] },
+                    y: { type: 'uniform', min: -2, max: 2 },
+                    z: { type: 'tabular', energies: [0, 5], probabilities: [1, 1], interpolation: 'linear-linear' }
+                },
+                energy: { type: 'powerlaw', a: 0.1e6, b: 20e6, n: 2 },
+                angle: { type: 'monodirectional', referenceUvW: [0, 1, 0] },
+                time: { type: 'uniform', min: 0, max: 1e-3 },
+                particle: 'neutron',
+                strength: 1
+            }
+        ];
+
+        const { xml, imported } = await generateAndImport(state);
+
+        expect(xml).toContain('<space type="cartesian">');
+        expect(xml).toContain('<x type="discrete">');
+        expect(xml).toContain('<parameters>-1 1 0.25 0.75</parameters>');
+        expect(xml).toContain('<energy type="powerlaw" parameters="100000 20000000 2"/>');
+        expect(xml).toContain('<angle type="monodirectional" reference_uvw="0 1 0"/>');
+        expect(xml).toContain('<time type="uniform" parameters="0 0.001"/>');
+
+        expect(imported.state!.settings.sources).toEqual(state.settings.sources);
+    });
+
+    it('round-trips cylindrical and spherical independent spatial distributions', async () => {
+        const state = buildTestState();
+        state.settings.sources = [
+            {
+                spatial: {
+                    type: 'cylindrical',
+                    r: { type: 'uniform', min: 0, max: 2 },
+                    phi: { type: 'uniform', min: 0, max: Math.PI },
+                    z: { type: 'tabular', energies: [-1, 1], probabilities: [1, 1], interpolation: 'linear-linear' },
+                    origin: [1, 2, 3],
+                    rDir: [0, 1, 0],
+                    zDir: [0, 0, 1]
+                },
+                energy: { type: 'uniform', min: 1e5, max: 2e7 },
+                particle: 'neutron',
+                strength: 1
+            },
+            {
+                spatial: {
+                    type: 'spherical',
+                    r: { type: 'tabular', energies: [0, 5], probabilities: [1, 1], interpolation: 'linear-linear' },
+                    cosTheta: { type: 'uniform', min: -1, max: 0 },
+                    phi: { type: 'uniform', min: 0, max: Math.PI / 2 },
+                    origin: [4, 5, 6]
+                },
+                energy: { type: 'maxwell', temperature: 1.5 },
+                particle: 'neutron',
+                strength: 1
+            }
+        ];
+
+        const { xml, imported } = await generateAndImport(state);
+
+        expect(xml).toContain('<space type="cylindrical" origin="1 2 3" r_dir="0 1 0">');
+        expect(xml).toContain('<space type="spherical" origin="4 5 6">');
+        expect(xml).toContain('<cos_theta type="uniform" parameters="-1 0"/>');
+        expect(imported.state!.settings.sources).toEqual(state.settings.sources);
+    });
+
+    it('round-trips point-cloud spatial, decay-spectrum energy, and discrete time', async () => {
+        const state = buildTestState();
+        state.settings.sources = [
+            {
+                spatial: {
+                    type: 'pointcloud',
+                    positions: [
+                        [0, 0, 0],
+                        [1, 2, 3]
+                    ],
+                    strengths: [1, 3]
+                },
+                energy: {
+                    type: 'decay-spectrum',
+                    nuclides: [
+                        { name: 'Cs137', density: 1e-8 },
+                        { name: 'Co60', density: 2e-9 }
+                    ],
+                    volume: 1000
+                },
+                time: { type: 'discrete', energies: [0, 1e-6], probabilities: [0.5, 0.5] },
+                particle: 'neutron',
+                strength: 1
+            }
+        ];
+
+        const { xml, imported } = await generateAndImport(state);
+
+        expect(xml).toContain('<space type="cloud">');
+        expect(xml).toContain('<coords>0 0 0 1 2 3</coords>');
+        expect(xml).toContain('<strengths>1 3</strengths>');
+        expect(xml).toContain('<energy type="decay_spectrum" volume="1000">');
+        expect(xml).toContain('<nuclides>Cs137 Co60</nuclides>');
+        expect(xml).toContain('<parameters>1e-8 2e-9</parameters>');
+        expect(xml).toContain('<time type="discrete">');
+        expect(xml).toContain('<parameters>0 0.000001 0.5 0.5</parameters>');
+
+        expect(imported.state!.settings.sources).toEqual(state.settings.sources);
+    });
+
+    it('round-trips a mixture energy distribution with a nested mixture', async () => {
+        const state = buildTestState();
+        state.settings.sources = [
+            {
+                spatial: { type: 'point', origin: [0, 0, 0] },
+                energy: {
+                    type: 'mixture',
+                    probability: [0.4, 0.6],
+                    distributions: [
+                        { type: 'powerlaw', a: 0.1e6, b: 20e6, n: -1 },
+                        {
+                            type: 'mixture',
+                            probability: [0.5, 0.5],
+                            distributions: [
+                                { type: 'uniform', min: 1e6, max: 2e6 },
+                                { type: 'tabular', energies: [1e6, 2e6], probabilities: [1, 1], interpolation: 'histogram' }
+                            ]
+                        }
+                    ]
+                },
+                particle: 'neutron',
+                strength: 1
+            }
+        ];
+
+        const { xml, imported } = await generateAndImport(state);
+
+        expect(xml).toContain('<energy type="mixture">');
+        expect(xml).toContain('<pair probability="0.4">');
+        expect(xml).toContain('<pair probability="0.6">');
+        expect(xml).toContain('<dist type="mixture">');
+        expect(xml).toContain('<dist type="powerlaw" parameters="100000 20000000 -1"/>');
+        expect(xml).toContain('<dist type="tabular" interpolation="histogram">');
+
+        expect(imported.state!.settings.sources).toEqual(state.settings.sources);
+    });
+
+    it('round-trips a mesh spatial distribution and emits its mesh in settings.xml', async () => {
+        const state = buildTestState();
+        const mesh = {
+            id: 7,
+            type: 'regular' as const,
+            lowerLeft: [-1, -1, -1] as [number, number, number],
+            upperRight: [1, 1, 1] as [number, number, number],
+            dimension: [2, 2, 2] as [number, number, number]
+        };
+        state.meshes = [mesh];
+        state.settings.sources = [
+            {
+                spatial: {
+                    type: 'mesh',
+                    meshId: 7,
+                    strengths: [1, 2, 3, 4, 5, 6, 7, 8],
+                    volumeNormalized: false
+                },
+                energy: { type: 'discrete', energies: [2e6], probabilities: [1] },
+                particle: 'neutron',
+                strength: 1
+            }
+        ];
+
+        const { xml, imported } = await generateAndImport(state);
+
+        expect(xml).toContain('<space type="mesh" mesh_id="7" volume_normalized="false">');
+        expect(xml).toContain('<mesh id="7" type="regular">');
+        expect(imported.state!.settings.sources).toEqual(state.settings.sources);
+        expect(imported.state!.meshes).toEqual(state.meshes);
+    });
+
+    it('round-trips the convenience cylinder with an arbitrary axis', async () => {
+        const state = buildTestState();
+        state.settings.sources = [
+            {
+                spatial: { type: 'cylinder', center: [1, 2, 3], radius: 2, height: 10, axis: 'y' },
+                energy: { type: 'uniform', min: 1e5, max: 2e7 },
+                particle: 'neutron',
+                strength: 1
+            }
+        ];
+
+        const { xml, imported } = await generateAndImport(state);
+
+        expect(xml).toContain('<space type="cylindrical" origin="1 2 3" r_dir="0 0 1" z_dir="0 1 0">');
+        expect(imported.state!.settings.sources).toEqual(state.settings.sources);
+    });
+
+    it('omits decay-spectrum sources on environments without DecaySpectrum', async () => {
+        const state = buildTestState();
+        state.settings.sources = [
+            {
+                spatial: { type: 'point', origin: [0, 0, 0] },
+                energy: { type: 'decay-spectrum', nuclides: [{ name: 'Cs137', density: 1e-8 }], volume: 1 }
+            }
+        ];
+
+        const { xml, warnings } = await generateAndImport(state, {
+            ...SOURCE_COMPAT,
+            decaySpectrum: false
+        });
+
+        expect(xml).not.toContain('decay_spectrum');
+        expect(warnings.some((warning) => warning.includes('Decay spectrum source energy requires OpenMC >= 0.16.0'))).toBe(true);
+    });
+
+    it('writes discrete XML as values then probabilities (OpenMC ordering)', async () => {
+        const state = buildTestState();
+        state.settings.sources = [
+            {
+                spatial: { type: 'point', origin: [0, 0, 0] },
+                energy: { type: 'discrete', energies: [1e6, 2e6], probabilities: [0.25, 0.75] },
+                particle: 'neutron',
+                strength: 1
+            }
+        ];
+
+        const { xml, imported } = await generateAndImport(state);
+        expect(xml).toContain('<parameters>1000000 2000000 0.25 0.75</parameters>');
+        expect(imported.state!.settings.sources).toEqual(state.settings.sources);
     });
 });

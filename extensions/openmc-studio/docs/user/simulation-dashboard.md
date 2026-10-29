@@ -76,17 +76,44 @@ Global simulation parameters, organized into collapsible sections.
 
 ### Sources
 
-Click **Add Source** to append a collapsible source card. Each source has a type (segmented control) and a strength chip:
+Click **Add Source** to append a collapsible source card. The card starts with a
+compact summary line (for example `Box [-10, 10]³ · Tabular 10 eV–14 MeV ·
+Isotropic · t = 0 s`) and then exposes collapsible sections. Only the selected
+type's fields render, so the panel stays readable at narrow widths.
 
-| Type            | What You Configure                                                                                                                                                               |
-| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Independent** | Spatial distribution (Point / Box / Sphere / Cylinder, with Snap-to-Geometry helpers), energy distribution (Discrete / Uniform / Maxwell / Watt / Muir), particle type, strength |
-| **File**        | Source file path (e.g. `surface_source.h5`), strength                                                                                                                            |
-| **Compiled**    | Library path (`libsource.so`), parameter string, strength                                                                                                                        |
-| **Mesh**        | A state mesh, one sub-source per mesh element (Fill button), per-element strength, particle, energy                                                                              |
-| **Tokamak**     | Miller flux-surface geometry (R₀, a, elongation, triangularity, Shafranov shift), emission profile S(r/a), energy distribution, optional time distribution                       |
+| Type            | What You Configure                                                                                                                                         |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Independent** | Spatial, energy, direction, time, constraints, and advanced (strength/particle) sections — see below                                                       |
+| **File**        | Source file path (e.g. `surface_source.h5`), strength                                                                                                      |
+| **Compiled**    | Library path (`libsource.so`), parameter string, strength                                                                                                  |
+| **Mesh**        | A state mesh, one sub-source per mesh element (Fill button), per-element strength, particle, energy                                                        |
+| **Tokamak**     | Miller flux-surface geometry (R₀, a, elongation, triangularity, Shafranov shift), emission profile S(r/a), energy distribution, optional time distribution |
 
-Every source can carry **Source Constraints** (domain type + IDs, energy/time bounds, fissionable-sites-only, rejection strategy `resample`/`kill`) and a nested **Surface Source** section for writing surface crossings (`surface_source.h5` or MCPL) with cell/surface filters.
+**Independent source sections**
+
+| Section         | What You Can Build                                                                                                                                                                                                                                                    |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Spatial**     | Point, Box, Sphere, Cylinder (with Snap-to-Geometry helpers); Cartesian x/y/z; cylindrical r/phi/z with origin and axis directions; spherical r/cos θ/phi with origin; point cloud (x/y/z + optional strengths); mesh spatial distribution (mesh + element strengths) |
+| **Energy**      | Discrete, uniform, Maxwell, Watt, normal, Muir, power law, tabular (x/probability table + interpolation), mixture (nested distributions), and decay spectrum (OpenMC 0.16+, R2S/D1S)                                                                                  |
+| **Direction**   | Isotropic, monodirectional with a reference vector, or polar-azimuthal (mu-phi) with polar/azimuthal reference vectors and mu/phi distributions                                                                                                                       |
+| **Time**        | Born at t = 0, delta, uniform, discrete, tabular, or mixture. Every value is in **seconds**                                                                                                                                                                           |
+| **Constraints** | Domain type + IDs, energy/time bounds, fissionable-sites-only, rejection strategy `resample`/`kill`                                                                                                                                                                   |
+| **Advanced**    | Strength (relative source weight) and particle type (neutron/photon)                                                                                                                                                                                                  |
+
+Tabular and point-cloud tables support **Add row** and **Paste** (space-, comma-,
+or semicolon-separated rows). Large tables page inside their card. Mixtures show
+a running probability sum and warn when it is not 1. Reference vectors must be
+non-zero; mu-phi references must not be parallel. Validation messages state what
+is wrong and how to fix it, for example a tabular table that is not strictly
+increasing or has a mismatched probability column.
+
+Every source can also carry a nested **Surface Source** section for writing
+surface crossings (`surface_source.h5` or MCPL) with cell/surface filters.
+
+> **Boundaries:** `Legendre` is not offered because OpenMC cannot serialize it.
+> Tabular negative densities are rejected because `ignore_negative` has no XML
+> representation. Decay spectra require OpenMC 0.16+ and a depletion chain, and
+> are omitted from settings.xml with a warning on older environments.
 
 ### Output
 

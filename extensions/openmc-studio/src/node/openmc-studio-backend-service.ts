@@ -94,6 +94,7 @@ import {
     validatePlotAppearance
 } from '../common/plot-appearance';
 import { getMeshElementCount } from '../common/mesh-utils';
+import { parseAngleXml, parseSpatialXml, parseTimeXml, parseUnivariateXml, validateSourceDistributions } from '../common/source-utils';
 import { migrateProjectFile } from '../common/openmc-state-migration';
 import { validateDepletionAdvanced, parseDepletionBlock } from '../common/depletion-config';
 import { calculateGeometryBounds, boxOverlapsBounds, pointInBounds } from '../common/geometry-bounds';
@@ -1350,7 +1351,7 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             const sources = Array.isArray(s.source) ? s.source : [s.source];
 
             for (const src of sources) {
-                const source = this.parseSourceElement(src);
+                const source = this.parseSourceElement(src, warnings);
                 if (source) {
                     settings.sources.push(source);
                 }
@@ -1569,9 +1570,19 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
         // (settings.py _create_source_subelement); parse them so the caller
         // can merge them into state.meshes
         const sourceMeshes: OpenMCMesh[] = [];
-        const referencedMeshIds = new Set(
-            settings.sources.filter((src: any) => src.type === 'mesh' && src.meshId !== undefined).map((src: any) => src.meshId)
-        );
+        const referencedMeshIds = new Set<number>();
+        for (const source of settings.sources as any[]) {
+            if (source.type === 'mesh' && source.meshId !== undefined) {
+                referencedMeshIds.add(source.meshId);
+            }
+            if (
+                (source.type ?? 'independent') === 'independent' &&
+                source.spatial?.type === 'mesh' &&
+                source.spatial.meshId !== undefined
+            ) {
+                referencedMeshIds.add(source.spatial.meshId);
+            }
+        }
         if (referencedMeshIds.size > 0) {
             const meshElems = Array.isArray(s.mesh) ? s.mesh : s.mesh ? [s.mesh] : [];
             for (const meshElem of meshElems) {
@@ -1581,7 +1592,7 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             }
             for (const id of referencedMeshIds) {
                 if (!sourceMeshes.some((m) => m.id === id)) {
-                    warnings.push(`Mesh source references mesh ${id} but no <mesh> element with that ID was found in settings.xml`);
+                    warnings.push(`Source references mesh ${id} but no <mesh> element with that ID was found in settings.xml`);
                 }
             }
         }
@@ -1619,7 +1630,7 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
      * Parse a <source> element (independent, file, or compiled) into schema form.
      * Attribute/element names match openmc/source.py.
      */
-    private parseSourceElement(src: any): any {
+    private parseSourceElement(src: any, warnings: string[] = []): any {
         const attrs = src.$ || {};
         const sourceType = attrs.type || 'independent';
 
@@ -1650,7 +1661,7 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             source.sources = [];
             const subElems = Array.isArray(src.source) ? src.source : src.source ? [src.source] : [];
             for (const subElem of subElems) {
-                const sub = this.parseSourceElement(subElem);
+                const sub = this.parseSourceElement(subElem, warnings);
                 if (sub) {
                     source.sources.push(sub);
                 }
@@ -1681,26 +1692,13 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             const rOverA = src.r_over_a ? this.parseNumberList(src.r_over_a) : [];
             const emission = src.emission_density ? this.parseNumberList(src.emission_density) : [];
             source.profile = rOverA.map((r, i) => ({ r, s: emission[i] ?? 0 }));
-            source.energy = this.parseSourceEnergy(src.energy);
-            // Optional time distribution (delta/uniform/discrete)
+            source.energy = this.parseSourceEnergy(src.energy, warnings);
             if (src.time) {
-                const timeElem = Array.isArray(src.time) ? src.time[0] : src.time;
-                const timeType = timeElem.$?.type || 'discrete';
-                const timeParams = timeElem.parameters ? this.parseNumberList(timeElem.parameters) : [];
-                if (timeType === 'uniform' && timeParams.length >= 2) {
-                    source.time = { type: 'uniform', params: { min: timeParams[0], max: timeParams[1] } };
-                } else if (timeType === 'discrete' && timeParams.length >= 1) {
-                    if (timeParams.length === 2 && timeParams[1] === 1) {
-                        source.time = { type: 'delta', params: { time: timeParams[0] } };
-                    } else {
-                        const times: number[] = [];
-                        const probabilities: number[] = [];
-                        for (let i = 0; i + 1 < timeParams.length; i += 2) {
-                            times.push(timeParams[i]);
-                            probabilities.push(timeParams[i + 1]);
-                        }
-                        source.time = { type: 'discrete', params: { times, probabilities } };
-                    }
+                const time = parseTimeXml(Array.isArray(src.time) ? src.time[0] : src.time);
+                if (time) {
+                    source.time = time;
+                } else {
+                    warnings.push('Tokamak source has an unsupported time distribution; it was not imported');
                 }
             }
         } else {
@@ -1709,51 +1707,32 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                 source.particle = attrs.particle;
             }
 
-            // Parse spatial distribution
-            source.spatial = { type: 'point', origin: [0, 0, 0] };
-            if (src.space) {
-                const spaceType = src.space.$.type || 'point';
+            const spatial = parseSpatialXml(src.space, warnings);
+            if (spatial) {
+                source.spatial = spatial;
+            } else {
+                if (src.space) {
+                    warnings.push('Source spatial distribution could not be imported; using a point at the origin');
+                }
+                source.spatial = { type: 'point', origin: [0, 0, 0] };
+            }
 
-                if (spaceType === 'spherical') {
-                    // Our generator writes spherical as origin attr + r/cos_theta/phi children
-                    const origin = src.space.$.origin ? this.parseNumberList(src.space.$.origin) : [0, 0, 0];
-                    const rParams = src.space.r?.$?.parameters ? this.parseNumberList(src.space.r.$.parameters) : [0, 1];
-                    source.spatial = {
-                        type: 'sphere',
-                        center: origin.slice(0, 3),
-                        radius: rParams.length >= 2 ? rParams[1] : 1
-                    };
-                } else if (spaceType === 'cylindrical') {
-                    // Our generator writes cylindrical as origin attr + r/phi/z children
-                    const origin = src.space.$.origin ? this.parseNumberList(src.space.$.origin) : [0, 0, 0];
-                    const rParams = src.space.r?.$?.parameters ? this.parseNumberList(src.space.r.$.parameters) : [0, 1];
-                    const zParams = src.space.z?.$?.parameters ? this.parseNumberList(src.space.z.$.parameters) : [-0.5, 0.5];
-                    source.spatial = {
-                        type: 'cylinder',
-                        center: origin.slice(0, 3),
-                        radius: rParams.length >= 2 ? rParams[1] : 1,
-                        height: zParams.length >= 2 ? zParams[1] - zParams[0] : 1,
-                        axis: 'z'
-                    };
-                } else if (src.space.parameters) {
-                    const params = this.parseNumberList(src.space.parameters);
+            source.energy = this.parseSourceEnergy(src.energy, warnings);
 
-                    if ((spaceType === 'box' || spaceType === 'cartesian') && params.length >= 6) {
-                        source.spatial = { type: 'box', lowerLeft: params.slice(0, 3), upperRight: params.slice(3, 6) };
-                    } else if (spaceType === 'point' && params.length >= 3) {
-                        source.spatial = { type: 'point', origin: params.slice(0, 3) };
-                    }
+            if (src.angle) {
+                const angle = parseAngleXml(src.angle, warnings);
+                if (angle) {
+                    source.angle = angle;
                 }
             }
 
-            // Parse energy distribution
-            source.energy = this.parseSourceEnergy(src.energy);
-
-            // Parse angle distribution
-            if (src.angle) {
-                source.angle = {
-                    type: src.angle.$.type || 'isotropic'
-                };
+            if (src.time) {
+                const time = parseTimeXml(src.time);
+                if (time) {
+                    source.time = time;
+                } else {
+                    warnings.push('Source time distribution could not be imported');
+                }
             }
         }
 
@@ -1788,51 +1767,23 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
     }
 
     /**
-     * Parse an <energy> element into schema form (discrete/uniform/maxwell/watt).
+     * Parse an `<energy>` element into the shared univariate model.
      * When several elements are present (e.g. per-radius tokamak energy lists),
      * the first one is used. Defaults to a 1 MeV discrete line when absent.
      * @param energyElem - The parsed XML energy element (or array of them).
+     * @param warnings - Import warning sink.
      * @returns The energy distribution in schema form.
      */
-    private parseSourceEnergy(energyElem: any): any {
+    private parseSourceEnergy(energyElem: any, warnings: string[] = []): any {
         const elem = Array.isArray(energyElem) ? energyElem[0] : energyElem;
         if (!elem) {
             return { type: 'discrete', energies: [1e6] };
         }
-        const energyType = elem.$?.type || 'discrete';
-        const params = elem.parameters ? this.parseNumberList(elem.parameters) : [];
-
-        if (energyType === 'discrete') {
-            // Our generator writes interleaved energy/probability pairs
-            const energies: number[] = [];
-            const probabilities: number[] = [];
-            for (let i = 0; i + 1 < params.length; i += 2) {
-                energies.push(params[i]);
-                probabilities.push(params[i + 1]);
-            }
-            return energies.length > 0
-                ? { type: 'discrete', energies, probabilities }
-                : { type: 'discrete', energies: params.length > 0 ? params : [1e6] };
+        const energy = parseUnivariateXml(elem);
+        if (energy) {
+            return energy;
         }
-        if (energyType === 'uniform' && params.length >= 2) {
-            return { type: 'uniform', min: params[0], max: params[1] };
-        }
-        if (energyType === 'maxwell' && params.length >= 1) {
-            return { type: 'maxwell', temperature: params[0] };
-        }
-        if (energyType === 'watt' && params.length >= 2) {
-            return { type: 'watt', a: params[0], b: params[1] };
-        }
-        if (energyType === 'normal' && params.length >= 2) {
-            // Muir serializes as 'normal' in this OpenMC version (muir() → Normal)
-            return { type: 'normal', mean: params[0], stdDev: params[1] };
-        }
-        if (energyType === 'muir' && params.length >= 3) {
-            // Legacy files where Muir had its own class: parameters are
-            // (e0, m_rat, kt) — convert to the normal form it now is
-            const [e0, mRat, kt] = params;
-            return { type: 'normal', mean: e0, stdDev: Math.sqrt((2 * e0 * kt) / mRat) };
-        }
+        warnings.push(`Unsupported energy distribution type "${elem.$?.type ?? 'unknown'}"; using a 1 MeV discrete line`);
         return { type: 'discrete', energies: [1e6] };
     }
 
@@ -2730,9 +2681,23 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
 
         // Mesh sources: valid mesh reference and exactly one sub-source per
         // mesh element (openmc/source.py MeshSource sources setter)
-        for (const source of settings.sources ?? []) {
+        const sourceEntries = settings.sources ?? [];
+        for (let sourceIndex = 0; sourceIndex < sourceEntries.length; sourceIndex++) {
+            const source = sourceEntries[sourceIndex];
             if (source.type === 'tokamak') {
                 this.validateTokamakSource(source, issues);
+                continue;
+            }
+            if ((source.type ?? 'independent') === 'independent') {
+                const label = source.id ?? `source ${sourceIndex + 1}`;
+                for (const issue of validateSourceDistributions(source as OpenMCIndependentSource, meshes)) {
+                    issues.push({
+                        severity: 'error',
+                        category: 'settings',
+                        message: `${label}: ${issue.message}`,
+                        suggestion: issue.suggestion
+                    });
+                }
                 continue;
             }
             if (source.type !== 'mesh') {
@@ -2776,6 +2741,16 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                     suggestion: 'Use the Fill button in the source editor to replicate a sub-source across all elements'
                 });
             }
+            (source.sources ?? []).forEach((sub, subIndex) => {
+                for (const issue of validateSourceDistributions(sub, meshes)) {
+                    issues.push({
+                        severity: 'error',
+                        category: 'settings',
+                        message: `${source.id ?? 'Mesh source'} element ${subIndex + 1}: ${issue.message}`,
+                        suggestion: issue.suggestion
+                    });
+                }
+            });
         }
 
         // IFP kinetics: requires eigenvalue mode; ifp_n_generation must not exceed inactive batches

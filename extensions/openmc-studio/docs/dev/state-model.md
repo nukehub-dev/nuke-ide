@@ -180,20 +180,34 @@ type OpenMCRunSettings =
 
 ### Sources
 
-External sources support spatial, energy, angular, and time distributions:
+External sources use one shared univariate model for energy, time, spatial
+coordinates, mu/phi, and nested mixture children:
 
 ```typescript
-interface OpenMCSource {
-    spatial: OpenMCSourceSpatial;   // point | box | sphere | cylinder
-    energy: OpenMCSourceEnergy;     // discrete | uniform | maxwell | watt | muir | tabular
-    angle?: OpenMCSourceAngle;      // isotropic | monodirectional | polar-azimuthal
-    strength?: number;
-    particle?: 'neutron' | 'photon';
-    time?: { type: 'delta' | 'uniform' | 'discrete', params: {...} };
+type OpenMCUnivariateType =
+  'discrete' | 'uniform' | 'maxwell' | 'watt' | 'normal' | 'muir' | 'powerlaw' | 'tabular' | 'mixture' | 'decay-spectrum';
+// OpenMCUnivariate is the discriminated union of objects tagged with these types.
+
+interface OpenMCIndependentSource {
+  spatial: OpenMCSourceSpatial; // point | box | sphere | cylinder | cartesian | cylindrical
+  // | spherical | pointcloud | mesh
+  energy: OpenMCUnivariate; // ev; decay-spectrum is 0.16-only
+  angle?: OpenMCSourceAngle; // isotropic | monodirectional | mu-phi
+  time?: OpenMCSourceTime; // delta | uniform | discrete | tabular | mixture (seconds)
+  strength?: number;
+  particle?: 'neutron' | 'photon';
 }
 ```
 
-**Concept:** Each distribution type is a separate interface extending a common base. Widgets can switch rendering based on `type` without parsing opaque parameter arrays.
+`OpenMCSourceEnergy` is an alias of `OpenMCUnivariate`; the energy-specific
+interface names (`OpenMCDiscreteEnergy`, `OpenMCTabularEnergy`, ...) remain as
+aliases. Mutation is by replacement: editors build the next distribution object
+and call `updateSettings`, never mutate the previous array in place.
+
+`Legendre` is intentionally absent (its `to_xml_element()` raises
+`NotImplementedError`). Tabular `ignore_negative` is not modeled because OpenMC
+XML has no attribute for it; negative densities are rejected in validation
+instead of letting XML and Python export diverge.
 
 ### Mesh and tokamak source variants
 
@@ -201,6 +215,13 @@ The source model is a discriminated union (`independent` | `file` | `compiled` |
 with optional per-source `constraints` (fixed-source random ray requires material/cell/universe domain constraints). The `mesh` variant
 references a state mesh by `meshId` with exactly one independent sub-source per mesh element; the `tokamak` variant (0.16.0+) models Miller
 flux-surface geometry plus an `{r, s}` emission profile and a single energy distribution (`muir` serializes lossy as `normal`).
+An independent source's `mesh` spatial distribution (`meshId`, optional element `strengths`, `volumeNormalized`) is distinct from
+the `mesh` source variant: the former samples a site from one mesh element with a single energy/direction/time set, while the
+latter requires one sub-source per element.
+
+Legacy project files are normalized on load without a schema-version bump: pre-univariate time shapes (`params.times/min/max/time`)
+convert to the shared model, and legacy angle types (`polar-azimuthal`, `reference`) convert to `mu-phi`/`monodirectional`.
+Delta time round-trips through XML as a one-point discrete and converts back to `delta` on import.
 
 ### Entropy Mesh
 

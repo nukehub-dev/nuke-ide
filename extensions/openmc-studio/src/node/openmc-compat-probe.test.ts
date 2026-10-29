@@ -46,6 +46,7 @@ const WRAPPER_FULL: OpenMCCompat = {
     raySourceFormat: 'wrapper',
     adjointSource: true,
     tokamakSource: true,
+    decaySpectrum: true,
     s2SampleMethod: true,
     depletionSubsteps: true,
     depletionKeffSearch: true,
@@ -58,6 +59,7 @@ const DIRECT_MIN: OpenMCCompat = {
     raySourceFormat: 'direct',
     adjointSource: false,
     tokamakSource: false,
+    decaySpectrum: false,
     s2SampleMethod: false,
     depletionSubsteps: false,
     depletionKeffSearch: false,
@@ -120,7 +122,7 @@ describe('OpenMCCompatProbeService', () => {
         const probe = makeProbe('/fake/python', undefined);
         expect(
             (probe as any).parseProbeOutput(
-                'direct no-adjoint no-tokamak s2 no-substeps no-keff-search external-rate continuation no-shared-bank no-grazing\n'
+                'direct no-adjoint no-tokamak s2 no-substeps no-keff-search external-rate continuation no-shared-bank no-grazing no-decay\n'
             )
         ).toEqual({
             ...DIRECT_MIN,
@@ -133,7 +135,8 @@ describe('OpenMCCompatProbeService', () => {
         expect((probe as any).parseProbeOutput('wrapper adjoint tokamak s2 substeps keff-search external-rate continuation\n')).toEqual({
             ...WRAPPER_FULL,
             sharedSecondaryBank: false,
-            surfaceGrazing: false
+            surfaceGrazing: false,
+            decaySpectrum: false
         });
         expect(
             (probe as any).parseProbeOutput(
@@ -151,7 +154,7 @@ describe('OpenMCCompatProbeService', () => {
         const probe = makeProbe('/fake/python', undefined);
         expect(
             (probe as any).parseProbeOutput(
-                'wrapper adjoint tokamak s2 substeps keff-search external-rate continuation shared-bank grazing\n'
+                'wrapper adjoint tokamak s2 substeps keff-search external-rate continuation shared-bank grazing decay\n'
             )
         ).toEqual(WRAPPER_FULL);
     });

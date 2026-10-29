@@ -456,8 +456,156 @@ export interface OpenMCMaterial {
  * @see {@link OpenMCSource}
  */
 
+// ----------------------------------------------------------------------------
+// Shared univariate distributions
+// ----------------------------------------------------------------------------
+
+/**
+ * Univariate distribution types that OpenMC serializes to XML and accepts in
+ * `openmc.stats` (energy, time, spatial coordinates, mu/phi, and mixture
+ * children all use this one model).
+ *
+ * `openmc.stats.Legendre` is deliberately absent: its `to_xml_element()` raises
+ * `NotImplementedError`, so it cannot round-trip and has no editor control.
+ */
+export type OpenMCUnivariateType =
+    'discrete' | 'uniform' | 'maxwell' | 'watt' | 'normal' | 'powerlaw' | 'tabular' | 'mixture' | 'decay-spectrum' | 'muir';
+
+/** Base univariate distribution definition */
+export interface OpenMCUnivariateBase {
+    type: OpenMCUnivariateType;
+}
+
+/**
+ * Discrete distribution (`openmc.stats.Discrete`, XML type `discrete`).
+ * In the schema `energies` holds the sampled values for every domain — eV for
+ * energy, seconds for time, and coordinate units for spatial distributions.
+ */
+export interface OpenMCDiscreteUnivariate extends OpenMCUnivariateBase {
+    type: 'discrete';
+    /** Sampled values (eV, seconds, or coordinates) */
+    energies: number[];
+    /** Relative probabilities; omitted means equal probability */
+    probabilities?: number[];
+}
+
+/** Uniform distribution (`openmc.stats.Uniform`, XML type `uniform`) */
+export interface OpenMCUniformUnivariate extends OpenMCUnivariateBase {
+    type: 'uniform';
+    min: number;
+    max: number;
+}
+
+/**
+ * Maxwellian energy distribution (`openmc.stats.Maxwell`, XML type `maxwell`).
+ * `temperature` is OpenMC's effective temperature theta in eV (not kelvin).
+ */
+export interface OpenMCMaxwellUnivariate extends OpenMCUnivariateBase {
+    type: 'maxwell';
+    /** Effective temperature theta [eV] */
+    temperature: number;
+}
+
+/** Watt fission spectrum (`openmc.stats.Watt`, XML type `watt`) */
+export interface OpenMCWattUnivariate extends OpenMCUnivariateBase {
+    type: 'watt';
+    /** First Watt parameter [eV] */
+    a: number;
+    /** Second Watt parameter [1/eV] */
+    b: number;
+}
+
+/** Normal (Gaussian) distribution (`openmc.stats.Normal`, XML type `normal`) */
+export interface OpenMCNormalUnivariate extends OpenMCUnivariateBase {
+    type: 'normal';
+    /** Mean [eV for energy] */
+    mean: number;
+    /** Standard deviation [eV for energy] */
+    stdDev: number;
+}
+
+/**
+ * Muir energy distribution (D-T fusion; a Normal parameterized by e0/m_rat/kt).
+ * OpenMC XML has no `muir` type — it serializes as `normal`, and the Python
+ * exporter uses `openmc.stats.muir(e0, m_rat, kt)`.
+ */
+export interface OpenMCMuirUnivariate extends OpenMCUnivariateBase {
+    type: 'muir';
+    /** Mean energy [eV] */
+    e0: number;
+    /** Ratio of reactant masses to 1 amu */
+    m_rat: number;
+    /** Ion temperature [eV] */
+    kt: number;
+}
+
+/** Power-law distribution (`openmc.stats.PowerLaw`, XML type `powerlaw`) */
+export interface OpenMCPowerLawUnivariate extends OpenMCUnivariateBase {
+    type: 'powerlaw';
+    /** Lower bound a */
+    a: number;
+    /** Upper bound b (must be greater than a) */
+    b: number;
+    /** Exponent n; p(x) ∝ x^n on [a, b] */
+    n: number;
+}
+
+/** Tabular distribution (`openmc.stats.Tabular`, XML type `tabular`) */
+export interface OpenMCTabularUnivariate extends OpenMCUnivariateBase {
+    type: 'tabular';
+    /** Strictly increasing abscissae (x values) */
+    energies: number[];
+    /** Probability densities, one per abscissa */
+    probabilities: number[];
+    /** Interpolation scheme between points (default: linear-linear) */
+    interpolation?: 'histogram' | 'linear-linear' | 'linear-log' | 'log-linear' | 'log-log';
+}
+
+/**
+ * Mixture distribution (`openmc.stats.Mixture`, XML type `mixture`).
+ * Each `<pair probability="..."><dist .../></pair>` child is represented by a
+ * probability and one distribution in the same array position.
+ */
+export interface OpenMCMixtureUnivariate extends OpenMCUnivariateBase {
+    type: 'mixture';
+    /** Component selection probabilities (must sum to 1) */
+    probability: number[];
+    /** Component distributions */
+    distributions: OpenMCSourceEnergy[];
+}
+
+/**
+ * Decay photon spectrum (`openmc.stats.DecaySpectrum`, XML type
+ * `decay_spectrum`, OpenMC 0.16+).
+ */
+export interface OpenMCDecaySpectrumUnivariate extends OpenMCUnivariateBase {
+    type: 'decay-spectrum';
+    /** Nuclide names and atom densities [atom/b-cm] */
+    nuclides: { name: string; density: number }[];
+    /** Source-region volume [cm^3] */
+    volume: number;
+}
+
+/** Shared univariate distribution union */
+export type OpenMCUnivariate =
+    | OpenMCDiscreteUnivariate
+    | OpenMCUniformUnivariate
+    | OpenMCMaxwellUnivariate
+    | OpenMCWattUnivariate
+    | OpenMCNormalUnivariate
+    | OpenMCMuirUnivariate
+    | OpenMCPowerLawUnivariate
+    | OpenMCTabularUnivariate
+    | OpenMCMixtureUnivariate
+    | OpenMCDecaySpectrumUnivariate;
+
+// ----------------------------------------------------------------------------
+// Spatial distributions
+// ----------------------------------------------------------------------------
+
 /** Source spatial distribution types */
-export type OpenMCSourceSpatialType = 'point' | 'box' | 'sphere' | 'cylinder' | 'cartesian' | 'cylindrical' | 'spherical';
+export type OpenMCSourceSpatialType =
+    'point' | 'box' | 'sphere' | 'cylinder' | 'cartesian' | 'cylindrical' | 'spherical' | 'pointcloud' | 'mesh';
 
 /** Base source spatial definition */
 export interface OpenMCSourceSpatialBase {
@@ -477,14 +625,14 @@ export interface OpenMCBoxSourceSpatial extends OpenMCSourceSpatialBase {
     upperRight: [number, number, number];
 }
 
-/** Sphere source spatial */
+/** Sphere source spatial (uniform in a sphere; serializes as spherical) */
 export interface OpenMCSphereSourceSpatial extends OpenMCSourceSpatialBase {
     type: 'sphere';
     center: [number, number, number];
     radius: number;
 }
 
-/** Cylinder source spatial */
+/** Cylinder source spatial (uniform in a cylinder; serializes as cylindrical) */
 export interface OpenMCCylinderSourceSpatial extends OpenMCSourceSpatialBase {
     type: 'cylinder';
     center: [number, number, number];
@@ -493,12 +641,79 @@ export interface OpenMCCylinderSourceSpatial extends OpenMCSourceSpatialBase {
     axis: 'x' | 'y' | 'z';
 }
 
+/** Independent Cartesian spatial distribution (`<space type="cartesian">`) */
+export interface OpenMCCartesianSpatial extends OpenMCSourceSpatialBase {
+    type: 'cartesian';
+    x: OpenMCUnivariate;
+    y: OpenMCUnivariate;
+    z: OpenMCUnivariate;
+}
+
+/** Independent cylindrical spatial distribution (`<space type="cylindrical">`) */
+export interface OpenMCCylindricalSpatial extends OpenMCSourceSpatialBase {
+    type: 'cylindrical';
+    r: OpenMCUnivariate;
+    phi: OpenMCUnivariate;
+    z: OpenMCUnivariate;
+    /** Reference-frame origin (default: [0, 0, 0]) */
+    origin?: [number, number, number];
+    /** Cylinder r axis at phi=0 (default: [1, 0, 0]) */
+    rDir?: [number, number, number];
+    /** Cylinder z axis direction (default: [0, 0, 1]) */
+    zDir?: [number, number, number];
+}
+
+/** Independent spherical spatial distribution (`<space type="spherical">`) */
+export interface OpenMCSphericalSpatial extends OpenMCSourceSpatialBase {
+    type: 'spherical';
+    r: OpenMCUnivariate;
+    cosTheta: OpenMCUnivariate;
+    phi: OpenMCUnivariate;
+    /** Sphere center (default: [0, 0, 0]) */
+    origin?: [number, number, number];
+}
+
+/** Point-cloud spatial distribution (`<space type="cloud">`) */
+export interface OpenMCPointCloudSpatial extends OpenMCSourceSpatialBase {
+    type: 'pointcloud';
+    /** Source points (each a 3-vector) */
+    positions: [number, number, number][];
+    /** Optional relative probability per point; length must match positions */
+    strengths?: number[];
+}
+
+/** Mesh spatial distribution (`<space type="mesh">`) */
+export interface OpenMCMeshSpatial extends OpenMCSourceSpatialBase {
+    type: 'mesh';
+    /** Reference to a mesh in state.meshes */
+    meshId?: number;
+    /** Optional relative source strength per mesh element */
+    strengths?: number[];
+    /**
+     * Multiply strengths by element volume. The editor/Python default is true;
+     * C++ treats an omitted XML attribute as false, and import follows C++.
+     */
+    volumeNormalized?: boolean;
+}
+
 /** Source spatial definition (union of all types) */
 export type OpenMCSourceSpatial =
-    OpenMCPointSourceSpatial | OpenMCBoxSourceSpatial | OpenMCSphereSourceSpatial | OpenMCCylinderSourceSpatial;
+    | OpenMCPointSourceSpatial
+    | OpenMCBoxSourceSpatial
+    | OpenMCSphereSourceSpatial
+    | OpenMCCylinderSourceSpatial
+    | OpenMCCartesianSpatial
+    | OpenMCCylindricalSpatial
+    | OpenMCSphericalSpatial
+    | OpenMCPointCloudSpatial
+    | OpenMCMeshSpatial;
+
+// ----------------------------------------------------------------------------
+// Energy distributions
+// ----------------------------------------------------------------------------
 
 /** Source energy distribution types */
-export type OpenMCSourceEnergyType = 'discrete' | 'uniform' | 'maxwell' | 'watt' | 'muir' | 'normal' | 'tabular';
+export type OpenMCSourceEnergyType = OpenMCUnivariateType;
 
 /** Base source energy definition */
 export interface OpenMCSourceEnergyBase {
@@ -506,80 +721,90 @@ export interface OpenMCSourceEnergyBase {
 }
 
 /** Discrete energy distribution */
-export interface OpenMCDiscreteEnergy extends OpenMCSourceEnergyBase {
-    type: 'discrete';
-    energies: number[];
-    probabilities?: number[];
-}
+export type OpenMCDiscreteEnergy = OpenMCDiscreteUnivariate;
 
 /** Uniform energy distribution */
-export interface OpenMCUniformEnergy extends OpenMCSourceEnergyBase {
-    type: 'uniform';
-    min: number;
-    max: number;
-}
+export type OpenMCUniformEnergy = OpenMCUniformUnivariate;
 
 /** Maxwell energy distribution */
-export interface OpenMCMaxwellEnergy extends OpenMCSourceEnergyBase {
-    type: 'maxwell';
-    temperature: number;
-}
+export type OpenMCMaxwellEnergy = OpenMCMaxwellUnivariate;
 
 /** Watt energy distribution */
-export interface OpenMCWattEnergy extends OpenMCSourceEnergyBase {
-    type: 'watt';
-    a: number;
-    b: number;
+export type OpenMCWattEnergy = OpenMCWattUnivariate;
+
+/** Muir energy distribution */
+export type OpenMCMuirEnergy = OpenMCMuirUnivariate;
+
+/** Normal (Gaussian) energy distribution */
+export type OpenMCNormalEnergy = OpenMCNormalUnivariate;
+
+/** Tabular energy distribution */
+export type OpenMCTabularEnergy = OpenMCTabularUnivariate;
+
+/** Power-law energy distribution */
+export type OpenMCPowerLawEnergy = OpenMCPowerLawUnivariate;
+
+/** Mixture energy distribution */
+export type OpenMCMixtureEnergy = OpenMCMixtureUnivariate;
+
+/** Decay-spectrum energy distribution */
+export type OpenMCDecaySpectrumEnergy = OpenMCDecaySpectrumUnivariate;
+
+/** Source energy distribution (shared univariate model) */
+export type OpenMCSourceEnergy = OpenMCUnivariate;
+
+// ----------------------------------------------------------------------------
+// Angular and time distributions
+// ----------------------------------------------------------------------------
+
+/** Isotropic angular distribution */
+export interface OpenMCIsotropicAngle {
+    type: 'isotropic';
 }
 
-/** Muir energy distribution (D-T fusion; a Normal parameterized by e0/m_rat/kt) */
-export interface OpenMCMuirEnergy extends OpenMCSourceEnergyBase {
-    type: 'muir';
-    e0: number;
-    m_rat: number;
-    kt: number;
+/** Monodirectional angular distribution (all particles follow one direction) */
+export interface OpenMCMonodirectionalAngle {
+    type: 'monodirectional';
+    /** Direction vector (default: [0, 0, 1], the C++ XML default); OpenMC normalizes it */
+    referenceUvW?: [number, number, number];
 }
 
 /**
- * Normal (Gaussian) energy distribution — the form Muir serializes to in this
- * OpenMC version (muir() is a function returning Normal; XML is type="normal"
- * with mean/std_dev parameters, univariate.py:1243-1267).
+ * Polar-azimuthal angular distribution (`openmc.stats.PolarAzimuthal`, XML
+ * type `mu-phi`). `mu` is the cosine of the polar angle and `phi` is the
+ * azimuthal angle in radians.
  */
-export interface OpenMCNormalEnergy extends OpenMCSourceEnergyBase {
-    type: 'normal';
-    /** Mean of the Gaussian [eV] */
-    mean: number;
-    /** Standard deviation of the Gaussian [eV] */
-    stdDev: number;
+export interface OpenMCMuPhiAngle {
+    type: 'mu-phi';
+    /** Cosine of the polar angle distribution */
+    mu: OpenMCUnivariate;
+    /** Azimuthal angle distribution [rad] */
+    phi: OpenMCUnivariate;
+    /** Polar-angle reference direction (default: [0, 0, 1]) */
+    referenceUvW?: [number, number, number];
+    /** Azimuthal-angle reference direction (default: [1, 0, 0]) */
+    referenceVwu?: [number, number, number];
 }
-
-/** Tabular energy distribution */
-export interface OpenMCTabularEnergy extends OpenMCSourceEnergyBase {
-    type: 'tabular';
-    energies: number[];
-    probabilities: number[];
-    interpolation?: 'histogram' | 'linear-linear' | 'linear-log' | 'log-linear' | 'log-log';
-}
-
-/** Source energy distribution (union of all types) */
-export type OpenMCSourceEnergy =
-    | OpenMCDiscreteEnergy
-    | OpenMCUniformEnergy
-    | OpenMCMaxwellEnergy
-    | OpenMCWattEnergy
-    | OpenMCMuirEnergy
-    | OpenMCNormalEnergy
-    | OpenMCTabularEnergy;
 
 /** Source angular distribution */
-export interface OpenMCSourceAngle {
-    type: 'isotropic' | 'monodirectional' | 'polar-azimuthal' | 'mu-phi' | 'reference';
-    params?: {
-        mu?: number;
-        phi?: number;
-        referenceUvW?: [number, number, number];
-    };
+export type OpenMCSourceAngle = OpenMCIsotropicAngle | OpenMCMonodirectionalAngle | OpenMCMuPhiAngle;
+
+/** Delta (single-time) distribution. Stored as a one-point discrete in XML. */
+export interface OpenMCDeltaTime {
+    type: 'delta';
+    /** Particle birth time [s] */
+    time: number;
 }
+
+/** Source time distribution types (all values are seconds) */
+export type OpenMCSourceTimeType = 'delta' | 'uniform' | 'discrete' | 'tabular' | 'mixture';
+
+/**
+ * Source time distribution. OpenMC tracks particle time in seconds, so every
+ * value in this union is seconds. Delta is a single-point Discrete in XML.
+ */
+export type OpenMCSourceTime =
+    OpenMCDeltaTime | OpenMCUniformUnivariate | OpenMCDiscreteUnivariate | OpenMCTabularUnivariate | OpenMCMixtureUnivariate;
 
 /** Source type discriminator */
 export type OpenMCSourceType = 'independent' | 'file' | 'compiled' | 'mesh' | 'tokamak';
@@ -627,11 +852,8 @@ export interface OpenMCIndependentSource extends OpenMCSourceBase {
     angle?: OpenMCSourceAngle;
     /** Particle type: 'neutron', 'photon' */
     particle?: 'neutron' | 'photon';
-    /** Time distribution (for time-dependent problems) */
-    time?: {
-        type: 'delta' | 'uniform' | 'discrete';
-        params: { times?: number[]; probabilities?: number[]; min?: number; max?: number; time?: number };
-    };
+    /** Time distribution in seconds (for time-dependent problems) */
+    time?: OpenMCSourceTime;
 }
 
 /** File source: particles read from a source file (e.g. surface source file) */
