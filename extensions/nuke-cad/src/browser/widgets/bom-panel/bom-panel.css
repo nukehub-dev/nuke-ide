@@ -36,24 +36,31 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 6px;
-    padding: 24px 12px;
+    gap: 8px;
+    margin: 16px;
+    padding: 28px 16px;
     text-align: center;
+    border: 1px dashed var(--theia-panel-border);
+    border-radius: 8px;
+    background: var(--theia-editorWidget-background);
     color: var(--theia-descriptionForeground);
 }
 
 .cad-bom-empty .codicon {
-    font-size: 24px;
+    font-size: 32px;
+    opacity: 0.55;
 }
 
 .cad-bom-empty p {
     margin: 0;
+    font-size: 13px;
     font-weight: 600;
     color: var(--theia-sideBar-foreground);
 }
 
 .cad-bom-empty .empty-hint {
     font-size: 11px;
+    line-height: 1.45;
 }
 
 .cad-bom-table {
@@ -93,11 +100,29 @@
     background: var(--theia-list-hoverBackground);
 }
 
+.cad-bom-tr:focus-visible {
+    outline: 1px solid var(--theia-focusBorder);
+    outline-offset: -1px;
+    background: var(--theia-list-hoverBackground);
+}
+
 .cad-bom-cell {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     font-size: 12px;
+}
+
+.cad-bom-instance-name,
+.cad-bom-part-name {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cad-bom-cell.part {
+    min-width: 0;
 }
 
 .cad-bom-cell.instance {

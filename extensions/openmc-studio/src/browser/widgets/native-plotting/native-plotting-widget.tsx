@@ -39,6 +39,25 @@ import { OpenMCXMLGenerationService } from '../../xml-generator/xml-generation-s
 import { OpenMCStudioBackendService, GeneratedPlotFile } from '../../../common/openmc-studio-protocol';
 import { OpenMCPlotConfig } from '../../../common/openmc-state-schema';
 
+interface PlotTypeOption {
+    readonly type: OpenMCPlotConfig['type'];
+    readonly label: string;
+    readonly description: string;
+    readonly icon: string;
+}
+
+const PLOT_TYPE_OPTIONS: readonly PlotTypeOption[] = [
+    { type: 'slice', label: 'Slice', description: '2D cross-section', icon: 'codicon-openmc-plot' },
+    { type: 'voxel', label: 'Voxel', description: '3D voxel mesh', icon: 'codicon-openmc-grid' },
+    { type: 'solid-raytrace', label: 'Solid RT', description: 'Ray-traced solid', icon: 'codicon-openmc-mesh' },
+    {
+        type: 'wireframe-raytrace',
+        label: 'Wireframe RT',
+        description: 'Ray-traced wireframe',
+        icon: 'codicon-openmc-surface'
+    }
+];
+
 /**
  * Native OpenMC plotting window.
  *
@@ -86,11 +105,33 @@ export class NativePlottingWidget extends ReactWidget {
         this.title.closable = true;
         this.title.iconClass = 'codicon codicon-openmc-plot';
 
-        this.stateManager.onStateChange(() => this.update());
-        this.stateManager.onStateReload(() => this.update());
+        this.stateManager.onStateChange(() => {
+            this.syncSelectedPlot();
+            this.update();
+        });
+        this.stateManager.onStateReload(() => {
+            this.syncSelectedPlot();
+            this.update();
+        });
+        this.syncSelectedPlot();
 
         // ReactWidget only renders on update(); schedule the initial paint explicitly.
         this.update();
+    }
+
+    /**
+     * Keep a valid plot selected across project loads and deletions so the
+     * editor pane never opens on an avoidable "No plot selected" state.
+     */
+    private syncSelectedPlot(): void {
+        const plots = this.stateManager.getState().plots ?? [];
+        if (plots.length === 0) {
+            this.selectedPlotId = undefined;
+            return;
+        }
+        if (!plots.some((plot) => plot.id === this.selectedPlotId)) {
+            this.selectedPlotId = plots[0].id;
+        }
     }
 
     /**
@@ -149,7 +190,7 @@ export class NativePlottingWidget extends ReactWidget {
         const plots = (this.stateManager.getState().plots ?? []).filter((p) => p.id !== id);
         this.stateManager.updatePlots(plots);
         if (this.selectedPlotId === id) {
-            this.selectedPlotId = undefined;
+            this.selectedPlotId = plots[0]?.id;
         }
         this.update();
     }
@@ -201,7 +242,9 @@ export class NativePlottingWidget extends ReactWidget {
                     settings: true,
                     geometry: true,
                     tallies: state.tallies.length > 0,
-                    plots: true
+                    // generate_plots.py exports the authoritative plots.xml from
+                    // the same configurations; writing it twice invites drift.
+                    plots: false
                 }
             });
             if (!xmlResult.success) {
@@ -504,6 +547,9 @@ export class NativePlottingWidget extends ReactWidget {
                         {this.renderIdListInput('Opaque Domain IDs', plot.opaqueIds ?? [], (ids) =>
                             this.updateSelectedPlot({ opaqueIds: ids })
                         )}
+                        <span className="form-hint">
+                            Leave empty to render every material/cell opaque; add IDs to reveal interior regions.
+                        </span>
                     </>
                 )}
 
@@ -578,111 +624,126 @@ export class NativePlottingWidget extends ReactWidget {
                     </div>
                 </div>
 
-                <div className="native-plotting-body">
-                    <div className="plot-list-panel">
-                        <div className="plot-list-header">
-                            <h4>
-                                <i className="codicon codicon-openmc-plot"></i> Plots
-                            </h4>
-                            <div className="plot-add-buttons">
-                                <Tooltip content="Add slice plot" position="bottom">
-                                    <button className="theia-button secondary small" onClick={() => this.addPlot('slice')}>
-                                        + Slice
-                                    </button>
-                                </Tooltip>
-                                <Tooltip content="Add voxel plot" position="bottom">
-                                    <button className="theia-button secondary small" onClick={() => this.addPlot('voxel')}>
-                                        + Voxel
-                                    </button>
-                                </Tooltip>
-                                <Tooltip content="Add solid ray-trace plot" position="bottom">
-                                    <button className="theia-button secondary small" onClick={() => this.addPlot('solid-raytrace')}>
-                                        + Solid RT
-                                    </button>
-                                </Tooltip>
-                                <Tooltip content="Add wireframe ray-trace plot" position="bottom">
-                                    <button className="theia-button secondary small" onClick={() => this.addPlot('wireframe-raytrace')}>
-                                        + Wireframe RT
-                                    </button>
-                                </Tooltip>
-                            </div>
-                        </div>
-                        {plots.length === 0 ? (
-                            <div className="empty-state">
+                {plots.length === 0 ? (
+                    <div className="native-plotting-empty">
+                        <div className="native-plotting-empty-inner">
+                            <div className="native-plotting-empty-icon">
                                 <i className="codicon codicon-openmc-plot"></i>
-                                <p>No plots configured</p>
-                                <p className="empty-hint">Add a plot type above to get started</p>
                             </div>
-                        ) : (
-                            <div className="plot-list">
-                                {plots.map((plot) => (
-                                    <div
-                                        key={plot.id}
-                                        className={`plot-card ${plot.id === this.selectedPlotId ? 'selected' : ''}`}
-                                        onClick={() => {
-                                            this.selectedPlotId = plot.id;
-                                            this.update();
-                                        }}
-                                    >
-                                        <div className="plot-card-header">
-                                            <span className="plot-card-title">
-                                                #{plot.id} {plot.name || plot.type}
-                                            </span>
-                                            <button
-                                                className="theia-button secondary small plot-card-delete"
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    this.removePlot(plot.id);
-                                                }}
-                                            >
-                                                <i className="codicon codicon-trash"></i>
-                                            </button>
-                                        </div>
-                                        <span className="plot-type-badge">{plot.type}</span>
-                                    </div>
+                            <h3>No plots configured</h3>
+                            <p>Choose a plot type to render OpenMC geometry with the built-in plotter.</p>
+                            <div className="plot-type-grid">
+                                {PLOT_TYPE_OPTIONS.map((option) => (
+                                    <button key={option.type} className="plot-type-card" onClick={() => this.addPlot(option.type)}>
+                                        <i className={`codicon ${option.icon}`}></i>
+                                        <span className="plot-type-title">{option.label}</span>
+                                        <span className="plot-type-desc">{option.description}</span>
+                                    </button>
                                 ))}
                             </div>
-                        )}
+                        </div>
                     </div>
-
-                    <div className="plot-config-panel">
-                        {selectedPlot ? (
-                            <div className="settings-section">
-                                <h3>
-                                    <i className="codicon codicon-settings-gear"></i> Plot #{selectedPlot.id} Configuration
-                                </h3>
-                                {this.renderPlotEditor(selectedPlot)}
-                            </div>
-                        ) : (
-                            <div className="empty-state">
-                                <i className="codicon codicon-settings-gear"></i>
-                                <p>No plot selected</p>
-                                <p className="empty-hint">Select a plot on the left to edit its configuration</p>
-                            </div>
-                        )}
-
-                        {this.statusMessage && (
-                            <div className="plot-generate-actions">
-                                <span className="plot-status">{this.statusMessage}</span>
-                            </div>
-                        )}
-
-                        {this.generatedFiles.length > 0 && (
-                            <div className="settings-section">
-                                <h3>
-                                    <i className="codicon codicon-file"></i> Generated Files
-                                </h3>
-                                <ul className="generated-files-list">
-                                    {this.generatedFiles.map((file, index) => (
-                                        <li key={index}>
-                                            <i className={`codicon codicon-${file.kind === 'png' ? 'file-media' : 'file'}`}></i> {file.path}
-                                        </li>
+                ) : (
+                    <div className="native-plotting-body">
+                        <div className="plot-list-panel">
+                            <div className="plot-list-header">
+                                <h4>
+                                    <i className="codicon codicon-openmc-plot"></i> Plots
+                                </h4>
+                                <div className="plot-add-buttons">
+                                    {PLOT_TYPE_OPTIONS.map((option) => (
+                                        <Tooltip
+                                            key={option.type}
+                                            content={`Add ${option.description.toLowerCase()} plot`}
+                                            position="bottom"
+                                            stretch
+                                        >
+                                            <button className="theia-button secondary small" onClick={() => this.addPlot(option.type)}>
+                                                <i className={`codicon ${option.icon}`}></i>
+                                                {option.label}
+                                            </button>
+                                        </Tooltip>
                                     ))}
-                                </ul>
+                                </div>
                             </div>
-                        )}
+                            <div className="plot-list">
+                                {plots.map((plot) => {
+                                    const option = PLOT_TYPE_OPTIONS.find((candidate) => candidate.type === plot.type);
+                                    return (
+                                        <div
+                                            key={plot.id}
+                                            className={`plot-card ${plot.id === this.selectedPlotId ? 'selected' : ''}`}
+                                            onClick={() => {
+                                                this.selectedPlotId = plot.id;
+                                                this.update();
+                                            }}
+                                        >
+                                            <div className="plot-card-header">
+                                                <span className="plot-card-title">
+                                                    <i className={`codicon ${option?.icon ?? 'codicon-openmc-plot'}`}></i>
+                                                    <span>
+                                                        #{plot.id} {plot.name || option?.label || plot.type}
+                                                    </span>
+                                                </span>
+                                                <Tooltip content="Delete plot" position="top">
+                                                    <button
+                                                        className="theia-button secondary small plot-card-delete"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            this.removePlot(plot.id);
+                                                        }}
+                                                    >
+                                                        <i className="codicon codicon-trash"></i>
+                                                    </button>
+                                                </Tooltip>
+                                            </div>
+                                            <span className="plot-type-badge">{option?.label ?? plot.type}</span>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        <div className="plot-config-panel">
+                            {selectedPlot ? (
+                                <div className="settings-section">
+                                    <h3>
+                                        <i className="codicon codicon-settings-gear"></i> Plot #{selectedPlot.id} Configuration
+                                    </h3>
+                                    {this.renderPlotEditor(selectedPlot)}
+                                </div>
+                            ) : (
+                                <div className="empty-state">
+                                    <i className="codicon codicon-settings-gear"></i>
+                                    <p>No plot selected</p>
+                                    <p className="empty-hint">Select a plot on the left to edit its configuration</p>
+                                </div>
+                            )}
+
+                            {this.statusMessage && (
+                                <div className="plot-generate-actions">
+                                    <span className="plot-status">{this.statusMessage}</span>
+                                </div>
+                            )}
+
+                            {this.generatedFiles.length > 0 && (
+                                <div className="settings-section">
+                                    <h3>
+                                        <i className="codicon codicon-file"></i> Generated Files
+                                    </h3>
+                                    <ul className="generated-files-list">
+                                        {this.generatedFiles.map((file, index) => (
+                                            <li key={index}>
+                                                <i className={`codicon codicon-${file.kind === 'png' ? 'file-media' : 'file'}`}></i>{' '}
+                                                {file.path}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            )}
+                        </div>
                     </div>
-                </div>
+                )}
             </div>
         );
     }

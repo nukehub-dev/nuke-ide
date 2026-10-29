@@ -57,6 +57,10 @@ All files under `extensions/openmc-studio/` except generated artifacts (`lib/`, 
   settings.xml element) via `generateCmfdCodeLines` + `run_cmfd.py`, and depletion wins when both are set. See `docs/dev/xml-generation.md`.
 - Preferences stay minimal: only `openmcStudio.lastMgxsWorkDir` is a preference; MGXS-generator / volume-calc / chain-builder /
   MG-conversion form values are session-scoped, sweeps/depletion/plots are project state. See `docs/dev/widget-patterns.md`.
+- Native Plotting: `generate_plots.py` owns `plots.xml` (UI XML generation passes `plots: false`), stale plot outputs are
+  removed before rendering, the first plot is auto-selected after a project load or deletion, and solid ray-trace plots
+  default to all-opaque domains so they never render a blank scene. See `docs/user/native-plotting.md` and
+  `docs/dev/widget-patterns.md`.
 - Assets + nuke-cad seam: `dagmcFile`, `dagmcInfo.filePath`, and relative `mgxsLibrary` resolve against
   `XMLGenerationRequest.projectDirectory`;
   `openmc.project.importNukeCAD` loads `.h5m` + sibling `.regions.json` into placeholder materials reusing the DAGMC machinery.

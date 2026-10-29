@@ -99,4 +99,22 @@ test.describe('openmc studio layout', () => {
         const clipped = await run.evaluate((element) => element.scrollHeight - element.clientHeight);
         expect(clipped).toBeLessThanOrEqual(1);
     });
+
+    test('native plotting starts with one empty state and adds a plot', async ({ page }) => {
+        await page.goto('/');
+        await waitForWorkbench(page);
+        await runCommand(page, 'Native Plotting');
+
+        const widget = page.locator('.native-plotting-widget');
+        await expect(widget).toBeVisible({ timeout: 30_000 });
+        const empty = widget.locator('.native-plotting-empty');
+        await expect(empty).toBeVisible();
+        await expect(empty.locator('.plot-type-card')).toHaveCount(4);
+        await expect(widget.locator('.plot-list-panel')).toHaveCount(0);
+
+        await empty.locator('.plot-type-card', { hasText: 'Slice' }).click();
+        await expect(widget.locator('.plot-list-panel')).toBeVisible();
+        await expect(widget.locator('.plot-card')).toHaveCount(1);
+        await expect(widget.locator('.plot-config-panel')).toContainText('Plot #1 Configuration');
+    });
 });

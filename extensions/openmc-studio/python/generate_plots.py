@@ -107,7 +107,17 @@ def build_plot(config, geometry, materials):
             plot.light_position = tuple(config["lightPosition"])
         if config.get("diffuseFraction") is not None:
             plot.diffuse_fraction = float(config["diffuseFraction"])
-        plot.opaque_domains = config.get("opaqueIds") or []
+        # An empty opaque-domain list renders the entire scene transparent
+        # (a blank image). Default to every domain being opaque so the plot is
+        # useful out of the box; explicit IDs still override.
+        opaque_ids = config.get("opaqueIds") or []
+        if not opaque_ids:
+            opaque_ids = (
+                [m.id for m in materials]
+                if color_by == "material"
+                else list(geometry.get_all_cells())
+            )
+        plot.opaque_domains = opaque_ids
     elif plot_type == "wireframe-raytrace":
         plot = openmc.WireframeRayTracePlot(plot_id=plot_id, name=config.get("name", ""))
         plot.pixels = tuple(config.get("pixels", [1000, 1000]))
@@ -159,6 +169,14 @@ def run_generate_plots(args):
     geometry = openmc.Geometry.from_xml("geometry.xml", materials)
 
     plots = [build_plot(config, geometry, materials) for config in configs]
+
+    # Remove stale outputs from an earlier run so a failed render cannot be
+    # reported as a fresh file.
+    for config in configs:
+        plot_id = int(config["id"])
+        suffixes = (".h5", ".vti") if config["type"] == "voxel" else (".png",)
+        for suffix in suffixes:
+            (working_dir / f"plot_{plot_id}{suffix}").unlink(missing_ok=True)
 
     log_progress(f"Exporting plots.xml with {len(plots)} plot(s)")
     openmc.Plots(plots).export_to_xml()

@@ -1146,9 +1146,9 @@ the assembly has an instance.
 
 The **BOM** panel (`CAD Studio → BOM`) lists instance, part source, mate
 type, and DOF contribution; clicking a row selects the instance in the
-viewport. Assembly STEP export keeps one product per instance; DAGMC export
-imprints the placed solids (overlap stays a warning — assemblies overlap
-intentionally).
+viewport. Rows are keyboard-selectable with Enter or Space. Assembly STEP
+export keeps one product per instance; DAGMC export imprints the placed solids
+(overlap stays a warning — assemblies overlap intentionally).
 
 ### W7-X generator (parametric)
 

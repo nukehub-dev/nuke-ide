@@ -38,6 +38,40 @@
     margin-bottom: 12px;
 }
 
+/* Tooltip anchors are grid items; make them and their buttons fill the cell. */
+.native-plotting-widget .plot-add-buttons > span {
+    width: 100%;
+    max-width: none !important;
+}
+
+.native-plotting-widget .plot-add-buttons .theia-button {
+    width: 100%;
+    justify-content: flex-start;
+    white-space: nowrap;
+}
+
+.native-plotting-widget .plot-card-title {
+    flex: 1;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 600;
+    font-size: 12px;
+}
+
+.native-plotting-widget .plot-card-title > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.native-plotting-widget .plot-card-title i {
+    color: var(--theia-focusBorder);
+    flex-shrink: 0;
+}
+
 .native-plotting-widget .plot-list {
     display: flex;
     flex-direction: column;
@@ -73,15 +107,6 @@
     align-items: center;
     justify-content: space-between;
     gap: 8px;
-}
-
-.native-plotting-widget .plot-card-title {
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-weight: 600;
-    font-size: 12px;
 }
 
 .native-plotting-widget .plot-card-delete {
@@ -137,7 +162,116 @@
     padding: 4px 0;
 }
 
+/* Full-body empty state: one choice surface instead of two competing panes. */
+.native-plotting-widget .native-plotting-empty {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 32px;
+    overflow-y: auto;
+}
+
+.native-plotting-widget .native-plotting-empty-inner {
+    width: 100%;
+    max-width: 640px;
+    text-align: center;
+}
+
+.native-plotting-widget .native-plotting-empty-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 64px;
+    height: 64px;
+    margin: 0 auto 16px;
+    color: var(--theia-focusBorder);
+    background: color-mix(in srgb, var(--theia-focusBorder), transparent 88%);
+    border: 1px solid color-mix(in srgb, var(--theia-focusBorder), transparent 72%);
+    border-radius: 14px;
+}
+
+.native-plotting-widget .native-plotting-empty-icon i {
+    font-size: 30px;
+}
+
+.native-plotting-widget .native-plotting-empty h3 {
+    margin: 0 0 6px;
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--theia-foreground);
+}
+
+.native-plotting-widget .native-plotting-empty p {
+    margin: 0 auto;
+    max-width: 520px;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--theia-descriptionForeground);
+}
+
+.native-plotting-widget .plot-type-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+    gap: 12px;
+    margin-top: 24px;
+    text-align: left;
+}
+
+.native-plotting-widget .plot-type-card {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    grid-template-areas:
+        'icon title'
+        'icon desc';
+    align-items: center;
+    gap: 2px 10px;
+    padding: 14px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 8px;
+    background: var(--theia-editorWidget-background);
+    color: var(--theia-foreground);
+    cursor: pointer;
+    text-align: left;
+    font-family: inherit;
+    transition:
+        border-color 150ms cubic-bezier(0.4, 0, 0.2, 1),
+        background 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.native-plotting-widget .plot-type-card:hover {
+    border-color: var(--theia-focusBorder);
+    background: var(--theia-list-hoverBackground);
+}
+
+.native-plotting-widget .plot-type-card i {
+    grid-area: icon;
+    font-size: 24px;
+    color: var(--theia-focusBorder);
+}
+
+.native-plotting-widget .plot-type-title {
+    grid-area: title;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.native-plotting-widget .plot-type-desc {
+    grid-area: desc;
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+}
+
 @container (max-width: 760px) {
+    .native-plotting-widget .native-plotting-empty {
+        padding: 16px;
+        align-items: flex-start;
+    }
+
+    .native-plotting-widget .plot-type-grid {
+        margin-top: 16px;
+    }
+
     .native-plotting-widget .native-plotting-body {
         flex-direction: column;
         overflow-y: auto;

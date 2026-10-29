@@ -253,6 +253,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Platform: lerna 9 to 10 (Node.js >= 22.13.0) and markdown-it 14 to 15 in nuke-docs.
 - Platform: React 18 to 19 for all extension widgets with no component API changes.
 - nuke-cad: Origin section swaps three eye-toggle rows for a compact X/Y/Z chip row; master switch and per-axis preferences unchanged.
+- nuke-cad: BOM panel drops the duplicate header/empty text, keeps one empty card, and supports Enter/Space row selection with shared tooltips.
 - nuke-cad: viewport toolbar groups actions into labelled sections with promoted buttons, per-section menus, and a width-driven compact mode.
 - nuke-cad: faster large-model rebuilds via worker-side tessellation parsing and incremental scene updates.
 - nuke-cad: multi-body opens and rebuilds reuse cross-body overlap verdicts for unchanged bodies instead of re-running the O(n²) exact boolean gate (tokamak: 30 s → 6 s warm, single edit 21 s → 8 s).
@@ -284,6 +285,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-visualizer: statepoint and tally empty-state illustrations now pair a database with a k-eff chart and use one histogram; tally, statepoint, and overlap title/command/Nuke Tools icons match.
 - openmc-studio: dashboard, geometry, tally, optimization, and comparison windows reflow to narrow editor panels with wrapping headers, icon-only scrollable tabs, stacked forms, and scrolling result tables.
 - openmc-studio: collapsed tab labels use the shared nuke-essentials tooltip instead of native title hints.
+- openmc-studio: Native Plotting uses one plot-type chooser when empty, keeps a live plot selected, and clears stale outputs before rendering.
+- openmc-studio: solid ray-trace plots default to all-opaque domains so they no longer render a blank image.
 
 ### Removed
 
@@ -467,6 +470,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nukelab-integration: expired server tokens re-mint silently so file transfers never hang on Preparing download.
 - openmc-studio: DAGMC universes sync before CoupledOperator creation so coupled depletion runs.
 - openmc-studio: surface template cards fill the gallery column and empty-state glyphs sit centered in their cards.
+- openmc-studio: plot generation no longer reports stale output files from an earlier run.
 - openmc-studio: dashboard tab labels no longer overlap in crowded rows; icon-only collapse engages before the row clips.
 - openmc-studio: simulation action buttons wrap instead of clipping their labels, and the DAGMC cube icon is redrawn with a clean shaded face.
 - openmc-studio: FW-CADIS generation validated against random-ray mode; repeat CAD conversions stop duplicating graveyards.

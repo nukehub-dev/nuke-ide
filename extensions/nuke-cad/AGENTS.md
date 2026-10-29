@@ -173,6 +173,8 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
 
 - Follow repo style: 4-space indent, single quotes, no trailing commas.
 - New source files carry the BSD-2-Clause header.
+- BOM panel empty state is one card; rows use the shared `Tooltip` and support Enter/Space selection. It is bound through
+  `CadBomPanelWidget` + `nuke.cad.openBomPanel` (right area), the CAD Studio menu, and the Nuke Tools sidebar.
 - Geometry scripts must define a top-level `model` variable holding a
   build123d Part/Compound, CadQuery Workplane, or OCP TopoDS_Shape.
 - Heavy Python imports must be guarded so modules stay importable in the

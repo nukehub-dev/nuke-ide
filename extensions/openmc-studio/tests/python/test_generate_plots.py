@@ -137,6 +137,16 @@ class TestBuildPlot:
         assert plot.opaque_domains == [1, 2]
         assert plot.filename == "plot_3.png"
 
+    def test_solid_raytrace_defaults_to_opaque_domains(self, fake_openmc_module):
+        """Missing opaqueIds must not produce an all-transparent blank render."""
+        materials = [_FakeMaterial(4), _FakeMaterial(5)]
+        plot = generate_plots.build_plot(
+            {"id": 7, "type": "solid-raytrace", "colorBy": "material"},
+            _FakeGeometry(),
+            materials,
+        )
+        assert plot.opaque_domains == [4, 5]
+
     def test_wireframe_raytrace_plot_resolves_domains(self, fake_openmc_module):
         """Wireframe domains resolve to actual cells from the geometry."""
         plot = generate_plots.build_plot(
@@ -373,6 +383,25 @@ class TestRunGeneratePlots:
 
         assert result["success"] is True
         assert result["files"] == []
+
+    def test_stale_outputs_are_removed_before_render(self, monkeypatch, tmp_path):
+        """An earlier run's plot files cannot masquerade as fresh output."""
+        stale = tmp_path / "plot_1.png"
+        stale.write_text("old")
+        fake = _fake_openmc_full(tmp_path)
+        fake.plot_geometry = lambda cwd: None  # this run produces nothing
+        monkeypatch.setitem(sys.modules, "openmc", fake)
+        config = tmp_path / "plots.json"
+        config.write_text(json.dumps([{"id": 1, "type": "slice"}]))
+        args = types.SimpleNamespace(
+            working_directory=str(tmp_path), plots_config=str(config), convert_vtk=False
+        )
+
+        result = generate_plots.run_generate_plots(args)
+
+        assert result["success"] is True
+        assert result["files"] == []
+        assert not stale.exists()
 
     def test_empty_config_array_raises(self, monkeypatch, tmp_path):
         """An empty JSON array is a clear ValueError before any openmc work."""

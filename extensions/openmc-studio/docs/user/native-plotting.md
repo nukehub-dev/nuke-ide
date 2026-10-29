@@ -13,6 +13,11 @@ The Native Plotting window renders geometry plots with OpenMC's built-in C++ plo
 
 ## Plot Types
 
+When the window opens with no plots, choose one of the four plot-type cards in
+the centered empty state. Once a plot exists, the left **Plots** panel offers
+the same plot types as compact add buttons; the first plot is selected
+automatically after a project load or when the selected plot is deleted.
+
 Click an add button to append a plot definition; each plot has a name and a **Color By** choice (cell or material).
 
 | Type             | Key Settings                                                                                              | Output              |
@@ -21,6 +26,8 @@ Click an add button to append a plot definition; each plot has a name and a **Co
 | **Voxel**        | Bounds and voxel counts                                                                                   | HDF5 → VTK (`.vti`) |
 | **Solid RT**     | Ray-traced solid render: camera position/look-at/up, horizontal FOV, orthographic width, diffuse fraction | PNG                 |
 | **Wireframe RT** | Ray-traced wireframe overlay: wireframe thickness in pixels                                               | PNG                 |
+
+Solid ray-trace plots render every material/cell opaque when **Opaque Domain IDs** is empty; add IDs to reveal interior regions.
 
 ## Outputs
 

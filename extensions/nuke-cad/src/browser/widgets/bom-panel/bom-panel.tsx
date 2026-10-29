@@ -44,6 +44,7 @@ import { Disposable } from '@theia/core/lib/common/disposable';
 import { NukeCadStateManager } from '../../state/nuke-cad-state-manager';
 import { CadDocumentStore, getAssemblySection } from '../../document/cad-document-store';
 import { buildBomRows, instanceSolidIds, type BomRow } from '../cad-viewport/assembly-view';
+import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
 import './bom-panel.css';
 
 @injectable()
@@ -108,25 +109,24 @@ interface CadBomPanelComponentProps {
 }
 
 function CadBomPanelComponent(props: CadBomPanelComponentProps): React.ReactElement {
+    const countLabel = `${props.rows.length} instance${props.rows.length === 1 ? '' : 's'}`;
     return (
         <div className="cad-bom-panel">
-            <div className="cad-bom-header">
-                <div className="header-info">
-                    <h2>
-                        <i className="codicon codicon-nuke-cad-bom" />
-                        BOM
-                    </h2>
-                    <p className="header-description">
-                        {props.rows.length === 0
-                            ? 'No assembly instances'
-                            : `${props.rows.length} instance${props.rows.length === 1 ? '' : 's'}`}
-                    </p>
+            {props.rows.length > 0 && (
+                <div className="cad-bom-header">
+                    <div className="header-info">
+                        <h2>
+                            <i className="codicon codicon-nuke-cad-bom" />
+                            Bill of Materials
+                        </h2>
+                        <p className="header-description">{countLabel}</p>
+                    </div>
                 </div>
-            </div>
+            )}
             {props.rows.length === 0 ? (
                 <div className="cad-bom-empty">
                     <i className="codicon codicon-nuke-cad-bom" />
-                    <p>No assembly instances.</p>
+                    <p>No assembly instances</p>
                     <span className="empty-hint">Add part instances in the CAD viewport assembly panel to list them here.</span>
                 </div>
             ) : (
@@ -138,14 +138,30 @@ function CadBomPanelComponent(props: CadBomPanelComponentProps): React.ReactElem
                         <span className="cad-bom-th num">DOF</span>
                     </div>
                     {props.rows.map((row) => (
-                        <div key={row.instanceId} className="cad-bom-tr" onClick={() => props.onSelect(row.instanceId)}>
-                            <span className="cad-bom-cell instance" title={row.grounded ? `${row.instanceId} (grounded)` : row.instanceId}>
+                        <div
+                            key={row.instanceId}
+                            className="cad-bom-tr"
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => props.onSelect(row.instanceId)}
+                            onKeyDown={(event) => {
+                                if (event.key === 'Enter' || event.key === ' ') {
+                                    event.preventDefault();
+                                    props.onSelect(row.instanceId);
+                                }
+                            }}
+                        >
+                            <span className="cad-bom-cell instance">
                                 <i className="codicon codicon-nuke-cad-cube" />
-                                {row.instanceId}
+                                <Tooltip content={row.grounded ? `${row.instanceId} (grounded)` : row.instanceId} position="top">
+                                    <span className="cad-bom-instance-name">{row.instanceId}</span>
+                                </Tooltip>
                                 {row.grounded && <span className="cad-bom-grounded">grounded</span>}
                             </span>
-                            <span className="cad-bom-cell part" title={row.part}>
-                                {row.part}
+                            <span className="cad-bom-cell part">
+                                <Tooltip content={row.part} position="top" stretch>
+                                    <span className="cad-bom-part-name">{row.part}</span>
+                                </Tooltip>
                             </span>
                             <span className="cad-bom-cell mate">{row.mateType ?? '—'}</span>
                             <span className="cad-bom-cell num">
