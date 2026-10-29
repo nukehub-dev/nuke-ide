@@ -35,10 +35,12 @@ import * as React from '@theia/core/shared/react';
 import { NukeSelect, Tooltip } from 'nuke-essentials/lib/theme/browser/components';
 import {
     OpenMCIndependentSource,
+    OpenMCMesh,
     OpenMCSource,
-    OpenMCSourceType,
+    OpenMCSourceAngle,
+    OpenMCSourceEnergy,
     OpenMCSourceTime,
-    OpenMCMesh
+    OpenMCSourceType
 } from '../../../../../common/openmc-state-schema';
 import { OpenMCCompat } from '../../../../../common/openmc-studio-protocol';
 import {
@@ -50,7 +52,23 @@ import {
     SourceDistributionIssue,
     validateSourceDistributions
 } from '../../../../../common/source-utils';
+import {
+    defaultArrayBias,
+    defaultUnivariateBias,
+    reconcileUnivariateBias,
+    sourceHasBias,
+    spatialBiasSupport
+} from '../../../../../common/variance-reduction';
+import { getMeshElementCount } from '../../../../../common/mesh-utils';
 import { AngleEditor, SourceIssueList, SourceSnapAction, SpatialEditor, TimeEditor, UnivariateEditor } from './source-distributions';
+import {
+    AngleBiasEditor,
+    ArrayBiasEditor,
+    BiasToggle,
+    defaultIsotropicBias,
+    UnivariateBiasEditor,
+    UnsupportedSpatialBiasNote
+} from '../../vr/source-biasing-editor';
 
 /** One collapsible editor section inside a source card. */
 export interface SourceSectionProps {
@@ -177,12 +195,21 @@ export function SourceTypeSelector(props: {
 /** Compact summary card above the independent-source editor. */
 export function SourceSummaryCard(props: { source: OpenMCIndependentSource }): React.ReactNode {
     const summary = summarizeSource(props.source);
+    const biased = sourceHasBias(props.source as OpenMCSource);
     return (
         <div className="source-summary-card" aria-label="Source summary">
             <i className="codicon codicon-info" aria-hidden="true"></i>
             <Tooltip content={summary} position="bottom">
                 <span className="source-summary-text">{summary}</span>
             </Tooltip>
+            {biased && (
+                <Tooltip
+                    content="One or more source distributions are biased. OpenMC adjusts particle weights so the estimate stays unbiased."
+                    position="bottom"
+                >
+                    <span className="source-bias-badge">biased</span>
+                </Tooltip>
+            )}
         </div>
     );
 }
@@ -196,12 +223,124 @@ export function IndependentSourceEditor(props: {
     meshes?: OpenMCMesh[];
     constraints?: React.ReactNode;
     decayUnsupportedReason?: string;
+    compat?: OpenMCCompat;
 }): React.ReactNode {
     const source = props.source;
     const issues = validateSourceDistributions(source, props.meshes ?? []);
     const issuesFor = (scope: SourceDistributionIssue['scope']): SourceDistributionIssue[] =>
         issues.filter((issue) => issue.scope === scope);
     const snapActions = props.snapActions?.[source.spatial.type];
+    const spatialBias = spatialBiasSupport(source.spatial.type);
+    const biasUnsupported = props.compat?.sourceBias === false;
+    const biasUnsupportedNote = (
+        <div className="source-bias-unsupported">
+            <i className="codicon codicon-info" aria-hidden="true"></i>
+            <span>
+                Source bias requires OpenMC 0.16.0 or newer. The configured bias is kept in the project but omitted from this environment.
+            </span>
+        </div>
+    );
+    const angle = source.angle ?? ({ type: 'isotropic' } as OpenMCSourceAngle);
+    const angleIsIsotropic = angle.type === 'isotropic';
+    const energyBiasSupported = source.energy.type !== 'decay-spectrum';
+    const timeBiasSupported = !!source.time && source.time.type !== 'delta';
+    const currentTimeBias = source.time && source.time.type !== 'delta' && 'bias' in source.time ? source.time.bias : undefined;
+    const spatial = source.spatial;
+    const selectedMesh = spatial.type === 'mesh' ? props.meshes?.find((mesh) => mesh.id === spatial.meshId) : undefined;
+    const meshElementCount = selectedMesh ? getMeshElementCount(selectedMesh) : undefined;
+
+    /** Keep a compatible bias when only the distribution parameters change. */
+    const updateEnergy = (energy: OpenMCIndependentSource['energy']): void => {
+        if (!source.energy.bias) {
+            props.onUpdate({ energy });
+            return;
+        }
+        if (energy.type === source.energy.type) {
+            props.onUpdate({ energy: { ...energy, bias: source.energy.bias } });
+        } else {
+            props.onUpdate({ energy: reconcileUnivariateBias({ ...energy, bias: defaultUnivariateBias(energy) }) });
+        }
+    };
+
+    const toggleEnergyBias = (enabled: boolean): void => {
+        props.onUpdate({
+            energy: { ...source.energy, bias: enabled ? defaultUnivariateBias(source.energy) : undefined }
+        });
+    };
+
+    const updateTime = (time: OpenMCSourceTime | undefined): void => {
+        if (!time) {
+            props.onUpdate({ time: undefined });
+            return;
+        }
+        const previous = source.time;
+        if (previous && previous.type !== 'delta' && 'bias' in previous && previous.bias && time.type !== 'delta') {
+            if (time.type === previous.type) {
+                props.onUpdate({ time: { ...time, bias: previous.bias } });
+                return;
+            }
+            props.onUpdate({ time: reconcileUnivariateBias({ ...time, bias: defaultUnivariateBias(time) }) as OpenMCSourceTime });
+            return;
+        }
+        props.onUpdate({ time });
+    };
+
+    const toggleTimeBias = (enabled: boolean): void => {
+        if (!source.time || source.time.type === 'delta') {
+            return;
+        }
+        props.onUpdate({
+            time: { ...source.time, bias: enabled ? defaultUnivariateBias(source.time) : undefined }
+        });
+    };
+
+    const updateAngle = (next: OpenMCSourceAngle): void => {
+        if (next.type === 'isotropic' && angle.type === 'isotropic' && angle.bias) {
+            props.onUpdate({ angle: { ...next, bias: angle.bias } });
+        } else {
+            props.onUpdate({ angle: next });
+        }
+    };
+
+    const toggleAngleBias = (enabled: boolean): void => {
+        if (!angleIsIsotropic) {
+            return;
+        }
+        props.onUpdate({
+            angle: enabled ? { type: 'isotropic', bias: defaultIsotropicBias() } : { type: 'isotropic' }
+        });
+    };
+
+    const toggleSpatialBias = (enabled: boolean): void => {
+        const spatial = source.spatial;
+        if (!enabled) {
+            props.onUpdate({ spatial: { ...spatial, bias: undefined } as OpenMCIndependentSource['spatial'] });
+            return;
+        }
+        if (spatial.type === 'pointcloud') {
+            props.onUpdate({
+                spatial: {
+                    ...spatial,
+                    strengths: spatial.strengths ?? spatial.positions.map(() => 1),
+                    bias: defaultArrayBias(spatial.positions.length)
+                }
+            });
+            return;
+        }
+        if (spatial.type === 'mesh') {
+            const expected = meshElementCount ?? spatial.strengths?.length ?? 1;
+            props.onUpdate({
+                spatial: {
+                    ...spatial,
+                    strengths: spatial.strengths ?? Array.from({ length: expected }, () => 1),
+                    bias: defaultArrayBias(expected)
+                }
+            });
+        }
+    };
+
+    const energySummary = summarizeUnivariate(source.energy, 'energy');
+    const angleSummary = `${summarizeAngle(source.angle)}${angleIsIsotropic && angle.bias ? ' · biased' : ''}`;
 
     return (
         <div className="source-editor independent-source-editor">
@@ -220,40 +359,116 @@ export function IndependentSourceEditor(props: {
                     onSnap={['point', 'box', 'sphere'].includes(source.spatial.type) ? props.onSnap : undefined}
                     meshes={props.meshes}
                 />
+                {spatialBias === 'array' && (
+                    <>
+                        <BiasToggle enabled={!!(source.spatial as { bias?: unknown }).bias} label="spatial" onToggle={toggleSpatialBias} />
+                        {spatial.type === 'pointcloud' && spatial.bias && (
+                            <ArrayBiasEditor
+                                probabilities={spatial.bias.probabilities}
+                                expected={spatial.positions.length}
+                                label="Point-cloud"
+                                onChange={(probabilities: number[]) => {
+                                    if (spatial.type !== 'pointcloud') {
+                                        return;
+                                    }
+                                    props.onUpdate({ spatial: { ...spatial, bias: { probabilities } } });
+                                }}
+                            />
+                        )}
+                        {spatial.type === 'mesh' && spatial.bias && (
+                            <ArrayBiasEditor
+                                probabilities={spatial.bias.probabilities}
+                                expected={meshElementCount ?? spatial.strengths?.length}
+                                label="Mesh spatial"
+                                onChange={(probabilities: number[]) => {
+                                    if (spatial.type !== 'mesh') {
+                                        return;
+                                    }
+                                    props.onUpdate({ spatial: { ...spatial, bias: { probabilities } } });
+                                }}
+                            />
+                        )}
+                        <span className="form-hint source-bias-transport-note">
+                            OpenMC serializes point-cloud/mesh bias for Python; the 0.16 XML transport reader rejects these array-bias
+                            nodes.
+                        </span>
+                    </>
+                )}
+                {spatialBias === 'none' && <UnsupportedSpatialBiasNote />}
+                {spatialBias === 'array' && biasUnsupported && biasUnsupportedNote}
             </SourceSection>
 
             <SourceSection
                 title="Energy Distribution"
                 icon="pulse"
-                summary={summarizeUnivariate(source.energy, 'energy')}
+                summary={`${energySummary}${source.energy.bias ? ' · biased' : ''}`}
                 issues={issuesFor('energy')}
             >
                 <UnivariateEditor
                     value={source.energy}
-                    onChange={(energy) => props.onUpdate({ energy })}
+                    onChange={updateEnergy}
                     domain="energy"
                     decayUnsupportedReason={props.decayUnsupportedReason}
                 />
+                {energyBiasSupported ? (
+                    <>
+                        <BiasToggle enabled={!!source.energy.bias} label="energy" onToggle={toggleEnergyBias} />
+                        <UnivariateBiasEditor value={source.energy} onChange={updateEnergy} domain="energy" label="Energy" />
+                    </>
+                ) : (
+                    <div className="source-bias-unsupported">
+                        <i className="codicon codicon-info" aria-hidden="true"></i>
+                        <span>OpenMC decay spectra do not accept a bias distribution; use another energy type to bias sampling.</span>
+                    </div>
+                )}
+                {biasUnsupported && biasUnsupportedNote}
             </SourceSection>
 
             <SourceSection
                 title="Direction"
                 icon="compass"
-                summary={summarizeAngle(source.angle)}
+                summary={angleSummary}
                 issues={issuesFor('angle')}
                 defaultOpen={source.angle !== undefined && source.angle.type !== 'isotropic'}
             >
-                <AngleEditor value={source.angle} onChange={(angle) => props.onUpdate({ angle })} />
+                <AngleEditor value={source.angle} onChange={updateAngle} />
+                {angleIsIsotropic ? (
+                    <>
+                        <BiasToggle enabled={!!angle.bias} label="direction" onToggle={toggleAngleBias} />
+                        <AngleBiasEditor angle={angle} onChange={updateAngle} />
+                    </>
+                ) : (
+                    <span className="form-hint">
+                        OpenMC only supports angle bias for isotropic sources; use an isotropic direction with a bias.
+                    </span>
+                )}
+                {biasUnsupported && biasUnsupportedNote}
             </SourceSection>
 
             <SourceSection
                 title="Time"
                 icon="watch"
-                summary={summarizeTime(source.time)}
+                summary={`${summarizeTime(source.time)}${currentTimeBias ? ' · biased' : ''}`}
                 issues={issuesFor('time')}
                 defaultOpen={source.time !== undefined}
             >
-                <TimeEditor value={source.time} onChange={(time: OpenMCSourceTime | undefined) => props.onUpdate({ time })} />
+                <TimeEditor value={source.time} onChange={updateTime} />
+                {timeBiasSupported ? (
+                    <>
+                        <BiasToggle enabled={!!currentTimeBias} label="time" onToggle={toggleTimeBias} />
+                        {source.time && source.time.type !== 'delta' && (
+                            <UnivariateBiasEditor
+                                value={source.time as OpenMCSourceEnergy}
+                                onChange={(value: OpenMCSourceEnergy) => updateTime(value as OpenMCSourceTime)}
+                                domain="time"
+                                label="Time"
+                            />
+                        )}
+                    </>
+                ) : (
+                    source.time && <span className="form-hint">A delta birth time has no distribution to bias.</span>
+                )}
+                {biasUnsupported && biasUnsupportedNote}
             </SourceSection>
 
             {props.constraints}

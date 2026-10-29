@@ -78,6 +78,13 @@ import {
     sourceUsesDecaySpectrum
 } from '../common/source-utils';
 import { validateRectilinearMesh, validateUnstructuredMeshFilename } from '../common/mesh-utils';
+import {
+    resolveWeightWindowBounds,
+    resolveWeightWindowGeneratorMesh,
+    resolveWeightWindowsEnabled,
+    sourceHasBias,
+    stripSourceBias
+} from '../common/variance-reduction';
 
 /** Context for mesh XML emission (validation warnings + path resolution). */
 interface MeshEmissionContext {
@@ -846,7 +853,12 @@ export class XMLGenerationService {
                     warnings?.push('Decay spectrum source energy requires OpenMC >= 0.16.0; the source was not written to settings.xml');
                     continue;
                 }
-                const sourceXml = this.generateSourceElement(source);
+                const biased = sourceHasBias(source);
+                if (biased && compat.sourceBias === false) {
+                    warnings?.push('Source bias requires OpenMC >= 0.16.0; the source was written without its bias.');
+                }
+                const effectiveSource = biased && compat.sourceBias === false ? stripSourceBias(source) : source;
+                const sourceXml = this.generateSourceElement(effectiveSource);
                 if (sourceXml) {
                     lines.push(sourceXml);
                     validSources++;
@@ -1337,6 +1349,7 @@ export class XMLGenerationService {
         // Variance Reduction settings
         if (state.varianceReduction) {
             const vr = state.varianceReduction;
+            const weightWindowSets = vr.weightWindows ?? [];
 
             // Survival biasing
             if (vr.survivalBiasing) {
@@ -1348,101 +1361,99 @@ export class XMLGenerationService {
             // Cutoff settings are merged into the single <cutoff> block above
             // (settings.cutoff wins over the legacy varianceReduction.cutoff).
 
-            // Weight window generator (real OpenMC format: openmc/weight_windows.py:713)
-            if (vr.weightWindowGenerator) {
-                const wwg = vr.weightWindowGenerator;
-                const wwgMeshId = wwg.meshId ?? vr.weightWindows?.meshId ?? vr.ufs?.meshId ?? 1;
-                const wwgEnergyBounds = wwg.energyBounds ?? vr.weightWindows?.energyBounds;
-                const maxRealizations =
-                    wwg.maxRealizations ?? wwg.iterations ?? (state.settings.run.mode === 'eigenvalue' ? state.settings.run.batches : 1);
-
-                lines.push('  <weight_window_generators>');
-                lines.push('    <weight_windows_generator>');
-                lines.push(`      <mesh>${wwgMeshId}</mesh>`);
-                if (wwgEnergyBounds && wwgEnergyBounds.length > 0) {
-                    lines.push(`      <energy_bounds>${wwgEnergyBounds.join(' ')}</energy_bounds>`);
-                }
-                lines.push(`      <particle_type>${wwg.particleType ?? vr.weightWindows?.particleType ?? 'neutron'}</particle_type>`);
-                lines.push(`      <max_realizations>${maxRealizations}</max_realizations>`);
-                lines.push(`      <update_interval>${wwg.updateInterval ?? 1}</update_interval>`);
-                lines.push(`      <on_the_fly>${wwg.onTheFly ?? true}</on_the_fly>`);
-                lines.push(`      <method>${wwg.method ?? 'magic'}</method>`);
-                if (wwg.method === 'fw_cadis' && wwg.targetTallyIds && wwg.targetTallyIds.length > 0) {
-                    lines.push(`      <targets>${wwg.targetTallyIds.join(' ')}</targets>`);
-                }
-                lines.push('    </weight_windows_generator>');
-                lines.push('  </weight_window_generators>');
-            }
-
-            // Weight windows
-            if (vr.weightWindows) {
-                const ww = vr.weightWindows;
-                lines.push('  <weight_windows id="1">');
-
-                if (ww.meshId !== undefined) {
-                    lines.push(`    <mesh>${ww.meshId}</mesh>`);
-                }
-
-                // Particle type (required, default neutron)
-                lines.push(`    <particle_type>${ww.particleType || 'neutron'}</particle_type>`);
-
-                // Calculate number of mesh cells for bounds array
-                let numCells = 1;
-                const mesh = state.meshes.find((m: OpenMCMesh) => m.id === ww.meshId);
-                if (mesh) {
-                    if (mesh.type === 'regular') {
-                        const regularMesh = mesh as OpenMCRegularMesh;
-                        numCells = regularMesh.dimension[0] * regularMesh.dimension[1] * regularMesh.dimension[2];
-                    } else if (mesh.type === 'cylindrical') {
-                        const cylMesh = mesh as OpenMCCylindricalMesh;
-                        numCells = (cylMesh.rGrid.length - 1) * (cylMesh.phiGrid.length - 1) * (cylMesh.zGrid.length - 1);
-                    } else if (mesh.type === 'spherical') {
-                        const sphMesh = mesh as OpenMCSphericalMesh;
-                        numCells = (sphMesh.rGrid.length - 1) * (sphMesh.thetaGrid.length - 1) * (sphMesh.phiGrid.length - 1);
-                    }
-                }
-
-                // Number of energy groups (N bounds = N-1 groups)
-                const numEnergyGroups = ww.energyBounds && ww.energyBounds.length > 1 ? ww.energyBounds.length - 1 : 1;
-                const totalBounds = numCells * numEnergyGroups;
-
-                // Lower ww bounds - must have one value per mesh cell per energy group
-                const lowerBoundValue = typeof ww.lowerBound === 'number' ? ww.lowerBound : 0.5;
-                const lowerBounds = Array(totalBounds).fill(lowerBoundValue);
-                lines.push(`    <lower_ww_bounds>${lowerBounds.join(' ')}</lower_ww_bounds>`);
-
-                // Upper ww bounds - must have one value per mesh cell per energy group
-                const upperBoundValue = typeof ww.upperBound === 'number' ? ww.upperBound : lowerBoundValue * 2;
-                const upperBounds = Array(totalBounds).fill(upperBoundValue);
-                lines.push(`    <upper_ww_bounds>${upperBounds.join(' ')}</upper_ww_bounds>`);
-
-                // Survival ratio (default 3.0)
-                lines.push(`    <survival_ratio>${ww.survivalWeight !== undefined ? ww.survivalWeight : 3.0}</survival_ratio>`);
-
-                // Required parameters
-                lines.push(`    <max_split>10</max_split>`);
-                lines.push(`    <weight_cutoff>1e-38</weight_cutoff>`);
-
-                // Energy bounds - REQUIRED by OpenMC
-                // Must have at least 2 bounds to define 1 energy group
-                if (ww.energyBounds && ww.energyBounds.length >= 2) {
-                    lines.push(`    <energy_bounds>${ww.energyBounds.join(' ')}</energy_bounds>`);
-                } else {
-                    this.log('Warning: Weight windows require energy_bounds (minimum 2 values)');
-                }
-
-                lines.push('  </weight_windows>');
-            }
-
-            // Uniform Fission Site (UFS)
+            // Uniform Fission Site (UFS) — OpenMC reads <ufs_mesh>, not <ufs>
             if (vr.ufs?.enabled) {
                 lines.push('');
                 lines.push('  <!-- Uniform Fission Site -->');
-                lines.push('  <ufs>');
                 if (vr.ufs.meshId !== undefined) {
-                    lines.push(`    <mesh>${vr.ufs.meshId}</mesh>`);
+                    lines.push(`  <ufs_mesh>${vr.ufs.meshId}</ufs_mesh>`);
+                } else if (warnings) {
+                    warnings.push('Uniform fission site is enabled without a mesh; OpenMC requires <ufs_mesh>');
                 }
-                lines.push('  </ufs>');
+            }
+
+            // Weight window generator (real OpenMC format: openmc/weight_windows.py)
+            if (vr.weightWindowGenerator) {
+                const wwg = vr.weightWindowGenerator;
+                const wwgMeshId = resolveWeightWindowGeneratorMesh(vr);
+                const wwgEnergyBounds = wwg.energyBounds ?? weightWindowSets[0]?.energyBounds;
+                const maxRealizations =
+                    wwg.maxRealizations ?? wwg.iterations ?? (state.settings.run.mode === 'eigenvalue' ? state.settings.run.batches : 1);
+
+                if (wwgMeshId !== undefined) {
+                    lines.push('  <weight_window_generators>');
+                    lines.push('    <weight_windows_generator>');
+                    lines.push(`      <mesh>${wwgMeshId}</mesh>`);
+                    if (wwgEnergyBounds && wwgEnergyBounds.length > 0) {
+                        lines.push(`      <energy_bounds>${wwgEnergyBounds.join(' ')}</energy_bounds>`);
+                    }
+                    lines.push(
+                        `      <particle_type>${wwg.particleType ?? weightWindowSets[0]?.particleType ?? 'neutron'}</particle_type>`
+                    );
+                    lines.push(`      <max_realizations>${maxRealizations}</max_realizations>`);
+                    lines.push(`      <update_interval>${wwg.updateInterval ?? 1}</update_interval>`);
+                    lines.push(`      <on_the_fly>${wwg.onTheFly ?? true}</on_the_fly>`);
+                    lines.push(`      <method>${wwg.method ?? 'magic'}</method>`);
+                    if (wwg.method === 'fw_cadis' && wwg.targetTallyIds && wwg.targetTallyIds.length > 0) {
+                        lines.push(`      <targets>${wwg.targetTallyIds.join(' ')}</targets>`);
+                    }
+                    lines.push('    </weight_windows_generator>');
+                    lines.push('  </weight_window_generators>');
+                } else if (warnings) {
+                    warnings.push('Weight window generator is enabled without a mesh; it was not emitted');
+                }
+            }
+
+            // Weight windows (one <weight_windows id="..."> block per set)
+            for (let index = 0; index < weightWindowSets.length; index++) {
+                const ww = weightWindowSets[index];
+                const id = ww.id ?? index + 1;
+                lines.push(`  <weight_windows id="${id}">`);
+                if (ww.meshId !== undefined && Number.isFinite(ww.meshId)) {
+                    lines.push(`    <mesh>${ww.meshId}</mesh>`);
+                }
+                lines.push(`    <particle_type>${ww.particleType || 'neutron'}</particle_type>`);
+
+                if (ww.energyBounds && ww.energyBounds.length >= 2) {
+                    lines.push(`    <energy_bounds>${ww.energyBounds.join(' ')}</energy_bounds>`);
+                } else if (warnings) {
+                    warnings.push(`Weight-window set ${id} has fewer than two energy bounds; OpenMC requires at least two`);
+                }
+
+                const { lower, upper } = resolveWeightWindowBounds(ww, state.meshes);
+                lines.push(`    <lower_ww_bounds>${lower.join(' ')}</lower_ww_bounds>`);
+                lines.push(`    <upper_ww_bounds>${upper.join(' ')}</upper_ww_bounds>`);
+                lines.push(`    <survival_ratio>${ww.survivalWeight !== undefined ? ww.survivalWeight : 3.0}</survival_ratio>`);
+                lines.push(`    <max_split>${ww.maxSplit !== undefined ? ww.maxSplit : 10}</max_split>`);
+                lines.push(`    <weight_cutoff>${ww.weightCutoff !== undefined ? ww.weightCutoff : 1e-38}</weight_cutoff>`);
+                lines.push('  </weight_windows>');
+            }
+
+            // Explicit enable flag. OpenMC enables weight windows automatically
+            // when sets or a file exist; emitting the resolved value keeps the
+            // UI toggle authoritative.
+            if (weightWindowSets.length > 0 || vr.weightWindowsFile || vr.weightWindowGenerator) {
+                lines.push(`  <weight_windows_on>${resolveWeightWindowsEnabled(vr)}</weight_windows_on>`);
+            }
+
+            if (vr.weightWindowsFile) {
+                lines.push(`  <weight_windows_file>${this.escapeXml(vr.weightWindowsFile)}</weight_windows_file>`);
+            }
+
+            if (vr.weightWindowCheckpoints) {
+                const checkpoints = [vr.weightWindowCheckpoints.collision, vr.weightWindowCheckpoints.surface].filter(
+                    (value) => value !== undefined
+                );
+                if (checkpoints.length > 0) {
+                    lines.push('  <weight_window_checkpoints>');
+                    if (vr.weightWindowCheckpoints.collision !== undefined) {
+                        lines.push(`    <collision>${vr.weightWindowCheckpoints.collision}</collision>`);
+                    }
+                    if (vr.weightWindowCheckpoints.surface !== undefined) {
+                        lines.push(`    <surface>${vr.weightWindowCheckpoints.surface}</surface>`);
+                    }
+                    lines.push('  </weight_window_checkpoints>');
+                }
             }
 
             // Emit the mesh elements referenced by weight windows / the WW
@@ -1450,11 +1461,14 @@ export class XMLGenerationService {
             // the settings root — without them the C++ mesh lookup crashes
             // with unordered_map::at during settings reading)
             const vrMeshIds = new Set<number>();
-            if (vr.weightWindowGenerator) {
-                vrMeshIds.add(vr.weightWindowGenerator.meshId ?? vr.weightWindows?.meshId ?? vr.ufs?.meshId ?? 1);
+            const generatorMeshId = resolveWeightWindowGeneratorMesh(vr);
+            if (generatorMeshId !== undefined) {
+                vrMeshIds.add(generatorMeshId);
             }
-            if (vr.weightWindows?.meshId !== undefined) {
-                vrMeshIds.add(vr.weightWindows.meshId);
+            for (const set of weightWindowSets) {
+                if (set.meshId !== undefined) {
+                    vrMeshIds.add(set.meshId);
+                }
             }
             if (vr.ufs?.enabled && vr.ufs.meshId !== undefined) {
                 vrMeshIds.add(vr.ufs.meshId);
@@ -1463,7 +1477,7 @@ export class XMLGenerationService {
                 if (emittedMeshIds.has(meshId)) {
                     continue;
                 }
-                const vrMesh = state.meshes.find((m) => m.id === meshId && m.type === 'regular');
+                const vrMesh = state.meshes.find((m) => m.id === meshId);
                 if (vrMesh) {
                     lines.push(this.generateMeshElement(vrMesh, { warnings, projectDirectory, outputDirectory: projectDirectory }));
                     emittedMeshIds.add(meshId);
@@ -1927,19 +1941,20 @@ export class XMLGenerationService {
         // never skips a mesh settings.xml did not actually emit
         const emittedRegularMesh = (id: number | undefined): boolean =>
             id !== undefined && state.meshes.some((m) => m.id === id && m.type === 'regular');
+        const emittedMesh = (id: number | undefined): boolean => id !== undefined && state.meshes.some((m) => m.id === id);
         if (emittedRegularMesh(state.settings.randomRay?.sourceRegionMeshId)) {
             ids.add(state.settings.randomRay!.sourceRegionMeshId!);
         }
         const vr = state.varianceReduction;
         if (vr) {
-            if (vr.weightWindowGenerator) {
-                const wwgMeshId = vr.weightWindowGenerator.meshId ?? vr.weightWindows?.meshId ?? vr.ufs?.meshId ?? 1;
-                if (emittedRegularMesh(wwgMeshId)) {
-                    ids.add(wwgMeshId);
-                }
+            const generatorMeshId = resolveWeightWindowGeneratorMesh(vr);
+            if (emittedMesh(generatorMeshId)) {
+                ids.add(generatorMeshId!);
             }
-            if (emittedRegularMesh(vr.weightWindows?.meshId)) {
-                ids.add(vr.weightWindows!.meshId!);
+            for (const set of vr.weightWindows ?? []) {
+                if (emittedMesh(set.meshId)) {
+                    ids.add(set.meshId);
+                }
             }
             if (vr.ufs?.enabled && emittedRegularMesh(vr.ufs.meshId)) {
                 ids.add(vr.ufs.meshId!);

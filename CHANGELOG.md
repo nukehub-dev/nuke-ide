@@ -206,6 +206,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-visualizer: legacy VTK volume meshes render unshared boundary faces as surfaces instead of wireframe cages.
 - nuke-visualizer: viewer bottom bars add Viewer Settings, Dataset Inspector, and DAGMC Outline shortcuts.
 - nuke-visualizer: DAGMC Outline adds Hide all, selected-volume Frame/Hide/Isolate/Clear actions, and filter-aware sections.
+- openmc-studio: per-distribution source bias (energy/time, isotropic direction, point-cloud/mesh arrays), correct `<ufs_mesh>` XML, and a weight-window list with reusable file, enable toggle, and collision/surface checkpoints round-trip through XML and Python export.
 - openmc-studio: rect/hex lattices, cell transforms + density, periodic pairs, and boundary albedo round-trip through XML and Python export.
 - openmc-studio: CSG Builder adds cell transforms, a searchable fill picker, periodic pairing, lattice editors, and a validation banner.
 - openmc-studio: DAGMC Editor routes picked CAD files to import instead of landing on an empty model.
@@ -295,6 +296,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - openmc-studio: Native Plotting uses one plot-type chooser when empty, keeps a live plot selected, and clears stale outputs before rendering.
 - openmc-studio: solid ray-trace plots default to all-opaque domains so they no longer render a blank image.
 - openmc-studio: OpenMC 0.16.0 support — typed plots, PPM fallback for builds without libpng, and updated TokamakSource gates.
+- openmc-studio: source bias moved from the standalone Variance Reduction card to each source distribution; legacy projects migrate the old energy bias on load.
 
 ### Removed
 

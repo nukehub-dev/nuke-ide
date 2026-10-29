@@ -16,7 +16,7 @@ OpenMCState
 ├── settings           # Run mode, sources, entropy mesh, output options
 ├── tallies            # Scores, filters, estimators
 ├── meshes             # Regular, cylindrical, spherical
-├── varianceReduction  # Weight windows, source biasing, UFS
+├── varianceReduction  # Weight-window sets/file/checkpoints, UFS
 ├── depletion          # Burnup chain, timesteps, power
 └── optimization       # Parameter sweeps, run history
 ```
@@ -202,7 +202,9 @@ interface OpenMCIndependentSource {
 `OpenMCSourceEnergy` is an alias of `OpenMCUnivariate`; the energy-specific
 interface names (`OpenMCDiscreteEnergy`, `OpenMCTabularEnergy`, ...) remain as
 aliases. Mutation is by replacement: editors build the next distribution object
-and call `updateSettings`, never mutate the previous array in place.
+and call `updateSettings`, never mutate the previous array in place. Source bias
+lives on the distribution (`bias`) and is covered under
+[Variance Reduction](#source-bias).
 
 `Legendre` is intentionally absent (its `to_xml_element()` raises
 `NotImplementedError`). Tabular `ignore_negative` is not modeled because OpenMC
@@ -286,16 +288,60 @@ Mesh filters may carry optional transforms: `meshTranslation` (cm, every release
 
 ## Variance Reduction
 
+### Source bias
+
+OpenMC biases distributions, not source strength. An independent source carries
+optional bias on the distributions that support it:
+
+```typescript
+// Continuous univariates nest a distribution with the same support.
+energy: { type: 'uniform', min: 0, max: 20e6, bias: { distribution: { type: 'uniform', min: 1e5, max: 2e6 } } }
+// Discrete/Mixture carry alternative probabilities.
+energy: { type: 'discrete', energies: [1e6, 2e6], probabilities: [0.5, 0.5], bias: { probabilities: [0.9, 0.1] } }
+// Isotropic direction uses PolarAzimuthal.
+angle: { type: 'isotropic', bias: { distribution: { type: 'mu-phi', mu, phi } } }
+// Point-cloud/mesh spatial distributions carry per-point/per-element arrays.
+spatial: { type: 'pointcloud', positions, strengths, bias: { probabilities } }
+```
+
+`OpenMCUnivariateBase.bias` stores the `OpenMCUnivariateBias` union
+(`distribution` or `probabilities`); `OpenMCArrayBias` stores spatial arrays.
+A bias distribution may not itself be biased, and continuous bias must share
+the parent support interval (OpenMC `check_bias_support`). Decay spectra reject
+bias because OpenMC constructs them with `bias=None`. Point/box/sphere/cylinder
+spatial types are not biasable; the editor explains that instead of showing a
+dead control. The retired `varianceReduction.sourceBiasing` object is migrated
+on load to the first independent source's energy bias where representable;
+`strengthBias` and spatial legacy bias are dropped with a normalization warning.
+Source bias is 0.16-only; `OpenMCCompat.sourceBias` is probed from the
+`Uniform(..., bias=...)` signature, and XML/Python export strip the bias (with a
+warning) when the environment probe reports it unsupported.
+
+### Weight windows and UFS
+
 ```typescript
 interface OpenMCVarianceReduction {
-  weightWindows?: OpenMCWeightWindows;
-  weightWindowGenerator?: { iterations?: number; particleType?: 'neutron' | 'photon' };
-  sourceBiasing?: OpenMCSourceBiasing;
+  weightWindows?: OpenMCWeightWindows[]; // one entry per <weight_windows id="...">
+  weightWindowsFile?: string; // HDF5 loaded with <weight_windows_file>
+  weightWindowsOn?: boolean; // <weight_windows_on>; defaults on when sets/file exist
+  weightWindowCheckpoints?: { collision?: boolean; surface?: boolean };
+  weightWindowGenerator?: WeightWindowGenerator; // <weight_window_generators>
   survivalBiasing?: boolean;
   cutoff?: { weight?: number; weightAvg?: number };
-  ufs?: OpenMCUFS; // Uniform Fission Site
+  ufs?: OpenMCUFS; // { enabled, meshId } -> <ufs_mesh> (regular mesh only)
 }
 ```
+
+Each set has an optional `id` (assigned 1..n when missing), `meshId`,
+`particleType`, `energyBounds`, scalar-or-array `lowerBound` / `upperBound`,
+`survivalWeight` (OpenMC `survival_ratio`), `maxSplit`, and `weightCutoff`. A
+scalar bound broadcasts over `n_mesh_cells × n_energy_groups`; an explicit
+array is emitted verbatim. The legacy single-object `weightWindows` shape is
+normalized to a one-entry list on load. A file is loaded in addition to any
+sets (OpenMC appends both), so the editor warns when a generator could overwrite
+it. UFS requires an explicit regular mesh; it applies only to eigenvalue runs.
+The generator resolves its mesh from `weightWindowGenerator.meshId`, then the
+first set, then the UFS mesh.
 
 **Concept:** Weight windows reference a mesh by `meshId`, decoupling the variance-reduction definition from the mesh geometry. This lets users tune weight bounds without redefining the mesh.
 

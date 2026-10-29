@@ -102,3 +102,36 @@ describe('source shape normalization', () => {
         });
     });
 });
+
+describe('variance-reduction normalization', () => {
+    it('migrates a single weight-window object and the retired source-biasing control', () => {
+        const project = makeProject(OPENMC_STATE_SCHEMA_VERSION);
+        project.state.settings.sources = [
+            {
+                type: 'independent',
+                spatial: { type: 'point', origin: [0, 0, 0] },
+                energy: { type: 'uniform', min: 1e5, max: 2e7 }
+            }
+        ];
+        project.state.varianceReduction = {
+            weightWindows: { meshId: 5, lowerBound: 0.5, energyBounds: [0, 2e7] } as any,
+            sourceBiasing: { energyBias: { type: 'uniform', min: 1e6, max: 1.4e7 } }
+        };
+
+        const result = migrateProjectFile(project);
+        const vr = result.project.state.varianceReduction;
+        expect(vr?.weightWindows).toEqual([{ id: 1, meshId: 5, lowerBound: 0.5, energyBounds: [0, 2e7] }]);
+        expect(vr?.weightWindowsOn).toBe(true);
+        expect(vr?.sourceBiasing).toBeUndefined();
+        const source = result.project.state.settings.sources[0] as any;
+        expect(source.energy.bias).toEqual({ distribution: { type: 'uniform', min: 1e6, max: 1.4e7 } });
+        expect(result.warnings?.some((warning) => warning.includes('source-biasing control'))).toBe(true);
+    });
+
+    it('leaves an unbiased current project without warnings', () => {
+        const project = makeProject(OPENMC_STATE_SCHEMA_VERSION);
+        const result = migrateProjectFile(project);
+        expect(result.warnings).toBeUndefined();
+        expect(result.project.state.varianceReduction).toBeUndefined();
+    });
+});

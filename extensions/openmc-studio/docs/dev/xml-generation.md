@@ -257,6 +257,19 @@ Angles are `isotropic`, `monodirectional` (`reference_uvw`), or `mu-phi`
 univariate serializer with element name `time`; `delta` is a one-point
 discrete and imports back as `delta`. All time values are seconds.
 
+Distribution bias mirrors `Univariate._append_bias_to_xml` /
+`_append_array_bias_to_xml`: continuous distributions append a nested
+`<bias type="...">` child, Discrete/Mixture append `<bias>p1 p2 ...</bias>`, an
+isotropic angle appends `<bias type="mu-phi">`, and point-cloud/mesh spatial
+distributions append a probability array. `Legendre` and decay-spectrum bias are
+not emitted. Bias distributions may not carry their own bias; continuous bias
+must match the parent support interval. Source bias is 0.16-only: when the
+probed `OpenMCCompat.sourceBias` is false, XML generation strips the bias and
+adds a warning, and model validation blocks the run. The OpenMC 0.16 XML
+transport reader rejects point-cloud/mesh array bias even though the Python
+serializer writes it; the editor labels that limitation rather than pretending
+it applies in XML runs.
+
 Source constraints are emitted after the distributions and remain orthogonal to
 the distribution types. Mesh spatial meshes are emitted once into settings.xml
 by `getSettingsMeshIds`, so tallies.xml skips them; source meshes are parsed
@@ -275,13 +288,27 @@ normalizer preserves the state) rather than importing that legacy XML.
 
 ### Variance Reduction
 
-| State Field                | XML Element                                 |
-| -------------------------- | ------------------------------------------- |
-| `vr.survivalBiasing`       | `<survival_biasing>true</survival_biasing>` |
-| `vr.cutoff`                | `<cutoff><weight>...</weight></cutoff>`     |
-| `vr.weightWindowGenerator` | `<weight_window_generator>`                 |
-| `vr.weightWindows`         | `<weight_windows id="1">`                   |
-| `vr.ufs`                   | `<ufs><mesh>...</mesh></ufs>`               |
+| State Field                  | XML Element(s)                                                                 |
+| ---------------------------- | ------------------------------------------------------------------------------ |
+| `vr.survivalBiasing`         | `<survival_biasing>true</survival_biasing>`                                    |
+| `vr.cutoff`                  | `<cutoff><weight>...</weight></cutoff>`                                        |
+| `vr.ufs`                     | `<ufs_mesh>id</ufs_mesh>` plus the regular `<mesh>` (never `<ufs>`)            |
+| `vr.weightWindows[]`         | one `<weight_windows id="...">` per set (mesh, particle, energy/bounds arrays) |
+| `vr.weightWindowsOn`         | `<weight_windows_on>true/false</weight_windows_on>`                            |
+| `vr.weightWindowsFile`       | `<weight_windows_file>path</weight_windows_file>`                              |
+| `vr.weightWindowCheckpoints` | `<weight_window_checkpoints><collision/><surface/></...>`                      |
+| `vr.weightWindowGenerator`   | `<weight_window_generators><weight_windows_generator>...`                      |
+
+Scalar lower/upper bounds broadcast over `n_mesh_cells × n_energy_groups`;
+explicit arrays are emitted verbatim. Every referenced mesh (sets, generator,
+UFS) is emitted once into settings.xml, and `getSettingsMeshIds` keeps
+tallies.xml from repeating it. `<weight_windows_on>` is emitted from the
+resolved enable flag when sets, a file, or a generator are configured; OpenMC
+enables weight windows automatically when sets or a file exist. The generator
+resolves its mesh from `weightWindowGenerator.meshId`, the first set, then UFS.
+UFS is emitted only with an explicit regular mesh. Xml import parses repeated
+`<weight_windows>` blocks, uniform bound arrays (collapsed back to scalars),
+the enable flag, file, checkpoints, and `<ufs_mesh>`.
 
 ---
 

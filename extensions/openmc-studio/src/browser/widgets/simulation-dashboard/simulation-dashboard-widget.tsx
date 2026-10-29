@@ -735,6 +735,9 @@ export class SimulationDashboardWidget extends ReactWidget {
                     this.stateManager.setProjectPath(uri.path.toString());
                     this.stateManager.markClean();
                     this.messageService.info(`Opened project: ${result.project.state.metadata.name}`);
+                    for (const warning of result.warnings ?? []) {
+                        this.messageService.warn(warning);
+                    }
                 } else {
                     this.messageService.error(`Failed to open project: ${result.error}`);
                 }

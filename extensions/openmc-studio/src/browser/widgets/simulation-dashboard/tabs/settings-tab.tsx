@@ -418,6 +418,7 @@ export class SettingsTabContribution implements DashboardTabContribution {
                                                     meshes={state.meshes}
                                                     constraints={<ConstraintsEditor host={host} source={source} index={index} />}
                                                     decayUnsupportedReason={decayUnsupportedReason}
+                                                    compat={this.compat}
                                                 />
                                             )}
                                             {sourceType === 'file' && renderFileSourceEditor(host, source as OpenMCFileSource, index)}

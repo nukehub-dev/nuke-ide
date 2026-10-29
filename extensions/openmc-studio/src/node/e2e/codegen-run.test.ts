@@ -174,6 +174,45 @@ describe('codegen execution e2e (real OpenMC)', () => {
     );
 
     it.skipIf(!CAN_RUN)(
+        'biased source and weight-window sets export through Python and run',
+        () => {
+            const state = loadProjectState('fixed-source-tracks');
+            (state.settings.sources[0] as any).energy = {
+                type: 'discrete',
+                energies: [1e6, 14.1e6],
+                probabilities: [0.5, 0.5],
+                bias: { probabilities: [0.9, 0.1] }
+            };
+            state.meshes = [
+                { type: 'regular', id: 5, lowerLeft: [-0.63, -0.63, -0.5], upperRight: [0.63, 0.63, 0.5], dimension: [2, 2, 2] },
+                { type: 'regular', id: 6, lowerLeft: [-0.63, -0.63, -0.5], upperRight: [0.63, 0.63, 0.5], dimension: [1, 1, 1] }
+            ];
+            state.varianceReduction = {
+                weightWindows: [
+                    { id: 1, meshId: 5, lowerBound: 0.5, upperBound: 1, energyBounds: [0, 2e7] },
+                    { id: 2, meshId: 6, lowerBound: 0.25, upperBound: 0.5, energyBounds: [0, 2e7] }
+                ],
+                weightWindowsOn: true,
+                weightWindowCheckpoints: { collision: true, surface: true }
+            };
+            const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'openmc-codegen-'));
+            tempDirs.push(dir);
+            exportAndRunScript(state, dir);
+
+            const settingsXml = fs.readFileSync(path.join(dir, 'settings.xml'), 'utf-8');
+            expect(settingsXml).toContain('<bias>0.9 0.1</bias>');
+            expect(settingsXml).toContain('<weight_windows id="1">');
+            expect(settingsXml).toContain('<weight_windows id="2">');
+            expect(settingsXml).toContain('<weight_windows_on>true</weight_windows_on>');
+            expect(settingsXml).toContain('<surface>true</surface>');
+
+            const statepoints = fs.readdirSync(dir).filter((f) => f.startsWith('statepoint'));
+            expect(statepoints.length).toBeGreaterThan(0);
+        },
+        RUN_TIMEOUT * 2
+    );
+
+    it.skipIf(!CAN_RUN)(
         'mesh-source project: generated model.py with MeshSource exports runnable XML',
         () => {
             const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'openmc-codegen-'));

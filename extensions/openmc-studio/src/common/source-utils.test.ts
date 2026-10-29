@@ -37,6 +37,7 @@ import {
     generateTimeXml,
     generateUnivariateXml,
     normalizeLegacySource,
+    parseAngleXml,
     parseSpatialXml,
     parseTimeXml,
     parseUnivariateXml,
@@ -421,5 +422,191 @@ describe('source summaries and legacy normalization', () => {
             time: { type: 'tabular', energies: [0, 1], probabilities: [1, 1] }
         };
         expect(normalizeLegacySource(source)).toEqual(source);
+    });
+});
+
+describe('source distribution bias', () => {
+    it('writes a nested bias distribution for continuous energy distributions', () => {
+        const xml = generateUnivariateXml(
+            {
+                type: 'uniform',
+                min: 1e5,
+                max: 2e7,
+                bias: { distribution: { type: 'uniform', min: 1e5, max: 2e7 } }
+            },
+            'energy',
+            0
+        );
+        expect(xml).toBe(
+            '<energy type="uniform" parameters="100000 20000000">\n  <bias type="uniform" parameters="100000 20000000"/>\n</energy>'
+        );
+    });
+
+    it('writes alternative probabilities for Discrete and Mixture bias', () => {
+        expect(
+            generateUnivariateXml(
+                {
+                    type: 'discrete',
+                    energies: [1e6, 2e6],
+                    probabilities: [0.5, 0.5],
+                    bias: { probabilities: [0.1, 0.9] }
+                },
+                'energy',
+                0
+            )
+        ).toContain('<bias>0.1 0.9</bias>');
+        expect(
+            generateUnivariateXml(
+                {
+                    type: 'mixture',
+                    probability: [0.5, 0.5],
+                    distributions: [
+                        { type: 'uniform', min: 0, max: 1 },
+                        { type: 'uniform', min: 1, max: 2 }
+                    ],
+                    bias: { probabilities: [0.8, 0.2] }
+                },
+                'energy',
+                0
+            )
+        ).toContain('<bias>0.8 0.2</bias>');
+    });
+
+    it('writes an isotropic angle bias as a nested mu-phi element', () => {
+        const xml = generateAngleXml({
+            type: 'isotropic',
+            bias: {
+                distribution: {
+                    type: 'mu-phi',
+                    mu: { type: 'uniform', min: -1, max: 1 },
+                    phi: { type: 'uniform', min: 0, max: 2 * Math.PI }
+                }
+            }
+        });
+        expect(xml).toContain('<angle type="isotropic">');
+        expect(xml).toContain('<bias type="mu-phi">');
+        expect(xml).toContain('<mu type="uniform" parameters="-1 1"/>');
+    });
+
+    it('writes point-cloud and mesh array bias', () => {
+        expect(
+            generateSpatialXml({
+                type: 'pointcloud',
+                positions: [
+                    [0, 0, 0],
+                    [1, 1, 1]
+                ],
+                strengths: [1, 2],
+                bias: { probabilities: [0.9, 0.1] }
+            })
+        ).toContain('<bias>0.9 0.1</bias>');
+        expect(
+            generateSpatialXml({
+                type: 'mesh',
+                meshId: 5,
+                strengths: [1, 2],
+                bias: { probabilities: [0.25, 0.75] }
+            })
+        ).toContain('<bias>0.25 0.75</bias>');
+    });
+
+    it('imports nested and array bias shapes', () => {
+        expect(
+            parseUnivariateXml({
+                $: { type: 'uniform', parameters: '1 10' },
+                bias: { $: { type: 'uniform', parameters: '2 8' } }
+            })
+        ).toEqual({
+            type: 'uniform',
+            min: 1,
+            max: 10,
+            bias: { distribution: { type: 'uniform', min: 2, max: 8 } }
+        });
+        expect(
+            parseUnivariateXml({
+                $: { type: 'discrete' },
+                parameters: '1 2 0.5 0.5',
+                bias: '0.1 0.9'
+            })
+        ).toEqual({
+            type: 'discrete',
+            energies: [1, 2],
+            probabilities: [0.5, 0.5],
+            bias: { probabilities: [0.1, 0.9] }
+        });
+        expect(
+            parseSpatialXml({
+                $: { type: 'cloud' },
+                coords: '0 0 0 1 1 1',
+                strengths: '1 1',
+                bias: '0.9 0.1'
+            })
+        ).toMatchObject({ bias: { probabilities: [0.9, 0.1] } });
+        expect(
+            parseAngleXml({
+                $: { type: 'isotropic' },
+                bias: {
+                    $: { type: 'mu-phi' },
+                    mu: { $: { type: 'uniform', parameters: '-1 1' } },
+                    phi: { $: { type: 'uniform', parameters: '0 6.283185307179586' } }
+                }
+            })
+        ).toMatchObject({ type: 'isotropic', bias: { distribution: { type: 'mu-phi' } } });
+    });
+
+    it('reports unsupported bias combinations with a fix', () => {
+        const spatial = validateSourceDistributions({
+            spatial: { type: 'point', origin: [0, 0, 0], bias: { probabilities: [1] } } as any,
+            energy: { type: 'uniform', min: 0, max: 1 }
+        });
+        expect(spatial.some((issue) => issue.message.includes('does not support bias'))).toBe(true);
+
+        const cloud = validateSourceDistributions({
+            spatial: { type: 'pointcloud', positions: [[0, 0, 0]], bias: { probabilities: [1] } },
+            energy: { type: 'uniform', min: 0, max: 1 }
+        });
+        expect(cloud.some((issue) => issue.message.includes('needs an explicit strengths array'))).toBe(true);
+
+        const support = validateSourceDistributions({
+            spatial: { type: 'point', origin: [0, 0, 0] },
+            energy: { type: 'uniform', min: 0, max: 10, bias: { distribution: { type: 'uniform', min: 0, max: 5 } } }
+        });
+        expect(support.some((issue) => issue.message.includes('must match the parent support'))).toBe(true);
+
+        const angle = validateSourceDistributions({
+            spatial: { type: 'point', origin: [0, 0, 0] },
+            energy: { type: 'uniform', min: 0, max: 10 },
+            angle: {
+                type: 'isotropic',
+                bias: {
+                    distribution: {
+                        type: 'mu-phi',
+                        mu: { type: 'uniform', min: 0, max: 1 },
+                        phi: { type: 'uniform', min: 0, max: 2 * Math.PI }
+                    }
+                }
+            }
+        });
+        expect(angle.some((issue) => issue.message.includes('supported on exactly [-1, 1]'))).toBe(true);
+
+        const decay = validateSourceDistributions({
+            spatial: { type: 'point', origin: [0, 0, 0] },
+            energy: {
+                type: 'decay-spectrum',
+                nuclides: [{ name: 'Cs137', density: 1e-8 }],
+                volume: 1,
+                bias: { distribution: { type: 'uniform', min: 0, max: 1 } }
+            } as any
+        });
+        expect(decay.some((issue) => issue.message.includes('cannot be biased'))).toBe(true);
+    });
+
+    it('adds a biased marker to the source summary', () => {
+        expect(
+            summarizeSource({
+                spatial: { type: 'point', origin: [0, 0, 0] },
+                energy: { type: 'uniform', min: 0, max: 10, bias: { distribution: { type: 'uniform', min: 0, max: 10 } } }
+            })
+        ).toContain('· biased');
     });
 });

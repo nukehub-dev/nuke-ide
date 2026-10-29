@@ -83,7 +83,8 @@ import {
     OpenMCTallyFilter,
     OpenMCMesh,
     OpenMCPlotConfig,
-    OpenMCDepletion
+    OpenMCDepletion,
+    OpenMCVarianceReduction
 } from '../common/openmc-state-schema';
 
 import { deriveKineticsFromTallies } from '../common/kinetics-ifp';
@@ -101,6 +102,13 @@ import {
     validateUnstructuredMeshFilename
 } from '../common/mesh-utils';
 import { parseAngleXml, parseSpatialXml, parseTimeXml, parseUnivariateXml, validateSourceDistributions } from '../common/source-utils';
+import {
+    normalizeWeightWindowSets,
+    resolveWeightWindowGeneratorMesh,
+    sourceHasBias,
+    validateVarianceReduction,
+    VarianceReductionIssue
+} from '../common/variance-reduction';
 import { migrateProjectFile } from '../common/openmc-state-migration';
 import { validateDepletionAdvanced, parseDepletionBlock } from '../common/depletion-config';
 import { calculateGeometryBounds, boxOverlapsBounds, pointInBounds } from '../common/geometry-bounds';
@@ -124,6 +132,44 @@ import { OpenMCCompatProbeService } from './openmc-compat-probe';
  * @implements {OpenMCStudioBackendService}
  * @implements {BackendApplicationContribution}
  */
+/**
+ * Read a child element text from an xml2js node.
+ * @param node - xml2js element.
+ * @param name - Child element name.
+ * @returns The child text, or undefined.
+ */
+function xmlValueFromElement(node: any, name: string): any {
+    return node?.[name];
+}
+
+/**
+ * Collapse a weight-bound array whose entries are all equal back to a scalar.
+ * @param values - Bound array from XML.
+ * @returns The shared scalar, or the array when it varies.
+ */
+function collapseUniformBound(values: number[]): number | number[] {
+    return values.length > 0 && values.every((value) => value === values[0]) ? values[0] : values;
+}
+
+/**
+ * One variance-reduction validation finding mapped for the backend.
+ * @param issue - Common validation issue.
+ * @returns Backend validation issue.
+ */
+function varianceReductionValidationIssue(issue: VarianceReductionIssue): {
+    severity: 'error' | 'warning';
+    category: 'settings';
+    message: string;
+    suggestion: string;
+} {
+    return {
+        severity: issue.severity,
+        category: 'settings',
+        message: issue.message,
+        suggestion: issue.suggestion
+    };
+}
+
 @injectable()
 export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendService, BackendApplicationContribution {
     @inject(OpenMCRunnerService)
@@ -316,13 +362,9 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                     state.depletion = settingsData.depletion;
                     settingsMeshes = settingsData.meshes;
                     warnings.push(...settingsData.warnings);
-                    // Weight window generator lives on OpenMCState.varianceReduction, not settings
-                    if (settingsData.weightWindowGenerator) {
-                        state.varianceReduction = {
-                            ...(state.varianceReduction ?? {}),
-                            weightWindowGenerator: settingsData.weightWindowGenerator
-                        };
-                    }
+                    // Variance reduction (weight windows/UFS/generator) lives
+                    // on OpenMCState.varianceReduction, not settings.
+                    state.varianceReduction = settingsData.varianceReduction;
                     this.log(`Imported settings`);
                 } catch (err) {
                     const msg = err instanceof Error ? err.message : String(err);
@@ -1055,7 +1097,14 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
     private async parseSettingsXML(
         filePath: string,
         baseDirectory?: string
-    ): Promise<{ settings: any; depletion?: OpenMCDepletion; weightWindowGenerator?: any; meshes: OpenMCMesh[]; warnings: string[] }> {
+    ): Promise<{
+        settings: any;
+        depletion?: OpenMCDepletion;
+        weightWindowGenerator?: any;
+        varianceReduction?: OpenMCVarianceReduction;
+        meshes: OpenMCMesh[];
+        warnings: string[];
+    }> {
         const fs = await import('fs');
         const xml2js = await import('xml2js');
 
@@ -1375,6 +1424,8 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             parsedWeightWindowGenerator = weightWindowGenerator;
         }
 
+        const parsedVarianceReduction = this.parseVarianceReductionSettings(s, parsedWeightWindowGenerator, warnings);
+
         // Source
         if (s.source) {
             const sources = Array.isArray(s.source) ? s.source : [s.source];
@@ -1612,6 +1663,18 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                 referencedMeshIds.add(source.spatial.meshId);
             }
         }
+        for (const set of parsedVarianceReduction?.weightWindows ?? []) {
+            if (set.meshId !== undefined) {
+                referencedMeshIds.add(set.meshId);
+            }
+        }
+        const generatorMeshId = resolveWeightWindowGeneratorMesh(parsedVarianceReduction);
+        if (generatorMeshId !== undefined) {
+            referencedMeshIds.add(generatorMeshId);
+        }
+        if (parsedVarianceReduction?.ufs?.enabled && parsedVarianceReduction.ufs.meshId !== undefined) {
+            referencedMeshIds.add(parsedVarianceReduction.ufs.meshId);
+        }
         if (referencedMeshIds.size > 0) {
             const meshElems = Array.isArray(s.mesh) ? s.mesh : s.mesh ? [s.mesh] : [];
             for (const meshElem of meshElems) {
@@ -1621,7 +1684,7 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             }
             for (const id of referencedMeshIds) {
                 if (!sourceMeshes.some((m) => m.id === id)) {
-                    warnings.push(`Source references mesh ${id} but no <mesh> element with that ID was found in settings.xml`);
+                    warnings.push(`settings.xml references mesh ${id} but no <mesh> element with that ID was found`);
                 }
             }
         }
@@ -1630,9 +1693,94 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             settings,
             depletion: parsedDepletion?.depletion,
             weightWindowGenerator: parsedWeightWindowGenerator,
+            varianceReduction: parsedVarianceReduction,
             meshes: sourceMeshes,
             warnings
         };
+    }
+
+    /**
+     * Parse variance-reduction elements from settings.xml. OpenMC writes one
+     * `<weight_windows id="...">` block per set, plus `<weight_windows_on>`,
+     * `<weight_windows_file>`, `<weight_window_checkpoints>`, and `<ufs_mesh>`.
+     * @param s - Parsed `<settings>` element.
+     * @param weightWindowGenerator - Parsed generator side channel.
+     * @param warnings - Import warning sink.
+     * @returns Variance-reduction state, or undefined when nothing is set.
+     */
+    private parseVarianceReductionSettings(s: any, weightWindowGenerator: any, warnings: string[]): OpenMCVarianceReduction | undefined {
+        const varianceReduction: OpenMCVarianceReduction = {};
+        const wwElems = Array.isArray(s.weight_windows) ? s.weight_windows : s.weight_windows ? [s.weight_windows] : [];
+        const sets = wwElems
+            .map((element: any): any => {
+                const meshId = parseInt(String(xmlValueFromElement(element, 'mesh') ?? ''));
+                const lowerBound = this.parseNumberList(xmlValueFromElement(element, 'lower_ww_bounds'));
+                const upperBound = this.parseNumberList(xmlValueFromElement(element, 'upper_ww_bounds'));
+                const energyBounds = this.parseNumberList(xmlValueFromElement(element, 'energy_bounds'));
+                const set: any = {
+                    id: parseInt(String(element?.$?.id ?? '')) || undefined,
+                    meshId: Number.isFinite(meshId) ? meshId : undefined,
+                    lowerBound: lowerBound.length > 0 ? collapseUniformBound(lowerBound) : 0.5,
+                    particleType: String(xmlValueFromElement(element, 'particle_type') ?? 'neutron')
+                };
+                if (upperBound.length > 0) {
+                    set.upperBound = collapseUniformBound(upperBound);
+                }
+                if (energyBounds.length > 0) {
+                    set.energyBounds = energyBounds;
+                }
+                const survivalRatio = parseFloat(String(xmlValueFromElement(element, 'survival_ratio') ?? ''));
+                if (Number.isFinite(survivalRatio) && Math.abs(survivalRatio - 3) > 1e-12) {
+                    set.survivalWeight = survivalRatio;
+                }
+                const maxSplit = parseInt(String(xmlValueFromElement(element, 'max_split') ?? ''));
+                if (Number.isFinite(maxSplit) && maxSplit !== 10) {
+                    set.maxSplit = maxSplit;
+                }
+                const weightCutoff = parseFloat(String(xmlValueFromElement(element, 'weight_cutoff') ?? ''));
+                if (Number.isFinite(weightCutoff) && weightCutoff !== 1e-38) {
+                    set.weightCutoff = weightCutoff;
+                }
+                return set;
+            })
+            .filter((set: any) => set.meshId !== undefined);
+        const normalizedSets = normalizeWeightWindowSets(sets);
+        if (normalizedSets) {
+            varianceReduction.weightWindows = normalizedSets;
+        } else if (wwElems.length > 0) {
+            warnings.push('Weight-window blocks were found but none had a valid mesh reference');
+        }
+
+        const file = xmlValueFromElement(s, 'weight_windows_file');
+        if (file !== undefined && file !== null && String(file).length > 0) {
+            varianceReduction.weightWindowsFile = String(file);
+        }
+        const on = xmlValueFromElement(s, 'weight_windows_on');
+        if (on !== undefined && on !== null) {
+            varianceReduction.weightWindowsOn = this.parseXmlBool(on);
+        }
+        const checkpoints = s.weight_window_checkpoints;
+        if (checkpoints) {
+            const parsed: { collision?: boolean; surface?: boolean } = {};
+            if (checkpoints.collision !== undefined) {
+                parsed.collision = this.parseXmlBool(checkpoints.collision);
+            }
+            if (checkpoints.surface !== undefined) {
+                parsed.surface = this.parseXmlBool(checkpoints.surface);
+            }
+            if (parsed.collision !== undefined || parsed.surface !== undefined) {
+                varianceReduction.weightWindowCheckpoints = parsed;
+            }
+        }
+        if (weightWindowGenerator) {
+            varianceReduction.weightWindowGenerator = weightWindowGenerator;
+        }
+        const ufsMesh = xmlValueFromElement(s, 'ufs_mesh');
+        if (ufsMesh !== undefined && ufsMesh !== null && String(ufsMesh).length > 0) {
+            const meshId = parseInt(String(ufsMesh));
+            varianceReduction.ufs = { enabled: true, meshId: Number.isFinite(meshId) ? meshId : undefined };
+        }
+        return Object.keys(varianceReduction).length > 0 ? varianceReduction : undefined;
     }
 
     /**
@@ -2578,7 +2726,9 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
 
         // Runtime/advanced settings: threads, MPI, triggers, physics, limits,
         // diagnostics. 0.16-only fields are gated with the probed compat.
+        const sourceBiasConfigured = (settings.sources ?? []).some((source) => sourceHasBias(source));
         const needsCompat =
+            sourceBiasConfigured ||
             settings.sharedSecondaryBank !== undefined ||
             settings.surfaceGrazingCutoff !== undefined ||
             settings.surfaceGrazingRatio !== undefined;
@@ -2596,6 +2746,14 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                 category: 'settings',
                 message: finding.message,
                 suggestion: finding.suggestion
+            });
+        }
+        if (sourceBiasConfigured && runtimeCompat?.sourceBias === false) {
+            issues.push({
+                severity: 'error',
+                category: 'settings',
+                message: 'Source-distribution bias requires OpenMC 0.16.0 or newer',
+                suggestion: 'Remove the bias, or select an environment whose OpenMC build accepts distribution bias'
             });
         }
 
@@ -3162,6 +3320,20 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             });
         }
 
+        // Weight windows, checkpoints, the weight-window generator, and UFS.
+        for (const finding of validateVarianceReduction(request.state.varianceReduction, meshes, settings.run.mode)) {
+            issues.push(varianceReductionValidationIssue(finding));
+        }
+        const weightWindowsFile = request.state.varianceReduction?.weightWindowsFile;
+        if (weightWindowsFile && path.isAbsolute(weightWindowsFile) && !fs.existsSync(weightWindowsFile)) {
+            issues.push({
+                severity: 'error',
+                category: 'settings',
+                message: `Weight-window file does not exist: ${weightWindowsFile}`,
+                suggestion: 'Pick the generated weight_windows.h5 file or run the generator first'
+            });
+        }
+
         // Source/geometry overlap check: warn when independent sources are placed
         // outside the verifiable geometry bounds. This catches point sources in void
         // and source boxes that do not overlap the model.
@@ -3551,10 +3723,13 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             const path = await import('path');
             const content = fs.readFileSync(projectPath, 'utf-8');
             const parsed: OpenMCProjectFile = JSON.parse(content);
-            const { project, migratedFrom } = migrateProjectFile(parsed);
+            const { project, migratedFrom, warnings: migrationWarnings } = migrateProjectFile(parsed);
 
             if (migratedFrom) {
                 this.log(`Migrated project from schema ${migratedFrom} to ${OPENMC_STATE_SCHEMA_VERSION}`);
+            }
+            for (const warning of migrationWarnings ?? []) {
+                this.log(`Project normalization: ${warning}`);
             }
 
             // Resolve project-relative paths back to absolute paths.
@@ -3583,7 +3758,8 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
 
             return {
                 success: true,
-                project
+                project,
+                warnings: migrationWarnings
             };
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);

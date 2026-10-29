@@ -54,7 +54,8 @@ const WRAPPER_FULL: OpenMCCompat = {
     depletionContinuation: true,
     sharedSecondaryBank: true,
     surfaceGrazing: true,
-    meshFilterRotation: true
+    meshFilterRotation: true,
+    sourceBias: true
 };
 const DIRECT_MIN: OpenMCCompat = {
     raySourceFormat: 'direct',
@@ -68,7 +69,8 @@ const DIRECT_MIN: OpenMCCompat = {
     depletionContinuation: true,
     sharedSecondaryBank: false,
     surfaceGrazing: false,
-    meshFilterRotation: false
+    meshFilterRotation: false,
+    sourceBias: false
 };
 
 /** Probe subclass with the python spawn mocked out. */
@@ -124,7 +126,7 @@ describe('OpenMCCompatProbeService', () => {
         const probe = makeProbe('/fake/python', undefined);
         expect(
             (probe as any).parseProbeOutput(
-                'direct no-adjoint no-tokamak s2 no-substeps no-keff-search external-rate continuation no-shared-bank no-grazing no-decay no-mesh-rotation\n'
+                'direct no-adjoint no-tokamak s2 no-substeps no-keff-search external-rate continuation no-shared-bank no-grazing no-decay no-mesh-rotation no-bias\n'
             )
         ).toEqual({
             ...DIRECT_MIN,
@@ -139,7 +141,8 @@ describe('OpenMCCompatProbeService', () => {
             sharedSecondaryBank: false,
             surfaceGrazing: false,
             decaySpectrum: false,
-            meshFilterRotation: false
+            meshFilterRotation: false,
+            sourceBias: false
         });
         expect(
             (probe as any).parseProbeOutput(
@@ -157,7 +160,7 @@ describe('OpenMCCompatProbeService', () => {
         const probe = makeProbe('/fake/python', undefined);
         expect(
             (probe as any).parseProbeOutput(
-                'wrapper adjoint tokamak s2 substeps keff-search external-rate continuation shared-bank grazing decay mesh-rotation\n'
+                'wrapper adjoint tokamak s2 substeps keff-search external-rate continuation shared-bank grazing decay mesh-rotation bias\n'
             )
         ).toEqual(WRAPPER_FULL);
     });

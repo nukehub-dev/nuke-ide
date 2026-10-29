@@ -48,7 +48,7 @@ import URI from '@theia/core/lib/common/uri';
 import { BinaryBuffer } from '@theia/core/lib/common/buffer';
 
 import { OpenMCStateManager } from '../openmc-state-manager';
-import { OpenMCStudioBackendService, OpenMCCompat } from '../../common/openmc-studio-protocol';
+import { OpenMCStudioBackendService, OpenMCCompat, DEFAULT_OPENMC_COMPAT } from '../../common/openmc-studio-protocol';
 import {
     OpenMCState,
     OpenMCMaterial,
@@ -79,6 +79,13 @@ import {
     generateRuntimeSettingsPython,
     generateTemperatureCutoffPython
 } from '../../common/settings-python-export';
+import {
+    resolveWeightWindowBounds,
+    resolveWeightWindowGeneratorMesh,
+    resolveWeightWindowsEnabled,
+    sourceHasBias,
+    stripSourceBias
+} from '../../common/variance-reduction';
 
 /** Options controlling how Python scripts are exported. */
 export interface PythonExportOptions {
@@ -151,7 +158,7 @@ export class OpenMCPythonExporter {
 
         try {
             if (!defaultOptions.compat) {
-                defaultOptions.compat = await this.backendService.getOpenMCCompat().catch(() => undefined);
+                defaultOptions.compat = await this.backendService.getOpenMCCompat().catch(() => DEFAULT_OPENMC_COMPAT);
             }
             if (defaultOptions.mode === 'single') {
                 return await this.exportSingleFile(state, defaultOptions);
@@ -1198,12 +1205,17 @@ export class OpenMCPythonExporter {
         }
 
         // Sources
-        for (let i = 0; i < settings.sources.length; i++) {
-            lines.push(...this.generateSourceCode(settings.sources[i], i));
+        const sourceBiasSupported = options.compat?.sourceBias !== false;
+        const sources = sourceBiasSupported ? settings.sources : settings.sources.map(stripSourceBias);
+        if (!sourceBiasSupported && settings.sources.some(sourceHasBias)) {
+            lines.push('# Source bias requires OpenMC >= 0.16.0 and was omitted from this export.');
+        }
+        for (let i = 0; i < sources.length; i++) {
+            lines.push(...this.generateSourceCode(sources[i], i));
         }
 
-        if (settings.sources.length > 0) {
-            const sourceVars = settings.sources.map((_, i) => `source_${i}`).join(', ');
+        if (sources.length > 0) {
+            const sourceVars = sources.map((_, i) => `source_${i}`).join(', ');
             lines.push(`settings.source = [${sourceVars}]`);
         }
 
@@ -1451,6 +1463,7 @@ export class OpenMCPythonExporter {
         // Variance reduction settings
         if (state.varianceReduction) {
             const vr = state.varianceReduction;
+            const weightWindowSets = vr.weightWindows ?? [];
 
             if (vr.survivalBiasing) {
                 lines.push('settings.survival_biasing = True');
@@ -1458,14 +1471,14 @@ export class OpenMCPythonExporter {
 
             if (vr.weightWindowGenerator) {
                 const wwg = vr.weightWindowGenerator;
-                const meshId = wwg.meshId ?? vr.weightWindows?.meshId ?? (vr.ufs?.enabled ? vr.ufs.meshId : undefined);
+                const meshId = resolveWeightWindowGeneratorMesh(vr);
                 if (meshId !== undefined) {
                     const wwgArgs = [`mesh=mesh_${meshId}`];
-                    const wwgEnergyBounds = wwg.energyBounds ?? vr.weightWindows?.energyBounds;
+                    const wwgEnergyBounds = wwg.energyBounds ?? weightWindowSets[0]?.energyBounds;
                     if (wwgEnergyBounds && wwgEnergyBounds.length > 0) {
                         wwgArgs.push(`energy_bounds=[${wwgEnergyBounds.join(', ')}]`);
                     }
-                    wwgArgs.push(`particle_type="${wwg.particleType ?? 'neutron'}"`);
+                    wwgArgs.push(`particle_type="${wwg.particleType ?? weightWindowSets[0]?.particleType ?? 'neutron'}"`);
                     wwgArgs.push(`method="${wwg.method ?? 'magic'}"`);
                     const maxRealizations =
                         wwg.maxRealizations ??
@@ -1484,16 +1497,66 @@ export class OpenMCPythonExporter {
                     lines.push(`wwg = openmc.WeightWindowGenerator(${wwgArgs.join(', ')})`);
                     lines.push('settings.weight_window_generators = [wwg]');
                 } else {
-                    lines.push('# Weight window generator enabled but no mesh specified (checked weightWindows and ufs)');
+                    lines.push('# Weight window generator enabled but no mesh specified');
+                }
+            }
+
+            // Each set becomes one openmc.WeightWindows object.
+            if (weightWindowSets.length > 0) {
+                const setVars: string[] = [];
+                for (let index = 0; index < weightWindowSets.length; index++) {
+                    const set = weightWindowSets[index];
+                    const varName = `ww_${index + 1}`;
+                    const { lower, upper } = resolveWeightWindowBounds(set, state.meshes);
+                    const args = [
+                        `mesh=mesh_${set.meshId}`,
+                        `lower_ww_bounds=[${lower.join(', ')}]`,
+                        `upper_ww_bounds=[${upper.join(', ')}]`,
+                        `particle_type="${set.particleType ?? 'neutron'}"`,
+                        `survival_ratio=${set.survivalWeight !== undefined ? set.survivalWeight : 3.0}`,
+                        `max_split=${set.maxSplit !== undefined ? set.maxSplit : 10}`,
+                        `weight_cutoff=${set.weightCutoff !== undefined ? set.weightCutoff : 1e-38}`,
+                        `id=${set.id ?? index + 1}`
+                    ];
+                    if (set.energyBounds && set.energyBounds.length >= 2) {
+                        args.splice(3, 0, `energy_bounds=[${set.energyBounds.join(', ')}]`);
+                    }
+                    lines.push(`${varName} = openmc.WeightWindows(${args.join(', ')})`);
+                    setVars.push(varName);
+                }
+                lines.push(`settings.weight_windows = [${setVars.join(', ')}]`);
+            }
+
+            const hasWeightWindows = weightWindowSets.length > 0 || !!vr.weightWindowsFile || !!vr.weightWindowGenerator;
+            if (hasWeightWindows && vr.weightWindowsOn !== undefined) {
+                lines.push(`settings.weight_windows_on = ${vr.weightWindowsOn ? 'True' : 'False'}`);
+            } else if (hasWeightWindows && resolveWeightWindowsEnabled(vr)) {
+                lines.push('settings.weight_windows_on = True');
+            }
+            if (vr.weightWindowsFile) {
+                lines.push(`settings.weight_windows_file = ${JSON.stringify(vr.weightWindowsFile)}`);
+            }
+            if (vr.weightWindowCheckpoints) {
+                const entries: string[] = [];
+                if (vr.weightWindowCheckpoints.collision !== undefined) {
+                    entries.push(`'collision': ${vr.weightWindowCheckpoints.collision ? 'True' : 'False'}`);
+                }
+                if (vr.weightWindowCheckpoints.surface !== undefined) {
+                    entries.push(`'surface': ${vr.weightWindowCheckpoints.surface ? 'True' : 'False'}`);
+                }
+                if (entries.length > 0) {
+                    lines.push(`settings.weight_window_checkpoints = {${entries.join(', ')}}`);
                 }
             }
         }
 
         // Uniform Fission Site (UFS)
         if (state.varianceReduction?.ufs?.enabled) {
-            const ufsMeshId = state.varianceReduction.ufs.meshId || state.varianceReduction.weightWindows?.meshId;
+            const ufsMeshId = state.varianceReduction.ufs.meshId;
             if (ufsMeshId !== undefined) {
                 lines.push(`settings.ufs_mesh = mesh_${ufsMeshId}`);
+            } else {
+                lines.push('# Uniform fission site enabled but no mesh specified');
             }
         }
 

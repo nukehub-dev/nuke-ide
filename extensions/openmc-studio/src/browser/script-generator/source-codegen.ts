@@ -86,6 +86,74 @@ function callArguments(...args: Array<string | undefined>): string {
  * @returns Generated lines and the variable holding the value.
  */
 export function generateUnivariateCode(distribution: OpenMCSourceEnergy, variableName: string): GeneratedDistributionCode {
+    const generated = generateUnivariateCodeCore(distribution, variableName);
+    if (!distribution.bias) {
+        return generated;
+    }
+    const bias = generateUnivariateBiasCode(distribution, variableName);
+    if (!bias) {
+        return generated;
+    }
+    return {
+        lines: [
+            ...generated.lines.slice(0, -1),
+            ...bias.lines,
+            injectCallKeyword(generated.lines[generated.lines.length - 1], `bias=${bias.expression}`)
+        ],
+        expression: generated.expression
+    };
+}
+
+/**
+ * Inject a keyword argument into the final Python call on an assignment line.
+ * @param line - Assignment line ending in `)`.
+ * @param argument - Keyword argument text (for example `bias=...`).
+ * @returns The rewritten line.
+ */
+function injectCallKeyword(line: string, argument: string): string {
+    const close = line.lastIndexOf(')');
+    if (close < 0) {
+        return line;
+    }
+    return `${line.slice(0, close)}, ${argument}${line.slice(close)}`;
+}
+
+/**
+ * Generate the Python expression for a univariate bias.
+ * @param distribution - Parent distribution.
+ * @param variableName - Base variable name.
+ * @returns Generated bias code, or undefined when the bias shape is incompatible.
+ */
+function generateUnivariateBiasCode(distribution: OpenMCSourceEnergy, variableName: string): GeneratedDistributionCode | undefined {
+    const bias = distribution.bias;
+    if (!bias || distribution.type === 'decay-spectrum') {
+        return undefined;
+    }
+    if ('probabilities' in bias) {
+        if (distribution.type !== 'discrete' && distribution.type !== 'mixture') {
+            return undefined;
+        }
+        return {
+            lines: [`${variableName}_bias = [${bias.probabilities.map((probability) => String(probability)).join(', ')}]`],
+            expression: `${variableName}_bias`
+        };
+    }
+    if (distribution.type === 'discrete' || distribution.type === 'mixture') {
+        return undefined;
+    }
+    if (bias.distribution.type === 'discrete' || bias.distribution.type === 'mixture' || bias.distribution.type === 'decay-spectrum') {
+        return undefined;
+    }
+    return generateUnivariateCode(bias.distribution, `${variableName}_bias`);
+}
+
+/**
+ * Generate the core distribution without its own bias.
+ * @param distribution - Distribution to generate.
+ * @param variableName - Base variable name for the declaration.
+ * @returns Generated lines and the variable holding the value.
+ */
+function generateUnivariateCodeCore(distribution: OpenMCSourceEnergy, variableName: string): GeneratedDistributionCode {
     if (distribution.type === 'muir') {
         return {
             lines: [`${variableName} = openmc.stats.muir(${distribution.e0}, ${distribution.m_rat}, ${distribution.kt})`],
@@ -263,17 +331,20 @@ export function generateSpatialCode(spatial: OpenMCSourceSpatial, variableName: 
     if (spatial.type === 'pointcloud') {
         const positions = `[${spatial.positions.map(point).join(', ')}]`;
         const strengths = spatial.strengths && spatial.strengths.length > 0 ? keyword('strengths', list(spatial.strengths)) : undefined;
-        lines.push(`${variableName} = openmc.stats.PointCloud(${positions}${strengths ? `, ${strengths}` : ''})`);
+        const bias = spatial.bias ? keyword('bias', list(spatial.bias.probabilities)) : undefined;
+        lines.push(`${variableName} = openmc.stats.PointCloud(${callArguments(positions, strengths, bias)})`);
         return { lines, expression: variableName };
     }
     // Mesh spatial distribution
     const meshId = spatial.meshId ?? 0;
     const strengths = spatial.strengths && spatial.strengths.length > 0 ? keyword('strengths', list(spatial.strengths)) : undefined;
+    const bias = spatial.bias ? keyword('bias', list(spatial.bias.probabilities)) : undefined;
     lines.push(
         `${variableName} = openmc.stats.MeshSpatial(${callArguments(
             `mesh_${meshId}`,
             strengths,
-            `volume_normalized=${(spatial.volumeNormalized ?? true) ? 'True' : 'False'}`
+            `volume_normalized=${(spatial.volumeNormalized ?? true) ? 'True' : 'False'}`,
+            bias
         )})`
     );
     return { lines, expression: variableName };
@@ -287,7 +358,14 @@ export function generateSpatialCode(spatial: OpenMCSourceSpatial, variableName: 
  */
 export function generateAngleCode(angle: OpenMCSourceAngle, variableName: string): GeneratedDistributionCode {
     if (angle.type === 'isotropic') {
-        return { lines: [`${variableName} = openmc.stats.Isotropic()`], expression: variableName };
+        if (!angle.bias || angle.bias.distribution.type !== 'mu-phi') {
+            return { lines: [`${variableName} = openmc.stats.Isotropic()`], expression: variableName };
+        }
+        const bias = generateAngleCode(angle.bias.distribution, `${variableName}_bias`);
+        return {
+            lines: [...bias.lines, `${variableName} = openmc.stats.Isotropic(bias=${bias.expression})`],
+            expression: variableName
+        };
     }
     if (angle.type === 'monodirectional') {
         // Python's Monodirectional default is +x, but the C++ XML default is

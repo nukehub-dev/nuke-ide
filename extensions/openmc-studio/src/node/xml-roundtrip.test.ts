@@ -39,8 +39,12 @@ import { XMLGenerationService } from './xml-generation-service';
 import { OpenMCStudioBackendServiceImpl } from './openmc-studio-backend-service';
 import { OpenMCRunnerService } from './openmc-runner-service';
 import { OpenMCState, OpenMCSettings } from '../common/openmc-state-schema';
+import { DEFAULT_OPENMC_COMPAT } from '../common/openmc-studio-protocol';
 import { OPENMC_SCORES } from '../common/scores-catalog';
 import { resolveDepletionSolver } from '../common/depletion-solvers';
+
+/** OpenMC 0.16 compatibility for tests that exercise source-distribution bias. */
+const BIAS_COMPAT = { ...DEFAULT_OPENMC_COMPAT, sourceBias: true };
 
 /**
  * Build a state exercising every settings.xml field.
@@ -1259,7 +1263,7 @@ describe('settings.xml round-trip', () => {
         const state = buildTestState();
         state.meshes = [{ type: 'regular', id: 5, lowerLeft: [-5, -5, -5], upperRight: [5, 5, 5], dimension: [2, 2, 2] }];
         state.varianceReduction = {
-            weightWindows: { meshId: 5, lowerBound: 0.5, upperBound: 1, particleType: 'neutron', energyBounds: [0, 1e4, 2e7] }
+            weightWindows: [{ id: 1, meshId: 5, lowerBound: 0.5, upperBound: 1, particleType: 'neutron', energyBounds: [0, 1e4, 2e7] }]
         };
         state.tallies = [{ id: 1, name: 'mesh-flux', scores: ['flux'], nuclides: [], filters: [{ type: 'mesh', bins: [5], meshId: 5 }] }];
 
@@ -2377,6 +2381,223 @@ describe('settings.xml round-trip', () => {
 
         expect(imported.success).toBe(true);
         expect(imported.state!.varianceReduction?.weightWindowGenerator).toEqual(state.varianceReduction.weightWindowGenerator);
+    });
+
+    it('round-trips source-distribution bias and the UFS mesh element', async () => {
+        const state = buildTestState();
+        state.settings.sources = [
+            {
+                type: 'independent',
+                spatial: { type: 'point', origin: [0, 0, 0] },
+                energy: {
+                    type: 'uniform',
+                    min: 1e5,
+                    max: 2e7,
+                    bias: { distribution: { type: 'uniform', min: 1e6, max: 1.4e7 } }
+                },
+                angle: {
+                    type: 'isotropic',
+                    bias: {
+                        distribution: {
+                            type: 'mu-phi',
+                            mu: { type: 'uniform', min: -1, max: 1 },
+                            phi: { type: 'uniform', min: 0, max: 2 * Math.PI }
+                        }
+                    }
+                },
+                particle: 'neutron'
+            }
+        ];
+        state.meshes = [{ type: 'regular', id: 5, lowerLeft: [-1, -1, -1], upperRight: [1, 1, 1], dimension: [2, 2, 2] }];
+        state.varianceReduction = { ufs: { enabled: true, meshId: 5 } };
+
+        const generator = new XMLGenerationService();
+        await generator.generateXML({
+            state,
+            outputDirectory: tempDir,
+            randomRayCompat: BIAS_COMPAT,
+            files: { materials: false, geometry: false, settings: true, tallies: false, plots: false }
+        });
+
+        const xml = fs.readFileSync(path.join(tempDir, 'settings.xml'), 'utf-8');
+        expect(xml).toContain('<ufs_mesh>5</ufs_mesh>');
+        expect(xml).not.toContain('<ufs>');
+        expect(xml).toContain('<energy type="uniform" parameters="100000 20000000">');
+        expect(xml).toContain('<bias type="uniform" parameters="1000000 14000000"/>');
+        expect(xml).toContain('<angle type="isotropic">');
+        expect(xml).toContain('<bias type="mu-phi">');
+        expect(xml).toContain('<mesh id="5" type="regular">');
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const imported = await backend.importXML({ directory: tempDir });
+        expect(imported.success).toBe(true);
+        const source = imported.state!.settings.sources[0] as any;
+        expect(source.energy.bias).toEqual({ distribution: { type: 'uniform', min: 1e6, max: 1.4e7 } });
+        expect(source.angle.bias.distribution.type).toBe('mu-phi');
+        expect(imported.state!.varianceReduction?.ufs).toEqual({ enabled: true, meshId: 5 });
+    });
+
+    it('round-trips point-cloud and mesh spatial array bias', async () => {
+        const state = buildTestState();
+        state.settings.sources = [
+            {
+                type: 'independent',
+                spatial: {
+                    type: 'pointcloud',
+                    positions: [
+                        [0, 0, 0],
+                        [1, 1, 1]
+                    ],
+                    strengths: [1, 2],
+                    bias: { probabilities: [0.9, 0.1] }
+                },
+                energy: { type: 'discrete', energies: [1e6, 2e6], probabilities: [0.5, 0.5], bias: { probabilities: [0.1, 0.9] } },
+                particle: 'neutron'
+            },
+            {
+                type: 'independent',
+                spatial: {
+                    type: 'mesh',
+                    meshId: 5,
+                    strengths: [1, 1, 1, 1, 1, 1, 1, 1],
+                    bias: { probabilities: [1, 2, 3, 4, 5, 6, 7, 8] }
+                },
+                energy: { type: 'uniform', min: 1e5, max: 2e7 },
+                particle: 'neutron'
+            }
+        ];
+        state.meshes = [{ type: 'regular', id: 5, lowerLeft: [-1, -1, -1], upperRight: [1, 1, 1], dimension: [2, 2, 2] }];
+
+        const generator = new XMLGenerationService();
+        await generator.generateXML({
+            state,
+            outputDirectory: tempDir,
+            randomRayCompat: BIAS_COMPAT,
+            files: { materials: false, geometry: false, settings: true, tallies: false, plots: false }
+        });
+
+        const xml = fs.readFileSync(path.join(tempDir, 'settings.xml'), 'utf-8');
+        expect(xml).toContain('<bias>0.9 0.1</bias>');
+        expect(xml).toContain('<bias>1 2 3 4 5 6 7 8</bias>');
+        expect(xml).toContain('<bias>0.1 0.9</bias>');
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const imported = await backend.importXML({ directory: tempDir });
+        expect(imported.success).toBe(true);
+        const cloud = imported.state!.settings.sources[0] as any;
+        const mesh = imported.state!.settings.sources[1] as any;
+        expect(cloud.spatial.bias.probabilities).toEqual([0.9, 0.1]);
+        expect(cloud.energy.bias.probabilities).toEqual([0.1, 0.9]);
+        expect(mesh.spatial.bias.probabilities).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    });
+
+    it('omits source bias with a warning when the probed environment predates source biasing', async () => {
+        const state = buildTestState();
+        state.settings.sources = [
+            {
+                type: 'independent',
+                spatial: { type: 'point', origin: [0, 0, 0] },
+                energy: {
+                    type: 'uniform',
+                    min: 1e5,
+                    max: 2e7,
+                    bias: { distribution: { type: 'uniform', min: 1e6, max: 1.4e7 } }
+                },
+                particle: 'neutron'
+            }
+        ];
+        const generator = new XMLGenerationService();
+        const result = await generator.generateXML({
+            state,
+            outputDirectory: tempDir,
+            randomRayCompat: { ...DEFAULT_OPENMC_COMPAT, sourceBias: false },
+            files: { materials: false, geometry: false, settings: true, tallies: false, plots: false }
+        });
+        const xml = fs.readFileSync(path.join(tempDir, 'settings.xml'), 'utf-8');
+        expect(xml).not.toContain('<bias');
+        expect(xml).toContain('<energy type="uniform" parameters="100000 20000000"/>');
+        expect(result.warnings?.some((warning) => warning.includes('Source bias requires OpenMC'))).toBe(true);
+    });
+
+    it('round-trips multiple weight-window sets, the file, enable flag, and checkpoints', async () => {
+        const state = buildTestState();
+        state.meshes = [
+            { type: 'regular', id: 5, lowerLeft: [-1, -1, -1], upperRight: [1, 1, 1], dimension: [2, 2, 2] },
+            { type: 'regular', id: 6, lowerLeft: [-2, -2, -2], upperRight: [2, 2, 2], dimension: [2, 2, 2] }
+        ];
+        state.varianceReduction = {
+            weightWindows: [
+                {
+                    id: 1,
+                    meshId: 5,
+                    particleType: 'neutron',
+                    energyBounds: [0, 1e4, 2e7],
+                    lowerBound: 0.5,
+                    upperBound: 1
+                },
+                {
+                    id: 2,
+                    meshId: 6,
+                    particleType: 'photon',
+                    energyBounds: [0, 2e7],
+                    lowerBound: [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8],
+                    survivalWeight: 4,
+                    maxSplit: 8,
+                    weightCutoff: 1e-30
+                }
+            ],
+            weightWindowsFile: '/tmp/weight_windows.h5',
+            weightWindowsOn: true,
+            weightWindowCheckpoints: { collision: true, surface: true }
+        };
+
+        const generator = new XMLGenerationService();
+        await generator.generateXML({
+            state,
+            outputDirectory: tempDir,
+            files: { materials: false, geometry: false, settings: true, tallies: false, plots: false }
+        });
+
+        const xml = fs.readFileSync(path.join(tempDir, 'settings.xml'), 'utf-8');
+        expect(xml).toContain('<weight_windows id="1">');
+        expect(xml).toContain('<weight_windows id="2">');
+        expect(xml).toContain('<weight_windows_file>/tmp/weight_windows.h5</weight_windows_file>');
+        expect(xml).toContain('<weight_windows_on>true</weight_windows_on>');
+        expect(xml).toContain('<weight_window_checkpoints>');
+        expect(xml).toContain('<collision>true</collision>');
+        expect(xml).toContain('<surface>true</surface>');
+        expect(xml).toContain('<mesh id="5" type="regular">');
+        expect(xml).toContain('<mesh id="6" type="regular">');
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const imported = await backend.importXML({ directory: tempDir });
+        expect(imported.success).toBe(true);
+        const vr = imported.state!.varianceReduction;
+        expect(vr?.weightWindows?.map((set) => set.id)).toEqual([1, 2]);
+        expect(vr?.weightWindows?.map((set) => set.meshId)).toEqual([5, 6]);
+        expect(vr?.weightWindows?.[0].lowerBound).toBe(0.5);
+        expect(vr?.weightWindows?.[0].upperBound).toBe(1);
+        expect(vr?.weightWindows?.[1].lowerBound).toEqual([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8]);
+        expect(vr?.weightWindows?.[1].survivalWeight).toBe(4);
+        expect(vr?.weightWindows?.[1].maxSplit).toBe(8);
+        expect(vr?.weightWindows?.[1].weightCutoff).toBe(1e-30);
+        expect(vr?.weightWindowsFile).toBe('/tmp/weight_windows.h5');
+        expect(vr?.weightWindowsOn).toBe(true);
+        expect(vr?.weightWindowCheckpoints).toEqual({ collision: true, surface: true });
+    });
+
+    it('warns instead of emitting an invalid ufs block without a mesh', async () => {
+        const state = buildTestState();
+        state.varianceReduction = { ufs: { enabled: true } };
+        const generator = new XMLGenerationService();
+        const result = await generator.generateXML({
+            state,
+            outputDirectory: tempDir,
+            files: { materials: false, geometry: false, settings: true, tallies: false, plots: false }
+        });
+        const xml = fs.readFileSync(path.join(tempDir, 'settings.xml'), 'utf-8');
+        expect(xml).not.toContain('<ufs');
+        expect(result.warnings?.some((warning) => warning.includes('ufs_mesh'))).toBe(true);
     });
 
     it('omits new elements when fields are absent (backward compatible output)', async () => {

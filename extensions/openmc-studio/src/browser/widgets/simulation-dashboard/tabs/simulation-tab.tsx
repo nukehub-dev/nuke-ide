@@ -379,8 +379,9 @@ export class SimulationTabContribution implements DashboardTabContribution {
                 {/* Variance Reduction Summary */}
                 {state.varianceReduction &&
                     (state.varianceReduction.survivalBiasing ||
-                        state.varianceReduction.weightWindows ||
-                        state.varianceReduction.sourceBiasing ||
+                        (state.varianceReduction.weightWindows?.length ?? 0) > 0 ||
+                        state.varianceReduction.weightWindowsFile ||
+                        state.varianceReduction.ufs?.enabled ||
                         state.varianceReduction.weightWindowGenerator) && (
                         <div className="simulation-info">
                             <div className="info-header">
@@ -395,22 +396,40 @@ export class SimulationTabContribution implements DashboardTabContribution {
                                         <span>Enabled</span>
                                     </div>
                                 )}
-                                {state.varianceReduction.weightWindows && (
+                                {(state.varianceReduction.weightWindows?.length ?? 0) > 0 && (
                                     <div className="info-item">
                                         <label>Weight Windows:</label>
-                                        <span>Mesh {state.varianceReduction.weightWindows.meshId}</span>
+                                        <span>
+                                            {state.varianceReduction.weightWindows!.length} set
+                                            {state.varianceReduction.weightWindows!.length === 1 ? '' : 's'} · mesh{' '}
+                                            {state.varianceReduction.weightWindows![0].meshId}
+                                        </span>
                                     </div>
                                 )}
-                                {state.varianceReduction.sourceBiasing && (
+                                {state.varianceReduction.weightWindowsFile && (
                                     <div className="info-item">
-                                        <label>Source Biasing:</label>
-                                        <span>Enabled</span>
+                                        <label>Weight-window File:</label>
+                                        <span>{state.varianceReduction.weightWindowsFile}</span>
+                                    </div>
+                                )}
+                                {state.varianceReduction.ufs?.enabled && (
+                                    <div className="info-item">
+                                        <label>Uniform Fission Site:</label>
+                                        <span>
+                                            {state.varianceReduction.ufs.meshId ? `mesh ${state.varianceReduction.ufs.meshId}` : 'No mesh'}
+                                        </span>
                                     </div>
                                 )}
                                 {state.varianceReduction.weightWindowGenerator && (
                                     <div className="info-item">
                                         <label>WW Generator:</label>
-                                        <span>{state.varianceReduction.weightWindowGenerator.iterations} iterations</span>
+                                        <span>
+                                            {state.varianceReduction.weightWindowGenerator.method ?? 'magic'} ·{' '}
+                                            {state.varianceReduction.weightWindowGenerator.maxRealizations ??
+                                                state.varianceReduction.weightWindowGenerator.iterations ??
+                                                '1'}{' '}
+                                            realizations
+                                        </span>
                                     </div>
                                 )}
                                 {state.varianceReduction.cutoff?.weight !== undefined && (

@@ -4203,3 +4203,357 @@
 .simulation-dashboard .source-table input {
     box-sizing: border-box;
 }
+
+/* ============================================================================
+   Source-distribution bias and weight-window list
+   ============================================================================ */
+
+.simulation-dashboard .source-bias-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin: 10px 0 2px;
+    padding-top: 8px;
+    border-top: 1px dashed var(--theia-panel-border);
+}
+
+.simulation-dashboard .source-bias-toggle-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--theia-foreground);
+    cursor: pointer;
+}
+
+.simulation-dashboard .source-bias-toggle-label input {
+    margin: 0;
+}
+
+.simulation-dashboard .source-bias-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 7px;
+    border-radius: 10px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: var(--theia-focusBorder);
+    background: color-mix(in srgb, var(--theia-focusBorder) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--theia-focusBorder) 45%, transparent);
+    white-space: nowrap;
+}
+
+.simulation-dashboard .source-bias-editor {
+    margin: 8px 0 4px;
+    padding: 10px 12px;
+    border: 1px solid var(--theia-panel-border);
+    border-left: 3px solid var(--theia-focusBorder);
+    border-radius: 4px;
+    background: var(--theia-editorWidget-background);
+}
+
+.simulation-dashboard .source-bias-editor .form-hint {
+    display: block;
+    margin-top: 6px;
+}
+
+.simulation-dashboard .source-bias-subhead {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--theia-descriptionForeground);
+    margin-bottom: 6px;
+}
+
+.simulation-dashboard .source-bias-unsupported {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin-top: 10px;
+    padding: 8px 10px;
+    border-radius: 4px;
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+    background: var(--theia-textBlock-background, var(--theia-editor-background));
+    border: 1px solid var(--theia-panel-border);
+}
+
+.simulation-dashboard .source-bias-unsupported i {
+    flex-shrink: 0;
+    margin-top: 1px;
+}
+
+.simulation-dashboard .source-array-bias-header,
+.simulation-dashboard .ww-bound-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 4px;
+}
+
+.simulation-dashboard .source-array-bias-summary,
+.simulation-dashboard .ww-bound-summary {
+    font-size: 10px;
+    color: var(--theia-descriptionForeground);
+    font-family: var(--theia-monospace-font-family);
+}
+
+.simulation-dashboard .source-array-bias textarea,
+.simulation-dashboard .ww-bound-editor textarea,
+.simulation-dashboard .ww-energy-add input {
+    width: 100%;
+    box-sizing: border-box;
+    font-family: var(--theia-monospace-font-family);
+    font-size: 11px;
+}
+
+.simulation-dashboard .source-array-bias-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 6px;
+}
+
+.simulation-dashboard .source-bias-transport-note {
+    color: var(--theia-descriptionForeground);
+    font-style: italic;
+}
+
+.simulation-dashboard .ww-list-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.simulation-dashboard .ww-list-summary {
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+}
+
+.simulation-dashboard .ww-empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 20px 12px;
+    text-align: center;
+    border: 1px dashed var(--theia-panel-border);
+    border-radius: 8px;
+    color: var(--theia-descriptionForeground);
+}
+
+.simulation-dashboard .ww-empty-state > i {
+    font-size: 28px;
+    opacity: 0.6;
+}
+
+.simulation-dashboard .ww-empty-state p {
+    margin: 0;
+    font-size: 12px;
+}
+
+.simulation-dashboard .ww-set-card {
+    margin-top: 12px;
+    padding: 12px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 8px;
+    background: var(--theia-editorWidget-background);
+}
+
+.simulation-dashboard .ww-set-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+}
+
+.simulation-dashboard .ww-set-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.simulation-dashboard .ww-set-id {
+    font-weight: 600;
+    font-size: 12px;
+}
+
+.simulation-dashboard .ww-set-particle {
+    font-size: 10px;
+    color: var(--theia-descriptionForeground);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.simulation-dashboard .ww-set-actions {
+    display: flex;
+    gap: 6px;
+}
+
+.simulation-dashboard .ww-bound-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(170px, 1fr));
+    gap: 12px;
+    margin: 10px 0;
+}
+
+.simulation-dashboard .ww-energy-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 6px;
+}
+
+.simulation-dashboard .ww-energy-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 4px 2px 7px;
+    border-radius: 10px;
+    font-size: 10px;
+    font-family: var(--theia-monospace-font-family);
+    background: var(--theia-list-hoverBackground);
+    border: 1px solid var(--theia-panel-border);
+}
+
+.simulation-dashboard .ww-energy-add {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.simulation-dashboard .ww-energy-add input {
+    flex: 1 1 auto;
+}
+
+.simulation-dashboard .ww-add-set {
+    margin-top: 12px;
+}
+
+.simulation-dashboard .ww-file-actions {
+    flex: 0 0 auto;
+}
+
+.simulation-dashboard .ww-enable-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+.simulation-dashboard .ww-checkpoint-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px;
+}
+
+.simulation-dashboard .ww-checkpoint-row label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+}
+
+.simulation-dashboard .ww-validation {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.simulation-dashboard .ww-validation-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: 4px;
+    border: 1px solid var(--theia-panel-border);
+    background: var(--theia-textBlock-background, var(--theia-editor-background));
+    font-size: 12px;
+}
+
+.simulation-dashboard .ww-validation-item.error {
+    border-left: 3px solid var(--theia-errorForeground);
+}
+
+.simulation-dashboard .ww-validation-item.warning {
+    border-left: 3px solid var(--theia-editorWarning-foreground);
+}
+
+.simulation-dashboard .ww-validation-item > div {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.simulation-dashboard .ww-bootstrap-action {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 14px;
+    padding: 12px;
+    border: 1px solid var(--theia-focusBorder);
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--theia-focusBorder) 8%, transparent);
+}
+
+.simulation-dashboard .ww-bootstrap-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 12px;
+    min-width: 0;
+}
+
+.simulation-dashboard .ww-bootstrap-text span {
+    color: var(--theia-descriptionForeground);
+}
+
+.simulation-dashboard .vr-source-bias-note {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin-top: 8px;
+    padding: 10px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--theia-panel-border);
+    background: var(--theia-textBlock-background, var(--theia-editor-background));
+    color: var(--theia-descriptionForeground);
+    font-size: 12px;
+}
+
+.simulation-dashboard .vr-source-bias-note i {
+    flex-shrink: 0;
+    margin-top: 1px;
+}
+
+.simulation-dashboard .ufs-mesh-picker {
+    margin-top: 12px;
+}
+
+@container (max-width: 560px) {
+    .simulation-dashboard .ww-bound-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .simulation-dashboard .ww-set-header,
+    .simulation-dashboard .ww-list-header,
+    .simulation-dashboard .ww-bootstrap-action {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .simulation-dashboard .ww-enable-toggle {
+        white-space: normal;
+    }
+}

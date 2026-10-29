@@ -57,6 +57,12 @@ All files under `extensions/openmc-studio/` except generated artifacts (`lib/`, 
 - Source distributions use one `OpenMCUnivariate` model and editor (`common/source-utils.ts`, `tabs/settings/source-distributions.tsx`)
   for energy, time, spatial coordinates, mu/phi, and nested mixtures; XML/Python import+export must stay symmetric. `Legendre` and
   tabular `ignore_negative` are deliberately absent; decay spectra are 0.16-gated by `OpenMCCompat.decaySpectrum`.
+- Source bias lives on distributions (`energy.bias`, isotropic `angle.bias`, point-cloud/mesh `spatial.bias`); continuous bias
+  nests a same-support distribution, Discrete/Mixture use probability arrays, and `varianceReduction.sourceBiasing` is load-migrated
+  only. It is 0.16-gated by `OpenMCCompat.sourceBias` (XML/Python strip it when unsupported). Point-cloud/mesh array bias serializes
+  for Python but is rejected by the 0.16 XML transport reader. See `docs/dev/state-model.md`.
+- Weight windows are a list: one `<weight_windows id="...">` per set plus `<weight_windows_file>`, `<weight_windows_on>`, and
+  `<weight_window_checkpoints>`; UFS emits `<ufs_mesh>` on a regular mesh. A file loads in addition to sets. See `docs/dev/xml-generation.md`.
 - Shared widget CSS: `widgets/shared/openmc-widget.css` is the opt-in design system (root gets `openmc-widget` class, accent
   `--theia-focusBorder`, Theia vars only). Dashboard tabs are `DashboardTabContribution`s; new scalar settings belong in the
   Advanced section (`advanced-section.tsx`). See `docs/dev/widget-patterns.md` and `docs/dev/adding-a-widget.md`.

@@ -45,6 +45,7 @@ import { XMLGenerationService } from '../xml-generation-service';
 import { OpenMCStudioBackendServiceImpl } from '../openmc-studio-backend-service';
 import { migrateProjectFile } from '../../common/openmc-state-migration';
 import { OpenMCProjectFile, OpenMCState } from '../../common/openmc-state-schema';
+import { DEFAULT_OPENMC_COMPAT, OpenMCCompat } from '../../common/openmc-studio-protocol';
 
 const PYTHON = process.env.NUKE_TEST_PYTHON;
 const CROSS_SECTIONS = process.env.OPENMC_CROSS_SECTIONS;
@@ -58,6 +59,8 @@ const PROJECTS_DIR = path.resolve(__dirname, 'projects');
 const CAN_RUN = !!(PYTHON && OPENMC_EXE && fs.existsSync(OPENMC_EXE) && CROSS_SECTIONS && fs.existsSync(CROSS_SECTIONS));
 const SKIP_REASON = 'e2e requires NUKE_TEST_PYTHON (env python with openmc) and OPENMC_CROSS_SECTIONS';
 const RUN_TIMEOUT = 120_000;
+/** OpenMC 0.16 compatibility for source-bias e2e (probed envs supply this in production). */
+const BIAS_COMPAT: OpenMCCompat = { ...DEFAULT_OPENMC_COMPAT, sourceBias: true };
 
 /** Repo-local DAGMC test asset (committed). */
 const FUEL_PIN_H5M = path.resolve(__dirname, '../../../tests/e2e/assets/fuel_pin.h5m');
@@ -88,34 +91,21 @@ function loadProjectState(name: string): OpenMCState {
 }
 
 /** Generate the full XML set for a state into a fresh temp directory. */
-async function generateToTempDir(
-    state: OpenMCState,
-    randomRayCompat?: {
-        raySourceFormat: 'direct' | 'wrapper';
-        adjointSource: boolean;
-        tokamakSource: boolean;
-        s2SampleMethod: boolean;
-        depletionSubsteps: boolean;
-        depletionKeffSearch: boolean;
-        depletionExternalSourceRate: boolean;
-        depletionContinuation: boolean;
-        meshFilterRotation: boolean;
-    }
-): Promise<string> {
+async function generateToTempDir(state: OpenMCState, compat?: OpenMCCompat): Promise<string> {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'openmc-e2e-'));
     const service = new XMLGenerationService();
     const result = await service.generateXML({
         state,
         outputDirectory: dir,
-        files: { materials: true, geometry: true, settings: true, tallies: true, plots: false },
-        randomRayCompat
+        randomRayCompat: compat,
+        files: { materials: true, geometry: true, settings: true, tallies: true, plots: false }
     });
     expect(result.success).toBe(true);
     return dir;
 }
 
 /** Run the openmc binary in a working directory. */
-function runOpenMC(dir: string): void {
+function runOpenMC(dir: string): ReturnType<typeof spawnSync> {
     const proc = spawnSync(OPENMC_EXE!, [], {
         cwd: dir,
         env: { ...process.env, OPENMC_CROSS_SECTIONS: CROSS_SECTIONS },
@@ -123,6 +113,7 @@ function runOpenMC(dir: string): void {
         encoding: 'utf-8'
     });
     expect(proc.status, `openmc failed in ${dir}:\n${proc.stdout}\n${proc.stderr}`).toBe(0);
+    return proc;
 }
 
 /** Run a python/ driver with the env python, returning parsed stdout JSON. */
@@ -225,6 +216,150 @@ describe('project-file e2e (real OpenMC)', () => {
             const tracks = path.join(dir, 'tracks', 'tracks.h5');
             expect(fs.existsSync(tracks)).toBe(true);
             expect(fs.statSync(tracks).size).toBeGreaterThan(0);
+        },
+        RUN_TIMEOUT
+    );
+
+    it.skipIf(!CAN_RUN)(
+        'source-biased fixed-source run succeeds and settings.xml carries the bias',
+        async () => {
+            const state = loadProjectState('fixed-source-tracks');
+            (state.settings.sources[0] as any).energy = {
+                type: 'discrete',
+                energies: [1e6, 14.1e6],
+                probabilities: [0.5, 0.5],
+                bias: { probabilities: [0.9, 0.1] }
+            };
+            const dir = await generateToTempDir(state, BIAS_COMPAT);
+            tempDirs.push(dir);
+
+            runOpenMC(dir);
+
+            const settingsXml = fs.readFileSync(path.join(dir, 'settings.xml'), 'utf-8');
+            expect(settingsXml).toContain('<bias>0.9 0.1</bias>');
+            expect(fs.existsSync(path.join(dir, 'statepoint.5.h5'))).toBe(true);
+        },
+        RUN_TIMEOUT
+    );
+
+    it.skipIf(!CAN_RUN)(
+        'UFS eigenvalue run succeeds with <ufs_mesh>',
+        async () => {
+            const state = loadProjectState('pincell-kinetics');
+            state.meshes = [
+                {
+                    type: 'regular',
+                    id: 5,
+                    lowerLeft: [-0.63, -0.63, -0.5],
+                    upperRight: [0.63, 0.63, 0.5],
+                    dimension: [2, 2, 2]
+                }
+            ];
+            state.varianceReduction = { ufs: { enabled: true, meshId: 5 } };
+            const dir = await generateToTempDir(state);
+            tempDirs.push(dir);
+
+            runOpenMC(dir);
+
+            const settingsXml = fs.readFileSync(path.join(dir, 'settings.xml'), 'utf-8');
+            expect(settingsXml).toContain('<ufs_mesh>5</ufs_mesh>');
+            expect(settingsXml).not.toContain('<ufs>');
+            const keff = parseFloat(evalInStatepoint(dir, 'sp.keff.n'));
+            expect(keff).toBeGreaterThan(0.1);
+            expect(keff).toBeLessThan(3);
+        },
+        RUN_TIMEOUT * 2
+    );
+
+    it.skipIf(!CAN_RUN)(
+        'weight-window generator writes weight_windows.h5 and a file-based follow-up run loads it',
+        async () => {
+            const state = loadProjectState('fixed-source-tracks');
+            state.meshes = [
+                {
+                    type: 'regular',
+                    id: 5,
+                    lowerLeft: [-0.63, -0.63, -0.5],
+                    upperRight: [0.63, 0.63, 0.5],
+                    dimension: [2, 2, 2]
+                }
+            ];
+            state.varianceReduction = {
+                weightWindowsOn: true,
+                weightWindowGenerator: {
+                    meshId: 5,
+                    energyBounds: [0, 2e7],
+                    maxRealizations: 2,
+                    updateInterval: 1,
+                    onTheFly: true,
+                    method: 'magic'
+                }
+            };
+            const dir = await generateToTempDir(state);
+            tempDirs.push(dir);
+
+            const first = runOpenMC(dir);
+            const firstOutput = `${first.stdout}\n${first.stderr}`;
+            expect(firstOutput).toContain('Exporting weight windows');
+            const weightWindowsFile = path.join(dir, 'weight_windows.h5');
+            expect(fs.existsSync(weightWindowsFile)).toBe(true);
+            expect(fs.statSync(weightWindowsFile).size).toBeGreaterThan(0);
+
+            // Follow-up run: load the generated file, generator off.
+            state.varianceReduction = { weightWindowsFile, weightWindowsOn: true };
+            const regenerated = await new XMLGenerationService().generateXML({
+                state,
+                outputDirectory: dir,
+                files: { materials: false, geometry: false, settings: true, tallies: false, plots: false }
+            });
+            expect(regenerated.success).toBe(true);
+            const settingsXml = fs.readFileSync(path.join(dir, 'settings.xml'), 'utf-8');
+            expect(settingsXml).toContain(`<weight_windows_file>${weightWindowsFile}</weight_windows_file>`);
+            expect(settingsXml).not.toContain('<weight_window_generators>');
+
+            const second = runOpenMC(dir);
+            expect(`${second.stdout}\n${second.stderr}`).toContain('Importing weight windows');
+        },
+        RUN_TIMEOUT * 3
+    );
+
+    it.skipIf(!CAN_RUN)(
+        'two weight-window sets run together with distinct IDs',
+        async () => {
+            const state = loadProjectState('fixed-source-tracks');
+            state.meshes = [
+                {
+                    type: 'regular',
+                    id: 5,
+                    lowerLeft: [-0.63, -0.63, -0.5],
+                    upperRight: [0.63, 0.63, 0.5],
+                    dimension: [2, 2, 2]
+                },
+                {
+                    type: 'regular',
+                    id: 6,
+                    lowerLeft: [-0.63, -0.63, -0.5],
+                    upperRight: [0.63, 0.63, 0.5],
+                    dimension: [1, 1, 1]
+                }
+            ];
+            state.varianceReduction = {
+                weightWindows: [
+                    { id: 1, meshId: 5, lowerBound: 0.5, upperBound: 1, energyBounds: [0, 2e7] },
+                    { id: 2, meshId: 6, lowerBound: 0.25, upperBound: 0.5, energyBounds: [0, 2e7] }
+                ],
+                weightWindowsOn: true,
+                weightWindowCheckpoints: { collision: true }
+            };
+            const dir = await generateToTempDir(state);
+            tempDirs.push(dir);
+
+            runOpenMC(dir);
+
+            const settingsXml = fs.readFileSync(path.join(dir, 'settings.xml'), 'utf-8');
+            expect(settingsXml).toContain('<weight_windows id="1">');
+            expect(settingsXml).toContain('<weight_windows id="2">');
+            expect(fs.existsSync(path.join(dir, 'statepoint.5.h5'))).toBe(true);
         },
         RUN_TIMEOUT
     );

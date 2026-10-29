@@ -63,9 +63,12 @@ import {
     OpenMCSphereSourceSpatial,
     OpenMCTabularUnivariate,
     OpenMCUniformUnivariate,
-    OpenMCMesh
+    OpenMCMesh,
+    OpenMCArrayBias,
+    OpenMCUnivariateBias
 } from './openmc-state-schema';
 import { getMeshElementCount } from './mesh-utils';
+import { sourceHasBias, stripBias } from './variance-reduction';
 
 /** Interpolation schemes accepted by `openmc.stats.Tabular` (univariate.py). */
 export const TABULAR_INTERPOLATION_SCHEMES = ['histogram', 'linear-linear', 'linear-log', 'log-linear', 'log-log'] as const;
@@ -402,12 +405,13 @@ export function summarizeTime(time: OpenMCSourceTime | undefined): string {
  * @returns `spatial · energy · angle · time` summary.
  */
 export function summarizeSource(source: OpenMCIndependentSource): string {
-    return [
+    const summary = [
         summarizeSpatial(source.spatial),
         summarizeUnivariate(source.energy, 'energy'),
         summarizeAngle(source.angle),
         summarizeTime(source.time)
     ].join(' · ');
+    return sourceHasBias(source as OpenMCSource) ? `${summary} · biased` : summary;
 }
 
 // ============================================================================
@@ -476,6 +480,93 @@ function referenceAttrs(angle: OpenMCMonodirectionalAngle | OpenMCMuPhiAngle): s
  * @returns XML text, or an empty string when the distribution is structurally invalid.
  */
 export function generateUnivariateXml(distribution: OpenMCSourceEnergy, elementName: string, indent = 0): string {
+    const core = generateUnivariateCore(distribution, elementName, indent);
+    if (!core) {
+        return '';
+    }
+    if (!distribution.bias) {
+        return core;
+    }
+    const biasXml = generateUnivariateBiasXml(distribution, indent + 2);
+    if (!biasXml) {
+        return '';
+    }
+    const pad = ' '.repeat(indent);
+    const closing = `</${elementName}>`;
+    if (core.endsWith('/>')) {
+        return `${core.slice(0, -2)}>\n${biasXml}\n${pad}${closing}`;
+    }
+    if (core.endsWith(closing)) {
+        return `${core.slice(0, -closing.length)}\n${biasXml}\n${pad}${closing}`;
+    }
+    return '';
+}
+
+/**
+ * Serialize the nested `<bias>` element for a univariate distribution.
+ *
+ * OpenMC distinguishes two shapes (`Univariate._append_bias_to_xml` and
+ * `_append_array_bias_to_xml`): continuous distributions nest a distribution
+ * element, while Discrete/Mixture carry a whitespace-separated probability
+ * array. A bias distribution may not carry its own bias.
+ *
+ * @param distribution - Parent distribution with bias.
+ * @param indent - Leading spaces for the `<bias>` element.
+ * @returns XML text, or an empty string when the bias is invalid.
+ */
+function generateUnivariateBiasXml(distribution: OpenMCSourceEnergy, indent: number): string {
+    const bias = distribution.bias;
+    if (!bias) {
+        return '';
+    }
+    const pad = ' '.repeat(indent);
+    if (distribution.type === 'decay-spectrum') {
+        return '';
+    }
+    if ('probabilities' in bias) {
+        if (distribution.type === 'discrete') {
+            if (
+                bias.probabilities.length !== distribution.energies.length ||
+                !finiteList(bias.probabilities) ||
+                bias.probabilities.some((probability) => probability < 0)
+            ) {
+                return '';
+            }
+        } else if (distribution.type === 'mixture') {
+            if (
+                bias.probabilities.length !== distribution.distributions.length ||
+                !finiteList(bias.probabilities) ||
+                bias.probabilities.some((probability) => probability < 0)
+            ) {
+                return '';
+            }
+        } else {
+            return '';
+        }
+        return `${pad}<bias>${joinNumbers(bias.probabilities)}</bias>`;
+    }
+    if (distribution.type === 'discrete' || distribution.type === 'mixture') {
+        return '';
+    }
+    if (
+        bias.distribution.bias ||
+        bias.distribution.type === 'discrete' ||
+        bias.distribution.type === 'mixture' ||
+        bias.distribution.type === 'decay-spectrum'
+    ) {
+        return '';
+    }
+    return generateUnivariateXml(stripBias(bias.distribution), 'bias', indent);
+}
+
+/**
+ * Serialize the core distribution element without bias.
+ * @param distribution - Distribution to serialize.
+ * @param elementName - Element name.
+ * @param indent - Leading spaces.
+ * @returns XML text, or an empty string when structurally invalid.
+ */
+function generateUnivariateCore(distribution: OpenMCSourceEnergy, elementName: string, indent = 0): string {
     const pad = ' '.repeat(indent);
     const childPad = ' '.repeat(indent + 2);
 
@@ -694,7 +785,11 @@ export function generateSpatialXml(spatial: OpenMCSourceSpatial, indent = 0): st
                 spatial.strengths !== undefined && spatial.strengths.length > 0
                     ? `\n${childPad}<strengths>${joinNumbers(spatial.strengths)}</strengths>`
                     : '';
-            return `${pad}<space type="cloud">\n${childPad}<coords>${coords}</coords>${strengths}\n${pad}</space>`;
+            const bias = generateArrayBiasXml(spatial.bias, spatial.positions.length, childPad);
+            if (bias === undefined) {
+                return '';
+            }
+            return `${pad}<space type="cloud">\n${childPad}<coords>${coords}</coords>${strengths}${bias}\n${pad}</space>`;
         }
         case 'mesh': {
             if (spatial.meshId === undefined || (spatial.strengths !== undefined && !finiteList(spatial.strengths))) {
@@ -705,7 +800,12 @@ export function generateSpatialXml(spatial: OpenMCSourceSpatial, indent = 0): st
                 spatial.strengths !== undefined && spatial.strengths.length > 0
                     ? `\n${childPad}<strengths>${joinNumbers(spatial.strengths)}</strengths>`
                     : '';
-            return `${pad}<space type="mesh" mesh_id="${spatial.meshId}" volume_normalized="${volumeNormalized}">${strengths}\n${pad}</space>`;
+            const expected = spatial.strengths?.length;
+            const bias = generateArrayBiasXml(spatial.bias, expected, childPad);
+            if (bias === undefined) {
+                return '';
+            }
+            return `${pad}<space type="mesh" mesh_id="${spatial.meshId}" volume_normalized="${volumeNormalized}">${strengths}${bias}\n${pad}</space>`;
         }
         default:
             return '';
@@ -715,6 +815,28 @@ export function generateSpatialXml(spatial: OpenMCSourceSpatial, indent = 0): st
 /** Whether two vectors match within tolerance. */
 function vectorEquals(a: number[], b: number[]): boolean {
     return a.length >= 3 && b.length >= 3 && [0, 1, 2].every((i) => Math.abs(a[i] - b[i]) <= 1e-12);
+}
+
+/**
+ * Serialize an array `<bias>` for point-cloud / mesh spatial distributions.
+ * @param bias - Array bias, if configured.
+ * @param expected - Required probability count (positions or strengths).
+ * @param childPad - Indentation for the element.
+ * @returns Bias XML, an empty string when absent, or undefined when invalid.
+ */
+function generateArrayBiasXml(bias: OpenMCArrayBias | undefined, expected: number | undefined, childPad: string): string | undefined {
+    if (!bias) {
+        return '';
+    }
+    if (
+        bias.probabilities.length === 0 ||
+        (expected !== undefined && bias.probabilities.length !== expected) ||
+        !finiteList(bias.probabilities) ||
+        bias.probabilities.some((probability) => probability < 0)
+    ) {
+        return undefined;
+    }
+    return `\n${childPad}<bias>${joinNumbers(bias.probabilities)}</bias>`;
 }
 
 /** Direction vectors for the convenience cylinder axes. */
@@ -755,7 +877,15 @@ function generateConvenienceCylinderXml(spatial: OpenMCCylinderSourceSpatial, in
 export function generateAngleXml(angle: OpenMCSourceAngle, indent = 0): string {
     const pad = ' '.repeat(indent);
     if (angle.type === 'isotropic') {
-        return `${pad}<angle type="isotropic"/>`;
+        if (!angle.bias) {
+            return `${pad}<angle type="isotropic"/>`;
+        }
+        const bias = angle.bias.distribution;
+        if (bias.type !== 'mu-phi' || bias.mu.bias || bias.phi.bias) {
+            return '';
+        }
+        const biasXml = generateMuPhiElement(bias, 'bias', indent + 2);
+        return biasXml ? `${pad}<angle type="isotropic">\n${biasXml}\n${pad}</angle>` : '';
     }
     if (angle.type === 'monodirectional') {
         const reference = angle.referenceUvW ?? [0, 0, 1];
@@ -764,6 +894,19 @@ export function generateAngleXml(angle: OpenMCSourceAngle, indent = 0): string {
         }
         return `${pad}<angle type="monodirectional" reference_uvw="${vectorAttr(reference)}"/>`;
     }
+    return generateMuPhiElement(angle, 'angle', indent);
+}
+
+/**
+ * Generate a PolarAzimuthal element (`<angle>` or the nested `<bias>` used by
+ * an isotropic source). OpenMC only accepts this element as an angle bias.
+ * @param angle - mu-phi angular distribution.
+ * @param elementName - Element name (`angle` or `bias`).
+ * @param indent - Leading spaces.
+ * @returns XML text, or an empty string when invalid.
+ */
+function generateMuPhiElement(angle: OpenMCMuPhiAngle, elementName: string, indent: number): string {
+    const pad = ' '.repeat(indent);
     if (angle.referenceUvW && !validNonZeroVector(angle.referenceUvW)) {
         return '';
     }
@@ -780,7 +923,7 @@ export function generateAngleXml(angle: OpenMCSourceAngle, indent = 0): string {
     if (!mu || !phi) {
         return '';
     }
-    return `${pad}<angle type="mu-phi"${referenceAttrs(angle)}>\n${mu}\n${phi}\n${pad}</angle>`;
+    return `${pad}<${elementName} type="mu-phi"${referenceAttrs(angle)}>\n${mu}\n${phi}\n${pad}</${elementName}>`;
 }
 
 /**
@@ -865,6 +1008,49 @@ function parseVector3(value: unknown): [number, number, number] | undefined {
  * @returns Parsed distribution, or undefined for unsupported/malformed types.
  */
 export function parseUnivariateXml(element: any): OpenMCSourceEnergy | undefined {
+    const parsed = parseUnivariateCoreXml(element);
+    if (!parsed) {
+        return undefined;
+    }
+    const bias = parseUnivariateBiasXml(parsed, element);
+    if (bias) {
+        parsed.bias = bias;
+    }
+    return parsed;
+}
+
+/**
+ * Parse the `<bias>` child of a univariate element. Continuous distributions
+ * nest a distribution; Discrete/Mixture carry a probability array.
+ * @param distribution - Parent distribution.
+ * @param element - xml2js distribution element.
+ * @returns Parsed bias, or undefined when absent/invalid.
+ */
+function parseUnivariateBiasXml(distribution: OpenMCSourceEnergy, element: any): OpenMCUnivariateBias | undefined {
+    const biasElement = element?.bias;
+    if (biasElement === undefined || biasElement === null) {
+        return undefined;
+    }
+    if (distribution.type === 'discrete' || distribution.type === 'mixture') {
+        if (typeof biasElement !== 'string' && typeof biasElement !== 'number') {
+            return undefined;
+        }
+        const probabilities = parseNumberList(biasElement);
+        return probabilities.length > 0 ? { probabilities } : undefined;
+    }
+    if (typeof biasElement !== 'object') {
+        return undefined;
+    }
+    const child = parseUnivariateXml(Array.isArray(biasElement) ? biasElement[0] : biasElement);
+    return child ? { distribution: child } : undefined;
+}
+
+/**
+ * Parse a univariate distribution element without its bias.
+ * @param element - xml2js element for a distribution.
+ * @returns Parsed distribution, or undefined for unsupported/malformed types.
+ */
+function parseUnivariateCoreXml(element: any): OpenMCSourceEnergy | undefined {
     if (!element) {
         return undefined;
     }
@@ -989,7 +1175,7 @@ export function parseTimeXml(element: any): OpenMCSourceTime | undefined {
     ) {
         return undefined;
     }
-    if (parsed.type === 'discrete' && parsed.energies.length === 1 && (parsed.probabilities?.[0] ?? 1) === 1) {
+    if (parsed.type === 'discrete' && parsed.energies.length === 1 && (parsed.probabilities?.[0] ?? 1) === 1 && !parsed.bias) {
         const delta: OpenMCDeltaTime = { type: 'delta', time: parsed.energies[0] };
         return delta;
     }
@@ -1008,7 +1194,17 @@ export function parseAngleXml(element: any, warnings?: string[]): OpenMCSourceAn
     }
     const type = xmlValue(element, 'type') ?? 'isotropic';
     if (type === 'isotropic') {
-        return { type: 'isotropic' };
+        const angle: OpenMCSourceAngle = { type: 'isotropic' };
+        const biasElement = element.bias;
+        if (biasElement && typeof biasElement === 'object') {
+            const bias = parseMuPhiElement(Array.isArray(biasElement) ? biasElement[0] : biasElement, warnings);
+            if (bias) {
+                angle.bias = { distribution: bias };
+            } else {
+                warnings?.push('Unsupported isotropic angle bias; the source will be treated as unbiased');
+            }
+        }
+        return angle;
     }
     if (type === 'monodirectional' || type === 'reference') {
         const reference = parseVector3(xmlValue(element, 'reference_uvw')) ?? [0, 0, 1];
@@ -1021,26 +1217,37 @@ export function parseAngleXml(element: any, warnings?: string[]): OpenMCSourceAn
         if (type === 'polar-azimuthal') {
             warnings?.push('Legacy angle type "polar-azimuthal" was imported as mu-phi');
         }
-        const parsedMu = parseUnivariateXml(element.mu);
-        const parsedPhi = parseUnivariateXml(element.phi);
-        if (element.mu && !parsedMu) {
-            warnings?.push('Unsupported mu distribution; defaulted to uniform on [-1, 1]');
-        }
-        if (element.phi && !parsedPhi) {
-            warnings?.push('Unsupported phi distribution; defaulted to uniform on [0, 2π]');
-        }
-        const mu = parsedMu ?? ({ type: 'uniform', min: -1, max: 1 } as OpenMCUniformUnivariate);
-        const phi = parsedPhi ?? ({ type: 'uniform', min: 0, max: TWO_PI } as OpenMCUniformUnivariate);
-        return {
-            type: 'mu-phi',
-            mu,
-            phi,
-            referenceUvW: parseVector3(xmlValue(element, 'reference_uvw')),
-            referenceVwu: parseVector3(xmlValue(element, 'reference_vwu'))
-        } as OpenMCMuPhiAngle;
+        return parseMuPhiElement(element, warnings);
     }
     warnings?.push(`Unsupported angular distribution type "${type}"; defaulted to isotropic`);
     return { type: 'isotropic' };
+}
+
+/**
+ * Parse a `mu-phi` (PolarAzimuthal) element, shared by top-level angles and
+ * the nested isotropic bias.
+ * @param element - xml2js element.
+ * @param warnings - Optional warning sink.
+ * @returns Parsed angular distribution, or undefined when mu/phi are invalid.
+ */
+function parseMuPhiElement(element: any, warnings?: string[]): OpenMCMuPhiAngle | undefined {
+    const parsedMu = parseUnivariateXml(element.mu);
+    const parsedPhi = parseUnivariateXml(element.phi);
+    if (element.mu && !parsedMu) {
+        warnings?.push('Unsupported mu distribution; defaulted to uniform on [-1, 1]');
+    }
+    if (element.phi && !parsedPhi) {
+        warnings?.push('Unsupported phi distribution; defaulted to uniform on [0, 2π]');
+    }
+    const mu = parsedMu ?? ({ type: 'uniform', min: -1, max: 1 } as OpenMCUniformUnivariate);
+    const phi = parsedPhi ?? ({ type: 'uniform', min: 0, max: TWO_PI } as OpenMCUniformUnivariate);
+    return {
+        type: 'mu-phi',
+        mu,
+        phi,
+        referenceUvW: parseVector3(xmlValue(element, 'reference_uvw')),
+        referenceVwu: parseVector3(xmlValue(element, 'reference_vwu'))
+    } as OpenMCMuPhiAngle;
 }
 
 /**
@@ -1124,6 +1331,10 @@ export function parseSpatialXml(element: any, warnings?: string[]): OpenMCSource
         if (strengths.length > 0) {
             cloud.strengths = strengths;
         }
+        const cloudBias = parseArrayBias(element);
+        if (cloudBias) {
+            cloud.bias = { probabilities: cloudBias };
+        }
         return cloud;
     }
     if (type === 'mesh') {
@@ -1140,10 +1351,28 @@ export function parseSpatialXml(element: any, warnings?: string[]): OpenMCSource
         if (strengths.length > 0) {
             mesh.strengths = strengths;
         }
+        const meshBias = parseArrayBias(element);
+        if (meshBias) {
+            mesh.bias = { probabilities: meshBias };
+        }
         return mesh;
     }
     warnings?.push(`Unsupported spatial distribution type "${type}"`);
     return undefined;
+}
+
+/**
+ * Parse the plain-text `<bias>` array used by point-cloud / mesh spatial
+ * distributions. Nested bias elements are not array bias.
+ * @param element - xml2js spatial element.
+ * @returns Probabilities, or undefined when absent.
+ */
+function parseArrayBias(element: any): number[] | undefined {
+    const bias = element?.bias;
+    if (bias === undefined || bias === null || typeof bias === 'object') {
+        return undefined;
+    }
+    return parseNumberList(bias);
 }
 
 /** Return the radius of a `Uniform(0, R)` distribution, or undefined. */
@@ -1349,8 +1578,150 @@ function validateDiscrete(
     }
 }
 
-/** Validate a univariate distribution in the given context. */
+/**
+ * Validate a univariate distribution in the given context, including its
+ * optional importance-sampling bias.
+ * @param distribution - Distribution to validate.
+ * @param issues - Finding sink.
+ * @param scope - Editor section.
+ * @param label - Human label for messages.
+ */
 function validateUnivariate(
+    distribution: OpenMCSourceEnergy,
+    issues: SourceDistributionIssue[],
+    scope: SourceDistributionScope,
+    label: string
+): void {
+    validateUnivariateCore(distribution, issues, scope, label);
+    validateUnivariateBias(distribution, issues, scope, label);
+}
+
+/**
+ * Validate the optional bias attached to a univariate distribution against
+ * OpenMC's `check_bias_support` rules.
+ * @param distribution - Parent distribution.
+ * @param issues - Finding sink.
+ * @param scope - Editor section.
+ * @param label - Human label for messages.
+ */
+function validateUnivariateBias(
+    distribution: OpenMCSourceEnergy,
+    issues: SourceDistributionIssue[],
+    scope: SourceDistributionScope,
+    label: string
+): void {
+    const bias = distribution.bias;
+    if (!bias) {
+        return;
+    }
+    if (distribution.type === 'decay-spectrum') {
+        add(
+            issues,
+            scope,
+            `${label} decay spectra cannot be biased`,
+            'Remove the bias or use another energy distribution (OpenMC constructs DecaySpectrum with bias=None)'
+        );
+        return;
+    }
+    if ('probabilities' in bias) {
+        if (distribution.type !== 'discrete' && distribution.type !== 'mixture') {
+            add(
+                issues,
+                scope,
+                `${label} bias must be a distribution for this continuous type`,
+                'Choose a bias distribution with the same support instead of a probability array'
+            );
+            return;
+        }
+        const expected = distribution.type === 'discrete' ? distribution.energies.length : distribution.distributions.length;
+        if (bias.probabilities.length !== expected) {
+            add(
+                issues,
+                scope,
+                `${label} bias has ${bias.probabilities.length} probabilities but needs ${expected}`,
+                distribution.type === 'discrete'
+                    ? 'Provide one bias probability per sampled value'
+                    : 'Provide one bias probability per mixture component'
+            );
+        }
+        if (bias.probabilities.some((probability) => !Number.isFinite(probability) || probability < 0)) {
+            add(
+                issues,
+                scope,
+                `${label} bias probabilities must be non-negative numbers`,
+                'Replace negative or empty bias probabilities with values at least zero'
+            );
+        }
+        if (!bias.probabilities.some((probability) => Number.isFinite(probability) && probability > 0)) {
+            add(issues, scope, `${label} bias probabilities cannot all be zero`, 'Give at least one value a positive probability');
+        }
+        return;
+    }
+
+    if (distribution.type === 'discrete' || distribution.type === 'mixture') {
+        add(
+            issues,
+            scope,
+            `${label} bias must be a probability array for this discrete type`,
+            'OpenMC requires alternative probabilities, not a nested distribution, for Discrete and Mixture'
+        );
+        return;
+    }
+    if (bias.distribution.bias) {
+        add(
+            issues,
+            scope,
+            `${label} bias distribution must not have its own bias`,
+            'Remove the nested bias from the bias distribution (OpenMC forbids chained source bias)'
+        );
+    }
+    const parentSupport = univariateSupport(distribution);
+    const biasSupport = univariateSupport(bias.distribution);
+    if (!parentSupport || !biasSupport) {
+        add(
+            issues,
+            scope,
+            `${label} bias distribution type has no compatible support`,
+            'Use a continuous distribution (for example Uniform, Tabular, Maxwell, Watt, or Normal)'
+        );
+        return;
+    }
+    if (parentSupport[0] !== biasSupport[0] || parentSupport[1] !== biasSupport[1]) {
+        add(
+            issues,
+            scope,
+            `${label} bias support [${fmt(biasSupport[0])}, ${fmt(biasSupport[1])}] must match the parent support [${fmt(
+                parentSupport[0]
+            )}, ${fmt(parentSupport[1])}]`,
+            'Match the bias interval to the parent distribution (OpenMC rejects mismatched support)'
+        );
+    }
+}
+
+/** Support interval for a univariate distribution, or undefined when not continuous. */
+function univariateSupport(distribution: OpenMCSourceEnergy): [number, number] | undefined {
+    switch (distribution.type) {
+        case 'uniform':
+            return [distribution.min, distribution.max];
+        case 'powerlaw':
+            return [distribution.a, distribution.b];
+        case 'tabular':
+            return distribution.energies.length > 0
+                ? [distribution.energies[0], distribution.energies[distribution.energies.length - 1]]
+                : undefined;
+        case 'maxwell':
+        case 'watt':
+            return [0, Infinity];
+        case 'normal':
+        case 'muir':
+            return [-Infinity, Infinity];
+        default:
+            return undefined;
+    }
+}
+
+/** Validate a univariate distribution without its bias. */
+function validateUnivariateCore(
     distribution: OpenMCSourceEnergy,
     issues: SourceDistributionIssue[],
     scope: SourceDistributionScope,
@@ -1592,6 +1963,50 @@ function validateEnergy(
 
 /** Validate an angular distribution. */
 function validateAngle(angle: OpenMCSourceAngle, issues: SourceDistributionIssue[]): void {
+    if (angle.type === 'isotropic') {
+        if (!angle.bias) {
+            return;
+        }
+        const bias = angle.bias.distribution;
+        if (bias.type !== 'mu-phi') {
+            add(
+                issues,
+                'angle',
+                'Isotropic angle bias must be a polar-azimuthal (mu-phi) distribution',
+                'Choose a mu-phi bias distribution'
+            );
+            return;
+        }
+        const muSupport = univariateSupport(bias.mu);
+        const phiSupport = univariateSupport(bias.phi);
+        if (!muSupport || Math.abs(muSupport[0] + 1) > 1e-9 || Math.abs(muSupport[1] - 1) > 1e-9) {
+            add(
+                issues,
+                'angle',
+                'Biased isotropic mu distribution must be supported on exactly [-1, 1]',
+                'Use a Uniform(-1, 1) or Tabular distribution spanning -1 to 1'
+            );
+        }
+        if (!phiSupport || Math.abs(phiSupport[0]) > 1e-9 || Math.abs(phiSupport[1] - TWO_PI) > 1e-9) {
+            add(
+                issues,
+                'angle',
+                'Biased isotropic phi distribution must be supported on exactly [0, 2π]',
+                'Use a Uniform(0, 2π) or Tabular distribution spanning 0 to 2π'
+            );
+        }
+        if (bias.mu.bias || bias.phi.bias) {
+            add(
+                issues,
+                'angle',
+                'Angle bias distributions must not have their own bias',
+                'Remove the nested bias from mu and phi (OpenMC forbids chained bias)'
+            );
+        }
+        validateUnivariate(bias.mu, issues, 'angle', 'Angle-bias mu distribution');
+        validateUnivariate(bias.phi, issues, 'angle', 'Angle-bias phi distribution');
+        return;
+    }
     if (angle.type === 'monodirectional') {
         if (angle.referenceUvW && !validNonZeroVector(angle.referenceUvW)) {
             add(
@@ -1643,6 +2058,14 @@ function validateTime(time: OpenMCSourceTime, issues: SourceDistributionIssue[])
 
 /** Validate a spatial distribution. */
 function validateSpatial(spatial: OpenMCSourceSpatial, issues: SourceDistributionIssue[], meshes: OpenMCMesh[]): void {
+    if (spatial.type !== 'pointcloud' && spatial.type !== 'mesh' && (spatial as { bias?: unknown }).bias) {
+        add(
+            issues,
+            'spatial',
+            `OpenMC does not support bias for the '${spatial.type}' spatial distribution`,
+            'Use a point-cloud or mesh spatial distribution, or bias the energy/direction instead'
+        );
+    }
     switch (spatial.type) {
         case 'point':
             if (spatial.origin.length !== 3 || !spatial.origin.every((v) => Number.isFinite(v))) {
@@ -1756,6 +2179,17 @@ function validateSpatial(spatial: OpenMCSourceSpatial, issues: SourceDistributio
                     );
                 }
             }
+            if (spatial.bias) {
+                if (!spatial.strengths) {
+                    add(
+                        issues,
+                        'spatial',
+                        'Point-cloud bias needs an explicit strengths array',
+                        'Add one strength per point (any positive scale) before biasing the point selection'
+                    );
+                }
+                validateArrayBias(spatial.bias, spatial.positions.length, issues, 'Point cloud');
+            }
             return;
         }
         case 'mesh': {
@@ -1797,9 +2231,60 @@ function validateSpatial(spatial: OpenMCSourceSpatial, issues: SourceDistributio
                     );
                 }
             }
+            if (spatial.bias) {
+                if (!spatial.strengths) {
+                    add(
+                        issues,
+                        'spatial',
+                        'Mesh-spatial bias needs an explicit strengths array',
+                        'Add one strength per mesh element before biasing element selection'
+                    );
+                }
+                const expected = elementCount ?? spatial.strengths?.length;
+                validateArrayBias(spatial.bias, expected, issues, 'Mesh spatial');
+            }
             return;
         }
         default:
             add(issues, 'spatial', 'Unsupported spatial distribution', 'Choose a supported spatial type');
+    }
+}
+
+/**
+ * Validate per-element array bias used by point-cloud / mesh spatial
+ * distributions.
+ * @param bias - Array bias to validate.
+ * @param expected - Required probability count.
+ * @param issues - Finding sink.
+ * @param label - Human label for messages.
+ */
+function validateArrayBias(bias: OpenMCArrayBias, expected: number | undefined, issues: SourceDistributionIssue[], label: string): void {
+    if (bias.probabilities.length === 0) {
+        add(issues, 'spatial', `${label} bias has no probabilities`, 'Add one non-negative probability per point or mesh element');
+        return;
+    }
+    if (expected !== undefined && bias.probabilities.length !== expected) {
+        add(
+            issues,
+            'spatial',
+            `${label} bias has ${bias.probabilities.length} probabilities but needs ${expected}`,
+            'Provide exactly one bias probability per point or mesh element'
+        );
+    }
+    if (bias.probabilities.some((probability) => !Number.isFinite(probability) || probability < 0)) {
+        add(
+            issues,
+            'spatial',
+            `${label} bias probabilities must be non-negative numbers`,
+            'Replace negative or empty values with at least zero'
+        );
+    }
+    if (!bias.probabilities.some((probability) => Number.isFinite(probability) && probability > 0)) {
+        add(
+            issues,
+            'spatial',
+            `${label} bias probabilities cannot all be zero`,
+            'Give at least one element a positive sampling probability'
+        );
     }
 }

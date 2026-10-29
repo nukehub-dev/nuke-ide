@@ -471,9 +471,49 @@ export interface OpenMCMaterial {
 export type OpenMCUnivariateType =
     'discrete' | 'uniform' | 'maxwell' | 'watt' | 'normal' | 'powerlaw' | 'tabular' | 'mixture' | 'decay-spectrum' | 'muir';
 
+/**
+ * Nested bias distribution for a continuous univariate (`<bias type="...">`).
+ * OpenMC requires the bias distribution to share the parent support interval
+ * and forbids a bias distribution that is itself biased.
+ */
+export interface OpenMCBiasDistribution {
+    /** Distribution sampled instead of the parent distribution. */
+    distribution: OpenMCUnivariate;
+}
+
+/**
+ * Alternative sampling probabilities for `Discrete` / `Mixture` (array bias,
+ * serialized as `<bias>p1 p2 ...</bias>`) and for point-cloud / mesh spatial
+ * distributions.
+ */
+export interface OpenMCBiasProbabilities {
+    probabilities: number[];
+}
+
+/** Bias attached to a univariate distribution (energy, time, or coordinate). */
+export type OpenMCUnivariateBias = OpenMCBiasDistribution | OpenMCBiasProbabilities;
+
+/**
+ * Array bias for point-cloud / mesh spatial distributions. The probabilities
+ * are normalized by OpenMC and must match the number of points or mesh
+ * elements.
+ */
+export interface OpenMCArrayBias {
+    probabilities: number[];
+}
+
+/** @deprecated Use {@link OpenMCUnivariateBias}; kept as the energy-specific name. */
+export type OpenMCEnergyBias = OpenMCUnivariateBias;
+
 /** Base univariate distribution definition */
 export interface OpenMCUnivariateBase {
     type: OpenMCUnivariateType;
+    /**
+     * Optional importance-sampling bias. Continuous distributions carry a
+     * nested distribution (same support); Discrete/Mixture carry alternative
+     * probabilities. Decay spectra cannot be biased (OpenMC fixes bias=None).
+     */
+    bias?: OpenMCUnivariateBias;
 }
 
 /**
@@ -680,6 +720,11 @@ export interface OpenMCPointCloudSpatial extends OpenMCSourceSpatialBase {
     positions: [number, number, number][];
     /** Optional relative probability per point; length must match positions */
     strengths?: number[];
+    /**
+     * Optional biased sampling probabilities per point (OpenMC
+     * `PointCloud(..., bias=...)`). Requires a matching strengths array.
+     */
+    bias?: OpenMCArrayBias;
 }
 
 /** Mesh spatial distribution (`<space type="mesh">`) */
@@ -689,6 +734,11 @@ export interface OpenMCMeshSpatial extends OpenMCSourceSpatialBase {
     meshId?: number;
     /** Optional relative source strength per mesh element */
     strengths?: number[];
+    /**
+     * Optional biased sampling probabilities per mesh element (OpenMC
+     * `MeshSpatial(..., bias=...)`). Requires a matching strengths array.
+     */
+    bias?: OpenMCArrayBias;
     /**
      * Multiply strengths by element volume. The editor/Python default is true;
      * C++ treats an omitted XML attribute as false, and import follows C++.
@@ -757,9 +807,21 @@ export type OpenMCSourceEnergy = OpenMCUnivariate;
 // Angular and time distributions
 // ----------------------------------------------------------------------------
 
+/**
+ * Angle bias for an isotropic distribution. OpenMC only accepts a
+ * PolarAzimuthal (`mu-phi`) bias for `Isotropic`, supported on mu = [-1, 1]
+ * and phi = [0, 2π], and the bias distributions may not carry their own bias.
+ */
+export interface OpenMCAngleBias {
+    /** Polar-azimuthal distribution sampled instead of the isotropic one. */
+    distribution: OpenMCMuPhiAngle;
+}
+
 /** Isotropic angular distribution */
 export interface OpenMCIsotropicAngle {
     type: 'isotropic';
+    /** Optional biased angular sampling (PolarAzimuthal). */
+    bias?: OpenMCAngleBias;
 }
 
 /** Monodirectional angular distribution (all particles follow one direction) */
@@ -1670,23 +1732,42 @@ export type OpenMCMesh = OpenMCRegularMesh | OpenMCRectilinearMesh | OpenMCCylin
  * @see {@link OpenMCVarianceReduction}
  */
 
-/** Weight window settings */
+/** Weight window settings (one `<weight_windows>` set) */
 export interface OpenMCWeightWindows {
+    /**
+     * Unique set identifier emitted as `<weight_windows id="...">`. Assigned
+     * deterministically (1, 2, ...) when absent so older single-set projects
+     * load unchanged.
+     */
+    id?: number;
     /** Mesh ID for weight windows */
     meshId: number;
-    /** Lower weight bounds */
+    /** Lower weight bounds (scalar broadcasts to every cell/group) */
     lowerBound: number | number[];
-    /** Upper weight bounds */
+    /** Upper weight bounds (defaults to 2× the lower bound) */
     upperBound?: number | number[];
-    /** Survival weight */
+    /**
+     * Survival ratio emitted as `<survival_ratio>` (ratio of survival weight
+     * to the lower weight window bound). Retained field name for compatibility
+     * with older project files.
+     */
     survivalWeight?: number;
     /** Particle type */
-    particleType?: 'neutron' | 'photon';
+    particleType?: 'neutron' | 'photon' | string;
     /** Energy bounds for energy-dependent weight windows */
     energyBounds?: number[];
+    /** Maximum number of splits per history (default 10) */
+    maxSplit?: number;
+    /** Weight cutoff below which particles are terminated (default 1e-38) */
+    weightCutoff?: number;
 }
 
-/** Source biasing settings */
+/**
+ * Source biasing settings from older project files.
+ * @deprecated Source bias is configured on each source distribution
+ * (`energy.bias`, `angle.bias`, spatial `bias`); this object is migrated on
+ * load and never emitted.
+ */
 export interface OpenMCSourceBiasing {
     /** Strength bias factor */
     strengthBias?: number;
@@ -1700,14 +1781,26 @@ export interface OpenMCSourceBiasing {
 export interface OpenMCUFS {
     /** Whether UFS is enabled */
     enabled?: boolean;
-    /** Mesh ID for UFS (if not specified, uses weight window mesh) */
+    /** Regular mesh ID for UFS; required when enabled */
     meshId?: number;
 }
 
 /** Variance reduction settings */
 export interface OpenMCVarianceReduction {
-    /** Weight windows definition */
-    weightWindows?: OpenMCWeightWindows;
+    /** Weight window sets (one or more `<weight_windows>` blocks) */
+    weightWindows?: OpenMCWeightWindows[];
+    /** HDF5 weight window file loaded at simulation start */
+    weightWindowsFile?: string;
+    /**
+     * Whether weight windows are applied (`<weight_windows_on>`). Defaults to
+     * true when sets or a file exist; explicit false disables transport checks.
+     */
+    weightWindowsOn?: boolean;
+    /** Weight-window split/roulette checkpoints (collision default true) */
+    weightWindowCheckpoints?: {
+        collision?: boolean;
+        surface?: boolean;
+    };
     /** Weight window generator settings */
     weightWindowGenerator?: {
         /** Mesh ID for the generated weight windows */
@@ -1727,9 +1820,12 @@ export interface OpenMCVarianceReduction {
         /** Legacy iterations field (maps to maxRealizations when present) */
         iterations?: number;
         /** Particle type */
-        particleType?: 'neutron' | 'photon';
+        particleType?: 'neutron' | 'photon' | string;
     };
-    /** Source biasing settings */
+    /**
+     * @deprecated Migrated to the first independent source on load; never
+     * emitted or shown as a control.
+     */
     sourceBiasing?: OpenMCSourceBiasing;
     /** Survival biasing toggle */
     survivalBiasing?: boolean;

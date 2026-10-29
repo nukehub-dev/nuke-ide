@@ -230,7 +230,14 @@ export function computeSetupChecklist(state: OpenMCState): ChecklistItem[] {
     const vr = state.varianceReduction;
     const hasVR =
         !!vr &&
-        !!(vr.survivalBiasing || vr.weightWindows || vr.sourceBiasing || vr.weightWindowGenerator || vr.cutoff?.weight !== undefined);
+        !!(
+            vr.survivalBiasing ||
+            (vr.weightWindows?.length ?? 0) > 0 ||
+            vr.weightWindowsFile ||
+            vr.weightWindowGenerator ||
+            vr.ufs?.enabled ||
+            vr.cutoff?.weight !== undefined
+        );
     items.push({
         id: 'variance-reduction',
         label: 'Variance Reduction',

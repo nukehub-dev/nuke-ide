@@ -12,6 +12,7 @@
 import { OpenMCProjectFile, OpenMCSource, OPENMC_STATE_SCHEMA_VERSION } from './openmc-state-schema';
 import { normalizeGeometryForLoad } from './geometry-lattices';
 import { normalizeLegacySource } from './source-utils';
+import { migrateLegacyVarianceReduction } from './variance-reduction';
 
 /** A single migration step: upgrades a project file from one schema version to the next. */
 export type ProjectMigrationStep = (project: OpenMCProjectFile) => OpenMCProjectFile;
@@ -54,6 +55,8 @@ export interface ProjectMigrationResult {
     project: OpenMCProjectFile;
     /** The original version, when a migration was applied. */
     migratedFrom?: string;
+    /** Non-fatal normalization notes (retired fields that were converted or dropped). */
+    warnings?: string[];
 }
 
 /**
@@ -65,7 +68,7 @@ export interface ProjectMigrationResult {
  */
 export function migrateProjectFile(project: OpenMCProjectFile): ProjectMigrationResult {
     if (project.version === OPENMC_STATE_SCHEMA_VERSION) {
-        return { project: normalizeProjectFile(project) };
+        return normalizeProjectFile(project);
     }
 
     const from = project.version;
@@ -85,31 +88,32 @@ export function migrateProjectFile(project: OpenMCProjectFile): ProjectMigration
         }
     }
 
-    return { project: normalizeProjectFile(current), migratedFrom: from };
+    return { ...normalizeProjectFile(current), migratedFrom: from };
 }
 
 /**
  * Canonicalize representation that is not tied to a schema version bump:
- * retired lattice types/fields, the root-universe flags, and legacy source
- * time/angle shapes are normalized on every load, so old projects open
- * unchanged and keep round-tripping.
+ * retired lattice types/fields, the root-universe flags, legacy source
+ * time/angle shapes, and the single-set/sourceBiasing variance-reduction
+ * shapes are normalized on every load, so old projects open unchanged and keep
+ * round-tripping.
  * @param project - Parsed project file.
- * @returns Project with canonical geometry and sources.
+ * @returns Normalized project and non-fatal migration warnings.
  */
-function normalizeProjectFile(project: OpenMCProjectFile): OpenMCProjectFile {
-    if (!project.state?.geometry) {
-        return project;
-    }
-    const sources = project.state.settings.sources;
+function normalizeProjectFile(project: OpenMCProjectFile): ProjectMigrationResult {
+    const sources = (project.state?.settings?.sources ?? []).map((source: OpenMCSource) => normalizeLegacySource(source));
+    const vrMigration = migrateLegacyVarianceReduction(project.state?.varianceReduction, sources);
+    const state = {
+        ...project.state,
+        geometry: project.state?.geometry ? normalizeGeometryForLoad(project.state.geometry) : project.state?.geometry,
+        settings: {
+            ...project.state.settings,
+            sources: vrMigration.sources
+        },
+        varianceReduction: vrMigration.varianceReduction
+    };
     return {
-        ...project,
-        state: {
-            ...project.state,
-            geometry: normalizeGeometryForLoad(project.state.geometry),
-            settings: {
-                ...project.state.settings,
-                sources: sources.map((source: OpenMCSource) => normalizeLegacySource(source))
-            }
-        }
+        project: { ...project, state },
+        warnings: vrMigration.warnings.length > 0 ? vrMigration.warnings : undefined
     };
 }

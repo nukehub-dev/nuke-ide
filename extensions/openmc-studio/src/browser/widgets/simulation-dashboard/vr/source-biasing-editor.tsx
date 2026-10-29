@@ -26,433 +26,239 @@
 // *****************************************************************************
 
 /**
+ * Inline source-distribution bias controls.
+ *
+ * OpenMC biases distributions, not a source-level "strength". These controls
+ * therefore live inside the energy/time/direction/spatial sections of a source
+ * card. Continuous univariates nest a `<bias>` distribution, Discrete/Mixture
+ * carry alternative probabilities, an isotropic direction uses a
+ * PolarAzimuthal bias, and point-cloud/mesh spatial distributions use per-point
+ * or per-element probability arrays.
+ *
  * @module openmc-studio/browser/widgets/vr
  */
 
 import * as React from '@theia/core/shared/react';
-import { OpenMCSourceBiasing, OpenMCSourceEnergy, OpenMCSourceSpatial } from '../../../../common/openmc-state-schema';
-import { Tooltip, NukeSelect } from 'nuke-essentials/lib/theme/browser/components';
+import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
+import {
+    OpenMCAngleBias,
+    OpenMCMuPhiAngle,
+    OpenMCSourceAngle,
+    OpenMCSourceEnergy,
+    OpenMCSourceTime
+} from '../../../../common/openmc-state-schema';
+import { defaultAngleBias, defaultArrayBias, defaultUnivariateBias, stripBias } from '../../../../common/variance-reduction';
+import { UnivariateEditor } from '../tabs/settings/source-distributions';
 
-/** Props for the {@link SourceBiasingEditor} component. */
-export interface SourceBiasingEditorProps {
-    /** Current source biasing configuration, if any. */
-    sourceBiasing?: OpenMCSourceBiasing;
-    /** Callback invoked when the source biasing configuration changes. */
-    onChange: (updates: Partial<OpenMCSourceBiasing>) => void;
-    /** Callback invoked to enable or disable source biasing entirely. */
+/** Continuous distribution types offered for a nested bias. */
+const CONTINUOUS_BIAS_TYPES: OpenMCSourceEnergy['type'][] = ['uniform', 'maxwell', 'watt', 'normal', 'muir', 'powerlaw', 'tabular'];
+
+/** Props shared by the inline bias controls. */
+interface BiasToggleProps {
+    /** Whether the distribution currently carries a bias. */
+    enabled: boolean;
+    /** Human label for the biased distribution (for example "energy"). */
+    label: string;
+    /** Toggle callback. */
     onToggle: (enabled: boolean) => void;
 }
 
 /**
- * Editor for configuring OpenMC source biasing parameters.
- *
- * Provides controls for strength, energy, and spatial biasing,
- * allowing users to bias source particle distributions toward important regions.
- *
- * @see {@link OpenMCSourceBiasing} for the data model
+ * Shared "Bias sampling" switch with the importance-sampling explanation.
+ * @param props - Toggle props.
+ * @returns Toggle row React node.
  */
-export const SourceBiasingEditor: React.FC<SourceBiasingEditorProps> = ({ sourceBiasing, onChange, onToggle }) => {
-    const isEnabled = !!sourceBiasing;
-    const sb = sourceBiasing || {};
-
+export function BiasToggle(props: BiasToggleProps): React.ReactNode {
     return (
-        <div className="source-biasing-editor">
-            {/* Enable/Disable Card */}
-            <div className={`vr-enable-card ${isEnabled ? 'enabled' : ''}`}>
-                <div className="enable-card-content">
-                    <div className="enable-icon">
-                        <i className={`codicon ${isEnabled ? 'codicon-check' : 'codicon-target'}`}></i>
-                    </div>
-                    <div className="enable-text">
-                        <h3>Source Biasing</h3>
-                        <p>
-                            {isEnabled
-                                ? 'Bias source particle distributions to favor important regions.'
-                                : 'Enable to bias source sampling toward regions of interest for better statistics.'}
-                        </p>
-                    </div>
-                    <button className={`theia-button ${isEnabled ? 'secondary' : 'primary'}`} onClick={() => onToggle(!isEnabled)}>
-                        <i className={`codicon ${isEnabled ? 'codicon-close' : 'codicon-play'}`}></i>
-                        {isEnabled ? 'Disable' : 'Enable'}
-                    </button>
-                </div>
-
-                {!isEnabled && (
-                    <div className="enable-benefits">
-                        <div className="benefit-item">
-                            <i className="codicon codicon-location"></i>
-                            <span>Spatial biasing toward important regions</span>
-                        </div>
-                        <div className="benefit-item">
-                            <i className="codicon codicon-flame"></i>
-                            <span>Energy biasing for specific reactions</span>
-                        </div>
-                        <div className="benefit-item">
-                            <i className="codicon codicon-zap"></i>
-                            <span>Reduce variance in tallies</span>
-                        </div>
-                    </div>
-                )}
-            </div>
-
-            {isEnabled && (
-                <>
-                    {/* Strength Bias */}
-                    <div className="settings-section">
-                        <h3>
-                            <i className="codicon codicon-zap"></i>
-                            Strength Bias
-                        </h3>
-
-                        <div className="form-group">
-                            <label>
-                                Strength Bias Factor
-                                <Tooltip content="Factor to adjust source particle weights when biasing" position="top">
-                                    <i className="codicon codicon-info info-icon"></i>
-                                </Tooltip>
-                            </label>
-                            <input
-                                type="number"
-                                min={0}
-                                step={0.1}
-                                value={sb.strengthBias || ''}
-                                placeholder="1.0 (no bias)"
-                                onChange={(e) => {
-                                    const val = e.target.value ? parseFloat(e.target.value) : undefined;
-                                    onChange({ ...sb, strengthBias: val });
-                                }}
-                            />
-                            <span className="form-hint">Weight adjustment factor for biased sources (default: 1.0)</span>
-                        </div>
-                    </div>
-
-                    {/* Energy Bias */}
-                    <div className="settings-section">
-                        <h3>
-                            <i className="codicon codicon-flame"></i>
-                            Energy Biasing
-                        </h3>
-
-                        <div className="form-group">
-                            <label>Bias Type</label>
-                            <NukeSelect
-                                value={sb.energyBias?.type || 'none'}
-                                options={[
-                                    { value: 'none', label: 'No Energy Bias' },
-                                    { value: 'discrete', label: 'Discrete' },
-                                    { value: 'uniform', label: 'Uniform' },
-                                    { value: 'maxwell', label: 'Maxwell' },
-                                    { value: 'watt', label: 'Watt' }
-                                ]}
-                                onChange={(value: string) => {
-                                    const type = value as OpenMCSourceEnergy['type'] | 'none';
-                                    if (type === 'none') {
-                                        onChange({ ...sb, energyBias: undefined });
-                                    } else {
-                                        let energyBias: OpenMCSourceEnergy;
-                                        switch (type) {
-                                            case 'discrete':
-                                                energyBias = { type: 'discrete', energies: [1e6] };
-                                                break;
-                                            case 'uniform':
-                                                energyBias = { type: 'uniform', min: 0, max: 10e6 };
-                                                break;
-                                            case 'maxwell':
-                                                energyBias = { type: 'maxwell', temperature: 300 };
-                                                break;
-                                            case 'watt':
-                                                energyBias = { type: 'watt', a: 0.965, b: 2.29 };
-                                                break;
-                                            default:
-                                                energyBias = { type: 'discrete', energies: [1e6] };
-                                        }
-                                        onChange({ ...sb, energyBias });
-                                    }
-                                }}
-                                ariaLabel="Energy bias type"
-                            />
-                        </div>
-
-                        {sb.energyBias?.type === 'discrete' && (
-                            <div className="form-group">
-                                <label>Biased Energy (eV)</label>
-                                <input
-                                    type="number"
-                                    step="0.1"
-                                    value={(sb.energyBias as any).energies?.[0] || 1e6}
-                                    onChange={(e) => {
-                                        onChange({
-                                            ...sb,
-                                            energyBias: { type: 'discrete', energies: [parseFloat(e.target.value) || 1e6] }
-                                        });
-                                    }}
-                                />
-                            </div>
-                        )}
-
-                        {sb.energyBias?.type === 'uniform' && (
-                            <div className="form-row">
-                                <div className="form-group">
-                                    <label>Min Energy (eV)</label>
-                                    <input
-                                        type="number"
-                                        step="0.1"
-                                        value={(sb.energyBias as any).min || 0}
-                                        onChange={(e) => {
-                                            onChange({
-                                                ...sb,
-                                                energyBias: { ...(sb.energyBias as any), min: parseFloat(e.target.value) || 0 }
-                                            });
-                                        }}
-                                    />
-                                </div>
-                                <div className="form-group">
-                                    <label>Max Energy (eV)</label>
-                                    <input
-                                        type="number"
-                                        step="0.1"
-                                        value={(sb.energyBias as any).max || 10e6}
-                                        onChange={(e) => {
-                                            onChange({
-                                                ...sb,
-                                                energyBias: { ...(sb.energyBias as any), max: parseFloat(e.target.value) || 10e6 }
-                                            });
-                                        }}
-                                    />
-                                </div>
-                            </div>
-                        )}
-
-                        {sb.energyBias?.type === 'maxwell' && (
-                            <div className="form-group">
-                                <label>Temperature (K)</label>
-                                <input
-                                    type="number"
-                                    step="1"
-                                    value={(sb.energyBias as any).temperature || 300}
-                                    onChange={(e) => {
-                                        onChange({
-                                            ...sb,
-                                            energyBias: { type: 'maxwell', temperature: parseFloat(e.target.value) || 300 }
-                                        });
-                                    }}
-                                />
-                            </div>
-                        )}
-
-                        {sb.energyBias?.type === 'watt' && (
-                            <div className="form-row">
-                                <div className="form-group">
-                                    <label>a Parameter</label>
-                                    <input
-                                        type="number"
-                                        step="0.001"
-                                        value={(sb.energyBias as any).a || 0.965}
-                                        onChange={(e) => {
-                                            onChange({
-                                                ...sb,
-                                                energyBias: { ...(sb.energyBias as any), a: parseFloat(e.target.value) || 0.965 }
-                                            });
-                                        }}
-                                    />
-                                </div>
-                                <div className="form-group">
-                                    <label>b Parameter</label>
-                                    <input
-                                        type="number"
-                                        step="0.001"
-                                        value={(sb.energyBias as any).b || 2.29}
-                                        onChange={(e) => {
-                                            onChange({
-                                                ...sb,
-                                                energyBias: { ...(sb.energyBias as any), b: parseFloat(e.target.value) || 2.29 }
-                                            });
-                                        }}
-                                    />
-                                </div>
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Spatial Bias */}
-                    <div className="settings-section">
-                        <h3>
-                            <i className="codicon codicon-location"></i>
-                            Spatial Biasing
-                        </h3>
-
-                        <div className="form-group">
-                            <label>Bias Type</label>
-                            <NukeSelect
-                                value={sb.spatialBias?.type || 'none'}
-                                options={[
-                                    { value: 'none', label: 'No Spatial Bias' },
-                                    { value: 'point', label: 'Point' },
-                                    { value: 'box', label: 'Box' },
-                                    { value: 'sphere', label: 'Sphere' }
-                                ]}
-                                onChange={(value: string) => {
-                                    const type = value as OpenMCSourceSpatial['type'] | 'none';
-                                    if (type === 'none') {
-                                        onChange({ ...sb, spatialBias: undefined });
-                                    } else {
-                                        let spatialBias: OpenMCSourceSpatial;
-                                        switch (type) {
-                                            case 'point':
-                                                spatialBias = { type: 'point', origin: [0, 0, 0] };
-                                                break;
-                                            case 'box':
-                                                spatialBias = { type: 'box', lowerLeft: [-1, -1, -1], upperRight: [1, 1, 1] };
-                                                break;
-                                            case 'sphere':
-                                                spatialBias = { type: 'sphere', center: [0, 0, 0], radius: 1 };
-                                                break;
-                                            default:
-                                                spatialBias = { type: 'point', origin: [0, 0, 0] };
-                                        }
-                                        onChange({ ...sb, spatialBias });
-                                    }
-                                }}
-                                ariaLabel="Spatial bias type"
-                            />
-                        </div>
-
-                        {sb.spatialBias?.type === 'point' && (
-                            <div className="form-row">
-                                {['X', 'Y', 'Z'].map((coord, idx) => (
-                                    <div key={coord} className="form-group">
-                                        <label>{coord}</label>
-                                        <input
-                                            type="number"
-                                            step="0.1"
-                                            value={(sb.spatialBias as any).origin?.[idx] || 0}
-                                            onChange={(e) => {
-                                                const currentOrigin = ((sb.spatialBias as any).origin as [number, number, number]) || [
-                                                    0, 0, 0
-                                                ];
-                                                const origin: [number, number, number] = [
-                                                    idx === 0 ? parseFloat(e.target.value) || 0 : currentOrigin[0],
-                                                    idx === 1 ? parseFloat(e.target.value) || 0 : currentOrigin[1],
-                                                    idx === 2 ? parseFloat(e.target.value) || 0 : currentOrigin[2]
-                                                ];
-                                                onChange({
-                                                    ...sb,
-                                                    spatialBias: { type: 'point', origin }
-                                                });
-                                            }}
-                                        />
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-
-                        {sb.spatialBias?.type === 'box' && (
-                            <>
-                                <div className="form-row">
-                                    {['Min X', 'Min Y', 'Min Z'].map((label, idx) => (
-                                        <div key={label} className="form-group">
-                                            <label>{label}</label>
-                                            <input
-                                                type="number"
-                                                step="0.1"
-                                                value={(sb.spatialBias as any).lowerLeft?.[idx] ?? -1}
-                                                onChange={(e) => {
-                                                    const current = ((sb.spatialBias as any).lowerLeft as [number, number, number]) || [
-                                                        -1, -1, -1
-                                                    ];
-                                                    const lowerLeft: [number, number, number] = [
-                                                        idx === 0 ? parseFloat(e.target.value) || 0 : current[0],
-                                                        idx === 1 ? parseFloat(e.target.value) || 0 : current[1],
-                                                        idx === 2 ? parseFloat(e.target.value) || 0 : current[2]
-                                                    ];
-                                                    onChange({
-                                                        ...sb,
-                                                        spatialBias: { ...(sb.spatialBias as any), lowerLeft }
-                                                    });
-                                                }}
-                                            />
-                                        </div>
-                                    ))}
-                                </div>
-                                <div className="form-row">
-                                    {['Max X', 'Max Y', 'Max Z'].map((label, idx) => (
-                                        <div key={label} className="form-group">
-                                            <label>{label}</label>
-                                            <input
-                                                type="number"
-                                                step="0.1"
-                                                value={(sb.spatialBias as any).upperRight?.[idx] ?? 1}
-                                                onChange={(e) => {
-                                                    const current = ((sb.spatialBias as any).upperRight as [number, number, number]) || [
-                                                        1, 1, 1
-                                                    ];
-                                                    const upperRight: [number, number, number] = [
-                                                        idx === 0 ? parseFloat(e.target.value) || 0 : current[0],
-                                                        idx === 1 ? parseFloat(e.target.value) || 0 : current[1],
-                                                        idx === 2 ? parseFloat(e.target.value) || 0 : current[2]
-                                                    ];
-                                                    onChange({
-                                                        ...sb,
-                                                        spatialBias: { ...(sb.spatialBias as any), upperRight }
-                                                    });
-                                                }}
-                                            />
-                                        </div>
-                                    ))}
-                                </div>
-                            </>
-                        )}
-
-                        {sb.spatialBias?.type === 'sphere' && (
-                            <>
-                                <div className="form-row">
-                                    {['Center X', 'Center Y', 'Center Z'].map((label, idx) => (
-                                        <div key={label} className="form-group">
-                                            <label>{label}</label>
-                                            <input
-                                                type="number"
-                                                step="0.1"
-                                                value={(sb.spatialBias as any).center?.[idx] || 0}
-                                                onChange={(e) => {
-                                                    const currentCenter = ((sb.spatialBias as any).center as [number, number, number]) || [
-                                                        0, 0, 0
-                                                    ];
-                                                    const center: [number, number, number] = [
-                                                        idx === 0 ? parseFloat(e.target.value) || 0 : currentCenter[0],
-                                                        idx === 1 ? parseFloat(e.target.value) || 0 : currentCenter[1],
-                                                        idx === 2 ? parseFloat(e.target.value) || 0 : currentCenter[2]
-                                                    ];
-                                                    onChange({
-                                                        ...sb,
-                                                        spatialBias: { ...(sb.spatialBias as any), center }
-                                                    });
-                                                }}
-                                            />
-                                        </div>
-                                    ))}
-                                    <div className="form-group">
-                                        <label>Radius</label>
-                                        <input
-                                            type="number"
-                                            step="0.1"
-                                            min={0}
-                                            value={(sb.spatialBias as any).radius || 1}
-                                            onChange={(e) => {
-                                                onChange({
-                                                    ...sb,
-                                                    spatialBias: { ...(sb.spatialBias as any), radius: parseFloat(e.target.value) || 1 }
-                                                });
-                                            }}
-                                        />
-                                    </div>
-                                </div>
-                            </>
-                        )}
-                    </div>
-                </>
-            )}
+        <div className="source-bias-toggle">
+            <label className="source-bias-toggle-label">
+                <input type="checkbox" checked={props.enabled} onChange={(event) => props.onToggle(event.target.checked)} />
+                <span>Bias sampling</span>
+                <Tooltip
+                    content="Sample the source from a different distribution and adjust each particle's weight so the reported estimate stays unbiased."
+                    position="top"
+                >
+                    <i className="codicon codicon-info" aria-hidden="true"></i>
+                </Tooltip>
+            </label>
+            {props.enabled && <span className="source-bias-badge">biased {props.label}</span>}
         </div>
     );
-};
+}
 
-export default SourceBiasingEditor;
+/**
+ * Energy/time bias editor: nested continuous distribution, or an alternative
+ * probability array for Discrete/Mixture.
+ * @param props - Distribution and change callback.
+ * @returns Bias editor React node.
+ */
+export function UnivariateBiasEditor(props: {
+    value: OpenMCSourceEnergy;
+    onChange: (value: OpenMCSourceEnergy) => void;
+    domain: 'energy' | 'time';
+    label: string;
+}): React.ReactNode {
+    const bias = props.value.bias;
+    if (!bias) {
+        return null;
+    }
+    if ('probabilities' in bias) {
+        return (
+            <div className="source-bias-editor">
+                <label>{props.label} bias probabilities</label>
+                <input
+                    type="text"
+                    value={bias.probabilities.join(' ')}
+                    onChange={(event) => {
+                        const probabilities = event.target.value
+                            .trim()
+                            .split(/[\s,;]+/)
+                            .filter((part) => part.length > 0)
+                            .map(Number)
+                            .filter((value) => Number.isFinite(value));
+                        props.onChange({ ...props.value, bias: { probabilities } });
+                    }}
+                    aria-label={`${props.label} bias probabilities`}
+                />
+                <span className="form-hint">
+                    One non-negative probability per {props.value.type === 'mixture' ? 'mixture component' : 'sampled value'}; OpenMC
+                    normalizes them.
+                </span>
+            </div>
+        );
+    }
+    return (
+        <div className="source-bias-editor">
+            <UnivariateEditor
+                value={bias.distribution}
+                onChange={(distribution) => props.onChange({ ...props.value, bias: { distribution: stripBias(distribution) } })}
+                domain={props.domain}
+                allowedTypes={CONTINUOUS_BIAS_TYPES}
+                compact
+            />
+            <span className="form-hint">
+                The bias distribution must share the parent&apos;s support interval; a {props.domain === 'energy' ? 'Uniform' : 'time'}{' '}
+                range is the usual choice.
+            </span>
+        </div>
+    );
+}
+
+/**
+ * Isotropic angle bias editor (PolarAzimuthal).
+ * @param props - Isotropic angle, change callback, and toggle.
+ * @returns Angle bias editor React node.
+ */
+export function AngleBiasEditor(props: { angle: OpenMCSourceAngle; onChange: (angle: OpenMCSourceAngle) => void }): React.ReactNode {
+    if (props.angle.type !== 'isotropic' || !props.angle.bias) {
+        return null;
+    }
+    const bias = props.angle.bias.distribution;
+    return (
+        <div className="source-bias-editor">
+            <div className="source-bias-subhead">Biased polar-azimuthal sampling</div>
+            <UnivariateEditor
+                value={bias.mu}
+                onChange={(mu) => props.onChange({ type: 'isotropic', bias: { distribution: { ...bias, mu } } })}
+                domain="angle-mu"
+                compact
+            />
+            <UnivariateEditor
+                value={bias.phi}
+                onChange={(phi) => props.onChange({ type: 'isotropic', bias: { distribution: { ...bias, phi } } })}
+                domain="angle-phi"
+                compact
+            />
+            <span className="form-hint">mu must cover [-1, 1] and phi [0, 2π]; OpenMC rejects a narrower angle bias.</span>
+        </div>
+    );
+}
+
+/** Default bias for a time distribution (delta cannot be biased). */
+export function defaultTimeBias(time: OpenMCSourceTime): OpenMCSourceEnergy['bias'] {
+    if (time.type === 'delta') {
+        return undefined;
+    }
+    return defaultUnivariateBias(time);
+}
+
+/** Default bias for an isotropic angle. */
+export function defaultIsotropicBias(): OpenMCAngleBias {
+    return defaultAngleBias();
+}
+
+/**
+ * Build a default `mu-phi` bias object for UI state.
+ * @returns Polar-azimuthal bias distribution.
+ */
+export function defaultPolarBias(): OpenMCMuPhiAngle {
+    return defaultAngleBias().distribution;
+}
+
+/**
+ * Array bias editor for point-cloud / mesh spatial distributions.
+ * @param props - Current probabilities, expected count, and change callback.
+ * @returns Array bias editor React node.
+ */
+export function ArrayBiasEditor(props: {
+    probabilities: number[];
+    expected: number | undefined;
+    label: string;
+    onChange: (probabilities: number[]) => void;
+}): React.ReactNode {
+    const [text, setText] = React.useState(props.probabilities.join(' '));
+    const count = props.probabilities.length;
+    return (
+        <div className="source-bias-editor source-array-bias">
+            <div className="source-array-bias-header">
+                <label>{props.label} bias probabilities</label>
+                <span className="source-array-bias-summary">
+                    {count} value{count === 1 ? '' : 's'}
+                    {props.expected !== undefined ? ` · ${props.expected} required` : ''}
+                </span>
+            </div>
+            <textarea
+                value={text}
+                rows={3}
+                onChange={(event) => {
+                    setText(event.target.value);
+                    const probabilities = event.target.value
+                        .trim()
+                        .split(/[\s,;]+/)
+                        .filter((part) => part.length > 0)
+                        .map(Number)
+                        .filter((value) => Number.isFinite(value));
+                    props.onChange(probabilities);
+                }}
+                aria-label={`${props.label} bias probabilities`}
+            />
+            <div className="source-array-bias-actions">
+                <button
+                    type="button"
+                    className="theia-button secondary small"
+                    onClick={() => {
+                        const next = defaultArrayBias(props.expected ?? count).probabilities;
+                        setText(next.join(' '));
+                        props.onChange(next);
+                    }}
+                >
+                    <i className="codicon codicon-refresh"></i> Uniform
+                </button>
+            </div>
+            <span className="form-hint">
+                Enter one non-negative probability per point or mesh element. OpenMC normalizes the array and adjusts weights to keep the
+                estimate unbiased.
+            </span>
+        </div>
+    );
+}
+
+/** Truthful note for spatial types OpenMC cannot bias. */
+export function UnsupportedSpatialBiasNote(): React.ReactNode {
+    return (
+        <div className="source-bias-unsupported">
+            <i className="codicon codicon-info" aria-hidden="true"></i>
+            <span>OpenMC does not support bias for this spatial type. Use a point-cloud or mesh spatial distribution, or bias energy.</span>
+        </div>
+    );
+}

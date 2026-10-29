@@ -36,6 +36,7 @@ vi.mock('@theia/workspace/lib/browser/workspace-service', () => ({ WorkspaceServ
 import { generateAngleCode, generateSpatialCode, generateTimeCode, generateUnivariateCode } from './source-codegen';
 import { OpenMCPythonExporter } from './python-exporter';
 import { OpenMCState } from '../../common/openmc-state-schema';
+import { DEFAULT_OPENMC_COMPAT } from '../../common/openmc-studio-protocol';
 
 describe('Python source codegen', () => {
     it('declares named variables for nested mixture children', () => {
@@ -230,5 +231,178 @@ describe('Python exporter source wiring', () => {
         expect(script).toContain('source_0.time = source_0_time');
         expect(script).toContain('source_0.strength = 2');
         expect(script).toContain('settings.source = [source_0]');
+    });
+});
+
+describe('Python exporter bias and weight-window wiring', () => {
+    /** State with biased distributions, UFS, and multiple weight-window sets. */
+    function buildVrState(): OpenMCState {
+        const now = new Date().toISOString();
+        return {
+            metadata: { version: '1.1.0', name: 'VR Export', created: now, modified: now },
+            geometry: {
+                surfaces: [{ id: 1, type: 'sphere', coefficients: { x0: 0, y0: 0, z0: 0, r: 10 }, boundary: 'vacuum' }],
+                cells: [{ id: 1, fillType: 'material', fillId: 1, regionString: '-1' }],
+                universes: [{ id: 0, name: 'root', cellIds: [1] }],
+                lattices: [],
+                rootUniverseId: 0
+            },
+            materials: [
+                {
+                    id: 1,
+                    name: 'Water',
+                    density: 1.0,
+                    densityUnit: 'g/cm3',
+                    nuclides: [{ name: 'H1', fraction: 2, fractionType: 'ao' }],
+                    thermalScattering: []
+                }
+            ],
+            settings: {
+                run: { mode: 'eigenvalue', particles: 100, inactive: 5, batches: 10 },
+                sources: [
+                    {
+                        spatial: {
+                            type: 'pointcloud',
+                            positions: [
+                                [0, 0, 0],
+                                [1, 1, 1]
+                            ],
+                            strengths: [1, 1],
+                            bias: { probabilities: [0.9, 0.1] }
+                        },
+                        energy: { type: 'uniform', min: 0, max: 20e6, bias: { distribution: { type: 'uniform', min: 1e5, max: 2e6 } } },
+                        angle: {
+                            type: 'isotropic',
+                            bias: {
+                                distribution: {
+                                    type: 'mu-phi',
+                                    mu: { type: 'uniform', min: -1, max: 1 },
+                                    phi: { type: 'uniform', min: 0, max: 2 * Math.PI }
+                                }
+                            }
+                        },
+                        particle: 'neutron'
+                    }
+                ]
+            },
+            tallies: [],
+            meshes: [
+                { type: 'regular', id: 5, lowerLeft: [-1, -1, -1], upperRight: [1, 1, 1], dimension: [2, 2, 2] },
+                { type: 'regular', id: 6, lowerLeft: [-1, -1, -1], upperRight: [1, 1, 1], dimension: [1, 1, 1] }
+            ],
+            varianceReduction: {
+                weightWindows: [
+                    { id: 1, meshId: 5, lowerBound: 0.5, energyBounds: [0, 2e7], particleType: 'neutron' },
+                    { id: 2, meshId: 6, lowerBound: 0.25, upperBound: 0.5, energyBounds: [0, 2e7], particleType: 'photon' }
+                ],
+                weightWindowsFile: '/tmp/weight_windows.h5',
+                weightWindowsOn: true,
+                weightWindowCheckpoints: { collision: true, surface: true },
+                ufs: { enabled: true, meshId: 5 }
+            },
+            plots: []
+        } as OpenMCState;
+    }
+
+    it('passes bias to univariate, spatial, and angle constructors', () => {
+        expect(
+            generateUnivariateCode(
+                { type: 'uniform', min: 0, max: 1, bias: { distribution: { type: 'uniform', min: 0, max: 1 } } },
+                'energy'
+            ).lines
+        ).toEqual(['energy_bias = openmc.stats.Uniform(0, 1)', 'energy = openmc.stats.Uniform(0, 1, bias=energy_bias)']);
+        expect(
+            generateUnivariateCode(
+                { type: 'discrete', energies: [1, 2], probabilities: [0.5, 0.5], bias: { probabilities: [0.1, 0.9] } },
+                'energy'
+            ).lines
+        ).toEqual(['energy_bias = [0.1, 0.9]', 'energy = openmc.stats.Discrete([1, 2], [0.5, 0.5], bias=energy_bias)']);
+        expect(
+            generateSpatialCode(
+                {
+                    type: 'pointcloud',
+                    positions: [
+                        [0, 0, 0],
+                        [1, 1, 1]
+                    ],
+                    strengths: [1, 1],
+                    bias: { probabilities: [0.9, 0.1] }
+                },
+                'space'
+            ).lines[0]
+        ).toBe('space = openmc.stats.PointCloud([[0, 0, 0], [1, 1, 1]], strengths=[1, 1], bias=[0.9, 0.1])');
+        expect(
+            generateAngleCode(
+                {
+                    type: 'isotropic',
+                    bias: {
+                        distribution: {
+                            type: 'mu-phi',
+                            mu: { type: 'uniform', min: -1, max: 1 },
+                            phi: { type: 'uniform', min: 0, max: 2 * Math.PI }
+                        }
+                    }
+                },
+                'angle'
+            ).lines.join('\n')
+        ).toContain('angle = openmc.stats.Isotropic(bias=angle_bias)');
+    });
+
+    it('emits every weight-window set, the file, enable flag, checkpoints, and UFS', () => {
+        const exporter = new OpenMCPythonExporter();
+        const script = (exporter as unknown as { generateModelScript(s: OpenMCState, o: object): string }).generateModelScript(
+            buildVrState(),
+            { mode: 'single', includeComments: false, includeShebang: false }
+        );
+        expect(script).toContain(
+            'ww_1 = openmc.WeightWindows(mesh=mesh_5, lower_ww_bounds=[0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5], upper_ww_bounds=[1, 1, 1, 1, 1, 1, 1, 1], energy_bounds=[0, 20000000], particle_type="neutron", survival_ratio=3, max_split=10, weight_cutoff=1e-38, id=1)'
+        );
+        expect(script).toContain('settings.weight_windows = [ww_1, ww_2]');
+        expect(script).toContain('settings.weight_windows_file = "/tmp/weight_windows.h5"');
+        expect(script).toContain('settings.weight_windows_on = True');
+        expect(script).toContain("settings.weight_window_checkpoints = {'collision': True, 'surface': True}");
+        expect(script).toContain('settings.ufs_mesh = mesh_5');
+        expect(script).toContain('openmc.stats.PointCloud(');
+        expect(script).toContain('bias=[0.9, 0.1]');
+        expect(script).toContain('openmc.stats.Isotropic(bias=source_0_angle_bias)');
+        expect(script).toContain('openmc.stats.Uniform(0, 20000000, bias=source_0_energy_bias)');
+    });
+});
+
+describe('Python exporter capability gating', () => {
+    it('omits source bias when the probed environment predates it', () => {
+        const state = {
+            metadata: { version: '1.1.0', name: 'Bias gate', created: '', modified: '' },
+            geometry: { surfaces: [], cells: [], universes: [], lattices: [], rootUniverseId: 0 },
+            materials: [],
+            settings: {
+                run: { mode: 'fixed source', particles: 100, batches: 2 },
+                sources: [
+                    {
+                        spatial: { type: 'point', origin: [0, 0, 0] },
+                        energy: {
+                            type: 'uniform',
+                            min: 0,
+                            max: 20e6,
+                            bias: { distribution: { type: 'uniform', min: 1e6, max: 2e6 } }
+                        }
+                    }
+                ]
+            },
+            tallies: [],
+            meshes: [],
+            plots: []
+        } as OpenMCState;
+        const exporter = new OpenMCPythonExporter();
+        const script = (exporter as unknown as { generateModelScript(s: OpenMCState, o: object): string }).generateModelScript(state, {
+            mode: 'single',
+            includeComments: false,
+            includeShebang: false,
+            compat: { ...DEFAULT_OPENMC_COMPAT, sourceBias: false }
+        });
+        expect(script).not.toContain('source_0_energy_bias');
+        expect(script).not.toContain('bias=');
+        expect(script).toContain('Source bias requires OpenMC >= 0.16.0');
+        expect(script).toContain('source_0.energy = source_0_energy');
     });
 });

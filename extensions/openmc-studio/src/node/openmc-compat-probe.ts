@@ -41,6 +41,7 @@
  * - `sharedSecondaryBank` — `Settings.shared_secondary_bank` existence (0.16.0+)
  * - `surfaceGrazing` — `Settings.surface_grazing_cutoff` existence (0.16.0+)
  * - `meshFilterRotation` — `openmc.MeshFilter.rotation` existence (0.16.0+)
+ * - `sourceBias` — `openmc.stats.Uniform(..., bias=...)` support (0.16.0+)
  *
  * Results are cached per python command; on any probe failure the
  * release-compatible default is returned (stable releases are the common case).
@@ -54,12 +55,12 @@ import { OpenMCCompat, DEFAULT_OPENMC_COMPAT } from '../common/openmc-studio-pro
 import { OpenMCValidationBackendService } from './openmc-validation-backend-service';
 
 /**
- * Python one-liner: prints twelve space-separated tokens —
+ * Python one-liner: prints thirteen space-separated tokens —
  * `<direct|wrapper> <adjoint|no-adjoint> <tokamak|no-tokamak> <s2|no-s2>
  * <substeps|no-substeps> <keff-search|no-keff-search>
  * <external-rate|no-external-rate> <continuation|no-continuation>
  * <shared-bank|no-shared-bank> <grazing|no-grazing> <decay|no-decay>
- * <mesh-rotation|no-mesh-rotation>`.
+ * <mesh-rotation|no-mesh-rotation> <bias|no-bias>`.
  *
  * Depletion, 0.16 settings, decay-spectrum, and mesh-filter capabilities are
  * detected by introspection (never version strings): constructor parameters,
@@ -100,7 +101,8 @@ shared_bank = hasattr(openmc.Settings(), 'shared_secondary_bank')
 grazing = hasattr(openmc.Settings(), 'surface_grazing_cutoff')
 decay = hasattr(openmc.stats, 'DecaySpectrum')
 mesh_rotation = hasattr(openmc.MeshFilter, 'rotation')
-print('{} {} {} {} {} {} {} {} {} {} {} {}'.format(
+bias = 'bias' in inspect.signature(openmc.stats.Uniform.__init__).parameters
+print('{} {} {} {} {} {} {} {} {} {} {} {} {}'.format(
     fmt,
     'adjoint' if adj else 'no-adjoint',
     'tokamak' if tok else 'no-tokamak',
@@ -112,7 +114,8 @@ print('{} {} {} {} {} {} {} {} {} {} {} {}'.format(
     'shared-bank' if shared_bank else 'no-shared-bank',
     'grazing' if grazing else 'no-grazing',
     'decay' if decay else 'no-decay',
-    'mesh-rotation' if mesh_rotation else 'no-mesh-rotation'))
+    'mesh-rotation' if mesh_rotation else 'no-mesh-rotation',
+    'bias' if bias else 'no-bias'))
 `;
 
 const PROBE_TIMEOUT_MS = 30000;
@@ -186,7 +189,7 @@ export class OpenMCCompatProbeService {
     }
 
     /**
-     * Parse the probe's twelve-token output line. Tokens after the original
+     * Parse the probe's thirteen-token output line. Tokens after the original
      * four are optional so older probe output still parses (falling back to
      * the release-compatible defaults for missing capabilities).
      * @param stdout - Probe stdout
@@ -211,7 +214,8 @@ export class OpenMCCompatProbeService {
             sharedBank,
             grazing,
             decay,
-            meshRotation
+            meshRotation,
+            bias
         ] = (line ?? '').split(/\s+/);
         if (format !== 'direct' && format !== 'wrapper') {
             return undefined;
@@ -229,7 +233,8 @@ export class OpenMCCompatProbeService {
             depletionContinuation: continuation === 'continuation' || (!continuation && DEFAULT_OPENMC_COMPAT.depletionContinuation),
             sharedSecondaryBank: sharedBank === 'shared-bank',
             surfaceGrazing: grazing === 'grazing',
-            meshFilterRotation: meshRotation === 'mesh-rotation'
+            meshFilterRotation: meshRotation === 'mesh-rotation',
+            sourceBias: bias === 'bias'
         };
     }
 }

@@ -107,6 +107,23 @@ non-zero; mu-phi references must not be parallel. Validation messages state what
 is wrong and how to fix it, for example a tabular table that is not strictly
 increasing or has a mismatched probability column.
 
+**Source bias** is configured per distribution, inside the section that owns it:
+
+- **Energy** and **Time** — turn on **Bias sampling** to sample from a nested distribution
+  (continuous types) or alternative probabilities (discrete/mixture). The bias must share the
+  parent support interval.
+- **Direction** — isotropic sources can use a polar-azimuthal bias. Monodirectional and mu-phi
+  sources explain that angle bias is not available.
+- **Spatial** — point-cloud and mesh distributions expose a probability array; point/box/sphere/
+  cylinder show “OpenMC does not support bias for this spatial type”. OpenMC 0.16's XML transport
+  reader rejects point-cloud/mesh array bias even though the Python export carries it, so use energy
+  or direction bias for XML runs.
+- A biased source shows a `biased` badge in its summary. OpenMC adjusts particle weights so the
+  reported estimate stays unbiased.
+- Source bias is an OpenMC 0.16+ feature. On older probed environments the editors keep the
+  configured bias in the project but warn that XML and Python export omit it; model validation blocks
+  a run until the bias is removed or a compatible environment is selected.
+
 Every source can also carry a nested **Surface Source** section for writing
 surface crossings (`surface_source.h5` or MCPL) with cell/surface filters.
 
@@ -263,13 +280,38 @@ Define irradiation steps as a table of power/duration rows. Use a zero-power ste
 
 ## Variance Reduction Tab
 
-| Section                     | What It Does                                                                                        |
-| --------------------------- | --------------------------------------------------------------------------------------------------- |
-| **Survival Biasing**        | Enable implicit capture (survival biasing)                                                          |
-| **Uniform Fission Site**    | UFS mesh (optional — falls back to the weight window mesh), method, max realizations, particle type |
-| **Weight Cutoffs**          | Cell-based average weight threshold; terminate particles below the cutoff                           |
-| **Weight Window Generator** | Magic-style weight window generation: particle type, update interval, target tallies (local VR)     |
-| **Weight Windows**          | Edit weight window sets and their meshes; import MCNP `wwinp` files                                 |
+| Section                     | What It Does                                                                                          |
+| --------------------------- | ----------------------------------------------------------------------------------------------------- |
+| **Survival Biasing**        | Enable implicit capture (survival biasing)                                                            |
+| **Uniform Fission Site**    | Regular UFS mesh picker with a readiness error when missing; eigenvalue-only                          |
+| **Weight Cutoffs**          | Cell-based average weight threshold; terminate particles below the cutoff                             |
+| **Weight Window Generator** | MAGIC/FW-CADIS generation, particle type, update interval, target tallies; bootstrap to file          |
+| **Weight Windows**          | A list of sets (mesh, particle, energy bounds, lower/upper bounds, survival ratio), file, checkpoints |
+
+**Weight-window sets.** Click **Add weight-window set** to create one card per
+OpenMC `<weight_windows>` block. Each set picks a mesh and particle type, has an
+energy-bound token editor, and accepts either one uniform lower/upper value or a
+per-cell/group array (the editor shows `N values`). A scalar broadcasts over
+`n_mesh_cells × n_energy_groups`; an explicit array is emitted verbatim. The
+header summarizes the list (`2 sets · 2 meshes · 3 energy groups`). Mesh,
+strictly increasing energy bounds, non-empty bound arrays, positive survival
+ratio, and unique set IDs are validated inline.
+
+**Reusable file.** Set **HDF5 file** (Browse) to load a generated
+`weight_windows.h5` at simulation start. OpenMC loads it in addition to any sets,
+so remove sets you do not want. A generator run can overwrite the same file; the
+editor warns and the generator section offers **Use generated weight_windows.h5**
+after a successful generation run, which fills the file field, enables weight
+windows, and turns the generator off for the production run.
+
+**Enable and checkpoints.** **Enable weight windows** maps to
+`<weight_windows_on>` and defaults on when sets or a file exist. Collision
+checking is OpenMC's default; surface checking is optional. At least one
+checkpoint must stay on while weight windows are enabled.
+
+**UFS** emits `<ufs_mesh>` (not `<ufs>`) and requires a regular mesh that covers
+every fissionable region. The toggle is disabled outside eigenvalue mode and
+model validation reports a missing/invalid mesh before a run.
 
 The generator method can be `MAGIC (default)` or `FW-CADIS (multi-group)`. **FW-CADIS requires random ray mode** — enable the random ray solver in the Random Ray tab (multi-group energy mode plus an MGXS library); the tab shows a warning otherwise, and model validation fails until random ray is enabled.
 

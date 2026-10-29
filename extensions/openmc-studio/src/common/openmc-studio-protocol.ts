@@ -471,6 +471,8 @@ export interface OpenMCCompat {
      * (0.16.0+). MeshFilter translation is supported by every release.
      */
     meshFilterRotation?: boolean;
+    /** Whether source distributions accept a `bias` argument / `<bias>` XML child (0.16.0+) */
+    sourceBias?: boolean;
 }
 
 /** Release-compatible default (stable releases are the common case). */
@@ -486,7 +488,8 @@ export const DEFAULT_OPENMC_COMPAT: OpenMCCompat = {
     depletionContinuation: true,
     sharedSecondaryBank: false,
     surfaceGrazing: false,
-    meshFilterRotation: false
+    meshFilterRotation: false,
+    sourceBias: false
 };
 
 /** Result of XML generation */
@@ -835,6 +838,8 @@ export interface ProjectLoadResult {
     success: boolean;
     /** Loaded project file */
     project?: OpenMCProjectFile;
+    /** Non-fatal load/migration warnings (retired fields, dropped settings) */
+    warnings?: string[];
     /** Error message if failed */
     error?: string;
 }
@@ -891,7 +896,7 @@ export interface WWINPImportResult {
         lowerBound: number | number[];
         upperBound?: number | number[];
         energyBounds?: number[];
-        particleType?: 'neutron' | 'photon';
+        particleType?: 'neutron' | 'photon' | string;
     };
     /** Error message if failed */
     error?: string;
@@ -907,7 +912,7 @@ export interface WWINPExportRequest {
         lowerBound: number | number[];
         upperBound?: number | number[];
         survivalWeight?: number;
-        particleType?: 'neutron' | 'photon';
+        particleType?: 'neutron' | 'photon' | string;
         energyBounds?: number[];
     };
     /** Available meshes for dimension info */
