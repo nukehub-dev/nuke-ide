@@ -43,7 +43,7 @@ function buildState(): OpenMCState {
         geometry: {
             surfaces: [{ id: 1, type: 'sphere', coefficients: { x0: 0, y0: 0, z0: 0, r: 10 }, boundary: 'vacuum' }],
             cells: [{ id: 1, fillType: 'material', fillId: 1, regionString: '-1' }],
-            universes: [{ id: 0, name: 'root', cellIds: [1], isRoot: true }],
+            universes: [{ id: 0, name: 'root', cellIds: [1] }],
             lattices: [],
             rootUniverseId: 0
         },
@@ -558,5 +558,32 @@ describe('validateState FW-CADIS weight window generator', () => {
         const result = await backend.validateState({ state });
 
         expect(result.issues.some((i) => i.severity === 'error' && i.message.includes('FW-CADIS'))).toBe(false);
+    });
+});
+
+describe('validateState geometry model', () => {
+    it('errors when a cell fills a lattice that does not exist', async () => {
+        const state = buildState();
+        state.geometry.cells[0] = { id: 1, fillType: 'lattice', fillId: 99 };
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const result = await backend.validateState({ state });
+
+        expect(
+            result.issues.some((issue) => issue.severity === 'error' && issue.message.includes('fills lattice #99 which does not exist'))
+        ).toBe(true);
+    });
+
+    it('errors when a periodic pair is not reciprocal', async () => {
+        const state = buildState();
+        state.geometry.surfaces = [
+            { id: 1, type: 'x-plane', coefficients: { x0: -1 }, boundary: 'periodic', periodicSurfaceId: 2 },
+            { id: 2, type: 'x-plane', coefficients: { x0: 1 }, boundary: 'periodic' }
+        ];
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const result = await backend.validateState({ state });
+
+        expect(result.issues.some((issue) => issue.severity === 'error' && issue.message.includes('does not point back'))).toBe(true);
     });
 });

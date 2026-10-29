@@ -103,17 +103,35 @@ Maps `OpenMCState.geometry` → `<geometry>`.
 
 ### State → XML Mapping
 
-| State Field                | XML Element                      | Notes                                                              |
-| -------------------------- | -------------------------------- | ------------------------------------------------------------------ |
-| `surface.id`               | `<surface id="...">`             | Required                                                           |
-| `surface.type`             | `type="..."`                     | `sphere`, `x-cylinder`, `z-plane`, etc.                            |
-| `surface.coefficients`     | `coeffs="..."`                   | Formatted per surface type                                         |
-| `surface.boundary`         | `boundary="..."`                 | ONLY when set; unset = transmission default (interior stays unset) |
-| `cell.id`                  | `<cell id="...">`                | Required                                                           |
-| `cell.fillType` + `fillId` | `material="..."` or `fill="..."` | Material ID, universe ID, or void                                  |
-| `cell.regionString`        | `region="..."`                   | CSG boolean expression                                             |
-| `cell.universe`            | `universe="..."`                 | Defaults to `0` (root)                                             |
-| `lattice.id`               | `<!-- placeholder -->`           | Lattices are stubbed (full impl TODO)                              |
+| State Field                 | XML Element                      | Notes                                                              |
+| --------------------------- | -------------------------------- | ------------------------------------------------------------------ |
+| `surface.id`                | `<surface id="...">`             | Required                                                           |
+| `surface.type`              | `type="..."`                     | `sphere`, `x-cylinder`, `z-plane`, etc.                            |
+| `surface.coefficients`      | `coeffs="..."`                   | Formatted per surface type                                         |
+| `surface.boundary`          | `boundary="..."`                 | ONLY when set; unset = transmission default (interior stays unset) |
+| `surface.albedo`            | `albedo="..."`                   | Only reflective/periodic/white and only when not 1                 |
+| `surface.periodicSurfaceId` | `periodic_surface_id="..."`      | Emitted on both planes of a validated periodic pair                |
+| `cell.id`                   | `<cell id="...">`                | Required                                                           |
+| `cell.fillType` + `fillId`  | `material="..."` or `fill="..."` | Material ID, universe ID, lattice ID, or void                      |
+| `cell.regionString`         | `region="..."`                   | CSG boolean expression                                             |
+| `cell.universe`             | `universe="..."`                 | Defaults to `0` (root)                                             |
+| `cell.density`              | `density="..."`                  | Positive per-cell density override                                 |
+| `cell.translation`          | `translation="x y z"`            | Applied after rotation                                             |
+| `cell.rotation`             | `rotation="phi theta psi"`       | Intrinsic Tait-Bryan angles in degrees                             |
+| `lattice.*`                 | `<lattice>` / `<hex_lattice>`    | See below; every universe ID is preserved                          |
+
+### Lattices
+
+Rectangular and hexagonal lattices use different OpenMC element names (`<lattice>` vs `<hex_lattice>`), never a `type` attribute.
+
+- Rectangular: attributes `id`, optional `name`; children in OpenMC order `pitch`, optional `outer`, `dimension`, `lower_left`, `universes`. `universes` is one row per z/y slice, x-fastest; row 0 is the top y row (the order `RectLattice.create_xml_subelement` writes and both readers consume).
+- Hexagonal: attributes `id`, optional `name`, `n_rings`, optional `orientation` (only `x` is written; `y` is the default), optional `n_axial` (only when greater than 1); children `pitch`, optional `outer`, `center`, `universes`. Universe order is the visual top-to-bottom walk of the hexagon produced by `HexLattice._repr_axial_slice_x/_y`; `geometry-lattices.ts` reproduces it for both orientations so generation and import cannot drift.
+
+`universes` arrays in state use the same nesting as OpenMC: `[z][y][x]` for rectangular, `[z][ring][theta]` for hexagonal (one z slice for 2D). `outer` is emitted only when set and its universe must exist.
+
+### Root universe and fill namespaces
+
+OpenMC XML has no `<root_universe>` element. The C++ reader derives the root as the one universe that is not used as a cell fill or a lattice universe; cells without a `universe` attribute belong to universe 0. OpenMC Studio therefore requires `geometry.rootUniverseId === 0`, rejects universe 0 as a fill, and rejects lattice IDs that collide with universe IDs (the C++ reader resolves a fill ID to a universe before a lattice). Every universe referenced by a cell fill, lattice position, or outer fill must also contain at least one cell, because OpenMC builds its universe map from cells and omits empty universes. These checks live in `src/common/geometry-validation.ts` and run from `validateState` and the dashboard readiness checklist.
 
 ### Surface Type Mapping
 
@@ -311,8 +329,12 @@ const result = await parser.parseStringPromise(xml);
 
 - Both attribute-based (`$.material`) and child-element (`cell.material`) formats
 - Surface coefficients parsed into structured objects by type
-- Universe assignment from `$.universe` (defaults to root universe `0`)
-- Root universe auto-created with ID `0`
+- Surface `boundary`, `albedo`, and `periodic_surface_id`
+- Cell `rotation`, `translation`, and `density`
+- `<lattice>` and `<hex_lattice>` definitions, including `outer`, `name`, `orientation`, and `n_axial`
+- Fill classification: a `fill` ID that matches a parsed lattice becomes `fillType: 'lattice'`, otherwise `fillType: 'universe'`
+- Universe assignment from `$.universe` (defaults to root universe `0`), plus universe entries for every lattice-referenced and outer universe
+- Warnings for unsupported input (for example a 9-element rotation matrix, which cannot be represented as Tait-Bryan angles)
 
 **Settings parsing** extracts:
 
@@ -330,7 +352,7 @@ Full round-trip (state → XML → state) is **lossy** by design. The following 
 | ------------------- | ----------------------------------------------------------------------------------------------- |
 | Material colors     | Not in OpenMC XML — UI-only                                                                     |
 | Cell region trees   | Converted to `regionString` — tree structure lost                                               |
-| Lattice definitions | Generation is stubbed; import not implemented                                                   |
+| Lattice definitions | Full round-trip: `<lattice>` / `<hex_lattice>`, transforms, periodic pairs, albedo              |
 | Tally filters       | Reconstructed but IDs reassigned                                                                |
 | Mesh IDs            | Preserved if matching                                                                           |
 | Plot definitions    | Import not implemented                                                                          |

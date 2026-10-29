@@ -52,8 +52,10 @@ import {
     OpenMCFillType,
     OpenMCUniverse,
     OpenMCLattice,
+    OpenMCHexOrientation,
     DAGMCInfo
 } from '../../../common/openmc-state-schema';
+import { hexLatticeRingSizes, resizeHexLatticeUniverses, resizeRectLatticeUniverses } from '../../../common/geometry-lattices';
 
 // 3D preview reuses the nuke-visualizer native geometry viewer through
 // OpenMCService.openGeometryViewer (no visualization infrastructure here).
@@ -255,6 +257,8 @@ export class CSGBuilderWidget extends ReactWidget {
     private surfaceFormCoeffs: Partial<OpenMCSurfaceCoefficients[OpenMCSurfaceType]> = {};
     private surfaceFormBoundary: OpenMCBoundaryCondition = 'vacuum';
     private surfaceFormName = '';
+    private surfaceFormAlbedo = '';
+    private surfaceFormPeriodicId = '';
     private showSurfaceEditor = false;
 
     // Save location - if set, auto-saves happen here
@@ -271,6 +275,12 @@ export class CSGBuilderWidget extends ReactWidget {
     private cellFormFillId = 0;
     private cellFormRegionString = '';
     private cellFormTemperature?: number;
+    private cellFormRotation: [string, string, string] = ['', '', ''];
+    private cellFormTranslation: [string, string, string] = ['', '', ''];
+    private cellFormDensity = '';
+
+    // Lattice editor state
+    private latticeDraft?: OpenMCLattice;
 
     // Visual region builder state
     private regionBuilderTokens: {
@@ -296,7 +306,10 @@ export class CSGBuilderWidget extends ReactWidget {
             this.update();
             this.autoSaveToCurrentPath();
         });
-        this.stateManager.onStateReload(() => this.update());
+        this.stateManager.onStateReload(() => {
+            this.latticeDraft = undefined;
+            this.cancelForm();
+        });
 
         this.update();
     }
@@ -742,6 +755,14 @@ export class CSGBuilderWidget extends ReactWidget {
         if (!template) return null;
 
         const isEditing = !!this.editingSurface?.id;
+        const state = this.stateManager.getState();
+        const albedoCapable =
+            this.surfaceFormBoundary === 'reflective' || this.surfaceFormBoundary === 'periodic' || this.surfaceFormBoundary === 'white';
+        const periodicCandidates = state.geometry.surfaces.filter(
+            (surface) =>
+                surface.id !== this.editingSurface?.id &&
+                (surface.type === 'x-plane' || surface.type === 'y-plane' || surface.type === 'z-plane' || surface.type === 'plane')
+        );
 
         return (
             <div className="surface-editor-panel">
@@ -788,12 +809,67 @@ export class CSGBuilderWidget extends ReactWidget {
                                 options={[...BOUNDARY_CONDITIONS.map((bc) => ({ value: bc.value, label: bc.label }))]}
                                 onChange={(value: string) => {
                                     this.surfaceFormBoundary = value as OpenMCBoundaryCondition;
+                                    if (this.surfaceFormBoundary !== 'periodic') {
+                                        this.surfaceFormPeriodicId = '';
+                                    }
+                                    if (
+                                        this.surfaceFormBoundary !== 'reflective' &&
+                                        this.surfaceFormBoundary !== 'periodic' &&
+                                        this.surfaceFormBoundary !== 'white'
+                                    ) {
+                                        this.surfaceFormAlbedo = '';
+                                    }
                                     this.update();
                                 }}
                                 ariaLabel="Boundary condition"
                             />
                         </div>
                     </div>
+
+                    {(albedoCapable || this.surfaceFormBoundary === 'periodic') && (
+                        <div className="form-row">
+                            {albedoCapable && (
+                                <div className="form-group">
+                                    <label>Boundary Albedo</label>
+                                    <input
+                                        type="number"
+                                        step="0.01"
+                                        min="0"
+                                        value={this.surfaceFormAlbedo}
+                                        onChange={(e) => {
+                                            this.surfaceFormAlbedo = e.target.value;
+                                            this.update();
+                                        }}
+                                        placeholder="1 (OpenMC default)"
+                                    />
+                                    <span className="form-hint">
+                                        Importance multiplier after a boundary interaction; 1 keeps particles unchanged.
+                                    </span>
+                                </div>
+                            )}
+                            {this.surfaceFormBoundary === 'periodic' && (
+                                <div className="form-group">
+                                    <label>Periodic Partner</label>
+                                    <NukeSelect
+                                        value={this.surfaceFormPeriodicId}
+                                        options={[
+                                            { value: '', label: 'Select opposite plane...' },
+                                            ...periodicCandidates.map((surface) => ({
+                                                value: String(surface.id),
+                                                label: `#${surface.id}: ${surface.name || surface.type}`
+                                            }))
+                                        ]}
+                                        onChange={(value: string) => {
+                                            this.surfaceFormPeriodicId = value;
+                                            this.update();
+                                        }}
+                                        ariaLabel="Periodic partner surface"
+                                    />
+                                    <span className="form-hint">OpenMC requires both planes to be periodic and point at each other.</span>
+                                </div>
+                            )}
+                        </div>
+                    )}
 
                     <div className="form-section-title">
                         <i className="codicon codicon-symbol-numeric"></i> Coefficients
@@ -910,6 +986,24 @@ export class CSGBuilderWidget extends ReactWidget {
                                         <div className="cell-temp">
                                             <label>Temperature:</label>
                                             <span>{cell.temperature} K</span>
+                                        </div>
+                                    )}
+                                    {cell.density !== undefined && (
+                                        <div className="cell-temp">
+                                            <label>Density:</label>
+                                            <span>{cell.density}</span>
+                                        </div>
+                                    )}
+                                    {cell.rotation && (
+                                        <div className="cell-temp">
+                                            <label>Rotation:</label>
+                                            <span>{cell.rotation.join(', ')}°</span>
+                                        </div>
+                                    )}
+                                    {cell.translation && (
+                                        <div className="cell-temp">
+                                            <label>Translation:</label>
+                                            <span>{cell.translation.join(', ')} cm</span>
                                         </div>
                                     )}
                                 </div>
@@ -1100,6 +1194,19 @@ export class CSGBuilderWidget extends ReactWidget {
                                     <small>Nested geometry</small>
                                 </button>
                             </Tooltip>
+                            <Tooltip content="Fill with a lattice (repeated universe grid)" position="top">
+                                <button
+                                    className={`fill-type-btn ${this.cellFormFillType === 'lattice' ? 'active' : ''}`}
+                                    onClick={() => {
+                                        this.cellFormFillType = 'lattice';
+                                        this.update();
+                                    }}
+                                >
+                                    <i className="codicon codicon-grid"></i>
+                                    <span>Lattice</span>
+                                    <small>Repeated grid</small>
+                                </button>
+                            </Tooltip>
                         </div>
                     </div>
 
@@ -1175,6 +1282,30 @@ export class CSGBuilderWidget extends ReactWidget {
                         </div>
                     )}
 
+                    {this.cellFormFillType === 'lattice' && (
+                        <div className="form-group">
+                            <label>Lattice</label>
+                            <NukeSelect
+                                value={String(this.cellFormFillId)}
+                                options={[
+                                    { value: '0', label: 'Select Lattice...' },
+                                    ...state.geometry.lattices.map((lattice) => ({
+                                        value: String(lattice.id),
+                                        label: `#${lattice.id}: ${lattice.name || `Lattice ${lattice.id}`}`
+                                    }))
+                                ]}
+                                onChange={(value: string) => {
+                                    this.cellFormFillId = parseInt(value);
+                                    this.update();
+                                }}
+                                ariaLabel="Lattice"
+                            />
+                            {state.geometry.lattices.length === 0 && (
+                                <span className="form-hint warning">No lattices defined. Create one in the Universes tab first.</span>
+                            )}
+                        </div>
+                    )}
+
                     {this.renderVisualRegionBuilder(state)}
 
                     <div className="form-group">
@@ -1189,6 +1320,85 @@ export class CSGBuilderWidget extends ReactWidget {
                             }}
                             placeholder="e.g., 600"
                         />
+                    </div>
+
+                    <div className="form-section-title">
+                        <i className="codicon codicon-openmc-geometry"></i> Transform &amp; Density Override
+                    </div>
+                    <div className="form-row">
+                        <div className="form-group">
+                            <label>Rotation φ (°)</label>
+                            <input
+                                type="number"
+                                value={this.cellFormRotation[0]}
+                                onChange={(e) => this.setCellFormVector('rotation', 0, e.target.value)}
+                                placeholder="0"
+                            />
+                        </div>
+                        <div className="form-group">
+                            <label>Rotation θ (°)</label>
+                            <input
+                                type="number"
+                                value={this.cellFormRotation[1]}
+                                onChange={(e) => this.setCellFormVector('rotation', 1, e.target.value)}
+                                placeholder="0"
+                            />
+                        </div>
+                        <div className="form-group">
+                            <label>Rotation ψ (°)</label>
+                            <input
+                                type="number"
+                                value={this.cellFormRotation[2]}
+                                onChange={(e) => this.setCellFormVector('rotation', 2, e.target.value)}
+                                placeholder="0"
+                            />
+                        </div>
+                    </div>
+                    <div className="form-row">
+                        <div className="form-group">
+                            <label>Translation x (cm)</label>
+                            <input
+                                type="number"
+                                value={this.cellFormTranslation[0]}
+                                onChange={(e) => this.setCellFormVector('translation', 0, e.target.value)}
+                                placeholder="0"
+                            />
+                        </div>
+                        <div className="form-group">
+                            <label>Translation y (cm)</label>
+                            <input
+                                type="number"
+                                value={this.cellFormTranslation[1]}
+                                onChange={(e) => this.setCellFormVector('translation', 1, e.target.value)}
+                                placeholder="0"
+                            />
+                        </div>
+                        <div className="form-group">
+                            <label>Translation z (cm)</label>
+                            <input
+                                type="number"
+                                value={this.cellFormTranslation[2]}
+                                onChange={(e) => this.setCellFormVector('translation', 2, e.target.value)}
+                                placeholder="0"
+                            />
+                        </div>
+                    </div>
+                    <div className="form-group">
+                        <label>Density Override (optional)</label>
+                        <input
+                            type="number"
+                            step="any"
+                            min="0"
+                            value={this.cellFormDensity}
+                            onChange={(e) => {
+                                this.cellFormDensity = e.target.value;
+                                this.update();
+                            }}
+                            placeholder="Material density"
+                        />
+                        <span className="form-hint">
+                            Positive value in the material density unit. Rotation/translation apply to universe and lattice fills.
+                        </span>
                     </div>
 
                     <div className="form-actions">
@@ -1459,14 +1669,14 @@ export class CSGBuilderWidget extends ReactWidget {
 
                 <div className="universes-list">
                     {state.geometry.universes.map((universe) => (
-                        <div key={universe.id} className={`universe-card ${universe.isRoot ? 'root' : ''}`}>
+                        <div key={universe.id} className={`universe-card ${universe.id === 0 ? 'root' : ''}`}>
                             <div className="universe-header">
                                 <div className="universe-info">
                                     <span className="universe-id">#{universe.id}</span>
                                     <span className="universe-name">{universe.name || `Universe ${universe.id}`}</span>
-                                    {universe.isRoot && <span className="root-badge">ROOT</span>}
+                                    {universe.id === 0 && <span className="root-badge">ROOT</span>}
                                 </div>
-                                {!universe.isRoot && (
+                                {universe.id !== 0 && (
                                     <div className="universe-actions">
                                         <Tooltip content="Delete Universe" position="top">
                                             <button
@@ -1533,12 +1743,21 @@ export class CSGBuilderWidget extends ReactWidget {
                 <div className="lattices-section">
                     <div className="tab-toolbar">
                         <h3>Lattices</h3>
-                        <Tooltip content="Create a new rectangular lattice">
-                            <button className="theia-button primary" onClick={() => this.createRectLattice()}>
-                                <i className="codicon codicon-add"></i> Add Rect Lattice
-                            </button>
-                        </Tooltip>
+                        <div className="tab-toolbar-actions">
+                            <Tooltip content="Create a new rectangular lattice" position="top">
+                                <button className="theia-button primary" onClick={() => this.startCreateLattice('rect')}>
+                                    <i className="codicon codicon-add"></i> Add Rect Lattice
+                                </button>
+                            </Tooltip>
+                            <Tooltip content="Create a new hexagonal lattice" position="top">
+                                <button className="theia-button secondary" onClick={() => this.startCreateLattice('hex')}>
+                                    <i className="codicon codicon-add"></i> Add Hex Lattice
+                                </button>
+                            </Tooltip>
+                        </div>
                     </div>
+
+                    {this.latticeDraft && this.renderLatticeEditor(state)}
 
                     <div className="lattices-list">
                         {state.geometry.lattices.length === 0 ? (
@@ -1659,38 +1878,531 @@ export class CSGBuilderWidget extends ReactWidget {
     // ============================================================================
 
     /**
-     * Create a new rectangular lattice with default parameters.
+     * Start creating a lattice of the given type with default parameters.
+     * @param type - Lattice type to create.
      */
-    private createRectLattice(): void {
+    private startCreateLattice(type: 'rect' | 'hex'): void {
         const id = this.stateManager.getNextLatticeId();
-        const lattice: OpenMCLattice = {
-            id,
-            type: 'rect',
-            name: `Lattice ${id}`,
-            lowerLeft: [-10, -10, -10],
-            pitch: [1, 1, 1],
-            dimensions: [3, 3, 1],
-            universes: [
-                [
-                    [0, 0, 0],
-                    [0, 0, 0],
-                    [0, 0, 0]
-                ],
-                [
-                    [0, 0, 0],
-                    [0, 1, 0],
-                    [0, 0, 0]
-                ],
-                [
-                    [0, 0, 0],
-                    [0, 0, 0],
-                    [0, 0, 0]
-                ]
-            ]
-        } as OpenMCLattice;
+        const state = this.stateManager.getState();
+        const defaultUniverse = state.geometry.universes.find((universe) => universe.id !== 0)?.id ?? 0;
+        const fillUniverses = (universes: number[][][]): number[][][] =>
+            universes.map((slice) => slice.map((row) => row.map(() => defaultUniverse)));
+        if (type === 'rect') {
+            this.latticeDraft = {
+                id,
+                type: 'rect',
+                name: `Lattice ${id}`,
+                lowerLeft: [0, 0],
+                pitch: [1, 1],
+                dimensions: [3, 3],
+                universes: fillUniverses(resizeRectLatticeUniverses([], [3, 3]))
+            };
+        } else {
+            this.latticeDraft = {
+                id,
+                type: 'hex',
+                name: `Hex Lattice ${id}`,
+                center: [0, 0],
+                pitch: [1],
+                rings: 2,
+                orientation: 'y',
+                universes: fillUniverses(resizeHexLatticeUniverses([], 2, 1))
+            };
+        }
+        this.update();
+    }
 
-        this.stateManager.addLattice(lattice);
-        this.messageService.info(`Created rectangular lattice #${id}`);
+    /**
+     * Open the inline lattice editor for an existing lattice.
+     * @param lattice - Lattice to edit.
+     */
+    private startEditLattice(lattice: OpenMCLattice): void {
+        this.latticeDraft = JSON.parse(JSON.stringify(lattice)) as OpenMCLattice;
+        this.update();
+    }
+
+    /** Close the lattice editor without saving. */
+    private cancelLatticeEditor(): void {
+        this.latticeDraft = undefined;
+        this.update();
+    }
+
+    /**
+     * Save the lattice editor draft, creating or updating the lattice.
+     */
+    private saveLatticeEditor(): void {
+        const draft = this.latticeDraft;
+        if (!draft) {
+            return;
+        }
+
+        if (draft.type === 'rect') {
+            const validDimensions =
+                draft.dimensions.length >= 2 && draft.dimensions.length <= 3 && draft.dimensions.every((value) => value >= 1);
+            if (!validDimensions) {
+                this.messageService.error('Lattice dimensions must be positive integers.');
+                return;
+            }
+            if (draft.pitch.length !== draft.dimensions.length || draft.pitch.some((value) => !(value > 0))) {
+                this.messageService.error('Lattice pitch must be positive and match the number of dimensions.');
+                return;
+            }
+            if (draft.lowerLeft.length !== draft.dimensions.length || draft.lowerLeft.some((value) => !Number.isFinite(value))) {
+                this.messageService.error('Lattice lower-left must have one finite coordinate per dimension.');
+                return;
+            }
+        } else {
+            if (!Number.isInteger(draft.rings) || draft.rings < 1) {
+                this.messageService.error('Hexagonal lattice rings must be a positive integer.');
+                return;
+            }
+            const is3d = draft.nAxial !== undefined && draft.nAxial > 1;
+            if (draft.center.length !== (is3d ? 3 : 2)) {
+                this.messageService.error(is3d ? 'A 3D hex lattice needs a 3-value center.' : 'A 2D hex lattice needs a 2-value center.');
+                return;
+            }
+            if (draft.pitch.length !== (is3d ? 2 : 1) || draft.pitch.some((value) => !(value > 0))) {
+                this.messageService.error(is3d ? 'A 3D hex lattice needs radial and axial pitches.' : 'Set a positive radial pitch.');
+                return;
+            }
+        }
+
+        const exists = this.stateManager.getState().geometry.lattices.some((lattice) => lattice.id === draft.id);
+        if (exists) {
+            this.stateManager.updateLattice(draft.id, draft);
+            this.messageService.info(`Updated lattice #${draft.id}`);
+        } else {
+            this.stateManager.addLattice(draft);
+            this.messageService.info(`Created lattice #${draft.id}`);
+        }
+        this.cancelLatticeEditor();
+    }
+
+    /**
+     * Patch the current lattice draft and re-render.
+     * @param updates - Partial lattice fields.
+     */
+    private updateLatticeDraft(updates: Partial<OpenMCLattice>): void {
+        if (!this.latticeDraft) {
+            return;
+        }
+        this.latticeDraft = { ...this.latticeDraft, ...updates } as OpenMCLattice;
+        this.update();
+    }
+
+    /**
+     * Resize a rectangular lattice draft, keeping pitch/lower-left in step.
+     * @param dimensions - Target dimensions.
+     */
+    private resizeRectLatticeDraft(dimensions: [number, number] | [number, number, number]): void {
+        const draft = this.latticeDraft;
+        if (!draft || draft.type !== 'rect') {
+            return;
+        }
+        const resizeTuple = (values: number[], fill: number, length: number): number[] => {
+            const next = values.slice(0, length);
+            while (next.length < length) {
+                next.push(fill);
+            }
+            return next;
+        };
+        this.latticeDraft = {
+            ...draft,
+            dimensions,
+            pitch: resizeTuple(draft.pitch, 1, dimensions.length) as [number, number] | [number, number, number],
+            lowerLeft: resizeTuple(draft.lowerLeft, 0, dimensions.length) as [number, number] | [number, number, number],
+            universes: resizeRectLatticeUniverses(draft.universes, dimensions)
+        };
+        this.update();
+    }
+
+    /**
+     * Resize a hexagonal lattice draft, keeping center/pitch in step.
+     * @param rings - Target ring count.
+     * @param nAxial - Target axial count (undefined/1 for 2D).
+     */
+    private resizeHexLatticeDraft(rings: number, nAxial: number | undefined): void {
+        const draft = this.latticeDraft;
+        if (!draft || draft.type !== 'hex') {
+            return;
+        }
+        const is3d = nAxial !== undefined && nAxial > 1;
+        const center = is3d
+            ? [draft.center[0] ?? 0, draft.center[1] ?? 0, draft.center[2] ?? 0]
+            : [draft.center[0] ?? 0, draft.center[1] ?? 0];
+        const pitch = is3d ? [draft.pitch[0] ?? 1, draft.pitch[1] ?? 1] : [draft.pitch[0] ?? 1];
+        this.latticeDraft = {
+            ...draft,
+            rings,
+            nAxial: is3d ? nAxial : undefined,
+            center: center as [number, number] | [number, number, number],
+            pitch: pitch as [number] | [number, number],
+            universes: resizeHexLatticeUniverses(draft.universes, rings, is3d ? (nAxial as number) : 1)
+        };
+        this.update();
+    }
+
+    /** Update one rectangular lattice universe entry. */
+    private setRectLatticeUniverse(z: number, y: number, x: number, value: number): void {
+        const draft = this.latticeDraft;
+        if (!draft || draft.type !== 'rect') {
+            return;
+        }
+        const universes = draft.universes.map((slice) => slice.map((row) => [...row]));
+        if (universes[z]?.[y]) {
+            universes[z][y][x] = value;
+        }
+        this.updateLatticeDraft({ universes });
+    }
+
+    /** Update one hexagonal lattice universe entry. */
+    private setHexLatticeUniverse(z: number, ring: number, theta: number, value: number): void {
+        const draft = this.latticeDraft;
+        if (!draft || draft.type !== 'hex') {
+            return;
+        }
+        const universes = draft.universes.map((slice) => slice.map((entries) => [...entries]));
+        if (universes[z]?.[ring]) {
+            universes[z][ring][theta] = value;
+        }
+        this.updateLatticeDraft({ universes });
+    }
+
+    /**
+     * Render the inline lattice editor for the current draft.
+     * @param state - Current simulation state (supplies universe choices).
+     * @returns Lattice editor React node.
+     */
+    private renderLatticeEditor(state: OpenMCState): React.ReactNode {
+        const draft = this.latticeDraft;
+        if (!draft) {
+            return null;
+        }
+
+        const numberInput = (
+            label: string,
+            value: number | undefined,
+            onChange: (value: number) => void,
+            options: { step?: string; min?: string; placeholder?: string } = {}
+        ): React.ReactNode => (
+            <div className="form-group" key={label}>
+                <label>{label}</label>
+                <input
+                    type="number"
+                    step={options.step ?? 'any'}
+                    min={options.min ?? '0'}
+                    value={value ?? ''}
+                    placeholder={options.placeholder}
+                    onChange={(e) => onChange(Number(e.target.value))}
+                />
+            </div>
+        );
+
+        const universeSelectOptions = [
+            { value: '0', label: 'None (void)' },
+            ...state.geometry.universes
+                .filter((universe) => universe.id !== 0)
+                .map((universe) => ({
+                    value: String(universe.id),
+                    label: `#${universe.id}: ${universe.name || `Universe ${universe.id}`}`
+                }))
+        ];
+
+        return (
+            <div className="lattice-card lattice-editor">
+                <div className="lattice-header">
+                    <div className="lattice-info">
+                        <span className="lattice-id">#{draft.id}</span>
+                        <span className="lattice-name">{draft.name || `Lattice ${draft.id}`}</span>
+                        <span className={`lattice-type-badge ${draft.type}`}>{draft.type === 'rect' ? 'Rectangular' : 'Hexagonal'}</span>
+                    </div>
+                </div>
+
+                <div className="form-row">
+                    <div className="form-group">
+                        <label>Name</label>
+                        <input type="text" value={draft.name ?? ''} onChange={(e) => this.updateLatticeDraft({ name: e.target.value })} />
+                    </div>
+                    <div className="form-group">
+                        <label>Outer Universe</label>
+                        <NukeSelect
+                            value={draft.outer !== undefined ? String(draft.outer) : '0'}
+                            options={universeSelectOptions}
+                            onChange={(value: string) => {
+                                const outer = parseInt(value);
+                                this.updateLatticeDraft({ outer: outer > 0 ? outer : undefined });
+                            }}
+                            ariaLabel="Outer universe"
+                        />
+                        <span className="form-hint">Fills positions outside the lattice.</span>
+                    </div>
+                </div>
+
+                {draft.type === 'rect'
+                    ? this.renderRectLatticeEditorFields(draft, numberInput)
+                    : this.renderHexLatticeEditorFields(draft, numberInput)}
+
+                <div className="form-actions">
+                    <button className="theia-button primary" onClick={() => this.saveLatticeEditor()}>
+                        <i className="codicon codicon-save"></i> Save Lattice
+                    </button>
+                    <button className="theia-button secondary" onClick={() => this.cancelLatticeEditor()}>
+                        Cancel
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
+    /** Render the rectangular-specific editor fields and universe grid. */
+    private renderRectLatticeEditorFields(
+        draft: OpenMCLattice & { type: 'rect' },
+        numberInput: (
+            label: string,
+            value: number | undefined,
+            onChange: (value: number) => void,
+            options?: { step?: string; min?: string; placeholder?: string }
+        ) => React.ReactNode
+    ): React.ReactNode {
+        const nx = draft.dimensions[0];
+        const ny = draft.dimensions[1];
+        const nz = draft.dimensions.length === 3 ? draft.dimensions[2] : 1;
+        const topLayer = nz > 1;
+
+        return (
+            <>
+                <div className="form-row">
+                    {numberInput(
+                        'Cells X',
+                        nx,
+                        (value) =>
+                            this.resizeRectLatticeDraft([Math.max(1, Math.trunc(value || 1)), ny, ...(topLayer ? [nz] : [])] as
+                                [number, number] | [number, number, number]),
+                        { min: '1' }
+                    )}
+                    {numberInput(
+                        'Cells Y',
+                        ny,
+                        (value) =>
+                            this.resizeRectLatticeDraft([nx, Math.max(1, Math.trunc(value || 1)), ...(topLayer ? [nz] : [])] as
+                                [number, number] | [number, number, number]),
+                        { min: '1' }
+                    )}
+                    {numberInput(
+                        'Z Layers (1 = 2D)',
+                        nz,
+                        (value) => {
+                            const layers = Math.max(1, Math.trunc(value || 1));
+                            this.resizeRectLatticeDraft(layers > 1 ? [nx, ny, layers] : [nx, ny]);
+                        },
+                        { min: '1' }
+                    )}
+                </div>
+                <div className="form-row">
+                    {numberInput('Pitch X', draft.pitch[0], (value) => {
+                        const pitch = [...draft.pitch];
+                        pitch[0] = value;
+                        this.updateLatticeDraft({ pitch: pitch as [number, number] | [number, number, number] });
+                    })}
+                    {numberInput('Pitch Y', draft.pitch[1], (value) => {
+                        const pitch = [...draft.pitch];
+                        pitch[1] = value;
+                        this.updateLatticeDraft({ pitch: pitch as [number, number] | [number, number, number] });
+                    })}
+                    {topLayer &&
+                        numberInput('Pitch Z', draft.pitch[2], (value) => {
+                            const pitch = [...draft.pitch];
+                            pitch[2] = value;
+                            this.updateLatticeDraft({ pitch: pitch as [number, number, number] });
+                        })}
+                </div>
+                <div className="form-row">
+                    {numberInput(
+                        'Lower Left X',
+                        draft.lowerLeft[0],
+                        (value) => {
+                            const lowerLeft = [...draft.lowerLeft];
+                            lowerLeft[0] = value;
+                            this.updateLatticeDraft({ lowerLeft: lowerLeft as [number, number] | [number, number, number] });
+                        },
+                        { min: '' }
+                    )}
+                    {numberInput(
+                        'Lower Left Y',
+                        draft.lowerLeft[1],
+                        (value) => {
+                            const lowerLeft = [...draft.lowerLeft];
+                            lowerLeft[1] = value;
+                            this.updateLatticeDraft({ lowerLeft: lowerLeft as [number, number] | [number, number, number] });
+                        },
+                        { min: '' }
+                    )}
+                    {topLayer &&
+                        numberInput(
+                            'Lower Left Z',
+                            draft.lowerLeft[2],
+                            (value) => {
+                                const lowerLeft = [...draft.lowerLeft];
+                                lowerLeft[2] = value;
+                                this.updateLatticeDraft({ lowerLeft: lowerLeft as [number, number, number] });
+                            },
+                            { min: '' }
+                        )}
+                </div>
+                <div className="lattice-universes">
+                    <label>Universe Grid (x fastest; row 0 is the top row)</label>
+                    {Array.from({ length: nz }).map((_, z) => (
+                        <div key={z} className="lattice-slice">
+                            {nz > 1 && <span className="lattice-slice-label">Z layer {z}</span>}
+                            <div className="lattice-universe-grid" style={{ gridTemplateColumns: `repeat(${nx}, minmax(48px, 1fr))` }}>
+                                {Array.from({ length: ny }).map((__, y) =>
+                                    Array.from({ length: nx }).map((___, x) => (
+                                        <input
+                                            key={`${z}-${y}-${x}`}
+                                            type="number"
+                                            min="0"
+                                            value={draft.universes[z]?.[y]?.[x] ?? 0}
+                                            onChange={(e) =>
+                                                this.setRectLatticeUniverse(z, y, x, Math.max(0, Math.trunc(Number(e.target.value) || 0)))
+                                            }
+                                            aria-label={`Universe at z ${z}, row ${y}, column ${x}`}
+                                        />
+                                    ))
+                                )}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </>
+        );
+    }
+
+    /** Render the hexagonal-specific editor fields and ring grids. */
+    private renderHexLatticeEditorFields(
+        draft: OpenMCLattice & { type: 'hex' },
+        numberInput: (
+            label: string,
+            value: number | undefined,
+            onChange: (value: number) => void,
+            options?: { step?: string; min?: string; placeholder?: string }
+        ) => React.ReactNode
+    ): React.ReactNode {
+        const nz = draft.nAxial ?? 1;
+        const is3d = nz > 1;
+        const ringSizes = hexLatticeRingSizes(draft.rings);
+
+        return (
+            <>
+                <div className="form-row">
+                    {numberInput(
+                        'Rings (center counts)',
+                        draft.rings,
+                        (value) => this.resizeHexLatticeDraft(Math.max(1, Math.trunc(value || 1)), draft.nAxial),
+                        { min: '1' }
+                    )}
+                    <div className="form-group">
+                        <label>Orientation</label>
+                        <NukeSelect
+                            value={draft.orientation ?? 'y'}
+                            options={[
+                                { value: 'y', label: 'Y (flat top)' },
+                                { value: 'x', label: 'X (flat side)' }
+                            ]}
+                            onChange={(value: string) => this.updateLatticeDraft({ orientation: value as OpenMCHexOrientation })}
+                            ariaLabel="Hexagon orientation"
+                        />
+                    </div>
+                    {numberInput(
+                        'Axial Levels (1 = 2D)',
+                        nz,
+                        (value) => {
+                            const levels = Math.max(1, Math.trunc(value || 1));
+                            this.resizeHexLatticeDraft(draft.rings, levels > 1 ? levels : undefined);
+                        },
+                        { min: '1' }
+                    )}
+                </div>
+                <div className="form-row">
+                    {numberInput(
+                        'Center X',
+                        draft.center[0],
+                        (value) => {
+                            const center = [...draft.center];
+                            center[0] = value;
+                            this.updateLatticeDraft({ center: center as [number, number] | [number, number, number] });
+                        },
+                        { min: '' }
+                    )}
+                    {numberInput(
+                        'Center Y',
+                        draft.center[1],
+                        (value) => {
+                            const center = [...draft.center];
+                            center[1] = value;
+                            this.updateLatticeDraft({ center: center as [number, number] | [number, number, number] });
+                        },
+                        { min: '' }
+                    )}
+                    {is3d &&
+                        numberInput(
+                            'Center Z',
+                            draft.center[2],
+                            (value) => {
+                                const center = [...draft.center];
+                                center[2] = value;
+                                this.updateLatticeDraft({ center: center as [number, number, number] });
+                            },
+                            { min: '' }
+                        )}
+                    {numberInput('Radial Pitch', draft.pitch[0], (value) => {
+                        const pitch = [...draft.pitch];
+                        pitch[0] = value;
+                        this.updateLatticeDraft({ pitch: pitch as [number] | [number, number] });
+                    })}
+                    {is3d &&
+                        numberInput('Axial Pitch', draft.pitch[1], (value) => {
+                            const pitch = [...draft.pitch];
+                            pitch[1] = value;
+                            this.updateLatticeDraft({ pitch: pitch as [number, number] });
+                        })}
+                </div>
+                <div className="lattice-universes">
+                    <label>Ring Universes (outermost ring first, top then clockwise)</label>
+                    {Array.from({ length: nz }).map((_, z) => (
+                        <div key={z} className="lattice-slice">
+                            {is3d && <span className="lattice-slice-label">Axial layer {z}</span>}
+                            {ringSizes.map((size, ring) => (
+                                <div key={ring} className="lattice-ring-row">
+                                    <span className="lattice-slice-label">{ring === draft.rings - 1 ? 'Center' : `Ring ${ring}`}</span>
+                                    <div
+                                        className="lattice-universe-grid"
+                                        style={{ gridTemplateColumns: `repeat(${size}, minmax(42px, 1fr))` }}
+                                    >
+                                        {Array.from({ length: size }).map((__, theta) => (
+                                            <input
+                                                key={`${z}-${ring}-${theta}`}
+                                                type="number"
+                                                min="0"
+                                                value={draft.universes[z]?.[ring]?.[theta] ?? 0}
+                                                onChange={(e) =>
+                                                    this.setHexLatticeUniverse(
+                                                        z,
+                                                        ring,
+                                                        theta,
+                                                        Math.max(0, Math.trunc(Number(e.target.value) || 0))
+                                                    )
+                                                }
+                                                aria-label={`Universe at axial layer ${z}, ring ${ring}, position ${theta}`}
+                                            />
+                                        ))}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    ))}
+                </div>
+            </>
+        );
     }
 
     /**
@@ -1733,7 +2445,12 @@ export class CSGBuilderWidget extends ReactWidget {
                         </span>
                     </div>
                     <div className="lattice-actions">
-                        <Tooltip content="Delete Lattice">
+                        <Tooltip content="Edit Lattice" position="top">
+                            <button className="theia-button secondary small" onClick={() => this.startEditLattice(lattice)}>
+                                <i className="codicon codicon-edit"></i>
+                            </button>
+                        </Tooltip>
+                        <Tooltip content="Delete Lattice" position="top">
                             <button className="theia-button secondary small danger" onClick={() => this.deleteLattice(lattice.id)}>
                                 <i className="codicon codicon-trash"></i>
                             </button>
@@ -1741,7 +2458,7 @@ export class CSGBuilderWidget extends ReactWidget {
                     </div>
                 </div>
                 <div className="lattice-details">
-                    {isRect && (
+                    {isRect ? (
                         <>
                             <div className="lattice-param">
                                 <label>Dimensions:</label>
@@ -1754,6 +2471,25 @@ export class CSGBuilderWidget extends ReactWidget {
                             <div className="lattice-param">
                                 <label>Lower Left:</label>
                                 <span>{(lattice as any).lowerLeft?.join(', ')} cm</span>
+                            </div>
+                        </>
+                    ) : (
+                        <>
+                            <div className="lattice-param">
+                                <label>Rings:</label>
+                                <span>{(lattice as any).rings}</span>
+                            </div>
+                            <div className="lattice-param">
+                                <label>Orientation:</label>
+                                <span>{(lattice as any).orientation ?? 'y'}</span>
+                            </div>
+                            <div className="lattice-param">
+                                <label>Axial Levels:</label>
+                                <span>{(lattice as any).nAxial ?? '2D'}</span>
+                            </div>
+                            <div className="lattice-param">
+                                <label>Center:</label>
+                                <span>{(lattice as any).center?.join(', ')} cm</span>
                             </div>
                         </>
                     )}
@@ -1784,33 +2520,41 @@ export class CSGBuilderWidget extends ReactWidget {
             return <span className="empty-preview">No universes defined</span>;
         }
 
-        if (lattice.type === 'rect' || !lattice.type) {
-            const rectLat = lattice as any;
-            const nx = rectLat.dimensions?.[0] || 1;
-            const ny = rectLat.dimensions?.[1] || 1;
+        if (lattice.type === 'rect') {
+            const nx = lattice.dimensions[0];
+            const ny = lattice.dimensions[1];
+            const nz = lattice.dimensions.length === 3 ? lattice.dimensions[2] : 1;
 
             return (
-                <div
-                    className="rect-grid-preview"
-                    style={{
-                        display: 'grid',
-                        gridTemplateColumns: `repeat(${nx}, 24px)`,
-                        gap: '2px'
-                    }}
-                >
-                    {Array.from({ length: ny })
-                        .map((_, row) =>
-                            Array.from({ length: nx }).map((__, col) => {
-                                const univId = universes[ny - 1 - row]?.[col]?.[0] || 0;
-                                return <LatticeGridCell key={`${row}-${col}`} univId={univId} col={col} row={ny - 1 - row} />;
-                            })
-                        )
-                        .flat()}
+                <div className="rect-grid-preview-stack">
+                    {Array.from({ length: nz }).map((_, z) => (
+                        <div key={z}>
+                            {nz > 1 && <span className="lattice-slice-label">Z layer {z}</span>}
+                            <div
+                                className="rect-grid-preview"
+                                style={{
+                                    display: 'grid',
+                                    gridTemplateColumns: `repeat(${nx}, 24px)`,
+                                    gap: '2px'
+                                }}
+                            >
+                                {Array.from({ length: ny }).map((__, y) =>
+                                    Array.from({ length: nx }).map((___, x) => (
+                                        <LatticeGridCell key={`${z}-${y}-${x}`} univId={universes[z]?.[y]?.[x] ?? 0} col={x} row={y} />
+                                    ))
+                                )}
+                            </div>
+                        </div>
+                    ))}
                 </div>
             );
         }
 
-        return <span className="grid-placeholder">{lattice.type} lattice preview</span>;
+        return (
+            <span className="grid-placeholder">
+                Hexagonal lattice · {lattice.rings} rings · {lattice.nAxial && lattice.nAxial > 1 ? `${lattice.nAxial} axial levels` : '2D'}
+            </span>
+        );
     }
 
     // ============================================================================
@@ -1833,6 +2577,8 @@ export class CSGBuilderWidget extends ReactWidget {
         this.surfaceFormCoeffs = { ...template.defaultCoeffs };
         this.surfaceFormBoundary = 'vacuum';
         this.surfaceFormName = '';
+        this.surfaceFormAlbedo = '';
+        this.surfaceFormPeriodicId = '';
         this.showSurfaceEditor = true;
         this.update();
     }
@@ -1847,6 +2593,8 @@ export class CSGBuilderWidget extends ReactWidget {
         this.surfaceFormCoeffs = { ...surface.coefficients };
         this.surfaceFormBoundary = surface.boundary || 'vacuum';
         this.surfaceFormName = surface.name || '';
+        this.surfaceFormAlbedo = surface.albedo !== undefined ? String(surface.albedo) : '';
+        this.surfaceFormPeriodicId = surface.periodicSurfaceId !== undefined ? String(surface.periodicSurfaceId) : '';
         this.showSurfaceEditor = true;
         this.update();
     }
@@ -1875,13 +2623,34 @@ export class CSGBuilderWidget extends ReactWidget {
     private async saveSurface(): Promise<void> {
         if (!this.editingSurface) return;
 
+        let albedo: number | undefined;
+        if (this.surfaceFormAlbedo.trim().length > 0 && this.surfaceFormBoundary !== 'transmission') {
+            const parsed = parseFloat(this.surfaceFormAlbedo);
+            if (!Number.isFinite(parsed) || parsed <= 0) {
+                this.messageService.error('Boundary albedo must be a positive number (1 is the OpenMC default).');
+                return;
+            }
+            albedo = parsed;
+        }
+        let periodicSurfaceId: number | undefined;
+        if (this.surfaceFormBoundary === 'periodic') {
+            if (!this.surfaceFormPeriodicId) {
+                this.messageService.error('A periodic boundary needs a partner surface. Select the opposite plane.');
+                return;
+            }
+            periodicSurfaceId = parseInt(this.surfaceFormPeriodicId);
+        }
+
         const surface: OpenMCSurface = {
             id: this.editingSurface.id || this.stateManager.getNextSurfaceId(),
             type: this.surfaceFormType,
             coefficients: { ...this.surfaceFormCoeffs } as any,
             boundary: this.surfaceFormBoundary,
-            name: this.surfaceFormName || undefined
+            name: this.surfaceFormName || undefined,
+            albedo,
+            periodicSurfaceId
         };
+        const previousPartner = this.editingSurface.periodicSurfaceId;
 
         if (this.editingSurface.id) {
             this.stateManager.updateSurface(this.editingSurface.id, surface);
@@ -1889,6 +2658,32 @@ export class CSGBuilderWidget extends ReactWidget {
         } else {
             this.stateManager.addSurface(surface);
             this.messageService.info(`Created surface #${surface.id}`);
+        }
+
+        // OpenMC requires reciprocal periodic partners. Pair the chosen surface
+        // and clear dangling back-references when periodicity is removed or the
+        // partner changes.
+        const state = this.stateManager.getState();
+        if (periodicSurfaceId !== undefined) {
+            if (previousPartner !== undefined && previousPartner !== periodicSurfaceId) {
+                const oldPartner = state.geometry.surfaces.find((candidate) => candidate.id === previousPartner);
+                if (oldPartner && oldPartner.periodicSurfaceId === surface.id) {
+                    this.stateManager.updateSurface(oldPartner.id, { periodicSurfaceId: undefined });
+                }
+            }
+            const partner = state.geometry.surfaces.find((candidate) => candidate.id === periodicSurfaceId);
+            if (partner) {
+                this.stateManager.updateSurface(partner.id, {
+                    boundary: 'periodic',
+                    periodicSurfaceId: surface.id
+                });
+            }
+        } else {
+            for (const candidate of state.geometry.surfaces) {
+                if (candidate.id !== surface.id && candidate.periodicSurfaceId === surface.id) {
+                    this.stateManager.updateSurface(candidate.id, { periodicSurfaceId: undefined });
+                }
+            }
         }
 
         this.cancelForm();
@@ -1928,6 +2723,9 @@ export class CSGBuilderWidget extends ReactWidget {
         this.cellFormFillId = 0;
         this.cellFormRegionString = '';
         this.cellFormTemperature = undefined;
+        this.cellFormRotation = ['', '', ''];
+        this.cellFormTranslation = ['', '', ''];
+        this.cellFormDensity = '';
         this.regionBuilderTokens = [];
         this.update();
     }
@@ -1943,8 +2741,31 @@ export class CSGBuilderWidget extends ReactWidget {
         this.cellFormFillId = cell.fillId || 0;
         this.cellFormRegionString = cell.regionString || '';
         this.cellFormTemperature = cell.temperature;
+        this.cellFormRotation = cell.rotation ? (cell.rotation.map((value) => String(value)) as [string, string, string]) : ['', '', ''];
+        this.cellFormTranslation = cell.translation
+            ? (cell.translation.map((value) => String(value)) as [string, string, string])
+            : ['', '', ''];
+        this.cellFormDensity = cell.density !== undefined ? String(cell.density) : '';
         // Parse existing region into tokens
         this.regionBuilderTokens = this.parseRegionToTokens(cell.regionString || '');
+        this.update();
+    }
+
+    /**
+     * Update one component of the cell rotation/translation form fields.
+     * @param field - Which vector to edit.
+     * @param index - Vector component (0, 1, or 2).
+     * @param value - Raw input value.
+     */
+    private setCellFormVector(field: 'rotation' | 'translation', index: 0 | 1 | 2, value: string): void {
+        const current = field === 'rotation' ? this.cellFormRotation : this.cellFormTranslation;
+        const next = [...current] as [string, string, string];
+        next[index] = value;
+        if (field === 'rotation') {
+            this.cellFormRotation = next;
+        } else {
+            this.cellFormTranslation = next;
+        }
         this.update();
     }
 
@@ -2103,13 +2924,52 @@ export class CSGBuilderWidget extends ReactWidget {
             }
         }
 
+        const parseVector = (values: [string, string, string]): [number, number, number] | null | undefined => {
+            const trimmed = values.map((value) => value.trim());
+            if (trimmed.every((value) => value.length === 0)) {
+                return undefined;
+            }
+            if (trimmed.some((value) => value.length === 0)) {
+                return null;
+            }
+            const parsed = trimmed.map((value) => Number(value));
+            return parsed.every((value) => Number.isFinite(value)) ? (parsed as [number, number, number]) : null;
+        };
+
+        const rotation = parseVector(this.cellFormRotation);
+        if (rotation === null) {
+            this.messageService.error('Rotation needs all three angles (phi, theta, psi) or leave all three blank.');
+            return;
+        }
+        const translation = parseVector(this.cellFormTranslation);
+        if (translation === null) {
+            this.messageService.error('Translation needs all three values (x, y, z) or leave all three blank.');
+            return;
+        }
+        let density: number | undefined;
+        if (this.cellFormDensity.trim().length > 0) {
+            const parsed = Number(this.cellFormDensity);
+            if (!Number.isFinite(parsed) || parsed <= 0) {
+                this.messageService.error('Density override must be a positive number.');
+                return;
+            }
+            density = parsed;
+        }
+        if (this.cellFormFillType !== 'void' && (!this.cellFormFillId || this.cellFormFillId <= 0)) {
+            this.messageService.error(`Select a ${this.cellFormFillType} for this cell.`);
+            return;
+        }
+
         const cell: OpenMCCell = {
             id: this.editingCell.id || this.stateManager.getNextCellId(),
             name: this.cellFormName || undefined,
             fillType: this.cellFormFillType,
             fillId: this.cellFormFillType !== 'void' ? this.cellFormFillId : undefined,
             regionString: this.cellFormRegionString || undefined,
-            temperature: this.cellFormTemperature
+            temperature: this.cellFormTemperature,
+            density,
+            rotation: rotation ?? undefined,
+            translation: translation ?? undefined
         };
 
         // Parse region string to tree (simplified - just store string for now)
@@ -2729,13 +3589,22 @@ export class CSGBuilderWidget extends ReactWidget {
      * @param id - Universe id to delete.
      */
     private deleteUniverse(id: number): void {
-        // Check if universe is used in any cells
+        // Check if universe is used in any cells or lattice positions.
         const state = this.stateManager.getState();
         const usedInCells = state.geometry.cells.filter((cell) => cell.fillType === 'universe' && cell.fillId === id);
+        const usedInLattices = state.geometry.lattices.filter(
+            (lattice) => lattice.outer === id || (Array.isArray(lattice.universes) && lattice.universes.flat(2).includes(id))
+        );
 
         if (usedInCells.length > 0) {
             this.messageService.warn(
                 `Universe #${id} is used in cells: ${usedInCells.map((c) => `#${c.id}`).join(', ')}. Remove from cells first.`
+            );
+            return;
+        }
+        if (usedInLattices.length > 0) {
+            this.messageService.warn(
+                `Universe #${id} is used in lattices: ${usedInLattices.map((l) => `#${l.id}`).join(', ')}. Remove it from the lattice first.`
             );
             return;
         }
@@ -2991,12 +3860,17 @@ export class CSGBuilderWidget extends ReactWidget {
         this.surfaceFormCoeffs = {};
         this.surfaceFormBoundary = 'vacuum';
         this.surfaceFormName = '';
+        this.surfaceFormAlbedo = '';
+        this.surfaceFormPeriodicId = '';
         this.showSurfaceEditor = false;
         this.cellFormName = '';
         this.cellFormFillType = 'void';
         this.cellFormFillId = 0;
         this.cellFormRegionString = '';
         this.cellFormTemperature = undefined;
+        this.cellFormRotation = ['', '', ''];
+        this.cellFormTranslation = ['', '', ''];
+        this.cellFormDensity = '';
         this.regionBuilderTokens = [];
 
         this.update();

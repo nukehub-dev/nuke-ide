@@ -37,6 +37,7 @@
  */
 
 import { OpenMCState } from './openmc-state-schema';
+import { validateGeometryModel } from './geometry-validation';
 
 /** Status of a single checklist item */
 export type ChecklistStatus = 'done' | 'partial' | 'missing' | 'optional';
@@ -121,16 +122,21 @@ export function computeGeometryItem(state: OpenMCState): ChecklistItem {
     const hasDagmc = !!state.settings.dagmcFile;
     const done = hasCSG || hasDagmc;
     const dagmcVolumeCount = state.settings.dagmcInfo?.volumeCount || 0;
+    const geometryErrors = hasDagmc ? [] : validateGeometryModel(state.geometry).filter((issue) => issue.severity === 'error');
+    const baseDetail = hasCSG
+        ? `${state.geometry.cells.length} cells, ${state.geometry.surfaces.length} surfaces`
+        : hasDagmc
+          ? `${dagmcVolumeCount} DAGMC volumes`
+          : 'Not configured';
 
     return {
         id: 'geometry',
         label: 'Geometry',
-        status: done ? 'done' : 'missing',
-        detail: hasCSG
-            ? `${state.geometry.cells.length} cells, ${state.geometry.surfaces.length} surfaces`
-            : hasDagmc
-              ? `${dagmcVolumeCount} DAGMC volumes`
-              : 'Not configured'
+        status: done ? (geometryErrors.length > 0 ? 'partial' : 'done') : 'missing',
+        detail:
+            geometryErrors.length > 0
+                ? `${geometryErrors.length} geometry ${geometryErrors.length === 1 ? 'error' : 'errors'} — ${geometryErrors[0].message}`
+                : baseDetail
     };
 }
 
@@ -257,7 +263,7 @@ export function computeReadiness(state: OpenMCState): ReadinessResult {
     if (computeMaterialsItem(state).status === 'missing') {
         missing.push('Materials');
     }
-    if (computeGeometryItem(state).status === 'missing') {
+    if (computeGeometryItem(state).status !== 'done') {
         missing.push('Geometry');
     }
     if (computeSourceItem(state).status === 'missing') {

@@ -1159,6 +1159,54 @@
 .csg-builder .lattice-universes {
     border-top: 1px solid var(--theia-panel-border);
     padding-top: 12px;
+    overflow-x: auto;
+}
+
+.csg-builder .tab-toolbar-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+.csg-builder .lattice-editor {
+    border-color: var(--theia-focusBorder);
+    margin-bottom: 12px;
+}
+
+.csg-builder .lattice-slice {
+    margin-bottom: 10px;
+}
+
+.csg-builder .lattice-slice-label {
+    display: block;
+    margin-bottom: 4px;
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+}
+
+.csg-builder .lattice-ring-row {
+    margin-bottom: 6px;
+}
+
+.csg-builder .lattice-universe-grid {
+    display: grid;
+    gap: 4px;
+}
+
+.csg-builder .lattice-universe-grid input {
+    width: 100%;
+    min-width: 0;
+    padding: 4px;
+    font-family: var(--theia-code-font-family);
+    font-size: 11px;
+    text-align: center;
+}
+
+.csg-builder .rect-grid-preview-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
 }
 
 .csg-builder .lattice-universes > label {

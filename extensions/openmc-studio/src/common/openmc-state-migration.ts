@@ -10,6 +10,7 @@
  */
 
 import { OpenMCProjectFile, OPENMC_STATE_SCHEMA_VERSION } from './openmc-state-schema';
+import { normalizeGeometryForLoad } from './geometry-lattices';
 
 /** A single migration step: upgrades a project file from one schema version to the next. */
 export type ProjectMigrationStep = (project: OpenMCProjectFile) => OpenMCProjectFile;
@@ -50,7 +51,7 @@ export interface ProjectMigrationResult {
  */
 export function migrateProjectFile(project: OpenMCProjectFile): ProjectMigrationResult {
     if (project.version === OPENMC_STATE_SCHEMA_VERSION) {
-        return { project };
+        return { project: normalizeProjectFile(project) };
     }
 
     const from = project.version;
@@ -70,5 +71,25 @@ export function migrateProjectFile(project: OpenMCProjectFile): ProjectMigration
         }
     }
 
-    return { project: current, migratedFrom: from };
+    return { project: normalizeProjectFile(current), migratedFrom: from };
+}
+
+/**
+ * Canonicalize representation that is not tied to a schema version bump:
+ * retired lattice types/fields and the root-universe flags are normalized on
+ * every load, so old projects open unchanged and keep round-tripping.
+ * @param project - Parsed project file.
+ * @returns Project with canonical geometry.
+ */
+function normalizeProjectFile(project: OpenMCProjectFile): OpenMCProjectFile {
+    if (!project.state?.geometry) {
+        return project;
+    }
+    return {
+        ...project,
+        state: {
+            ...project.state,
+            geometry: normalizeGeometryForLoad(project.state.geometry)
+        }
+    };
 }

@@ -132,6 +132,12 @@ export interface OpenMCSurface {
     name?: string;
     /** Periodic surface pair ID (for periodic BC) */
     periodicSurfaceId?: number;
+    /**
+     * Boundary albedo (importance multiplier after a boundary interaction).
+     * Only meaningful for reflective, periodic, and white boundaries; OpenMC
+     * ignores it on vacuum and transmission surfaces.
+     */
+    albedo?: number;
 }
 
 // ============================================================================
@@ -183,8 +189,19 @@ export interface OpenMCCell {
     materialName?: string;
     /** Temperature in Kelvin (for multigroup calculations) */
     temperature?: number;
-    /** Cell density in g/cm³ (if specified, overrides material density) */
+    /**
+     * Cell density override; positive. Units follow the material density unit.
+     * Only meaningful when the cell is filled with a material.
+     */
     density?: number;
+    /**
+     * Intrinsic Tait-Bryan rotation in degrees (phi, theta, psi), applied as
+     * Rz(psi) Ry(theta) Rx(phi). Only meaningful on cells filled with a
+     * universe or lattice.
+     */
+    rotation?: [number, number, number];
+    /** Translation in cm, applied after the rotation. */
+    translation?: [number, number, number];
 }
 
 // ============================================================================
@@ -199,14 +216,16 @@ export interface OpenMCCell {
 
 /** Universe definition */
 export interface OpenMCUniverse {
-    /** Universe ID (0 is the root/unused universe) */
+    /**
+     * Universe ID. Universe 0 is the root: OpenMC XML has no explicit root
+     * element, so cells without a `universe` attribute belong to universe 0
+     * and every other universe must be reachable from it.
+     */
     id: number;
     /** Universe name */
     name?: string;
     /** Cells in this universe */
     cellIds: number[];
-    /** Whether this is the root universe */
-    isRoot?: boolean;
 }
 
 // ============================================================================
@@ -219,38 +238,50 @@ export interface OpenMCUniverse {
  * @see {@link OpenMCLattice}
  */
 
-/** Lattice types */
-export type OpenMCLatticeType = 'rect' | 'hex' | 'x-hex' | 'y-hex';
+/**
+ * Lattice types. Hexagonal orientation is the `orientation` field, not a
+ * separate type; OpenMC serializes both as `<hex_lattice>`.
+ */
+export type OpenMCLatticeType = 'rect' | 'hex';
+
+/** Hexagonal lattice orientation (faces perpendicular to this axis) */
+export type OpenMCHexOrientation = 'x' | 'y';
 
 /** Rectangular lattice definition */
 export interface OpenMCRectLattice {
     type: 'rect';
-    /** Lower-left corner coordinates [x, y, z] */
-    lowerLeft: [number, number, number];
+    /** Lower-left corner coordinates [x, y] or [x, y, z] */
+    lowerLeft: [number, number] | [number, number, number];
     /** Pitch (cell dimensions) [dx, dy] or [dx, dy, dz] */
     pitch: [number, number] | [number, number, number];
     /** Universe array dimensions [nx, ny] or [nx, ny, nz] */
     dimensions: [number, number] | [number, number, number];
-    /** Universe IDs filling the lattice (flattened or nested array) */
+    /**
+     * Universe IDs indexed `[z][y][x]`. The y index runs from the top row
+     * (index 0) to the bottom row, matching OpenMC's `RectLattice.universes`;
+     * 2D lattices carry exactly one z slice.
+     */
     universes: number[][][];
 }
 
 /** Hexagonal lattice definition */
 export interface OpenMCHexLattice {
-    type: 'hex' | 'x-hex' | 'y-hex';
+    type: 'hex';
     /** Center coordinates [x, y] or [x, y, z] */
     center: [number, number] | [number, number, number];
-    /** Pitch (distance between opposite sides) */
+    /** Pitch [radial] or [radial, axial] (distance between opposite sides) */
     pitch: [number] | [number, number];
-    /** Number of rings (2D) or ring-universe pattern (3D) */
-    rings?: number;
-    /** Axial lattice (for 3D hex lattices) */
-    axial?: {
-        pitch: number;
-        offset: number;
-        nStacks: number;
-    };
-    /** Universe IDs for each ring/position */
+    /** Number of radial rings including the center ring (OpenMC n_rings) */
+    rings: number;
+    /** Hexagon orientation; OpenMC defaults to 'y' */
+    orientation?: OpenMCHexOrientation;
+    /** Number of axial positions (OpenMC n_axial); omitted for 2D lattices */
+    nAxial?: number;
+    /**
+     * Universe IDs indexed `[z][ring][theta]`. Ring 0 is the outermost ring
+     * and theta starts at the top and proceeds clockwise, matching
+     * `HexLattice.universes`; 2D lattices carry exactly one z slice.
+     */
     universes: number[][][];
 }
 
@@ -327,7 +358,12 @@ export interface OpenMCGeometry {
     universes: OpenMCUniverse[];
     /** All lattices defined in the model */
     lattices: OpenMCLattice[];
-    /** Root universe ID (default: 0) */
+    /**
+     * Root universe ID. OpenMC derives the root from the universe that is not
+     * used as a cell fill or lattice universe, so this must be 0 for XML and
+     * Python export parity; the Python API can name a different root, but XML
+     * cannot represent it explicitly.
+     */
     rootUniverseId: number;
 }
 

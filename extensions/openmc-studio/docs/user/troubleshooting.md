@@ -63,8 +63,8 @@ This guide covers the most common issues encountered when building, running, and
 
 1. **Check for missing cells:**
    - Open the CSG Builder.
-   - Ensure every universe has at least one cell defined.
-   - Verify the root universe is assigned.
+   - Ensure every universe used as a cell fill, lattice position, or outer fill has at least one cell.
+   - Keep top-level cells in universe 0 (the root; it cannot be reassigned).
 
 2. **Check for invalid surfaces:**
    - Surfaces must have non-degenerate coefficients (e.g., a sphere radius must be > 0).

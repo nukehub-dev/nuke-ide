@@ -16,7 +16,7 @@ function makeProject(version: string): OpenMCProjectFile {
             geometry: {
                 surfaces: [],
                 cells: [],
-                universes: [{ id: 0, name: 'root', cellIds: [], isRoot: true }],
+                universes: [{ id: 0, name: 'root', cellIds: [] }],
                 lattices: [],
                 rootUniverseId: 0
             },
@@ -37,7 +37,7 @@ describe('migrateProjectFile', () => {
         const project = makeProject(OPENMC_STATE_SCHEMA_VERSION);
         const result = migrateProjectFile(project);
         expect(result.migratedFrom).toBeUndefined();
-        expect(result.project).toBe(project);
+        expect(result.project).toEqual(project);
     });
 
     it('migrates a 1.0.0 file to the current version, preserving state', () => {
@@ -61,5 +61,21 @@ describe('migrateProjectFile', () => {
 
     it('rejects a file newer than this build', () => {
         expect(() => migrateProjectFile(makeProject('99.0.0'))).toThrow(/Unsupported .nuke-openmc schema version/);
+    });
+
+    it('normalizes legacy lattice representation on load', () => {
+        const project = makeProject(OPENMC_STATE_SCHEMA_VERSION);
+        project.state.geometry.lattices = [
+            {
+                id: 7,
+                type: 'x-hex',
+                rings: 2,
+                center: [0, 0],
+                pitch: [1],
+                universes: [[[1, 1, 1, 1, 1, 1], [1]]]
+            } as unknown as OpenMCProjectFile['state']['geometry']['lattices'][number]
+        ];
+        const result = migrateProjectFile(project);
+        expect(result.project.state.geometry.lattices[0]).toMatchObject({ type: 'hex', orientation: 'x' });
     });
 });

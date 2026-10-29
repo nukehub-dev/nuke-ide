@@ -87,6 +87,8 @@ import { deriveKineticsFromTallies } from '../common/kinetics-ifp';
 import { getMeshElementCount } from '../common/mesh-utils';
 import { migrateProjectFile } from '../common/openmc-state-migration';
 import { calculateGeometryBounds, boxOverlapsBounds, pointInBounds } from '../common/geometry-bounds';
+import { reshapeHexLatticeUniverses } from '../common/geometry-lattices';
+import { validateGeometryModel } from '../common/geometry-validation';
 import { OpenMCRunnerService } from './openmc-runner-service';
 import { XMLGenerationService } from './xml-generation-service';
 import { OpenMCCADImportService } from './cad-import-service';
@@ -383,8 +385,7 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                     {
                         id: 0,
                         name: 'root',
-                        cellIds: [],
-                        isRoot: true
+                        cellIds: []
                     }
                 ],
                 lattices: [],
@@ -503,14 +504,7 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
         const geometry = {
             surfaces: [] as any[],
             cells: [] as any[],
-            universes: [
-                {
-                    id: 0,
-                    name: 'root',
-                    cellIds: [] as number[],
-                    isRoot: true
-                }
-            ],
+            universes: [] as any[],
             lattices: [] as any[],
             rootUniverseId: 0
         };
@@ -520,106 +514,420 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             return { geometry, warnings };
         }
 
-        // Parse surfaces
-        if (result.geometry.surface) {
-            const surfaces = Array.isArray(result.geometry.surface) ? result.geometry.surface : [result.geometry.surface];
+        const asArray = <T>(value: T | T[] | undefined): T[] => {
+            if (value === undefined) return [];
+            return Array.isArray(value) ? value : [value];
+        };
+        const numberList = (text: unknown): number[] =>
+            String(text ?? '')
+                .trim()
+                .split(/\s+/)
+                .filter((entry) => entry.length > 0)
+                .map((entry) => Number(entry));
 
-            for (const surf of surfaces) {
-                try {
-                    const surface: any = {
-                        id: parseInt(surf.$.id),
-                        type: surf.$.type,
-                        coefficients: this.parseCoeffs(surf.$.type, surf.$.coeffs),
-                        boundary: surf.$.boundary || 'transmission'
-                    };
-                    if (surf.$.name) surface.name = surf.$.name;
-                    geometry.surfaces.push(surface);
-                } catch (err) {
-                    warnings.push(`Failed to parse surface ${surf.$.id}: ${err}`);
+        const ensureUniverse = (id: number): any => {
+            if (!Number.isFinite(id)) {
+                return undefined;
+            }
+            let universe = geometry.universes.find((u: any) => u.id === id);
+            if (!universe) {
+                universe = {
+                    id,
+                    name: id === 0 ? 'root' : `Universe ${id}`,
+                    cellIds: []
+                };
+                geometry.universes.push(universe);
+            }
+            return universe;
+        };
+
+        // Parse surfaces
+        for (const surf of asArray(result.geometry.surface)) {
+            try {
+                const surface: any = {
+                    id: parseInt(surf.$.id),
+                    type: surf.$.type,
+                    coefficients: this.parseCoeffs(surf.$.type, surf.$.coeffs)
+                };
+                if (surf.$.name) surface.name = surf.$.name;
+                // OpenMC defaults an omitted boundary to transmission; leaving it
+                // unset keeps that default and keeps interior surfaces unset.
+                if (surf.$.boundary) surface.boundary = surf.$.boundary;
+                if (surf.$.albedo !== undefined) {
+                    const albedo = parseFloat(surf.$.albedo);
+                    if (Number.isFinite(albedo)) {
+                        surface.albedo = albedo;
+                        if (!(surf.$.boundary === 'reflective' || surf.$.boundary === 'periodic' || surf.$.boundary === 'white')) {
+                            warnings.push(`Surface ${surf.$.id}: albedo is only meaningful on reflective, periodic, or white boundaries`);
+                        }
+                    } else {
+                        warnings.push(`Surface ${surf.$.id}: could not parse albedo '${surf.$.albedo}'`);
+                    }
                 }
+                if (surf.$.periodic_surface_id !== undefined) {
+                    const periodicId = parseInt(surf.$.periodic_surface_id);
+                    if (Number.isFinite(periodicId)) {
+                        surface.periodicSurfaceId = periodicId;
+                        if (surf.$.boundary !== 'periodic') {
+                            warnings.push(`Surface ${surf.$.id}: periodic_surface_id is set but the boundary is not periodic`);
+                        }
+                    } else {
+                        warnings.push(`Surface ${surf.$.id}: could not parse periodic_surface_id '${surf.$.periodic_surface_id}'`);
+                    }
+                } else if (surf.$.boundary === 'periodic') {
+                    warnings.push(`Surface ${surf.$.id}: periodic boundary has no periodic_surface_id partner`);
+                }
+                geometry.surfaces.push(surface);
+            } catch (err) {
+                warnings.push(`Failed to parse surface ${surf.$.id}: ${err}`);
             }
         }
 
+        // Parse lattices before cells so a cell fill ID can be classified as a
+        // lattice or a universe (they share the fill namespace).
+        for (const lat of asArray(result.geometry.lattice)) {
+            const lattice = this.parseRectLatticeElement(lat, warnings);
+            if (lattice) {
+                geometry.lattices.push(lattice);
+            }
+        }
+        for (const lat of asArray(result.geometry.hex_lattice)) {
+            const lattice = this.parseHexLatticeElement(lat, warnings);
+            if (lattice) {
+                geometry.lattices.push(lattice);
+            }
+        }
+        const latticeIds = new Set<number>(geometry.lattices.map((lattice: any) => lattice.id));
+
         // Parse cells
-        if (result.geometry.cell) {
-            const cells = Array.isArray(result.geometry.cell) ? result.geometry.cell : [result.geometry.cell];
-
-            for (const cell of cells) {
-                try {
-                    const cellObj: any = {
-                        id: parseInt(cell.$.id),
-                        fillType: 'void'
-                    };
-                    if (cell.$.name) cellObj.name = cell.$.name;
-                    if (cell.$.temperature) cellObj.temperature = parseFloat(cell.$.temperature);
-
-                    // Parse fill - check both attributes (new format) and child elements (old format)
-                    const materialAttr = cell.$.material;
-                    const fillAttr = cell.$.fill;
-                    const materialElem = cell.material;
-                    const fillElem = cell.fill;
-
-                    if (materialAttr !== undefined) {
-                        // New format: material as attribute
-                        if (materialAttr === '' || materialAttr === 'void') {
-                            cellObj.fillType = 'void';
-                        } else {
-                            cellObj.fillType = 'material';
-                            cellObj.fillId = parseInt(materialAttr);
-                        }
-                    } else if (fillAttr !== undefined) {
-                        // New format: fill as attribute (universe)
-                        cellObj.fillType = 'universe';
-                        cellObj.fillId = parseInt(fillAttr);
-                    } else if (materialElem) {
-                        // Old format: material as child element
-                        if (materialElem === '' || materialElem === 'void') {
-                            cellObj.fillType = 'void';
-                        } else {
-                            cellObj.fillType = 'material';
-                            cellObj.fillId = parseInt(materialElem);
-                        }
-                    } else if (fillElem) {
-                        // Old format: fill as child element (universe)
-                        cellObj.fillType = 'universe';
-                        cellObj.fillId = parseInt(fillElem);
+        for (const cell of asArray(result.geometry.cell)) {
+            try {
+                const cellObj: any = {
+                    id: parseInt(cell.$.id),
+                    fillType: 'void'
+                };
+                if (cell.$.name) cellObj.name = cell.$.name;
+                if (cell.$.temperature) cellObj.temperature = parseFloat(cell.$.temperature);
+                if (cell.$.density !== undefined) {
+                    const density = parseFloat(cell.$.density);
+                    if (Number.isFinite(density)) {
+                        cellObj.density = density;
+                    } else {
+                        warnings.push(`Cell ${cell.$.id}: could not parse density '${cell.$.density}'`);
                     }
-
-                    // Parse region - check both attribute and child element
-                    if (cell.$.region) {
-                        cellObj.regionString = cell.$.region;
-                    } else if (cell.region) {
-                        cellObj.regionString = cell.region;
-                    }
-
-                    geometry.cells.push(cellObj);
-
-                    // Get universe ID (default to 0 if not specified)
-                    const universeId = cell.$.universe ? parseInt(cell.$.universe) : 0;
-
-                    // Find or create the universe
-                    let universe = geometry.universes.find((u: any) => u.id === universeId);
-                    if (!universe) {
-                        universe = {
-                            id: universeId,
-                            name: `Universe ${universeId}`,
-                            cellIds: [],
-                            isRoot: universeId === 0
-                        };
-                        geometry.universes.push(universe);
-                    }
-
-                    // Add cell to its universe
-                    if (!universe.cellIds.includes(cellObj.id)) {
-                        universe.cellIds.push(cellObj.id);
-                    }
-                } catch (err) {
-                    warnings.push(`Failed to parse cell ${cell.$.id}: ${err}`);
                 }
+                if (cell.$.translation !== undefined) {
+                    const translation = numberList(cell.$.translation);
+                    if (translation.length === 3 && translation.every(Number.isFinite)) {
+                        cellObj.translation = translation;
+                    } else {
+                        warnings.push(`Cell ${cell.$.id}: translation must be three numbers; got '${cell.$.translation}'`);
+                    }
+                }
+                if (cell.$.rotation !== undefined) {
+                    const rotation = numberList(cell.$.rotation);
+                    if (rotation.length === 3 && rotation.every(Number.isFinite)) {
+                        cellObj.rotation = rotation;
+                    } else if (rotation.length === 9) {
+                        warnings.push(
+                            `Cell ${cell.$.id}: a 9-element rotation matrix cannot be represented as Tait-Bryan angles; rotation was not imported`
+                        );
+                    } else {
+                        warnings.push(`Cell ${cell.$.id}: rotation must be three angles; got '${cell.$.rotation}'`);
+                    }
+                }
+
+                // Parse fill - check both attributes (new format) and child elements (old format)
+                const materialAttr = cell.$.material;
+                const fillAttr = cell.$.fill;
+                const materialElem = cell.material;
+                const fillElem = cell.fill;
+
+                if (materialAttr !== undefined) {
+                    // New format: material as attribute
+                    if (materialAttr === '' || materialAttr === 'void') {
+                        cellObj.fillType = 'void';
+                    } else {
+                        const materialId = parseInt(materialAttr);
+                        if (Number.isFinite(materialId)) {
+                            cellObj.fillType = 'material';
+                            cellObj.fillId = materialId;
+                        } else {
+                            warnings.push(`Cell ${cell.$.id}: could not parse material ID '${materialAttr}'`);
+                        }
+                    }
+                } else if (fillAttr !== undefined) {
+                    // New format: fill as attribute (universe or lattice)
+                    const fillId = parseInt(fillAttr);
+                    if (Number.isFinite(fillId)) {
+                        cellObj.fillId = fillId;
+                        cellObj.fillType = latticeIds.has(fillId) ? 'lattice' : 'universe';
+                    } else {
+                        warnings.push(`Cell ${cell.$.id}: could not parse fill ID '${fillAttr}'`);
+                    }
+                } else if (materialElem) {
+                    // Old format: material as child element
+                    if (materialElem === '' || materialElem === 'void') {
+                        cellObj.fillType = 'void';
+                    } else {
+                        const materialId = parseInt(materialElem);
+                        if (Number.isFinite(materialId)) {
+                            cellObj.fillType = 'material';
+                            cellObj.fillId = materialId;
+                        } else {
+                            warnings.push(`Cell ${cell.$.id}: could not parse material ID '${materialElem}'`);
+                        }
+                    }
+                } else if (fillElem) {
+                    // Old format: fill as child element (universe or lattice)
+                    const fillId = parseInt(fillElem);
+                    if (Number.isFinite(fillId)) {
+                        cellObj.fillId = fillId;
+                        cellObj.fillType = latticeIds.has(fillId) ? 'lattice' : 'universe';
+                    } else {
+                        warnings.push(`Cell ${cell.$.id}: could not parse fill ID '${fillElem}'`);
+                    }
+                }
+
+                // Parse region - check both attribute and child element
+                if (cell.$.region) {
+                    cellObj.regionString = cell.$.region;
+                } else if (cell.region) {
+                    cellObj.regionString = cell.region;
+                }
+
+                geometry.cells.push(cellObj);
+
+                // Get universe ID (default to 0 if not specified)
+                const universeId = cell.$.universe ? parseInt(cell.$.universe) : 0;
+
+                // Find or create the universe
+                const universe = ensureUniverse(universeId);
+                if (!universe) {
+                    warnings.push(`Cell ${cellObj.id}: could not parse universe ID '${cell.$.universe}'`);
+                    continue;
+                }
+
+                // Add cell to its universe
+                if (!universe.cellIds.includes(cellObj.id)) {
+                    universe.cellIds.push(cellObj.id);
+                }
+            } catch (err) {
+                warnings.push(`Failed to parse cell ${cell.$.id}: ${err}`);
+            }
+        }
+
+        // Lattice universes and the outer universe can exist without holding
+        // cells directly (they are usually filled by nested lattice entries).
+        // Keep them in the model so import round-trips preserve membership.
+        for (const lattice of geometry.lattices) {
+            for (const slice of lattice.universes ?? []) {
+                for (const ring of slice ?? []) {
+                    for (const universeId of ring ?? []) {
+                        ensureUniverse(universeId);
+                    }
+                }
+            }
+            if (lattice.outer !== undefined) {
+                ensureUniverse(lattice.outer);
+            }
+        }
+        ensureUniverse(0);
+
+        // Empty universes are legal in the state model but not in geometry.xml:
+        // OpenMC builds its universe map from cells, so every referenced
+        // universe needs at least one cell. Warn now instead of failing at run.
+        const universeById = new Map(geometry.universes.map((universe: any) => [universe.id, universe]));
+        for (const lattice of geometry.lattices) {
+            const referenced = new Set<number>((lattice.universes ?? []).flat(2) as number[]);
+            if (lattice.outer !== undefined) {
+                referenced.add(lattice.outer);
+            }
+            const empty = Array.from(referenced).filter((id) => (universeById.get(id)?.cellIds?.length ?? 0) === 0);
+            if (empty.length > 0) {
+                warnings.push(
+                    `Lattice ${lattice.id}: universe ${empty.map((id) => `#${id}`).join(', ')} ${
+                        empty.length === 1 ? 'has' : 'have'
+                    } no cells; add a cell or OpenMC will reject the geometry`
+                );
             }
         }
 
         return { geometry, warnings };
+    }
+
+    /**
+     * Parse a `<lattice>` element into the canonical `[z][y][x]` model.
+     * @param lat - xml2js element.
+     * @param warnings - Warning collector.
+     * @returns Parsed lattice, or undefined when required fields are missing.
+     */
+    private parseRectLatticeElement(lat: any, warnings: string[]): any | undefined {
+        if (!lat?.$) {
+            warnings.push('Skipping malformed <lattice> element');
+            return undefined;
+        }
+        const id = parseInt(lat.$.id);
+        if (!Number.isFinite(id)) {
+            warnings.push('Skipping <lattice> without a valid id');
+            return undefined;
+        }
+        const numberList = (text: unknown): number[] =>
+            String(text ?? '')
+                .trim()
+                .split(/\s+/)
+                .filter((entry) => entry.length > 0)
+                .map(Number);
+        const dimensions = numberList(lat.dimension).map((value) => Math.trunc(value));
+        if (dimensions.length !== 2 && dimensions.length !== 3) {
+            warnings.push(`Lattice ${id}: dimension must be two or three integers; skipped`);
+            return undefined;
+        }
+        if (!dimensions.every((value) => Number.isFinite(value) && value > 0)) {
+            warnings.push(`Lattice ${id}: dimension entries must be positive integers; skipped`);
+            return undefined;
+        }
+        const pitch = numberList(lat.pitch);
+        const lowerLeft = numberList(lat.lower_left);
+        if (pitch.length !== dimensions.length || lowerLeft.length !== dimensions.length) {
+            warnings.push(`Lattice ${id}: pitch/lower_left must match the ${dimensions.length} dimension entries; skipped`);
+            return undefined;
+        }
+        const flat = numberList(lat.universes).map((value) => Math.trunc(value));
+        const expected = dimensions.reduce((product, value) => product * value, 1);
+        if (flat.length !== expected) {
+            warnings.push(`Lattice ${id}: expected ${expected} universes but found ${flat.length}`);
+        }
+        const lattice: any = {
+            id,
+            type: 'rect',
+            lowerLeft,
+            pitch,
+            dimensions,
+            universes: this.reshapeRectUniverses(flat, dimensions as [number, number] | [number, number, number])
+        };
+        if (lat.$.name) lattice.name = lat.$.name;
+        if (lat.outer !== undefined) {
+            const outer = parseInt(lat.outer);
+            if (Number.isFinite(outer)) {
+                lattice.outer = outer;
+            } else {
+                warnings.push(`Lattice ${id}: could not parse outer universe '${lat.outer}'`);
+            }
+        }
+        return lattice;
+    }
+
+    /**
+     * Parse a `<hex_lattice>` element into the canonical `[z][ring][theta]` model.
+     * @param lat - xml2js element.
+     * @param warnings - Warning collector.
+     * @returns Parsed lattice, or undefined when required fields are missing.
+     */
+    private parseHexLatticeElement(lat: any, warnings: string[]): any | undefined {
+        if (!lat?.$) {
+            warnings.push('Skipping malformed <hex_lattice> element');
+            return undefined;
+        }
+        const id = parseInt(lat.$.id);
+        if (!Number.isFinite(id)) {
+            warnings.push('Skipping <hex_lattice> without a valid id');
+            return undefined;
+        }
+        const rings = parseInt(lat.$.n_rings);
+        if (!Number.isFinite(rings) || rings < 1) {
+            warnings.push(`Hex lattice ${id}: n_rings must be a positive integer; skipped`);
+            return undefined;
+        }
+        const orientation = lat.$.orientation === 'x' ? 'x' : 'y';
+        if (lat.$.orientation !== undefined && lat.$.orientation !== 'x' && lat.$.orientation !== 'y') {
+            warnings.push(`Hex lattice ${id}: orientation '${lat.$.orientation}' is not 'x' or 'y'; using 'y'`);
+        }
+        const numberList = (text: unknown): number[] =>
+            String(text ?? '')
+                .trim()
+                .split(/\s+/)
+                .filter((entry) => entry.length > 0)
+                .map(Number);
+        const nAxialRaw = lat.$.n_axial !== undefined ? parseInt(lat.$.n_axial) : undefined;
+        const nAxial = nAxialRaw !== undefined && Number.isFinite(nAxialRaw) && nAxialRaw > 1 ? nAxialRaw : undefined;
+        if (nAxialRaw === 1) {
+            warnings.push(`Hex lattice ${id}: n_axial="1" is treated as a 2D lattice (OpenMC C++ requires 3D center/pitch for n_axial)`);
+        }
+        const is3d = nAxial !== undefined;
+        const center = numberList(lat.center);
+        const pitch = numberList(lat.pitch);
+        if (center.length !== (is3d ? 3 : 2) || pitch.length !== (is3d ? 2 : 1)) {
+            warnings.push(
+                `Hex lattice ${id}: center/pitch must have ${is3d ? '3 center values and 2 pitches' : '2 center values and 1 pitch'}; skipped`
+            );
+            return undefined;
+        }
+        const flat = numberList(lat.universes).map((value) => Math.trunc(value));
+        const expected = (3 * rings * rings - 3 * rings + 1) * (nAxial ?? 1);
+        if (flat.length !== expected) {
+            warnings.push(`Hex lattice ${id}: expected ${expected} universes but found ${flat.length}`);
+        }
+        const lattice: any = {
+            id,
+            type: 'hex',
+            rings,
+            center,
+            pitch,
+            universes: this.reshapeHexUniverses(flat, rings, orientation, nAxial ?? 1)
+        };
+        if (orientation === 'x') {
+            lattice.orientation = 'x';
+        }
+        if (nAxial !== undefined) {
+            lattice.nAxial = nAxial;
+        }
+        if (lat.$.name) lattice.name = lat.$.name;
+        if (lat.outer !== undefined) {
+            const outer = parseInt(lat.outer);
+            if (Number.isFinite(outer)) {
+                lattice.outer = outer;
+            } else {
+                warnings.push(`Hex lattice ${id}: could not parse outer universe '${lat.outer}'`);
+            }
+        }
+        return lattice;
+    }
+
+    /**
+     * Reshape a flat `<lattice><universes>` list into `[z][y][x]`.
+     * @param flat - Universe IDs in XML order.
+     * @param dimensions - `[nx, ny]` or `[nx, ny, nz]`.
+     * @returns Nested universe array.
+     */
+    private reshapeRectUniverses(flat: number[], dimensions: [number, number] | [number, number, number]): number[][][] {
+        const [nx, ny, nz = 1] = dimensions;
+        const universes: number[][][] = [];
+        let index = 0;
+        for (let z = 0; z < nz; z++) {
+            const slice: number[][] = [];
+            for (let y = 0; y < ny; y++) {
+                const row: number[] = [];
+                for (let x = 0; x < nx; x++) {
+                    row.push(flat[index++] ?? 0);
+                }
+                slice.push(row);
+            }
+            universes.push(slice);
+        }
+        return universes;
+    }
+
+    /**
+     * Reshape a flat `<hex_lattice><universes>` list into `[z][ring][theta]`.
+     * @param flat - Universe IDs in XML order.
+     * @param rings - Number of rings including the center ring.
+     * @param orientation - Hexagon orientation.
+     * @param nAxial - Number of axial slices.
+     * @returns Nested universe array.
+     */
+    private reshapeHexUniverses(flat: number[], rings: number, orientation: 'x' | 'y', nAxial: number): number[][][] {
+        return reshapeHexLatticeUniverses(flat, rings, orientation, nAxial);
     }
 
     private parseCoeffs(surfaceType: string, coeffsStr: string): any {
@@ -2122,6 +2430,13 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             }
         }
 
+        // Lattice/transform/periodic model checks. OpenMC derives the root
+        // universe from fill usage and resolves fill IDs against separate
+        // universe/lattice maps, so structural errors must be caught here.
+        if (!settings.dagmcFile) {
+            issues.push(...validateGeometryModel(geometry));
+        }
+
         // Check for source in fixed source mode
         if (settings.run.mode === 'fixed source') {
             if (!settings.sources || settings.sources.length === 0) {
@@ -2707,8 +3022,7 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                         {
                             id: 0,
                             name: 'root',
-                            cellIds: [],
-                            isRoot: true
+                            cellIds: []
                         }
                     ],
                     lattices: [],

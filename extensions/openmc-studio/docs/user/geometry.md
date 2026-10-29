@@ -45,7 +45,7 @@ Surfaces are the primitive building blocks of CSG geometry.
 | **General Quadric** | `Ax² + By² + Cz² + ... = 0`        | 10 coefficients                          |
 
 3. Enter coefficients in the form. The surface appears in the **Surfaces List** with an auto-assigned ID.
-4. Set the **Boundary Condition** (optional): `vacuum`, `reflective`, `periodic`, or `white`.
+4. Set the **Boundary Condition** (optional): `vacuum`, `reflective`, `periodic`, or `white`. Reflective, periodic, and white boundaries accept an **albedo** (importance multiplier, default 1). A periodic plane must name its opposite plane as the **Periodic Partner**; the editor sets the reciprocal link automatically.
 
 > **Tip:** Name surfaces descriptively (e.g., "Fuel Outer Radius") — the names appear in region expressions and make debugging easier.
 
@@ -58,15 +58,16 @@ Cells are volumes bounded by surfaces and filled with materials, universes, or l
 1. Click **"Add Cell"** in the toolbar.
 2. Fill in the cell form:
 
-| Field           | Description                             |
-| --------------- | --------------------------------------- |
-| **ID**          | Unique integer identifier               |
-| **Name**        | Descriptive label                       |
-| **Fill**        | Material, Universe, Lattice, or Void    |
-| **Region**      | Boolean expression of surface IDs       |
-| **Temperature** | Optional temperature in Kelvin          |
-| **Rotation**    | Optional rotation matrix (for fills)    |
-| **Translation** | Optional translation vector (for fills) |
+| Field           | Description                                                                    |
+| --------------- | ------------------------------------------------------------------------------ |
+| **ID**          | Unique integer identifier                                                      |
+| **Name**        | Descriptive label                                                              |
+| **Fill**        | Material, Universe, Lattice, or Void                                           |
+| **Region**      | Boolean expression of surface IDs                                              |
+| **Temperature** | Optional temperature in Kelvin                                                 |
+| **Rotation**    | Optional intrinsic Tait-Bryan angles φ/θ/ψ in degrees (universe/lattice fills) |
+| **Translation** | Optional translation x/y/z in cm, applied after rotation                       |
+| **Density**     | Optional positive density override for material fills                          |
 
 3. **Region Expressions:** Use parentheses, spaces, and the operators:
 
@@ -96,14 +97,13 @@ Universes group cells together so they can be reused as fills.
 
 1. Click **"Add Universe"**.
 2. Drag cells from the **Cells List** into the universe.
-3. Set one universe as the **Root Universe** (the top-level geometry).
+3. Universe **0** is always the root universe (the top-level geometry). OpenMC's XML format has no explicit root element, so the root cannot be reassigned; keep top-level cells in universe 0.
 
-| Property    | Description                            |
-| ----------- | -------------------------------------- |
-| **ID**      | Unique integer                         |
-| **Name**    | Descriptive label                      |
-| **Cells**   | List of member cells                   |
-| **Is Root** | Whether this is the top-level universe |
+| Property  | Description                                           |
+| --------- | ----------------------------------------------------- |
+| **ID**    | Unique integer (0 is the root)                        |
+| **Name**  | Descriptive label                                     |
+| **Cells** | List of member cells (a cell belongs to one universe) |
 
 ---
 
@@ -111,30 +111,29 @@ Universes group cells together so they can be reused as fills.
 
 Lattices are regular arrays of universes — essential for reactor assemblies.
 
-1. Click **"Add Lattice"**.
-2. Choose a lattice type:
+1. Click **"Add Rect Lattice"** or **"Add Hex Lattice"**.
+2. The lattice card opens an inline editor. Configure it:
 
-| Lattice Type    | Description                 | Use Case                            |
-| --------------- | --------------------------- | ----------------------------------- |
-| **Rectangular** | Cartesian grid of universes | PWR/BWR assemblies, regular arrays  |
-| **Hexagonal**   | Hexagonal close-packed grid | VVER assemblies, prismatic reactors |
+| Parameter          | Description                                                        |
+| ------------------ | ------------------------------------------------------------------ |
+| **ID / Name**      | Unique integer and descriptive label                               |
+| **Cells X / Y**    | Number of rectangular lattice cells per axis                       |
+| **Z Layers**       | `1` keeps the lattice 2D; larger values add axial layers           |
+| **Pitch**          | Center-to-center distance in cm (one per dimension)                |
+| **Lower Left**     | `[x, y]` or `[x, y, z]` corner of a rectangular lattice            |
+| **Rings**          | Hexagonal ring count including the center ring                     |
+| **Orientation**    | Hexagon orientation: `y` (flat top, the default) or `x`            |
+| **Axial Levels**   | `1` keeps the hex lattice 2D; larger values add `<n_axial>` levels |
+| **Center**         | `[x, y]` or `[x, y, z]` center of a hexagonal lattice              |
+| **Universe Grid**  | Universe ID at every rectangular position (row 0 is the top row)   |
+| **Ring Universes** | Universe IDs by ring, outermost ring first, top then clockwise     |
+| **Outer Universe** | Universe ID for positions outside the defined map                  |
 
-3. Configure the lattice:
+3. Click **Save Lattice**. Every universe ID in the grid/rings must exist; a cell can then use the lattice as its fill.
 
-| Parameter          | Description                                       |
-| ------------------ | ------------------------------------------------- |
-| **ID**             | Unique integer                                    |
-| **Name**           | Descriptive label                                 |
-| **Dimensions**     | `[nx, ny]` (rect) or `[nr, n_rings]` (hex)        |
-| **Pitch**          | Center-to-center distance (cm)                    |
-| **Lower Left**     | `[x, y, z]` corner of the lattice (rect only)     |
-| **Center**         | `[x, y, z]` center of the lattice (hex only)      |
-| **Universe Map**   | 2D array assigning universe IDs to positions      |
-| **Outer Universe** | Universe ID for positions outside the defined map |
+> **Tip:** Use the **Outer Universe** to define reflector or coolant regions surrounding the lattice without explicitly tiling them. Lattice and universe IDs share OpenMC's fill namespace, so they must not collide. Every universe referenced by a lattice position or the outer fill needs at least one cell — OpenMC omits empty universes from geometry.xml, so an empty universe cannot be used as a fill.
 
-4. Click **"Populate Grid"** to open a visual grid editor. Click cells in the grid to assign universe IDs.
-
-> **Tip:** Use the **Outer Universe** to define reflector or coolant regions surrounding the lattice without explicitly tiling them.
+Lattice units are centimeters. For a rectangular lattice, `x` varies fastest within a row and row 0 is the top row, matching `openmc.RectLattice.universes`; hexagonal ring 0 is outermost and theta starts at the top and proceeds clockwise.
 
 ---
 
@@ -304,4 +303,4 @@ If you see "skipped N volumes" warnings:
 - **Validate before running:** After building CSG geometry, run `Tools → OpenMC Studio → Simulation → Validate Model` to check for errors before simulation.
 - **DAGMC graveyard:** Always ensure your DAGMC model has a `graveyard` group. Without it, OpenMC cannot terminate escaping particles. The DAGMC Editor detects a missing graveyard and can create one automatically (see [DAGMC Editor](dagmc-editor.md)).
 - **Unit consistency:** OpenMC uses centimeters. Ensure your CAD files are in cm or convert during import.
-- **Complex lattices:** For large lattice arrays, use the grid editor's **"Fill Pattern"** button to repeat a universe pattern across the lattice.
+- **Complex lattices:** Fill the universe grid once and reuse the same universe ID across positions; the outer universe covers everything beyond the array.

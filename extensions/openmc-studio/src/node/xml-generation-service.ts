@@ -58,6 +58,7 @@ import {
 } from '../common/openmc-state-schema';
 
 import { getAutoIfpTallies } from '../common/kinetics-ifp';
+import { flattenRectLatticeUniverses, hexLatticeUniverseRows } from '../common/geometry-lattices';
 
 import { OpenMCStudioClient } from '../common/openmc-studio-protocol';
 
@@ -535,11 +536,26 @@ export class XMLGenerationService {
         // surfaces and silently breaks any multi-region model.
         const boundaryAttr = surface.boundary ? ` boundary="${surface.boundary}"` : '';
         const nameAttr = surface.name ? ` name="${this.escapeXml(surface.name)}"` : '';
+        // openmc/surface.py only serializes an albedo on albedo-capable
+        // boundaries and omits the OpenMC default of 1.
+        const albedoAttr =
+            surface.albedo !== undefined && surface.albedo !== 1 && this.isAlbedoBoundary(surface.boundary)
+                ? ` albedo="${surface.albedo}"`
+                : '';
+        const periodicAttr =
+            surface.boundary === 'periodic' && surface.periodicSurfaceId !== undefined
+                ? ` periodic_surface_id="${surface.periodicSurfaceId}"`
+                : '';
 
         // Map internal surface type to OpenMC-compatible type
         const openmcType = this.mapSurfaceTypeToOpenMC(surface);
 
-        return `  <surface coeffs="${this.coeffsToString(surface)}" id="${surface.id}" type="${openmcType}"${boundaryAttr}${nameAttr}/>`;
+        return `  <surface coeffs="${this.coeffsToString(surface)}" id="${surface.id}" type="${openmcType}"${boundaryAttr}${albedoAttr}${periodicAttr}${nameAttr}/>`;
+    }
+
+    /** Whether a boundary condition carries an albedo in OpenMC. */
+    private isAlbedoBoundary(boundary: OpenMCSurface['boundary']): boolean {
+        return boundary === 'reflective' || boundary === 'periodic' || boundary === 'white';
     }
 
     /**
@@ -615,6 +631,9 @@ export class XMLGenerationService {
         const nameAttr = cell.name ? ` name="${this.escapeXml(cell.name)}"` : '';
         const tempAttr = cell.temperature ? ` temperature="${cell.temperature}"` : '';
         const universeAttr = universeId !== 0 ? ` universe="${universeId}"` : '';
+        const densityAttr = cell.density !== undefined ? ` density="${cell.density}"` : '';
+        const translationAttr = cell.translation ? ` translation="${cell.translation.join(' ')}"` : '';
+        const rotationAttr = cell.rotation ? ` rotation="${cell.rotation.join(' ')}"` : '';
 
         // Build attributes for self-closing tag (compatible with OpenMC geometry viewer)
         let fillAttr = '';
@@ -644,7 +663,7 @@ export class XMLGenerationService {
         }
 
         // Use self-closing tag format for cleaner XML
-        return `  <cell id="${cell.id}"${nameAttr}${fillAttr}${regionAttr}${tempAttr}${universeAttr}/>\n`;
+        return `  <cell id="${cell.id}"${nameAttr}${fillAttr}${regionAttr}${tempAttr}${universeAttr}${densityAttr}${translationAttr}${rotationAttr}/>\n`;
     }
 
     private regionNodeToString(node: any): string {
@@ -671,11 +690,45 @@ export class XMLGenerationService {
 
     private generateLatticeElement(lattice: OpenMCLattice): string {
         const lines: string[] = [];
+        const nameAttr = lattice.name ? ` name="${this.escapeXml(lattice.name)}"` : '';
 
-        // This is a simplified implementation
-        // Full implementation would handle different lattice types
-        lines.push(`  <!-- Lattice ${lattice.id} generation not yet fully implemented -->`);
+        if (lattice.type === 'rect') {
+            lines.push(`  <lattice id="${lattice.id}"${nameAttr}>`);
+            lines.push(`    <pitch>${lattice.pitch.join(' ')}</pitch>`);
+            if (lattice.outer !== undefined) {
+                lines.push(`    <outer>${lattice.outer}</outer>`);
+            }
+            lines.push(`    <dimension>${lattice.dimensions.join(' ')}</dimension>`);
+            lines.push(`    <lower_left>${lattice.lowerLeft.join(' ')}</lower_left>`);
+            lines.push('    <universes>');
+            for (const row of flattenRectLatticeUniverses(lattice)) {
+                lines.push(`      ${row.join(' ')}`);
+            }
+            lines.push('    </universes>');
+            lines.push('  </lattice>');
+        } else {
+            const orientation = lattice.orientation ?? 'y';
+            const nAxial = lattice.nAxial ?? 1;
+            const orientationAttr = orientation === 'x' ? ' orientation="x"' : '';
+            const axialAttr = nAxial > 1 ? ` n_axial="${nAxial}"` : '';
+            lines.push(`  <hex_lattice id="${lattice.id}"${nameAttr} n_rings="${lattice.rings}"${orientationAttr}${axialAttr}>`);
+            lines.push(`    <pitch>${lattice.pitch.join(' ')}</pitch>`);
+            if (lattice.outer !== undefined) {
+                lines.push(`    <outer>${lattice.outer}</outer>`);
+            }
+            lines.push(`    <center>${lattice.center.join(' ')}</center>`);
+            lines.push('    <universes>');
+            for (let z = 0; z < nAxial; z++) {
+                for (const row of hexLatticeUniverseRows(lattice.rings, orientation)) {
+                    const ids = row.map(({ ring, theta }) => lattice.universes[z]?.[ring]?.[theta] ?? 0);
+                    lines.push(`      ${ids.join(' ')}`);
+                }
+            }
+            lines.push('    </universes>');
+            lines.push('  </hex_lattice>');
+        }
 
+        lines.push('');
         return lines.join('\n');
     }
 

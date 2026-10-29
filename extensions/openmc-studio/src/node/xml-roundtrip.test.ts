@@ -58,7 +58,7 @@ function buildTestState(): OpenMCState {
         geometry: {
             surfaces: [{ id: 1, type: 'sphere', coefficients: { x0: 0, y0: 0, z0: 0, r: 10 }, boundary: 'vacuum' }],
             cells: [{ id: 1, fillType: 'material', fillId: 1, regionString: '-1' }],
-            universes: [{ id: 0, name: 'root', cellIds: [1], isRoot: true }],
+            universes: [{ id: 0, name: 'root', cellIds: [1] }],
             lattices: [],
             rootUniverseId: 0
         },
@@ -416,7 +416,7 @@ describe('settings.xml round-trip', () => {
             geometry: {
                 surfaces: [{ id: 1, type: 'sphere', coefficients: { x0: 0, y0: 0, z0: 0, r: 10 }, boundary: 'vacuum' }],
                 cells: [{ id: 1, fillType: 'material', fillId: 1, regionString: '-1' }],
-                universes: [{ id: 0, name: 'root', cellIds: [1], isRoot: true }],
+                universes: [{ id: 0, name: 'root', cellIds: [1] }],
                 lattices: [],
                 rootUniverseId: 0
             },
@@ -507,7 +507,7 @@ describe('settings.xml round-trip', () => {
             geometry: {
                 surfaces: [{ id: 1, type: 'sphere', coefficients: { x0: 0, y0: 0, z0: 0, r: 10 }, boundary: 'vacuum' }],
                 cells: [{ id: 1, fillType: 'material', fillId: 1, regionString: '-1' }],
-                universes: [{ id: 0, name: 'root', cellIds: [1], isRoot: true }],
+                universes: [{ id: 0, name: 'root', cellIds: [1] }],
                 lattices: [],
                 rootUniverseId: 0
             },
@@ -738,7 +738,7 @@ describe('settings.xml round-trip', () => {
             geometry: {
                 surfaces: [{ id: 1, type: 'sphere', coefficients: { x0: 0, y0: 0, z0: 0, r: 1000 }, boundary: 'vacuum' }],
                 cells: [{ id: 1, fillType: 'material', fillId: 1, regionString: '-1' }],
-                universes: [{ id: 0, name: 'root', cellIds: [1], isRoot: true }],
+                universes: [{ id: 0, name: 'root', cellIds: [1] }],
                 lattices: [],
                 rootUniverseId: 0
             },
@@ -1819,7 +1819,7 @@ describe('void cells', () => {
             { id: 1, name: 'water', fillType: 'material', fillId: 1, regionString: '-1' },
             { id: 2, name: 'void', fillType: 'void', regionString: '1' }
         ];
-        state.geometry.universes = [{ id: 0, name: 'root', cellIds: [1, 2], isRoot: true }];
+        state.geometry.universes = [{ id: 0, name: 'root', cellIds: [1, 2] }];
         const service = new XMLGenerationService();
         const result = await service.generateXML({
             state,
@@ -1837,7 +1837,7 @@ describe('void cells', () => {
             { id: 1, name: 'water', fillType: 'material', fillId: 1, regionString: '-1' },
             { id: 2, name: 'void', fillType: 'void', regionString: '1' }
         ];
-        state.geometry.universes = [{ id: 0, name: 'root', cellIds: [1, 2], isRoot: true }];
+        state.geometry.universes = [{ id: 0, name: 'root', cellIds: [1, 2] }];
         const generator = new XMLGenerationService();
         await generator.generateXML({
             state,

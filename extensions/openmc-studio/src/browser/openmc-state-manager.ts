@@ -92,8 +92,7 @@ export function createDefaultState(): OpenMCState {
                 {
                     id: 0,
                     name: 'root',
-                    cellIds: [],
-                    isRoot: true
+                    cellIds: []
                 }
             ],
             lattices: [],
@@ -971,7 +970,9 @@ export class OpenMCStateManager {
      * @returns The smallest unused positive integer ID for universes.
      */
     getNextUniverseId(): number {
-        const ids = this._state.geometry.universes.map((u) => u.id);
+        // Universe and lattice IDs share OpenMC's fill namespace; keep them
+        // disjoint so a fill can never resolve to the wrong entity.
+        const ids = [...this._state.geometry.universes, ...this._state.geometry.lattices].map((entity) => entity.id);
         return ids.length > 0 ? Math.max(...ids) + 1 : 1;
     }
 
@@ -981,7 +982,7 @@ export class OpenMCStateManager {
      * @returns The smallest unused positive integer ID for lattices.
      */
     getNextLatticeId(): number {
-        const ids = this._state.geometry.lattices.map((l) => l.id);
+        const ids = [...this._state.geometry.lattices, ...this._state.geometry.universes].map((entity) => entity.id);
         return ids.length > 0 ? Math.max(...ids) + 1 : 1;
     }
 

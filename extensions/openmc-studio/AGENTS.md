@@ -26,6 +26,10 @@ All files under `extensions/openmc-studio/` except generated artifacts (`lib/`, 
   (dedicated dir excluded wholesale; project-dir output excludes only `particles/**`/`tracks/**`). See `docs/dev/state-model.md`.
 - Surface boundary is emitted ONLY when `OpenMCSurface.boundary` is set; unset means OpenMC transmission default and interior surfaces
   must stay unset. Cells must fully bound the geometry. See `docs/dev/xml-generation.md`.
+- Lattices mirror OpenMC arrays: rect `[z][y][x]` (row 0 top, x fastest), hex `[z][ring][theta]` (ring 0 outermost, theta
+  clockwise), emitted as `<lattice>`/`<hex_lattice>` in `_repr_axial_slice_x/_y` order. Root is always universe 0; lattice/universe
+  IDs share the fill namespace. Periodic pairs are reciprocal planes, albedo only on reflective/periodic/white.
+  See `docs/dev/state-model.md`.
 - Depletion `<depletion>` block: `settings.xml` ↔ runner `checkDepletionEnabled` ↔ `run_depletion.py` args stay in lockstep;
   coupled is CE-only, MG depletion is Independent-operator only, macroscopic materials never deplete (`validateState` + pre-import
   driver guards, clean `DepletionConfigError` JSON). See `docs/dev/xml-generation.md` and `docs/dev/python-backends.md`.

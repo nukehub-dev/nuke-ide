@@ -63,7 +63,8 @@ import {
     OpenMCSourceEnergy,
     OpenMCEigenvalueSettings,
     OpenMCFixedSourceSettings,
-    OpenMCPlotConfig
+    OpenMCPlotConfig,
+    OpenMCLattice
 } from '../../common/openmc-state-schema';
 import { getAutoIfpTallies } from '../../common/kinetics-ifp';
 import { generateCmfdCodeLines } from '../../common/cmfd';
@@ -704,6 +705,36 @@ export class OpenMCPythonExporter {
             lines.push('');
         }
 
+        // Generate universes before cells: cells and lattices reference them.
+        const hasRootUniverse = state.geometry.universes.some((universe) => universe.id === 0);
+        if (state.geometry.universes.length > 0) {
+            if (options.includeComments) {
+                lines.push('# Universes');
+            }
+            for (const universe of state.geometry.universes) {
+                const nameArg = universe.name ? `, name="${this.escapePythonString(universe.name)}"` : '';
+                lines.push(`universe_${universe.id} = openmc.Universe(universe_id=${universe.id}${nameArg})`);
+            }
+        }
+        if (!hasRootUniverse) {
+            if (options.includeComments) {
+                lines.push('# Root universe (OpenMC XML defaults cells without a universe attribute to 0)');
+            }
+            lines.push('universe_0 = openmc.Universe(universe_id=0, name="root universe")');
+        }
+        lines.push('');
+
+        // Generate lattices (they reference universes and are referenced by cells).
+        if (state.geometry.lattices.length > 0) {
+            if (options.includeComments) {
+                lines.push('# Lattices');
+            }
+            for (const lattice of state.geometry.lattices) {
+                lines.push(...this.generateLatticeCode(lattice));
+            }
+            lines.push('');
+        }
+
         // Generate cells
         if (state.geometry.cells.length > 0) {
             if (options.includeComments) {
@@ -715,11 +746,42 @@ export class OpenMCPythonExporter {
             lines.push('');
         }
 
-        // Create geometry object
+        // Add every cell to its owning universe. Cells not listed in any
+        // universe belong to universe 0, matching the XML default.
         if (state.geometry.cells.length > 0) {
-            const cellVars = state.geometry.cells.map((c) => `cell_${c.id}`).join(', ');
-            lines.push(`geometry = openmc.Geometry([${cellVars}])`);
-        } else if (state.settings.dagmcFile) {
+            const cellToUniverse = new Map<number, number>();
+            for (const universe of state.geometry.universes) {
+                for (const cellId of universe.cellIds) {
+                    if (!cellToUniverse.has(cellId)) {
+                        cellToUniverse.set(cellId, universe.id);
+                    }
+                }
+            }
+            if (options.includeComments) {
+                lines.push('# Universe membership');
+            }
+            for (const cell of state.geometry.cells) {
+                const universeId = cellToUniverse.get(cell.id) ?? 0;
+                lines.push(`universe_${universeId}.add_cell(cell_${cell.id})`);
+            }
+            lines.push('');
+        }
+
+        // Periodic surface pairs are assigned after both surfaces exist.
+        const periodicPairs = this.collectPeriodicPairs(state);
+        if (periodicPairs.length > 0) {
+            if (options.includeComments) {
+                lines.push('# Periodic boundary pairs');
+            }
+            for (const [first, second] of periodicPairs) {
+                lines.push(`surface_${first}.periodic_surface = surface_${second}`);
+            }
+            lines.push('');
+        }
+
+        // Create the geometry object from the root universe, never from a flat
+        // cell list: that would drop universes and lattices.
+        if (state.settings.dagmcFile && state.geometry.cells.length === 0) {
             if (options.includeComments) {
                 lines.push('# DAGMC geometry - uses CAD-based mesh geometry');
             }
@@ -734,12 +796,92 @@ export class OpenMCPythonExporter {
             lines.push(`dagmc_univ = openmc.DAGMCUniverse(filename="geometry.h5m"${dagmcArgsStr})`);
             lines.push('geometry = openmc.Geometry(dagmc_univ)');
         } else {
-            // Ensure we have at least a root universe, even if empty
-            lines.push('root_univ = openmc.Universe(universe_id=0, name="root universe")');
-            lines.push('geometry = openmc.Geometry(root_univ)');
+            lines.push('geometry = openmc.Geometry(universe_0)');
         }
 
         return lines;
+    }
+
+    /**
+     * Build `openmc.RectLattice` / `openmc.HexLattice` Python code.
+     * @param lattice - The {@link OpenMCLattice} to convert.
+     * @returns An array of code lines.
+     */
+    private generateLatticeCode(lattice: OpenMCLattice): string[] {
+        const lines: string[] = [];
+        const nameArg = lattice.name ? `, name="${this.escapePythonString(lattice.name)}"` : '';
+
+        if (lattice.type === 'rect') {
+            lines.push(`lattice_${lattice.id} = openmc.RectLattice(lattice_id=${lattice.id}${nameArg})`);
+            lines.push(`lattice_${lattice.id}.lower_left = ${this.pythonTuple(lattice.lowerLeft)}`);
+            lines.push(`lattice_${lattice.id}.pitch = ${this.pythonTuple(lattice.pitch)}`);
+            const slices = lattice.dimensions.length === 3 ? lattice.universes : lattice.universes[0];
+            lines.push(`lattice_${lattice.id}.universes = ${this.pythonUniverseArray(slices)}`);
+        } else {
+            lines.push(`lattice_${lattice.id} = openmc.HexLattice(lattice_id=${lattice.id}${nameArg})`);
+            lines.push(`lattice_${lattice.id}.center = ${this.pythonTuple(lattice.center)}`);
+            lines.push(`lattice_${lattice.id}.pitch = ${this.pythonTuple(lattice.pitch)}`);
+            if (lattice.orientation === 'x') {
+                lines.push(`lattice_${lattice.id}.orientation = "x"`);
+            }
+            const nAxial = lattice.nAxial ?? 1;
+            const slices = nAxial > 1 ? lattice.universes : lattice.universes[0];
+            lines.push(`lattice_${lattice.id}.universes = ${this.pythonUniverseArray(slices)}`);
+        }
+
+        if (lattice.outer !== undefined) {
+            lines.push(`lattice_${lattice.id}.outer = universe_${lattice.outer}`);
+        }
+        lines.push('');
+        return lines;
+    }
+
+    /** Render a numeric array as a Python tuple (1-element tuples need a comma). */
+    private pythonTuple(values: number[]): string {
+        if (values.length === 1) {
+            return `(${values[0]},)`;
+        }
+        return `(${values.join(', ')})`;
+    }
+
+    /** Render nested universe-ID arrays as Python `universe_<id>` lists. */
+    private pythonUniverseArray(universes: number[][][] | number[][]): string {
+        const render = (value: unknown): string => {
+            if (typeof value === 'number') {
+                return `universe_${value}`;
+            }
+            if (Array.isArray(value)) {
+                return `[${value.map(render).join(', ')}]`;
+            }
+            return 'universe_0';
+        };
+        return render(universes);
+    }
+
+    /**
+     * Collect reciprocal periodic pairs once (the lower ID owns the statement).
+     * @param state - The current {@link OpenMCState}.
+     * @returns Pairs of surface IDs.
+     */
+    private collectPeriodicPairs(state: OpenMCState): [number, number][] {
+        const surfaces = new Map(state.geometry.surfaces.map((surface) => [surface.id, surface]));
+        const pairs: [number, number][] = [];
+        const seen = new Set<string>();
+        for (const surface of state.geometry.surfaces) {
+            if (surface.boundary !== 'periodic' || surface.periodicSurfaceId === undefined) {
+                continue;
+            }
+            const partner = surfaces.get(surface.periodicSurfaceId);
+            if (!partner || partner.boundary !== 'periodic' || partner.periodicSurfaceId !== surface.id) {
+                continue;
+            }
+            const key = [surface.id, partner.id].sort((a, b) => a - b).join(':');
+            if (!seen.has(key)) {
+                seen.add(key);
+                pairs.push([surface.id, partner.id]);
+            }
+        }
+        return pairs;
     }
 
     /**
@@ -830,6 +972,10 @@ export class OpenMCPythonExporter {
         // Add boundary condition
         if (surface.boundary && surface.boundary !== 'transmission') {
             constructor += `, boundary_type="${surface.boundary}"`;
+            const albedoCapable = surface.boundary === 'reflective' || surface.boundary === 'periodic' || surface.boundary === 'white';
+            if (albedoCapable && surface.albedo !== undefined && surface.albedo !== 1) {
+                constructor += `, albedo=${surface.albedo}`;
+            }
         }
 
         constructor += ')';
@@ -862,6 +1008,14 @@ export class OpenMCPythonExporter {
             if (material) {
                 fill = `fill=${this.sanitizeVariableName(material.name)}`;
             }
+        } else if (cell.fillType === 'universe' && cell.fillId !== undefined) {
+            if (state.geometry.universes.some((universe) => universe.id === cell.fillId)) {
+                fill = `fill=universe_${cell.fillId}`;
+            }
+        } else if (cell.fillType === 'lattice' && cell.fillId !== undefined) {
+            if (state.geometry.lattices.some((lattice) => lattice.id === cell.fillId)) {
+                fill = `fill=lattice_${cell.fillId}`;
+            }
         } else if (cell.fillType === 'void') {
             fill = 'fill=None';
         }
@@ -871,6 +1025,16 @@ export class OpenMCPythonExporter {
         const nameArg = cell.name ? `, name="${this.escapePythonString(cell.name)}"` : '';
 
         lines.push(`cell_${cell.id} = openmc.Cell(cell_id=${cell.id}${nameArg}${regionArg}${fillArg})`);
+
+        if (cell.rotation) {
+            lines.push(`cell_${cell.id}.rotation = ${this.pythonTuple(cell.rotation)}`);
+        }
+        if (cell.translation) {
+            lines.push(`cell_${cell.id}.translation = ${this.pythonTuple(cell.translation)}`);
+        }
+        if (cell.density !== undefined) {
+            lines.push(`cell_${cell.id}.density = ${cell.density}`);
+        }
 
         if (cell.temperature) {
             lines.push(`cell_${cell.id}.temperature = ${cell.temperature}`);

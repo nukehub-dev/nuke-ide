@@ -60,10 +60,11 @@ interface OpenMCSurface {
     boundary?: 'vacuum' | 'reflective' | 'periodic' | 'white' | 'transmission';
     name?: string;
     periodicSurfaceId?: number;
+    albedo?: number; // importance multiplier; only reflective/periodic/white
 }
 ```
 
-**Concept:** Coefficients are stored as structured objects (not flat arrays) so that the CSG builder widget can render parameter labels (`x0`, `r`, etc.) without hard-coding surface-type knowledge in the UI.
+**Concept:** Coefficients are stored as structured objects (not flat arrays) so that the CSG builder widget can render parameter labels (`x0`, `r`, etc.) without hard-coding surface-type knowledge in the UI. Periodic boundaries must be reciprocal planes: both surfaces carry `boundary: 'periodic'` and each names the other in `periodicSurfaceId`; `validateState` rejects one-sided pairs, self-pairs, non-plane partners, and albedo on boundaries where OpenMC ignores it.
 
 ### Cells and Regions
 
@@ -78,30 +79,31 @@ interface OpenMCCell {
   fillType: 'material' | 'universe' | 'lattice' | 'void';
   fillId?: number;
   temperature?: number; // K
-  density?: number; // g/cm³, overrides material density
+  density?: number; // positive override; units follow the material density unit
+  rotation?: [number, number, number]; // intrinsic Tait-Bryan phi/theta/psi in degrees
+  translation?: [number, number, number]; // cm, applied after rotation
 }
 ```
 
-**Concept:** The schema supports _both_ a parsed boolean tree (`OpenMCRegionNode`) and a raw string (`regionString`). The tree is used by the visual CSG builder; the string is used for round-trip XML import/export. The backend canonicalizes between them when generating `geometry.xml`.
+**Concept:** The schema supports _both_ a parsed boolean tree (`OpenMCRegionNode`) and a raw string (`regionString`). The tree is used by the visual CSG builder; the string is used for round-trip XML import/export. The backend canonicalizes between them when generating `geometry.xml`. Rotation/translation apply to universe and lattice fills; density applies to material fills.
 
 ### Universes
 
-Universes group cells hierarchically. Universe `0` is the root.
+Universes group cells hierarchically. Universe `0` is the root: OpenMC XML has no explicit root element, so cells without a `universe` attribute belong to universe 0 and every other universe must be reachable from it. There is no `isRoot` flag — a universe is the root exactly when its ID is `0`.
 
 ```typescript
 interface OpenMCUniverse {
   id: number;
   name?: string;
   cellIds: number[];
-  isRoot?: boolean;
 }
 ```
 
-**Concept:** Cells are _not_ embedded directly in universes; they reference via `cellIds`. This avoids data duplication and makes cell re-assignment between universes a cheap array operation in `OpenMCStateManager`.
+**Concept:** Cells are _not_ embedded directly in universes; they reference via `cellIds`. This avoids data duplication and makes cell re-assignment between universes a cheap array operation in `OpenMCStateManager`. A cell belongs to exactly one universe; `validateState` rejects duplicate membership, root fills, and lattice/universe ID collisions (OpenMC resolves a fill ID against the universe map before the lattice map).
 
 ### Lattices
 
-Repeated geometry structures. Supported types: rectangular (`rect`) and hexagonal (`hex`, `x-hex`, `y-hex`).
+Repeated geometry structures. Supported types: rectangular (`rect`) and hexagonal (`hex`).
 
 ```typescript
 type OpenMCLattice = (OpenMCRectLattice | OpenMCHexLattice) & {
@@ -111,7 +113,12 @@ type OpenMCLattice = (OpenMCRectLattice | OpenMCHexLattice) & {
 };
 ```
 
-**Concept:** The `universes` property is a 3D array of universe IDs (`number[][][]`). For 2D lattices the third dimension has length 1. The `outer` universe handles positions beyond the defined array — essential for fuel-assembly models with infinite moderator.
+**Concept:** Both lattice arrays mirror the OpenMC Python objects exactly, so XML and Python export share one ordering:
+
+- Rectangular: `universes[z][y][x]`; `dimensions` is `[nx, ny]` or `[nx, ny, nz]`, and `y = 0` is the top row (OpenMC's `RectLattice.universes`).
+- Hexagonal: `universes[z][ring][theta]`; `rings` is OpenMC's `n_rings` (center ring included), ring 0 is the outermost ring, theta starts at the top and runs clockwise. `orientation` is `'x' | 'y'` (default `'y'`) and `nAxial` is set only for 3D lattices (`<n_axial>`). The old `x-hex`/`y-hex` types and `axial` sub-object are normalized on load.
+
+`outer` handles positions beyond the defined array — essential for fuel-assembly models with infinite moderator.
 
 ---
 
@@ -343,7 +350,7 @@ interface OpenMCProjectFile {
 
 ### Migration
 
-The `OPENMC_STATE_SCHEMA_VERSION` constant (currently `'1.0.0'`) is embedded in every saved file. When the schema changes, a migration function can inspect `version` and transform legacy states on load. The `OpenMCStateManager` calls migration before adopting a loaded state.
+The `OPENMC_STATE_SCHEMA_VERSION` constant (currently `'1.1.0'`) is embedded in every saved file. When the schema changes, a migration function can inspect `version` and transform legacy states on load. The `OpenMCStateManager` calls migration before adopting a loaded state. Version-independent representation changes (retired `isRoot`, legacy `x-hex`/`y-hex` lattice types, old `axial` lattice fields) are normalized on every load by `normalizeGeometryForLoad`.
 
 ---
 
