@@ -85,6 +85,13 @@ import {
 } from '../common/openmc-state-schema';
 
 import { deriveKineticsFromTallies } from '../common/kinetics-ifp';
+import {
+    fromOpenMcMaskComponents,
+    plotSupportsBackground,
+    plotSupportsMask,
+    plotSupportsOverlaps,
+    validatePlotAppearance
+} from '../common/plot-appearance';
 import { getMeshElementCount } from '../common/mesh-utils';
 import { migrateProjectFile } from '../common/openmc-state-migration';
 import { validateDepletionAdvanced, parseDepletionBlock } from '../common/depletion-config';
@@ -334,9 +341,12 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             const plotsPath = path.join(request.directory, 'plots.xml');
             if (fs.existsSync(plotsPath)) {
                 try {
-                    const plotsData = await this.parsePlotsXML(plotsPath);
+                    const plotsData = await this.parsePlotsXML(plotsPath, state);
                     state.plots = plotsData.plots;
                     warnings.push(...plotsData.warnings);
+                    for (const plot of state.plots) {
+                        warnings.push(...validatePlotAppearance(plot, state).map((issue) => issue.message));
+                    }
                     this.log(`Imported ${plotsData.plots.length} plots`);
                 } catch (err) {
                     const msg = err instanceof Error ? err.message : String(err);
@@ -1930,9 +1940,10 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
      * Handles slice, voxel, solid_raytrace, and wireframe_raytrace plots
      * (element names per openmc/plots.py to_xml_element methods).
      * @param filePath - Path to plots.xml
+     * @param state - Imported geometry/materials, used to invert mask components
      * @returns Parsed plots and warnings
      */
-    private async parsePlotsXML(filePath: string): Promise<{ plots: OpenMCPlotConfig[]; warnings: string[] }> {
+    private async parsePlotsXML(filePath: string, state: OpenMCState): Promise<{ plots: OpenMCPlotConfig[]; warnings: string[] }> {
         const fs = await import('fs');
         const xml2js = await import('xml2js');
 
@@ -1949,16 +1960,30 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
 
         const plotElems = Array.isArray(result.plots.plot) ? result.plots.plot : result.plots.plot ? [result.plots.plot] : [];
         for (const plotElem of plotElems) {
-            plots.push(this.parsePlotElement(plotElem, plots.length + 1));
+            plots.push(this.parsePlotElement(plotElem, plots.length + 1, state, warnings));
         }
 
         return { plots, warnings };
     }
 
     /**
+     * Parse an RGB triple from a plots.xml color element or attribute.
+     */
+    private parsePlotRgb(value: any): [number, number, number] | undefined {
+        if (value === undefined || value === null || value === '') {
+            return undefined;
+        }
+        const values = this.parseNumberList(value);
+        if (values.length !== 3 || values.some((component) => !Number.isFinite(component))) {
+            return undefined;
+        }
+        return values.map((component) => Math.trunc(component)) as [number, number, number];
+    }
+
+    /**
      * Parse a single <plot> element from plots.xml.
      */
-    private parsePlotElement(plotElem: any, fallbackId: number): OpenMCPlotConfig {
+    private parsePlotElement(plotElem: any, fallbackId: number, state: OpenMCState, warnings: string[]): OpenMCPlotConfig {
         const attrs = plotElem.$ || {};
         const xmlType = attrs.type || 'slice';
         const type: OpenMCPlotConfig['type'] =
@@ -1974,6 +1999,76 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
 
         if (attrs.name) {
             plot.name = attrs.name;
+        }
+
+        // Appearance fields: background/mask apply to slice and ray-traced
+        // plots; overlap highlighting is slice-only (openmc/plots.py, src/plot.cpp).
+        const hasBackground = plotElem.background !== undefined;
+        const hasMask = plotElem.mask !== undefined;
+        if (!plotSupportsBackground(type) && (hasBackground || hasMask)) {
+            warnings.push(`Plot ${plot.id}: background/mask elements are not applied to ${type} plots and were ignored`);
+        } else {
+            if (hasBackground) {
+                const background = this.parsePlotRgb(plotElem.background);
+                if (background) {
+                    plot.background = background;
+                } else {
+                    warnings.push(`Plot ${plot.id}: background color must be three RGB integers; ignored`);
+                }
+            }
+            if (hasMask && plotSupportsMask(type)) {
+                const maskElem = plotElem.mask;
+                const maskAttrs = maskElem?.$ ?? {};
+                const componentsRaw = maskAttrs.components ?? maskElem?.components;
+                const hidden = componentsRaw !== undefined ? this.parseNumberList(componentsRaw).map((n) => Math.trunc(n)) : [];
+                if (hidden.length === 0) {
+                    warnings.push(`Plot ${plot.id}: mask has no components; ignored`);
+                } else {
+                    // OpenMC paints listed components with the mask background;
+                    // the schema stores the visible complement.
+                    const selection = fromOpenMcMaskComponents(hidden, state, plot.colorBy);
+                    if (selection.missing.length > 0) {
+                        warnings.push(`Plot ${plot.id}: mask components not in the current geometry: ${selection.missing.join(', ')}`);
+                    }
+                    if (selection.visible.length === 0) {
+                        warnings.push(`Plot ${plot.id}: mask hides every domain; imported without a mask`);
+                    } else {
+                        plot.mask = { components: selection.visible };
+                        const backgroundRaw = maskAttrs.background ?? maskElem?.background;
+                        if (backgroundRaw !== undefined) {
+                            const maskBackground = this.parsePlotRgb(backgroundRaw);
+                            if (maskBackground) {
+                                plot.mask.background = maskBackground;
+                            } else {
+                                warnings.push(`Plot ${plot.id}: mask background must be three RGB integers; ignored`);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        const hasShowOverlaps = plotElem.show_overlaps !== undefined;
+        const hasOverlapColor = plotElem.overlap_color !== undefined;
+        if (plotSupportsOverlaps(type)) {
+            const showOverlapsValue = plotElem.show_overlaps;
+            const showOverlaps =
+                showOverlapsValue === true || showOverlapsValue === 'true' || showOverlapsValue === '1' || showOverlapsValue === 1;
+            if (showOverlaps) {
+                plot.showOverlaps = true;
+                if (hasOverlapColor) {
+                    const overlapColor = this.parsePlotRgb(plotElem.overlap_color);
+                    if (overlapColor) {
+                        plot.overlapColor = overlapColor;
+                    } else {
+                        warnings.push(`Plot ${plot.id}: overlap color must be three RGB integers; ignored`);
+                    }
+                }
+            } else if (hasOverlapColor) {
+                warnings.push(`Plot ${plot.id}: overlap_color requires show_overlaps; ignored`);
+            }
+        } else if (hasShowOverlaps || hasOverlapColor) {
+            warnings.push(`Plot ${plot.id}: overlap highlighting applies only to slice plots and was ignored`);
         }
 
         const pixels = plotElem.pixels ? this.parseNumberList(plotElem.pixels).map((n) => Math.trunc(n)) : [];
@@ -2809,6 +2904,20 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                         });
                     }
                 }
+            }
+        }
+
+        // Plot appearance: missing mask domains and controls OpenMC ignores
+        // for the selected plot type are configuration warnings.
+        for (const plot of request.state.plots ?? []) {
+            for (const issue of validatePlotAppearance(plot, request.state)) {
+                issues.push({
+                    severity: 'warning',
+                    category: 'settings',
+                    message: issue.message,
+                    suggestion: issue.suggestion,
+                    path: `plots.${plot.id}.${issue.field}`
+                });
             }
         }
 

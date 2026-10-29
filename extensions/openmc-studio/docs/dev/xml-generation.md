@@ -284,15 +284,32 @@ are configured.
 
 Maps `OpenMCState.plots` → `<plots>`. Generated only when `request.files.plots` is true and `state.plots` is non-empty.
 
-| State Field             | XML Element                  | Notes              |
-| ----------------------- | ---------------------------- | ------------------ |
-| `plot.id` + `plot.name` | `<plot id="..." name="...">` |                    |
-| `plot.type`             | `type="..."`                 | `slice`, `voxel`   |
-| `plot.origin`           | `<origin>`                   | Center point       |
-| `plot.width`            | `<width>`                    | Plot dimensions    |
-| `plot.pixels`           | `<pixels>`                   | Resolution         |
-| `plot.colorBy`          | `color_by="..."`             | `cell`, `material` |
-| `plot.basis`            | `basis="..."`                | `xy`, `xz`, `yz`   |
+| State Field             | XML Element                                 | Notes                                 |
+| ----------------------- | ------------------------------------------- | ------------------------------------- |
+| `plot.id` + `plot.name` | `<plot id="..." name="...">`                |                                       |
+| `plot.type`             | `type="..."`                                | `slice`, `voxel`                      |
+| `plot.origin`           | `<origin>`                                  | Center point                          |
+| `plot.width`            | `<width>`                                   | Plot dimensions                       |
+| `plot.pixels`           | `<pixels>`                                  | Resolution                            |
+| `plot.colorBy`          | `color_by="..."`                            | `cell`, `material`                    |
+| `plot.basis`            | `basis="..."`                               | `xy`, `xz`, `yz`                      |
+| `plot.background`       | `<background>r g b</background>`            | Slice and ray-traced plots            |
+| `plot.mask`             | `<mask components="..." background="..."/>` | Visible selection → hidden complement |
+| `plot.showOverlaps`     | `<show_overlaps>true</show_overlaps>`       | Slice plots only                      |
+| `plot.overlapColor`     | `<overlap_color>r g b</overlap_color>`      | Only emitted with `showOverlaps`      |
+
+OpenMC's Python API exposes background/mask on all plot classes, but voxel output stores raw
+cell/material IDs and never applies display colors; C++ ray-traced rendering consumes background and
+mask colors, while only `SlicePlotBase` performs overlap detection. The generator, importer, Python
+exporter, and UI follow that support matrix so the UI never promises an effect the renderer ignores.
+Import warns about unsupported fields (for example a voxel `<background>`), missing mask domains, and
+`<overlap_color>` without `<show_overlaps>`.
+
+`OpenMCPlotConfig.mask.components` is the **visible** domain selection shown in the UI. OpenMC does
+the inverse: it paints every ID listed in `<mask components>` with the mask background and leaves the
+rest visible (`src/plot.cpp::set_mask`). Generation therefore emits the complement of the existing
+selected domains, and import inverts the XML list back into the visible selection. An empty visible
+selection, or one that selects every domain, writes no mask because it would not change the image.
 
 ---
 
@@ -358,7 +375,7 @@ Full round-trip (state → XML → state) is **lossy** by design. The following 
 | Lattice definitions | Full round-trip: `<lattice>` / `<hex_lattice>`, transforms, periodic pairs, albedo              |
 | Tally filters       | Reconstructed but IDs reassigned                                                                |
 | Mesh IDs            | Preserved if matching                                                                           |
-| Plot definitions    | Import not implemented                                                                          |
+| Plot definitions    | Appearance fields round-trip; meshline details collapse to a boolean                            |
 | Project metadata    | Not in OpenMC XML — use `.nuke-openmc` projects                                                 |
 | Depletion settings  | Custom `<depletion>` block in settings.xml; parsed back by the runner (`checkDepletionEnabled`) |
 | Variance reduction  | Partially written; not parsed back                                                              |
@@ -417,4 +434,4 @@ async importXML(directory: string): Promise<void> {
 | `geometry.xml`  | `generateGeometryXML()`  | `parseGeometryXML()`  | Full (CSG + DAGMC) |
 | `settings.xml`  | `generateSettingsXML()`  | `parseSettingsXML()`  | Full               |
 | `tallies.xml`   | `generateTalliesXML()`   | Not implemented       | Generation only    |
-| `plots.xml`     | `generatePlotsXML()`     | Not implemented       | Generation only    |
+| `plots.xml`     | `generatePlotsXML()`     | `parsePlotsXML()`     | Full (appearance)  |

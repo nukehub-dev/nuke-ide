@@ -59,6 +59,110 @@ def _load_domains(config, geometry, materials):
     return domains
 
 
+def _plot_color(value, field, plot_id):
+    """Validate an RGB triple from the plot config.
+
+    Args:
+        value: Candidate RGB sequence.
+        field: Field name for the error message.
+        plot_id: Plot ID for the error message.
+
+    Returns:
+        Tuple of three integers in the 0-255 range.
+    """
+    try:
+        rgb = tuple(int(component) for component in value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"Plot {plot_id} has an invalid {field} color: {value!r}") from exc
+    if len(rgb) != 3 or any(component < 0 or component > 255 for component in rgb):
+        raise ValueError(f"Plot {plot_id} {field} must be three RGB integers in 0-255")
+    return rgb
+
+
+def _apply_appearance(plot, config, plot_type, plot_id, geometry, materials):
+    """Apply background, mask, and overlap settings to a plot.
+
+    OpenMC applies display colors to slice and ray-traced plots; voxel output
+    stores raw IDs and ignores them. Overlap highlighting is slice-only.
+
+    Args:
+        plot: The openmc plot object being configured.
+        config: Plot configuration dict.
+        plot_type: Plot type string.
+        plot_id: Plot ID for diagnostics.
+        geometry: Loaded openmc.Geometry (mask domain validation).
+        materials: Loaded openmc.Materials (mask domain validation).
+    """
+    background = config.get("background")
+    mask = config.get("mask")
+    show_overlaps = bool(config.get("showOverlaps"))
+    overlap_color = config.get("overlapColor")
+
+    if plot_type == "voxel":
+        if background is not None or mask or show_overlaps or overlap_color is not None:
+            log_progress(
+                f"Plot {plot_id}: voxel output stores raw cell/material IDs; "
+                "ignoring background, mask, and overlap settings. Use a slice or ray-traced plot."
+            )
+        return
+
+    if background is not None:
+        plot.background = _plot_color(background, "background", plot_id)
+
+    if mask:
+        components = [int(component) for component in mask.get("components") or []]
+        if components:
+            color_by = getattr(plot, "color_by", "cell")
+            if color_by == "material":
+                known = [material.id for material in materials]
+                domain_name = "material"
+            else:
+                known = list(geometry.get_all_cells())
+                domain_name = "cell"
+            known_set = set(known)
+            missing = [component for component in components if component not in known_set]
+            if missing:
+                log_progress(
+                    f"Plot {plot_id}: mask {domain_name} IDs not in the current geometry: "
+                    f"{', '.join(str(item) for item in missing)}"
+                )
+            # The schema stores the visible selection; OpenMC paints the
+            # listed mask components with the mask background, so emit the
+            # complement of the existing visible domains.
+            selected = {component for component in components if component in known_set}
+            hidden = [component for component in known if component not in selected]
+            if not selected:
+                log_progress(
+                    f"Plot {plot_id}: mask selection has no domains in the current geometry; skipping it"
+                )
+            elif hidden:
+                plot.mask_components = hidden
+                if mask.get("background") is not None:
+                    plot.mask_background = _plot_color(
+                        mask["background"], "mask background", plot_id
+                    )
+            else:
+                log_progress(f"Plot {plot_id}: mask selects every domain; skipping it")
+        else:
+            log_progress(f"Plot {plot_id}: mask has no components; skipping it")
+
+    if plot_type == "slice":
+        if show_overlaps:
+            plot.show_overlaps = True
+            if overlap_color is not None:
+                plot.overlap_color = _plot_color(overlap_color, "overlap", plot_id)
+        elif overlap_color is not None:
+            log_progress(
+                f"Plot {plot_id}: overlap color set without showOverlaps; OpenMC rejects "
+                "that combination, so it is ignored"
+            )
+    elif show_overlaps or overlap_color is not None:
+        log_progress(
+            f"Plot {plot_id}: overlap highlighting applies only to slice plots; "
+            f"ignoring it for a {plot_type} plot"
+        )
+
+
 def build_plot(config, geometry, materials):
     """Build an openmc plot object from a plot configuration dict.
 
@@ -139,6 +243,7 @@ def build_plot(config, geometry, materials):
             plot.orthographic_width = float(config["orthographicWidth"])
 
     plot.color_by = color_by
+    _apply_appearance(plot, config, plot_type, plot_id, geometry, materials)
     # Explicit output filenames so the generated files are predictable
     suffix = ".h5" if plot_type == "voxel" else ".png"
     plot.filename = f"plot_{plot_id}{suffix}"

@@ -67,6 +67,65 @@ function buildState(): OpenMCState {
     } as OpenMCState;
 }
 
+describe('validateState plot appearance warnings', () => {
+    it('warns when a slice mask references a missing domain', async () => {
+        const state = buildState();
+        state.plots = [
+            {
+                id: 1,
+                type: 'slice',
+                basis: 'xy',
+                origin: [0, 0, 0],
+                colorBy: 'material',
+                mask: { components: [1, 99] }
+            }
+        ];
+
+        const result = await new OpenMCStudioBackendServiceImpl().validateState({ state });
+        const warning = result.issues.find((issue) => issue.severity === 'warning' && issue.message.includes('99'));
+        expect(warning).toBeDefined();
+        expect(warning!.suggestion).toContain('Remove the missing IDs');
+        expect(warning!.path).toBe('plots.1.mask');
+    });
+
+    it('warns when a voxel plot carries display-only appearance fields', async () => {
+        const state = buildState();
+        state.plots = [
+            {
+                id: 2,
+                type: 'voxel',
+                basis: 'xy',
+                origin: [0, 0, 0],
+                colorBy: 'cell',
+                background: [1, 2, 3],
+                mask: { components: [1] }
+            }
+        ];
+
+        const result = await new OpenMCStudioBackendServiceImpl().validateState({ state });
+        expect(result.issues.some((issue) => issue.severity === 'warning' && issue.message.includes('voxel'))).toBe(true);
+    });
+
+    it('warns when overlap highlighting is set on a ray-traced plot', async () => {
+        const state = buildState();
+        state.plots = [
+            {
+                id: 3,
+                type: 'solid-raytrace',
+                basis: 'xy',
+                origin: [0, 0, 0],
+                colorBy: 'cell',
+                showOverlaps: true
+            }
+        ];
+
+        const result = await new OpenMCStudioBackendServiceImpl().validateState({ state });
+        expect(
+            result.issues.some((issue) => issue.severity === 'warning' && issue.message.includes('only detects overlaps for slice'))
+        ).toBe(true);
+    });
+});
+
 describe('validateState depletion operator restrictions', () => {
     /** Enable depletion with the required basics so only the operator checks fire. */
     function enableDepletion(state: OpenMCState): void {

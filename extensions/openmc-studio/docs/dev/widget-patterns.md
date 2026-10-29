@@ -455,9 +455,17 @@ are imported once by the frontend module; they work anywhere a codicon does, inc
 - Use domain icons for OpenMC concepts: `openmc-atom`, `openmc-geometry`, `openmc-surface`, `openmc-cell`,
   `openmc-universe`, `openmc-mesh`, `openmc-grid`, `openmc-material`, `openmc-tally`, `openmc-statepoint`,
   `openmc-depletion`, `openmc-variance`, `openmc-source`, `openmc-run`, `openmc-compare`, `openmc-optimize`,
-  `openmc-plot`, `openmc-mgxs`, `openmc-volume`, `openmc-validate`, `openmc-reactivity`, `openmc-feed`.
+  `openmc-plot`, `openmc-mask`, `openmc-overlap`, `openmc-mgxs`, `openmc-volume`, `openmc-validate`,
+  `openmc-reactivity`, `openmc-feed`.
 - Keep generic codicons for universal utilities: add, save, edit, trash, close, chevrons, warnings, and errors.
   Draw each OpenMC domain glyph as one coherent shape; do not compose detached symbols (grid + bars) into one icon.
+
+Native Plotting keeps its common geometry fields visible and puts background, masking, and overlap
+highlighting in a collapsed **Appearance** section. Use the shared `ColorPicker`, `SearchableMultiSelect`,
+and `Tooltip`; the mask picker follows `colorBy` (cell or material IDs), and the section disables or
+explains controls the selected plot type cannot render (voxel ignores display colors; ray-traced plots
+do not detect overlaps). The picker stores visible domains; XML/Python emit the hidden complement. See
+`src/common/plot-appearance.ts` for the support matrix, inversion, and validation.
 
 Project identity uses `.openmc-brand-openmc`, a monochrome mask of the official OpenMC mark (from the OpenMC
 docs, MIT), so it follows the active theme foreground. DAGMC keeps the theme-aware `openmc-mesh` domain icon

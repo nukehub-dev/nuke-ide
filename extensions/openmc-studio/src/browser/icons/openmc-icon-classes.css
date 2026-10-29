@@ -55,6 +55,8 @@
 .codicon-openmc-compare,
 .codicon-openmc-optimize,
 .codicon-openmc-plot,
+.codicon-openmc-mask,
+.codicon-openmc-overlap,
 .codicon-openmc-mgxs,
 .codicon-openmc-volume,
 .codicon-openmc-validate,
@@ -182,6 +184,18 @@
 .codicon-openmc-plot {
     -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 2v12h12'/%3E%3Cpath d='M4 11 7 7l2.5 2L13 4.5'/%3E%3C/svg%3E");
     mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 2v12h12'/%3E%3Cpath d='M4 11 7 7l2.5 2L13 4.5'/%3E%3C/svg%3E");
+}
+
+/* Eye with a pupil — domain visibility / masking. */
+.codicon-openmc-mask {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1.8 8S4.2 3.5 8 3.5 14.2 8 14.2 8 11.8 12.5 8 12.5 1.8 8 1.8 8Z'/%3E%3Ccircle cx='8' cy='8' r='2.1'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1.8 8S4.2 3.5 8 3.5 14.2 8 14.2 8 11.8 12.5 8 12.5 1.8 8 1.8 8Z'/%3E%3Ccircle cx='8' cy='8' r='2.1'/%3E%3C/svg%3E");
+}
+
+/* Two overlapping circles — overlap detection. */
+.codicon-openmc-overlap {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2'%3E%3Ccircle cx='6' cy='8' r='3.7'/%3E%3Ccircle cx='10' cy='8' r='3.7'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2'%3E%3Ccircle cx='6' cy='8' r='3.7'/%3E%3Ccircle cx='10' cy='8' r='3.7'/%3E%3C/svg%3E");
 }
 
 /* Energy-group steps — MGXS. */

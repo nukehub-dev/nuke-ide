@@ -220,6 +220,14 @@ function buildTalliesTestState(): OpenMCState {
  */
 function buildPlotsTestState(): OpenMCState {
     const state = buildTestState();
+    state.materials.push({
+        id: 2,
+        name: 'Clad',
+        density: 6.5,
+        densityUnit: 'g/cm3',
+        nuclides: [{ name: 'Zr', fraction: 1.0, fractionType: 'ao' }],
+        thermalScattering: []
+    });
     state.plots = [
         {
             id: 1,
@@ -231,7 +239,11 @@ function buildPlotsTestState(): OpenMCState {
             height: 30,
             pixels: [400, 300],
             colorBy: 'material',
-            meshlines: true
+            meshlines: true,
+            background: [10, 20, 30],
+            mask: { components: [1], background: [200, 210, 220] },
+            showOverlaps: true,
+            overlapColor: [255, 0, 0]
         },
         {
             id: 2,
@@ -257,7 +269,9 @@ function buildPlotsTestState(): OpenMCState {
             orthographicWidth: 25,
             lightPosition: [5, 5, 5],
             diffuseFraction: 0.3,
-            opaqueIds: [1, 2]
+            opaqueIds: [1, 2],
+            background: [40, 50, 60],
+            mask: { components: [1] }
         },
         {
             id: 4,
@@ -1204,6 +1218,10 @@ describe('settings.xml round-trip', () => {
         expect(xml).toContain('type="slice"');
         expect(xml).toContain('<width>20 30</width>');
         expect(xml).toContain('<meshlines meshtype="tally"/>');
+        expect(xml).toContain('<background>10 20 30</background>');
+        expect(xml).toContain('<mask components="2" background="200 210 220"/>');
+        expect(xml).toContain('<show_overlaps>true</show_overlaps>');
+        expect(xml).toContain('<overlap_color>255 0 0</overlap_color>');
         // Voxel with center origin + 3-value width
         expect(xml).toContain('type="voxel"');
         expect(xml).toContain('<origin>0 0 0</origin>');
@@ -1217,6 +1235,8 @@ describe('settings.xml round-trip', () => {
         expect(xml).toContain('<light_position>5 5 5</light_position>');
         expect(xml).toContain('<diffuse_fraction>0.3</diffuse_fraction>');
         expect(xml).toContain('<opaque_ids>1 2</opaque_ids>');
+        expect(xml).toContain('<background>40 50 60</background>');
+        expect(xml).toContain('<mask components="2"/>');
         expect(xml).toContain('type="wireframe_raytrace"');
         expect(xml).toContain('<wireframe_thickness>2</wireframe_thickness>');
         expect(xml).toContain('<wireframe_color>255 0 0</wireframe_color>');
@@ -1227,6 +1247,102 @@ describe('settings.xml round-trip', () => {
 
         expect(imported.success).toBe(true);
         expect(imported.state!.plots).toEqual(state.plots);
+    });
+
+    it('does not emit appearance fields that OpenMC ignores for voxel plots', async () => {
+        const state = buildTestState();
+        state.plots = [
+            {
+                id: 10,
+                type: 'voxel',
+                basis: 'xy',
+                origin: [0, 0, 0],
+                lowerLeft: [-1, -1, -1],
+                upperRight: [1, 1, 1],
+                voxels: [4, 4, 4],
+                colorBy: 'cell',
+                background: [1, 2, 3],
+                mask: { components: [1], background: [4, 5, 6] },
+                showOverlaps: true,
+                overlapColor: [7, 8, 9]
+            }
+        ];
+
+        await new XMLGenerationService().generateXML({
+            state,
+            outputDirectory: tempDir,
+            files: { materials: true, geometry: true, settings: true, tallies: false, plots: true }
+        });
+
+        const xml = fs.readFileSync(path.join(tempDir, 'plots.xml'), 'utf-8');
+        expect(xml).toContain('type="voxel"');
+        expect(xml).not.toContain('<background>');
+        expect(xml).not.toContain('<mask ');
+        expect(xml).not.toContain('<show_overlaps>');
+        expect(xml).not.toContain('<overlap_color>');
+    });
+
+    it('warns when an imported mask references domains missing from the geometry', async () => {
+        const state = buildTestState();
+        await new XMLGenerationService().generateXML({
+            state,
+            outputDirectory: tempDir,
+            files: { materials: true, geometry: true, settings: true, tallies: false, plots: false }
+        });
+        fs.writeFileSync(
+            path.join(tempDir, 'plots.xml'),
+            [
+                '<?xml version="1.0"?>',
+                '<plots>',
+                '  <plot id="11" type="slice" basis="xy" color_by="material">',
+                '    <pixels>10 10</pixels>',
+                '    <origin>0 0 0</origin>',
+                '    <width>1 1</width>',
+                '    <mask components="99"/>',
+                '  </plot>',
+                '</plots>'
+            ].join('\n')
+        );
+
+        const imported = await new OpenMCStudioBackendServiceImpl().importXML({ directory: tempDir });
+        expect(imported.success).toBe(true);
+        expect(imported.state!.plots![0].mask).toEqual({ components: [1] });
+        expect(imported.warnings.some((warning) => warning.includes('99'))).toBe(true);
+    });
+
+    it('drops and warns about appearance fields on unsupported imported plot types', async () => {
+        const state = buildTestState();
+        await new XMLGenerationService().generateXML({
+            state,
+            outputDirectory: tempDir,
+            files: { materials: true, geometry: true, settings: true, tallies: false, plots: false }
+        });
+        fs.writeFileSync(
+            path.join(tempDir, 'plots.xml'),
+            [
+                '<?xml version="1.0"?>',
+                '<plots>',
+                '  <plot id="12" type="voxel" color_by="cell">',
+                '    <pixels>4 4 4</pixels>',
+                '    <origin>0 0 0</origin>',
+                '    <width>1 1 1</width>',
+                '    <background>1 2 3</background>',
+                '    <mask components="1"/>',
+                '    <show_overlaps>true</show_overlaps>',
+                '    <overlap_color>4 5 6</overlap_color>',
+                '  </plot>',
+                '</plots>'
+            ].join('\n')
+        );
+
+        const imported = await new OpenMCStudioBackendServiceImpl().importXML({ directory: tempDir });
+        expect(imported.success).toBe(true);
+        expect(imported.state!.plots![0].background).toBeUndefined();
+        expect(imported.state!.plots![0].mask).toBeUndefined();
+        expect(imported.state!.plots![0].showOverlaps).toBeUndefined();
+        expect(imported.state!.plots![0].overlapColor).toBeUndefined();
+        expect(imported.warnings.some((warning) => warning.includes('not applied to voxel'))).toBe(true);
+        expect(imported.warnings.some((warning) => warning.includes('only to slice plots'))).toBe(true);
     });
 
     it('auto-appends IFP tallies and ifp_n_generation when kinetics are enabled', async () => {

@@ -32,12 +32,26 @@ import { MessageService } from '@theia/core/lib/common/message-service';
 import { FileDialogService, OpenFileDialogProps } from '@theia/filesystem/lib/browser';
 import { OpenerService } from '@theia/core/lib/browser/opener-service';
 import URI from '@theia/core/lib/common/uri';
-import { Tooltip, NukeSelect } from 'nuke-essentials/lib/theme/browser/components';
+import { Tooltip, NukeSelect, ColorPicker, SearchableMultiSelect } from 'nuke-essentials/lib/theme/browser/components';
 
 import { OpenMCStateManager } from '../../openmc-state-manager';
 import { OpenMCXMLGenerationService } from '../../xml-generator/xml-generation-service';
 import { OpenMCStudioBackendService, GeneratedPlotFile } from '../../../common/openmc-studio-protocol';
-import { OpenMCPlotConfig } from '../../../common/openmc-state-schema';
+import { OpenMCPlotConfig, OpenMCState } from '../../../common/openmc-state-schema';
+import {
+    DEFAULT_MASK_BACKGROUND,
+    DEFAULT_OVERLAP_COLOR,
+    DEFAULT_PLOT_BACKGROUND,
+    getMissingMaskComponents,
+    getPlotDomainOptions,
+    getPlotMaskSummary,
+    plotHexToRgb,
+    plotRgbToHex,
+    plotSupportsBackground,
+    plotSupportsMask,
+    plotSupportsOverlaps
+} from '../../../common/plot-appearance';
+import { CollapsibleSection } from '../simulation-dashboard/tabs/settings/collapsible-section';
 
 interface PlotTypeOption {
     readonly type: OpenMCPlotConfig['type'];
@@ -388,6 +402,266 @@ export class NativePlottingWidget extends ReactWidget {
     }
 
     /**
+     * Change the plot's color domain and clear a mask that would otherwise be
+     * reinterpreted against a different ID space.
+     * @param plot - Plot being edited.
+     * @param colorBy - New color domain.
+     */
+    private changeColorBy(plot: OpenMCPlotConfig, colorBy: OpenMCPlotConfig['colorBy']): void {
+        const selection = plot.mask?.components ?? [];
+        if (selection.length > 0) {
+            this.messageService.warn(
+                `Color By changed; the mask selection was cleared because it now refers to ${colorBy === 'material' ? 'materials' : 'cells'}.`
+            );
+        }
+        this.updateSelectedPlot({
+            colorBy,
+            ...(plot.mask ? { mask: { ...plot.mask, components: [] } } : {})
+        });
+    }
+
+    /**
+     * Enable or disable the domain mask while retaining the chosen background.
+     * @param plot - Plot being edited.
+     * @param enabled - Whether masking is on.
+     */
+    private toggleMask(plot: OpenMCPlotConfig, enabled: boolean): void {
+        if (!enabled) {
+            this.updateSelectedPlot({ mask: undefined });
+            return;
+        }
+        this.updateSelectedPlot({
+            mask: {
+                components: plot.mask?.components ?? [],
+                background: plot.mask?.background
+            }
+        });
+    }
+
+    /**
+     * Drop mask component IDs that no longer exist in the current geometry.
+     * @param plot - Plot being edited.
+     * @param state - Current project state.
+     */
+    private removeMissingMaskComponents(plot: OpenMCPlotConfig, state: OpenMCState): void {
+        const missing = new Set(getMissingMaskComponents(plot, state));
+        this.updateSelectedPlot({
+            mask: {
+                ...(plot.mask ?? { components: [] }),
+                components: (plot.mask?.components ?? []).filter((id) => !missing.has(id))
+            }
+        });
+    }
+
+    /**
+     * Render a color control with a reset action back to the OpenMC default.
+     * @param label - Field label.
+     * @param value - Current RGB value, if set.
+     * @param defaultValue - OpenMC default used for display.
+     * @param onChange - Change handler; `undefined` restores the default.
+     * @param hint - Optional hint below the control.
+     * @param resetTooltip - Tooltip/aria label for the reset action.
+     * @returns Color field React node.
+     */
+    private renderPlotColorField(
+        label: string,
+        value: [number, number, number] | undefined,
+        defaultValue: [number, number, number],
+        onChange: (value: [number, number, number] | undefined) => void,
+        hint: string,
+        resetTooltip: string
+    ): React.ReactNode {
+        return (
+            <div className="form-group plot-color-field">
+                <label>{label}</label>
+                <div className="plot-color-control">
+                    <ColorPicker
+                        value={plotRgbToHex(value ?? defaultValue)}
+                        onChange={(hex) => {
+                            const rgb = plotHexToRgb(hex);
+                            if (rgb) {
+                                onChange(rgb);
+                            }
+                        }}
+                    />
+                    {value && (
+                        <Tooltip content={resetTooltip} position="top">
+                            <button
+                                className="theia-button secondary small plot-color-reset"
+                                onClick={() => onChange(undefined)}
+                                aria-label={resetTooltip}
+                            >
+                                <i className="codicon codicon-discard"></i>
+                            </button>
+                        </Tooltip>
+                    )}
+                </div>
+                <span className="form-hint">{hint}</span>
+            </div>
+        );
+    }
+
+    /**
+     * Render the Appearance section: background, domain mask, overlaps.
+     * @param plot - Plot being edited.
+     * @returns Appearance controls React node.
+     */
+    private renderAppearanceControls(plot: OpenMCPlotConfig): React.ReactNode {
+        if (!plotSupportsBackground(plot.type)) {
+            return (
+                <div className="plot-appearance-unsupported">
+                    <i className="codicon codicon-info"></i>
+                    <span>
+                        Voxel output stores raw cell/material IDs, so OpenMC does not apply background, mask, or overlap colors. Use a slice
+                        or ray-traced plot for these controls.
+                    </span>
+                </div>
+            );
+        }
+
+        const state = this.stateManager.getState();
+        const domainKind = plot.colorBy === 'material' ? 'material' : 'cell';
+        const domainOptions = getPlotDomainOptions(state, plot.colorBy);
+        const maskEnabled = plot.mask !== undefined;
+        const selected = plot.mask?.components ?? [];
+        const missing = getMissingMaskComponents(plot, state);
+        const summary = getPlotMaskSummary(plot, state);
+        const maskSummary =
+            selected.length === 0
+                ? `No ${domainKind}s selected. All ${summary.total} stay visible until you pick at least one.`
+                : summary.total > 0 && summary.visible === summary.total
+                  ? `All ${summary.total} ${domainKind}s selected — no mask is written.`
+                  : `${summary.visible} of ${summary.total} ${domainKind}s visible${summary.missing > 0 ? ` (${summary.missing} missing)` : ''}`;
+
+        return (
+            <div className="plot-appearance">
+                {this.renderPlotColorField(
+                    'Background',
+                    plot.background,
+                    DEFAULT_PLOT_BACKGROUND,
+                    (value) => this.updateSelectedPlot({ background: value }),
+                    'Regions outside every cell. OpenMC default is black.',
+                    'Reset background to black'
+                )}
+
+                {plotSupportsMask(plot.type) && (
+                    <>
+                        <div className="form-group checkbox plot-mask-toggle-row">
+                            <label>
+                                <input
+                                    className="plot-mask-toggle"
+                                    type="checkbox"
+                                    checked={maskEnabled}
+                                    onChange={(e) => this.toggleMask(plot, e.target.checked)}
+                                />
+                                <i className="codicon codicon-openmc-mask"></i>
+                                Show only selected {domainKind}s
+                            </label>
+                            <span className="form-hint">
+                                Other {domainKind}s are painted with the mask background; the plot still uses the full geometry.
+                            </span>
+                        </div>
+                        {maskEnabled && (
+                            <>
+                                <div className="form-group plot-mask-picker">
+                                    <label>Visible {domainKind}s</label>
+                                    {domainOptions.length > 0 ? (
+                                        <SearchableMultiSelect
+                                            options={domainOptions}
+                                            selectedIds={selected}
+                                            onChange={(ids) =>
+                                                this.updateSelectedPlot({
+                                                    mask: {
+                                                        ...(plot.mask ?? { components: [] }),
+                                                        components: ids.map((id) => Number(id))
+                                                    }
+                                                })
+                                            }
+                                            placeholder={`Select ${domainKind}s…`}
+                                            searchPlaceholder={`Search ${domainKind}s…`}
+                                            emptyMessage={`No ${domainKind}s match`}
+                                            maxHeight={220}
+                                        />
+                                    ) : (
+                                        <span className="form-hint">No {domainKind}s in the current model.</span>
+                                    )}
+                                    <span className="form-hint plot-mask-summary">{maskSummary}</span>
+                                    {missing.length > 0 && (
+                                        <span className="plot-mask-warning">
+                                            <i className="codicon codicon-warning"></i>
+                                            <span>Not in the current geometry: {missing.join(', ')}</span>
+                                            <button
+                                                className="theia-button secondary small"
+                                                onClick={() => this.removeMissingMaskComponents(plot, state)}
+                                            >
+                                                Remove missing
+                                            </button>
+                                        </span>
+                                    )}
+                                </div>
+                                {this.renderPlotColorField(
+                                    'Mask Background',
+                                    plot.mask?.background,
+                                    DEFAULT_MASK_BACKGROUND,
+                                    (value) =>
+                                        this.updateSelectedPlot({
+                                            mask: { ...(plot.mask ?? { components: [] }), background: value }
+                                        }),
+                                    `Applied to every ${domainKind} not selected above. OpenMC default is white.`,
+                                    'Reset mask background to white'
+                                )}
+                            </>
+                        )}
+                    </>
+                )}
+
+                {plotSupportsOverlaps(plot.type) ? (
+                    <>
+                        <div className="form-group checkbox plot-overlap-toggle-row">
+                            <label>
+                                <input
+                                    className="plot-overlap-toggle"
+                                    type="checkbox"
+                                    checked={plot.showOverlaps ?? false}
+                                    onChange={(e) =>
+                                        this.updateSelectedPlot({
+                                            showOverlaps: e.target.checked || undefined,
+                                            overlapColor: e.target.checked ? plot.overlapColor : undefined
+                                        })
+                                    }
+                                />
+                                <i className="codicon codicon-openmc-overlap"></i>
+                                Highlight overlaps
+                            </label>
+                            <span className="form-hint">
+                                Requires overlapping geometry; use the Overlap Checker to inspect. OpenMC only reports overlaps for slice
+                                plots.
+                            </span>
+                        </div>
+                        {plot.showOverlaps && (
+                            <div className="plot-overlap-color">
+                                {this.renderPlotColorField(
+                                    'Overlap Color',
+                                    plot.overlapColor,
+                                    DEFAULT_OVERLAP_COLOR,
+                                    (value) => this.updateSelectedPlot({ overlapColor: value }),
+                                    'Color applied to regions claimed by more than one cell.',
+                                    'Reset overlap color to red'
+                                )}
+                            </div>
+                        )}
+                    </>
+                ) : (
+                    <div className="plot-appearance-note">
+                        <i className="codicon codicon-info"></i>
+                        <span>Overlap highlighting requires a slice plot; ray-traced plots do not detect overlapping cells.</span>
+                    </div>
+                )}
+            </div>
+        );
+    }
+
+    /**
      * Render the camera controls shared by ray-trace plot types.
      * @param plot - Plot being edited.
      * @returns Camera controls React node.
@@ -456,7 +730,7 @@ export class NativePlottingWidget extends ReactWidget {
                                 { value: 'cell', label: 'Cell' },
                                 { value: 'material', label: 'Material' }
                             ]}
-                            onChange={(value: string) => this.updateSelectedPlot({ colorBy: value as OpenMCPlotConfig['colorBy'] })}
+                            onChange={(value: string) => this.changeColorBy(plot, value as OpenMCPlotConfig['colorBy'])}
                             ariaLabel="Color by"
                         />
                     </div>
@@ -579,6 +853,10 @@ export class NativePlottingWidget extends ReactWidget {
                         <span className="form-hint">Domains (cells or materials per Color By) outlined by the wireframe.</span>
                     </>
                 )}
+
+                <CollapsibleSection title="Appearance" icon="symbol-color" defaultOpen={false}>
+                    {this.renderAppearanceControls(plot)}
+                </CollapsibleSection>
             </div>
         );
     }

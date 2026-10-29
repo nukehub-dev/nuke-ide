@@ -364,6 +364,17 @@ introspection, never version strings. Before `CoupledOperator` it syncs DAGMC un
 `openmc.search_for_keff`; `run_optimization.py` applies parameter sweeps. `sync_dagmc_depletion.py` rewrites geometry.xml with per-cell
 material overrides (never the `.h5m`).
 
+### Native plots
+
+`generate_plots.py` owns `plots.xml` for the Native Plotting window. It applies `background` and
+`mask` (`components` + `background`) to slice and ray-traced plots, and `show_overlaps` /
+`overlap_color` to slice plots; voxel output stores raw IDs and ignores display colors. Mask
+components are cell or material IDs per `colorBy`; missing IDs are reported on stderr without
+blocking the render. The project stores the visible selection, so `generate_plots.py` emits the
+complement because OpenMC paints listed mask components with the mask background. The same support
+matrix and inversion live in `src/common/plot-appearance.ts` so the UI, XML generator, importer, and
+Python exporter agree.
+
 ### MGXS library and chain builder
 
 `generate_mgxs_library.py` drives the raw `openmc.mgxs.Library` API: user-chosen XS types (validated vs `MGXS_TYPES`), domain type/IDs,

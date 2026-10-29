@@ -106,6 +106,76 @@ def test_voxel_vti_conversion(pincell_dir):
 
 
 @pytest.mark.e2e
+def test_slice_mask_background_and_overlap_highlighting(tmp_path):
+    """A masked slice with overlap highlighting changes the rendered image."""
+    if not hasattr(openmc, "SlicePlot"):
+        pytest.skip("typed plot classes require OpenMC 0.16.0+")
+    Image = pytest.importorskip("PIL.Image", reason="pixel assertions need Pillow")
+
+    shell = openmc.Material(name="shell")
+    shell.set_density("g/cm3", 1.0)
+    shell.add_nuclide("H1", 1.0)
+    core = openmc.Material(name="core")
+    core.set_density("g/cm3", 2.0)
+    core.add_nuclide("H1", 1.0)
+
+    outer = openmc.Sphere(r=6.0, boundary_type="vacuum")
+    inner = openmc.Sphere(r=3.0)
+    outer_cell = openmc.Cell(name="shell", fill=shell, region=-outer)
+    core_cell = openmc.Cell(name="core", fill=core, region=-inner)
+    # The core cell sits entirely inside the shell cell: every core pixel is
+    # an overlap that OpenMC can highlight.
+    model = openmc.Model(
+        geometry=openmc.Geometry([outer_cell, core_cell]),
+        materials=openmc.Materials([shell, core]),
+        settings=openmc.Settings(),
+    )
+    model.export_to_xml(tmp_path)
+
+    common = {
+        "type": "slice",
+        "basis": "xy",
+        "origin": [0, 0, 0],
+        "width": 16,
+        "height": 16,
+        "pixels": [200, 200],
+        "colorBy": "material",
+        "background": [0, 0, 255],
+        "showOverlaps": True,
+        "overlapColor": [255, 0, 0],
+    }
+    masked = {
+        "id": 1,
+        **common,
+        "mask": {"components": [core.id], "background": [255, 255, 0]},
+    }
+    plain = {"id": 2, **common}
+
+    result = _run(tmp_path, [masked, plain])
+    assert result["success"] is True
+    masked_path = tmp_path / "plot_1.png"
+    plain_path = tmp_path / "plot_2.png"
+    _assert_png(masked_path)
+    _assert_png(plain_path)
+
+    def rgb_pixels(path):
+        with Image.open(path) as image:
+            raw = image.convert("RGB").tobytes()
+        return [tuple(raw[index : index + 3]) for index in range(0, len(raw), 3)]
+
+    masked_pixels = rgb_pixels(masked_path)
+    plain_pixels = rgb_pixels(plain_path)
+
+    assert masked_pixels != plain_pixels, "the mask should change the rendered image"
+    # Background outside the model is blue.
+    assert masked_pixels[0] == (0, 0, 255), f"expected blue background, got {masked_pixels[0]}"
+    # Every shell pixel is painted with the mask background.
+    assert masked_pixels.count((255, 255, 0)) > 100, "mask background is missing from the image"
+    # The overlapping core is highlighted in red.
+    assert masked_pixels.count((255, 0, 0)) > 100, "overlap highlight is missing from the image"
+
+
+@pytest.mark.e2e
 def test_solid_raytrace_plot_real_render(pincell_dir):
     result = _run(
         pincell_dir,

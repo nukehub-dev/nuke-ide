@@ -189,6 +189,104 @@ class TestBuildPlot:
             generate_plots.build_plot({"id": 6, "type": "bogus"}, _FakeGeometry(), [])
 
 
+class TestPlotAppearance:
+    def test_slice_applies_background_mask_and_overlaps(self, fake_openmc_module, capsys):
+        """Slice appearance fields map to the OpenMC plot attributes."""
+        plot = generate_plots.build_plot(
+            {
+                "id": 8,
+                "type": "slice",
+                "colorBy": "cell",
+                "background": [10, 20, 30],
+                "mask": {"components": [1, 99], "background": [200, 210, 220]},
+                "showOverlaps": True,
+                "overlapColor": [255, 0, 0],
+            },
+            _FakeGeometry(),
+            [],
+        )
+
+        assert plot.background == (10, 20, 30)
+        # OpenMC paints listed mask components with the mask background; the
+        # selected cell 1 stays visible, so cell 2 is the emitted component.
+        assert plot.mask_components == [2]
+        assert plot.mask_background == (200, 210, 220)
+        assert plot.show_overlaps is True
+        assert plot.overlap_color == (255, 0, 0)
+        assert "99" in capsys.readouterr().err
+
+    def test_voxel_ignores_display_only_appearance(self, fake_openmc_module, capsys):
+        """Voxel output stores IDs, so background/mask/overlap are not applied."""
+        plot = generate_plots.build_plot(
+            {
+                "id": 9,
+                "type": "voxel",
+                "colorBy": "cell",
+                "background": [10, 20, 30],
+                "mask": {"components": [1]},
+                "showOverlaps": True,
+                "overlapColor": [255, 0, 0],
+            },
+            _FakeGeometry(),
+            [],
+        )
+
+        assert not hasattr(plot, "background")
+        assert not hasattr(plot, "mask_components")
+        assert not hasattr(plot, "show_overlaps")
+        assert not hasattr(plot, "overlap_color")
+        assert "voxel output" in capsys.readouterr().err.lower()
+
+    def test_raytrace_applies_background_and_mask_but_not_overlaps(
+        self, fake_openmc_module, capsys
+    ):
+        """Ray-traced plots use display colors but do not detect overlaps."""
+        plot = generate_plots.build_plot(
+            {
+                "id": 10,
+                "type": "solid-raytrace",
+                "colorBy": "material",
+                "background": [1, 2, 3],
+                "mask": {"components": [4]},
+                "showOverlaps": True,
+                "overlapColor": [255, 0, 0],
+            },
+            _FakeGeometry(),
+            [_FakeMaterial(4), _FakeMaterial(5)],
+        )
+
+        assert plot.background == (1, 2, 3)
+        assert plot.mask_components == [5]
+        assert not hasattr(plot, "show_overlaps")
+        assert not hasattr(plot, "overlap_color")
+        assert "only to slice plots" in capsys.readouterr().err
+
+    def test_mask_selecting_every_domain_writes_no_mask(self, fake_openmc_module, capsys):
+        """A mask that shows every domain would hide nothing, so it is skipped."""
+        plot = generate_plots.build_plot(
+            {
+                "id": 12,
+                "type": "slice",
+                "colorBy": "cell",
+                "mask": {"components": [1, 2]},
+            },
+            _FakeGeometry(),
+            [],
+        )
+
+        assert not hasattr(plot, "mask_components")
+        assert "selects every domain" in capsys.readouterr().err
+
+    def test_invalid_color_raises_clear_error(self, fake_openmc_module):
+        """Malformed RGB values fail before OpenMC sees them."""
+        with pytest.raises(ValueError, match="background must be three RGB integers"):
+            generate_plots.build_plot(
+                {"id": 11, "type": "slice", "background": [300, 0, 0]},
+                _FakeGeometry(),
+                [],
+            )
+
+
 class TestMainArgparse:
     def test_missing_plots_config_exits_with_code_2(self, monkeypatch):
         """--plots-config is required."""

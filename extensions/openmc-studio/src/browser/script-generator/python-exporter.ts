@@ -70,6 +70,7 @@ import { getAutoIfpTallies } from '../../common/kinetics-ifp';
 import { generateCmfdCodeLines } from '../../common/cmfd';
 import { getDepletionSolver, resolveDepletionSolver } from '../../common/depletion-solvers';
 import { isElementName } from '../../common/material-utils';
+import { generatePlotAppearancePythonLines } from '../../common/plot-appearance';
 
 /** Options controlling how Python scripts are exported. */
 export interface PythonExportOptions {
@@ -2175,7 +2176,7 @@ export class OpenMCPythonExporter {
         }
 
         for (const plot of state.plots || []) {
-            lines.push(...this.generatePlotCode(plot));
+            lines.push(...this.generatePlotCode(plot, state));
         }
 
         if (state.plots && state.plots.length > 0) {
@@ -2190,9 +2191,10 @@ export class OpenMCPythonExporter {
      * Generate the construction code for a single plot configuration.
      *
      * @param plot - The {@link OpenMCPlotConfig} to convert.
+     * @param state - Current state, used to invert the mask selection.
      * @returns An array of code lines.
      */
-    private generatePlotCode(plot: OpenMCPlotConfig): string[] {
+    private generatePlotCode(plot: OpenMCPlotConfig, state: OpenMCState): string[] {
         const lines: string[] = [];
         const colorBy = plot.colorBy === 'material' ? 'material' : 'cell';
 
@@ -2237,6 +2239,10 @@ export class OpenMCPythonExporter {
                 lines.push(`plot_${plot.id}.wireframe_domains = [${plot.wireframeIds.map((id) => `${domainClass}(${id})`).join(', ')}]`);
             }
         }
+
+        // Display colors apply to slice and ray-traced plots; voxel output
+        // stores raw IDs and ignores them. Overlap highlighting is slice-only.
+        lines.push(...generatePlotAppearancePythonLines(plot, state));
 
         lines.push('');
         return lines;

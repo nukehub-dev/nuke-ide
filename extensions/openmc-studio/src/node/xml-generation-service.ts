@@ -55,11 +55,19 @@ import {
     OpenMCSphericalMesh,
     OpenMCLattice,
     OpenMCEigenvalueSettings,
-    OpenMCFixedSourceSettings
+    OpenMCFixedSourceSettings,
+    OpenMCPlotConfig
 } from '../common/openmc-state-schema';
 
 import { getAutoIfpTallies } from '../common/kinetics-ifp';
 import { flattenRectLatticeUniverses, hexLatticeUniverseRows } from '../common/geometry-lattices';
+import {
+    getPlotMaskSummary,
+    plotSupportsBackground,
+    plotSupportsMask,
+    plotSupportsOverlaps,
+    toOpenMcMaskComponents
+} from '../common/plot-appearance';
 
 import { OpenMCStudioClient } from '../common/openmc-studio-protocol';
 
@@ -2098,7 +2106,7 @@ export class XMLGenerationService {
         const lines: string[] = ['<?xml version="1.0"?>', '<plots>', ''];
 
         for (const plot of state.plots || []) {
-            lines.push(this.generatePlotElement(plot));
+            lines.push(this.generatePlotElement(plot, state));
         }
 
         lines.push('</plots>');
@@ -2106,7 +2114,7 @@ export class XMLGenerationService {
         return lines.join('\n');
     }
 
-    private generatePlotElement(plot: any): string {
+    private generatePlotElement(plot: OpenMCPlotConfig, state: OpenMCState): string {
         const lines: string[] = [];
         const nameAttr = plot.name ? ` name="${this.escapeXml(plot.name)}"` : '';
         const colorBy = plot.colorBy === 'material' ? 'material' : 'cell';
@@ -2126,9 +2134,8 @@ export class XMLGenerationService {
             lines.push(`    <pixels>${(plot.voxels ?? [50, 50, 50]).join(' ')}</pixels>`);
             const lowerLeft = plot.lowerLeft;
             const upperRight = plot.upperRight;
-            const origin =
-                lowerLeft && upperRight ? lowerLeft.map((v: number, i: number) => (v + upperRight[i]) / 2) : (plot.origin ?? [0, 0, 0]);
-            const width = lowerLeft && upperRight ? lowerLeft.map((v: number, i: number) => upperRight[i] - v) : [10, 10, 10];
+            const origin = lowerLeft && upperRight ? lowerLeft.map((v, i) => (v + upperRight[i]) / 2) : (plot.origin ?? [0, 0, 0]);
+            const width = lowerLeft && upperRight ? lowerLeft.map((v, i) => upperRight[i] - v) : [10, 10, 10];
             lines.push(`    <origin>${origin.join(' ')}</origin>`);
             lines.push(`    <width>${width.join(' ')}</width>`);
         } else {
@@ -2156,6 +2163,27 @@ export class XMLGenerationService {
                 if (plot.wireframeIds && plot.wireframeIds.length > 0) {
                     lines.push(`    <wireframe_ids>${plot.wireframeIds.join(' ')}</wireframe_ids>`);
                 }
+            }
+        }
+
+        // Display colors apply to slice and ray-traced plots; voxel output
+        // stores raw IDs and ignores them.
+        if (plotSupportsBackground(plot.type) && plot.background) {
+            lines.push(`    <background>${plot.background.join(' ')}</background>`);
+        }
+        if (plotSupportsMask(plot.type) && plot.mask && plot.mask.components.length > 0) {
+            // OpenMC paints the listed mask components with the mask background;
+            // the state stores the visible selection, so emit the complement.
+            const hidden = toOpenMcMaskComponents(plot, state);
+            if (getPlotMaskSummary(plot, state).visible > 0 && hidden.length > 0) {
+                const maskBackground = plot.mask.background ? ` background="${plot.mask.background.join(' ')}"` : '';
+                lines.push(`    <mask components="${hidden.join(' ')}"${maskBackground}/>`);
+            }
+        }
+        if (plotSupportsOverlaps(plot.type) && plot.showOverlaps) {
+            lines.push('    <show_overlaps>true</show_overlaps>');
+            if (plot.overlapColor) {
+                lines.push(`    <overlap_color>${plot.overlapColor.join(' ')}</overlap_color>`);
             }
         }
 

@@ -1705,6 +1705,19 @@ export interface OpenMCPlotConfig {
     colorBy: 'cell' | 'material' | 'temperature' | 'density';
     /** Whether to show mesh lines */
     meshlines?: boolean;
+    /** Background color for regions outside every cell, as [r, g, b] */
+    background?: [number, number, number];
+    /** Show only the listed cell/material domains (per {@link colorBy}) */
+    mask?: {
+        /** Cell or material IDs to keep visible */
+        components: number[];
+        /** Color applied to every masked-out domain, as [r, g, b] */
+        background?: [number, number, number];
+    };
+    /** Highlight overlapping regions (slice plots only) */
+    showOverlaps?: boolean;
+    /** Color applied to overlapping regions, as [r, g, b] (slice plots only) */
+    overlapColor?: [number, number, number];
     /** Camera position (ray-trace plots) */
     cameraPosition?: [number, number, number];
     /** Point the camera looks at (ray-trace plots) */
