@@ -50,6 +50,15 @@ import type { ValidationIssue } from './openmc-studio-protocol';
 /** Boundary types that carry an albedo in OpenMC. */
 const ALBEDO_BOUNDARIES = new Set<OpenMCBoundaryCondition>(['reflective', 'periodic', 'white']);
 
+/**
+ * Whether a boundary condition carries an albedo in OpenMC.
+ * @param boundary - Boundary condition, if set.
+ * @returns True for reflective, periodic, and white boundaries.
+ */
+export function isAlbedoBoundary(boundary: OpenMCBoundaryCondition | undefined): boolean {
+    return boundary !== undefined && ALBEDO_BOUNDARIES.has(boundary);
+}
+
 /** Plane surface types eligible for a periodic pair. */
 const PLANE_TYPES = new Set(['x-plane', 'y-plane', 'z-plane', 'plane']);
 
@@ -585,6 +594,32 @@ function validateSurfaceBoundaries(
                 `Surface #${surface.id}: periodic partner is set but the boundary is not periodic`,
                 'Set the boundary condition to periodic or clear the partner',
                 path
+            );
+        }
+    }
+
+    // Two surfaces may not claim the same partner. A reciprocal pair names
+    // each other, so a partner with more than one claimant is ambiguous.
+    const partnerClaims = new Map<number, number[]>();
+    for (const surface of surfaces) {
+        if (
+            surface.boundary === 'periodic' &&
+            surface.periodicSurfaceId !== undefined &&
+            surface.periodicSurfaceId !== surface.id &&
+            byId.has(surface.periodicSurfaceId)
+        ) {
+            const claimants = partnerClaims.get(surface.periodicSurfaceId) ?? [];
+            claimants.push(surface.id);
+            partnerClaims.set(surface.periodicSurfaceId, claimants);
+        }
+    }
+    for (const [partnerId, claimants] of partnerClaims) {
+        const unique = Array.from(new Set(claimants));
+        if (unique.length > 1) {
+            error(
+                `Surfaces ${formatIds(unique)} all name #${partnerId} as their periodic partner`,
+                'Each periodic surface needs exactly one opposite plane; remove the duplicate pairing',
+                `geometry.surfaces.${unique[0]}`
             );
         }
     }

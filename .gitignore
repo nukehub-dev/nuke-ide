@@ -42,4 +42,8 @@ applications/docker/workspace/
 # Playwright GUI smoke test artifacts
 test-results/
 tests/ui/fixtures/*.smoke.nuke-cad
+# CSG Builder smoke projects are staged at runtime and removed afterwards;
+# generated XML must never dirty the tree when a test fails mid-run.
+tests/ui/fixtures/csg-smoke/**/geometry.xml
+tests/ui/fixtures/csg-smoke/**/materials.xml
 playwright-report/

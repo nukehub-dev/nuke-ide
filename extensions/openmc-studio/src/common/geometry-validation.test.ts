@@ -340,6 +340,16 @@ describe('validateGeometryModel periodic boundaries and albedo', () => {
         expect(validateGeometryModel(geometry).some((issue) => issue.message.includes('greater than 1'))).toBe(true);
     });
 
+    it('errors when two surfaces claim the same periodic partner', () => {
+        const geometry = buildGeometry();
+        geometry.surfaces = [
+            { id: 1, type: 'x-plane', coefficients: { x0: -1 }, boundary: 'periodic', periodicSurfaceId: 3 },
+            { id: 2, type: 'x-plane', coefficients: { x0: 0 }, boundary: 'periodic', periodicSurfaceId: 3 },
+            { id: 3, type: 'x-plane', coefficients: { x0: 1 }, boundary: 'periodic', periodicSurfaceId: 1 }
+        ];
+        expect(errors(geometry).some((message) => message.includes('all name #3 as their periodic partner'))).toBe(true);
+    });
+
     it('errors on a non-positive albedo', () => {
         const geometry = buildGeometry();
         geometry.surfaces = [{ id: 1, type: 'x-plane', coefficients: { x0: -1 }, boundary: 'reflective', albedo: 0 }];

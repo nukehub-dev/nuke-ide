@@ -45,7 +45,7 @@ Surfaces are the primitive building blocks of CSG geometry.
 | **General Quadric** | `Ax² + By² + Cz² + ... = 0`        | 10 coefficients                          |
 
 3. Enter coefficients in the form. The surface appears in the **Surfaces List** with an auto-assigned ID.
-4. Set the **Boundary Condition** (optional): `vacuum`, `reflective`, `periodic`, or `white`. Reflective, periodic, and white boundaries accept an **albedo** (importance multiplier, default 1). A periodic plane must name its opposite plane as the **Periodic Partner**; the editor sets the reciprocal link automatically.
+4. Set the **Boundary Condition** (optional): `vacuum`, `reflective`, `periodic`, or `white`. Reflective, periodic, and white boundaries accept an **albedo** (importance multiplier, default `1`; values outside 0–1 are flagged, and above 1 is discouraged). Periodic boundaries show a **Periodic Partner** picker that lists only the other periodic planes; the editor prevents self-pairing and, on save, sets the reciprocal link on both surfaces. Both surfaces show a `paired with #N` badge, or `unpaired` until a partner is chosen.
 
 > **Tip:** Name surfaces descriptively (e.g., "Fuel Outer Radius") — the names appear in region expressions and make debugging easier.
 
@@ -53,23 +53,26 @@ Surfaces are the primitive building blocks of CSG geometry.
 
 ### Defining Cells
 
-Cells are volumes bounded by surfaces and filled with materials, universes, or left void.
+Cells are volumes bounded by surfaces and filled with materials, universes, or left void. The cell form is split into **Identity**, **Region**, **Placement**, and a collapsed **Advanced** section.
 
 1. Click **"Add Cell"** in the toolbar.
 2. Fill in the cell form:
 
-| Field           | Description                                                                    |
-| --------------- | ------------------------------------------------------------------------------ |
-| **ID**          | Unique integer identifier                                                      |
-| **Name**        | Descriptive label                                                              |
-| **Fill**        | Material, Universe, Lattice, or Void                                           |
-| **Region**      | Boolean expression of surface IDs                                              |
-| **Temperature** | Optional temperature in Kelvin                                                 |
-| **Rotation**    | Optional intrinsic Tait-Bryan angles φ/θ/ψ in degrees (universe/lattice fills) |
-| **Translation** | Optional translation x/y/z in cm, applied after rotation                       |
-| **Density**     | Optional positive density override for material fills                          |
+| Field                 | Description                                                                                        |
+| --------------------- | -------------------------------------------------------------------------------------------------- |
+| **Name**              | Descriptive label                                                                                  |
+| **Fill target**       | Searchable, type-grouped picker for materials, universes, and lattices; Void leaves the cell empty |
+| **Region**            | Boolean expression of surface IDs plus the visual builder                                          |
+| **Rotation φ/θ/ψ**    | Optional intrinsic Tait-Bryan angles in degrees (universe/lattice fills)                           |
+| **Translation x/y/z** | Optional translation in cm, applied after rotation                                                 |
+| **Density Override**  | Optional density greater than zero for material fills; blank uses the material density             |
+| **Temperature**       | Optional advanced temperature in Kelvin                                                            |
 
-3. **Region Expressions:** Use parentheses, spaces, and the operators:
+3. The fill picker shows `#id name` with a Material/Universe/Lattice type badge and filters as you type. Universe 0 (the root) is never offered because OpenMC cannot fill a cell with it.
+4. **Clear transform** resets rotation and translation only; the region and fill stay unchanged.
+5. Inline errors appear under the affected field for a missing fill, a partial/non-numeric rotation or translation, a non-positive density, or a transform on a material/void cell.
+
+6. **Region Expressions:** Use parentheses, spaces, and the operators:
 
 | Operator    | Meaning                      | Example                          |
 | ----------- | ---------------------------- | -------------------------------- |
@@ -87,7 +90,7 @@ Coolant:   2 −3
 Outside:   3
 ```
 
-4. Click **"Validate Region"** to check for syntax errors and unbounded regions before adding the cell.
+7. Click **"Validate Region"** to check for syntax errors and unbounded regions before adding the cell.
 
 ---
 
@@ -109,10 +112,10 @@ Universes group cells together so they can be reused as fills.
 
 ### Lattices
 
-Lattices are regular arrays of universes — essential for reactor assemblies.
+Lattices are regular arrays of universes — essential for reactor assemblies. They live in the **Lattices** tab (separate from universes so the grid/ring editors get the full panel width).
 
-1. Click **"Add Rect Lattice"** or **"Add Hex Lattice"**.
-2. The lattice card opens an inline editor. Configure it:
+1. Open the **Lattices** tab and click **"Create rectangular lattice"** or **"Create hex lattice"**. The inline editor opens with a sensible default map.
+2. Configure the definition:
 
 | Parameter          | Description                                                        |
 | ------------------ | ------------------------------------------------------------------ |
@@ -125,11 +128,15 @@ Lattices are regular arrays of universes — essential for reactor assemblies.
 | **Orientation**    | Hexagon orientation: `y` (flat top, the default) or `x`            |
 | **Axial Levels**   | `1` keeps the hex lattice 2D; larger values add `<n_axial>` levels |
 | **Center**         | `[x, y]` or `[x, y, z]` center of a hexagonal lattice              |
-| **Universe Grid**  | Universe ID at every rectangular position (row 0 is the top row)   |
-| **Ring Universes** | Universe IDs by ring, outermost ring first, top then clockwise     |
 | **Outer Universe** | Universe ID for positions outside the defined map                  |
 
-3. Click **Save Lattice**. Every universe ID in the grid/rings must exist; a cell can then use the lattice as its fill.
+3. Assign universes with the **Universe assignment** editor:
+   - Pick the **Brush universe** from the nested universes (universe 0 is the root and is never offered).
+   - **Paint** assigns one position, **Fill row** (rect) or **Fill ring** (hex) fills the clicked row/ring, and **Clear** unsets a position.
+   - Click a row or ring header to fill it immediately; **Fill all** fills every position with the brush universe, and **Clear all** unsets every position.
+   - Rectangles show row/column headers (row 0 is the top row, x fastest). Hexagons show the ring index and position with a legend: ring 0 is outermost, position 0 starts at the top and runs clockwise.
+4. Click **Save Lattice**. The card shows a compact summary such as `2×2×1 · pitch 1.26 × 1.26 · 4 positions, 2 universes`. Every referenced universe must exist and contain at least one cell; the editor warns about referenced universes with no cells, and validation blocks the run.
+5. Click **Preview 3D** in the Lattices tab or on a card to regenerate XML and open the native geometry viewer. For a saved project the XML is written beside the project file; an unsaved project asks for an output folder first.
 
 > **Tip:** Use the **Outer Universe** to define reflector or coolant regions surrounding the lattice without explicitly tiling them. Lattice and universe IDs share OpenMC's fill namespace, so they must not collide. Every universe referenced by a lattice position or the outer fill needs at least one cell — OpenMC omits empty universes from geometry.xml, so an empty universe cannot be used as a fill.
 
@@ -145,6 +152,17 @@ Click **"Preview 3D"** at any time to visualize the current geometry.
 - Cells are colored by material or by cell ID.
 - Mouse controls: rotate (left-drag), pan (right-drag), zoom (scroll).
 - The preview updates automatically when you regenerate XML.
+
+---
+
+## Validation Banner
+
+The top of the CSG Builder shows a geometry validation banner whenever the model has issues. It uses the same `validateGeometryModel` rules as the Simulation tab's run-readiness checklist, so the two cannot disagree.
+
+- Errors say how many issues block the model; warnings are listed separately and do not claim to block a run.
+- Issues are grouped by tab (Surfaces, Cells, Universes, Lattices) with a count per group.
+- Click an issue to switch to its tab, open the affected cell/surface/lattice editor, and focus the owning card.
+- An unpaired periodic surface, a partner that is not periodic, duplicate pairings, a missing fill, a non-positive density, an invalid rotation/translation, an empty referenced universe, and a root/lattice ID collision all appear here before a run.
 
 ---
 

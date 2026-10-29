@@ -85,7 +85,7 @@ interface OpenMCCell {
 }
 ```
 
-**Concept:** The schema supports _both_ a parsed boolean tree (`OpenMCRegionNode`) and a raw string (`regionString`). The tree is used by the visual CSG builder; the string is used for round-trip XML import/export. The backend canonicalizes between them when generating `geometry.xml`. Rotation/translation apply to universe and lattice fills; density applies to material fills.
+**Concept:** The schema supports _both_ a parsed boolean tree (`OpenMCRegionNode`) and a raw string (`regionString`). The tree is used by the visual CSG builder; the string is used for round-trip XML import/export. The backend canonicalizes between them when generating `geometry.xml`. Rotation/translation apply to universe and lattice fills; density applies to material fills. `setCellTransform` replaces (or clears) both transforms in one state event, and `setSurfacePeriodicPair` maintains reciprocal periodic links; the pure transitions live in `src/common/geometry-state.ts`.
 
 ### Universes
 
@@ -118,7 +118,7 @@ type OpenMCLattice = (OpenMCRectLattice | OpenMCHexLattice) & {
 - Rectangular: `universes[z][y][x]`; `dimensions` is `[nx, ny]` or `[nx, ny, nz]`, and `y = 0` is the top row (OpenMC's `RectLattice.universes`).
 - Hexagonal: `universes[z][ring][theta]`; `rings` is OpenMC's `n_rings` (center ring included), ring 0 is the outermost ring, theta starts at the top and runs clockwise. `orientation` is `'x' | 'y'` (default `'y'`) and `nAxial` is set only for 3D lattices (`<n_axial>`). The old `x-hex`/`y-hex` types and `axial` sub-object are normalized on load.
 
-`outer` handles positions beyond the defined array — essential for fuel-assembly models with infinite moderator.
+`outer` handles positions beyond the defined array — essential for fuel-assembly models with infinite moderator. The state manager exposes `updateLattice`, `setLatticeUniverse`, and `setLatticeUniverses` for the grid/ring editors; the CSG Builder renders these maps with the pure helpers in `src/common/geometry-editor.ts`.
 
 ---
 

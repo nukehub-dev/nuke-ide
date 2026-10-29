@@ -69,6 +69,16 @@ import {
 
 import { StateChangeEvent, ValidationResult, OpenMCStudioBackendService } from '../common/openmc-studio-protocol';
 import { computeOutputWatcherExcludes } from '../common/output-watcher-excludes';
+import { LatticePosition } from '../common/geometry-editor';
+import {
+    applyCellTransform,
+    applyLatticePosition,
+    CellTransform,
+    GeometryStateError,
+    pairPeriodicSurfaces,
+    removeLatticeById,
+    upsertLattice
+} from '../common/geometry-state';
 
 /**
  * Create a default empty {@link OpenMCState} with sensible initial values.
@@ -357,6 +367,34 @@ export class OpenMCStateManager {
     }
 
     /**
+     * Pair a periodic surface with its opposite plane, maintaining the
+     * reciprocal link OpenMC requires.
+     *
+     * Both surfaces are set to the `periodic` boundary. A previous partner is
+     * unlinked, and passing `undefined` clears the pair on both sides.
+     *
+     * @param surfaceId - Surface to pair.
+     * @param partnerId - Opposite plane, or undefined to clear the pair.
+     * @throws Error when the surface/partner does not exist or pairs with itself.
+     */
+    setSurfacePeriodicPair(surfaceId: number, partnerId?: number): void {
+        try {
+            this._state.geometry.surfaces = pairPeriodicSurfaces(this._state.geometry.surfaces, surfaceId, partnerId);
+        } catch (error) {
+            if (error instanceof GeometryStateError) {
+                throw new Error(error.message);
+            }
+            throw error;
+        }
+        this.markDirty();
+        this._onStateChange.fire({
+            path: `geometry.surfaces.${surfaceId}`,
+            type: 'update',
+            value: this._state.geometry.surfaces.find((surface) => surface.id === surfaceId)
+        });
+    }
+
+    /**
      * Add a cell to the geometry.
      *
      * @param cell - The {@link OpenMCCell} to add.
@@ -391,6 +429,22 @@ export class OpenMCStateManager {
                 value: this._state.geometry.cells[index],
                 oldValue
             });
+        }
+    }
+
+    /**
+     * Replace a cell's rotation and translation in one state change.
+     *
+     * Passing `undefined` removes the corresponding transform, so the action
+     * mirrors the "clear transform" control without clearing region or fill.
+     *
+     * @param id - The ID of the cell to update.
+     * @param transform - Rotation (degrees) and/or translation (cm).
+     */
+    setCellTransform(id: number, transform: CellTransform): void {
+        const cell = this._state.geometry.cells.find((candidate) => candidate.id === id);
+        if (cell) {
+            this.updateCell(id, applyCellTransform(cell, transform));
         }
     }
 
@@ -822,7 +876,7 @@ export class OpenMCStateManager {
      * @param lattice - The {@link OpenMCLattice} to add.
      */
     addLattice(lattice: OpenMCLattice): void {
-        this._state.geometry.lattices.push(lattice);
+        this._state.geometry.lattices = upsertLattice(this._state.geometry.lattices, lattice);
         this.markDirty();
 
         this._onStateChange.fire({
@@ -839,16 +893,16 @@ export class OpenMCStateManager {
      * @param updates - Partial lattice object with the new values.
      */
     updateLattice(id: number, updates: Partial<OpenMCLattice>): void {
-        const index = this._state.geometry.lattices.findIndex((l) => l.id === id);
-        if (index >= 0) {
-            const oldValue = this._state.geometry.lattices[index];
-            this._state.geometry.lattices[index] = { ...oldValue, ...updates } as OpenMCLattice;
+        const oldValue = this._state.geometry.lattices.find((lattice) => lattice.id === id);
+        if (oldValue) {
+            const next = { ...oldValue, ...updates } as OpenMCLattice;
+            this._state.geometry.lattices = upsertLattice(this._state.geometry.lattices, next);
             this.markDirty();
 
             this._onStateChange.fire({
                 path: `geometry.lattices.${id}`,
                 type: 'update',
-                value: this._state.geometry.lattices[index],
+                value: next,
                 oldValue
             });
         }
@@ -860,10 +914,9 @@ export class OpenMCStateManager {
      * @param id - The ID of the lattice to remove.
      */
     removeLattice(id: number): void {
-        const index = this._state.geometry.lattices.findIndex((l) => l.id === id);
-        if (index >= 0) {
-            const oldValue = this._state.geometry.lattices[index];
-            this._state.geometry.lattices.splice(index, 1);
+        const oldValue = this._state.geometry.lattices.find((lattice) => lattice.id === id);
+        if (oldValue) {
+            this._state.geometry.lattices = removeLatticeById(this._state.geometry.lattices, id);
             this.markDirty();
 
             this._onStateChange.fire({
@@ -872,6 +925,39 @@ export class OpenMCStateManager {
                 oldValue
             });
         }
+    }
+
+    /**
+     * Assign one universe position in a lattice.
+     *
+     * @param latticeId - Lattice to update.
+     * @param position - Rect `{z,y,x}` or hex `{z,ring,theta}` slot.
+     * @param universeId - Universe ID to place at the slot.
+     * @throws Error when the lattice does not exist.
+     */
+    setLatticeUniverse(latticeId: number, position: LatticePosition, universeId: number): void {
+        const lattice = this._state.geometry.lattices.find((candidate) => candidate.id === latticeId);
+        if (!lattice) {
+            throw new Error(`Lattice ${latticeId} not found`);
+        }
+        this.updateLattice(latticeId, {
+            universes: applyLatticePosition(lattice, position, universeId).universes
+        });
+    }
+
+    /**
+     * Replace a lattice's complete universe array (bulk fill/clear actions).
+     *
+     * @param latticeId - Lattice to update.
+     * @param universes - New `[z][y][x]` or `[z][ring][theta]` array.
+     * @throws Error when the lattice does not exist.
+     */
+    setLatticeUniverses(latticeId: number, universes: number[][][]): void {
+        const lattice = this._state.geometry.lattices.find((candidate) => candidate.id === latticeId);
+        if (!lattice) {
+            throw new Error(`Lattice ${latticeId} not found`);
+        }
+        this.updateLattice(latticeId, { universes });
     }
 
     // ============================================================================

@@ -68,6 +68,8 @@ All files under `extensions/openmc-studio/` except generated artifacts (`lib/`, 
 - Tally model: extend `scores-catalog.ts` / `filters-catalog.ts`, not the components; per-tally `triggers` auto-emit run-level
   `<trigger><active>true</active>`; `derivative` perturbs a material only (top-level `<derivative>`, tally references by ID).
   See `docs/dev/xml-generation.md`.
+- CSG builder geometry edits use the pure `geometry-editor.ts` helpers and `geometry-state.ts` transitions; the validation banner and
+  run readiness both render `validateGeometryModel` (never a second rule set). See `docs/dev/widget-patterns.md`.
 - Kinetics / CMFD: IFP tallies auto-append from `settings.kinetics` and re-derive on import (idempotent); CMFD is C-API-only (no
   settings.xml element) via `generateCmfdCodeLines` + `run_cmfd.py`, and depletion wins when both are set. See `docs/dev/xml-generation.md`.
 - Preferences stay minimal: only `openmcStudio.lastMgxsWorkDir` is a preference; MGXS-generator / volume-calc / chain-builder /

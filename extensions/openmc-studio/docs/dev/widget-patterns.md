@@ -453,10 +453,10 @@ are imported once by the frontend module; they work anywhere a codicon does, inc
 'openmc-<name>'` entries. Sizing is `1em`, so the parent font-size controls the glyph.
 
 - Use domain icons for OpenMC concepts: `openmc-atom`, `openmc-geometry`, `openmc-surface`, `openmc-cell`,
-  `openmc-universe`, `openmc-mesh`, `openmc-grid`, `openmc-material`, `openmc-tally`, `openmc-statepoint`,
-  `openmc-depletion`, `openmc-variance`, `openmc-source`, `openmc-run`, `openmc-compare`, `openmc-optimize`,
-  `openmc-plot`, `openmc-mask`, `openmc-overlap`, `openmc-mgxs`, `openmc-volume`, `openmc-validate`,
-  `openmc-reactivity`, `openmc-feed`.
+  `openmc-universe`, `openmc-lattice`, `openmc-transform`, `openmc-periodic`, `openmc-mesh`, `openmc-grid`,
+  `openmc-material`, `openmc-tally`, `openmc-statepoint`, `openmc-depletion`, `openmc-variance`, `openmc-source`,
+  `openmc-run`, `openmc-compare`, `openmc-optimize`, `openmc-plot`, `openmc-mask`, `openmc-overlap`, `openmc-mgxs`,
+  `openmc-volume`, `openmc-validate`, `openmc-reactivity`, `openmc-feed`.
 - Keep generic codicons for universal utilities: add, save, edit, trash, close, chevrons, warnings, and errors.
   Draw each OpenMC domain glyph as one coherent shape; do not compose detached symbols (grid + bars) into one icon.
 
@@ -466,6 +466,16 @@ and `Tooltip`; the mask picker follows `colorBy` (cell or material IDs), and the
 explains controls the selected plot type cannot render (voxel ignores display colors; ray-traced plots
 do not detect overlaps). The picker stores visible domains; XML/Python emit the hidden complement. See
 `src/common/plot-appearance.ts` for the support matrix, inversion, and validation.
+
+### CSG Builder geometry editors
+
+- Pure editor-model helpers (lattice brush operations, fill-target search, issue grouping, inline parsing) live in
+  `src/common/geometry-editor.ts`; geometry state transitions live in `src/common/geometry-state.ts`. The widget only
+  renders and dispatches, so lattice/transform/pairing logic stays unit-testable.
+- The CSG validation banner and the dashboard run-readiness checklist both render `validateGeometryModel`
+  (`src/common/geometry-validation.ts`); never add a second rule set for the banner.
+- Universe grid/ring cells are real `<button>`s with a 28 px minimum target, `aria-label`s, and shared `Tooltip`s;
+  their scroll container keeps wide maps inside the card at narrow widths.
 
 Project identity uses `.openmc-brand-openmc`, a monochrome mask of the official OpenMC mark (from the OpenMC
 docs, MIT), so it follows the active theme foreground. DAGMC keeps the theme-aware `openmc-mesh` domain icon
