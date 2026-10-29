@@ -44,6 +44,7 @@ import { spawnSync } from 'child_process';
 import { XMLGenerationService } from '../xml-generation-service';
 import { DEFAULT_OPENMC_COMPAT } from '../../common/openmc-studio-protocol';
 import { OpenMCState } from '../../common/openmc-state-schema';
+import { NEUTRON_PARTICLE } from '../../common/particle-types';
 
 const PYTHON = process.env.NUKE_TEST_PYTHON;
 const OPENMC_EXE = PYTHON ? path.join(path.dirname(PYTHON), 'openmc') : undefined;
@@ -306,7 +307,7 @@ describe('tally filters e2e (real OpenMC)', () => {
                         {
                             type: 'particleproduction',
                             bins: [],
-                            particleTypes: ['neutron'],
+                            particleTypes: [NEUTRON_PARTICLE],
                             productionEnergyBins: [0, 1e5, 2e7]
                         }
                     ]

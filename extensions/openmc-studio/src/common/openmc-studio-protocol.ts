@@ -50,6 +50,7 @@ import {
     OPENMC_STATE_SCHEMA_VERSION,
     DAGMCInfo
 } from './openmc-state-schema';
+import type { OpenMCParticleValue } from './particle-types';
 
 export { OPENMC_STATE_SCHEMA_VERSION };
 
@@ -479,6 +480,12 @@ export interface OpenMCCompat {
     reactionFilter?: boolean;
     /** Whether `openmc.ParticleProductionFilter` exists (0.16.0+). */
     particleProductionFilter?: boolean;
+    /**
+     * Whether `openmc.ParticleType` is the PDG-backed class (0.16.0+), which
+     * accepts arbitrary particles such as `He4`/`U235`. The 0.15.3 `IntEnum`
+     * only accepts neutron/photon/electron/positron.
+     */
+    generalizedParticles?: boolean;
 }
 
 /** Release-compatible default (stable releases are the common case). */
@@ -497,7 +504,8 @@ export const DEFAULT_OPENMC_COMPAT: OpenMCCompat = {
     meshFilterRotation: false,
     sourceBias: false,
     reactionFilter: false,
-    particleProductionFilter: false
+    particleProductionFilter: false,
+    generalizedParticles: false
 };
 
 /** Result of XML generation */
@@ -934,7 +942,7 @@ export interface WWINPImportResult {
         lowerBound: number | number[];
         upperBound?: number | number[];
         energyBounds?: number[];
-        particleType?: 'neutron' | 'photon' | string;
+        particleType?: OpenMCParticleValue;
     };
     /** Error message if failed */
     error?: string;
@@ -950,7 +958,7 @@ export interface WWINPExportRequest {
         lowerBound: number | number[];
         upperBound?: number | number[];
         survivalWeight?: number;
-        particleType?: 'neutron' | 'photon' | string;
+        particleType?: OpenMCParticleValue;
         energyBounds?: number[];
     };
     /** Available meshes for dimension info */

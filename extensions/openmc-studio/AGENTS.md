@@ -72,7 +72,11 @@ All files under `extensions/openmc-studio/` except generated artifacts (`lib/`, 
   only. It is 0.16-gated by `OpenMCCompat.sourceBias` (XML/Python strip it when unsupported). Point-cloud/mesh array bias serializes
   for Python but is rejected by the 0.16 XML transport reader. See `docs/dev/state-model.md`.
 - Weight windows are a list: one `<weight_windows id="...">` per set plus `<weight_windows_file>`, `<weight_windows_on>`, and
-  `<weight_window_checkpoints>`; UFS emits `<ufs_mesh>` on a regular mesh. A file loads in addition to sets. See `docs/dev/xml-generation.md`.
+  `<weight_window_checkpoints>`; UFS emits `<ufs_mesh>` on a regular mesh. A file loads in addition to sets. Weight windows and
+  generators accept neutron/photon only; other imported values clamp to neutron with a warning. See `docs/dev/xml-generation.md`.
+- Particles use one `src/common/particle-types.ts` model (`{ name, pdg }`) for source `particle`, tally `particle`/`particleproduction`
+  bins, and weight windows; XML/Python emit canonical names, import accepts names/GNDS/`pdg:<n>`, and particles beyond the 0.15.3 set
+  are gated by `OpenMCCompat.generalizedParticles`. See `docs/dev/state-model.md`.
 - Shared widget CSS: `widgets/shared/openmc-widget.css` is the opt-in design system (root gets `openmc-widget` class, accent
   `--theia-focusBorder`, Theia vars only). Dashboard tabs are `DashboardTabContribution`s; new scalar settings belong in the
   Advanced section (`advanced-section.tsx`). See `docs/dev/widget-patterns.md` and `docs/dev/adding-a-widget.md`.

@@ -35,7 +35,9 @@
 import * as React from '@theia/core/shared/react';
 import { Tooltip, NukeSelect } from 'nuke-essentials/lib/theme/browser/components';
 import { OpenMCMesh, OpenMCVarianceReduction, OpenMCWeightWindows } from '../../../../common/openmc-state-schema';
+import { coerceParticleType, particleTypeLabel } from '../../../../common/particle-types';
 import { defaultWeightWindowSet, summarizeWeightWindows, validateVarianceReduction } from '../../../../common/variance-reduction';
+import { ParticleTypeSelector } from '../../shared/particle-type-selector';
 
 /** Props for the {@link WeightWindowEditor} component. */
 export interface WeightWindowEditorProps {
@@ -200,7 +202,9 @@ function WeightWindowCard(props: {
             <div className="ww-set-header">
                 <div className="ww-set-title">
                     <span className="ww-set-id">Set {set.id ?? props.index + 1}</span>
-                    <span className="ww-set-particle">{set.particleType ?? 'neutron'}</span>
+                    <span className="ww-set-particle">
+                        {particleTypeLabel(coerceParticleType(set.particleType) ?? { name: 'neutron', pdg: 2112 })}
+                    </span>
                 </div>
                 <div className="ww-set-actions">
                     {props.onExport && (
@@ -237,18 +241,15 @@ function WeightWindowCard(props: {
                         <span className="form-error">Select a mesh; weight windows cannot be emitted without one</span>
                     )}
                 </div>
-                <div className="form-group">
-                    <label>Particle type</label>
-                    <NukeSelect
-                        value={set.particleType ?? 'neutron'}
-                        options={[
-                            { value: 'neutron', label: 'Neutron' },
-                            { value: 'photon', label: 'Photon' }
-                        ]}
-                        onChange={(value: string) => props.onChange({ particleType: value })}
-                        ariaLabel={`Weight-window set ${set.id ?? props.index + 1} particle type`}
-                    />
-                </div>
+                <ParticleTypeSelector
+                    value={set.particleType}
+                    onChange={(particle) => props.onChange({ particleType: particle })}
+                    scope="weight-window"
+                    allowedNames={['neutron', 'photon']}
+                    allowCustom={false}
+                    ariaLabel={`Weight-window set ${set.id ?? props.index + 1} particle type`}
+                    label="Particle type"
+                />
             </div>
 
             <EnergyBoundsEditor bounds={set.energyBounds ?? []} onChange={(energyBounds) => props.onChange({ energyBounds })} />

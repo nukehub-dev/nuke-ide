@@ -300,6 +300,7 @@ export class TallyConfiguratorWidget extends ReactWidget {
                             meshRotationSupported={this.compat?.meshFilterRotation}
                             reactionFilterSupported={this.compat?.reactionFilter}
                             particleProductionFilterSupported={this.compat?.particleProductionFilter}
+                            compat={this.compat}
                             onUpdate={(updates) => this.stateManager.updateTally(selectedTally.id, updates)}
                         />
                     ) : (

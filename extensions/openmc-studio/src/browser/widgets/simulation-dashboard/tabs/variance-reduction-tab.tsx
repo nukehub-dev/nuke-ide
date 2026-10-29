@@ -30,7 +30,9 @@ import { NukeSelect, Tooltip as NukeTooltip } from 'nuke-essentials/lib/theme/br
 import { injectable } from '@theia/core/shared/inversify';
 import { OpenFileDialogProps, SaveFileDialogProps } from '@theia/filesystem/lib/browser';
 import { OpenMCState, OpenMCWeightWindows } from '../../../../common/openmc-state-schema';
+import { NEUTRON_PARTICLE } from '../../../../common/particle-types';
 import { nextWeightWindowId } from '../../../../common/variance-reduction';
+import { ParticleTypeSelector } from '../../shared/particle-type-selector';
 import { WeightWindowEditor } from '../vr';
 import type { SimulationDashboardWidget } from '../simulation-dashboard-widget';
 import { DashboardTabContribution } from './tab-registry';
@@ -247,7 +249,7 @@ export class VarianceReductionTabContribution implements DashboardTabContributio
                                     if (e.target.checked) {
                                         host.stateManager.updateVarianceReduction({
                                             ...vr,
-                                            weightWindowGenerator: { iterations: 5, particleType: 'neutron' }
+                                            weightWindowGenerator: { iterations: 5, particleType: NEUTRON_PARTICLE }
                                         });
                                     } else {
                                         host.stateManager.updateVarianceReduction({
@@ -309,23 +311,22 @@ export class VarianceReductionTabContribution implements DashboardTabContributio
                                 </div>
 
                                 <div className="form-group">
-                                    <label>Particle Type</label>
-                                    <NukeSelect
-                                        value={vr.weightWindowGenerator.particleType || 'neutron'}
-                                        options={[
-                                            { value: 'neutron', label: 'Neutron' },
-                                            { value: 'photon', label: 'Photon' }
-                                        ]}
-                                        onChange={(value: string) =>
+                                    <ParticleTypeSelector
+                                        value={vr.weightWindowGenerator.particleType}
+                                        onChange={(particleType) =>
                                             host.stateManager.updateVarianceReduction({
                                                 ...vr,
                                                 weightWindowGenerator: {
                                                     ...vr.weightWindowGenerator,
-                                                    particleType: value as 'neutron' | 'photon'
+                                                    particleType
                                                 }
                                             })
                                         }
-                                        ariaLabel="Particle type"
+                                        scope="weight-window"
+                                        allowedNames={['neutron', 'photon']}
+                                        allowCustom={false}
+                                        ariaLabel="Generator particle type"
+                                        label="Particle Type"
                                     />
                                     <span className="form-hint">Particle type to generate weight windows for</span>
                                 </div>

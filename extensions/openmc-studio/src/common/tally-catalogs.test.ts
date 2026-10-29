@@ -35,6 +35,7 @@ import { describe, it, expect } from 'vitest';
 import { OPENMC_SCORES, OPENMC_SCORE_CATEGORY_ORDER, getScoresByCategory, getScoreEntry, isCustomMtScore } from './scores-catalog';
 import { OPENMC_FILTERS, getFilterDescriptor, createDefaultFilter, getFiltersByGroup } from './filters-catalog';
 import { OpenMCTallyFilterType } from './openmc-state-schema';
+import { PHOTON_PARTICLE } from './particle-types';
 
 /** Well-known ENDF MT numbers (openmc/data/reaction.py REACTION_NAME) */
 const KNOWN_MTS: Record<string, number> = {
@@ -227,7 +228,7 @@ describe('filters catalog integrity', () => {
             particleproduction: {
                 editor: 'particle-production',
                 group: 'reaction',
-                defaultValues: { particleTypes: ['photon'], productionEnergyBins: [] }
+                defaultValues: { particleTypes: [PHOTON_PARTICLE], productionEnergyBins: [] }
             },
             musurface: { editor: 'mu-bins', group: 'energy', defaultBins: [-1, 1] },
             weight: { editor: 'real-bins', group: 'advanced', defaultBins: [0, 1] }

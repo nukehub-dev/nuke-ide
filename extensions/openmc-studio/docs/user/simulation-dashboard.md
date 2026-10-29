@@ -127,7 +127,11 @@ type's fields render, so the panel stays readable at narrow widths.
 | **Direction**   | Isotropic, monodirectional with a reference vector, or polar-azimuthal (mu-phi) with polar/azimuthal reference vectors and mu/phi distributions                                                                                                                       |
 | **Time**        | Born at t = 0, delta, uniform, discrete, tabular, or mixture. Every value is in **seconds**                                                                                                                                                                           |
 | **Constraints** | Domain type + IDs, energy/time bounds, fissionable-sites-only, rejection strategy `resample`/`kill`                                                                                                                                                                   |
-| **Advanced**    | Strength (relative source weight) and particle type (neutron/photon)                                                                                                                                                                                                  |
+| **Advanced**    | Strength (relative source weight) and particle type presets (neutron, photon, electron, positron, proton, deuteron, triton, alpha, He3) or a custom PDG number with a resolved-name preview                                                                           |
+
+Particles beyond neutron/photon/electron/positron use OpenMC 0.16's PDG-backed `ParticleType`.
+On 0.15.3 the selector keeps the choice visible but shows an inline warning; generated XML and Python
+use neutron instead of an invalid particle.
 
 Tabular and point-cloud tables support **Add row** and **Paste** (space-, comma-,
 or semicolon-separated rows). Large tables page inside their card. Mixtures show
@@ -318,7 +322,8 @@ Define irradiation steps as a table of power/duration rows. Use a zero-power ste
 | **Weight Windows**          | A list of sets (mesh, particle, energy bounds, lower/upper bounds, survival ratio), file, checkpoints |
 
 **Weight-window sets.** Click **Add weight-window set** to create one card per
-OpenMC `<weight_windows>` block. Each set picks a mesh and particle type, has an
+OpenMC `<weight_windows>` block. Each set picks a mesh and particle type (OpenMC
+accepts neutron or photon only, so the editor exposes that pair), has an
 energy-bound token editor, and accepts either one uniform lower/upper value or a
 per-cell/group array (the editor shows `N values`). A scalar broadcasts over
 `n_mesh_cells × n_energy_groups`; an explicit array is emitted verbatim. The

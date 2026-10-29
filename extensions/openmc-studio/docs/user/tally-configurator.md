@@ -89,7 +89,7 @@ Click **"Add Filter"** and choose a filter type:
 | `sphericalharmonics` | Spherical harmonics moments              | Order                                            |
 | `zernike`            | Zernike polynomial moments               | Order, radial basis                              |
 | `zernikeradial`      | Radial-only Zernike moments              | Order                                            |
-| `particle`           | Particle type                            | `neutron`, `photon`                              |
+| `particle`           | Incident particle type                   | Presets (neutron … He3) or a custom PDG number   |
 | `time`               | Time bins                                | Lower/upper bounds (s)                           |
 | `meshsurface`        | Current crossing a mesh surface          | Mesh definition                                  |
 | `materialfrom`       | Material the particle came from          | Material IDs                                     |
@@ -128,10 +128,18 @@ when it is known. Add one row per combination; the pair count is shown above the
 Typing an MT number such as `102` adds OpenMC's canonical `(n,gamma)` name. Unknown names are rejected
 inline instead of being written to the deck.
 
+**Particle** (`particle`) bins events by the incident particle. Check the common presets or add a
+custom PDG number; the control previews the canonical OpenMC name (for example `He4` for
+`1000020040`). Neutron, photon, electron, and positron work on both supported OpenMC releases;
+proton, deuteron, triton, alpha, He3, and custom nuclides require OpenMC 0.16's PDG-backed
+`ParticleType`. On 0.15.3 those bins stay in the project with an inline warning and are omitted from
+generated XML/Python.
+
 **Particle production** (`particleproduction`, OpenMC 0.16+) selects secondary particles (photon,
-neutron, electron, positron, or a custom nuclide such as `C12`) and optional strictly increasing
-energy boundaries in eV. It is most useful with the `events` score. On environments older than
-OpenMC 0.16 the filter stays in the project but is omitted from generated XML/Python with a warning.
+neutron, electron, positron, proton, deuteron, triton, alpha, He3, or a custom nuclide/PDG number)
+and optional strictly increasing energy boundaries in eV. It is most useful with the `events`
+score. On environments older than OpenMC 0.16 the filter stays in the project but is omitted from
+generated XML/Python with a warning.
 
 **Mu surface** (`musurface`) bins surface crossings by the cosine of the angle between the particle
 direction and the surface normal. It needs a `surface` filter and the `current` score; the editor

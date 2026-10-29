@@ -689,3 +689,196 @@
 :is(.dashboard-tabs, .csg-builder-tabs, .dagmc-editor-tabs, .optimization-tabs, .comparison-tabs, .tally-configurator-tabs) .tab-button {
     white-space: nowrap;
 }
+
+/* ============================================================================
+   Particle type selector (sources, tally filters, weight windows)
+   ============================================================================ */
+
+:is(.simulation-dashboard, .openmc-widget) .particle-type-selector,
+:is(.simulation-dashboard, .openmc-widget) .particle-type-multi {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .particle-type-label {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--theia-foreground);
+}
+
+:is(.simulation-dashboard, .openmc-widget) .particle-type-select-wrap {
+    min-width: 0;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .particle-type-segments {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .particle-type-select-control {
+    display: none;
+    width: 100%;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .particle-type-disabled-wrap {
+    display: inline-flex;
+    min-width: 0;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .particle-type-segments .segment:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .particle-type-custom,
+:is(.simulation-dashboard, .openmc-widget) .particle-type-add-custom {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 8px;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .particle-type-custom-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 160px;
+    flex: 1 1 180px;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .particle-type-custom-label {
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+}
+
+:is(.simulation-dashboard, .openmc-widget) .particle-type-custom-field input {
+    width: 100%;
+    box-sizing: border-box;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .particle-type-preview {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+}
+
+:is(.simulation-dashboard, .openmc-widget) .particle-type-preview strong {
+    color: var(--theia-foreground);
+}
+
+:is(.simulation-dashboard, .openmc-widget) .particle-type-preview-error {
+    color: var(--theia-errorForeground);
+}
+
+:is(.simulation-dashboard, .openmc-widget) .particle-type-checks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 12px;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .particle-type-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    color: var(--theia-foreground);
+}
+
+:is(.simulation-dashboard, .openmc-widget) .particle-type-check.unsupported {
+    opacity: 0.6;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .particle-type-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .particle-type-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 6px;
+    border-radius: 10px;
+    background: var(--theia-badge-background);
+    color: var(--theia-badge-foreground);
+    font-size: 11px;
+    max-width: 100%;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .particle-type-chip > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .particle-type-chip-remove {
+    display: inline-flex;
+    border: none;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    padding: 0;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .particle-type-warning {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    padding: 4px 8px;
+    border-left: 3px solid var(--theia-warningForeground);
+    background: var(--theia-inputValidation-warningBackground);
+    color: var(--theia-foreground);
+    font-size: 11px;
+    border-radius: 0 4px 4px 0;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .particle-type-warning .codicon {
+    color: var(--theia-warningForeground);
+    flex: 0 0 auto;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .particle-type-warnings {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+@container (max-width: 560px) {
+    :is(.simulation-dashboard, .openmc-widget) .particle-type-segments {
+        display: none;
+    }
+
+    :is(.simulation-dashboard, .openmc-widget) .particle-type-select-control {
+        display: block;
+    }
+
+    :is(.simulation-dashboard, .openmc-widget) .particle-type-custom,
+    :is(.simulation-dashboard, .openmc-widget) .particle-type-add-custom {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    :is(.simulation-dashboard, .openmc-widget) .particle-type-custom-field {
+        flex: 1 1 auto;
+    }
+}
+
+:is(.simulation-dashboard, .openmc-widget) .particle-type-label-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .particle-type-info {
+    color: var(--theia-descriptionForeground);
+    cursor: help;
+    font-size: 13px;
+}

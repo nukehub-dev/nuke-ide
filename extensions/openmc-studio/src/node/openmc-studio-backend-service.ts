@@ -125,7 +125,8 @@ import { calculateGeometryBounds, boxOverlapsBounds, pointInBounds } from '../co
 import { reshapeHexLatticeUniverses } from '../common/geometry-lattices';
 import { validateGeometryModel } from '../common/geometry-validation';
 import { validateRuntimeSettings } from '../common/settings-validation';
-import { pairsFromBins } from '../common/tally-filter-utils';
+import { getParticleFilterBins, getParticleProductionTypes, pairsFromBins, particleFilterLegacyBins } from '../common/tally-filter-utils';
+import { coerceParticleType, isBaseParticle, NEUTRON_PARTICLE, normalizeParticleType, resolveParticleType } from '../common/particle-types';
 import { validateTallyFilterSet } from '../common/tally-filter-validation';
 import { OpenMCRunnerService } from './openmc-runner-service';
 import { XMLGenerationService } from './xml-generation-service';
@@ -1531,7 +1532,7 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                 weightWindowGenerator.energyBounds = this.parseNumberList(wwg.energy_bounds);
             }
             if (wwg.particle_type) {
-                weightWindowGenerator.particleType = wwg.particle_type.toString();
+                weightWindowGenerator.particleType = normalizeParticleType(wwg.particle_type.toString()) ?? NEUTRON_PARTICLE;
             }
             if (wwg.max_realizations !== undefined) {
                 weightWindowGenerator.maxRealizations = parseInt(wwg.max_realizations);
@@ -1851,7 +1852,8 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                     id: parseInt(String(element?.$?.id ?? '')) || undefined,
                     meshId: Number.isFinite(meshId) ? meshId : undefined,
                     lowerBound: lowerBound.length > 0 ? collapseUniformBound(lowerBound) : 0.5,
-                    particleType: String(xmlValueFromElement(element, 'particle_type') ?? 'neutron')
+                    particleType:
+                        normalizeParticleType(String(xmlValueFromElement(element, 'particle_type') ?? 'neutron')) ?? NEUTRON_PARTICLE
                 };
                 if (upperBound.length > 0) {
                     set.upperBound = collapseUniformBound(upperBound);
@@ -2011,10 +2013,13 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
         } else {
             // Independent source (type attribute absent means 'independent')
             if (attrs.particle) {
-                source.particle = attrs.particle;
-                if (attrs.particle !== 'neutron' && attrs.particle !== 'photon') {
+                const resolved = resolveParticleType(String(attrs.particle));
+                if (resolved.ok) {
+                    source.particle = resolved.particle;
+                } else {
+                    source.particle = NEUTRON_PARTICLE;
                     warnings.push(
-                        `Source particle '${attrs.particle}' is preserved in XML, but generalized PDG particles are not editable in the source UI; neutron/photon are the supported source particles`
+                        `Source particle '${String(attrs.particle)}' is not a recognized OpenMC particle; the source was imported with neutron instead`
                     );
                 }
             }
@@ -2435,17 +2440,27 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                 break;
 
             case 'particleproduction': {
-                filter.particleTypes = filterElem.particles
+                const tokens = filterElem.particles
                     ? filterElem.particles
                           .toString()
                           .trim()
                           .split(/\s+/)
                           .filter((particle: string) => particle.length > 0)
                     : [];
+                filter.particleTypes = tokens.flatMap((token: string) => {
+                    const resolved = resolveParticleType(token);
+                    if (resolved.ok) {
+                        return [resolved.particle!];
+                    }
+                    warnings?.push(
+                        `Particle-production filter ${filterElem.$?.id ?? ''}: '${token}' is not a recognized OpenMC particle; that bin was omitted`
+                    );
+                    return [];
+                });
                 filter.productionEnergyBins = filterElem.energies ? this.parseNumberList(filterElem.energies) : [];
                 filter.bins = [];
                 if ((filter.particleTypes ?? []).length === 0) {
-                    warnings?.push(`Particle-production filter ${filterElem.$?.id ?? ''} has no <particles> values`);
+                    warnings?.push(`Particle-production filter ${filterElem.$?.id ?? ''} has no usable <particles> values`);
                 }
                 break;
             }
@@ -2481,31 +2496,30 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                 }
                 break;
 
-            case 'particle':
-                // Real OpenMC writes particle names; map back to numeric bins (1=neutron, 2=photon)
-                filter.bins = filterElem.bins
+            case 'particle': {
+                // OpenMC writes canonical particle names. Accept names, GNDS
+                // nuclides, and pdg:<number> tokens; invalid bins are reported.
+                const tokens = filterElem.bins
                     ? filterElem.bins
                           .toString()
                           .trim()
                           .split(/\s+/)
-                          .map((token: string) => {
-                              if (token === 'photon') {
-                                  return 2;
-                              }
-                              if (token === 'neutron') {
-                                  return 1;
-                              }
-                              const numeric = parseInt(token, 10);
-                              if (Number.isFinite(numeric)) {
-                                  return numeric;
-                              }
-                              warnings?.push(
-                                  `Particle filter ${filterElem.$?.id ?? ''}: '${token}' is not a neutron/photon particle name; it was imported as neutron because generalized PDG particles are not supported by the editor`
-                              );
-                              return 1;
-                          })
+                          .filter((token: string) => token.length > 0)
                     : [];
+                const particles = tokens.flatMap((token: string) => {
+                    const resolved = resolveParticleType(token);
+                    if (resolved.ok) {
+                        return [resolved.particle!];
+                    }
+                    warnings?.push(
+                        `Particle filter ${filterElem.$?.id ?? ''}: '${token}' is not a recognized OpenMC particle; that bin was omitted`
+                    );
+                    return [];
+                });
+                filter.particleBins = particles;
+                filter.bins = particleFilterLegacyBins(particles);
                 break;
+            }
 
             default:
                 filter.bins = filterElem.bins ? this.parseNumberList(filterElem.bins) : [];
@@ -2989,6 +3003,45 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
         }
     }
 
+    /**
+     * Whether any configured source, tally filter, or weight window uses a
+     * particle beyond the 0.15.3 set, so validation needs the PDG probe.
+     * @param state - State being validated.
+     */
+    private usesGeneralizedParticles(state: OpenMCState): boolean {
+        const particleValues: unknown[] = [];
+        const collectSource = (source: OpenMCState['settings']['sources'][number]): void => {
+            if ((source as { particle?: unknown }).particle) {
+                particleValues.push((source as { particle?: unknown }).particle);
+            }
+            if (source.type === 'mesh') {
+                for (const sub of source.sources ?? []) {
+                    collectSource(sub);
+                }
+            }
+        };
+        for (const source of state.settings.sources ?? []) {
+            collectSource(source);
+        }
+        for (const tally of state.tallies ?? []) {
+            for (const filter of tally.filters ?? []) {
+                if (filter.type === 'particle') {
+                    particleValues.push(...getParticleFilterBins(filter));
+                } else if (filter.type === 'particleproduction') {
+                    particleValues.push(...getParticleProductionTypes(filter));
+                }
+            }
+        }
+        for (const set of state.varianceReduction?.weightWindows ?? []) {
+            particleValues.push(set.particleType);
+        }
+        particleValues.push(state.varianceReduction?.weightWindowGenerator?.particleType);
+        return particleValues.some((value) => {
+            const particle = coerceParticleType(value);
+            return particle !== undefined && !isBaseParticle(particle);
+        });
+    }
+
     async validateState(request: ValidationRequest): Promise<ValidationResult> {
         this.log('Validating simulation state');
 
@@ -3002,7 +3055,8 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             sourceBiasConfigured ||
             settings.sharedSecondaryBank !== undefined ||
             settings.surfaceGrazingCutoff !== undefined ||
-            settings.surfaceGrazingRatio !== undefined;
+            settings.surfaceGrazingRatio !== undefined ||
+            this.usesGeneralizedParticles(request.state);
         let runtimeCompat: OpenMCCompat | undefined;
         if (needsCompat) {
             try {
@@ -3248,7 +3302,7 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             }
             if ((source.type ?? 'independent') === 'independent') {
                 const label = source.id ?? `source ${sourceIndex + 1}`;
-                for (const issue of validateSourceDistributions(source as OpenMCIndependentSource, meshes)) {
+                for (const issue of validateSourceDistributions(source as OpenMCIndependentSource, meshes, runtimeCompat)) {
                     issues.push({
                         severity: 'error',
                         category: 'settings',
@@ -3300,7 +3354,7 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                 });
             }
             (source.sources ?? []).forEach((sub, subIndex) => {
-                for (const issue of validateSourceDistributions(sub, meshes)) {
+                for (const issue of validateSourceDistributions(sub, meshes, runtimeCompat)) {
                     issues.push({
                         severity: 'error',
                         category: 'settings',
@@ -3379,7 +3433,7 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             const tallyLabel = `Tally ${tally.id}${tally.name ? ` (${tally.name})` : ''}`;
             for (const issue of validateTallyFilterSet(
                 { filters: tally.filters ?? [], scores: tally.scores ?? [] },
-                { cells: geometry.cells, materials, meshes }
+                { cells: geometry.cells, materials, meshes, compat: runtimeCompat }
             )) {
                 issues.push({
                     severity: issue.severity,
@@ -4569,7 +4623,7 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             lowerBound: number | number[];
             upperBound?: number | number[];
             energyBounds?: number[];
-            particleType?: 'neutron' | 'photon';
+            particleType?: import('../common/particle-types').OpenMCParticleType;
         };
         error?: string;
     }> {
@@ -4585,7 +4639,7 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                     meshId: 1,
                     lowerBound: 0.5,
                     upperBound: 1.0,
-                    particleType: 'neutron' as const
+                    particleType: NEUTRON_PARTICLE
                 }
             };
         } catch (error) {
@@ -4628,7 +4682,7 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             }
 
             lines.push('');
-            lines.push('PARTICLE TYPE: ' + (request.weightWindows.particleType || 'neutron'));
+            lines.push('PARTICLE TYPE: ' + (coerceParticleType(request.weightWindows.particleType)?.name ?? 'neutron'));
             lines.push('');
             lines.push('LOWER BOUNDS:');
 

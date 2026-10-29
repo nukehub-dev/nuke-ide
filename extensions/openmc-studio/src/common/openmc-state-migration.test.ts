@@ -124,6 +124,73 @@ describe('source shape normalization', () => {
     });
 });
 
+describe('particle normalization', () => {
+    it('converts legacy source, filter, and weight-window particle strings without a schema bump', () => {
+        const project = makeProject(OPENMC_STATE_SCHEMA_VERSION);
+        project.state.settings.sources = [
+            {
+                type: 'independent',
+                spatial: { type: 'point', origin: [0, 0, 0] },
+                energy: { type: 'discrete', energies: [1e6] },
+                particle: 'photon'
+            }
+        ];
+        project.state.tallies = [
+            {
+                id: 1,
+                scores: ['flux'],
+                nuclides: ['total'],
+                filters: [
+                    { type: 'particle', bins: [1, 2] },
+                    { type: 'particleproduction', bins: [], particleTypes: ['photon'], productionEnergyBins: [0, 2e7] }
+                ]
+            }
+        ];
+        project.state.varianceReduction = {
+            weightWindows: [{ id: 1, meshId: 5, lowerBound: 0.5, particleType: 'photon', energyBounds: [0, 2e7] }],
+            weightWindowGenerator: { particleType: 'neutron' }
+        };
+
+        const result = migrateProjectFile(project);
+        const source = result.project.state.settings.sources[0] as any;
+        expect(source.particle).toEqual({ name: 'photon', pdg: 22 });
+        expect(result.project.state.tallies[0].filters[0]).toMatchObject({
+            particleBins: [
+                { name: 'neutron', pdg: 2112 },
+                { name: 'photon', pdg: 22 }
+            ]
+        });
+        expect(result.project.state.tallies[0].filters[1].particleTypes).toEqual([{ name: 'photon', pdg: 22 }]);
+        expect(result.project.state.varianceReduction?.weightWindows?.[0].particleType).toEqual({ name: 'photon', pdg: 22 });
+        expect(result.project.state.varianceReduction?.weightWindowGenerator?.particleType).toEqual({
+            name: 'neutron',
+            pdg: 2112
+        });
+        expect(result.project.version).toBe('1.2.0');
+        expect(result.project.state.metadata.version).toBe('1.2.0');
+    });
+
+    it('normalizes mesh-source sub-source particles recursively', () => {
+        const project = makeProject(OPENMC_STATE_SCHEMA_VERSION);
+        project.state.settings.sources = [
+            {
+                type: 'mesh',
+                meshId: 1,
+                sources: [
+                    {
+                        spatial: { type: 'point', origin: [0, 0, 0] },
+                        energy: { type: 'discrete', energies: [1e6] },
+                        particle: 'electron'
+                    }
+                ]
+            }
+        ] as any;
+        const result = migrateProjectFile(project);
+        const meshSource = result.project.state.settings.sources[0] as any;
+        expect(meshSource.sources[0].particle).toEqual({ name: 'electron', pdg: 11 });
+    });
+});
+
 describe('variance-reduction normalization', () => {
     it('migrates a single weight-window object and the retired source-biasing control', () => {
         const project = makeProject(OPENMC_STATE_SCHEMA_VERSION);

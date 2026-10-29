@@ -57,7 +57,8 @@ const WRAPPER_FULL: OpenMCCompat = {
     meshFilterRotation: true,
     sourceBias: true,
     reactionFilter: true,
-    particleProductionFilter: true
+    particleProductionFilter: true,
+    generalizedParticles: true
 };
 const DIRECT_MIN: OpenMCCompat = {
     raySourceFormat: 'direct',
@@ -74,7 +75,8 @@ const DIRECT_MIN: OpenMCCompat = {
     meshFilterRotation: false,
     sourceBias: false,
     reactionFilter: false,
-    particleProductionFilter: false
+    particleProductionFilter: false,
+    generalizedParticles: false
 };
 
 /** Probe subclass with the python spawn mocked out. */
@@ -148,7 +150,8 @@ describe('OpenMCCompatProbeService', () => {
             meshFilterRotation: false,
             sourceBias: false,
             reactionFilter: false,
-            particleProductionFilter: false
+            particleProductionFilter: false,
+            generalizedParticles: false
         });
         expect(
             (probe as any).parseProbeOutput(
@@ -166,7 +169,7 @@ describe('OpenMCCompatProbeService', () => {
         const probe = makeProbe('/fake/python', undefined);
         expect(
             (probe as any).parseProbeOutput(
-                'wrapper adjoint tokamak s2 substeps keff-search external-rate continuation shared-bank grazing decay mesh-rotation bias reaction-filter particle-production\n'
+                'wrapper adjoint tokamak s2 substeps keff-search external-rate continuation shared-bank grazing decay mesh-rotation bias reaction-filter particle-production generalized-particles\n'
             )
         ).toEqual(WRAPPER_FULL);
     });

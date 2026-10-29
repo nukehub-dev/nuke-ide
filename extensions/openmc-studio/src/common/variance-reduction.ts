@@ -49,6 +49,7 @@ import {
     OpenMCUFS
 } from './openmc-state-schema';
 import { getMeshElementCount } from './mesh-utils';
+import { NEUTRON_PARTICLE, particleSupportIssue, resolveParticleType } from './particle-types';
 
 /** Default energy-bound structure for a fresh weight-window set: one group. */
 export const DEFAULT_WEIGHT_WINDOW_ENERGY_BOUNDS = [0, 20e6];
@@ -144,7 +145,7 @@ export function defaultWeightWindowSet(meshId: number, sets?: OpenMCWeightWindow
     return {
         id: nextWeightWindowId(sets),
         meshId,
-        particleType: 'neutron',
+        particleType: NEUTRON_PARTICLE,
         energyBounds: [...DEFAULT_WEIGHT_WINDOW_ENERGY_BOUNDS],
         lowerBound: DEFAULT_WEIGHT_WINDOW_LOWER_BOUND
     };
@@ -504,6 +505,27 @@ export function validateVarianceReduction(
                 });
             }
         }
+        if (set.particleType) {
+            const resolvedParticle = resolveParticleType(set.particleType);
+            if (!resolvedParticle.ok) {
+                issues.push({
+                    severity: 'error',
+                    field: 'weight-windows',
+                    message: `${label} particle type is not a recognized OpenMC particle: ${resolvedParticle.error}`,
+                    suggestion: 'Choose neutron or photon; OpenMC weight windows do not accept other particles'
+                });
+            } else {
+                const support = particleSupportIssue(resolvedParticle.particle!, 'weight-window');
+                if (support) {
+                    issues.push({
+                        severity: 'error',
+                        field: 'weight-windows',
+                        message: `${label}: ${support}`,
+                        suggestion: 'Choose neutron or photon for this weight-window set'
+                    });
+                }
+            }
+        }
         const energyBounds = set.energyBounds ?? [];
         if (energyBounds.length < 2) {
             issues.push({
@@ -653,6 +675,27 @@ export function validateVarianceReduction(
                 message: 'Weight-window generator has no mesh',
                 suggestion: 'Select a generator mesh or create a weight-window set with a mesh'
             });
+        }
+        if (vr.weightWindowGenerator.particleType) {
+            const resolvedParticle = resolveParticleType(vr.weightWindowGenerator.particleType);
+            if (!resolvedParticle.ok) {
+                issues.push({
+                    severity: 'error',
+                    field: 'weight-window-generator',
+                    message: `Weight-window generator particle is not a recognized OpenMC particle: ${resolvedParticle.error}`,
+                    suggestion: 'Choose neutron or photon; OpenMC weight-window generators do not accept other particles'
+                });
+            } else {
+                const support = particleSupportIssue(resolvedParticle.particle!, 'weight-window');
+                if (support) {
+                    issues.push({
+                        severity: 'error',
+                        field: 'weight-window-generator',
+                        message: support,
+                        suggestion: 'Choose neutron or photon for the generator'
+                    });
+                }
+            }
         }
     }
     if (vr.ufs?.enabled) {

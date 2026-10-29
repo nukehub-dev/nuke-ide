@@ -39,6 +39,7 @@ import { XMLGenerationService } from './xml-generation-service';
 import { OpenMCStudioBackendServiceImpl } from './openmc-studio-backend-service';
 import { OpenMCRunnerService } from './openmc-runner-service';
 import { OpenMCState, OpenMCSettings } from '../common/openmc-state-schema';
+import { NEUTRON_PARTICLE, PHOTON_PARTICLE } from '../common/particle-types';
 import { DEFAULT_OPENMC_COMPAT } from '../common/openmc-studio-protocol';
 import { OPENMC_SCORES } from '../common/scores-catalog';
 import { resolveDepletionSolver } from '../common/depletion-solvers';
@@ -87,7 +88,7 @@ function buildTestState(): OpenMCState {
                 {
                     spatial: { type: 'point', origin: [1, 2, 3] },
                     energy: { type: 'discrete', energies: [1e6, 2e6], probabilities: [0.5, 0.5] },
-                    particle: 'neutron',
+                    particle: NEUTRON_PARTICLE,
                     strength: 2.5,
                     constraints: {
                         domainType: 'cell',
@@ -101,7 +102,7 @@ function buildTestState(): OpenMCState {
                 {
                     spatial: { type: 'sphere', center: [0, 0, 0], radius: 5 },
                     energy: { type: 'uniform', min: 1e5, max: 2e7 },
-                    particle: 'neutron',
+                    particle: NEUTRON_PARTICLE,
                     strength: 1.0
                 },
                 {
@@ -193,7 +194,7 @@ function buildTalliesTestState(): OpenMCState {
                 { type: 'polar', bins: [0, 3.14159] },
                 { type: 'azimuthal', bins: [0, 6.28318530718] },
                 { type: 'time', bins: [0, 0.1] },
-                { type: 'particle', bins: [1, 2] },
+                { type: 'particle', bins: [1, 2], particleBins: [NEUTRON_PARTICLE, PHOTON_PARTICLE] },
                 { type: 'delayedgroup', bins: [1, 2, 3] },
                 { type: 'mesh', bins: [1], meshId: 1 },
                 { type: 'meshsurface', bins: [2], meshId: 2 }
@@ -462,7 +463,7 @@ describe('settings.xml round-trip', () => {
                     {
                         type: 'particleproduction',
                         bins: [],
-                        particleTypes: ['photon', 'neutron'],
+                        particleTypes: [PHOTON_PARTICLE, NEUTRON_PARTICLE],
                         productionEnergyBins: [0, 1e5, 2e7]
                     },
                     { type: 'musurface', bins: [-1, 0, 1] },
@@ -516,7 +517,7 @@ describe('settings.xml round-trip', () => {
                 nuclides: ['total'],
                 filters: [
                     { type: 'reaction', bins: [], reactionBins: ['(n,gamma)'] },
-                    { type: 'particleproduction', bins: [], particleTypes: ['photon'], productionEnergyBins: [0, 2e7] },
+                    { type: 'particleproduction', bins: [], particleTypes: [PHOTON_PARTICLE], productionEnergyBins: [0, 2e7] },
                     { type: 'cell', bins: [1] }
                 ]
             }
@@ -615,7 +616,12 @@ describe('settings.xml round-trip', () => {
                 meshId: 9,
                 meshTranslation: [1, 2, 3]
             },
-            { type: 'particleproduction', bins: [], particleTypes: ['photon', 'neutron'], productionEnergyBins: [0, 100000, 20000000] },
+            {
+                type: 'particleproduction',
+                bins: [],
+                particleTypes: [PHOTON_PARTICLE, NEUTRON_PARTICLE],
+                productionEnergyBins: [0, 100000, 20000000]
+            },
             { type: 'reaction', bins: [], reactionBins: ['(n,gamma)', '(n,2n)'] }
         ]);
 
@@ -835,25 +841,25 @@ describe('settings.xml round-trip', () => {
                             {
                                 spatial: { type: 'point', origin: [0, 0, 0] },
                                 energy: { type: 'discrete', energies: [1e6], probabilities: [1] },
-                                particle: 'neutron',
+                                particle: NEUTRON_PARTICLE,
                                 strength: 1.0
                             },
                             {
                                 spatial: { type: 'point', origin: [0, 0, 0] },
                                 energy: { type: 'uniform', min: 1e5, max: 2e7 },
-                                particle: 'neutron',
+                                particle: NEUTRON_PARTICLE,
                                 strength: 1.5
                             },
                             {
                                 spatial: { type: 'point', origin: [0, 0, 0] },
                                 energy: { type: 'maxwell', temperature: 293.6 },
-                                particle: 'photon',
+                                particle: PHOTON_PARTICLE,
                                 strength: 2.0
                             },
                             {
                                 spatial: { type: 'point', origin: [0, 0, 0] },
                                 energy: { type: 'watt', a: 0.988e6, b: 2.249e-6 },
-                                particle: 'neutron',
+                                particle: NEUTRON_PARTICLE,
                                 strength: 1.0
                             }
                         ]
@@ -1037,7 +1043,7 @@ describe('settings.xml round-trip', () => {
             {
                 spatial: { type: 'point', origin: [0, 0, 0] },
                 energy: { type: 'muir', e0: 14.08e6, m_rat: 5.0, kt: 20000 },
-                particle: 'neutron',
+                particle: NEUTRON_PARTICLE,
                 strength: 1.0
             }
         ];
@@ -1461,7 +1467,9 @@ describe('settings.xml round-trip', () => {
         const state = buildTestState();
         state.meshes = [{ type: 'regular', id: 5, lowerLeft: [-5, -5, -5], upperRight: [5, 5, 5], dimension: [2, 2, 2] }];
         state.varianceReduction = {
-            weightWindows: [{ id: 1, meshId: 5, lowerBound: 0.5, upperBound: 1, particleType: 'neutron', energyBounds: [0, 1e4, 2e7] }]
+            weightWindows: [
+                { id: 1, meshId: 5, lowerBound: 0.5, upperBound: 1, particleType: NEUTRON_PARTICLE, energyBounds: [0, 1e4, 2e7] }
+            ]
         };
         state.tallies = [{ id: 1, name: 'mesh-flux', scores: ['flux'], nuclides: [], filters: [{ type: 'mesh', bins: [5], meshId: 5 }] }];
 
@@ -2543,7 +2551,7 @@ describe('settings.xml round-trip', () => {
             weightWindowGenerator: {
                 meshId: 5,
                 energyBounds: [0, 1e4, 2e7],
-                particleType: 'neutron',
+                particleType: NEUTRON_PARTICLE,
                 method: 'fw_cadis',
                 maxRealizations: 100,
                 updateInterval: 2,
@@ -2603,7 +2611,7 @@ describe('settings.xml round-trip', () => {
                         }
                     }
                 },
-                particle: 'neutron'
+                particle: NEUTRON_PARTICLE
             }
         ];
         state.meshes = [{ type: 'regular', id: 5, lowerLeft: [-1, -1, -1], upperRight: [1, 1, 1], dimension: [2, 2, 2] }];
@@ -2650,7 +2658,7 @@ describe('settings.xml round-trip', () => {
                     bias: { probabilities: [0.9, 0.1] }
                 },
                 energy: { type: 'discrete', energies: [1e6, 2e6], probabilities: [0.5, 0.5], bias: { probabilities: [0.1, 0.9] } },
-                particle: 'neutron'
+                particle: NEUTRON_PARTICLE
             },
             {
                 type: 'independent',
@@ -2661,7 +2669,7 @@ describe('settings.xml round-trip', () => {
                     bias: { probabilities: [1, 2, 3, 4, 5, 6, 7, 8] }
                 },
                 energy: { type: 'uniform', min: 1e5, max: 2e7 },
-                particle: 'neutron'
+                particle: NEUTRON_PARTICLE
             }
         ];
         state.meshes = [{ type: 'regular', id: 5, lowerLeft: [-1, -1, -1], upperRight: [1, 1, 1], dimension: [2, 2, 2] }];
@@ -2701,7 +2709,7 @@ describe('settings.xml round-trip', () => {
                     max: 2e7,
                     bias: { distribution: { type: 'uniform', min: 1e6, max: 1.4e7 } }
                 },
-                particle: 'neutron'
+                particle: NEUTRON_PARTICLE
             }
         ];
         const generator = new XMLGenerationService();
@@ -2728,7 +2736,7 @@ describe('settings.xml round-trip', () => {
                 {
                     id: 1,
                     meshId: 5,
-                    particleType: 'neutron',
+                    particleType: NEUTRON_PARTICLE,
                     energyBounds: [0, 1e4, 2e7],
                     lowerBound: 0.5,
                     upperBound: 1
@@ -2736,7 +2744,7 @@ describe('settings.xml round-trip', () => {
                 {
                     id: 2,
                     meshId: 6,
-                    particleType: 'photon',
+                    particleType: PHOTON_PARTICLE,
                     energyBounds: [0, 2e7],
                     lowerBound: [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8],
                     survivalWeight: 4,
@@ -2937,7 +2945,7 @@ describe('source distribution round-trip', () => {
                     probabilities: [1, 1, 0],
                     interpolation: 'linear-linear'
                 },
-                particle: 'neutron',
+                particle: NEUTRON_PARTICLE,
                 strength: 2
             }
         ];
@@ -2968,7 +2976,7 @@ describe('source distribution round-trip', () => {
                 energy: { type: 'powerlaw', a: 0.1e6, b: 20e6, n: 2 },
                 angle: { type: 'monodirectional', referenceUvW: [0, 1, 0] },
                 time: { type: 'uniform', min: 0, max: 1e-3 },
-                particle: 'neutron',
+                particle: NEUTRON_PARTICLE,
                 strength: 1
             }
         ];
@@ -2999,7 +3007,7 @@ describe('source distribution round-trip', () => {
                     zDir: [0, 0, 1]
                 },
                 energy: { type: 'uniform', min: 1e5, max: 2e7 },
-                particle: 'neutron',
+                particle: NEUTRON_PARTICLE,
                 strength: 1
             },
             {
@@ -3011,7 +3019,7 @@ describe('source distribution round-trip', () => {
                     origin: [4, 5, 6]
                 },
                 energy: { type: 'maxwell', temperature: 1.5 },
-                particle: 'neutron',
+                particle: NEUTRON_PARTICLE,
                 strength: 1
             }
         ];
@@ -3045,7 +3053,7 @@ describe('source distribution round-trip', () => {
                     volume: 1000
                 },
                 time: { type: 'discrete', energies: [0, 1e-6], probabilities: [0.5, 0.5] },
-                particle: 'neutron',
+                particle: NEUTRON_PARTICLE,
                 strength: 1
             }
         ];
@@ -3084,7 +3092,7 @@ describe('source distribution round-trip', () => {
                         }
                     ]
                 },
-                particle: 'neutron',
+                particle: NEUTRON_PARTICLE,
                 strength: 1
             }
         ];
@@ -3120,7 +3128,7 @@ describe('source distribution round-trip', () => {
                     volumeNormalized: false
                 },
                 energy: { type: 'discrete', energies: [2e6], probabilities: [1] },
-                particle: 'neutron',
+                particle: NEUTRON_PARTICLE,
                 strength: 1
             }
         ];
@@ -3139,7 +3147,7 @@ describe('source distribution round-trip', () => {
             {
                 spatial: { type: 'cylinder', center: [1, 2, 3], radius: 2, height: 10, axis: 'y' },
                 energy: { type: 'uniform', min: 1e5, max: 2e7 },
-                particle: 'neutron',
+                particle: NEUTRON_PARTICLE,
                 strength: 1
             }
         ];
@@ -3174,7 +3182,7 @@ describe('source distribution round-trip', () => {
             {
                 spatial: { type: 'point', origin: [0, 0, 0] },
                 energy: { type: 'discrete', energies: [1e6, 2e6], probabilities: [0.25, 0.75] },
-                particle: 'neutron',
+                particle: NEUTRON_PARTICLE,
                 strength: 1
             }
         ];
@@ -3182,5 +3190,176 @@ describe('source distribution round-trip', () => {
         const { xml, imported } = await generateAndImport(state);
         expect(xml).toContain('<parameters>1000000 2000000 0.25 0.75</parameters>');
         expect(imported.state!.settings.sources).toEqual(state.settings.sources);
+    });
+});
+
+describe('generalized particle round-trip', () => {
+    let tempDir: string;
+
+    beforeAll(() => {
+        tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openmc-particles-'));
+    });
+
+    afterAll(() => {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    const GENERALIZED_COMPAT = {
+        ...DEFAULT_OPENMC_COMPAT,
+        generalizedParticles: true,
+        particleProductionFilter: true
+    };
+    const HE4 = { name: 'He4', pdg: 1000020040 };
+    const ELECTRON = { name: 'electron', pdg: 11 };
+
+    it('writes a generalized source particle and imports it back as the shared model', async () => {
+        const state = buildTestState();
+        state.settings.sources = [
+            {
+                spatial: { type: 'point', origin: [0, 0, 0] },
+                energy: { type: 'discrete', energies: [2e6] },
+                particle: HE4
+            }
+        ];
+
+        const generator = new XMLGenerationService();
+        const result = await generator.generateXML({
+            state,
+            outputDirectory: tempDir,
+            files: { materials: true, geometry: true, settings: true, tallies: false, plots: false },
+            randomRayCompat: GENERALIZED_COMPAT
+        });
+        expect(result.success).toBe(true);
+        const xml = fs.readFileSync(path.join(tempDir, 'settings.xml'), 'utf-8');
+        expect(xml).toContain('particle="He4"');
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const imported = await backend.importXML({ directory: tempDir });
+        expect(imported.success).toBe(true);
+        expect((imported.state!.settings.sources[0] as any).particle).toEqual(HE4);
+        expect(imported.report?.ignored.some((message) => message.includes('generalized'))).toBe(false);
+    });
+
+    it('falls back to neutron with a warning when the environment predates PDG particles', async () => {
+        const state = buildTestState();
+        state.settings.sources = [
+            {
+                spatial: { type: 'point', origin: [0, 0, 0] },
+                energy: { type: 'discrete', energies: [2e6] },
+                particle: HE4
+            }
+        ];
+
+        const generator = new XMLGenerationService();
+        const result = await generator.generateXML({
+            state,
+            outputDirectory: tempDir,
+            files: { materials: true, geometry: true, settings: true, tallies: false, plots: false },
+            randomRayCompat: { ...DEFAULT_OPENMC_COMPAT, generalizedParticles: false }
+        });
+        expect(result.success).toBe(true);
+        const xml = fs.readFileSync(path.join(tempDir, 'settings.xml'), 'utf-8');
+        expect(xml).toContain('particle="neutron"');
+        expect(result.warnings?.some((warning) => warning.includes('Source particle "He4" requires OpenMC 0.16'))).toBe(true);
+    });
+
+    it('round-trips a particle filter with canonical names and omits unsupported bins', async () => {
+        const state = buildTestState();
+        state.tallies = [
+            {
+                id: 1,
+                scores: ['flux'],
+                nuclides: ['total'],
+                filters: [
+                    {
+                        type: 'particle',
+                        bins: [],
+                        particleBins: [NEUTRON_PARTICLE, PHOTON_PARTICLE, ELECTRON, HE4]
+                    }
+                ]
+            }
+        ];
+
+        const generator = new XMLGenerationService();
+        const supported = await generator.generateXML({
+            state,
+            outputDirectory: tempDir,
+            files: { materials: true, geometry: true, settings: false, tallies: true, plots: false },
+            randomRayCompat: GENERALIZED_COMPAT
+        });
+        expect(supported.success).toBe(true);
+        let xml = fs.readFileSync(path.join(tempDir, 'tallies.xml'), 'utf-8');
+        expect(xml).toContain('<bins>neutron photon electron He4</bins>');
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const imported = await backend.importXML({ directory: tempDir });
+        expect(imported.success).toBe(true);
+        expect((imported.state!.tallies[0].filters[0] as any).particleBins).toEqual([NEUTRON_PARTICLE, PHOTON_PARTICLE, ELECTRON, HE4]);
+
+        const gated = await generator.generateXML({
+            state,
+            outputDirectory: tempDir,
+            files: { materials: true, geometry: true, settings: false, tallies: true, plots: false },
+            randomRayCompat: { ...DEFAULT_OPENMC_COMPAT, generalizedParticles: false }
+        });
+        expect(gated.success).toBe(true);
+        xml = fs.readFileSync(path.join(tempDir, 'tallies.xml'), 'utf-8');
+        expect(xml).toContain('<bins>neutron photon electron</bins>');
+        expect(gated.warnings?.some((warning) => warning.includes("'He4'") && warning.includes('omitted'))).toBe(true);
+    });
+
+    it('round-trips particle-production secondary particles by canonical name', async () => {
+        const state = buildTestState();
+        state.tallies = [
+            {
+                id: 1,
+                scores: ['events'],
+                nuclides: ['total'],
+                filters: [
+                    {
+                        type: 'particleproduction',
+                        bins: [],
+                        particleTypes: [HE4, PHOTON_PARTICLE],
+                        productionEnergyBins: [0, 1e5, 2e7]
+                    }
+                ]
+            }
+        ];
+
+        const generator = new XMLGenerationService();
+        const result = await generator.generateXML({
+            state,
+            outputDirectory: tempDir,
+            files: { materials: true, geometry: true, settings: false, tallies: true, plots: false },
+            randomRayCompat: GENERALIZED_COMPAT
+        });
+        expect(result.success).toBe(true);
+        const xml = fs.readFileSync(path.join(tempDir, 'tallies.xml'), 'utf-8');
+        expect(xml).toContain('<particles>He4 photon</particles>');
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const imported = await backend.importXML({ directory: tempDir });
+        expect(imported.success).toBe(true);
+        expect((imported.state!.tallies[0].filters[0] as any).particleTypes).toEqual([HE4, PHOTON_PARTICLE]);
+    });
+
+    it('clamps unsupported weight-window particles and keeps the set loadable', async () => {
+        const state = buildTestState();
+        state.meshes = [{ type: 'regular', id: 5, lowerLeft: [-1, -1, -1], upperRight: [1, 1, 1], dimension: [2, 2, 2] }];
+        state.varianceReduction = {
+            weightWindows: [{ id: 1, meshId: 5, lowerBound: 0.5, energyBounds: [0, 2e7], particleType: ELECTRON }]
+        };
+
+        const generator = new XMLGenerationService();
+        const result = await generator.generateXML({
+            state,
+            outputDirectory: tempDir,
+            files: { materials: true, geometry: true, settings: true, tallies: false, plots: false },
+            randomRayCompat: GENERALIZED_COMPAT
+        });
+        expect(result.success).toBe(true);
+        const xml = fs.readFileSync(path.join(tempDir, 'settings.xml'), 'utf-8');
+        expect(xml).toContain('<particle_type>neutron</particle_type>');
+        expect(result.warnings?.some((warning) => warning.includes('not supported by OpenMC weight windows'))).toBe(true);
     });
 });

@@ -73,7 +73,16 @@ import { generateCmfdCodeLines } from '../../common/cmfd';
 import { generateAngleCode, generateSpatialCode, generateTimeCode, generateUnivariateCode } from './source-codegen';
 import { getDepletionSolver, resolveDepletionSolver } from '../../common/depletion-solvers';
 import { isElementName } from '../../common/material-utils';
-import { getCellInstancePairs, getFilterSupportWarning, getMeshMaterialPairs, isFilterSupported } from '../../common/tally-filter-utils';
+import {
+    getCellInstancePairs,
+    getFilterSupportWarning,
+    getMeshMaterialPairs,
+    getParticleFilterBins,
+    getParticleProductionTypes,
+    isFilterSupported,
+    sanitizeParticleFilter
+} from '../../common/tally-filter-utils';
+import { sanitizeSourceParticle, sanitizeWeightWindowParticle } from '../../common/particle-types';
 import { normalizeReactionBin } from '../../common/reaction-catalog';
 import { generatePlotAppearancePythonLines } from '../../common/plot-appearance';
 import { generateShutdownDosePythonDriver } from '../../common/shutdown-dose-python';
@@ -1234,7 +1243,7 @@ export class OpenMCPythonExporter {
             lines.push('# Source bias requires OpenMC >= 0.16.0 and was omitted from this export.');
         }
         for (let i = 0; i < sources.length; i++) {
-            lines.push(...this.generateSourceCode(sources[i], i));
+            lines.push(...this.generateSourceCode(sources[i], i, undefined, options.compat));
         }
 
         if (sources.length > 0) {
@@ -1501,7 +1510,14 @@ export class OpenMCPythonExporter {
                     if (wwgEnergyBounds && wwgEnergyBounds.length > 0) {
                         wwgArgs.push(`energy_bounds=[${wwgEnergyBounds.join(', ')}]`);
                     }
-                    wwgArgs.push(`particle_type="${wwg.particleType ?? weightWindowSets[0]?.particleType ?? 'neutron'}"`);
+                    const generatorParticle = sanitizeWeightWindowParticle(
+                        wwg.particleType ?? weightWindowSets[0]?.particleType,
+                        'Weight-window generator'
+                    );
+                    if (generatorParticle.warning) {
+                        lines.push(`# ${generatorParticle.warning}`);
+                    }
+                    wwgArgs.push(`particle_type="${generatorParticle.particle.name}"`);
                     wwgArgs.push(`method="${wwg.method ?? 'magic'}"`);
                     const maxRealizations =
                         wwg.maxRealizations ??
@@ -1531,11 +1547,15 @@ export class OpenMCPythonExporter {
                     const set = weightWindowSets[index];
                     const varName = `ww_${index + 1}`;
                     const { lower, upper } = resolveWeightWindowBounds(set, state.meshes);
+                    const setParticle = sanitizeWeightWindowParticle(set.particleType, `Weight-window set ${set.id ?? index + 1}`);
+                    if (setParticle.warning) {
+                        lines.push(`# ${setParticle.warning}`);
+                    }
                     const args = [
                         `mesh=mesh_${set.meshId}`,
                         `lower_ww_bounds=[${lower.join(', ')}]`,
                         `upper_ww_bounds=[${upper.join(', ')}]`,
-                        `particle_type="${set.particleType ?? 'neutron'}"`,
+                        `particle_type="${setParticle.particle.name}"`,
                         `survival_ratio=${set.survivalWeight !== undefined ? set.survivalWeight : 3.0}`,
                         `max_split=${set.maxSplit !== undefined ? set.maxSplit : 10}`,
                         `weight_cutoff=${set.weightCutoff !== undefined ? set.weightCutoff : 1e-38}`,
@@ -1799,9 +1819,10 @@ export class OpenMCPythonExporter {
      * @param source - The {@link OpenMCSource} to convert.
      * @param index - The zero-based source index for variable naming.
      * @param varName - Optional variable name override (used for mesh sub-sources).
+     * @param compat - Probed capabilities used to gate PDG particle names.
      * @returns An array of code lines.
      */
-    private generateSourceCode(source: OpenMCSource, index: number, varName?: string): string[] {
+    private generateSourceCode(source: OpenMCSource, index: number, varName?: string, compat?: OpenMCCompat): string[] {
         const name = varName ?? `source_${index}`;
         const lines: string[] = [];
 
@@ -1817,7 +1838,7 @@ export class OpenMCPythonExporter {
             const subNames: string[] = [];
             (source.sources ?? []).forEach((sub, j) => {
                 const subName = `${name}_elem_${j}`;
-                lines.push(...this.generateSourceCode(sub, index, subName));
+                lines.push(...this.generateSourceCode(sub, index, subName, compat));
                 subNames.push(subName);
             });
             const meshArg = source.meshId !== undefined ? `mesh_${source.meshId}` : 'None';
@@ -1893,9 +1914,14 @@ export class OpenMCPythonExporter {
                 lines.push(`${name}.time = ${timeCode.expression}`);
             }
 
-            // Particle type
+            // Particle type (fall back to neutron when the probed environment
+            // predates PDG-backed ParticleType).
             if (source.particle) {
-                lines.push(`${name}.particle = "${source.particle}"`);
+                const sanitized = sanitizeSourceParticle(source.particle, compat);
+                if (sanitized.warning) {
+                    lines.push(`# ${sanitized.warning}`);
+                }
+                lines.push(`${name}.particle = "${sanitized.particle.name}"`);
             }
         }
 
@@ -2106,7 +2132,21 @@ export class OpenMCPythonExporter {
                     continue;
                 }
 
-                switch (filter.type) {
+                let effectiveFilter = filter;
+                if (filter.type === 'particle') {
+                    const sanitized = sanitizeParticleFilter(filter, options.compat, `Tally ${tally.id}`);
+                    if (sanitized.warning) {
+                        lines.push(`# ${sanitized.warning}`);
+                    }
+                    if (getParticleFilterBins(sanitized.filter).length === 0) {
+                        lines.push(`# Particle filter has no supported bins; the filter was omitted from tally ${tally.id}`);
+                        filterVars.pop();
+                        continue;
+                    }
+                    effectiveFilter = sanitized.filter;
+                }
+
+                switch (effectiveFilter.type) {
                     case 'energy':
                         lines.push(`${filterVar} = openmc.EnergyFilter([${filter.bins.join(', ')}])`);
                         break;
@@ -2160,7 +2200,9 @@ export class OpenMCPythonExporter {
                         break;
                     case 'particle':
                         lines.push(
-                            `${filterVar} = openmc.ParticleFilter([${filter.bins.map((b) => (b === 1 ? '"neutron"' : '"photon"')).join(', ')}])`
+                            `${filterVar} = openmc.ParticleFilter([${getParticleFilterBins(effectiveFilter)
+                                .map((particle) => `"${this.escapePythonString(particle.name)}"`)
+                                .join(', ')}])`
                         );
                         break;
                     case 'cellborn':
@@ -2255,12 +2297,12 @@ export class OpenMCPythonExporter {
                         );
                         break;
                     case 'particleproduction': {
-                        const particles = filter.particleTypes ?? [];
+                        const particles = getParticleProductionTypes(effectiveFilter);
                         const energies = filter.productionEnergyBins ?? [];
                         const energyArg = energies.length > 0 ? `, energies=[${energies.join(', ')}]` : '';
                         lines.push(
                             `${filterVar} = openmc.ParticleProductionFilter([${particles
-                                .map((particle) => `"${this.escapePythonString(particle)}"`)
+                                .map((particle) => `"${this.escapePythonString(particle.name)}"`)
                                 .join(', ')}]${energyArg})`
                         );
                         break;

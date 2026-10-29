@@ -9,10 +9,11 @@
  * @module openmc-studio/common
  */
 
-import { OpenMCProjectFile, OpenMCSource, OPENMC_STATE_SCHEMA_VERSION } from './openmc-state-schema';
+import { OpenMCProjectFile, OpenMCSource, OpenMCTallyFilter, OPENMC_STATE_SCHEMA_VERSION } from './openmc-state-schema';
 import { normalizeGeometryForLoad } from './geometry-lattices';
 import { normalizeLegacySource } from './source-utils';
 import { migrateLegacyVarianceReduction } from './variance-reduction';
+import { normalizeParticleType, particleFromLegacyBin } from './particle-types';
 
 /** A single migration step: upgrades a project file from one schema version to the next. */
 export type ProjectMigrationStep = (project: OpenMCProjectFile) => OpenMCProjectFile;
@@ -101,7 +102,9 @@ export function migrateProjectFile(project: OpenMCProjectFile): ProjectMigration
  * @returns Normalized project and non-fatal migration warnings.
  */
 function normalizeProjectFile(project: OpenMCProjectFile): ProjectMigrationResult {
-    const sources = (project.state?.settings?.sources ?? []).map((source: OpenMCSource) => normalizeLegacySource(source));
+    const sources = (project.state?.settings?.sources ?? []).map((source: OpenMCSource) =>
+        normalizeSourceParticles(normalizeLegacySource(source))
+    );
     const vrMigration = migrateLegacyVarianceReduction(project.state?.varianceReduction, sources);
     const state = {
         ...project.state,
@@ -110,10 +113,84 @@ function normalizeProjectFile(project: OpenMCProjectFile): ProjectMigrationResul
             ...project.state.settings,
             sources: vrMigration.sources
         },
-        varianceReduction: vrMigration.varianceReduction
+        tallies: (project.state?.tallies ?? []).map((tally) => ({
+            ...tally,
+            filters: (tally.filters ?? []).map(normalizeFilterParticles)
+        })),
+        varianceReduction: normalizeVarianceReductionParticles(vrMigration.varianceReduction)
     };
     return {
         project: { ...project, state },
         warnings: vrMigration.warnings.length > 0 ? vrMigration.warnings : undefined
     };
+}
+
+/** Normalize a source's particle string/legacy value to the shared model. */
+function normalizeSourceParticles(source: OpenMCSource): OpenMCSource {
+    const particle = normalizeParticleType((source as { particle?: unknown }).particle);
+    const next = { ...source } as OpenMCSource & { particle?: ReturnType<typeof normalizeParticleType> };
+    if (particle) {
+        next.particle = particle;
+    } else {
+        delete next.particle;
+    }
+    if (next.type === 'mesh') {
+        const meshSource = next as OpenMCSource & { sources: OpenMCSource[] };
+        meshSource.sources = meshSource.sources.map(normalizeSourceParticles);
+    }
+    return next;
+}
+
+/** Normalize a tally filter's particle fields to the shared model. */
+function normalizeFilterParticles(filter: OpenMCTallyFilter): OpenMCTallyFilter {
+    const next: OpenMCTallyFilter = { ...filter };
+    if (filter.type === 'particle') {
+        if (filter.particleBins && filter.particleBins.length > 0) {
+            next.particleBins = filter.particleBins.map((value) => normalizeParticleType(value) ?? { name: value.name });
+        } else {
+            const derived = filter.bins
+                .map((bin) => particleFromLegacyBin(bin))
+                .filter((particle): particle is NonNullable<typeof particle> => particle !== undefined);
+            next.particleBins = derived;
+        }
+    }
+    if (filter.type === 'particleproduction' && filter.particleTypes) {
+        next.particleTypes = filter.particleTypes.map(
+            (value) => normalizeParticleType(value) ?? { name: (value as { name?: string }).name ?? String(value) }
+        );
+    }
+    return next;
+}
+
+/** Normalize weight-window and generator particle types to the shared model. */
+function normalizeVarianceReductionParticles(
+    varianceReduction: OpenMCProjectFile['state']['varianceReduction']
+): OpenMCProjectFile['state']['varianceReduction'] {
+    if (!varianceReduction) {
+        return varianceReduction;
+    }
+    const next = { ...varianceReduction };
+    if (next.weightWindows) {
+        next.weightWindows = next.weightWindows.map((set) => {
+            const particleType = normalizeParticleType(set.particleType);
+            const normalized = { ...set };
+            if (particleType) {
+                normalized.particleType = particleType;
+            } else {
+                delete normalized.particleType;
+            }
+            return normalized;
+        });
+    }
+    if (next.weightWindowGenerator) {
+        const particleType = normalizeParticleType(next.weightWindowGenerator.particleType);
+        const normalized = { ...next.weightWindowGenerator };
+        if (particleType) {
+            normalized.particleType = particleType;
+        } else {
+            delete normalized.particleType;
+        }
+        next.weightWindowGenerator = normalized;
+    }
+    return next;
 }

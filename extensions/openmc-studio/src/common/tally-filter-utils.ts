@@ -39,7 +39,16 @@
  */
 
 import { OpenMCBinnedPair, OpenMCTallyFilter, OpenMCTallyFilterType } from './openmc-state-schema';
-import { OpenMCCompat } from './openmc-studio-protocol';
+import type { OpenMCCompat } from './openmc-studio-protocol';
+import {
+    isParticleSupported,
+    legacyParticleBins,
+    NEUTRON_PARTICLE,
+    OpenMCParticleType,
+    particleFromLegacyBin,
+    particleTypeName,
+    resolveParticleType
+} from './particle-types';
 
 /** Filter types whose `<bins>` are flattened numeric pairs. */
 const PAIR_FILTER_TYPES = new Set<OpenMCTallyFilterType>(['cellinstance', 'meshmaterial']);
@@ -135,3 +144,108 @@ export function getFilterSupportWarning(type: OpenMCTallyFilterType): string | u
     }
     return undefined;
 }
+
+/**
+ * Read a `particle` filter's bins, deriving canonical particles from legacy
+ * numeric bins when the project predates the PDG-backed model.
+ *
+ * @param filter - Particle filter.
+ */
+export function getParticleFilterBins(filter: OpenMCTallyFilter): OpenMCParticleType[] {
+    if (filter.particleBins && filter.particleBins.length > 0) {
+        return filter.particleBins;
+    }
+    const derived: OpenMCParticleType[] = [];
+    for (const bin of filter.bins) {
+        const particle = particleFromLegacyBin(bin);
+        if (particle) {
+            derived.push(particle);
+        }
+    }
+    return derived;
+}
+
+/**
+ * Read a particle-production filter's secondary particles, tolerating legacy
+ * string names from pre-PDG project files.
+ *
+ * @param filter - Particle-production filter.
+ */
+export function getParticleProductionTypes(filter: OpenMCTallyFilter): OpenMCParticleType[] {
+    const types = filter.particleTypes ?? [];
+    return types.map((value): OpenMCParticleType => {
+        const resolved = resolveParticleType(value);
+        return resolved.ok ? resolved.particle! : { name: particleTypeName(value) ?? String(value) };
+    });
+}
+
+/**
+ * Mirror canonical particle bins into the legacy numeric `bins` field when
+ * every particle has a legacy code, so older readers stay in sync.
+ *
+ * @param particles - Canonical particle bins.
+ */
+export function particleFilterLegacyBins(particles: OpenMCParticleType[]): number[] {
+    return legacyParticleBins(particles);
+}
+
+/**
+ * Drop particle bins the probed environment cannot represent. A `particle`
+ * filter whose bins are all unsupported is omitted from the tally so OpenMC
+ * never receives an empty or invalid filter element.
+ *
+ * @param filter - Particle filter to sanitize.
+ * @param compat - Probed capabilities.
+ * @param label - Tally label for the warning.
+ * @returns Sanitized filter (or the original when nothing changed) and warning.
+ */
+export function sanitizeParticleFilter(
+    filter: OpenMCTallyFilter,
+    compat: OpenMCCompat | undefined,
+    label: string
+): { filter: OpenMCTallyFilter; warning?: string } {
+    if (filter.type !== 'particle') {
+        return { filter };
+    }
+    const configured = getParticleFilterBins(filter);
+    const invalid = configured.filter((particle) => !resolveParticleType(particle).ok);
+    const unsupported = configured.filter(
+        (particle) => resolveParticleType(particle).ok && !isParticleSupported(particle, 'tally-filter', compat)
+    );
+    const supported = configured.filter(
+        (particle) => resolveParticleType(particle).ok && isParticleSupported(particle, 'tally-filter', compat)
+    );
+    if (invalid.length === 0 && unsupported.length === 0) {
+        return { filter };
+    }
+    const warnings: string[] = [];
+    if (invalid.length > 0) {
+        warnings.push(
+            `${label}: particle filter bins '${invalid
+                .map((particle) => particleTypeName(particle) ?? particle.name)
+                .join(', ')}' are not recognized OpenMC particles and were omitted`
+        );
+    }
+    if (unsupported.length > 0) {
+        warnings.push(
+            `${label}: particle filter bins '${unsupported
+                .map((particle) => particle.name)
+                .join(', ')}' require OpenMC 0.16 or newer and were omitted from the generated filter`
+        );
+    }
+    const warning = warnings.join('. ');
+    if (supported.length === 0) {
+        return { filter: { ...filter, particleBins: [], bins: [] }, warning };
+    }
+    return {
+        filter: {
+            ...filter,
+            particleBins: supported,
+            bins: particleFilterLegacyBins(supported)
+        },
+        warning
+    };
+}
+
+/** Default canonical particle filter bin (neutron). */
+export const DEFAULT_PARTICLE_FILTER_BINS: OpenMCParticleType[] = [NEUTRON_PARTICLE];

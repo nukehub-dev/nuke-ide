@@ -46,6 +46,8 @@ import {
     validateSourceDistributions
 } from './source-utils';
 import { OpenMCIndependentSource } from './openmc-state-schema';
+import { DEFAULT_OPENMC_COMPAT } from './openmc-studio-protocol';
+import { NEUTRON_PARTICLE } from './particle-types';
 
 describe('source-utils XML', () => {
     it('writes OpenMC parameter ordering for every simple univariate', () => {
@@ -231,6 +233,20 @@ describe('source validation', () => {
             ...overrides
         };
     }
+
+    it('accepts presets and rejects unknown or version-gated source particles', () => {
+        expect(validateSourceDistributions(source({ particle: NEUTRON_PARTICLE }))).toEqual([]);
+        expect(validateSourceDistributions(source({ particle: { name: 'He4', pdg: 1000020040 } }))).toEqual([]);
+        const gated = validateSourceDistributions(source({ particle: { name: 'He4', pdg: 1000020040 } }), [], {
+            ...DEFAULT_OPENMC_COMPAT,
+            generalizedParticles: false
+        });
+        expect(gated.some((issue) => issue.scope === 'particle' && issue.message.includes('requires OpenMC 0.16'))).toBe(true);
+        const unknown = validateSourceDistributions(source({ particle: { name: 'muon' } }));
+        expect(unknown.some((issue) => issue.scope === 'particle' && issue.message.includes('not a recognized OpenMC particle'))).toBe(
+            true
+        );
+    });
 
     it('reports tabular ordering and column mismatch with fixes', () => {
         const issues = validateSourceDistributions(

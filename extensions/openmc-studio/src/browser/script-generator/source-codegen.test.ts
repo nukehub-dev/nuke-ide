@@ -36,6 +36,7 @@ vi.mock('@theia/workspace/lib/browser/workspace-service', () => ({ WorkspaceServ
 import { generateAngleCode, generateSpatialCode, generateTimeCode, generateUnivariateCode } from './source-codegen';
 import { OpenMCPythonExporter } from './python-exporter';
 import { OpenMCState } from '../../common/openmc-state-schema';
+import { NEUTRON_PARTICLE, PHOTON_PARTICLE } from '../../common/particle-types';
 import { DEFAULT_OPENMC_COMPAT } from '../../common/openmc-studio-protocol';
 
 describe('Python source codegen', () => {
@@ -204,7 +205,7 @@ describe('Python exporter source wiring', () => {
                         energy: { type: 'tabular', energies: [1e-5, 14e6], probabilities: [1, 1] },
                         angle: { type: 'mu-phi', mu: { type: 'uniform', min: -1, max: 1 }, phi: { type: 'uniform', min: 0, max: 1 } },
                         time: { type: 'uniform', min: 0, max: 1e-3 },
-                        particle: 'neutron',
+                        particle: NEUTRON_PARTICLE,
                         strength: 2
                     }
                 ]
@@ -281,7 +282,7 @@ describe('Python exporter bias and weight-window wiring', () => {
                                 }
                             }
                         },
-                        particle: 'neutron'
+                        particle: NEUTRON_PARTICLE
                     }
                 ]
             },
@@ -292,8 +293,8 @@ describe('Python exporter bias and weight-window wiring', () => {
             ],
             varianceReduction: {
                 weightWindows: [
-                    { id: 1, meshId: 5, lowerBound: 0.5, energyBounds: [0, 2e7], particleType: 'neutron' },
-                    { id: 2, meshId: 6, lowerBound: 0.25, upperBound: 0.5, energyBounds: [0, 2e7], particleType: 'photon' }
+                    { id: 1, meshId: 5, lowerBound: 0.5, energyBounds: [0, 2e7], particleType: NEUTRON_PARTICLE },
+                    { id: 2, meshId: 6, lowerBound: 0.25, upperBound: 0.5, energyBounds: [0, 2e7], particleType: PHOTON_PARTICLE }
                 ],
                 weightWindowsFile: '/tmp/weight_windows.h5',
                 weightWindowsOn: true,

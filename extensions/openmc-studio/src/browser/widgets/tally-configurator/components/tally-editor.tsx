@@ -28,6 +28,7 @@
 import * as React from 'react';
 import { Tooltip, NukeSelect } from 'nuke-essentials/lib/theme/browser/components';
 import { OpenMCCell, OpenMCTally, OpenMCMaterial, OpenMCMesh, OpenMCTallyScore } from '../../../../common/openmc-state-schema';
+import type { OpenMCCompat } from '../../../../common/openmc-studio-protocol';
 import { ScoreSelector } from './score-selector';
 import { FilterBuilder } from './filter-builder';
 import { NuclideSelector } from './nuclide-selector';
@@ -56,6 +57,8 @@ interface TallyEditorProps {
     reactionFilterSupported?: boolean;
     /** Whether the configured OpenMC supports particle-production filters (0.16+) */
     particleProductionFilterSupported?: boolean;
+    /** Probed compatibility descriptor for particle selectors. */
+    compat?: OpenMCCompat;
     /** Callback when tally properties change */
     onUpdate: (updates: Partial<OpenMCTally>) => void;
 }
@@ -81,6 +84,7 @@ export const TallyEditor: React.FC<TallyEditorProps> = ({
     meshRotationSupported,
     reactionFilterSupported,
     particleProductionFilterSupported,
+    compat,
     onUpdate
 }) => {
     const hasMeshFilter = tally.filters.some((f) => f.type === 'mesh');
@@ -216,6 +220,8 @@ export const TallyEditor: React.FC<TallyEditorProps> = ({
                         meshRotationSupported={meshRotationSupported}
                         reactionFilterSupported={reactionFilterSupported}
                         particleProductionFilterSupported={particleProductionFilterSupported}
+                        generalizedParticlesSupported={compat?.generalizedParticles}
+                        compat={compat}
                         onUpdate={(filters) => onUpdate({ filters })}
                     />
                 </div>

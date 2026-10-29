@@ -49,6 +49,7 @@ import {
     OpenMCTally,
     OpenMCState
 } from './openmc-state-schema';
+import { NEUTRON_PARTICLE } from './particle-types';
 
 /** Numeric template parameter values keyed by parameter name. */
 export type ProjectTemplateParameters = Record<string, number | string | undefined>;
@@ -319,7 +320,7 @@ function boxSource(lowerLeft: [number, number, number], upperRight: [number, num
     return {
         spatial: { type: 'box', lowerLeft, upperRight },
         energy: { type: 'discrete', energies: [2e6] },
-        particle: 'neutron',
+        particle: NEUTRON_PARTICLE,
         strength: 1
     };
 }
@@ -523,7 +524,7 @@ function buildShielding(parameters: ProjectTemplateParameters): OpenMCState {
             {
                 spatial: { type: 'box', lowerLeft: [-45, -5, -5], upperRight: [-35, 5, 5] },
                 energy: { type: 'discrete', energies: [sourceEnergyMeV * 1e6] },
-                particle: 'neutron',
+                particle: NEUTRON_PARTICLE,
                 strength: 1
             }
         ],
@@ -559,7 +560,7 @@ function buildCriticalitySafety(parameters: ProjectTemplateParameters): OpenMCSt
         {
             spatial: { type: 'sphere', center: [0, 0, 0], radius: Math.max(radius * 0.8, 0.1) },
             energy: { type: 'discrete', energies: [2e6] },
-            particle: 'neutron',
+            particle: NEUTRON_PARTICLE,
             strength: 1
         }
     ];

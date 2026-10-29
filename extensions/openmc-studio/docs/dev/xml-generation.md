@@ -289,16 +289,16 @@ normalizer preserves the state) rather than importing that legacy XML.
 
 ### Variance Reduction
 
-| State Field                  | XML Element(s)                                                                 |
-| ---------------------------- | ------------------------------------------------------------------------------ |
-| `vr.survivalBiasing`         | `<survival_biasing>true</survival_biasing>`                                    |
-| `vr.cutoff`                  | `<cutoff><weight>...</weight></cutoff>`                                        |
-| `vr.ufs`                     | `<ufs_mesh>id</ufs_mesh>` plus the regular `<mesh>` (never `<ufs>`)            |
-| `vr.weightWindows[]`         | one `<weight_windows id="...">` per set (mesh, particle, energy/bounds arrays) |
-| `vr.weightWindowsOn`         | `<weight_windows_on>true/false</weight_windows_on>`                            |
-| `vr.weightWindowsFile`       | `<weight_windows_file>path</weight_windows_file>`                              |
-| `vr.weightWindowCheckpoints` | `<weight_window_checkpoints><collision/><surface/></...>`                      |
-| `vr.weightWindowGenerator`   | `<weight_window_generators><weight_windows_generator>...`                      |
+| State Field                  | XML Element(s)                                                                                |
+| ---------------------------- | --------------------------------------------------------------------------------------------- |
+| `vr.survivalBiasing`         | `<survival_biasing>true</survival_biasing>`                                                   |
+| `vr.cutoff`                  | `<cutoff><weight>...</weight></cutoff>`                                                       |
+| `vr.ufs`                     | `<ufs_mesh>id</ufs_mesh>` plus the regular `<mesh>` (never `<ufs>`)                           |
+| `vr.weightWindows[]`         | one `<weight_windows id="...">` per set (mesh, neutron/photon particle, energy/bounds arrays) |
+| `vr.weightWindowsOn`         | `<weight_windows_on>true/false</weight_windows_on>`                                           |
+| `vr.weightWindowsFile`       | `<weight_windows_file>path</weight_windows_file>`                                             |
+| `vr.weightWindowCheckpoints` | `<weight_window_checkpoints><collision/><surface/></...>`                                     |
+| `vr.weightWindowGenerator`   | `<weight_window_generators><weight_windows_generator>...`                                     |
 
 Scalar lower/upper bounds broadcast over `n_mesh_cells × n_energy_groups`;
 explicit arrays are emitted verbatim. Every referenced mesh (sets, generator,
@@ -354,7 +354,8 @@ The additional filters follow `openmc/filter.py` exactly:
 | `meshmaterial`       | `mesh="ID"` attribute, `<bins>` flattened `element material …`, optional `translation`       |
 | `collision`          | `<bins>` positive collision numbers                                                          |
 | `reaction`           | `<bins>` canonical OpenMC reaction names; MT numbers normalize through `reaction-catalog.ts` |
-| `particleproduction` | `<particles>` and optional `<energies>` (no `<bins>`); 0.16+                                 |
+| `particle`           | `<bins>` canonical particle names (`neutron`, `photon`, `electron`, `He4`, …)                |
+| `particleproduction` | `<particles>` canonical names and optional `<energies>` (no `<bins>`); 0.16+                 |
 | `musurface`          | `<bins>` cosine boundaries in [-1, 1]                                                        |
 | `weight`             | `<bins>` non-negative weight boundaries                                                      |
 
@@ -366,7 +367,14 @@ transforms so two tallies with different structured filters never share an eleme
 `reaction` and `particleproduction` are emitted only when `OpenMCCompat.reactionFilter` /
 `particleProductionFilter` are true. Otherwise generation omits the filter element, drops it from the
 tally's `<filters>` reference, and adds a warning naming the tally; the project keeps the configured
-filter. The Python exporter mirrors this with an explanatory comment. During XML import the same
+filter. The Python exporter mirrors this with an explanatory comment.
+
+Source `particle="..."`, `particle` filter `<bins>`, and particle-production `<particles>` use the
+canonical name from `src/common/particle-types.ts` (`He4`, `H1`, `U235`, `pdg:<n>`). Neutron,
+photon, electron, and positron are emitted for every supported release. Other particles require the
+probed `OpenMCCompat.generalizedParticles`; on 0.15.3 source particles fall back to neutron and
+particle-filter bins are dropped from the emitted filter, each with a warning. Import accepts
+canonical names, GNDS nuclides, and `pdg:<n>` tokens and stores the shared `{name, pdg}` form. During XML import the same
 validation also rejects non-increasing weight/collision/mu-surface bins, unknown reactions, bad
 cell-instance/mesh-material pairs, and mu-surface tallies without a surface filter + current score.
 

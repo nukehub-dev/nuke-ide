@@ -199,9 +199,20 @@ interface OpenMCIndependentSource {
   angle?: OpenMCSourceAngle; // isotropic | monodirectional | mu-phi
   time?: OpenMCSourceTime; // delta | uniform | discrete | tabular | mixture (seconds)
   strength?: number;
-  particle?: 'neutron' | 'photon';
+  particle?: OpenMCParticleType; // canonical OpenMC name + PDG
+}
+
+interface OpenMCParticleType {
+  name: string; // neutron | photon | electron | H1 | He4 | U235 | pdg:<n>
+  pdg?: number; // PDG Monte Carlo particle number
 }
 ```
+
+Legacy `'neutron' | 'photon' | 'electron' | 'positron'` strings remain accepted
+by the field type for read compatibility; project load normalizes them to the
+shared object and the UI always writes the object. `src/common/particle-types.ts`
+is the single resolver for aliases, GNDS nuclides, PDG numbers, support gating,
+and legacy numeric bins.
 
 `OpenMCSourceEnergy` is an alias of `OpenMCUnivariate`; the energy-specific
 interface names (`OpenMCDiscreteEnergy`, `OpenMCTabularEnergy`, ...) remain as
@@ -267,7 +278,7 @@ interface OpenMCTally {
 }
 ```
 
-**Concept:** Filters carry `bins` as a flat number array. The interpretation of those numbers depends on `type` (cell IDs vs energy bounds vs mesh IDs). Structured filters keep dedicated fields so the row order is explicit: `pairs` for `cellinstance` (cell ID + instance) and `meshmaterial` (zero-based mesh element + material ID), `nuclideBins` for `parentnuclide`, `reactionBins` for canonical `reaction` names, and `particleTypes` + `productionEnergyBins` for `particleproduction`. The flat OpenMC encoding is mirrored into `bins` for pair filters; XML generation, import, Python export, and the editor all share `src/common/tally-filter-utils.ts` so no path silently reorders bins. `reaction` and `particleproduction` are 0.16-only and are gated by `OpenMCCompat.reactionFilter` / `particleProductionFilter`.
+**Concept:** Filters carry `bins` as a flat number array. The interpretation of those numbers depends on `type` (cell IDs vs energy bounds vs mesh IDs). Structured filters keep dedicated fields so the row order is explicit: `pairs` for `cellinstance` (cell ID + instance) and `meshmaterial` (zero-based mesh element + material ID), `nuclideBins` for `parentnuclide`, `reactionBins` for canonical `reaction` names, `particleBins` for `particle`, and `particleTypes` + `productionEnergyBins` for `particleproduction`. `particleBins` and `particleTypes` use the shared `OpenMCParticleType`; legacy numeric particle bins (1 = neutron, 2 = photon) still derive the same model, and import mirrors them back into `bins` when every particle has a legacy code. The flat OpenMC encoding is mirrored into `bins` for pair filters; XML generation, import, Python export, and the editor all share `src/common/tally-filter-utils.ts` so no path silently reorders bins. `reaction` and `particleproduction` are 0.16-only and are gated by `OpenMCCompat.reactionFilter` / `particleProductionFilter`. Particles beyond the 0.15.3 set are gated by the probed `OpenMCCompat.generalizedParticles`.
 
 `multiplyDensity` and `higherMoments` are tally output options that are XML-representable. `sparse` and `with_batch_statistics` are Python/statepoint analysis options and deliberately have no schema field or UI control.
 
@@ -353,7 +364,8 @@ interface OpenMCVarianceReduction {
 ```
 
 Each set has an optional `id` (assigned 1..n when missing), `meshId`,
-`particleType`, `energyBounds`, scalar-or-array `lowerBound` / `upperBound`,
+`particleType` (shared particle model, but OpenMC accepts only neutron or
+photon), `energyBounds`, scalar-or-array `lowerBound` / `upperBound`,
 `survivalWeight` (OpenMC `survival_ratio`), `maxSplit`, and `weightCutoff`. A
 scalar bound broadcasts over `n_mesh_cells × n_energy_groups`; an explicit
 array is emitted verbatim. The legacy single-object `weightWindows` shape is

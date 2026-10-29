@@ -41,6 +41,7 @@ import {
 import type { SimulationDashboardWidget } from '../simulation-dashboard-widget';
 import { DashboardTabContribution } from './tab-registry';
 import { OpenMCCompat } from '../../../../common/openmc-studio-protocol';
+import { NEUTRON_PARTICLE } from '../../../../common/particle-types';
 import { CollapsibleSection } from './settings/collapsible-section';
 import {
     changeSourceType,
@@ -430,7 +431,8 @@ export class SettingsTabContribution implements DashboardTabContribution {
                                                     source as OpenMCMeshSource,
                                                     index,
                                                     state,
-                                                    decayUnsupportedReason
+                                                    decayUnsupportedReason,
+                                                    this.compat
                                                 )}
                                             {sourceType === 'tokamak' &&
                                                 renderTokamakSourceEditor(
@@ -486,7 +488,7 @@ export class SettingsTabContribution implements DashboardTabContribution {
             spatial: { type: 'point', origin: [0, 0, 0] },
             energy: { type: 'discrete', energies: [1e6] },
             strength: 1,
-            particle: 'neutron'
+            particle: NEUTRON_PARTICLE
         };
         const settings = host.stateManager.getState().settings;
         host.stateManager.updateSettings({

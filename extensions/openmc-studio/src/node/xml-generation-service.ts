@@ -90,9 +90,13 @@ import {
     getCellInstancePairs,
     getFilterSupportWarning,
     getMeshMaterialPairs,
-    isFilterSupported
+    getParticleFilterBins,
+    getParticleProductionTypes,
+    isFilterSupported,
+    sanitizeParticleFilter
 } from '../common/tally-filter-utils';
 import { normalizeReactionBin } from '../common/reaction-catalog';
+import { particleTypeName, sanitizeSourceParticle, sanitizeWeightWindowParticle } from '../common/particle-types';
 
 /** Context for mesh XML emission (validation warnings + path resolution). */
 interface MeshEmissionContext {
@@ -875,7 +879,7 @@ export class XMLGenerationService {
                     warnings?.push('Source bias requires OpenMC >= 0.16.0; the source was written without its bias.');
                 }
                 const effectiveSource = biased && compat.sourceBias === false ? stripSourceBias(source) : source;
-                const sourceXml = this.generateSourceElement(effectiveSource);
+                const sourceXml = this.generateSourceElement(effectiveSource, compat, warnings);
                 if (sourceXml) {
                     lines.push(sourceXml);
                     validSources++;
@@ -1398,15 +1402,20 @@ export class XMLGenerationService {
                     wwg.maxRealizations ?? wwg.iterations ?? (state.settings.run.mode === 'eigenvalue' ? state.settings.run.batches : 1);
 
                 if (wwgMeshId !== undefined) {
+                    const generatorParticle = sanitizeWeightWindowParticle(
+                        wwg.particleType ?? weightWindowSets[0]?.particleType,
+                        'Weight-window generator'
+                    );
+                    if (generatorParticle.warning) {
+                        warnings?.push(generatorParticle.warning);
+                    }
                     lines.push('  <weight_window_generators>');
                     lines.push('    <weight_windows_generator>');
                     lines.push(`      <mesh>${wwgMeshId}</mesh>`);
                     if (wwgEnergyBounds && wwgEnergyBounds.length > 0) {
                         lines.push(`      <energy_bounds>${wwgEnergyBounds.join(' ')}</energy_bounds>`);
                     }
-                    lines.push(
-                        `      <particle_type>${wwg.particleType ?? weightWindowSets[0]?.particleType ?? 'neutron'}</particle_type>`
-                    );
+                    lines.push(`      <particle_type>${generatorParticle.particle.name}</particle_type>`);
                     lines.push(`      <max_realizations>${maxRealizations}</max_realizations>`);
                     lines.push(`      <update_interval>${wwg.updateInterval ?? 1}</update_interval>`);
                     lines.push(`      <on_the_fly>${wwg.onTheFly ?? true}</on_the_fly>`);
@@ -1425,11 +1434,15 @@ export class XMLGenerationService {
             for (let index = 0; index < weightWindowSets.length; index++) {
                 const ww = weightWindowSets[index];
                 const id = ww.id ?? index + 1;
+                const setParticle = sanitizeWeightWindowParticle(ww.particleType, `Weight-window set ${id}`);
+                if (setParticle.warning) {
+                    warnings?.push(setParticle.warning);
+                }
                 lines.push(`  <weight_windows id="${id}">`);
                 if (ww.meshId !== undefined && Number.isFinite(ww.meshId)) {
                     lines.push(`    <mesh>${ww.meshId}</mesh>`);
                 }
-                lines.push(`    <particle_type>${ww.particleType || 'neutron'}</particle_type>`);
+                lines.push(`    <particle_type>${setParticle.particle.name}</particle_type>`);
 
                 if (ww.energyBounds && ww.energyBounds.length >= 2) {
                     lines.push(`    <energy_bounds>${ww.energyBounds.join(' ')}</energy_bounds>`);
@@ -1669,7 +1682,7 @@ export class XMLGenerationService {
         return lines.join('\n');
     }
 
-    private generateSourceElement(source: any): string {
+    private generateSourceElement(source: any, compat: OpenMCCompat = DEFAULT_OPENMC_COMPAT, warnings?: string[]): string {
         const lines: string[] = [];
         const sourceType = source.type ?? 'independent';
 
@@ -1724,7 +1737,7 @@ export class XMLGenerationService {
             const totalStrength = subSources.reduce((sum, sub) => sum + (sub.strength ?? 1.0), 0);
             lines.push(`  <source type="mesh" mesh="${source.meshId}" strength="${totalStrength}">`);
             for (const sub of subSources) {
-                const subXml = this.generateSourceElement(sub);
+                const subXml = this.generateSourceElement(sub, compat, warnings);
                 if (subXml) {
                     lines.push(
                         subXml
@@ -1793,10 +1806,15 @@ export class XMLGenerationService {
             return '';
         }
 
-        // Source with required attributes (type, strength, particle)
+        // Source with required attributes (type, strength, particle). Particles
+        // outside the probed OpenMC surface fall back to neutron with a warning
+        // so the emitted deck stays loadable.
         const strength = source.strength !== undefined ? source.strength : 1.0;
-        const particle = source.particle || 'neutron';
-        lines.push(`  <source type="independent" strength="${strength}" particle="${particle}">`);
+        const sanitizedParticle = sanitizeSourceParticle(source.particle, compat);
+        if (sanitizedParticle.warning) {
+            warnings?.push(sanitizedParticle.warning);
+        }
+        lines.push(`  <source type="independent" strength="${strength}" particle="${sanitizedParticle.particle.name}">`);
 
         // Generate spatial distribution with parameters. Element order matches
         // IndependentSource.populate_xml_element: space, angle, energy, time.
@@ -2019,17 +2037,27 @@ export class XMLGenerationService {
         // tally never references a filter element that was not written. The
         // UI keeps the user's configured filter in the project state.
         const emittableTallies = effectiveTallies.map((tally) => {
-            const supported = tally.filters.filter((filter) => {
-                if (isFilterSupported(filter.type, compat)) {
-                    return true;
+            const label = `Tally ${tally.id}${tally.name ? ` (${tally.name})` : ''}`;
+            const supported = tally.filters.flatMap((filter) => {
+                if (!isFilterSupported(filter.type, compat)) {
+                    const warning = getFilterSupportWarning(filter.type);
+                    if (warning) {
+                        warnings?.push(`${label}: ${warning}`);
+                    }
+                    return [];
                 }
-                const warning = getFilterSupportWarning(filter.type);
-                if (warning) {
-                    warnings?.push(`Tally ${tally.id}${tally.name ? ` (${tally.name})` : ''}: ${warning}`);
+                const sanitized = sanitizeParticleFilter(filter, compat, label);
+                if (sanitized.warning) {
+                    warnings?.push(sanitized.warning);
                 }
-                return false;
+                if (filter.type === 'particle' && getParticleFilterBins(sanitized.filter).length === 0) {
+                    warnings?.push(`${label}: particle filter has no supported bins and was omitted from tallies.xml`);
+                    return [];
+                }
+                return [sanitized.filter];
             });
-            return supported.length === tally.filters.length ? tally : { ...tally, filters: supported };
+            const changed = supported.length !== tally.filters.length || supported.some((filter, index) => filter !== tally.filters[index]);
+            return changed ? { ...tally, filters: supported } : tally;
         });
 
         // Collect all unique filters and assign them IDs
@@ -2101,7 +2129,8 @@ export class XMLGenerationService {
             filter.pairs ? flattenPairs(filter.pairs).join(',') : undefined,
             filter.nuclideBins?.join(','),
             filter.reactionBins?.join(','),
-            filter.particleTypes?.join(','),
+            filter.particleBins?.map((particle: any) => particleTypeName(particle) ?? particle.name).join(','),
+            filter.particleTypes?.map((particle: any) => particleTypeName(particle) ?? particle.name).join(','),
             filter.productionEnergyBins?.join(',')
         ]
             .filter((v) => v !== undefined)
@@ -2378,7 +2407,7 @@ export class XMLGenerationService {
             }
 
             case 'particleproduction': {
-                const particles = filter.particleTypes ?? [];
+                const particles = getParticleProductionTypes(filter);
                 const energies = filter.productionEnergyBins ?? [];
                 if (particles.length === 0) {
                     warnings?.push(
@@ -2386,7 +2415,7 @@ export class XMLGenerationService {
                     );
                 }
                 lines.push(`  <filter id="${filter.id}" type="particleproduction">`);
-                lines.push(`    <particles>${particles.map((particle: string) => this.escapeXml(particle)).join(' ')}</particles>`);
+                lines.push(`    <particles>${particles.map((particle) => this.escapeXml(particle.name)).join(' ')}</particles>`);
                 if (energies.length > 0) {
                     lines.push(`    <energies>${energies.join(' ')}</energies>`);
                 }
@@ -2424,11 +2453,13 @@ export class XMLGenerationService {
                 lines.push(`    <interpolation>${filter.interpolation ?? 'linear-linear'}</interpolation>`);
                 break;
 
-            case 'particle':
-                // Particle filter bins are particle names in real OpenMC XML
+            case 'particle': {
+                // Particle filter bins are canonical particle names in OpenMC XML.
+                const particles = getParticleFilterBins(filter);
                 lines.push(`  <filter id="${filter.id}" type="particle">`);
-                lines.push(`    <bins>${filter.bins.map((b: number) => (b === 2 ? 'photon' : 'neutron')).join(' ') || 'neutron'}</bins>`);
+                lines.push(`    <bins>${particles.map((particle) => this.escapeXml(particle.name)).join(' ')}</bins>`);
                 break;
+            }
 
             default:
                 lines.push(`  <filter id="${filter.id}" type="${filter.type}">`);

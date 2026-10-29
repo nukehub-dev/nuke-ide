@@ -40,7 +40,10 @@ import {
     OpenMCSurfaceSourceWrite
 } from '../../../../../common/openmc-state-schema';
 import { getMeshElementCount } from '../../../../../common/mesh-utils';
+import { NEUTRON_PARTICLE } from '../../../../../common/particle-types';
+import type { OpenMCCompat } from '../../../../../common/openmc-studio-protocol';
 import type { SimulationDashboardWidget } from '../../simulation-dashboard-widget';
+import { ParticleTypeSelector } from '../../../shared/particle-type-selector';
 import { CollapsibleSection } from './collapsible-section';
 import { TimeEditor, UnivariateEditor } from './source-distributions';
 import { parseNumberList, arraysEqual } from './section-utils';
@@ -99,7 +102,7 @@ export function changeSourceType(host: SimulationDashboardWidget, index: number,
             type: 'independent',
             spatial: { type: 'point', origin: [0, 0, 0] },
             energy: { type: 'discrete', energies: [1e6] },
-            particle: 'neutron'
+            particle: NEUTRON_PARTICLE
         };
     }
 
@@ -259,7 +262,7 @@ function defaultMeshSubSource(): OpenMCIndependentSource {
         type: 'independent',
         spatial: { type: 'point', origin: [0, 0, 0] },
         energy: { type: 'discrete', energies: [1e6] },
-        particle: 'neutron',
+        particle: NEUTRON_PARTICLE,
         strength: 1.0
     };
 }
@@ -280,7 +283,8 @@ export function renderMeshSourceEditor(
     source: OpenMCMeshSource,
     index: number,
     state: OpenMCState,
-    decayUnsupportedReason?: string
+    decayUnsupportedReason?: string,
+    compat?: OpenMCCompat
 ): React.ReactNode {
     const meshes = state.meshes;
     const selectedMesh = source.meshId !== undefined ? meshes.find((m) => m.id === source.meshId) : undefined;
@@ -340,18 +344,14 @@ export function renderMeshSourceEditor(
                                 onChange={(e) => updateSub(j, { strength: parseFloat(e.target.value) || 1.0 })}
                             />
                         </div>
-                        <div className="form-group">
-                            <label>Particle</label>
-                            <NukeSelect
-                                value={sub.particle ?? 'neutron'}
-                                options={[
-                                    { value: 'neutron', label: 'Neutron' },
-                                    { value: 'photon', label: 'Photon' }
-                                ]}
-                                onChange={(value: string) => updateSub(j, { particle: value as 'neutron' | 'photon' })}
-                                ariaLabel="Particle type"
-                            />
-                        </div>
+                        <ParticleTypeSelector
+                            value={sub.particle}
+                            onChange={(particle) => updateSub(j, { particle })}
+                            scope="source"
+                            compat={compat}
+                            ariaLabel={`Element ${j + 1} particle type`}
+                            label="Particle"
+                        />
                         <div className="form-group">
                             <label aria-hidden="true">&nbsp;</label>
                             <Tooltip content="Remove Sub-source" position="top">

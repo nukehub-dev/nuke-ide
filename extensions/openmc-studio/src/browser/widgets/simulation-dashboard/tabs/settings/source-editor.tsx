@@ -60,6 +60,7 @@ import {
     spatialBiasSupport
 } from '../../../../../common/variance-reduction';
 import { getMeshElementCount } from '../../../../../common/mesh-utils';
+import { ParticleTypeSelector } from '../../../shared/particle-type-selector';
 import { AngleEditor, SourceIssueList, SourceSnapAction, SpatialEditor, TimeEditor, UnivariateEditor } from './source-distributions';
 import {
     AngleBiasEditor,
@@ -226,7 +227,7 @@ export function IndependentSourceEditor(props: {
     compat?: OpenMCCompat;
 }): React.ReactNode {
     const source = props.source;
-    const issues = validateSourceDistributions(source, props.meshes ?? []);
+    const issues = validateSourceDistributions(source, props.meshes ?? [], props.compat);
     const issuesFor = (scope: SourceDistributionIssue['scope']): SourceDistributionIssue[] =>
         issues.filter((issue) => issue.scope === scope);
     const snapActions = props.snapActions?.[source.spatial.type];
@@ -486,19 +487,16 @@ export function IndependentSourceEditor(props: {
                         />
                         <span className="form-hint">Relative probability when multiple sources are defined.</span>
                     </div>
-                    <div className="form-group">
-                        <label>Particle Type</label>
-                        <NukeSelect
-                            value={source.particle ?? 'neutron'}
-                            options={[
-                                { value: 'neutron', label: 'Neutron' },
-                                { value: 'photon', label: 'Photon' }
-                            ]}
-                            onChange={(value: string) => props.onUpdate({ particle: value as 'neutron' | 'photon' })}
-                            ariaLabel="Particle type"
-                        />
-                    </div>
+                    <ParticleTypeSelector
+                        value={source.particle}
+                        onChange={(particle) => props.onUpdate({ particle })}
+                        scope="source"
+                        compat={props.compat}
+                        ariaLabel="Particle type"
+                        label="Particle Type"
+                    />
                 </div>
+                <SourceIssueList issues={issuesFor('particle')} />
             </SourceSection>
         </div>
     );

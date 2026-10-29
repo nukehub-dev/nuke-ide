@@ -38,6 +38,7 @@ vi.mock('@theia/workspace/lib/browser/workspace-service', () => ({ WorkspaceServ
 
 import { OpenMCPythonExporter } from './python-exporter';
 import { OpenMCState } from '../../common/openmc-state-schema';
+import { NEUTRON_PARTICLE, PHOTON_PARTICLE } from '../../common/particle-types';
 import { DEFAULT_OPENMC_COMPAT, OpenMCCompat } from '../../common/openmc-studio-protocol';
 
 /** Build a minimal state with all additional filter types on one tally. */
@@ -68,7 +69,7 @@ function buildState(): OpenMCState {
                 {
                     spatial: { type: 'point', origin: [0, 0, 0] },
                     energy: { type: 'uniform', min: 1e5, max: 2e7 },
-                    particle: 'neutron',
+                    particle: NEUTRON_PARTICLE,
                     strength: 1
                 }
             ]
@@ -108,7 +109,7 @@ function buildState(): OpenMCState {
                     {
                         type: 'particleproduction',
                         bins: [],
-                        particleTypes: ['photon', 'neutron'],
+                        particleTypes: [PHOTON_PARTICLE, NEUTRON_PARTICLE],
                         productionEnergyBins: [0, 1e5, 2e7]
                     },
                     { type: 'musurface', bins: [-1, 0, 1] },

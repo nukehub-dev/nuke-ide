@@ -30,9 +30,9 @@ import { Tooltip, NukeSelect } from 'nuke-essentials/lib/theme/browser/component
 import { OpenMCBinnedPair, OpenMCCell, OpenMCMaterial, OpenMCMesh } from '../../../../common/openmc-state-schema';
 import { getMeshElementCount } from '../../../../common/mesh-utils';
 import { getReactionLabel, normalizeReactionBin, PINNED_REACTIONS, searchReactions } from '../../../../common/reaction-catalog';
-
-/** Common secondary particle names offered by the particle-production editor. */
-const COMMON_PARTICLES = ['neutron', 'photon', 'electron', 'positron'];
+import type { OpenMCParticleType } from '../../../../common/particle-types';
+import type { OpenMCCompat } from '../../../../common/openmc-studio-protocol';
+import { ParticleTypeMultiSelector } from '../../shared/particle-type-selector';
 
 /**
  * Two-column cell/instance table with a geometry-backed cell picker.
@@ -410,102 +410,48 @@ export const ReactionBinsEditor: React.FC<{ values: string[]; onChange: (values:
  * Secondary-particle multi-select with optional energy binning.
  */
 export const ParticleProductionEditor: React.FC<{
-    particles: string[];
+    particles: OpenMCParticleType[];
     energies: number[];
     supported?: boolean;
-    onChange: (updates: { particleTypes?: string[]; productionEnergyBins?: number[] }) => void;
-}> = ({ particles, energies, supported, onChange }) => {
-    const [custom, setCustom] = React.useState('');
-    const toggleParticle = (particle: string) => {
-        onChange({
-            particleTypes: particles.includes(particle) ? particles.filter((value) => value !== particle) : [...particles, particle]
-        });
-    };
-    const addCustom = () => {
-        const name = custom.trim();
-        if (!name || particles.includes(name)) {
-            return;
-        }
-        onChange({ particleTypes: [...particles, name] });
-        setCustom('');
-    };
-    const extraParticles = particles.filter((particle) => !COMMON_PARTICLES.includes(particle));
-
-    return (
-        <div className="form-group filter-particle-production">
-            <label>Secondary particles</label>
-            <div className="checkbox-row">
-                {COMMON_PARTICLES.map((particle) => (
-                    <label key={particle} className="score-checkbox-label">
-                        <input type="checkbox" checked={particles.includes(particle)} onChange={() => toggleParticle(particle)} />
-                        <span>{particle}</span>
-                    </label>
-                ))}
-            </div>
-            {extraParticles.length > 0 && (
-                <div className="filter-chip-list">
-                    {extraParticles.map((particle) => (
-                        <span className="filter-chip" key={particle}>
-                            {particle}
-                            <Tooltip content={`Remove ${particle}`} position="top">
-                                <button
-                                    className="filter-chip-remove"
-                                    aria-label={`Remove particle ${particle}`}
-                                    onClick={() => onChange({ particleTypes: particles.filter((value) => value !== particle) })}
-                                >
-                                    <i className="codicon codicon-close"></i>
-                                </button>
-                            </Tooltip>
-                        </span>
-                    ))}
-                </div>
-            )}
-            <div className="filter-name-row">
-                <input
-                    type="text"
-                    value={custom}
-                    aria-label="Custom secondary particle"
-                    placeholder="custom nuclide, e.g. C12"
-                    onChange={(e) => setCustom(e.target.value)}
-                    onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                            e.preventDefault();
-                            addCustom();
-                        }
-                    }}
-                />
-                <button className="add-button" onClick={addCustom} disabled={!custom.trim()}>
-                    + Add
-                </button>
-            </div>
-            <div className="form-group">
-                <label>Secondary energy boundaries (eV, optional)</label>
-                <input
-                    type="text"
-                    value={energies.join(' ')}
-                    aria-label="Secondary energy boundaries (eV)"
-                    placeholder="e.g. 0 1e5 1e6 2e7 (leave empty for un-binned production)"
-                    onChange={(e) =>
-                        onChange({
-                            productionEnergyBins: e.target.value
-                                .split(/[\s,]+/)
-                                .map((value) => parseFloat(value))
-                                .filter((value) => !isNaN(value))
-                        })
-                    }
-                />
-                <p className="form-hint">
-                    Optional strictly increasing boundaries; {Math.max(energies.length - 1, 0)} energy bin
-                    {energies.length - 1 === 1 ? '' : 's'} for each selected particle. Pair with the events score.
-                </p>
-            </div>
-            {supported === false && (
-                <p className="validation-warning">
-                    <i className="codicon codicon-warning"></i>
-                    This filter requires OpenMC 0.16 or newer. It stays in the project but is omitted from generated XML/Python until the
-                    environment is updated.
-                </p>
-            )}
+    compat?: OpenMCCompat;
+    onChange: (updates: { particleTypes?: OpenMCParticleType[]; productionEnergyBins?: number[] }) => void;
+}> = ({ particles, energies, supported, compat, onChange }) => (
+    <div className="form-group filter-particle-production">
+        <ParticleTypeMultiSelector
+            value={particles}
+            onChange={(particleTypes) => onChange({ particleTypes })}
+            scope="particle-production"
+            compat={compat}
+            ariaLabel="Secondary particles"
+            label="Secondary particles"
+        />
+        <div className="form-group">
+            <label>Secondary energy boundaries (eV, optional)</label>
+            <input
+                type="text"
+                value={energies.join(' ')}
+                aria-label="Secondary energy boundaries (eV)"
+                placeholder="e.g. 0 1e5 1e6 2e7 (leave empty for un-binned production)"
+                onChange={(e) =>
+                    onChange({
+                        productionEnergyBins: e.target.value
+                            .split(/[\s,]+/)
+                            .map((value) => parseFloat(value))
+                            .filter((value) => !isNaN(value))
+                    })
+                }
+            />
+            <p className="form-hint">
+                Optional strictly increasing boundaries; {Math.max(energies.length - 1, 0)} energy bin
+                {energies.length - 1 === 1 ? '' : 's'} for each selected particle. Pair with the events score.
+            </p>
         </div>
-    );
-};
+        {supported === false && (
+            <p className="validation-warning">
+                <i className="codicon codicon-warning"></i>
+                This filter requires OpenMC 0.16 or newer. It stays in the project but is omitted from generated XML/Python until the
+                environment is updated.
+            </p>
+        )}
+    </div>
+);

@@ -28,6 +28,8 @@
 import { describe, it, expect } from 'vitest';
 
 import { OpenMCCell, OpenMCMaterial, OpenMCMesh, OpenMCTallyFilter } from './openmc-state-schema';
+import { PHOTON_PARTICLE } from './particle-types';
+import { DEFAULT_OPENMC_COMPAT } from './openmc-studio-protocol';
 import { validateMusurfaceCompanions, validateTallyFilter, validateTallyFilterSet } from './tally-filter-validation';
 
 const cells: OpenMCCell[] = [{ id: 1, fillType: 'material', fillId: 1 }];
@@ -88,6 +90,30 @@ describe('tally filter validation', () => {
         expect(errorMessages({ type: 'reaction', bins: [], reactionBins: [] })).toContain('Reaction filter has no reactions');
     });
 
+    it('rejects empty, unknown, and version-gated particle filter bins', () => {
+        expect(errorMessages({ type: 'particle', bins: [] })).toContain('Particle filter has no particle bins');
+        expect(errorMessages({ type: 'particle', bins: [], particleBins: [{ name: 'muon' }] })).toContain(
+            'Particle "muon" is not a recognized OpenMC particle'
+        );
+        const gated = validateTallyFilter(
+            { type: 'particle', bins: [], particleBins: [{ name: 'He4', pdg: 1000020040 }] },
+            { ...context, compat: { ...DEFAULT_OPENMC_COMPAT, generalizedParticles: false } }
+        );
+        expect(gated.some((issue) => issue.message.includes('requires OpenMC 0.16'))).toBe(true);
+        expect(
+            validateTallyFilter(
+                { type: 'particle', bins: [], particleBins: [{ name: 'He4', pdg: 1000020040 }] },
+                { ...context, compat: { ...DEFAULT_OPENMC_COMPAT, generalizedParticles: true } }
+            )
+        ).toEqual([]);
+    });
+
+    it('rejects unknown particle-production secondary particles', () => {
+        expect(errorMessages({ type: 'particleproduction', bins: [], particleTypes: [{ name: 'muon' }] })).toContain(
+            'Particle type "muon" is not a valid OpenMC particle name'
+        );
+    });
+
     it('rejects unsorted particle-production energies, empty particle lists, and single boundaries', () => {
         expect(
             errorMessages({
@@ -102,9 +128,9 @@ describe('tally filter validation', () => {
                 'Particle-production energy boundaries are not strictly increasing'
             ])
         );
-        expect(errorMessages({ type: 'particleproduction', bins: [], particleTypes: ['photon'], productionEnergyBins: [1e5] })).toContain(
-            'Particle-production energy binning needs at least two boundaries'
-        );
+        expect(
+            errorMessages({ type: 'particleproduction', bins: [], particleTypes: [PHOTON_PARTICLE], productionEnergyBins: [1e5] })
+        ).toContain('Particle-production energy binning needs at least two boundaries');
     });
 
     it('rejects unsorted or negative weight bins', () => {

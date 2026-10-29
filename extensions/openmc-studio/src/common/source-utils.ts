@@ -69,6 +69,8 @@ import {
 } from './openmc-state-schema';
 import { getMeshElementCount } from './mesh-utils';
 import { sourceHasBias, stripBias } from './variance-reduction';
+import { particleSupportIssue, resolveParticleType } from './particle-types';
+import type { OpenMCCompat } from './openmc-studio-protocol';
 
 /** Interpolation schemes accepted by `openmc.stats.Tabular` (univariate.py). */
 export const TABULAR_INTERPOLATION_SCHEMES = ['histogram', 'linear-linear', 'linear-log', 'log-linear', 'log-log'] as const;
@@ -80,7 +82,7 @@ const TWO_PI = 2 * Math.PI;
 const EPSILON = 1e-9;
 
 /** A validation message scoped to one source-editor section. */
-export type SourceDistributionScope = 'spatial' | 'energy' | 'angle' | 'time';
+export type SourceDistributionScope = 'spatial' | 'energy' | 'angle' | 'time' | 'particle';
 
 /** One source-distribution validation finding (cause + fix). */
 export interface SourceDistributionIssue {
@@ -1508,7 +1510,11 @@ export function normalizeLegacySource(source: OpenMCSource): OpenMCSource {
  * @param meshes - Known state meshes (for mesh spatial references).
  * @returns Validation findings.
  */
-export function validateSourceDistributions(source: OpenMCIndependentSource, meshes: OpenMCMesh[] = []): SourceDistributionIssue[] {
+export function validateSourceDistributions(
+    source: OpenMCIndependentSource,
+    meshes: OpenMCMesh[] = [],
+    compat?: OpenMCCompat
+): SourceDistributionIssue[] {
     const issues: SourceDistributionIssue[] = [];
     validateSpatial(source.spatial, issues, meshes);
     validateEnergy(source.energy, issues, 'energy', 'Energy');
@@ -1517,6 +1523,22 @@ export function validateSourceDistributions(source: OpenMCIndependentSource, mes
     }
     if (source.time) {
         validateTime(source.time, issues);
+    }
+    if (source.particle) {
+        const resolved = resolveParticleType(source.particle);
+        if (!resolved.ok) {
+            add(
+                issues,
+                'particle',
+                `Source particle is not a recognized OpenMC particle: ${resolved.error}`,
+                'Choose a preset particle or enter a valid PDG number in the Advanced source section'
+            );
+        } else {
+            const support = particleSupportIssue(resolved.particle!, 'source', compat);
+            if (support) {
+                add(issues, 'particle', support, 'Choose a particle supported by the configured OpenMC environment');
+            }
+        }
     }
     return issues;
 }

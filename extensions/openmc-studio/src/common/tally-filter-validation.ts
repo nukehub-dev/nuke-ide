@@ -33,9 +33,11 @@
  */
 
 import { OpenMCCell, OpenMCMaterial, OpenMCMesh, OpenMCTally, OpenMCTallyFilter } from './openmc-state-schema';
+import type { OpenMCCompat } from './openmc-studio-protocol';
 import { getMeshElementCount } from './mesh-utils';
 import { normalizeReactionBin } from './reaction-catalog';
-import { getCellInstancePairs, getMeshMaterialPairs } from './tally-filter-utils';
+import { getCellInstancePairs, getMeshMaterialPairs, getParticleFilterBins, getParticleProductionTypes } from './tally-filter-utils';
+import { isParticleSupported, particleTypeName, resolveParticleType } from './particle-types';
 
 /** Model inventory used to validate filter references. */
 export interface TallyFilterValidationContext {
@@ -45,6 +47,8 @@ export interface TallyFilterValidationContext {
     materials?: OpenMCMaterial[];
     /** Project meshes (mesh filters). */
     meshes?: OpenMCMesh[];
+    /** Probed capabilities, used to flag particles the environment cannot represent. */
+    compat?: OpenMCCompat;
 }
 
 /** One filter validation finding. */
@@ -282,8 +286,35 @@ export function validateTallyFilter(filter: OpenMCTallyFilter, context: TallyFil
             }
             break;
 
+        case 'particle': {
+            const particles = getParticleFilterBins(filter);
+            if (particles.length === 0) {
+                issues.push({
+                    severity: 'error',
+                    message: 'Particle filter has no particle bins',
+                    fix: 'Select at least one particle such as neutron, photon, electron, or a nuclide like He4'
+                });
+            }
+            for (const particle of particles) {
+                if (!resolveParticleType(particle).ok) {
+                    issues.push({
+                        severity: 'error',
+                        message: `Particle "${particleTypeName(particle) ?? particle.name}" is not a recognized OpenMC particle`,
+                        fix: 'Choose a preset or enter a valid PDG number; OpenMC accepts names, GNDS nuclides, and pdg:<number>'
+                    });
+                } else if (!isParticleSupported(particle, 'tally-filter', context.compat)) {
+                    issues.push({
+                        severity: 'error',
+                        message: `Particle "${particle.name}" requires OpenMC 0.16 or newer for tally filters`,
+                        fix: 'Choose a particle available in the configured environment, or update the OpenMC Python environment'
+                    });
+                }
+            }
+            break;
+        }
+
         case 'particleproduction': {
-            const particles = filter.particleTypes ?? [];
+            const particles = getParticleProductionTypes(filter);
             if (particles.length === 0) {
                 issues.push({
                     severity: 'error',
@@ -292,11 +323,11 @@ export function validateTallyFilter(filter: OpenMCTallyFilter, context: TallyFil
                 });
             }
             for (const particle of particles) {
-                if (!particle.trim() || /\s/.test(particle)) {
+                if (!resolveParticleType(particle).ok) {
                     issues.push({
                         severity: 'error',
-                        message: `Particle type "${particle}" is not a valid OpenMC particle name`,
-                        fix: 'Use a compact name such as photon, neutron, electron, positron, or a nuclide like C12'
+                        message: `Particle type "${particleTypeName(particle) ?? particle.name}" is not a valid OpenMC particle name`,
+                        fix: 'Use a preset, a GNDS nuclide such as C12, or a valid PDG number'
                     });
                 }
             }

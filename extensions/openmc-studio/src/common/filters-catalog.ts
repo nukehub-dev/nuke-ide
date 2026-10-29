@@ -37,6 +37,7 @@
  */
 
 import { OpenMCTallyFilter, OpenMCTallyFilterType } from './openmc-state-schema';
+import { NEUTRON_PARTICLE, PHOTON_PARTICLE } from './particle-types';
 
 /** Parameter editor identifiers used by the filter builder */
 export type OpenMCFilterEditor =
@@ -298,10 +299,11 @@ export const OPENMC_FILTERS: OpenMCFilterDescriptor[] = [
     {
         type: 'particle',
         label: 'Particle',
-        tooltip: 'Filter by particle type (1=neutron, 2=photon)',
+        tooltip: 'Filter by incident particle type; presets cover neutron through He3, or enter a custom PDG number',
         group: 'reaction',
         editor: 'particle-types',
-        defaultBins: [1]
+        defaultBins: [1],
+        defaultValues: { particleBins: [NEUTRON_PARTICLE] }
     },
     {
         type: 'parentnuclide',
@@ -329,7 +331,7 @@ export const OPENMC_FILTERS: OpenMCFilterDescriptor[] = [
         group: 'reaction',
         editor: 'particle-production',
         binHelp: 'particle types + energy boundaries (eV)',
-        defaultValues: { particleTypes: ['photon'], productionEnergyBins: [] },
+        defaultValues: { particleTypes: [PHOTON_PARTICLE], productionEnergyBins: [] },
         requiresCompat: 'particleProductionFilter'
     },
     {

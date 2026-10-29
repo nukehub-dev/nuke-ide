@@ -35,6 +35,8 @@
  * @module openmc-studio/common
  */
 
+import type { OpenMCParticleType, OpenMCParticleValue } from './particle-types';
+
 // ============================================================================
 // Core Metadata
 // ============================================================================
@@ -918,8 +920,11 @@ export interface OpenMCIndependentSource extends OpenMCSourceBase {
     energy: OpenMCSourceEnergy;
     /** Angular distribution (default: isotropic) */
     angle?: OpenMCSourceAngle;
-    /** Particle type: 'neutron', 'photon' */
-    particle?: 'neutron' | 'photon';
+    /**
+     * Source particle type. Canonical OpenMC name plus PDG number (for example
+     * `He4`); legacy names from pre-PDG project files are normalized on load.
+     */
+    particle?: OpenMCParticleValue;
     /** Time distribution in seconds (for time-dependent problems) */
     time?: OpenMCSourceTime;
 }
@@ -1514,8 +1519,14 @@ export interface OpenMCTallyFilter {
     nuclideBins?: string[];
     /** For `reaction`: canonical OpenMC reaction names (e.g. `(n,gamma)`, MT 102). */
     reactionBins?: string[];
-    /** For `particleproduction`: secondary particle types (e.g. `photon`, `neutron`). */
-    particleTypes?: string[];
+    /**
+     * For `particle`: canonical particle bins (name + PDG). Legacy project
+     * files keep numeric bins (1 = neutron, 2 = photon) and are normalized on
+     * load; generation accepts either representation.
+     */
+    particleBins?: OpenMCParticleType[];
+    /** For `particleproduction`: secondary particle types (name + PDG). */
+    particleTypes?: OpenMCParticleValue[];
     /** For `particleproduction`: secondary energy boundaries in eV (empty = no energy binning). */
     productionEnergyBins?: number[];
     /** For mesh/meshsurface/meshborn/meshmaterial filter: mesh ID */
@@ -1838,8 +1849,12 @@ export interface OpenMCWeightWindows {
      * with older project files.
      */
     survivalWeight?: number;
-    /** Particle type */
-    particleType?: 'neutron' | 'photon' | string;
+    /**
+     * Particle type. OpenMC weight windows accept only neutron or photon
+     * (`WeightWindows.particle_type` setter); the shared particle model keeps
+     * imported/configured values visible and generation clamps to neutron.
+     */
+    particleType?: OpenMCParticleValue;
     /** Energy bounds for energy-dependent weight windows */
     energyBounds?: number[];
     /** Maximum number of splits per history (default 10) */
@@ -1905,8 +1920,8 @@ export interface OpenMCVarianceReduction {
         targetTallyIds?: number[];
         /** Legacy iterations field (maps to maxRealizations when present) */
         iterations?: number;
-        /** Particle type */
-        particleType?: 'neutron' | 'photon' | string;
+        /** Particle type (OpenMC generator accepts neutron or photon only). */
+        particleType?: OpenMCParticleValue;
     };
     /**
      * @deprecated Migrated to the first independent source on load; never

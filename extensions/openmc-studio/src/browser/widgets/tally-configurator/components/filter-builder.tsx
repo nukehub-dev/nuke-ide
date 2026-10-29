@@ -30,7 +30,17 @@ import { Tooltip, NukeSelect } from 'nuke-essentials/lib/theme/browser/component
 import { OpenMCCell, OpenMCMaterial, OpenMCMesh, OpenMCTallyFilter, OpenMCTallyFilterType } from '../../../../common/openmc-state-schema';
 import { getFilterDescriptor, createDefaultFilter, getFiltersByGroup } from '../../../../common/filters-catalog';
 import { MESH_TYPE_LABELS } from '../../../../common/mesh-utils';
-import { flattenPairs, getCellInstancePairs, getMeshMaterialPairs } from '../../../../common/tally-filter-utils';
+import { DEFAULT_OPENMC_COMPAT } from '../../../../common/openmc-studio-protocol';
+import type { OpenMCCompat } from '../../../../common/openmc-studio-protocol';
+import {
+    flattenPairs,
+    getCellInstancePairs,
+    getMeshMaterialPairs,
+    getParticleFilterBins,
+    getParticleProductionTypes,
+    particleFilterLegacyBins
+} from '../../../../common/tally-filter-utils';
+import { ParticleTypeMultiSelector } from '../../shared/particle-type-selector';
 import { validateMusurfaceCompanions, validateTallyFilter } from '../../../../common/tally-filter-validation';
 import {
     CellInstancePairsEditor,
@@ -60,6 +70,10 @@ interface FilterBuilderProps {
     reactionFilterSupported?: boolean;
     /** Whether the configured OpenMC supports particle-production filters (0.16+) */
     particleProductionFilterSupported?: boolean;
+    /** Whether the configured OpenMC accepts PDG-backed particles beyond neutron/photon/electron/positron (0.16+) */
+    generalizedParticlesSupported?: boolean;
+    /** Full probed compatibility descriptor for particle selectors. */
+    compat?: OpenMCCompat;
     /** Callback when filters are updated */
     onUpdate: (filters: OpenMCTallyFilter[]) => void;
 }
@@ -87,8 +101,16 @@ export const FilterBuilder: React.FC<FilterBuilderProps> = ({
     meshRotationSupported,
     reactionFilterSupported,
     particleProductionFilterSupported,
+    generalizedParticlesSupported,
+    compat,
     onUpdate
 }) => {
+    const particleCompat =
+        compat ??
+        (generalizedParticlesSupported === undefined
+            ? undefined
+            : { ...DEFAULT_OPENMC_COMPAT, generalizedParticles: generalizedParticlesSupported });
+
     /** Add a new filter of the given type with catalog defaults. */
     const addFilter = (type: OpenMCTallyFilterType) => {
         onUpdate([...filters, createDefaultFilter(type, meshes.length > 0 ? meshes[0].id : undefined)]);
@@ -317,31 +339,22 @@ export const FilterBuilder: React.FC<FilterBuilderProps> = ({
         </div>
     );
 
-    /** Render the particle-type checkboxes (1=neutron, 2=photon). */
+    /** Render the multi-select particle bins (presets + custom PDG). */
     const renderParticleTypes = (filter: OpenMCTallyFilter, index: number): React.ReactNode => (
         <div className="form-group">
-            <label>Particle Types</label>
-            <div className="checkbox-row">
-                {[
-                    { id: 1, label: 'Neutron' },
-                    { id: 2, label: 'Photon' }
-                ].map((particle) => (
-                    <label key={particle.id} className="score-checkbox-label">
-                        <input
-                            type="checkbox"
-                            checked={filter.bins.includes(particle.id)}
-                            onChange={() =>
-                                updateFilter(index, {
-                                    bins: filter.bins.includes(particle.id)
-                                        ? filter.bins.filter((bin) => bin !== particle.id)
-                                        : [...filter.bins, particle.id]
-                                })
-                            }
-                        />
-                        <span>{particle.label}</span>
-                    </label>
-                ))}
-            </div>
+            <ParticleTypeMultiSelector
+                value={getParticleFilterBins(filter)}
+                onChange={(particles) =>
+                    updateFilter(index, {
+                        particleBins: particles,
+                        bins: particleFilterLegacyBins(particles)
+                    })
+                }
+                scope="tally-filter"
+                compat={particleCompat}
+                ariaLabel="Particle filter bins"
+                label="Particle Types"
+            />
         </div>
     );
 
@@ -473,9 +486,10 @@ export const FilterBuilder: React.FC<FilterBuilderProps> = ({
             case 'particle-production':
                 return (
                     <ParticleProductionEditor
-                        particles={filter.particleTypes ?? []}
+                        particles={getParticleProductionTypes(filter)}
                         energies={filter.productionEnergyBins ?? []}
                         supported={particleProductionFilterSupported}
+                        compat={particleCompat}
                         onChange={(updates) => updateFilter(index, updates)}
                     />
                 );

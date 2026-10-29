@@ -416,6 +416,8 @@ function canonicalFilterBins(filter: OpenMCTallyFilter): unknown {
             return filter.nuclideBins ?? filter.bins;
         case 'reaction':
             return filter.reactionBins ?? filter.bins;
+        case 'particle':
+            return filter.particleBins ?? filter.bins;
         case 'particleproduction':
             return [filter.particleTypes ?? [], filter.productionEnergyBins ?? []];
         default:
@@ -443,6 +445,8 @@ function filterBinCount(filter: OpenMCTallyFilter, meshes: readonly OpenMCMesh[]
             return Math.max(1, filter.nuclideBins?.length ?? filter.bins.length);
         case 'reaction':
             return Math.max(1, filter.reactionBins?.length ?? filter.bins.length);
+        case 'particle':
+            return Math.max(1, filter.particleBins?.length ?? filter.bins.length);
         case 'particleproduction': {
             const particles = Math.max(1, filter.particleTypes?.length ?? 1);
             const energies = filter.productionEnergyBins?.length ?? 0;

@@ -45,6 +45,7 @@ vi.mock('@theia/workspace/lib/browser/workspace-service', () => ({ WorkspaceServ
 
 import { OpenMCPythonExporter } from '../../browser/script-generator/python-exporter';
 import { OpenMCState } from '../../common/openmc-state-schema';
+import { NEUTRON_PARTICLE } from '../../common/particle-types';
 
 const PYTHON = process.env.NUKE_TEST_PYTHON;
 const CROSS_SECTIONS = process.env.OPENMC_CROSS_SECTIONS;
@@ -98,7 +99,7 @@ function buildState(): OpenMCState {
                         probabilities: [1, 1, 0],
                         interpolation: 'linear-linear'
                     },
-                    particle: 'neutron',
+                    particle: NEUTRON_PARTICLE,
                     strength: 1
                 }
             ]

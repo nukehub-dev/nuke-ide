@@ -43,6 +43,7 @@ import { XMLGenerationService } from './xml-generation-service';
 import { OpenMCStudioBackendServiceImpl } from './openmc-studio-backend-service';
 import { DEFAULT_OPENMC_COMPAT } from '../common/openmc-studio-protocol';
 import { OPENMC_STATE_SCHEMA_VERSION, OpenMCState } from '../common/openmc-state-schema';
+import { NEUTRON_PARTICLE, PHOTON_PARTICLE } from '../common/particle-types';
 
 const FULL_COMPAT = {
     ...DEFAULT_OPENMC_COMPAT,
@@ -331,7 +332,7 @@ function filterCase(): OpenMCState {
                 {
                     type: 'particleproduction',
                     bins: [],
-                    particleTypes: ['photon'],
+                    particleTypes: [PHOTON_PARTICLE],
                     productionEnergyBins: [1e5, 1e7]
                 },
                 { type: 'musurface', bins: [-1, 0, 1] },
@@ -368,7 +369,7 @@ function sourceCase(): OpenMCState {
                 referenceVwu: [1, 0, 0]
             },
             time: { type: 'tabular', energies: [0, 1e-3], probabilities: [1, 1], interpolation: 'linear-linear' },
-            particle: 'neutron',
+            particle: NEUTRON_PARTICLE,
             strength: 2,
             constraints: {
                 domainType: 'cell',
@@ -390,7 +391,7 @@ function varianceReductionCase(): OpenMCState {
         {
             spatial: { type: 'box', lowerLeft: [-5, -5, -5], upperRight: [5, 5, 5] },
             energy: { type: 'discrete', energies: [2e6] },
-            particle: 'neutron',
+            particle: NEUTRON_PARTICLE,
             strength: 1
         }
     ];
@@ -403,7 +404,7 @@ function varianceReductionCase(): OpenMCState {
             {
                 id: 1,
                 meshId: 1,
-                particleType: 'neutron',
+                particleType: NEUTRON_PARTICLE,
                 energyBounds: [0, 1e5, 2e7],
                 lowerBound: [0.25, 0.5, 0.75],
                 upperBound: [0.5, 1, 1.5],
@@ -414,7 +415,7 @@ function varianceReductionCase(): OpenMCState {
             {
                 id: 2,
                 meshId: 1,
-                particleType: 'photon',
+                particleType: PHOTON_PARTICLE,
                 lowerBound: 0.4,
                 upperBound: 0.8
             }
@@ -430,7 +431,7 @@ function varianceReductionCase(): OpenMCState {
             updateInterval: 5,
             onTheFly: true,
             targetTallyIds: [1],
-            particleType: 'neutron'
+            particleType: NEUTRON_PARTICLE
         }
     };
     return state;
@@ -492,7 +493,7 @@ function runtimeCase(): OpenMCState {
             {
                 spatial: { type: 'point', origin: [0, 0, 0] },
                 energy: { type: 'discrete', energies: [2e6] },
-                particle: 'neutron',
+                particle: NEUTRON_PARTICLE,
                 strength: 1
             }
         ],
@@ -718,7 +719,7 @@ const CASES: MatrixCase[] = [
             expect(filters.find((filter) => filter.type === 'collision')?.bins).toEqual([0, 5, 10]);
             expect(filters.find((filter) => filter.type === 'reaction')?.reactionBins).toEqual(['(n,gamma)', '(n,fission)']);
             const production = filters.find((filter) => filter.type === 'particleproduction');
-            expect(production?.particleTypes).toEqual(['photon']);
+            expect(production?.particleTypes).toEqual([PHOTON_PARTICLE]);
             expect(production?.productionEnergyBins).toEqual([1e5, 1e7]);
             expect(filters.find((filter) => filter.type === 'musurface')?.bins).toEqual([-1, 0, 1]);
             expect(filters.find((filter) => filter.type === 'weight')?.bins).toEqual([0.5, 1, 2]);
@@ -741,7 +742,7 @@ const CASES: MatrixCase[] = [
             expect(source.angle.referenceVwu).toEqual([1, 0, 0]);
             expect(source.time.type).toBe('tabular');
             expect(source.time.energies).toEqual([0, 1e-3]);
-            expect(source.particle).toBe('neutron');
+            expect(source.particle).toEqual(NEUTRON_PARTICLE);
             expect(source.strength).toBe(2);
             expect(source.constraints).toEqual({
                 domainType: 'cell',
@@ -766,7 +767,7 @@ const CASES: MatrixCase[] = [
             expect(vr?.weightWindows?.[0].survivalWeight).toBe(2.5);
             expect(vr?.weightWindows?.[0].maxSplit).toBe(8);
             expect(vr?.weightWindows?.[0].weightCutoff).toBeCloseTo(1e-30, 40);
-            expect(vr?.weightWindows?.[1].particleType).toBe('photon');
+            expect(vr?.weightWindows?.[1].particleType).toEqual(PHOTON_PARTICLE);
             expect(vr?.weightWindowsFile).toBe('/tmp/weight_windows.h5');
             expect(vr?.weightWindowsOn).toBe(true);
             expect(vr?.weightWindowCheckpoints).toEqual({ collision: true, surface: false });

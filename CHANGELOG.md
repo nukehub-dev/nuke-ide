@@ -510,6 +510,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - openmc-studio: tallies emit one space-joined nuclides element; codegen emits real filter constructors.
 - openmc-studio: weight-window generators use the real settings.xml format.
 - openmc-studio: derived tallies combine tally scores into ratios, sums, and products with mean/std results, plots, CSV, and cross-run comparison.
+- openmc-studio: generalized particle presets and custom PDG codes reach sources and tally filters with 0.16 capability gating.
 
 ## [0.1.3] - 2026-07-28
 
