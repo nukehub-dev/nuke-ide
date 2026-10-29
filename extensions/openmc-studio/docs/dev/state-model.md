@@ -381,7 +381,7 @@ interface OpenMCProjectFile {
 
 ### Migration
 
-The `OPENMC_STATE_SCHEMA_VERSION` constant (currently `'1.1.0'`) is embedded in every saved file. When the schema changes, a migration function can inspect `version` and transform legacy states on load. The `OpenMCStateManager` calls migration before adopting a loaded state. Version-independent representation changes (retired `isRoot`, legacy `x-hex`/`y-hex` lattice types, old `axial` lattice fields) are normalized on every load by `normalizeGeometryForLoad`.
+The `OPENMC_STATE_SCHEMA_VERSION` constant (currently `'1.2.0'`) is embedded in every saved file. When the schema changes, a migration function can inspect `version` and transform legacy states on load. The `OpenMCStateManager` calls migration before adopting a loaded state. Version-independent representation changes (retired `isRoot`, legacy `x-hex`/`y-hex` lattice types, old `axial` lattice fields) are normalized on every load by `normalizeGeometryForLoad`.
 
 ---
 

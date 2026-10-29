@@ -32,6 +32,19 @@ const MIGRATIONS: Record<string, ProjectMigrationStep> = {
                 version: '1.1.0'
             }
         }
+    }),
+    // 1.1.0 -> 1.2.0: all fields added by the coverage workstreams are optional
+    // with safe defaults, so only the version stamps change.
+    '1.1.0': (project) => ({
+        ...project,
+        version: '1.2.0',
+        state: {
+            ...project.state,
+            metadata: {
+                ...project.state.metadata,
+                version: '1.2.0'
+            }
+        }
     })
 };
 

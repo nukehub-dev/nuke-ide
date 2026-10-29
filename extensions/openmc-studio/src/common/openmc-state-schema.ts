@@ -2153,4 +2153,4 @@ export interface OpenMCProjectTemplate {
 // ============================================================================
 
 /** Current schema version (for migration support; see openmc-state-migration.ts) */
-export const OPENMC_STATE_SCHEMA_VERSION = '1.1.0';
+export const OPENMC_STATE_SCHEMA_VERSION = '1.2.0';

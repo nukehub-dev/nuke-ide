@@ -49,7 +49,7 @@ describe('migrateProjectFile', () => {
         expect(result.migratedFrom).toBe('1.0.0');
         expect(result.project.version).toBe(OPENMC_STATE_SCHEMA_VERSION);
         expect(result.project.state.metadata.version).toBe(OPENMC_STATE_SCHEMA_VERSION);
-        // No field changes in 1.0.0 -> 1.1.0: everything except the version stamps is identical
+        // No field changes across the no-op migration chain: everything except the version stamps is identical
         const migratedState = JSON.parse(JSON.stringify(result.project.state));
         migratedState.metadata.version = '1.0.0';
         expect(migratedState).toEqual(stateBefore);
