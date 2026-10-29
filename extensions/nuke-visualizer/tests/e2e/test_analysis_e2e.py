@@ -10,10 +10,10 @@ import json
 from pathlib import Path
 
 import pytest
-from e2e_helpers import require_chain, require_cross_sections, require_openmc
 from nuke_viz.plugin import setup_parser_for_handler
 from plugins.openmc.commands import depletion as depletion_cmds
 from plugins.openmc.commands import statepoint as statepoint_cmds
+from visualizer_e2e_helpers import require_chain, require_cross_sections, require_openmc
 
 pytestmark = pytest.mark.e2e
 

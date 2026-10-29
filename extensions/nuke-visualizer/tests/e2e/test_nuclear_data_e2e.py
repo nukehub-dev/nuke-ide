@@ -6,7 +6,7 @@ cleanly when the env var is unset.
 """
 
 import pytest
-from e2e_helpers import require_cross_sections, require_openmc
+from visualizer_e2e_helpers import require_cross_sections, require_openmc
 
 openmc = require_openmc()
 

@@ -1,5 +1,9 @@
 """Shared helpers for the nuke-visualizer end-to-end suite.
 
+The module name is deliberately unique: the aggregate pytest run puts every
+extension's e2e directory on sys.path, so a generic ``e2e_helpers`` name would
+collide with openmc-studio's helper.
+
 Path policy: NO default paths to machine-specific data. Cross sections come
 from OPENMC_CROSS_SECTIONS (the openmc-standard env var) — tests that need it
 skip with a clear message when the variable is unset or the file is missing.
