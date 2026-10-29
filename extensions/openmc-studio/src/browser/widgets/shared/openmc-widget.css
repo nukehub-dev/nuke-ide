@@ -198,6 +198,10 @@
     font-size: 14px;
 }
 
+:is(.simulation-dashboard, .openmc-widget) .empty-state p + .theia-button {
+    margin-top: 16px;
+}
+
 :is(.simulation-dashboard, .openmc-widget) .theia-button {
     min-width: auto !important;
     margin-left: 0;
