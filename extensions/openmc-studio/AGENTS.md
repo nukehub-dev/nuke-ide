@@ -30,9 +30,10 @@ All files under `extensions/openmc-studio/` except generated artifacts (`lib/`, 
   clockwise), emitted as `<lattice>`/`<hex_lattice>` in `_repr_axial_slice_x/_y` order. Root is always universe 0; lattice/universe
   IDs share the fill namespace. Periodic pairs are reciprocal planes, albedo only on reflective/periodic/white.
   See `docs/dev/state-model.md`.
-- Depletion `<depletion>` block: `settings.xml` ↔ runner `checkDepletionEnabled` ↔ `run_depletion.py` args stay in lockstep;
-  coupled is CE-only, MG depletion is Independent-operator only, macroscopic materials never deplete (`validateState` + pre-import
-  driver guards, clean `DepletionConfigError` JSON). See `docs/dev/xml-generation.md` and `docs/dev/python-backends.md`.
+- Depletion `<depletion>` block: `settings.xml` ↔ runner `checkDepletionEnabled` ↔ `run_depletion.py` args stay in lockstep; advanced
+  fields (substeps, keff search, external rates, continuation) are driver-only and XML export warns. 0.16-only APIs are capability-probed
+  by introspection; coupled is CE-only, MG depletion is Independent-operator only, macroscopic materials never deplete (`validateState` +
+  pre-import driver guards, clean `DepletionConfigError` JSON). See `docs/dev/xml-generation.md` and `docs/dev/python-backends.md`.
 - Random-ray / multi-group: `energyMode` + canonical `settings.mgxsLibrary` (resolved via `resolveMgxsLibrary`, never read raw);
   DAGMC random ray requires multi-group + `nuclideWiseMgxs` (no macroscopic); version skew handled by probed `OpenMCCompat`, never version
   parsing; `generate_mgxs.py` wraps `convert_to_multigroup` / `convert_to_random_ray`. See `docs/dev/xml-generation.md`.

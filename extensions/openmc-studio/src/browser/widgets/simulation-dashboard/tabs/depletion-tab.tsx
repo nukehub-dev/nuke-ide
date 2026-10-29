@@ -32,9 +32,11 @@ import { Tooltip, NukeSelect } from 'nuke-essentials/lib/theme/browser/component
 import { OpenMCState, OpenMCTransferRate } from '../../../../common/openmc-state-schema';
 import { DEPLETION_SOLVERS, resolveDepletionSolver } from '../../../../common/depletion-solvers';
 import { ChainBuildResult } from '../../../../common/openmc-studio-protocol';
+import { OpenMCCompat } from '../../../../common/openmc-studio-protocol';
 import { DepletionTimeline } from '../depletion-timeline';
 import type { SimulationDashboardWidget } from '../simulation-dashboard-widget';
 import { DashboardTabContribution } from './tab-registry';
+import { DepletionRunControls } from './depletion-run-controls';
 
 /**
  * Depletion tab of the simulation dashboard: burnup configuration and timeline.
@@ -46,6 +48,27 @@ export class DepletionTabContribution implements DashboardTabContribution {
     readonly icon = 'openmc-depletion';
     readonly order = 3;
 
+    /** Probed OpenMC compatibility for feature gating (fetched once). */
+    private compat?: OpenMCCompat;
+    private compatRequested = false;
+
+    /**
+     * Fetch the OpenMC compatibility descriptor once and re-render when it
+     * arrives (gates substeps, reactivity control, external rates, and
+     * continuation on the detected environment).
+     * @param host - Simulation dashboard widget host.
+     */
+    private requestCompat(host: SimulationDashboardWidget): void {
+        if (this.compatRequested) {
+            return;
+        }
+        this.compatRequested = true;
+        void host.studioService.getOpenMCCompat().then((compat) => {
+            this.compat = compat;
+            host.update();
+        });
+    }
+
     /**
      * Render the Depletion tab with burnup configuration and timeline.
      * @param host - Simulation dashboard widget host.
@@ -56,6 +79,7 @@ export class DepletionTabContribution implements DashboardTabContribution {
         const depletion = state.depletion || { timeSteps: [], power: 0, enabled: false };
         const hasDepletableMaterials = state.materials.some((m) => m.isDepletable);
         const isEnabled = depletion.enabled;
+        this.requestCompat(host);
 
         // Get default chain file from preferences
         const defaultChainFile = host.nukeCoreService.getChainFilePath();
@@ -861,6 +885,8 @@ export class DepletionTabContribution implements DashboardTabContribution {
                         />
                     </div>
                 )}
+
+                <DepletionRunControls host={host} state={state} compat={this.compat} />
             </div>
         );
     }

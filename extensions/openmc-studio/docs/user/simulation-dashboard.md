@@ -37,15 +37,15 @@ Click the project name in the header to rename it.
 
 ### Tabs
 
-| Tab                    | What It Covers                                                                    |
-| ---------------------- | --------------------------------------------------------------------------------- |
-| **Settings**           | Run mode, particles/batches, sources, output control, physics, convergence (CMFD) |
-| **Materials**          | Material library, templates, compositions, macroscopic materials, NCrystal import |
-| **Tallies**            | Quick view of all tallies; opens the Tally Configurator                           |
-| **Depletion**          | Burnup configuration, chain builder, transfer rates, timeline                     |
-| **Variance Reduction** | Survival biasing, UFS, weight cutoffs, weight window generator and editor         |
-| **Random Ray**         | Multi-group energy mode and the random ray solver                                 |
-| **Simulation**         | Setup checklist, run controls, restart, kinetics (IFP), live console              |
+| Tab                    | What It Covers                                                                        |
+| ---------------------- | ------------------------------------------------------------------------------------- |
+| **Settings**           | Run mode, particles/batches, sources, output control, physics, convergence (CMFD)     |
+| **Materials**          | Material library, templates, compositions, macroscopic materials, NCrystal import     |
+| **Tallies**            | Quick view of all tallies; opens the Tally Configurator                               |
+| **Depletion**          | Burnup configuration, chain builder, substeps, reactivity search, feeds, continuation |
+| **Variance Reduction** | Survival biasing, UFS, weight cutoffs, weight window generator and editor             |
+| **Random Ray**         | Multi-group energy mode and the random ray solver                                     |
+| **Simulation**         | Setup checklist, run controls, restart, kinetics (IFP), live console                  |
 
 ### Narrow Windows
 
@@ -171,6 +171,34 @@ A successful build reports the nuclide count and offers **Use as Depletion Chain
 | **Transfer Rates**          | Per-material element/nuclide transfer rates (from material, element, rate, units, optional destination) for moving species between materials                    |
 | **Custom Fission Q Values** | Per-nuclide fission Q overrides (eV) for fission-q normalization                                                                                                |
 | **diff_burnable_mats**      | Distinguish burnable materials with identical compositions (higher memory/runtime cost; optional volume assignment method)                                      |
+| **CRAM substeps**           | Subdivide each depletion interval into smaller CRAM solves (OpenMC 0.16+); improves accuracy for short-lived nuclides                                           |
+| **Reactivity control**      | Hold a target k-effective by moving a control-rod cell along one axis or adjusting a nuclide density in a material (OpenMC 0.16+)                               |
+| **External feed/removal**   | Add or remove material at a mass rate (g/s … g/a), optionally limited to chosen timestep indices (OpenMC 0.15.3+)                                               |
+| **Continuation**            | Start from a previous `depletion_results.h5`; continue the existing schedule instead of appending new steps                                                     |
+
+#### Reactivity control
+
+Enable **Hold a target k-effective** and choose one curated parameter:
+
+- **Control-rod position** — pick a cell and an x/y/z axis; the search writes the cell translation through `openmc.lib` before each depletion step.
+- **Nuclide density** — pick a material and a specific isotope; the search replaces that nuclide's atom density through `openmc.lib`.
+
+Set the two search guesses (`x0`, `x1`) and the absolute bracket. Both guesses must lie inside the bracket, and the bracket must increase. The target keff, `k_tol`, final uncertainty, and maximum iterations default to OpenMC's values. **On non-convergence** either stops the run with an actionable error or logs a warning and continues with the last searched value. A search runs at every depletion step, so it is off by default and adds transport time.
+
+#### External feed/removal
+
+Each row targets a depletable material with a composition of elements/nuclides and weight percents. **Positive rates feed material in; negative rates remove it.** OpenMC normalizes the composition vector, so weights that do not total 100% are accepted (the tab warns). Leave **Timesteps** blank to apply the rate to every step, or list zero-based indices. With continuation, indices refer to the steps this run executes (the first new step is 0).
+
+#### Continuation
+
+Pick the previous `depletion_results.h5`, then choose:
+
+- **Continue the previous timesteps** — the configured schedule must begin with the previous run's timesteps and use the same power/power-density/source-rate specification. OpenMC runs only the new steps.
+- **Append steps** (toggle off) — the configured steps are appended to the previous results.
+
+The previous results file must exist and be readable; validation and the Python driver both fail with a clear message otherwise.
+
+> **Driver-only settings:** substeps, reactivity control, external feed/removal, continuation, transfer rates, and independent-operator inputs are applied by the OpenMC Studio depletion driver, not by the standalone `openmc` binary. They are stored in the custom `<depletion>` block and XML export warns when they are present. Run depletion from the IDE to apply them.
 
 ### Burnup Timeline
 

@@ -766,7 +766,16 @@ describe('settings.xml round-trip', () => {
             outputDirectory: tokamakDir,
             files: { materials: true, geometry: true, settings: true, tallies: false, plots: false },
             // TokamakSource is gated on 0.16.0+ — mark the env as supporting it
-            randomRayCompat: { raySourceFormat: 'direct', adjointSource: false, tokamakSource: true, s2SampleMethod: true }
+            randomRayCompat: {
+                raySourceFormat: 'direct',
+                adjointSource: false,
+                tokamakSource: true,
+                s2SampleMethod: true,
+                depletionSubsteps: false,
+                depletionKeffSearch: false,
+                depletionExternalSourceRate: true,
+                depletionContinuation: true
+            }
         });
 
         const settingsXml = fs.readFileSync(path.join(tokamakDir, 'settings.xml'), 'utf-8');
@@ -818,7 +827,16 @@ describe('settings.xml round-trip', () => {
             state,
             outputDirectory: tokamakDir,
             files: { materials: true, geometry: true, settings: true, tallies: false, plots: false },
-            randomRayCompat: { raySourceFormat: 'direct', adjointSource: false, tokamakSource: true, s2SampleMethod: true }
+            randomRayCompat: {
+                raySourceFormat: 'direct',
+                adjointSource: false,
+                tokamakSource: true,
+                s2SampleMethod: true,
+                depletionSubsteps: false,
+                depletionKeffSearch: false,
+                depletionExternalSourceRate: true,
+                depletionContinuation: true
+            }
         });
 
         const settingsXml = fs.readFileSync(path.join(tokamakDir, 'settings.xml'), 'utf-8');
@@ -890,7 +908,16 @@ describe('settings.xml round-trip', () => {
             state,
             outputDirectory: s2Dir,
             files: { materials: false, geometry: false, settings: true, tallies: false, plots: false },
-            randomRayCompat: { raySourceFormat: 'direct', adjointSource: false, tokamakSource: false, s2SampleMethod: true }
+            randomRayCompat: {
+                raySourceFormat: 'direct',
+                adjointSource: false,
+                tokamakSource: false,
+                s2SampleMethod: true,
+                depletionSubsteps: false,
+                depletionKeffSearch: false,
+                depletionExternalSourceRate: true,
+                depletionContinuation: true
+            }
         });
         settingsXml = fs.readFileSync(path.join(s2Dir, 'settings.xml'), 'utf-8');
         expect(settingsXml).toContain('<sample_method>s2</sample_method>');
@@ -1340,6 +1367,106 @@ describe('settings.xml round-trip', () => {
         expect(depletionCheck.settings.fissionQ).toEqual({ U235: 2.02e8, Pu239: 2.1e8 });
     });
 
+    it('round-trips advanced depletion run controls through the custom block', async () => {
+        const state = buildTestState();
+        state.depletion = {
+            enabled: true,
+            chainFile: '/chains/chain_endfb71.xml',
+            timeSteps: [86400, 86400],
+            power: 1e6,
+            operator: 'coupled',
+            solver: 'cecm',
+            substeps: 3,
+            decayOnlySteps: [1],
+            reactivityControl: {
+                enabled: true,
+                parameter: 'cell-translation',
+                cellId: 7,
+                axis: 'z',
+                x0: 0,
+                x1: 10,
+                bracket: [-20, 20],
+                targetKeff: 1.0,
+                kTol: 1e-4,
+                sigmaFinal: 3e-4,
+                maxIterations: 40,
+                onFailure: 'warn'
+            },
+            externalSourceRates: [
+                {
+                    material: 1,
+                    composition: [
+                        { name: 'U235', weightPercent: 90 },
+                        { name: 'U238', weightPercent: 10 }
+                    ],
+                    rate: -1e-6,
+                    units: 'g/s',
+                    timesteps: [0, 1]
+                }
+            ],
+            continueFromResults: '/runs/old/depletion_results.h5',
+            continueTimesteps: true
+        };
+
+        const generator = new XMLGenerationService();
+        const result = await generator.generateXML({
+            state,
+            outputDirectory: tempDir,
+            files: { materials: false, geometry: false, settings: true, tallies: false, plots: false }
+        });
+        expect(result.success).toBe(true);
+        expect(result.warnings?.some((warning) => warning.includes('driver-only'))).toBe(true);
+
+        const xml = fs.readFileSync(path.join(tempDir, 'settings.xml'), 'utf-8');
+        expect(xml).toContain('<substeps>3</substeps>');
+        expect(xml).toContain('<decay_only_steps>1</decay_only_steps>');
+        expect(xml).toContain('<reactivity_control>');
+        expect(xml).toContain('<external_source_rates>');
+        expect(xml).toContain('<continue_from_results>/runs/old/depletion_results.h5</continue_from_results>');
+        expect(xml).toContain('<continue_timesteps>true</continue_timesteps>');
+
+        // The runner's depletion-block parse (used to build Python args)
+        const runner = new OpenMCRunnerService();
+        const depletionCheck = await (runner as any).checkDepletionEnabled(tempDir);
+        expect(depletionCheck.enabled).toBe(true);
+        expect(depletionCheck.settings.substeps).toBe(3);
+        expect(depletionCheck.settings.decayOnlySteps).toEqual([1]);
+        expect(depletionCheck.settings.reactivityControl).toMatchObject({
+            parameter: 'cell-translation',
+            cellId: 7,
+            axis: 'z',
+            maxIterations: 40,
+            onFailure: 'warn'
+        });
+        expect(depletionCheck.settings.externalSourceRates).toEqual([
+            {
+                material: 1,
+                composition: [
+                    { name: 'U235', weightPercent: 90 },
+                    { name: 'U238', weightPercent: 10 }
+                ],
+                rate: -1e-6,
+                units: 'g/s',
+                timesteps: [0, 1]
+            }
+        ]);
+        expect(depletionCheck.settings.continueFromResults).toBe('/runs/old/depletion_results.h5');
+        expect(depletionCheck.settings.continueTimesteps).toBe(true);
+
+        // XML import restores the same depletion configuration
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const imported = await (backend as any).parseSettingsXML(path.join(tempDir, 'settings.xml'));
+        expect(imported.depletion).toMatchObject({
+            enabled: true,
+            substeps: 3,
+            decayOnlySteps: [1],
+            continueFromResults: '/runs/old/depletion_results.h5',
+            continueTimesteps: true
+        });
+        expect(imported.depletion.externalSourceRates).toEqual(depletionCheck.settings.externalSourceRates);
+        expect(imported.depletion.reactivityControl).toMatchObject({ parameter: 'cell-translation', cellId: 7 });
+    });
+
     it('maps legacy depletion solver names to canonical integrator ids', async () => {
         // Emission: legacy stored value writes the canonical id
         const state = buildTestState();
@@ -1596,7 +1723,16 @@ describe('settings.xml round-trip', () => {
             outputDirectory: tempDir,
             files: { materials: true, geometry: true, settings: true, tallies: false, plots: false },
             // Post-0.15.3 format: wrapped <ray_source> + <adjoint_source>
-            randomRayCompat: { raySourceFormat: 'wrapper', adjointSource: true, tokamakSource: true, s2SampleMethod: true }
+            randomRayCompat: {
+                raySourceFormat: 'wrapper',
+                adjointSource: true,
+                tokamakSource: true,
+                s2SampleMethod: true,
+                depletionSubsteps: true,
+                depletionKeffSearch: true,
+                depletionExternalSourceRate: true,
+                depletionContinuation: true
+            }
         });
 
         const xml = fs.readFileSync(path.join(tempDir, 'settings.xml'), 'utf-8');

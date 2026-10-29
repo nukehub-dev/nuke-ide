@@ -287,14 +287,18 @@ interface OpenMCDepletion {
   powerDensity?: number; // W/g
   timeSteps: string[] | number[]; // e.g., ['1 d', '30 d', '1 y']
   solver?: 'cecm' | 'predictor' | 'cf4' | 'celi' | 'epc_rk4' | 'leqi' | 'si_celi' | 'si_leqi'; // integrator_by_name ids; legacy names map via resolveDepletionSolver
-  substeps?: number;
+  substeps?: number; // CRAM substeps per interval (OpenMC 0.16+)
   normalizationMode?: 'source-rate' | 'fission-q' | 'energy-deposition';
   decayOnlySteps?: number[]; // Indices of timesteps with no transport
   reduceOutput?: boolean;
+  reactivityControl?: OpenMCReactivityControl; // curated keff search (cell translation | nuclide density)
+  externalSourceRates?: OpenMCExternalSourceRate[]; // feed/removal composition + mass rate
+  continueFromResults?: string; // previous depletion_results.h5
+  continueTimesteps?: boolean; // continue the previous schedule (requires the file)
 }
 ```
 
-**Concept:** `timeSteps` accepts both numeric seconds and string expressions with units. The backend normalizes strings to seconds before writing the OpenMC depletion XML. `decayOnlySteps` is stored as indices rather than flags on each step to keep the array compact.
+**Concept:** `timeSteps` accepts both numeric seconds and string expressions with units. The backend normalizes strings to seconds before writing the OpenMC depletion XML. `decayOnlySteps` is stored as indices rather than flags on each step to keep the array compact. Reactivity control and continuation are optional and safe to leave unset; `substeps` defaults to 1. All advanced fields are driver-only (see [XML Generation](xml-generation.md#depletion-triggers-derivatives-kinetics-cmfd)).
 
 ---
 

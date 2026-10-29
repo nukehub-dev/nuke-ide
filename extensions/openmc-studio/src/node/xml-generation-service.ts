@@ -40,6 +40,7 @@ import * as fs from 'fs';
 import { XMLGenerationRequest, XMLGenerationResult, OpenMCCompat, DEFAULT_OPENMC_COMPAT } from '../common/openmc-studio-protocol';
 import { resolveMgxsLibrary } from '../common/mgxs-library';
 import { resolveDepletionSolver } from '../common/depletion-solvers';
+import { getDepletionXmlWarnings } from '../common/depletion-config';
 import { expandMaterialNuclides } from '../common/material-utils';
 
 import {
@@ -1217,8 +1218,36 @@ export class XMLGenerationService {
             if (state.depletion.fissionQ && Object.keys(state.depletion.fissionQ).length > 0) {
                 lines.push(`    <fission_q>${this.escapeXml(JSON.stringify(state.depletion.fissionQ))}</fission_q>`);
             }
+            if (state.depletion.substeps !== undefined && state.depletion.substeps > 1) {
+                lines.push(`    <substeps>${state.depletion.substeps}</substeps>`);
+            }
+            if (state.depletion.decayOnlySteps && state.depletion.decayOnlySteps.length > 0) {
+                lines.push(`    <decay_only_steps>${state.depletion.decayOnlySteps.join(',')}</decay_only_steps>`);
+            }
+            if (state.depletion.reactivityControl) {
+                lines.push(
+                    `    <reactivity_control>${this.escapeXml(JSON.stringify(state.depletion.reactivityControl))}</reactivity_control>`
+                );
+            }
+            if (state.depletion.externalSourceRates && state.depletion.externalSourceRates.length > 0) {
+                lines.push(
+                    `    <external_source_rates>${this.escapeXml(
+                        JSON.stringify(state.depletion.externalSourceRates)
+                    )}</external_source_rates>`
+                );
+            }
+            if (state.depletion.continueFromResults) {
+                lines.push(`    <continue_from_results>${this.escapeXml(state.depletion.continueFromResults)}</continue_from_results>`);
+            }
+            if (state.depletion.continueTimesteps) {
+                lines.push('    <continue_timesteps>true</continue_timesteps>');
+            }
 
             lines.push('  </depletion>');
+
+            if (warnings) {
+                warnings.push(...getDepletionXmlWarnings(state.depletion));
+            }
         }
 
         // Variance Reduction settings

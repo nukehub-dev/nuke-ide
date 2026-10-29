@@ -1449,6 +1449,83 @@ export interface OpenMCDepletion {
     decayOnlySteps?: number[];
     /** Reduce or eliminate output files */
     reduceOutput?: boolean;
+    /**
+     * Optional reactivity search that adjusts a model parameter during each
+     * depletion step to hold a target k-effective (OpenMC 0.16+).
+     */
+    reactivityControl?: OpenMCReactivityControl;
+    /** External feed/removal rates for depletable materials (g/s … g/a) */
+    externalSourceRates?: OpenMCExternalSourceRate[];
+    /**
+     * Previous `depletion_results.h5` used as the operator's restart point.
+     * Combined with {@link continueTimesteps} this continues an existing
+     * schedule; on its own it appends new steps to the previous results.
+     */
+    continueFromResults?: string;
+    /**
+     * Treat this run as a continuation of {@link continueFromResults}: the
+     * configured timesteps must begin with the previous schedule and must use
+     * the same power/source-rate specification. Requires OpenMC 0.15.1+.
+     */
+    continueTimesteps?: boolean;
+}
+
+/**
+ * Curated reactivity-control parameter for the OpenMC keff search. The driver
+ * modifies the model through `openmc.lib` while a keff search runs at each
+ * depletion step.
+ */
+export interface OpenMCReactivityControl {
+    /** Whether the search runs. Absent means enabled when configured. */
+    enabled?: boolean;
+    /** Curated parameter type */
+    parameter: 'cell-translation' | 'nuclide-density';
+    /** Cell whose translation is adjusted (cell-translation) */
+    cellId?: number;
+    /** Translation axis adjusted by the search (cell-translation) */
+    axis?: 'x' | 'y' | 'z';
+    /** Material whose nuclide density is adjusted (nuclide-density) */
+    materialId?: number;
+    /** Nuclide name (e.g. 'U235') adjusted by the search (nuclide-density) */
+    nuclide?: string;
+    /** First search guess (lower value) */
+    x0: number;
+    /** Second search guess (upper value) */
+    x1: number;
+    /** Absolute search bounds [min, max] */
+    bracket: [number, number];
+    /** Target k-effective (default 1.0) */
+    targetKeff?: number;
+    /** Absolute k-effective tolerance (default 1e-4) */
+    kTol?: number;
+    /** Maximum accepted k-effective uncertainty (default 3e-4) */
+    sigmaFinal?: number;
+    /** Maximum search iterations (default 50) */
+    maxIterations?: number;
+    /** Non-convergence behavior: stop the run or log a warning and continue */
+    onFailure?: 'fail' | 'warn';
+}
+
+/** External feed/removal rate for a depletable material. */
+export interface OpenMCExternalSourceRate {
+    /** Depletable material ID */
+    material: number;
+    /** Composition vector; weight percent per element/nuclide */
+    composition: OpenMCExternalSourceComposition[];
+    /** Mass rate; positive feeds, negative removes */
+    rate: number;
+    /** Mass-per-time units (default 'g/s') */
+    units?: 'g/s' | 'g/min' | 'g/h' | 'g/d' | 'g/a';
+    /** Timestep indices the rate applies to; absent means every step */
+    timesteps?: number[];
+}
+
+/** One element or nuclide in an external source rate composition. */
+export interface OpenMCExternalSourceComposition {
+    /** Element or nuclide name (e.g. 'U', 'U235') */
+    name: string;
+    /** Weight percent (OpenMC normalizes the vector) */
+    weightPercent: number;
 }
 
 /** External transfer rate between materials (Integrator.add_transfer_rate) */

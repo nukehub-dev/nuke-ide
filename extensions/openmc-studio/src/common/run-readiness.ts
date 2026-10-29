@@ -37,6 +37,7 @@
  */
 
 import { OpenMCState } from './openmc-state-schema';
+import { getDepletionSubsteps, summarizeContinuation, summarizeReactivityControl } from './depletion-config';
 import { validateGeometryModel } from './geometry-validation';
 
 /** Status of a single checklist item */
@@ -207,6 +208,14 @@ export function computeSetupChecklist(state: OpenMCState): ChecklistItem[] {
     const depletion = state.depletion;
     const isDepletionEnabled = !!depletion?.enabled;
     const depletionDone = !isDepletionEnabled || ((depletion!.timeSteps?.length ?? 0) > 0 && !!depletion?.chainFile);
+    const depletionAdvanced = isDepletionEnabled
+        ? [
+              getDepletionSubsteps(depletion!) > 1 ? `substeps ${getDepletionSubsteps(depletion!)}` : '',
+              summarizeReactivityControl(depletion!.reactivityControl) ? 'keff search' : '',
+              (depletion!.externalSourceRates?.length ?? 0) > 0 ? `${depletion!.externalSourceRates!.length} feeds` : '',
+              summarizeContinuation(depletion!) ? 'continuation' : ''
+          ].filter((part) => part.length > 0)
+        : [];
     items.push({
         id: 'depletion',
         label: 'Depletion',
@@ -214,7 +223,7 @@ export function computeSetupChecklist(state: OpenMCState): ChecklistItem[] {
         detail: !isDepletionEnabled
             ? 'Disabled'
             : depletionDone
-              ? `Enabled (${depletion!.timeSteps.length} steps)`
+              ? `Enabled (${depletion!.timeSteps.length} steps${depletionAdvanced.length > 0 ? `, ${depletionAdvanced.join(', ')}` : ''})`
               : `Enabled (missing ${!depletion?.chainFile ? 'chain file' : 'steps'})`
     });
 

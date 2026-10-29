@@ -3491,6 +3491,202 @@
     margin-top: 16px;
 }
 
+/* Depletion run controls: substeps, reactivity search, feeds, continuation */
+.simulation-dashboard .depletion-run-controls {
+    margin-top: 20px;
+    padding-top: 16px;
+    border-top: 1px solid var(--theia-panel-border);
+}
+
+.simulation-dashboard .depletion-run-controls-intro {
+    margin: 0 0 16px 0;
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+    line-height: 1.5;
+}
+
+.simulation-dashboard .depletion-run-controls code {
+    font-family: var(--theia-code-font-family);
+    background: var(--theia-textCodeBlock-background);
+    padding: 0 3px;
+    border-radius: 3px;
+}
+
+.simulation-dashboard .depletion-run-group {
+    margin-bottom: 20px;
+    padding: 14px;
+    background: var(--theia-editor-background);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 8px;
+}
+
+.simulation-dashboard .depletion-run-group h4 {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0 0 10px 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--theia-foreground);
+}
+
+.simulation-dashboard .depletion-run-group h4 i {
+    color: var(--theia-focusBorder);
+}
+
+.simulation-dashboard .depletion-run-warning {
+    margin: 10px 0;
+}
+
+.simulation-dashboard .depletion-field-message {
+    display: flex;
+    align-items: flex-start;
+    gap: 5px;
+    margin-top: 4px;
+    font-size: 11px;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+}
+
+.simulation-dashboard .depletion-field-message.error {
+    color: var(--theia-inputValidation-errorBorder);
+}
+
+.simulation-dashboard .depletion-field-message.warning {
+    color: var(--theia-inputValidation-warningBorder);
+}
+
+.simulation-dashboard .depletion-rate-scroll {
+    overflow-x: auto;
+    max-width: 100%;
+    margin-bottom: 10px;
+}
+
+.simulation-dashboard .depletion-rate-table {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 640px;
+}
+
+.simulation-dashboard .depletion-rate-row {
+    display: grid;
+    grid-template-columns: minmax(150px, 1.1fr) minmax(190px, 1.5fr) minmax(110px, 0.8fr) minmax(90px, 0.6fr) minmax(120px, 0.9fr) auto;
+    gap: 10px;
+    align-items: start;
+    padding: 10px;
+    background: var(--theia-editorWidget-background);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+}
+
+.simulation-dashboard .depletion-rate-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+.simulation-dashboard .depletion-rate-cell label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--theia-descriptionForeground);
+}
+
+.simulation-dashboard .depletion-rate-cell input,
+.simulation-dashboard .depletion-rate-cell .nuke-select {
+    width: 100%;
+}
+
+.simulation-dashboard .depletion-composition-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 76px auto;
+    gap: 4px;
+    align-items: center;
+}
+
+.simulation-dashboard .depletion-composition-row input {
+    min-width: 0;
+}
+
+.simulation-dashboard .depletion-rate-actions {
+    justify-content: flex-end;
+    align-self: center;
+}
+
+.simulation-dashboard .depletion-rate-empty {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px;
+    margin-bottom: 10px;
+    border: 1px dashed var(--theia-panel-border);
+    border-radius: 8px;
+    color: var(--theia-descriptionForeground);
+}
+
+.simulation-dashboard .depletion-rate-empty > i {
+    font-size: 22px;
+    color: var(--theia-focusBorder);
+    flex-shrink: 0;
+}
+
+.simulation-dashboard .depletion-rate-empty p {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.simulation-dashboard .depletion-rate-footer {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.simulation-dashboard .depletion-rate-total {
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+}
+
+.simulation-dashboard .depletion-continuation-file .file-input-group {
+    min-width: 0;
+}
+
+@container (max-width: 760px) {
+    .simulation-dashboard .depletion-rate-table {
+        min-width: 0;
+    }
+
+    .simulation-dashboard .depletion-rate-row {
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    }
+
+    .simulation-dashboard .depletion-rate-composition {
+        grid-column: 1 / -1;
+    }
+}
+
+@container (max-width: 640px) {
+    .simulation-dashboard .depletion-run-group {
+        padding: 12px;
+    }
+
+    .simulation-dashboard .depletion-search-grid .form-group {
+        min-width: 100%;
+    }
+}
+
+@container (max-width: 460px) {
+    .simulation-dashboard .depletion-rate-row {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .simulation-dashboard .depletion-rate-actions {
+        justify-content: flex-start;
+    }
+}
+
 /* Depletion tab: narrow icon-only delete column in form-rows (fission Q) */
 .simulation-dashboard .form-row .form-group.row-delete {
     flex: 0 0 auto;

@@ -168,6 +168,105 @@ describe('validateState depletion operator restrictions', () => {
 
         expect(result.issues.some((i) => i.message.includes('flux and MicroXS'))).toBe(false);
     });
+
+    it('rejects an unknown reactivity-control cell', async () => {
+        const state = buildState();
+        enableDepletion(state);
+        state.depletion!.reactivityControl = {
+            enabled: true,
+            parameter: 'cell-translation',
+            cellId: 99,
+            axis: 'z',
+            x0: 0,
+            x1: 1,
+            bracket: [-1, 1]
+        };
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const result = await backend.validateState({ state });
+
+        expect(result.issues.some((i) => i.category === 'depletion' && i.message.includes('Cell #99 does not exist'))).toBe(true);
+    });
+
+    it('accepts a valid search and external rate', async () => {
+        const state = buildState();
+        enableDepletion(state);
+        state.depletion!.substeps = 2;
+        state.depletion!.reactivityControl = {
+            enabled: true,
+            parameter: 'nuclide-density',
+            materialId: 1,
+            nuclide: 'H1',
+            x0: 0.01,
+            x1: 0.02,
+            bracket: [0.001, 0.1]
+        };
+        state.depletion!.externalSourceRates = [
+            {
+                material: 1,
+                composition: [{ name: 'H1', weightPercent: 100 }],
+                rate: -1e-6,
+                units: 'g/s',
+                timesteps: [0]
+            }
+        ];
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const result = await backend.validateState({ state });
+
+        const depletionErrors = result.issues.filter((i) => i.category === 'depletion' && i.severity === 'error');
+        expect(depletionErrors).toEqual([]);
+    });
+
+    it('errors when the previous depletion results file is missing', async () => {
+        const state = buildState();
+        enableDepletion(state);
+        state.depletion!.continueFromResults = '/no/such/depletion_results.h5';
+        state.depletion!.continueTimesteps = true;
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const result = await backend.validateState({ state });
+
+        expect(
+            result.issues.some((i) => i.category === 'depletion' && i.message.includes('Previous depletion results file not found'))
+        ).toBe(true);
+    });
+
+    it('errors when continuing timesteps without a previous results file', async () => {
+        const state = buildState();
+        enableDepletion(state);
+        state.depletion!.continueTimesteps = true;
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const result = await backend.validateState({ state });
+
+        expect(
+            result.issues.some(
+                (i) => i.category === 'depletion' && i.message.includes('Continue timesteps needs a previous depletion results file')
+            )
+        ).toBe(true);
+    });
+
+    it('errors on a nuclide that the control material does not contain', async () => {
+        const state = buildState();
+        enableDepletion(state);
+        state.depletion!.reactivityControl = {
+            enabled: true,
+            parameter: 'nuclide-density',
+            materialId: 1,
+            nuclide: 'U235',
+            x0: 0.01,
+            x1: 0.02,
+            bracket: [0.001, 0.1]
+        };
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const result = await backend.validateState({ state });
+
+        expect(
+            result.issues.some((i) => i.category === 'depletion' && i.message.includes('Nuclide "U235" is not in material "Water"'))
+        ).toBe(true);
+    });
 });
 
 describe('validateState random ray (multi-group) restrictions', () => {

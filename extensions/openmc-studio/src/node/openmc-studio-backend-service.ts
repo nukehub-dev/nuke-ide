@@ -80,12 +80,14 @@ import {
     OpenMCTally,
     OpenMCTallyFilter,
     OpenMCMesh,
-    OpenMCPlotConfig
+    OpenMCPlotConfig,
+    OpenMCDepletion
 } from '../common/openmc-state-schema';
 
 import { deriveKineticsFromTallies } from '../common/kinetics-ifp';
 import { getMeshElementCount } from '../common/mesh-utils';
 import { migrateProjectFile } from '../common/openmc-state-migration';
+import { validateDepletionAdvanced, parseDepletionBlock } from '../common/depletion-config';
 import { calculateGeometryBounds, boxOverlapsBounds, pointInBounds } from '../common/geometry-bounds';
 import { reshapeHexLatticeUniverses } from '../common/geometry-lattices';
 import { validateGeometryModel } from '../common/geometry-validation';
@@ -273,6 +275,7 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                 try {
                     const settingsData = await this.parseSettingsXML(settingsPath);
                     state.settings = settingsData.settings;
+                    state.depletion = settingsData.depletion;
                     settingsMeshes = settingsData.meshes;
                     warnings.push(...settingsData.warnings);
                     // Weight window generator lives on OpenMCState.varianceReduction, not settings
@@ -1002,12 +1005,16 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
 
     private async parseSettingsXML(
         filePath: string
-    ): Promise<{ settings: any; weightWindowGenerator?: any; meshes: OpenMCMesh[]; warnings: string[] }> {
+    ): Promise<{ settings: any; depletion?: OpenMCDepletion; weightWindowGenerator?: any; meshes: OpenMCMesh[]; warnings: string[] }> {
         const fs = await import('fs');
         const xml2js = await import('xml2js');
 
         const warnings: string[] = [];
         const xml = fs.readFileSync(filePath, 'utf-8');
+        const parsedDepletion = parseDepletionBlock(xml);
+        if (parsedDepletion) {
+            warnings.push(...parsedDepletion.warnings);
+        }
         const parser = new xml2js.Parser({ explicitArray: false });
         const result = await parser.parseStringPromise(xml);
 
@@ -1023,7 +1030,7 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
 
         if (!result.settings) {
             warnings.push('No settings element found in settings.xml');
-            return { settings, meshes: [], warnings };
+            return { settings, depletion: parsedDepletion?.depletion, meshes: [], warnings };
         }
 
         const s = result.settings;
@@ -1421,7 +1428,13 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             }
         }
 
-        return { settings, weightWindowGenerator: parsedWeightWindowGenerator, meshes: sourceMeshes, warnings };
+        return {
+            settings,
+            depletion: parsedDepletion?.depletion,
+            weightWindowGenerator: parsedWeightWindowGenerator,
+            meshes: sourceMeshes,
+            warnings
+        };
     }
 
     /**
@@ -2941,6 +2954,29 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                     message: 'No depletion time steps defined',
                     suggestion: 'Add at least one time step in the Depletion tab under Operational Timeline'
                 });
+            }
+
+            // Advanced run controls: substeps, reactivity search, external
+            // feed/removal rates, and continuation. Pure rules live in the
+            // shared module so the tab and backend cannot diverge.
+            for (const issue of validateDepletionAdvanced(request.state)) {
+                issues.push({
+                    severity: issue.severity,
+                    category: 'depletion',
+                    message: issue.message,
+                    suggestion: issue.suggestion
+                });
+            }
+            if (depletion.continueFromResults) {
+                const fs = await import('fs');
+                if (!fs.existsSync(depletion.continueFromResults)) {
+                    issues.push({
+                        severity: 'error',
+                        category: 'depletion',
+                        message: `Previous depletion results file not found: ${depletion.continueFromResults}`,
+                        suggestion: 'Select the depletion_results.h5 produced by the earlier run, or clear continuation.'
+                    });
+                }
             }
         }
 

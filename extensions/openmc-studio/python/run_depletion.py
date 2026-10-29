@@ -117,6 +117,360 @@ def resolve_solver(value):
     raise ValueError(f"Unknown solver: {solver}. Available: {available}")
 
 
+def get_integrator_class():
+    """Return the OpenMC Integrator base class via the deplete package.
+
+    Raises:
+        ImportError: If the installed OpenMC does not expose the base class.
+    """
+    from openmc.deplete.abc import Integrator
+
+    return Integrator
+
+
+def supports_integrator_option(option):
+    """Whether the installed Integrator constructor accepts a keyword option.
+
+    This is a capability probe, not a version check.
+
+    Args:
+        option: Constructor keyword (e.g. ``substeps``).
+
+    Returns:
+        True when the installed OpenMC accepts the option.
+    """
+    import inspect
+
+    try:
+        params = inspect.signature(get_integrator_class().__init__).parameters
+    except (ImportError, TypeError, ValueError):
+        return False
+    return option in params
+
+
+def supports_integrator_method(method):
+    """Whether the installed Integrator exposes a public method.
+
+    Args:
+        method: Method name (e.g. ``add_keff_search_control``).
+
+    Returns:
+        True when the method exists.
+    """
+    try:
+        return hasattr(get_integrator_class(), method)
+    except ImportError:
+        return False
+
+
+def parse_json_option(value, name):
+    """Parse a JSON command-line option into a Python object.
+
+    Args:
+        value: Raw JSON string or None.
+        name: Option name for the error message.
+
+    Returns:
+        Parsed value, or None when the option was not supplied.
+
+    Raises:
+        DepletionConfigError: If the option is not valid JSON.
+    """
+    if value is None:
+        return None
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError as e:
+        raise DepletionConfigError(f"Invalid JSON for {name}: {e}") from e
+
+
+def load_previous_results(path):
+    """Load a previous depletion results file for operator restart.
+
+    Args:
+        path: Path to a previous ``depletion_results.h5``.
+
+    Returns:
+        An ``openmc.deplete.Results`` instance.
+
+    Raises:
+        DepletionConfigError: If the file is missing or cannot be read.
+    """
+    import openmc
+    import openmc.deplete
+
+    if not hasattr(openmc.deplete, "Results"):
+        raise DepletionConfigError(
+            "Continuation requires OpenMC 0.15.1 or newer "
+            "(openmc.deplete.Results is unavailable in this environment)."
+        )
+    results_path = Path(path)
+    if not results_path.exists():
+        raise DepletionConfigError(
+            f"Previous depletion results file not found: {path}. "
+            "Select the depletion_results.h5 from the earlier run."
+        )
+    try:
+        return openmc.deplete.Results(str(results_path))
+    except Exception as e:
+        raise DepletionConfigError(
+            f"Could not read previous depletion results file {path}: {e}. "
+            "Select a valid depletion_results.h5 produced by OpenMC."
+        ) from e
+
+
+def build_cell_translation_modifier(cell_id, axis):
+    """Build an openmc.lib modifier that translates a cell along one axis.
+
+    The function passed to ``add_keff_search_control`` must modify the model
+    through ``openmc.lib``; it runs inside a temporary C-API session.
+
+    Args:
+        cell_id: Cell ID to translate.
+        axis: 'x', 'y', or 'z'.
+
+    Returns:
+        Callable accepting the searched position value.
+    """
+    axis_index = {"x": 0, "y": 1, "z": 2}[axis]
+
+    def modify(value):
+        import openmc.lib
+
+        cell = openmc.lib.cells[int(cell_id)]
+        translation = list(cell.translation)
+        translation[axis_index] = float(value)
+        cell.translation = translation
+
+    return modify
+
+
+def build_nuclide_density_modifier(material_id, nuclide):
+    """Build an openmc.lib modifier that replaces one nuclide density.
+
+    Args:
+        material_id: Material ID to modify.
+        nuclide: Nuclide name (e.g. U235) whose atom/b-cm density is searched.
+
+    Returns:
+        Callable accepting the searched density value.
+    """
+
+    def modify(value):
+        import openmc.lib
+
+        lib_mat = openmc.lib.materials[int(material_id)]
+        nuclides = list(lib_mat.nuclides)
+        try:
+            index = nuclides.index(nuclide)
+        except ValueError as e:
+            raise DepletionConfigError(
+                f"Nuclide {nuclide} is not present in material {material_id} at runtime; "
+                "choose a specific isotope that the material contains."
+            ) from e
+        densities = lib_mat.densities
+        densities[index] = float(value)
+        lib_mat.set_densities(nuclides, densities)
+
+    return modify
+
+
+def build_reactivity_modifier(control):
+    """Create the openmc.lib model modifier for a curated control type."""
+    parameter = control.get("parameter")
+    if parameter == "cell-translation":
+        axis = control.get("axis")
+        if axis not in ("x", "y", "z"):
+            raise DepletionConfigError(
+                "Reactivity control needs an axis (x, y, or z) for a control-rod cell."
+            )
+        return build_cell_translation_modifier(control.get("cellId"), axis)
+    if parameter == "nuclide-density":
+        nuclide = control.get("nuclide")
+        if not nuclide:
+            raise DepletionConfigError(
+                "Reactivity control needs a nuclide for a material density search."
+            )
+        return build_nuclide_density_modifier(control.get("materialId"), nuclide)
+    raise DepletionConfigError(
+        "Reactivity control parameter must be 'cell-translation' or 'nuclide-density'."
+    )
+
+
+def install_warn_on_search_failure(integrator):
+    """Make a non-converged keff search log a warning instead of aborting.
+
+    OpenMC's search controller raises ``ValueError`` on non-convergence. The
+    public ``add_keff_search_control`` method installs that controller but has
+    no failure callback, so this wraps its ``run`` method when the user chose
+    ``onFailure='warn'``. The last searched parameter value remains in the
+    model and the depletion step continues.
+
+    Args:
+        integrator: Integrator that has already been given a search control.
+    """
+    control = getattr(integrator, "_keff_search_control", None)
+    if control is None:
+        return
+    original_run = control.run
+
+    def tolerant_run(x):
+        try:
+            return original_run(x)
+        except ValueError as e:
+            log_progress(
+                "Warning: reactivity search did not converge; continuing this step with "
+                f"the last searched value ({e})"
+            )
+            return None
+
+    control.run = tolerant_run
+
+
+def apply_reactivity_control(integrator, control):
+    """Attach a curated keff-search control to the integrator.
+
+    Args:
+        integrator: Depletion integrator.
+        control: Parsed reactivity-control settings.
+
+    Raises:
+        DepletionConfigError: If the environment lacks the public API or the
+            configuration is incomplete.
+    """
+    if not control or control.get("enabled") is False:
+        return
+    if not supports_integrator_method("add_keff_search_control"):
+        raise DepletionConfigError(
+            "Reactivity control requires OpenMC 0.16 or newer (Integrator.add_keff_search_control "
+            "is unavailable in this environment)."
+        )
+
+    modifier = build_reactivity_modifier(control)
+    x0 = control.get("x0")
+    x1 = control.get("x1")
+    bracket = control.get("bracket")
+    if not isinstance(x0, (int, float)) or not isinstance(x1, (int, float)):
+        raise DepletionConfigError("Reactivity control needs numeric x0 and x1 search guesses.")
+    if not isinstance(bracket, (list, tuple)) or len(bracket) != 2:
+        raise DepletionConfigError("Reactivity control bracket must be [min, max].")
+    if bracket[0] >= bracket[1]:
+        raise DepletionConfigError("Reactivity control bracket must be increasing.")
+    if not (bracket[0] <= x0 <= bracket[1] and bracket[0] <= x1 <= bracket[1]):
+        raise DepletionConfigError("Reactivity control guesses x0/x1 must lie inside the bracket.")
+    if x0 == x1:
+        raise DepletionConfigError("Reactivity control guesses x0/x1 must differ.")
+
+    search_kwargs = {}
+    if control.get("targetKeff") is not None:
+        search_kwargs["target"] = float(control["targetKeff"])
+    if control.get("kTol") is not None:
+        search_kwargs["k_tol"] = float(control["kTol"])
+    if control.get("sigmaFinal") is not None:
+        search_kwargs["sigma_final"] = float(control["sigmaFinal"])
+    if control.get("maxIterations") is not None:
+        search_kwargs["maxiter"] = int(control["maxIterations"])
+
+    label = control.get("parameter")
+    if label == "cell-translation":
+        label = f"cell {control.get('cellId')} {control.get('axis')}-translation"
+    else:
+        label = f"material {control.get('materialId')} {control.get('nuclide')} density"
+    log_progress(
+        f"Reactivity control: {label} (x0={x0}, x1={x1}, bracket={list(bracket)}, "
+        f"target keff={search_kwargs.get('target', 1.0)})"
+    )
+
+    integrator.add_keff_search_control(
+        modifier,
+        x0=float(x0),
+        x1=float(x1),
+        bracket=[float(bracket[0]), float(bracket[1])],
+        **search_kwargs,
+    )
+    if control.get("onFailure") == "warn":
+        install_warn_on_search_failure(integrator)
+
+
+def apply_external_source_rates(integrator, rates):
+    """Attach external feed/removal rates to the integrator.
+
+    Args:
+        integrator: Depletion integrator.
+        rates: Parsed external source rate rows.
+
+    Raises:
+        DepletionConfigError: If the environment lacks the public API or a row
+            is incomplete.
+    """
+    if not rates:
+        return
+    if not supports_integrator_method("add_external_source_rate"):
+        raise DepletionConfigError(
+            "External source rates require OpenMC 0.15.3 or newer "
+            "(Integrator.add_external_source_rate is unavailable in this environment)."
+        )
+
+    for index, row in enumerate(rates):
+        composition_list = row.get("composition") or []
+        composition = {}
+        for entry in composition_list:
+            name = (entry.get("name") or "").strip()
+            weight = entry.get("weightPercent")
+            if not name or not isinstance(weight, (int, float)) or weight <= 0:
+                raise DepletionConfigError(
+                    f"External source rate {index + 1} needs element/nuclide names with positive weight percents."
+                )
+            if name in composition:
+                raise DepletionConfigError(
+                    f"External source rate {index + 1} repeats '{name}'; combine the weight percents."
+                )
+            composition[name] = float(weight)
+        if not composition:
+            raise DepletionConfigError(
+                f"External source rate {index + 1} has an empty composition."
+            )
+
+        material = row.get("material")
+        rate = row.get("rate")
+        if not isinstance(material, int) or material <= 0:
+            raise DepletionConfigError(
+                f"External source rate {index + 1} needs a positive material ID."
+            )
+        if not isinstance(rate, (int, float)) or rate == 0:
+            raise DepletionConfigError(
+                f"External source rate {index + 1} needs a non-zero rate (positive feeds, negative removes)."
+            )
+
+        timesteps = row.get("timesteps")
+        if timesteps is not None:
+            if not isinstance(timesteps, list) or any(
+                not isinstance(step, int) or step < 0 for step in timesteps
+            ):
+                raise DepletionConfigError(
+                    f"External source rate {index + 1} timesteps must be non-negative whole indices."
+                )
+            if any(step >= len(integrator.timesteps) for step in timesteps):
+                raise DepletionConfigError(
+                    f"External source rate {index + 1} references timestep {max(timesteps)}, "
+                    f"but this run executes {len(integrator.timesteps)} step(s)."
+                )
+
+        units = row.get("units") or "g/s"
+        log_progress(
+            f"External source rate: material {material}, {rate} {units}, "
+            f"composition {composition}"
+            + (f", timesteps {timesteps}" if timesteps is not None else " (all steps)")
+        )
+        integrator.add_external_source_rate(
+            material,
+            composition,
+            float(rate),
+            rate_units=units,
+            timesteps=timesteps,
+        )
+
+
 def log_progress(message: str):
     """Print progress message to stderr for real-time communication.
 
@@ -244,6 +598,28 @@ def run_depletion(args):
     import openmc
     import openmc.deplete
 
+    substeps = getattr(args, "substeps", 1)
+    if substeps is None:
+        substeps = 1
+    continue_from_results = getattr(args, "continue_from_results", None)
+    continue_timesteps = bool(getattr(args, "continue_timesteps", False))
+    if not isinstance(substeps, int) or substeps < 1:
+        raise DepletionConfigError("Substeps must be a whole number of at least 1.")
+    if substeps > 1 and not supports_integrator_option("substeps"):
+        raise DepletionConfigError(
+            "CRAM substeps require OpenMC 0.16 or newer "
+            "(Integrator(..., substeps=) is unavailable in this environment)."
+        )
+    if continue_timesteps and not supports_integrator_option("continue_timesteps"):
+        raise DepletionConfigError(
+            "Continuing a depletion schedule requires OpenMC 0.15.1 or newer "
+            "(continue_timesteps is unavailable in this environment)."
+        )
+    if continue_timesteps and not continue_from_results:
+        raise DepletionConfigError(
+            "Continue timesteps needs a previous depletion results file (--continue-from-results)."
+        )
+
     os.chdir(working_dir)
 
     log_progress(f"Loading OpenMC model from {working_dir}")
@@ -310,6 +686,27 @@ def run_depletion(args):
     time_steps_str = args.time_steps
     time_steps = [float(t.strip()) for t in time_steps_str.split(",")]
 
+    decay_only_steps = []
+    raw_decay_only = getattr(args, "decay_only_steps", None)
+    if raw_decay_only:
+        try:
+            if isinstance(raw_decay_only, (list, tuple)):
+                decay_only_steps = sorted({int(token) for token in raw_decay_only})
+            else:
+                decay_only_steps = sorted(
+                    {int(token.strip()) for token in str(raw_decay_only).split(",")}
+                )
+        except ValueError as e:
+            raise DepletionConfigError(
+                f"Decay-only steps must be comma-separated zero-based integers: {e}"
+            ) from e
+        invalid = [step for step in decay_only_steps if step < 0 or step >= len(time_steps)]
+        if invalid:
+            raise DepletionConfigError(
+                f"Decay-only step indices {invalid} are outside the configured timeline "
+                f"(0-{len(time_steps) - 1})."
+            )
+
     # Calculate total mass of depletable materials (needed for burnup calculation)
     total_mass_g = 0.0
     for mat in materials:
@@ -341,8 +738,13 @@ def run_depletion(args):
     if total_power is None:
         raise ValueError("Either --power or --power-density must be specified")
 
+    decay_set = set(decay_only_steps)
+    power_values = [0.0 if index in decay_set else total_power for index in range(len(time_steps))]
+
     log_progress(f"Time steps: {time_steps} seconds")
     log_progress(f"Power: {total_power:.2f} W")
+    if decay_only_steps:
+        log_progress(f"Decay-only steps (zero power): {decay_only_steps} of {len(time_steps)}")
     log_progress(f"Solver: {args.solver}")
     log_progress(f"Operator: {args.operator}")
 
@@ -355,10 +757,24 @@ def run_depletion(args):
     model = openmc.model.Model(geometry=geometry, materials=materials, settings=settings)
 
     # Parse structured options
-    fission_q = json.loads(args.fission_q) if getattr(args, "fission_q", None) else None
+    fission_q = parse_json_option(getattr(args, "fission_q", None), "--fission-q")
     transfer_rates = (
-        json.loads(args.transfer_rates) if getattr(args, "transfer_rates", None) else []
+        parse_json_option(getattr(args, "transfer_rates", None), "--transfer-rates") or []
     )
+    reactivity_control = parse_json_option(
+        getattr(args, "reactivity_control", None), "--reactivity-control"
+    )
+    external_source_rates = (
+        parse_json_option(getattr(args, "external_source_rates", None), "--external-source-rates")
+        or []
+    )
+    if not isinstance(external_source_rates, list):
+        raise DepletionConfigError("--external-source-rates must be a JSON list.")
+
+    previous_results = None
+    if continue_from_results:
+        log_progress(f"Loading previous depletion results from {continue_from_results}")
+        previous_results = load_previous_results(continue_from_results)
 
     # Create the operator — construction errors are user-facing config
     # problems (wrong mode, missing files, bad library), so they surface as
@@ -366,7 +782,9 @@ def run_depletion(args):
     try:
         chain = openmc.deplete.Chain.from_xml(chain_file)
         if args.operator == "independent":
-            operator = build_independent_operator(args, model, materials, chain, fission_q)
+            operator = build_independent_operator(
+                args, model, materials, chain, fission_q, previous_results
+            )
         else:
             log_progress("Creating CoupledOperator...")
             # DAGMC models need Python-side cells + instance counts before
@@ -395,6 +813,8 @@ def run_depletion(args):
                 )
             if fission_q is not None:
                 coupled_kwargs["fission_q"] = fission_q
+            if previous_results is not None:
+                coupled_kwargs["prev_results"] = previous_results
             operator = openmc.deplete.CoupledOperator(model, chain, **coupled_kwargs)
     except DepletionConfigError:
         raise
@@ -412,13 +832,33 @@ def run_depletion(args):
         raise ValueError(f"OpenMC deplete module does not have class: {class_name}")
 
     log_progress(f"Creating {solver.upper()} integrator...")
+    if substeps > 1:
+        log_progress(f"Using {substeps} CRAM substeps per depletion interval")
+    if continue_timesteps:
+        log_progress("Continuing the previous depletion schedule (previous timesteps are skipped)")
 
-    # Create integrator
-    integrator = integrator_class(
-        operator,
-        time_steps,
-        power=total_power,
-    )
+    # Create integrator. Only pass 0.16-only kwargs when active so the default
+    # call shape stays compatible with 0.15.3.
+    integrator_kwargs = {"power": power_values if decay_only_steps else total_power}
+    if substeps > 1:
+        integrator_kwargs["substeps"] = substeps
+    if continue_timesteps:
+        integrator_kwargs["continue_timesteps"] = True
+    try:
+        integrator = integrator_class(
+            operator,
+            time_steps,
+            **integrator_kwargs,
+        )
+    except ValueError as e:
+        if continue_timesteps:
+            raise DepletionConfigError(
+                "Could not continue the previous depletion schedule: "
+                f"{e} The configured timesteps and power must begin with the "
+                "previous run's timesteps and power."
+            ) from e
+        raise
+    log_progress(f"Effective depletion steps for this run: {len(integrator.timesteps)}")
 
     # Apply external transfer rates (Integrator.add_transfer_rate)
     for tr in transfer_rates:
@@ -436,6 +876,11 @@ def run_depletion(args):
             destination_material=destination,
         )
 
+    # Reactivity control (keff search) and external feed/removal rates are
+    # Python-API-only; validate them here so failures are clean config errors.
+    apply_reactivity_control(integrator, reactivity_control)
+    apply_external_source_rates(integrator, external_source_rates)
+
     # Run depletion
     log_progress("Starting depletion simulation...")
 
@@ -444,6 +889,15 @@ def run_depletion(args):
         integrator.integrate()
         log_progress("=" * 60)
         log_progress("Depletion simulation completed successfully!")
+    except ValueError as e:
+        if "Search for keff failed to converge" in str(e):
+            raise DepletionConfigError(
+                "The reactivity search did not converge during depletion. Increase the maximum "
+                "iterations or widen the search bracket, or set failure behavior to warn."
+            ) from e
+        log_progress(f"Error during depletion: {e}")
+        traceback.print_exc(file=sys.stderr)
+        raise
     except Exception as e:
         log_progress(f"Error during depletion: {e}")
         traceback.print_exc(file=sys.stderr)
@@ -453,19 +907,21 @@ def run_depletion(args):
     log_progress("Depletion results saved to depletion_results.h5")
 
     # Calculate burnup for each timestep (MWd/kg)
-    # Burnup = Power (W) * Time (days) / Mass (kg) / 1e6
-    # Convert seconds to days: 1 day = 86400 seconds
-    cumulative_time_days = np.cumsum([t / 86400.0 for t in time_steps])
+    # Burnup = cumulative energy (MWd) / initial heavy-metal mass (kg); decay-only
+    # steps contribute no energy because their power value is zero.
+    cumulative_energy_mwd = np.cumsum(
+        [
+            power_values[index] * (time_steps[index] / 86400.0) / 1e6
+            for index in range(len(time_steps))
+        ]
+    )
     total_mass_kg = total_mass_g / 1000.0
 
     # Calculate burnup in MWd/kg
     burnup_mwd_kg = []
-    for days in cumulative_time_days:
-        # Energy in MWd: Power (W) * days / 1e6
-        energy_mwd = (total_power * days) / 1e6
-        # Burnup: Energy (MWd) / Mass (kg)
+    for energy_mwd in cumulative_energy_mwd:
         burnup = energy_mwd / total_mass_kg if total_mass_kg > 0 else 0
-        burnup_mwd_kg.append(burnup)
+        burnup_mwd_kg.append(float(burnup))
 
     log_progress(f"Final burnup: {burnup_mwd_kg[-1]:.2f} MWd/kg")
 
@@ -491,6 +947,23 @@ def run_depletion(args):
         "power": total_power,
         "solver": solver,
         "operator": args.operator,
+        "substeps": substeps,
+        "effectiveSteps": len(integrator.timesteps),
+        "decayOnlySteps": decay_only_steps,
+        "reactivityControl": {
+            "enabled": bool(reactivity_control and reactivity_control.get("enabled") is not False),
+            "parameter": (reactivity_control or {}).get("parameter"),
+            "cellId": (reactivity_control or {}).get("cellId"),
+            "axis": (reactivity_control or {}).get("axis"),
+            "materialId": (reactivity_control or {}).get("materialId"),
+            "nuclide": (reactivity_control or {}).get("nuclide"),
+            "onFailure": (reactivity_control or {}).get("onFailure", "fail"),
+        }
+        if reactivity_control
+        else None,
+        "externalSourceRates": external_source_rates,
+        "continueFromResults": continue_from_results,
+        "continueTimesteps": continue_timesteps,
     }
 
     return summary
@@ -512,7 +985,7 @@ def load_flux_file(path):
     return np.loadtxt(path, delimiter="," if str(path).endswith(".csv") else None)
 
 
-def build_independent_operator(args, model, materials, chain, fission_q):
+def build_independent_operator(args, model, materials, chain, fission_q, prev_results=None):
     """Create an IndependentOperator from file inputs or a model transport solve.
 
     Args:
@@ -521,6 +994,7 @@ def build_independent_operator(args, model, materials, chain, fission_q):
         materials: Loaded openmc.Materials.
         chain: Loaded openmc.deplete.Chain.
         fission_q: Optional custom fission Q dictionary.
+        prev_results: Optional previous depletion Results for continuation.
 
     Returns:
         openmc.deplete.IndependentOperator instance.
@@ -562,13 +1036,18 @@ def build_independent_operator(args, model, materials, chain, fission_q):
         micros = [openmc.deplete.MicroXS.from_csv(f) for f in microxs_files]
 
     log_progress(f"Creating IndependentOperator for {len(depletable)} depletable material(s)...")
+    operator_kwargs = {
+        "normalization_mode": args.normalization or "fission-q",
+        "fission_q": fission_q,
+    }
+    if prev_results is not None:
+        operator_kwargs["prev_results"] = prev_results
     return openmc.deplete.IndependentOperator(
         depletable,
         fluxes,
         micros,
         chain,
-        normalization_mode=args.normalization or "fission-q",
-        fission_q=fission_q,
+        **operator_kwargs,
     )
 
 
@@ -645,6 +1124,27 @@ Examples:
         choices=["divide equally", "match cell"],
         default="divide equally",
         help="How volumes are assigned to differentiated materials",
+    )
+    parser.add_argument(
+        "--reactivity-control",
+        help='JSON reactivity control: {"enabled": true, "parameter": "cell-translation", "cellId": 2, "axis": "z", "x0": 0, "x1": 10, "bracket": [-20, 20], "targetKeff": 1.0}',
+    )
+    parser.add_argument(
+        "--external-source-rates",
+        help='JSON list of feed/removal rates: [{"material": 1, "composition": [{"name": "U235", "weightPercent": 100}], "rate": -1e-6, "units": "g/s", "timesteps": [0]}]',
+    )
+    parser.add_argument(
+        "--continue-from-results",
+        help="Path to a previous depletion_results.h5 used as the operator restart point",
+    )
+    parser.add_argument(
+        "--decay-only-steps",
+        help="Comma-separated zero-based timestep indices that run at zero power (decay only)",
+    )
+    parser.add_argument(
+        "--continue-timesteps",
+        action="store_true",
+        help="Continue the previous schedule (configured timesteps must start with the previous run's)",
     )
 
     args = parser.parse_args()

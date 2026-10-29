@@ -50,11 +50,18 @@ import { OpenMCCompat, DEFAULT_OPENMC_COMPAT } from '../common/openmc-studio-pro
 import { OpenMCValidationBackendService } from './openmc-validation-backend-service';
 
 /**
- * Python one-liner: prints four space-separated tokens —
- * `<direct|wrapper> <adjoint|no-adjoint> <tokamak|no-tokamak> <s2|no-s2>`.
+ * Python one-liner: prints eight space-separated tokens —
+ * `<direct|wrapper> <adjoint|no-adjoint> <tokamak|no-tokamak> <s2|no-s2>
+ * <substeps|no-substeps> <keff-search|no-keff-search>
+ * <external-rate|no-external-rate> <continuation|no-continuation>`.
+ *
+ * Depletion capabilities are detected by introspection (never version
+ * strings): constructor parameters and public Integrator methods.
  */
 const OPENMC_COMPAT_PROBE_SCRIPT = `
+import inspect
 import openmc
+import openmc.deplete
 s = openmc.Settings()
 box = openmc.IndependentSource(space=openmc.stats.Box([-1,-1,-1],[1,1,1]))
 s.random_ray = {'ray_source': box}
@@ -70,11 +77,27 @@ try:
 except Exception:
     s2 = False
 tok = hasattr(openmc, 'TokamakSource')
-print('{} {} {} {}'.format(
+try:
+    from openmc.deplete.abc import Integrator as _Integrator
+except Exception:
+    _Integrator = getattr(openmc.deplete, 'Integrator', None)
+try:
+    _params = inspect.signature(_Integrator.__init__).parameters if _Integrator else {}
+except Exception:
+    _params = {}
+substeps = 'substeps' in _params
+keff_search = bool(_Integrator is not None and hasattr(_Integrator, 'add_keff_search_control'))
+external_rate = bool(_Integrator is not None and hasattr(_Integrator, 'add_external_source_rate'))
+continuation = 'continue_timesteps' in _params and hasattr(openmc.deplete, 'Results')
+print('{} {} {} {} {} {} {} {}'.format(
     fmt,
     'adjoint' if adj else 'no-adjoint',
     'tokamak' if tok else 'no-tokamak',
-    's2' if s2 else 'no-s2'))
+    's2' if s2 else 'no-s2',
+    'substeps' if substeps else 'no-substeps',
+    'keff-search' if keff_search else 'no-keff-search',
+    'external-rate' if external_rate else 'no-external-rate',
+    'continuation' if continuation else 'no-continuation'))
 `;
 
 const PROBE_TIMEOUT_MS = 30000;
@@ -136,7 +159,9 @@ export class OpenMCCompatProbeService {
     }
 
     /**
-     * Parse the probe's four-token output line.
+     * Parse the probe's eight-token output line. Tokens after the original
+     * four are optional so older probe output still parses (falling back to
+     * the release-compatible defaults for the missing depletion capabilities).
      * @param stdout - Probe stdout
      * @returns Parsed compatibility, or undefined if malformed
      */
@@ -147,7 +172,7 @@ export class OpenMCCompatProbeService {
             .map((l) => l.trim())
             .filter((l) => l.length > 0)
             .pop();
-        const [format, adjoint, tokamak, s2] = (line ?? '').split(/\s+/);
+        const [format, adjoint, tokamak, s2, substeps, keffSearch, externalRate, continuation] = (line ?? '').split(/\s+/);
         if (format !== 'direct' && format !== 'wrapper') {
             return undefined;
         }
@@ -155,7 +180,12 @@ export class OpenMCCompatProbeService {
             raySourceFormat: format,
             adjointSource: adjoint === 'adjoint',
             tokamakSource: tokamak === 'tokamak',
-            s2SampleMethod: s2 === 's2'
+            s2SampleMethod: s2 === 's2',
+            depletionSubsteps: substeps === 'substeps',
+            depletionKeffSearch: keffSearch === 'keff-search',
+            depletionExternalSourceRate:
+                externalRate === 'external-rate' || (!externalRate && DEFAULT_OPENMC_COMPAT.depletionExternalSourceRate),
+            depletionContinuation: continuation === 'continuation' || (!continuation && DEFAULT_OPENMC_COMPAT.depletionContinuation)
         };
     }
 }

@@ -279,6 +279,9 @@ export class OpenMCPythonExporter {
         lines.push('import openmc');
         if (state.depletion?.enabled) {
             lines.push('import openmc.deplete');
+            if (state.depletion.reactivityControl && state.depletion.reactivityControl.enabled !== false) {
+                lines.push('import openmc.lib');
+            }
         }
         lines.push('');
 
@@ -1462,6 +1465,10 @@ export class OpenMCPythonExporter {
         }
 
         // Setup operator
+        if (depletion.continueFromResults) {
+            lines.push('# Previous depletion results for restart/continuation');
+            lines.push(`prev_results = openmc.deplete.Results(${JSON.stringify(depletion.continueFromResults)})`);
+        }
         if (depletion.operator === 'independent') {
             if (depletion.generateFromModel) {
                 lines.push('# Independent operator: compute fluxes and MicroXS from the model (transport solve)');
@@ -1488,6 +1495,9 @@ export class OpenMCPythonExporter {
             if (depletion.fissionQ && Object.keys(depletion.fissionQ).length > 0) {
                 indepArgs.push(`fission_q=${JSON.stringify(depletion.fissionQ)}`);
             }
+            if (depletion.continueFromResults) {
+                indepArgs.push('prev_results=prev_results');
+            }
             lines.push(`op = openmc.deplete.IndependentOperator(${indepArgs.join(', ')})`);
         } else {
             const coupledArgs = ['model', 'chain'];
@@ -1500,6 +1510,9 @@ export class OpenMCPythonExporter {
             coupledArgs.push(`normalization_mode="${depletion.normalizationMode ?? 'fission-q'}"`);
             if (depletion.fissionQ && Object.keys(depletion.fissionQ).length > 0) {
                 coupledArgs.push(`fission_q=${JSON.stringify(depletion.fissionQ)}`);
+            }
+            if (depletion.continueFromResults) {
+                coupledArgs.push('prev_results=prev_results');
             }
             lines.push(`op = openmc.deplete.CoupledOperator(${coupledArgs.join(', ')})`);
         }
@@ -1544,11 +1557,22 @@ export class OpenMCPythonExporter {
             return Number(ts);
         });
         lines.push(`timesteps = [${timesteps.join(', ')}]  # Timesteps in seconds`);
+        if ((depletion.decayOnlySteps?.length ?? 0) > 0) {
+            lines.push(`decay_only_steps = [${depletion.decayOnlySteps!.join(', ')}]`);
+            lines.push('power = [0.0 if i in decay_only_steps else power for i in range(len(timesteps))]');
+        }
 
         // Setup Integrator — canonical OpenMC integrator class (legacy solver
         // names resolve via the shared alias map)
         const solver = getDepletionSolver(resolveDepletionSolver(depletion.solver)).className;
-        lines.push(`integrator = openmc.deplete.${solver}(op, timesteps, power)`);
+        const integratorArgs = ['op', 'timesteps', 'power'];
+        if ((depletion.substeps ?? 1) > 1) {
+            integratorArgs.push(`substeps=${depletion.substeps}`);
+        }
+        if (depletion.continueTimesteps) {
+            integratorArgs.push('continue_timesteps=True');
+        }
+        lines.push(`integrator = openmc.deplete.${solver}(${integratorArgs.join(', ')})`);
 
         // External transfer rates (Integrator.add_transfer_rate)
         for (const tr of depletion.transferRates ?? []) {
@@ -1556,6 +1580,71 @@ export class OpenMCPythonExporter {
             lines.push(
                 `integrator.add_transfer_rate(${tr.material}, ["${tr.element}"], ${tr.rate}, transfer_rate_units="${tr.units ?? '1/s'}"${destArg})`
             );
+        }
+
+        // External source rates (Integrator.add_external_source_rate)
+        for (const rate of depletion.externalSourceRates ?? []) {
+            const composition = Object.fromEntries(
+                rate.composition.filter((entry) => entry.name.trim().length > 0).map((entry) => [entry.name, entry.weightPercent])
+            );
+            const timestepsArg = rate.timesteps && rate.timesteps.length > 0 ? `, timesteps=[${rate.timesteps.join(', ')}]` : '';
+            lines.push(
+                `integrator.add_external_source_rate(${rate.material}, ${JSON.stringify(composition)}, ${rate.rate}, rate_units="${
+                    rate.units ?? 'g/s'
+                }"${timestepsArg})`
+            );
+        }
+
+        // Reactivity control (keff search). The modifier must use openmc.lib,
+        // because OpenMC calls it inside a temporary C-API session.
+        const control = depletion.reactivityControl;
+        if (control && control.enabled !== false) {
+            const axisIndex = control.axis === 'x' ? 0 : control.axis === 'y' ? 1 : 2;
+            lines.push('# Reactivity control: adjust a model parameter to hold a target keff');
+            lines.push('def _openmc_studio_reactivity(value):');
+            if (control.parameter === 'cell-translation') {
+                lines.push(`    cell = openmc.lib.cells[${control.cellId ?? 1}]`);
+                lines.push('    translation = list(cell.translation)');
+                lines.push(`    translation[${axisIndex}] = value`);
+                lines.push('    cell.translation = translation');
+            } else {
+                lines.push(`    lib_mat = openmc.lib.materials[${control.materialId ?? 1}]`);
+                lines.push('    nuclides = list(lib_mat.nuclides)');
+                lines.push(`    index = nuclides.index(${JSON.stringify(control.nuclide ?? 'U235')})`);
+                lines.push('    densities = lib_mat.densities');
+                lines.push('    densities[index] = value');
+                lines.push('    lib_mat.set_densities(nuclides, densities)');
+            }
+            lines.push('integrator.add_keff_search_control(');
+            lines.push('    _openmc_studio_reactivity,');
+            lines.push(`    x0=${control.x0},`);
+            lines.push(`    x1=${control.x1},`);
+            lines.push(`    bracket=[${control.bracket[0]}, ${control.bracket[1]}],`);
+            if (control.targetKeff !== undefined) {
+                lines.push(`    target=${control.targetKeff},`);
+            }
+            if (control.kTol !== undefined) {
+                lines.push(`    k_tol=${control.kTol},`);
+            }
+            if (control.sigmaFinal !== undefined) {
+                lines.push(`    sigma_final=${control.sigmaFinal},`);
+            }
+            if (control.maxIterations !== undefined) {
+                lines.push(`    maxiter=${control.maxIterations},`);
+            }
+            lines.push(')');
+            if (control.onFailure === 'warn') {
+                lines.push('# OpenMC aborts on a non-converged search; wrap the controller installed by');
+                lines.push('# the public add_keff_search_control call to warn and continue instead.');
+                lines.push('_openmc_studio_search_run = integrator._keff_search_control.run');
+                lines.push('def _openmc_studio_tolerant_search(value):');
+                lines.push('    try:');
+                lines.push('        return _openmc_studio_search_run(value)');
+                lines.push('    except ValueError as exc:');
+                lines.push('        print(f"Warning: reactivity search did not converge: {exc}")');
+                lines.push('        return None');
+                lines.push('integrator._keff_search_control.run = _openmc_studio_tolerant_search');
+            }
         }
 
         // Run integration (commented out by default to allow XML export first)

@@ -65,6 +65,7 @@ import {
 } from '../common/openmc-studio-protocol';
 import { OpenMCCmfdSettings } from '../common/openmc-state-schema';
 import { resolveDepletionSolver } from '../common/depletion-solvers';
+import { parseDepletionBlock } from '../common/depletion-config';
 import { NukeCoreBackendService, NukeCoreBackendServiceInterface } from 'nuke-core/lib/common';
 import { STUDIO_CORE_PACKAGES } from '../common/packages';
 import { OpenMCValidationBackendService } from './openmc-validation-backend-service';
@@ -132,102 +133,37 @@ export class OpenMCRunnerService {
             return { enabled: false };
         }
 
-        const extractTag = (xml: string, tag: string): string | undefined => {
-            const match = xml.match(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`));
-            return match ? match[1] : undefined;
-        };
-
-        const unescapeXml = (text: string): string =>
-            text
-                .replace(/&lt;/g, '<')
-                .replace(/&gt;/g, '>')
-                .replace(/&quot;/g, '"')
-                .replace(/&apos;/g, "'")
-                .replace(/&amp;/g, '&');
-
         try {
             const content = fs.readFileSync(settingsPath, 'utf-8');
-            // Check for <depletion> tag
-            const depletionMatch = content.match(/<depletion>[\s\S]*?<\/depletion>/);
-            if (!depletionMatch) {
+            const parsed = parseDepletionBlock(content);
+            if (!parsed) {
                 return { enabled: false };
             }
-
-            const depletionXml = depletionMatch[0];
-
-            // Extract chain file
-            const chainFile = extractTag(depletionXml, 'chain_file');
-
-            // Extract time steps
-            const timeStepsText = extractTag(depletionXml, 'time_steps');
-            const timeSteps = timeStepsText
-                ? timeStepsText
-                      .trim()
-                      .split(/\s+/)
-                      .map(Number)
-                      .filter((n) => !isNaN(n))
-                : [];
-
-            // Extract power
-            const powerText = extractTag(depletionXml, 'power');
-            const power = powerText !== undefined ? Number(powerText) : undefined;
-
-            // Extract power density
-            const powerDensityText = extractTag(depletionXml, 'power_density');
-            const powerDensity = powerDensityText !== undefined ? Number(powerDensityText) : undefined;
-
-            const settings: DepletionRunSettings = { chainFile, timeSteps, power, powerDensity };
-
-            // Advanced options
-            const operator = extractTag(depletionXml, 'operator');
-            if (operator) {
-                settings.operator = operator as DepletionRunSettings['operator'];
+            for (const warning of parsed.warnings) {
+                this.log(`Warning: ${warning}`);
             }
-            const solver = extractTag(depletionXml, 'solver');
-            if (solver) {
-                // Legacy stored values (leapfrog, predictor-corrector, …) map
-                // to canonical OpenMC integrator ids
-                settings.solver = resolveDepletionSolver(solver);
-            }
-            const normalization = extractTag(depletionXml, 'normalization');
-            if (normalization) {
-                settings.normalization = normalization;
-            }
-            if (extractTag(depletionXml, 'diff_burnable_mats') === 'true') {
-                settings.diffBurnableMats = true;
-            }
-            const diffVolumeMethod = extractTag(depletionXml, 'diff_volume_method');
-            if (diffVolumeMethod) {
-                settings.diffVolumeMethod = diffVolumeMethod as DepletionRunSettings['diffVolumeMethod'];
-            }
-            const fluxFiles = extractTag(depletionXml, 'flux_files');
-            if (fluxFiles) {
-                settings.fluxFiles = fluxFiles.split(',').filter((f) => f.length > 0);
-            }
-            const microxsFiles = extractTag(depletionXml, 'microxs_files');
-            if (microxsFiles) {
-                settings.microxsFiles = microxsFiles.split(',').filter((f) => f.length > 0);
-            }
-            if (extractTag(depletionXml, 'generate_microxs') === 'true') {
-                settings.generateFromModel = true;
-            }
-            const transferRates = extractTag(depletionXml, 'transfer_rates');
-            if (transferRates) {
-                try {
-                    settings.transferRates = JSON.parse(unescapeXml(transferRates));
-                } catch {
-                    this.log('Warning: failed to parse <transfer_rates> JSON in settings.xml');
-                }
-            }
-            const fissionQ = extractTag(depletionXml, 'fission_q');
-            if (fissionQ) {
-                try {
-                    settings.fissionQ = JSON.parse(unescapeXml(fissionQ));
-                } catch {
-                    this.log('Warning: failed to parse <fission_q> JSON in settings.xml');
-                }
-            }
-
+            const settings: DepletionRunSettings = {
+                chainFile: parsed.depletion.chainFile,
+                timeSteps: parsed.depletion.timeSteps as number[],
+                power: parsed.depletion.power,
+                powerDensity: parsed.depletion.powerDensity,
+                operator: parsed.depletion.operator,
+                solver: parsed.depletion.solver,
+                normalization: parsed.depletion.normalizationMode,
+                diffBurnableMats: parsed.depletion.diffBurnableMats,
+                diffVolumeMethod: parsed.depletion.diffVolumeMethod,
+                fluxFiles: parsed.depletion.fluxFiles,
+                microxsFiles: parsed.depletion.microxsFiles,
+                generateFromModel: parsed.depletion.generateFromModel,
+                transferRates: parsed.depletion.transferRates,
+                fissionQ: parsed.depletion.fissionQ,
+                substeps: parsed.depletion.substeps,
+                decayOnlySteps: parsed.depletion.decayOnlySteps,
+                reactivityControl: parsed.depletion.reactivityControl,
+                externalSourceRates: parsed.depletion.externalSourceRates,
+                continueFromResults: parsed.depletion.continueFromResults,
+                continueTimesteps: parsed.depletion.continueTimesteps
+            };
             return { enabled: true, settings };
         } catch (e) {
             console.error('[OpenMC Runner] Error checking depletion settings:', e);
@@ -1042,6 +978,12 @@ export class OpenMCRunnerService {
         // Solver and operator
         args.push('--solver', resolveDepletionSolver(depletionSettings.solver));
         args.push('--operator', depletionSettings.operator ?? 'coupled');
+        if (depletionSettings.substeps !== undefined) {
+            args.push('--substeps', String(depletionSettings.substeps));
+        }
+        if (depletionSettings.decayOnlySteps && depletionSettings.decayOnlySteps.length > 0) {
+            args.push('--decay-only-steps', depletionSettings.decayOnlySteps.join(','));
+        }
 
         // Advanced options
         if (depletionSettings.normalization) {
@@ -1067,6 +1009,18 @@ export class OpenMCRunnerService {
         }
         if (depletionSettings.fissionQ && Object.keys(depletionSettings.fissionQ).length > 0) {
             args.push('--fission-q', JSON.stringify(depletionSettings.fissionQ));
+        }
+        if (depletionSettings.reactivityControl) {
+            args.push('--reactivity-control', JSON.stringify(depletionSettings.reactivityControl));
+        }
+        if (depletionSettings.externalSourceRates && depletionSettings.externalSourceRates.length > 0) {
+            args.push('--external-source-rates', JSON.stringify(depletionSettings.externalSourceRates));
+        }
+        if (depletionSettings.continueFromResults) {
+            args.push('--continue-from-results', depletionSettings.continueFromResults);
+        }
+        if (depletionSettings.continueTimesteps) {
+            args.push('--continue-timesteps');
         }
 
         // Add MPI processes if enabled

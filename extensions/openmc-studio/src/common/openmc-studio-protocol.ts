@@ -42,6 +42,8 @@ import {
     OpenMCCell,
     OpenMCPlotConfig,
     OpenMCTransferRate,
+    OpenMCReactivityControl,
+    OpenMCExternalSourceRate,
     OpenMCCmfdSettings,
     OPENMC_STATE_SCHEMA_VERSION,
     DAGMCInfo
@@ -363,6 +365,18 @@ export interface DepletionRunSettings {
     generateFromModel?: boolean;
     /** External transfer rates between materials */
     transferRates?: OpenMCTransferRate[];
+    /** Substeps per depletion interval (CRAM solve, OpenMC 0.16+) */
+    substeps?: number;
+    /** Zero-based indices of decay-only (zero-power) steps */
+    decayOnlySteps?: number[];
+    /** Reactivity (keff search) control (driver-only, OpenMC 0.16+) */
+    reactivityControl?: OpenMCReactivityControl;
+    /** External feed/removal rates (driver-only, OpenMC 0.15.3+) */
+    externalSourceRates?: OpenMCExternalSourceRate[];
+    /** Previous depletion results file for restart/continuation */
+    continueFromResults?: string;
+    /** Continue the previous schedule instead of appending steps */
+    continueTimesteps?: boolean;
 }
 
 // ============================================================================
@@ -438,6 +452,14 @@ export interface OpenMCCompat {
     tokamakSource: boolean;
     /** Whether random ray `sample_method: 's2'` is accepted */
     s2SampleMethod: boolean;
+    /** Whether `Integrator(..., substeps=...)` is accepted (0.16.0+) */
+    depletionSubsteps: boolean;
+    /** Whether `Integrator.add_keff_search_control` exists (0.16.0+) */
+    depletionKeffSearch: boolean;
+    /** Whether `Integrator.add_external_source_rate` exists (0.15.3+) */
+    depletionExternalSourceRate: boolean;
+    /** Whether `continue_timesteps` and restart results are available (0.15.1+) */
+    depletionContinuation: boolean;
 }
 
 /** Release-compatible default (stable releases are the common case). */
@@ -445,7 +467,11 @@ export const DEFAULT_OPENMC_COMPAT: OpenMCCompat = {
     raySourceFormat: 'direct',
     adjointSource: false,
     tokamakSource: false,
-    s2SampleMethod: false
+    s2SampleMethod: false,
+    depletionSubsteps: false,
+    depletionKeffSearch: false,
+    depletionExternalSourceRate: true,
+    depletionContinuation: true
 };
 
 /** Result of XML generation */

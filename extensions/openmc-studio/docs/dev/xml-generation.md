@@ -262,9 +262,12 @@ for (const tally of state.tallies) {
 ## Depletion, Triggers, Derivatives, Kinetics, CMFD
 
 Depletion config persists in a custom `<depletion>` block in settings.xml (operator, solver, normalization, diff burnable mats,
-independent-operator file inputs, `transfer_rates`/`fission_q` as escaped JSON). The runner parses it back in `checkDepletionEnabled`
-and builds `run_depletion.py` args from it — extend both in lockstep. Coupled is CE-only, MG depletion is Independent-operator only,
-macroscopic materials never deplete.
+independent-operator file inputs, `transfer_rates`/`fission_q` as escaped JSON, plus driver-only `substeps`,
+`reactivity_control`, `external_source_rates`, `continue_from_results`, and `continue_timesteps`). OpenMC's own settings parser
+ignores the block; the runner parses it in `checkDepletionEnabled` and builds `run_depletion.py` args from it — extend both in
+lockstep. XML import parses the same block back through the shared `parseDepletionBlock` helper. Coupled is CE-only, MG depletion
+is Independent-operator only, macroscopic materials never deplete. Whenever a driver-only field is active, XML generation adds a
+warning that the standalone `openmc` binary does not apply it; the frontend surfaces that warning after generation.
 
 Per-tally triggers serialize as `<trigger type threshold [scores] [ignore_zeros]/>` sub-elements (scores is a space-separated
 **attribute**); settings.xml/codegen emit `<trigger><active>true</active>` automatically whenever any tally has triggers, with run-level

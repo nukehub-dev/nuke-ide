@@ -62,6 +62,8 @@ import {
     OpenMCOptimizationRun,
     OpenMCPlotConfig,
     OptimizationResult,
+    OpenMCReactivityControl,
+    OpenMCExternalSourceRate,
     OPENMC_STATE_SCHEMA_VERSION
 } from '../common/openmc-state-schema';
 
@@ -563,6 +565,62 @@ export class OpenMCStateManager {
             type: 'update',
             value: this._state.depletion
         });
+    }
+
+    /**
+     * Update the reactivity-control (keff search) configuration.
+     *
+     * Creates a default control object when none exists so the first toggle
+     * from the UI always produces a complete, editable configuration.
+     *
+     * @param updates - Partial reactivity-control settings.
+     */
+    updateReactivityControl(updates: Partial<OpenMCReactivityControl>): void {
+        const current: OpenMCReactivityControl = this._state.depletion?.reactivityControl ?? {
+            enabled: true,
+            parameter: 'cell-translation',
+            cellId: this._state.geometry.cells[0]?.id ?? 1,
+            axis: 'z',
+            materialId: this._state.materials[0]?.id ?? 1,
+            nuclide: this._state.materials[0]?.nuclides[0]?.name ?? 'U235',
+            x0: 0,
+            x1: 1,
+            bracket: [-10, 10],
+            targetKeff: 1.0,
+            kTol: 1e-4,
+            sigmaFinal: 3e-4,
+            maxIterations: 50,
+            onFailure: 'fail'
+        };
+        this.updateDepletion({ reactivityControl: { ...current, ...updates } });
+    }
+
+    /**
+     * Add an external feed/removal rate row.
+     * @param rate - New external source rate.
+     */
+    addExternalSourceRate(rate: OpenMCExternalSourceRate): void {
+        const rates = [...(this._state.depletion?.externalSourceRates ?? []), rate];
+        this.updateDepletion({ externalSourceRates: rates });
+    }
+
+    /**
+     * Update one external feed/removal rate row.
+     * @param index - Row index.
+     * @param updates - Partial row updates.
+     */
+    updateExternalSourceRate(index: number, updates: Partial<OpenMCExternalSourceRate>): void {
+        const rates = (this._state.depletion?.externalSourceRates ?? []).map((rate, i) => (i === index ? { ...rate, ...updates } : rate));
+        this.updateDepletion({ externalSourceRates: rates });
+    }
+
+    /**
+     * Remove one external feed/removal rate row.
+     * @param index - Row index.
+     */
+    removeExternalSourceRate(index: number): void {
+        const rates = (this._state.depletion?.externalSourceRates ?? []).filter((_, i) => i !== index);
+        this.updateDepletion({ externalSourceRates: rates.length > 0 ? rates : undefined });
     }
 
     /**

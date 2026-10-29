@@ -202,6 +202,26 @@ class TestMainArgparseAdvanced:
 
 
 class TestOpenMCIntegration:
+    def test_capability_probes_match_the_installed_openmc(self):
+        """Depletion gates introspect the installed API, never a version string."""
+        deplete = pytest.importorskip("openmc.deplete")
+        import inspect
+
+        from openmc.deplete.abc import Integrator
+
+        params = inspect.signature(Integrator.__init__).parameters
+        assert run_depletion.supports_integrator_option("substeps") == ("substeps" in params)
+        assert run_depletion.supports_integrator_option("continue_timesteps") == (
+            "continue_timesteps" in params
+        )
+        assert run_depletion.supports_integrator_method("add_keff_search_control") == hasattr(
+            Integrator, "add_keff_search_control"
+        )
+        assert run_depletion.supports_integrator_method("add_external_source_rate") == hasattr(
+            Integrator, "add_external_source_rate"
+        )
+        assert hasattr(deplete, "Results")
+
     def test_operator_signatures_accept_new_kwargs(self):
         """The real operator constructors accept the kwargs the script passes."""
         # importorskip on the submodule: plain `import openmc` does not expose openmc.deplete

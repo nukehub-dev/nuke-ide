@@ -455,7 +455,7 @@ are imported once by the frontend module; they work anywhere a codicon does, inc
 - Use domain icons for OpenMC concepts: `openmc-atom`, `openmc-geometry`, `openmc-surface`, `openmc-cell`,
   `openmc-universe`, `openmc-mesh`, `openmc-grid`, `openmc-material`, `openmc-tally`, `openmc-statepoint`,
   `openmc-depletion`, `openmc-variance`, `openmc-source`, `openmc-run`, `openmc-compare`, `openmc-optimize`,
-  `openmc-plot`, `openmc-mgxs`, `openmc-volume`, `openmc-validate`.
+  `openmc-plot`, `openmc-mgxs`, `openmc-volume`, `openmc-validate`, `openmc-reactivity`, `openmc-feed`.
 - Keep generic codicons for universal utilities: add, save, edit, trash, close, chevrons, warnings, and errors.
   Draw each OpenMC domain glyph as one coherent shape; do not compose detached symbols (grid + bars) into one icon.
 

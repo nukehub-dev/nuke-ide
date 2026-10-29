@@ -32,6 +32,12 @@ import { Tooltip, NukeSelect } from 'nuke-essentials/lib/theme/browser/component
 import { OpenMCState, OpenMCEigenvalueSettings, OpenMCFixedSourceSettings } from '../../../../common/openmc-state-schema';
 import { computeSetupChecklist, computeReadiness, ChecklistStatus } from '../../../../common/run-readiness';
 import { resolveDepletionSolver } from '../../../../common/depletion-solvers';
+import {
+    getDepletionSubsteps,
+    summarizeContinuation,
+    summarizeExternalSourceRatesText,
+    summarizeReactivityControl
+} from '../../../../common/depletion-config';
 import { deriveTrackCaptureSettings, isParticleRestartFile, parseParticleRestartFileName } from '../../../../common/particle-restart';
 import type { SimulationDashboardWidget } from '../simulation-dashboard-widget';
 import { DashboardTabContribution } from './tab-registry';
@@ -322,6 +328,38 @@ export class SimulationTabContribution implements DashboardTabContribution {
                                 <label>Solver:</label>
                                 <span style={{ textTransform: 'uppercase' }}>{resolveDepletionSolver(state.depletion.solver)}</span>
                             </div>
+                            <div className="info-item">
+                                <label>Operator:</label>
+                                <span>{state.depletion.operator === 'independent' ? 'Independent' : 'Coupled'}</span>
+                            </div>
+                            <div className="info-item">
+                                <label>Substeps:</label>
+                                <span>{getDepletionSubsteps(state.depletion)}</span>
+                            </div>
+                            {(state.depletion.decayOnlySteps?.length ?? 0) > 0 && (
+                                <div className="info-item">
+                                    <label>Decay-Only Steps:</label>
+                                    <span>{state.depletion.decayOnlySteps!.length}</span>
+                                </div>
+                            )}
+                            {summarizeReactivityControl(state.depletion.reactivityControl) && (
+                                <div className="info-item">
+                                    <label>Reactivity Control:</label>
+                                    <span>{summarizeReactivityControl(state.depletion.reactivityControl)}</span>
+                                </div>
+                            )}
+                            {summarizeExternalSourceRatesText(state.depletion.externalSourceRates) && (
+                                <div className="info-item">
+                                    <label>External Feed/Removal:</label>
+                                    <span>{summarizeExternalSourceRatesText(state.depletion.externalSourceRates)}</span>
+                                </div>
+                            )}
+                            {summarizeContinuation(state.depletion) && (
+                                <div className="info-item">
+                                    <label>Continuation:</label>
+                                    <span>{summarizeContinuation(state.depletion)}</span>
+                                </div>
+                            )}
                         </div>
                     </div>
                 )}

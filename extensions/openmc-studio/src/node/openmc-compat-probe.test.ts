@@ -42,8 +42,26 @@ import { XMLGenerationService } from './xml-generation-service';
 import { DEFAULT_OPENMC_COMPAT, OpenMCCompat } from '../common/openmc-studio-protocol';
 import { OpenMCState } from '../common/openmc-state-schema';
 
-const WRAPPER_FULL: OpenMCCompat = { raySourceFormat: 'wrapper', adjointSource: true, tokamakSource: true, s2SampleMethod: true };
-const DIRECT_MIN: OpenMCCompat = { raySourceFormat: 'direct', adjointSource: false, tokamakSource: false, s2SampleMethod: false };
+const WRAPPER_FULL: OpenMCCompat = {
+    raySourceFormat: 'wrapper',
+    adjointSource: true,
+    tokamakSource: true,
+    s2SampleMethod: true,
+    depletionSubsteps: true,
+    depletionKeffSearch: true,
+    depletionExternalSourceRate: true,
+    depletionContinuation: true
+};
+const DIRECT_MIN: OpenMCCompat = {
+    raySourceFormat: 'direct',
+    adjointSource: false,
+    tokamakSource: false,
+    s2SampleMethod: false,
+    depletionSubsteps: false,
+    depletionKeffSearch: false,
+    depletionExternalSourceRate: true,
+    depletionContinuation: true
+};
 
 /** Probe subclass with the python spawn mocked out. */
 class MockProbe extends OpenMCCompatProbeService {
@@ -100,7 +118,32 @@ describe('OpenMCCompatProbeService', () => {
             raySourceFormat: 'direct',
             adjointSource: false,
             tokamakSource: false,
-            s2SampleMethod: true
+            s2SampleMethod: true,
+            depletionSubsteps: false,
+            depletionKeffSearch: false,
+            depletionExternalSourceRate: true,
+            depletionContinuation: true
+        });
+    });
+
+    it('parses the full probe output with depletion capabilities', () => {
+        const probe = makeProbe('/fake/python', undefined);
+        expect((probe as any).parseProbeOutput('wrapper adjoint tokamak s2 substeps keff-search external-rate continuation\n')).toEqual(
+            WRAPPER_FULL
+        );
+        expect(
+            (probe as any).parseProbeOutput(
+                'direct no-adjoint no-tokamak no-s2 no-substeps no-keff-search no-external-rate no-continuation\n'
+            )
+        ).toEqual({
+            raySourceFormat: 'direct',
+            adjointSource: false,
+            tokamakSource: false,
+            s2SampleMethod: false,
+            depletionSubsteps: false,
+            depletionKeffSearch: false,
+            depletionExternalSourceRate: false,
+            depletionContinuation: false
         });
     });
 
@@ -110,7 +153,11 @@ describe('OpenMCCompatProbeService', () => {
             raySourceFormat: 'wrapper',
             adjointSource: true,
             tokamakSource: true,
-            s2SampleMethod: true
+            s2SampleMethod: true,
+            depletionSubsteps: false,
+            depletionKeffSearch: false,
+            depletionExternalSourceRate: true,
+            depletionContinuation: true
         });
     });
 

@@ -227,6 +227,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - openmc-studio: CMFD acceleration UI, validation, codegen, and run driver through the IDE.
 - openmc-studio: mesh sources with sub-source enforcement plus TokamakSource with Miller geometry and emission profiles.
 - openmc-studio: per-tally precision triggers with automatic emission plus run-level trigger settings.
+- openmc-studio: depletion advanced controls — CRAM substeps, keff-search reactivity control, external feed/removal rates, and continuation.
 - openmc-studio: criticality search as an optimization-widget mode with live table and apply-to-model.
 - openmc-studio: Advanced settings section (event-based transport, photon creation, biasing, lost-particle limits, ...).
 - openmc-studio: modular simulation-dashboard tabs behind a registry; project files carry schema 1.1.0.

@@ -354,7 +354,11 @@ with imprint/merge it routes through nuke-cad's `dagmc_export.py` when available
 ### Depletion, search, and sweep drivers
 
 `run_depletion.py` supports coupled and independent operators, `get_microxs_and_flux` generation, transfer rates (via
-`Integrator.add_transfer_rate`), custom fission Q, and diff burnable mats. Before `CoupledOperator` it syncs DAGMC universes
+`Integrator.add_transfer_rate`), custom fission Q, and diff burnable mats. It also wires CRAM `substeps`, curated
+reactivity control (control-rod translation or nuclide density through `openmc.lib`), external feed/removal rates
+(`Integrator.add_external_source_rate`), and continuation from a previous `depletion_results.h5`
+(`Results` → operator `prev_results` + `continue_timesteps`). Version-sensitive options are capability-probed by
+introspection, never version strings. Before `CoupledOperator` it syncs DAGMC universes
 (`init_lib` → `sync_dagmc_universes` → `finalize_lib`, with an `openmc.lib` cell-enumeration fallback); depletable materials must carry
 `VOLUMES`. All operator-construction failures surface as `DepletionConfigError` (clean JSON, no traceback). `run_keff_search.py` wraps
 `openmc.search_for_keff`; `run_optimization.py` applies parameter sweeps. `sync_dagmc_depletion.py` rewrites geometry.xml with per-cell
