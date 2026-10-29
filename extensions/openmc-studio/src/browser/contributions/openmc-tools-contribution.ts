@@ -285,6 +285,19 @@ export class OpenMCToolsContribution implements NukeToolsContribution {
             requiresProject: true
         });
 
+        item({
+            id: 'openmc.advanced.shutdownDose',
+            label: 'Shutdown Dose',
+            commandId: OpenMCViewCommands.OPEN_SHUTDOWN_DOSE.id,
+            category: ['OpenMC Studio', 'Advanced'],
+            sectionOrder: 'c',
+            categoryOrder: 'e',
+            order: 'i',
+            icon: 'openmc-shutdown-dose',
+            description: 'Run an R2S or D1S shutdown-dose workflow.',
+            requiresProject: true
+        });
+
         // Environment
         item({
             id: 'openmc.environment.checkHealth',

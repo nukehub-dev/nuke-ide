@@ -202,6 +202,12 @@ export interface OpenMCCell {
     rotation?: [number, number, number];
     /** Translation in cm, applied after the rotation. */
     translation?: [number, number, number];
+    /**
+     * Cell volume in cm³ (`<cell volume="...">`). Required for cell-based
+     * activation workflows such as R2S; OpenMC computes it when omitted from
+     * ordinary transport runs.
+     */
+    volume?: number;
 }
 
 // ============================================================================
@@ -2121,6 +2127,99 @@ export interface OpenMCOptimizationState {
 }
 
 // ============================================================================
+// Shutdown Dose (R2S / D1S)
+// ============================================================================
+
+/** Wizard page persisted with the shutdown-dose configuration. */
+export type OpenMCShutdownDoseWizardStep = 'method' | 'schedule' | 'tallies' | 'review' | 'results';
+
+/** Cell bounding box override used for cell-based R2S source sampling. */
+export interface OpenMCShutdownDoseBoundingBox {
+    /** Lower-left corner in cm */
+    lowerLeft: [number, number, number];
+    /** Upper-right corner in cm */
+    upperRight: [number, number, number];
+}
+
+/** Dose-response template used by the "Add dose tally" action. */
+export interface OpenMCShutdownDoseTallyTemplate {
+    /** ICRP data source */
+    dataSource: 'icrp74' | 'icrp116';
+    /** Dose quantity */
+    doseQuantity: 'effective' | 'ambient';
+    /** Irradiation geometry (effective dose only) */
+    geometry: 'AP' | 'PA' | 'LLAT' | 'RLAT' | 'ROT' | 'ISO';
+    /** Energy interpolation for the response function */
+    interpolation: 'histogram' | 'linear-linear' | 'linear-log' | 'log-linear' | 'log-log';
+}
+
+/** Last completed shutdown-dose run, used to resume the results page. */
+export interface OpenMCShutdownDoseLastRun {
+    /** Directory written by the driver (contains the summary JSON). */
+    outputDirectory: string;
+    /** Analysis method that produced the directory. */
+    method: 'r2s' | 'd1s';
+    /** ISO timestamp of completion. */
+    completedAt?: string;
+}
+
+/**
+ * Driver-only shutdown-dose configuration (R2S / D1S).
+ *
+ * None of these fields are written to settings.xml or tallies.xml. The
+ * workflow runs through `python/run_r2s.py` / `python/run_d1s.py` with the
+ * generated model XML as input.
+ */
+export interface OpenMCShutdownDoseConfig {
+    /** Analysis method */
+    method: 'r2s' | 'd1s';
+    /** R2S activation domain type (ignored for D1S) */
+    domainType?: 'cell' | 'mesh';
+    /** R2S activation cells */
+    cellIds?: number[];
+    /** R2S activation meshes (non-overlapping) */
+    meshIds?: number[];
+    /** Activation schedule. Numbers use `timestepUnits`; strings carry a unit. */
+    timesteps: (number | string)[];
+    /** Units for numeric timesteps */
+    timestepUnits?: 's' | 'min' | 'h' | 'd' | 'a';
+    /** Source rate per interval in neutrons/s */
+    sourceRates: number | number[];
+    /** Depletion chain XML */
+    chainFile?: string;
+    /** Photon transport time indices; undefined = all times with a decay source */
+    photonTimeIndices?: number[];
+    /** Score photon tallies per parent radionuclide (R2S) */
+    byParentNuclide?: boolean;
+    /** Directory containing the generated model XML */
+    workingDirectory?: string;
+    /** Root directory for the driver output tree */
+    outputDirectory?: string;
+    /** Cell bounding boxes for cell-based R2S; keyed by cell ID */
+    boundingBoxes?: Record<number, OpenMCShutdownDoseBoundingBox>;
+    /** Number of material-volume samples per mesh element */
+    matVolSamples?: number;
+    /** Project tallies copied into the photon model (R2S) or corrected (D1S) */
+    photonTallyIds?: number[];
+    /** D1S time index to correct (negative counts from the end) */
+    d1sTimeIndex?: number;
+    /** D1S: sum over parent nuclides after correction */
+    d1sSumNuclides?: boolean;
+    /** Run the neutron transport stage (R2S) */
+    runNeutron?: boolean;
+    /** Run the photon transport stage */
+    runPhoton?: boolean;
+    /** Persisted wizard page */
+    wizardStep?: OpenMCShutdownDoseWizardStep;
+    /** Tally created by the dose template (for highlighting) */
+    doseTallyId?: number;
+    /** Dose-response template settings */
+    doseTallyTemplate?: OpenMCShutdownDoseTallyTemplate;
+    /** Last completed run for results resumption */
+    lastRun?: OpenMCShutdownDoseLastRun;
+}
+
+// ============================================================================
 // Complete State
 // ============================================================================
 
@@ -2149,6 +2248,8 @@ export interface OpenMCState {
     varianceReduction?: OpenMCVarianceReduction;
     /** Depletion settings */
     depletion?: OpenMCDepletion;
+    /** Shutdown-dose (R2S / D1S) driver configuration */
+    shutdownDose?: OpenMCShutdownDoseConfig;
     /** Optimization settings */
     optimization?: OpenMCOptimizationState;
     /** Plots configuration (for OpenMC's built-in plotting) */

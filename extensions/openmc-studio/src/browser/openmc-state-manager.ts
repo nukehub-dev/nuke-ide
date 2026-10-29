@@ -64,6 +64,7 @@ import {
     OptimizationResult,
     OpenMCReactivityControl,
     OpenMCExternalSourceRate,
+    OpenMCShutdownDoseConfig,
     OPENMC_STATE_SCHEMA_VERSION
 } from '../common/openmc-state-schema';
 
@@ -618,6 +619,49 @@ export class OpenMCStateManager {
             path: 'depletion',
             type: 'update',
             value: this._state.depletion
+        });
+    }
+
+    /**
+     * Update the shutdown-dose (R2S / D1S) driver configuration.
+     *
+     * The configuration is project state only: it is never written to
+     * settings.xml, and the Python driver consumes it at run time.
+     *
+     * @param updates - Partial shutdown-dose configuration.
+     */
+    updateShutdownDose(updates: Partial<OpenMCShutdownDoseConfig>): void {
+        const current: OpenMCShutdownDoseConfig = this._state.shutdownDose ?? {
+            method: 'r2s',
+            timesteps: [1, 1],
+            timestepUnits: 'd',
+            sourceRates: [1.0e12, 0]
+        };
+        this._state.shutdownDose = { ...current, ...updates };
+        this.markDirty();
+
+        this._onStateChange.fire({
+            path: 'shutdown-dose',
+            type: 'update',
+            value: this._state.shutdownDose
+        });
+    }
+
+    /**
+     * Clear the shutdown-dose configuration.
+     */
+    clearShutdownDose(): void {
+        if (!this._state.shutdownDose) {
+            return;
+        }
+        const oldValue = this._state.shutdownDose;
+        this._state.shutdownDose = undefined;
+        this.markDirty();
+
+        this._onStateChange.fire({
+            path: 'shutdown-dose',
+            type: 'delete',
+            oldValue
         });
     }
 

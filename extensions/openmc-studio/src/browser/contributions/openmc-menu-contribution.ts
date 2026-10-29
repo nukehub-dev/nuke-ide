@@ -283,5 +283,10 @@ export class OpenMCMenuContribution implements MenuContribution {
             label: 'MGXS Generator',
             order: 'h'
         });
+        menus.registerMenuAction(OpenMCMenus.OPENMC_ADVANCED, {
+            commandId: OpenMCViewCommands.OPEN_SHUTDOWN_DOSE.id,
+            label: 'Shutdown Dose',
+            order: 'i'
+        });
     }
 }

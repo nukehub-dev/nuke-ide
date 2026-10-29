@@ -373,6 +373,16 @@ introspection, never version strings. Before `CoupledOperator` it syncs DAGMC un
 `openmc.search_for_keff`; `run_optimization.py` applies parameter sweeps. `sync_dagmc_depletion.py` rewrites geometry.xml with per-cell
 material overrides (never the `.h5m`).
 
+### Shutdown dose (R2S / D1S)
+
+`run_r2s.py` and `run_d1s.py` are driver-only: they load the generated model XML and receive a JSON configuration (schedule, domains,
+chain, tally selection, output directory). R2S calls `R2SManager.step1`–`step4` explicitly so each stage emits a
+`@@NUKE_PROGRESS@@` marker; cell domains require `cell.volume` and either a computed bounding box or an explicit override, and mesh
+domains are read from every `<mesh>` element in `tallies.xml`/`settings.xml` (a missing `type` means regular). D1S enables
+`settings.use_decay_photons`, prepares the photon tallies, runs one transport solve, and applies `d1s.apply_time_correction`.
+`dose_coefficients.py` exposes OpenMC's shipped ICRP tables for the dose-tally template. Both drivers print one JSON object and
+write `r2s_summary.json` / `d1s_summary.json` for the Results page. See [Shutdown Dose](shutdown-dose.md).
+
 ### Native plots
 
 `generate_plots.py` owns `plots.xml` for the Native Plotting window. It applies `background` and

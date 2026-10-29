@@ -719,8 +719,12 @@ export class XMLGenerationService {
             regionAttr = ` region="${this.escapeXml(regionValue)}"`;
         }
 
+        // Cell volume is optional in geometry.xml and required by cell-based
+        // activation workflows (R2S); emit it only when explicitly set.
+        const volumeAttr = typeof cell.volume === 'number' && cell.volume > 0 ? ` volume="${cell.volume}"` : '';
+
         // Use self-closing tag format for cleaner XML
-        return `  <cell id="${cell.id}"${nameAttr}${fillAttr}${regionAttr}${tempAttr}${universeAttr}${densityAttr}${translationAttr}${rotationAttr}/>\n`;
+        return `  <cell id="${cell.id}"${nameAttr}${fillAttr}${regionAttr}${tempAttr}${universeAttr}${densityAttr}${volumeAttr}${translationAttr}${rotationAttr}/>\n`;
     }
 
     private regionNodeToString(node: any): string {

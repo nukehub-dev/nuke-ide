@@ -13,6 +13,7 @@ This section is for developers who want to understand, modify, or extend `openmc
 | [**RPC Protocols**](rpc-protocols.md)     | How TypeScript interfaces define the frontend/backend contract and state schema                     |
 | [**Python Backends**](python-backends.md) | Conventions for Python service scripts (statepoint reading, DAGMC editing, depletion, optimization) |
 | [**XML Generation**](xml-generation.md)   | How the state model becomes OpenMC XML (and back via import)                                        |
+| [**Shutdown Dose**](shutdown-dose.md)     | R2S/D1S driver-only contract, progress protocol, cell volumes, and Python export boundary           |
 | [**Adding a Widget**](adding-a-widget.md) | Step-by-step guide to adding a new widget or dashboard tab                                          |
 | [**Testing**](testing.md)                 | Python/TypeScript unit tests and the e2e layer (env vars, profiles, conventions)                    |
 
@@ -79,6 +80,7 @@ src/
 │   │   ├── mgxs-generator/
 │   │   ├── native-plotting/
 │   │   ├── optimization/
+│   │   ├── shutdown-dose/
 │   │   ├── simulation-comparison/
 │   │   ├── simulation-dashboard/
 │   │   │   └── tabs/                # DashboardTabContribution per tab
@@ -110,6 +112,9 @@ python/                              # Python service scripts
 ├── run_keff_search.py               # Criticality search driver
 ├── run_cmfd.py                      # CMFD acceleration driver
 ├── run_volume_calc.py               # Stochastic volume estimation
+├── run_r2s.py                       # R2S shutdown-dose driver
+├── run_d1s.py                       # D1S shutdown-dose driver
+├── dose_coefficients.py             # ICRP dose-response table reader
 ├── generate_mgxs.py                 # convert_to_multigroup driver
 ├── generate_mgxs_library.py         # openmc.mgxs.Library driver
 ├── generate_plots.py                # Native plot mode driver

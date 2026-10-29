@@ -71,6 +71,14 @@ import {
     MgxsGenerationRequest,
     MgxsGenerationResult,
     OpenMCCompat,
+    StartShutdownDoseRequest,
+    ShutdownDoseStartResponse,
+    ShutdownDoseValidationRequest,
+    ShutdownDoseValidationResult,
+    ReadShutdownDoseSummaryRequest,
+    ReadShutdownDoseSummaryResult,
+    DoseCoefficientsRequest,
+    DoseCoefficientsResult,
     OPENMC_STATE_SCHEMA_VERSION
 } from '../common/openmc-studio-protocol';
 
@@ -704,6 +712,14 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                 };
                 if (cell.$.name) cellObj.name = cell.$.name;
                 if (cell.$.temperature) cellObj.temperature = parseFloat(cell.$.temperature);
+                if (cell.$.volume !== undefined) {
+                    const volume = parseFloat(cell.$.volume);
+                    if (Number.isFinite(volume) && volume > 0) {
+                        cellObj.volume = volume;
+                    } else {
+                        warnings.push(`Cell ${cell.$.id}: volume must be a positive number; got '${cell.$.volume}'`);
+                    }
+                }
                 if (cell.$.density !== undefined) {
                     const density = parseFloat(cell.$.density);
                     if (Number.isFinite(density)) {
@@ -2707,6 +2723,42 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
     }
 
     /**
+     * Validate a shutdown-dose configuration (state + filesystem).
+     */
+    async validateShutdownDose(request: ShutdownDoseValidationRequest): Promise<ShutdownDoseValidationResult> {
+        return this.runnerService.validateShutdownDose(request);
+    }
+
+    /**
+     * Launch an R2S or D1S shutdown-dose driver.
+     */
+    async startShutdownDose(request: StartShutdownDoseRequest): Promise<ShutdownDoseStartResponse> {
+        this.log(`Starting shutdown-dose ${request.config.method.toUpperCase()} run in ${request.workingDirectory}`);
+        return this.runnerService.startShutdownDose(request);
+    }
+
+    /**
+     * Cancel a running shutdown-dose driver.
+     */
+    async cancelShutdownDose(processId: string): Promise<boolean> {
+        return this.runnerService.cancelShutdownDose(processId);
+    }
+
+    /**
+     * Read a driver summary JSON to resume the results page.
+     */
+    async readShutdownDoseSummary(request: ReadShutdownDoseSummaryRequest): Promise<ReadShutdownDoseSummaryResult> {
+        return this.runnerService.readShutdownDoseSummary(request);
+    }
+
+    /**
+     * Read OpenMC's shipped ICRP dose-response coefficients.
+     */
+    async getDoseCoefficients(request: DoseCoefficientsRequest): Promise<DoseCoefficientsResult> {
+        return this.runnerService.getDoseCoefficients(request);
+    }
+
+    /**
      * Generate a fine-grained MGXS library (openmc.mgxs.Library mode).
      * @param request - Library generation configuration
      * @returns The generated library path
@@ -2976,6 +3028,15 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                 if (!regionStr && cell.region && typeof cell.region === 'string') {
                     regionStr = cell.region;
                 }
+                if (cell.volume !== undefined && !(cell.volume > 0)) {
+                    issues.push({
+                        severity: 'error',
+                        category: 'geometry',
+                        message: `Cell ${cell.id}: volume must be a positive number`,
+                        suggestion: 'Enter the cell volume in cm³ or remove the override'
+                    });
+                }
+
                 if (!regionStr) continue;
 
                 // Extract surface references from region

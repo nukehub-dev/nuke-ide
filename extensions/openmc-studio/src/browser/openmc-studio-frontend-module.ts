@@ -86,6 +86,7 @@ import { OptimizationWidget } from './widgets/optimization/optimization-widget';
 import { VolumeCalcWidget } from './widgets/volume-calc/volume-calc-widget';
 import { NativePlottingWidget } from './widgets/native-plotting/native-plotting-widget';
 import { MgxsGeneratorWidget } from './widgets/mgxs-generator/mgxs-generator-widget';
+import { ShutdownDoseWidget } from './widgets/shutdown-dose/shutdown-dose-widget';
 
 // Preferences
 import { bindOpenMCStudioPreferences } from './openmc-studio-preferences';
@@ -102,6 +103,7 @@ import './widgets/optimization/optimization.css';
 import './widgets/volume-calc/volume-calc.css';
 import './widgets/native-plotting/native-plotting.css';
 import './widgets/mgxs-generator/mgxs-generator.css';
+import './widgets/shutdown-dose/shutdown-dose.css';
 
 /**
  * The OpenMC Studio frontend {@link ContainerModule}.
@@ -145,6 +147,9 @@ export default new ContainerModule((bind: interfaces.Bind) => {
                 },
                 onOptimizationIterationComplete: (runId, result) => {
                     window.dispatchEvent(new CustomEvent('openmc-optimization-iteration', { detail: { runId, result } }));
+                },
+                onShutdownDoseProgress: (event) => {
+                    window.dispatchEvent(new CustomEvent('openmc-shutdown-dose-progress', { detail: event }));
                 }
             };
 
@@ -279,6 +284,14 @@ export default new ContainerModule((bind: interfaces.Bind) => {
         .toDynamicValue(({ container }) => ({
             id: MgxsGeneratorWidget.ID,
             createWidget: () => container.get(MgxsGeneratorWidget)
+        }))
+        .inSingletonScope();
+
+    bind(ShutdownDoseWidget).toSelf();
+    bind(WidgetFactory)
+        .toDynamicValue(({ container }) => ({
+            id: ShutdownDoseWidget.ID,
+            createWidget: () => container.get(ShutdownDoseWidget)
         }))
         .inSingletonScope();
 

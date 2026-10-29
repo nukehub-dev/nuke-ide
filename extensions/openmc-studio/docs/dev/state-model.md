@@ -82,8 +82,11 @@ interface OpenMCCell {
   density?: number; // positive override; units follow the material density unit
   rotation?: [number, number, number]; // intrinsic Tait-Bryan phi/theta/psi in degrees
   translation?: [number, number, number]; // cm, applied after rotation
+  volume?: number; // cm³, emitted as <cell volume="...">; required for R2S activation
 }
 ```
+
+`volume` is optional for ordinary transport (OpenMC computes it) but required by cell-based R2S activation. It round-trips through `geometry.xml`; see [Shutdown Dose](shutdown-dose.md).
 
 **Concept:** The schema supports _both_ a parsed boolean tree (`OpenMCRegionNode`) and a raw string (`regionString`). The tree is used by the visual CSG builder; the string is used for round-trip XML import/export. The backend canonicalizes between them when generating `geometry.xml`. Rotation/translation apply to universe and lattice fills; density applies to material fills. `setCellTransform` replaces (or clears) both transforms in one state event, and `setSurfacePeriodicPair` maintains reciprocal periodic links; the pure transitions live in `src/common/geometry-state.ts`.
 
@@ -375,6 +378,39 @@ interface OpenMCDepletion {
 ```
 
 **Concept:** `timeSteps` accepts both numeric seconds and string expressions with units. The backend normalizes strings to seconds before writing the OpenMC depletion XML. `decayOnlySteps` is stored as indices rather than flags on each step to keep the array compact. Reactivity control and continuation are optional and safe to leave unset; `substeps` defaults to 1. All advanced fields are driver-only (see [XML Generation](xml-generation.md#depletion-triggers-derivatives-kinetics-cmfd)).
+
+---
+
+## Shutdown Dose (R2S / D1S)
+
+`OpenMCState.shutdownDose` stores the driver-only activation workflow configuration:
+
+```typescript
+interface OpenMCShutdownDoseConfig {
+  method: 'r2s' | 'd1s';
+  domainType?: 'cell' | 'mesh';
+  cellIds?: number[];
+  meshIds?: number[];
+  timesteps: (number | string)[];
+  timestepUnits?: 's' | 'min' | 'h' | 'd' | 'a';
+  sourceRates: number | number[];
+  chainFile?: string;
+  photonTimeIndices?: number[];
+  byParentNuclide?: boolean;
+  outputDirectory?: string;
+  workingDirectory?: string;
+  boundingBoxes?: Record<number, { lowerLeft: [number, number, number]; upperRight: [number, number, number] }>;
+  matVolSamples?: number;
+  photonTallyIds?: number[];
+  d1sTimeIndex?: number;
+  d1sSumNuclides?: boolean;
+  wizardStep?: 'method' | 'schedule' | 'tallies' | 'review' | 'results';
+  doseTallyId?: number;
+  lastRun?: { outputDirectory: string; method: 'r2s' | 'd1s'; completedAt?: string };
+}
+```
+
+**Concept:** No shutdown-dose field is written to `settings.xml` or `tallies.xml`; the Python drivers receive the configuration as JSON alongside the generated model XML. `wizardStep`/`lastRun` make the wizard resumable, and `photonTallyIds` reference ordinary project tallies (the dose tally template adds a normal photon flux tally with an `energyfunction` response filter). See [Shutdown Dose](shutdown-dose.md) for the protocol and drivers.
 
 ---
 

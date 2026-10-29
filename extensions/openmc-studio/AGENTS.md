@@ -44,6 +44,9 @@ All files under `extensions/openmc-studio/` except generated artifacts (`lib/`, 
   strips `macroscopic` explicitly (`macroscopic: undefined`) for the shallow-merge state manager. See `docs/dev/state-model.md`.
 - Materials: `macroscopic: { name }` emits real `<macroscopic/>` (never with `ncrystalCfg`/sab); `ncrystalCfg` emits `<material cfg="...">`
   and exports via `Material.from_ncrystal` (`ncrystal` package optional). See `docs/dev/state-model.md`.
+- Shutdown dose (R2S/D1S) is driver-only: `state.shutdownDose` never enters settings.xml/tallies.xml; `run_r2s.py`/`run_d1s.py`
+  take JSON + generated XML, stream `@@NUKE_PROGRESS@@`, and write `r2s_summary.json`/`d1s_summary.json`. `cell.volume` is the only
+  model field it needs and round-trips through geometry.xml. See `docs/dev/shutdown-dose.md`.
 
 ## Work Guidance
 

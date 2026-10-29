@@ -118,6 +118,7 @@ Maps `OpenMCState.geometry` → `<geometry>`.
 | `cell.density`              | `density="..."`                  | Positive per-cell density override                                 |
 | `cell.translation`          | `translation="x y z"`            | Applied after rotation                                             |
 | `cell.rotation`             | `rotation="phi theta psi"`       | Intrinsic Tait-Bryan angles in degrees                             |
+| `cell.volume`               | `volume="..."`                   | cm³; imported back; required for cell-based R2S activation         |
 | `lattice.*`                 | `<lattice>` / `<hex_lattice>`    | See below; every universe ID is preserved                          |
 
 ### Lattices
@@ -415,6 +416,10 @@ re-derives `settings.kinetics` on import (idempotent). CMFD is C-API-only with n
 `openmc.cmfd.CMFDMesh`/`CMFDRun` assignments (pure `generateCmfdCodeLines`), and runs route to `run_cmfd.py`; depletion wins when both
 are configured.
 
+Shutdown dose (R2S/D1S) is driver-only and emits nothing to settings.xml or tallies.xml: the persisted `state.shutdownDose`
+configuration travels as JSON to `run_r2s.py` / `run_d1s.py`. The only model-side field it depends on is `cell.volume`, which
+serializes as `<cell volume="...">` and imports back. See [Shutdown Dose](shutdown-dose.md).
+
 ---
 
 ## plots.xml
@@ -487,7 +492,7 @@ const result = await parser.parseStringPromise(xml);
 - Both attribute-based (`$.material`) and child-element (`cell.material`) formats
 - Surface coefficients parsed into structured objects by type
 - Surface `boundary`, `albedo`, and `periodic_surface_id`
-- Cell `rotation`, `translation`, and `density`
+- Cell `rotation`, `translation`, `density`, and `volume`
 - `<lattice>` and `<hex_lattice>` definitions, including `outer`, `name`, `orientation`, and `n_axial`
 - Fill classification: a `fill` ID that matches a parsed lattice becomes `fillType: 'lattice'`, otherwise `fillType: 'universe'`
 - Universe assignment from `$.universe` (defaults to root universe `0`), plus universe entries for every lattice-referenced and outer universe

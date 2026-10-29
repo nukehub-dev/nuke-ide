@@ -45,6 +45,7 @@ import { OptimizationWidget } from '../widgets/optimization/optimization-widget'
 import { VolumeCalcWidget } from '../widgets/volume-calc/volume-calc-widget';
 import { NativePlottingWidget } from '../widgets/native-plotting/native-plotting-widget';
 import { MgxsGeneratorWidget } from '../widgets/mgxs-generator/mgxs-generator-widget';
+import { ShutdownDoseWidget } from '../widgets/shutdown-dose/shutdown-dose-widget';
 import { OpenMCPythonExporter } from '../script-generator/python-exporter';
 import { OpenMCStudioService } from '../openmc-studio-service';
 
@@ -135,6 +136,13 @@ export namespace OpenMCViewCommands {
         category: CATEGORY,
         label: 'MGXS Generator'
     };
+
+    /** Open the shutdown-dose (R2S / D1S) wizard. */
+    export const OPEN_SHUTDOWN_DOSE: Command = {
+        id: 'openmc.openShutdownDose',
+        category: CATEGORY,
+        label: 'Shutdown Dose'
+    };
 }
 
 /**
@@ -216,6 +224,10 @@ export class ViewCommands {
 
         registry.registerCommand(OpenMCViewCommands.OPEN_MGXS_GENERATOR, {
             execute: () => this.openWidget(MgxsGeneratorWidget.ID)
+        });
+
+        registry.registerCommand(OpenMCViewCommands.OPEN_SHUTDOWN_DOSE, {
+            execute: () => this.openWidget(ShutdownDoseWidget.ID)
         });
     }
 

@@ -76,6 +76,7 @@ import { isElementName } from '../../common/material-utils';
 import { getCellInstancePairs, getFilterSupportWarning, getMeshMaterialPairs, isFilterSupported } from '../../common/tally-filter-utils';
 import { normalizeReactionBin } from '../../common/reaction-catalog';
 import { generatePlotAppearancePythonLines } from '../../common/plot-appearance';
+import { generateShutdownDosePythonDriver } from '../../common/shutdown-dose-python';
 import {
     generateMaterialIsotropicPython,
     generateRuntimeSettingsPython,
@@ -381,8 +382,13 @@ export class OpenMCPythonExporter {
         }
 
         lines.push('model.export_to_xml()');
-
         lines.push('');
+
+        // Driver-only shutdown-dose workflow (R2S / D1S). None of its settings
+        // live in settings.xml, so the equivalent analysis driver is emitted
+        // here after the ordinary model export.
+        lines.push(...generateShutdownDosePythonDriver(state.shutdownDose));
+
         if (state.depletion?.enabled) {
             lines.push('print("OpenMC depletion model exported successfully!")');
             lines.push('print("Run with: python model.py")');
@@ -634,6 +640,13 @@ export class OpenMCPythonExporter {
 
         if (state.plots && state.plots.length > 0) {
             lines.push('plots.plots.export_to_xml()');
+        }
+
+        if (state.shutdownDose) {
+            lines.push('');
+            lines.push('# Shutdown dose (R2S/D1S) is driver-only and is not part of settings.xml.');
+            lines.push('# Run it from the Shutdown Dose widget or export a single-file model.py,');
+            lines.push('# which appends an equivalent R2S/D1S driver.');
         }
 
         lines.push('');
@@ -1120,6 +1133,9 @@ export class OpenMCPythonExporter {
 
         if (cell.temperature) {
             lines.push(`cell_${cell.id}.temperature = ${cell.temperature}`);
+        }
+        if (cell.volume !== undefined) {
+            lines.push(`cell_${cell.id}.volume = ${cell.volume}`);
         }
 
         return lines;

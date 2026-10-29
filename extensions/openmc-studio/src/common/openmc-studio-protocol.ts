@@ -45,6 +45,7 @@ import {
     OpenMCReactivityControl,
     OpenMCExternalSourceRate,
     OpenMCCmfdSettings,
+    OpenMCShutdownDoseConfig,
     OPENMC_STATE_SCHEMA_VERSION,
     DAGMCInfo
 } from './openmc-state-schema';
@@ -934,6 +935,213 @@ export interface WWINPExportResult {
 }
 
 // ============================================================================
+// Shutdown Dose (R2S / D1S)
+// ============================================================================
+
+/** Request to validate a shutdown-dose configuration before running. */
+export interface ShutdownDoseValidationRequest {
+    /** Current project state (tallies, geometry, settings). */
+    state: OpenMCState;
+    /** Configuration to validate. */
+    config: OpenMCShutdownDoseConfig;
+}
+
+/** One validation finding from the backend. */
+export interface ShutdownDoseValidationIssue {
+    /** Blocking or advisory */
+    severity: 'error' | 'warning';
+    /** Configuration field */
+    field: string;
+    /** What is wrong */
+    message: string;
+    /** How to fix it */
+    suggestion: string;
+}
+
+/** Result of backend-side shutdown-dose validation. */
+export interface ShutdownDoseValidationResult {
+    success: boolean;
+    ready: boolean;
+    issues: ShutdownDoseValidationIssue[];
+    error?: string;
+}
+
+/** Run a shutdown-dose workflow (R2S or D1S). */
+export interface StartShutdownDoseRequest {
+    /** Directory containing the generated model XML. */
+    workingDirectory: string;
+    /** Driver configuration persisted in the project. */
+    config: OpenMCShutdownDoseConfig;
+    /** Extra environment variables for the driver. */
+    env?: Record<string, string>;
+}
+
+/** Progress stages emitted by the shutdown-dose drivers. */
+export type ShutdownDoseStep = 'neutron' | 'activation' | 'source' | 'photon' | 'd1s' | 'done';
+
+/** Progress update for a running shutdown-dose workflow. */
+export interface ShutdownDoseProgress {
+    /** Current stage */
+    step: ShutdownDoseStep;
+    /** Human-readable status */
+    message: string;
+    /** Optional completion fraction in [0, 1] */
+    fraction?: number;
+}
+
+/** Compact photon tally payload for result charts. */
+export interface ShutdownDoseTallySummary {
+    /** Photon time index (R2S) or undefined (D1S) */
+    timeIndex?: number;
+    /** Tally ID */
+    tallyId: number;
+    /** Tally name */
+    name?: string;
+    /** Scores */
+    scores: string[];
+    /** Number of tally bins */
+    bins: number;
+    /** Mean values (capped for very large tallies) */
+    mean: number[];
+    /** Standard deviation values when available */
+    stdDev?: number[];
+    /** Minimum finite mean */
+    min?: number;
+    /** Maximum finite mean */
+    max?: number;
+    /** Sum of finite means */
+    sum?: number;
+    /** Parent-nuclide bins when present */
+    parentNuclides?: string[];
+    /** Whether a D1S correction summed over the parent nuclides */
+    summedOverParents?: boolean;
+}
+
+/** Activity summary derived from the activation results. */
+export interface ShutdownDoseActivitySummary {
+    /** Times in seconds */
+    timesSeconds: number[];
+    /** Total activity over all activation regions in Bq */
+    totalBq: number[];
+    /** Per-region activity in Bq */
+    byRegion?: Array<{ region: string; totalBq: number[] }>;
+}
+
+/** Decay-heat summary derived from the activation results. */
+export interface ShutdownDoseDecayHeatSummary {
+    /** Times in seconds */
+    timesSeconds: number[];
+    /** Total decay heat over all activation regions in W */
+    totalW: number[];
+}
+
+/** Machine-readable result summary written by the drivers. */
+export interface ShutdownDoseSummary {
+    /** Analysis method */
+    method: 'r2s' | 'd1s';
+    /** Schedule values (as configured) */
+    timesteps: (number | string)[];
+    /** Source rates per interval */
+    sourceRates: number[];
+    /** Photon time indices actually transported */
+    photonTimeIndices?: number[];
+    /** Number of activation regions */
+    activationRegions?: number;
+    /** Number of photon tallies */
+    photonTallies?: number;
+    /** Photon tally data */
+    photonTallySummaries?: ShutdownDoseTallySummary[];
+    /** Number of neutron tallies scored during R2S neutron transport */
+    neutronTallies?: number;
+    /** Neutron tally data (R2S only, non-photon tallies) */
+    neutronTallySummaries?: ShutdownDoseTallySummary[];
+    /** Peak/mean response of the selected dose tally */
+    dose?: { tallyId: number; timeIndex?: number; peak: number; mean: number };
+    /** Activation activity */
+    activity?: ShutdownDoseActivitySummary;
+    /** Activation decay heat */
+    decayHeat?: ShutdownDoseDecayHeatSummary;
+    /** D1S time correction factor per parent nuclide at the selected time */
+    timeCorrectionFactors?: Record<string, number>;
+    /** Non-fatal warnings (e.g. times without a decay source) */
+    warnings?: string[];
+}
+
+/** Final result of a shutdown-dose run. */
+export interface ShutdownDoseResult {
+    /** Whether the driver completed successfully */
+    success: boolean;
+    /** Directory containing the run output tree */
+    outputDirectory?: string;
+    /** Parsed summary */
+    summary?: ShutdownDoseSummary;
+    /** Files produced by the run */
+    files?: string[];
+    /** Path to the final photon statepoint (R2S) or transport statepoint (D1S) */
+    statepoint?: string;
+    /** Error message */
+    error?: string;
+}
+
+/** Immediate response when a run is launched. */
+export interface ShutdownDoseStartResponse {
+    /** Backend process identifier for progress and cancellation */
+    processId: string;
+    /** Whether the process started */
+    success: boolean;
+    /** Error message when the process could not start */
+    error?: string;
+}
+
+/** Streamed progress event (result is present on the terminal event). */
+export interface ShutdownDoseProgressEvent {
+    /** Backend process identifier */
+    processId: string;
+    /** Stage update */
+    progress: ShutdownDoseProgress;
+    /** Final result when the process exits */
+    result?: ShutdownDoseResult;
+}
+
+/** Read a previously written summary (used to resume the results page). */
+export interface ReadShutdownDoseSummaryRequest {
+    /** Driver output directory */
+    outputDirectory: string;
+}
+
+/** Result of reading a shutdown-dose summary. */
+export interface ReadShutdownDoseSummaryResult {
+    success: boolean;
+    result?: ShutdownDoseResult;
+    error?: string;
+}
+
+/** Request dose-response coefficients from OpenMC's shipped dose tables. */
+export interface DoseCoefficientsRequest {
+    /** Incident particle (currently photon) */
+    particle?: 'photon';
+    /** ICRP data source */
+    dataSource: 'icrp74' | 'icrp116';
+    /** Dose quantity */
+    doseQuantity: 'effective' | 'ambient';
+    /** Irradiation geometry (effective dose) */
+    geometry: 'AP' | 'PA' | 'LLAT' | 'RLAT' | 'ROT' | 'ISO';
+}
+
+/** Dose-response table returned by the backend. */
+export interface DoseCoefficientsResult {
+    success: boolean;
+    /** Energy grid in eV */
+    energy?: number[];
+    /** Response values (pSv cm² for photons) */
+    response?: number[];
+    /** Units label */
+    units?: string;
+    /** Error message */
+    error?: string;
+}
+
+// ============================================================================
 // Backend Service Interface
 // ============================================================================
 
@@ -1036,6 +1244,23 @@ export interface OpenMCStudioBackendService {
 
     /** Build a custom depletion chain XML (subset or ENDF mode, blocking) */
     buildChain(request: ChainBuildRequest): Promise<ChainBuildResult>;
+
+    // === Shutdown Dose (R2S / D1S) ===
+
+    /** Validate a shutdown-dose configuration (pure state checks + filesystem). */
+    validateShutdownDose(request: ShutdownDoseValidationRequest): Promise<ShutdownDoseValidationResult>;
+
+    /** Launch an R2S or D1S driver; progress streams through {@link OpenMCStudioClient.onShutdownDoseProgress}. */
+    startShutdownDose(request: StartShutdownDoseRequest): Promise<ShutdownDoseStartResponse>;
+
+    /** Cancel a running shutdown-dose driver. */
+    cancelShutdownDose(processId: string): Promise<boolean>;
+
+    /** Read a driver summary JSON from an output directory. */
+    readShutdownDoseSummary(request: ReadShutdownDoseSummaryRequest): Promise<ReadShutdownDoseSummaryResult>;
+
+    /** Read photon dose-response coefficients from OpenMC's shipped ICRP tables. */
+    getDoseCoefficients(request: DoseCoefficientsRequest): Promise<DoseCoefficientsResult>;
 
     // === Validation ===
 
@@ -1941,4 +2166,6 @@ export interface OpenMCStudioClient {
     onOptimizationProgress?(event: OptimizationProgressEvent): void;
     /** Optimization iteration complete */
     onOptimizationIterationComplete?(runId: string, result: OptimizationIterationResult): void;
+    /** Shutdown-dose progress / terminal result */
+    onShutdownDoseProgress?(event: ShutdownDoseProgressEvent): void;
 }

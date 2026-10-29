@@ -20,6 +20,7 @@ New to OpenMC Studio? Start here:
 | [**Volume Calculation**](volume-calculation.md)       | Stochastic volume estimation for cells, materials, and universes                                                                 |
 | [**Native Plotting**](native-plotting.md)             | Slice, voxel, and ray-traced geometry plots via OpenMC's C++ plot mode                                                           |
 | [**MGXS Generator**](mgxs-generator.md)               | Produce multi-group cross-section libraries (automatic and Library modes)                                                        |
+| [**Shutdown Dose**](shutdown-dose.md)                 | Run guided R2S or D1S activation, decay-photon transport, and dose/activity analysis                                             |
 | [**Simulation Comparison**](simulation-comparison.md) | Compare multiple statepoint files side-by-side, analyze tally deltas, and inspect convergence                                    |
 | [**Project Management**](project-management.md)       | Scaffold new OpenMC projects, manage workspace files, and browse run history                                                     |
 | [**CAD Import**](cad-import.md)                       | Import STEP and IGES files and convert them to DAGMC or CSG representations                                                      |

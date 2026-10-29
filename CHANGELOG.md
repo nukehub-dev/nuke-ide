@@ -252,6 +252,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - openmc-studio: real OpenMP/MPI launch controls plus grouped Advanced settings for convergence, physics, limits, diagnostics, and isotropic materials.
 - openmc-studio: every OpenMC 0.16 tally filter is authorable, including cell-instance and mesh-material pairs, reaction MT/name search, particle production, collision, mu-surface, weight, parent-nuclide, material-from, and mesh-born bins.
 - openmc-studio: tally editor exposes multiply-by-density and higher-moments output options, random-ray validation enforces the upstream filter allow-list, and wide filter editors stack cleanly in narrow panels.
+- openmc-studio: Shutdown Dose wizard runs cell/mesh R2S and D1S with dose tallies, parent breakdown, activity/decay heat, and resumable results.
 - Testing: Playwright UI smoke suite (`yarn test:ui`) covering boot, dashboard tabs, project flow, and windows in weekly CI.
 - Testing: weekly upstream-OpenMC-develop CI lane with the Python suite on a cached conda full profile.
 - Testing: end-to-end layer running real OpenMC drivers and project-file fixtures, env-gated and skipping cleanly otherwise.
