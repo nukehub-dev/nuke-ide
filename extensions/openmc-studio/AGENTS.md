@@ -74,6 +74,11 @@ All files under `extensions/openmc-studio/` except generated artifacts (`lib/`, 
 - Tally model: extend `scores-catalog.ts` / `filters-catalog.ts`, not the components; per-tally `triggers` auto-emit run-level
   `<trigger><active>true</active>`; `derivative` perturbs a material only (top-level `<derivative>`, tally references by ID).
   See `docs/dev/xml-generation.md`.
+  Structured `cellinstance`/`meshmaterial` pairs use `tally-filter-utils.ts` for one ordered flatten/import path; `reaction` and
+  `particleproduction` are 0.16-gated by `OpenMCCompat.reactionFilter`/`particleProductionFilter`. See `docs/dev/xml-generation.md`.
+- Tally output: `multiplyDensity` (default true) and `higherMoments` are XML-representable; `sparse`/`with_batch_statistics` are
+  Python/statepoint analysis options with no UI control. Random ray filters are restricted to the upstream allow-list
+  (`cell`, `cellinstance`, `distribcell`, `energy`, `material`, `mesh`, `universe`). See `docs/dev/xml-generation.md`.
 - CSG builder geometry edits use the pure `geometry-editor.ts` helpers and `geometry-state.ts` transitions; the validation banner and
   run readiness both render `validateGeometryModel` (never a second rule set). See `docs/dev/widget-patterns.md`.
 - Kinetics / CMFD: IFP tallies auto-append from `settings.kinetics` and re-derive on import (idempotent); CMFD is C-API-only (no

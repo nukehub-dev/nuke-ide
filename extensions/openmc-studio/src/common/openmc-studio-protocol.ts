@@ -473,6 +473,10 @@ export interface OpenMCCompat {
     meshFilterRotation?: boolean;
     /** Whether source distributions accept a `bias` argument / `<bias>` XML child (0.16.0+) */
     sourceBias?: boolean;
+    /** Whether `openmc.ReactionFilter` exists and accepts string/MT bins (0.16.0+). */
+    reactionFilter?: boolean;
+    /** Whether `openmc.ParticleProductionFilter` exists (0.16.0+). */
+    particleProductionFilter?: boolean;
 }
 
 /** Release-compatible default (stable releases are the common case). */
@@ -489,7 +493,9 @@ export const DEFAULT_OPENMC_COMPAT: OpenMCCompat = {
     sharedSecondaryBank: false,
     surfaceGrazing: false,
     meshFilterRotation: false,
-    sourceBias: false
+    sourceBias: false,
+    reactionFilter: false,
+    particleProductionFilter: false
 };
 
 /** Result of XML generation */

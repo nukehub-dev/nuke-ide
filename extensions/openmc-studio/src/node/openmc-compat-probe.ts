@@ -42,6 +42,8 @@
  * - `surfaceGrazing` — `Settings.surface_grazing_cutoff` existence (0.16.0+)
  * - `meshFilterRotation` — `openmc.MeshFilter.rotation` existence (0.16.0+)
  * - `sourceBias` — `openmc.stats.Uniform(..., bias=...)` support (0.16.0+)
+ * - `reactionFilter` — `openmc.ReactionFilter` existence (0.16.0+)
+ * - `particleProductionFilter` — `openmc.ParticleProductionFilter` existence (0.16.0+)
  *
  * Results are cached per python command; on any probe failure the
  * release-compatible default is returned (stable releases are the common case).
@@ -55,12 +57,13 @@ import { OpenMCCompat, DEFAULT_OPENMC_COMPAT } from '../common/openmc-studio-pro
 import { OpenMCValidationBackendService } from './openmc-validation-backend-service';
 
 /**
- * Python one-liner: prints thirteen space-separated tokens —
+ * Python one-liner: prints fifteen space-separated tokens —
  * `<direct|wrapper> <adjoint|no-adjoint> <tokamak|no-tokamak> <s2|no-s2>
  * <substeps|no-substeps> <keff-search|no-keff-search>
  * <external-rate|no-external-rate> <continuation|no-continuation>
  * <shared-bank|no-shared-bank> <grazing|no-grazing> <decay|no-decay>
- * <mesh-rotation|no-mesh-rotation> <bias|no-bias>`.
+ * <mesh-rotation|no-mesh-rotation> <bias|no-bias>
+ * <reaction-filter|no-reaction-filter> <particle-production|no-particle-production>`.
  *
  * Depletion, 0.16 settings, decay-spectrum, and mesh-filter capabilities are
  * detected by introspection (never version strings): constructor parameters,
@@ -102,7 +105,9 @@ grazing = hasattr(openmc.Settings(), 'surface_grazing_cutoff')
 decay = hasattr(openmc.stats, 'DecaySpectrum')
 mesh_rotation = hasattr(openmc.MeshFilter, 'rotation')
 bias = 'bias' in inspect.signature(openmc.stats.Uniform.__init__).parameters
-print('{} {} {} {} {} {} {} {} {} {} {} {} {}'.format(
+reaction_filter = hasattr(openmc, 'ReactionFilter')
+particle_production = hasattr(openmc, 'ParticleProductionFilter')
+print('{} {} {} {} {} {} {} {} {} {} {} {} {} {} {}'.format(
     fmt,
     'adjoint' if adj else 'no-adjoint',
     'tokamak' if tok else 'no-tokamak',
@@ -115,7 +120,9 @@ print('{} {} {} {} {} {} {} {} {} {} {} {} {}'.format(
     'grazing' if grazing else 'no-grazing',
     'decay' if decay else 'no-decay',
     'mesh-rotation' if mesh_rotation else 'no-mesh-rotation',
-    'bias' if bias else 'no-bias'))
+    'bias' if bias else 'no-bias',
+    'reaction-filter' if reaction_filter else 'no-reaction-filter',
+    'particle-production' if particle_production else 'no-particle-production'))
 `;
 
 const PROBE_TIMEOUT_MS = 30000;
@@ -189,7 +196,7 @@ export class OpenMCCompatProbeService {
     }
 
     /**
-     * Parse the probe's thirteen-token output line. Tokens after the original
+     * Parse the probe's fifteen-token output line. Tokens after the original
      * four are optional so older probe output still parses (falling back to
      * the release-compatible defaults for missing capabilities).
      * @param stdout - Probe stdout
@@ -215,7 +222,9 @@ export class OpenMCCompatProbeService {
             grazing,
             decay,
             meshRotation,
-            bias
+            bias,
+            reactionFilter,
+            particleProduction
         ] = (line ?? '').split(/\s+/);
         if (format !== 'direct' && format !== 'wrapper') {
             return undefined;
@@ -234,7 +243,9 @@ export class OpenMCCompatProbeService {
             sharedSecondaryBank: sharedBank === 'shared-bank',
             surfaceGrazing: grazing === 'grazing',
             meshFilterRotation: meshRotation === 'mesh-rotation',
-            sourceBias: bias === 'bias'
+            sourceBias: bias === 'bias',
+            reactionFilter: reactionFilter === 'reaction-filter',
+            particleProductionFilter: particleProduction === 'particle-production'
         };
     }
 }

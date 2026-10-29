@@ -115,6 +115,8 @@ import { calculateGeometryBounds, boxOverlapsBounds, pointInBounds } from '../co
 import { reshapeHexLatticeUniverses } from '../common/geometry-lattices';
 import { validateGeometryModel } from '../common/geometry-validation';
 import { validateRuntimeSettings } from '../common/settings-validation';
+import { pairsFromBins } from '../common/tally-filter-utils';
+import { validateTallyFilterSet } from '../common/tally-filter-validation';
 import { OpenMCRunnerService } from './openmc-runner-service';
 import { XMLGenerationService } from './xml-generation-service';
 import { OpenMCCADImportService } from './cad-import-service';
@@ -2057,6 +2059,11 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                 tally.multiplyDensity = this.parseXmlBool(tallyElem.$.multiply_density);
             }
 
+            // Higher-moment accumulation (openmc.Tally.to_xml_element)
+            if (tallyElem.higher_moments !== undefined) {
+                tally.higherMoments = this.parseXmlBool(tallyElem.higher_moments);
+            }
+
             // Nuclides: real OpenMC writes a single space-joined <nuclides>
             // element; tolerate repeated <nuclide> elements from older exports
             if (tallyElem.nuclides) {
@@ -2199,7 +2206,8 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
 
         switch (type) {
             case 'mesh':
-            case 'meshsurface': {
+            case 'meshsurface':
+            case 'meshborn': {
                 const meshIds = filterElem.bins ? this.parseNumberList(filterElem.bins).map((n) => Math.trunc(n)) : [];
                 filter.bins = meshIds;
                 filter.meshId = meshIds[0];
@@ -2226,6 +2234,85 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                             `Mesh filter ${filterElem.$?.id ?? ''} has a rotation with ${rotation.length} values (expected 3); ignored`
                         );
                     }
+                }
+                break;
+            }
+
+            case 'meshmaterial': {
+                const meshId = parseInt(filterElem.$?.mesh ?? '', 10);
+                filter.meshId = Number.isFinite(meshId) ? meshId : undefined;
+                if (filter.meshId === undefined) {
+                    warnings?.push(
+                        `Mesh-material filter ${filterElem.$?.id ?? ''} has no mesh attribute; select a mesh in the filter editor`
+                    );
+                }
+                const flat = filterElem.bins ? this.parseNumberList(filterElem.bins).map((n) => Math.trunc(n)) : [];
+                if (flat.length % 2 !== 0) {
+                    warnings?.push(
+                        `Mesh-material filter ${filterElem.$?.id ?? ''} has an odd number of bins (${flat.length}); the last value was left unpaired`
+                    );
+                }
+                filter.bins = flat;
+                filter.pairs = pairsFromBins(flat);
+                if (filterElem.$?.translation) {
+                    const translation = this.parseNumberList(filterElem.$.translation);
+                    if (translation.length === 3) {
+                        filter.meshTranslation = translation as [number, number, number];
+                    } else {
+                        warnings?.push(
+                            `Mesh-material filter ${filterElem.$?.id ?? ''} has a translation with ${translation.length} values (expected 3); ignored`
+                        );
+                    }
+                }
+                break;
+            }
+
+            case 'cellinstance': {
+                const flat = filterElem.bins ? this.parseNumberList(filterElem.bins).map((n) => Math.trunc(n)) : [];
+                if (flat.length % 2 !== 0) {
+                    warnings?.push(
+                        `Cell-instance filter ${filterElem.$?.id ?? ''} has an odd number of bins (${flat.length}); the last value was left unpaired`
+                    );
+                }
+                filter.bins = flat;
+                filter.pairs = pairsFromBins(flat);
+                break;
+            }
+
+            case 'parentnuclide':
+                filter.nuclideBins = filterElem.bins
+                    ? filterElem.bins
+                          .toString()
+                          .trim()
+                          .split(/\s+/)
+                          .filter((name: string) => name.length > 0)
+                    : [];
+                filter.bins = [];
+                break;
+
+            case 'reaction':
+                filter.reactionBins = filterElem.bins
+                    ? filterElem.bins
+                          .toString()
+                          .trim()
+                          .split(/\s+/)
+                          .filter((name: string) => name.length > 0)
+                    : [];
+                filter.bins = [];
+                break;
+
+            case 'particleproduction': {
+                filter.particleTypes = filterElem.particles
+                    ? filterElem.particles
+                          .toString()
+                          .trim()
+                          .split(/\s+/)
+                          .filter((particle: string) => particle.length > 0)
+                    : [];
+                filter.productionEnergyBins = filterElem.energies ? this.parseNumberList(filterElem.energies) : [];
+                filter.bins = [];
+                if ((filter.particleTypes ?? []).length === 0) {
+                    warnings?.push(`Particle-production filter ${filterElem.$?.id ?? ''} has no <particles> values`);
                 }
                 break;
             }
@@ -2787,6 +2874,29 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                     suggestion: 'Random ray supports only flux, total, fission, nu-fission, kappa-fission, and event scores'
                 });
             }
+
+            // Ground truth: docs/source/usersguide/random_ray.rst "Supported
+            // Filters": cell, cell instance, distribcell, energy, material,
+            // mesh, universe. cellinstance is explicitly supported.
+            const RANDOM_RAY_FILTERS = new Set(['cell', 'cellinstance', 'distribcell', 'energy', 'material', 'mesh', 'universe']);
+            const invalidFilters: string[] = [];
+            for (const tally of tallies ?? []) {
+                const bad = (tally.filters ?? []).filter((filter) => !RANDOM_RAY_FILTERS.has(filter.type));
+                if (bad.length > 0) {
+                    invalidFilters.push(
+                        `tally ${tally.id}${tally.name ? ` (${tally.name})` : ''}: ${bad.map((filter) => filter.type).join(', ')}`
+                    );
+                }
+            }
+            if (invalidFilters.length > 0) {
+                issues.push({
+                    severity: 'error',
+                    category: 'tallies',
+                    message: `Filters not supported in random ray mode: ${invalidFilters.join('; ')}`,
+                    suggestion:
+                        'Random ray supports cell, cell instance, distribcell, energy, material, mesh, and universe filters; remove the others or switch to continuous-energy mode'
+                });
+            }
         }
 
         // Basic validation - skip materials check for DAGMC (materials are in the file)
@@ -3068,28 +3178,22 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             }
         }
 
-        // Mesh filters: every mesh/meshsurface filter must reference a mesh.
-        const meshIds = new Set((meshes ?? []).map((mesh) => mesh.id));
+        // Filter references and bin shapes: mesh filters need an existing
+        // mesh, structured pair filters need valid pairs, reaction/weight/
+        // collision/mu bins need valid ranges, and mu-surface needs its
+        // surface + current companions.
         for (const tally of tallies ?? []) {
-            for (const filter of tally.filters ?? []) {
-                if (filter.type !== 'mesh' && filter.type !== 'meshsurface') {
-                    continue;
-                }
-                if (filter.meshId === undefined || filter.meshId === 0) {
-                    issues.push({
-                        severity: 'error',
-                        category: 'tallies',
-                        message: `Tally ${tally.id}${tally.name ? ` (${tally.name})` : ''} has a ${filter.type} filter with no mesh selected`,
-                        suggestion: 'Select a mesh in the filter editor or create one in the Tally Configurator'
-                    });
-                } else if (!meshIds.has(filter.meshId)) {
-                    issues.push({
-                        severity: 'error',
-                        category: 'tallies',
-                        message: `Tally ${tally.id}${tally.name ? ` (${tally.name})` : ''} references mesh ${filter.meshId} which does not exist`,
-                        suggestion: 'Choose an existing mesh in the filter editor or re-create the deleted mesh'
-                    });
-                }
+            const tallyLabel = `Tally ${tally.id}${tally.name ? ` (${tally.name})` : ''}`;
+            for (const issue of validateTallyFilterSet(
+                { filters: tally.filters ?? [], scores: tally.scores ?? [] },
+                { cells: geometry.cells, materials, meshes }
+            )) {
+                issues.push({
+                    severity: issue.severity,
+                    category: 'tallies',
+                    message: `${tallyLabel}: ${issue.message}`,
+                    suggestion: issue.fix
+                });
             }
         }
 

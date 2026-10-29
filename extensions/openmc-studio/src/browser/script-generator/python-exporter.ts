@@ -73,6 +73,8 @@ import { generateCmfdCodeLines } from '../../common/cmfd';
 import { generateAngleCode, generateSpatialCode, generateTimeCode, generateUnivariateCode } from './source-codegen';
 import { getDepletionSolver, resolveDepletionSolver } from '../../common/depletion-solvers';
 import { isElementName } from '../../common/material-utils';
+import { getCellInstancePairs, getFilterSupportWarning, getMeshMaterialPairs, isFilterSupported } from '../../common/tally-filter-utils';
+import { normalizeReactionBin } from '../../common/reaction-catalog';
 import { generatePlotAppearancePythonLines } from '../../common/plot-appearance';
 import {
     generateMaterialIsotropicPython,
@@ -2048,6 +2050,15 @@ export class OpenMCPythonExporter {
 
         lines.push(`tally_${tally.id} = openmc.Tally(name="${this.escapePythonString(tally.name || '')}", tally_id=${tally.id})`);
 
+        // Optional output options (`multiply_density` defaults to True and
+        // `higher_moments` defaults to False, so only non-defaults are written).
+        if (tally.multiplyDensity === false) {
+            lines.push(`tally_${tally.id}.multiply_density = False`);
+        }
+        if (tally.higherMoments) {
+            lines.push(`tally_${tally.id}.higher_moments = True`);
+        }
+
         // Scores
         if (tally.scores.length > 0) {
             lines.push(`tally_${tally.id}.scores = [${tally.scores.map((s) => `"${s}"`).join(', ')}]`);
@@ -2066,6 +2077,14 @@ export class OpenMCPythonExporter {
                 const filterVar = `filter_${tally.id}_${i}`;
                 filterVars.push(filterVar);
 
+                if (!isFilterSupported(filter.type, options.compat)) {
+                    const warning =
+                        getFilterSupportWarning(filter.type) ?? `Filter '${filter.type}' is not supported by this OpenMC version`;
+                    lines.push(`# ${warning} (filter index ${i} on tally ${tally.id})`);
+                    filterVars.pop();
+                    continue;
+                }
+
                 switch (filter.type) {
                     case 'energy':
                         lines.push(`${filterVar} = openmc.EnergyFilter([${filter.bins.join(', ')}])`);
@@ -2074,8 +2093,12 @@ export class OpenMCPythonExporter {
                         lines.push(`${filterVar} = openmc.EnergyoutFilter([${filter.bins.join(', ')}])`);
                         break;
                     case 'mesh':
+                    case 'meshborn':
+                    case 'meshsurface': {
                         if (filter.meshId) {
-                            lines.push(`${filterVar} = openmc.MeshFilter(mesh_${filter.meshId})`);
+                            const filterClass =
+                                filter.type === 'mesh' ? 'MeshFilter' : filter.type === 'meshborn' ? 'MeshBornFilter' : 'MeshSurfaceFilter';
+                            lines.push(`${filterVar} = openmc.${filterClass}(mesh_${filter.meshId})`);
                             if (filter.meshTranslation) {
                                 lines.push(`${filterVar}.translation = [${filter.meshTranslation.join(', ')}]`);
                             }
@@ -2092,6 +2115,7 @@ export class OpenMCPythonExporter {
                             }
                         }
                         break;
+                    }
                     case 'cell':
                         lines.push(`${filterVar} = openmc.CellFilter([${filter.bins.join(', ')}])`);
                         break;
@@ -2162,10 +2186,69 @@ export class OpenMCPythonExporter {
                             `${filterVar} = openmc.EnergyFunctionFilter(energy=[${(filter.energyValues ?? []).join(', ')}], y=[${(filter.responseValues ?? []).join(', ')}], interpolation='${filter.interpolation ?? 'linear-linear'}')`
                         );
                         break;
-                    case 'meshsurface':
-                        if (filter.meshId) {
-                            lines.push(`${filterVar} = openmc.MeshSurfaceFilter(mesh_${filter.meshId})`);
+                    case 'materialfrom':
+                        lines.push(`${filterVar} = openmc.MaterialFromFilter([${filter.bins.join(', ')}])`);
+                        break;
+                    case 'cellinstance': {
+                        const pairs = getCellInstancePairs(filter);
+                        if (filter.bins.length % 2 !== 0) {
+                            lines.push(
+                                `# Cell-instance bins had an odd length (${filter.bins.length}); only complete cell/instance pairs are exported`
+                            );
                         }
+                        const pairText = pairs.map((pair) => `(${pair.first}, ${pair.second})`).join(', ');
+                        lines.push(`${filterVar} = openmc.CellInstanceFilter([${pairText}])`);
+                        break;
+                    }
+                    case 'parentnuclide':
+                        lines.push(
+                            `${filterVar} = openmc.ParentNuclideFilter([${(filter.nuclideBins ?? [])
+                                .map((name) => `"${this.escapePythonString(name)}"`)
+                                .join(', ')}])`
+                        );
+                        break;
+                    case 'meshmaterial': {
+                        if (filter.meshId) {
+                            const pairs = getMeshMaterialPairs(filter);
+                            if (filter.bins.length % 2 !== 0) {
+                                lines.push(
+                                    `# Mesh-material bins had an odd length (${filter.bins.length}); only complete element/material pairs are exported`
+                                );
+                            }
+                            const pairText = pairs.map((pair) => `(${pair.first}, ${pair.second})`).join(', ');
+                            lines.push(`${filterVar} = openmc.MeshMaterialFilter(mesh_${filter.meshId}, [${pairText}])`);
+                            if (filter.meshTranslation) {
+                                lines.push(`${filterVar}.translation = [${filter.meshTranslation.join(', ')}]`);
+                            }
+                        }
+                        break;
+                    }
+                    case 'collision':
+                        lines.push(`${filterVar} = openmc.CollisionFilter([${filter.bins.join(', ')}])`);
+                        break;
+                    case 'reaction':
+                        lines.push(
+                            `${filterVar} = openmc.ReactionFilter([${(filter.reactionBins ?? [])
+                                .map((bin) => `"${this.escapePythonString(normalizeReactionBin(bin) ?? bin)}"`)
+                                .join(', ')}])`
+                        );
+                        break;
+                    case 'particleproduction': {
+                        const particles = filter.particleTypes ?? [];
+                        const energies = filter.productionEnergyBins ?? [];
+                        const energyArg = energies.length > 0 ? `, energies=[${energies.join(', ')}]` : '';
+                        lines.push(
+                            `${filterVar} = openmc.ParticleProductionFilter([${particles
+                                .map((particle) => `"${this.escapePythonString(particle)}"`)
+                                .join(', ')}]${energyArg})`
+                        );
+                        break;
+                    }
+                    case 'musurface':
+                        lines.push(`${filterVar} = openmc.MuSurfaceFilter([${filter.bins.join(', ')}])`);
+                        break;
+                    case 'weight':
+                        lines.push(`${filterVar} = openmc.WeightFilter([${filter.bins.join(', ')}])`);
                         break;
                     default:
                         lines.push(`# Unsupported filter type '${filter.type}' skipped (filter index ${i} on tally ${tally.id})`);

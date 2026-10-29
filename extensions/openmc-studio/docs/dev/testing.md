@@ -27,16 +27,17 @@ npx vitest run extensions/openmc-studio
 Two e2e layers execute real OpenMC runs and skip cleanly when their environment variables are unset:
 
 - **`tests/e2e/`** (pytest, driver level) — pincell fixtures built with the openmc API driving the Python scripts directly: CMFD, depletion, k-eff search, volume, MGXS, collision tracks, DAGMC assets, native plotting, chain building. All tests carry the `@pytest.mark.e2e` marker.
-- **`src/node/e2e/`** (vitest, project level) — small hand-written `.nuke-openmc` fixtures under `src/node/e2e/projects/` → migration → XML generation → real runs; `codegen-run.test.ts` additionally executes the exporter's generated `model.py`. `geometry-core.test.ts` loads generated lattice/transform/periodic XML with the real OpenMC Python API, compares it against the exporter's `model.py`, and needs only `NUKE_TEST_PYTHON`; its transport case additionally needs `OPENMC_CROSS_SECTIONS`. `mesh-rectilinear.nuke-openmc` runs a rectilinear mesh tally; mesh-filter rotation is added only when the environment's `openmc.MeshFilter.rotation` probe succeeds. Unstructured mesh runs stay gated on a build/library that is not part of the minimal profile.
+- **`src/node/e2e/`** (vitest, project level) — small hand-written `.nuke-openmc` fixtures under `src/node/e2e/projects/` → migration → XML generation → real runs; `codegen-run.test.ts` additionally executes the exporter's generated `model.py`. `geometry-core.test.ts` loads generated lattice/transform/periodic XML with the real OpenMC Python API, compares it against the exporter's `model.py`, and needs only `NUKE_TEST_PYTHON`; its transport case additionally needs `OPENMC_CROSS_SECTIONS`. `mesh-rectilinear.nuke-openmc` runs a rectilinear mesh tally; mesh-filter rotation is added only when the environment's `openmc.MeshFilter.rotation` probe succeeds. `tally-filters.test.ts` runs a cell-instance tally in a 2×2 lattice plus mesh-material and mesh-born tallies and inspects the statepoint bins. Unstructured mesh runs stay gated on a build/library that is not part of the minimal profile.
 
 Environment variables (all optional):
 
-| Variable                | Used By       | Purpose                                                                                           |
-| ----------------------- | ------------- | ------------------------------------------------------------------------------------------------- |
-| `NUKE_TEST_PYTHON`      | both layers   | Python with full dependencies; its `bin/openmc` runs the binary (geometry parity needs only this) |
-| `OPENMC_CROSS_SECTIONS` | both layers   | `cross_sections.xml` — needed for any model run (including the lattice transport case)            |
-| `NUKE_E2E_CHAIN`        | depletion     | Depletion chain XML                                                                               |
-| `NUKE_E2E_ENDF`         | chain builder | ENDF-B library dir with `decay/` `nfy/` `neutron(s)/` sub-libraries (ENDF-mode builds only)       |
+| Variable                     | Used By       | Purpose                                                                                           |
+| ---------------------------- | ------------- | ------------------------------------------------------------------------------------------------- |
+| `NUKE_TEST_PYTHON`           | both layers   | Python with full dependencies; its `bin/openmc` runs the binary (geometry parity needs only this) |
+| `OPENMC_CROSS_SECTIONS`      | both layers   | `cross_sections.xml` — needed for any model run (including the lattice transport case)            |
+| `NUKE_E2E_CHAIN`             | depletion     | Depletion chain XML                                                                               |
+| `NUKE_E2E_ENDF`              | chain builder | ENDF-B library dir with `decay/` `nfy/` `neutron(s)/` sub-libraries (ENDF-mode builds only)       |
+| `NUKE_E2E_TALLY_FILTERS_016` | tally filters | Opt in to the 0.16-only reaction/particle-production run; point `NUKE_TEST_PYTHON` at OpenMC 0.16 |
 
 Example:
 

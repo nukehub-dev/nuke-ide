@@ -424,6 +424,204 @@ describe('settings.xml round-trip', () => {
         expect(imported.state!.tallies).toEqual(state.tallies);
     });
 
+    it('round-trips material-from, cell-instance, parent-nuclide, mesh, reaction, particle-production, mu-surface, collision, and weight filters', async () => {
+        const state = buildTestState();
+        state.meshes = [{ type: 'regular', id: 1, lowerLeft: [-5, -5, -5], upperRight: [5, 5, 5], dimension: [2, 2, 2] }];
+        state.tallies = [
+            {
+                id: 1,
+                name: 'Additional filters',
+                scores: ['flux'],
+                nuclides: ['total'],
+                multiplyDensity: false,
+                higherMoments: true,
+                filters: [
+                    { type: 'materialfrom', bins: [1] },
+                    {
+                        type: 'cellinstance',
+                        bins: [1, 0, 1, 1],
+                        pairs: [
+                            { first: 1, second: 0 },
+                            { first: 1, second: 1 }
+                        ]
+                    },
+                    { type: 'parentnuclide', bins: [], nuclideBins: ['U235', 'Pu239'] },
+                    { type: 'meshborn', bins: [1], meshId: 1, meshTranslation: [1, 2, 3] },
+                    {
+                        type: 'meshmaterial',
+                        bins: [0, 1, 1, 1],
+                        pairs: [
+                            { first: 0, second: 1 },
+                            { first: 1, second: 1 }
+                        ],
+                        meshId: 1,
+                        meshTranslation: [4, 5, 6]
+                    },
+                    { type: 'collision', bins: [1, 2] },
+                    { type: 'reaction', bins: [], reactionBins: ['(n,gamma)', '(n,fission)'] },
+                    {
+                        type: 'particleproduction',
+                        bins: [],
+                        particleTypes: ['photon', 'neutron'],
+                        productionEnergyBins: [0, 1e5, 2e7]
+                    },
+                    { type: 'musurface', bins: [-1, 0, 1] },
+                    { type: 'weight', bins: [0, 0.5, 1, 2] }
+                ]
+            }
+        ];
+
+        const generator = new XMLGenerationService();
+        const result = await generator.generateXML({
+            state,
+            outputDirectory: tempDir,
+            files: { materials: true, geometry: true, settings: true, tallies: true, plots: false },
+            randomRayCompat: { ...DEFAULT_OPENMC_COMPAT, reactionFilter: true, particleProductionFilter: true }
+        });
+        expect(result.success).toBe(true);
+
+        const xml = fs.readFileSync(path.join(tempDir, 'tallies.xml'), 'utf-8');
+        expect(xml).toContain('type="materialfrom"');
+        expect(xml).toContain('type="cellinstance"');
+        expect(xml).toContain('<bins>1 0 1 1</bins>');
+        expect(xml).toContain('type="parentnuclide"');
+        expect(xml).toContain('<bins>U235 Pu239</bins>');
+        expect(xml).toContain('type="meshborn" translation="1 2 3"');
+        expect(xml).toContain('type="meshmaterial" mesh="1" translation="4 5 6"');
+        expect(xml).toContain('<bins>0 1 1 1</bins>');
+        expect(xml).toContain('type="collision"');
+        expect(xml).toContain('type="reaction"');
+        expect(xml).toContain('<bins>(n,gamma) (n,fission)</bins>');
+        expect(xml).toContain('type="particleproduction"');
+        expect(xml).toContain('<particles>photon neutron</particles>');
+        expect(xml).toContain('<energies>0 100000 20000000</energies>');
+        expect(xml).toContain('type="musurface"');
+        expect(xml).toContain('type="weight"');
+        expect(xml).toContain('<higher_moments>true</higher_moments>');
+        expect(xml).toContain('multiply_density="false"');
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const imported = await backend.importXML({ directory: tempDir });
+        expect(imported.success).toBe(true);
+        expect(imported.state!.tallies).toEqual(state.tallies);
+    });
+
+    it('omits 0.16-only reaction and particle-production filters with a warning on release environments', async () => {
+        const state = buildTestState();
+        state.tallies = [
+            {
+                id: 1,
+                name: '0.16 filters',
+                scores: ['flux'],
+                nuclides: ['total'],
+                filters: [
+                    { type: 'reaction', bins: [], reactionBins: ['(n,gamma)'] },
+                    { type: 'particleproduction', bins: [], particleTypes: ['photon'], productionEnergyBins: [0, 2e7] },
+                    { type: 'cell', bins: [1] }
+                ]
+            }
+        ];
+
+        const generator = new XMLGenerationService();
+        const result = await generator.generateXML({
+            state,
+            outputDirectory: tempDir,
+            files: { materials: true, geometry: true, settings: true, tallies: true, plots: false }
+        });
+        expect(result.success).toBe(true);
+
+        const xml = fs.readFileSync(path.join(tempDir, 'tallies.xml'), 'utf-8');
+        expect(xml).not.toContain('type="reaction"');
+        expect(xml).not.toContain('type="particleproduction"');
+        expect(xml).toContain('type="cell"');
+        expect(result.warnings?.some((warning) => warning.includes('Reaction filters require OpenMC 0.16'))).toBe(true);
+        expect(result.warnings?.some((warning) => warning.includes('Particle-production filters require OpenMC 0.16'))).toBe(true);
+    });
+
+    it('imports hand-written cell-instance, mesh-material, and particle-production filters', async () => {
+        const importDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openmc-filter-import-'));
+        fs.writeFileSync(
+            path.join(importDir, 'materials.xml'),
+            [
+                '<?xml version="1.0"?>',
+                '<materials>',
+                '  <material id="1" name="Fuel">',
+                '    <density value="10" units="g/cm3"/>',
+                '    <nuclide name="U235" ao="1"/>',
+                '  </material>',
+                '</materials>'
+            ].join('\n')
+        );
+        fs.writeFileSync(
+            path.join(importDir, 'geometry.xml'),
+            [
+                '<?xml version="1.0"?>',
+                '<geometry>',
+                '  <surface coeffs="0 0 0 10" id="1" type="sphere"/>',
+                '  <cell id="1" material="1" region="-1"/>',
+                '</geometry>'
+            ].join('\n')
+        );
+        fs.writeFileSync(
+            path.join(importDir, 'tallies.xml'),
+            [
+                '<?xml version="1.0"?>',
+                '<tallies>',
+                '  <mesh id="9" type="regular">',
+                '    <lower_left>-1 -1 -1</lower_left>',
+                '    <upper_right>1 1 1</upper_right>',
+                '    <dimension>2 2 1</dimension>',
+                '  </mesh>',
+                '  <filter id="1" type="cellinstance">',
+                '    <bins>1 0 2 1</bins>',
+                '  </filter>',
+                '  <filter id="2" type="meshmaterial" mesh="9" translation="1 2 3">',
+                '    <bins>0 1 1 2</bins>',
+                '  </filter>',
+                '  <filter id="3" type="particleproduction">',
+                '    <particles>photon neutron</particles>',
+                '    <energies>0 1e5 2e7</energies>',
+                '  </filter>',
+                '  <filter id="4" type="reaction">',
+                '    <bins>(n,gamma) (n,2n)</bins>',
+                '  </filter>',
+                '  <tally id="1">',
+                '    <filters>1 2 3 4</filters>',
+                '    <scores>flux</scores>',
+                '  </tally>',
+                '</tallies>'
+            ].join('\n')
+        );
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const imported = await backend.importXML({ directory: importDir });
+        expect(imported.success).toBe(true);
+        expect(imported.state!.tallies[0].filters).toEqual([
+            {
+                type: 'cellinstance',
+                bins: [1, 0, 2, 1],
+                pairs: [
+                    { first: 1, second: 0 },
+                    { first: 2, second: 1 }
+                ]
+            },
+            {
+                type: 'meshmaterial',
+                bins: [0, 1, 1, 2],
+                pairs: [
+                    { first: 0, second: 1 },
+                    { first: 1, second: 2 }
+                ],
+                meshId: 9,
+                meshTranslation: [1, 2, 3]
+            },
+            { type: 'particleproduction', bins: [], particleTypes: ['photon', 'neutron'], productionEnergyBins: [0, 100000, 20000000] },
+            { type: 'reaction', bins: [], reactionBins: ['(n,gamma)', '(n,2n)'] }
+        ]);
+
+        fs.rmSync(importDir, { recursive: true, force: true });
+    });
+
     it('round-trips rectilinear/unstructured meshes and mesh-filter transforms', async () => {
         const meshDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openmc-mesh-authoring-'));
         const meshFile = path.join(meshDir, 'core.h5m');

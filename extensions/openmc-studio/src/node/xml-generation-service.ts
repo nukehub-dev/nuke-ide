@@ -85,6 +85,14 @@ import {
     sourceHasBias,
     stripSourceBias
 } from '../common/variance-reduction';
+import {
+    flattenPairs,
+    getCellInstancePairs,
+    getFilterSupportWarning,
+    getMeshMaterialPairs,
+    isFilterSupported
+} from '../common/tally-filter-utils';
+import { normalizeReactionBin } from '../common/reaction-catalog';
 
 /** Context for mesh XML emission (validation warnings + path resolution). */
 interface MeshEmissionContext {
@@ -1998,11 +2006,28 @@ export class XMLGenerationService {
             }
         }
 
+        // Omit 0.16-only filters with a warning on older environments so the
+        // tally never references a filter element that was not written. The
+        // UI keeps the user's configured filter in the project state.
+        const emittableTallies = effectiveTallies.map((tally) => {
+            const supported = tally.filters.filter((filter) => {
+                if (isFilterSupported(filter.type, compat)) {
+                    return true;
+                }
+                const warning = getFilterSupportWarning(filter.type);
+                if (warning) {
+                    warnings?.push(`Tally ${tally.id}${tally.name ? ` (${tally.name})` : ''}: ${warning}`);
+                }
+                return false;
+            });
+            return supported.length === tally.filters.length ? tally : { ...tally, filters: supported };
+        });
+
         // Collect all unique filters and assign them IDs
         const filterMap = new Map<string, { id: number } & OpenMCTally['filters'][number]>();
         let nextFilterId = 1;
 
-        for (const tally of effectiveTallies) {
+        for (const tally of emittableTallies) {
             for (const filter of tally.filters) {
                 // Create a unique key for this filter
                 const key = this.getFilterKey(filter);
@@ -2018,7 +2043,7 @@ export class XMLGenerationService {
         // tallies.py _create_derivative_subelements)
         const derivativeIds = new Map<NonNullable<OpenMCTally['derivative']>, number>();
         let nextDerivativeId = 1;
-        for (const tally of effectiveTallies) {
+        for (const tally of emittableTallies) {
             if (tally.derivative) {
                 if (!derivativeIds.has(tally.derivative)) {
                     derivativeIds.set(tally.derivative, tally.derivative.id ?? nextDerivativeId++);
@@ -2039,7 +2064,7 @@ export class XMLGenerationService {
         }
 
         // Add tallies with filter references
-        for (const tally of effectiveTallies) {
+        for (const tally of emittableTallies) {
             lines.push(this.generateTallyElement(tally, filterMap, derivativeIds));
         }
 
@@ -2063,7 +2088,12 @@ export class XMLGenerationService {
             filter.responseValues?.join(','),
             filter.interpolation,
             filter.meshTranslation?.join(','),
-            filter.meshRotation?.join(',')
+            filter.meshRotation?.join(','),
+            filter.pairs ? flattenPairs(filter.pairs).join(',') : undefined,
+            filter.nuclideBins?.join(','),
+            filter.reactionBins?.join(','),
+            filter.particleTypes?.join(','),
+            filter.productionEnergyBins?.join(',')
         ]
             .filter((v) => v !== undefined)
             .join(':');
@@ -2227,6 +2257,12 @@ export class XMLGenerationService {
             lines.push(`    <estimator>${tally.estimator}</estimator>`);
         }
 
+        // Optional higher-moment accumulation (openmc.Tally.to_xml_element
+        // writes <higher_moments>true</higher_moments>).
+        if (tally.higherMoments) {
+            lines.push('    <higher_moments>true</higher_moments>');
+        }
+
         // Derivative reference (the <derivative> elements live at the
         // tallies root; the tally carries the ID as text, tallies.py:1477-1480)
         if (tally.derivative && derivativeIds) {
@@ -2255,16 +2291,19 @@ export class XMLGenerationService {
 
         switch (filter.type) {
             case 'mesh':
-            case 'meshsurface': {
+            case 'meshsurface':
+            case 'meshborn': {
                 // Mesh-based filters reference the mesh ID in <bins>. MeshFilter
                 // translation is a 0.15.3+ attribute; rotation is 0.16.0+
                 // (openmc/filter.py MeshFilter.to_xml_element) and is gated by
-                // the probed capability.
+                // the probed capability. MeshBornFilter inherits the same
+                // transform surface; MeshMaterialFilter is separate because its
+                // bins are element/material pairs and it never emits rotation.
                 const translation = filter.meshTranslation as [number, number, number] | undefined;
                 const rotation = filter.meshRotation as [number, number, number] | undefined;
                 const translationAttr = translation ? ` translation="${translation.join(' ')}"` : '';
                 let rotationAttr = '';
-                if (rotation && filter.type === 'mesh') {
+                if (rotation) {
                     if (compat.meshFilterRotation) {
                         rotationAttr = ` rotation="${rotation.join(' ')}"`;
                     } else {
@@ -2275,6 +2314,73 @@ export class XMLGenerationService {
                 }
                 lines.push(`  <filter id="${filter.id}" type="${filter.type}"${translationAttr}${rotationAttr}>`);
                 lines.push(`    <bins>${filter.meshId ?? filter.bins.join(' ')}</bins>`);
+                break;
+            }
+
+            case 'meshmaterial': {
+                const pairs = getMeshMaterialPairs(filter);
+                const flattened = filter.bins.length % 2 !== 0 ? filter.bins : pairs.length > 0 ? flattenPairs(pairs) : filter.bins;
+                if (flattened.length % 2 !== 0) {
+                    warnings?.push(
+                        `Mesh-material filter ${filter.id} has an odd number of bins (${flattened.length}); OpenMC expects element/material pairs and will reject this filter`
+                    );
+                }
+                const translation = filter.meshTranslation as [number, number, number] | undefined;
+                const translationAttr = translation ? ` translation="${translation.join(' ')}"` : '';
+                lines.push(`  <filter id="${filter.id}" type="meshmaterial" mesh="${filter.meshId ?? 0}"${translationAttr}>`);
+                lines.push(`    <bins>${flattened.join(' ')}</bins>`);
+                break;
+            }
+
+            case 'cellinstance': {
+                const pairs = getCellInstancePairs(filter);
+                const flattened = filter.bins.length % 2 !== 0 ? filter.bins : pairs.length > 0 ? flattenPairs(pairs) : filter.bins;
+                if (flattened.length % 2 !== 0) {
+                    warnings?.push(
+                        `Cell-instance filter ${filter.id} has an odd number of bins (${flattened.length}); OpenMC expects cell/instance pairs and will reject this filter`
+                    );
+                }
+                lines.push(`  <filter id="${filter.id}" type="cellinstance">`);
+                lines.push(`    <bins>${flattened.join(' ')}</bins>`);
+                break;
+            }
+
+            case 'parentnuclide': {
+                const bins = filter.nuclideBins ?? [];
+                lines.push(`  <filter id="${filter.id}" type="parentnuclide">`);
+                lines.push(`    <bins>${bins.map((name: string) => this.escapeXml(name)).join(' ')}</bins>`);
+                break;
+            }
+
+            case 'reaction': {
+                const bins = (filter.reactionBins ?? []).map((bin: string) => {
+                    const canonical = normalizeReactionBin(bin);
+                    if (!canonical) {
+                        warnings?.push(
+                            `Reaction filter ${filter.id} contains "${bin}", which is not a known OpenMC reaction; OpenMC will reject this filter`
+                        );
+                        return bin;
+                    }
+                    return canonical;
+                });
+                lines.push(`  <filter id="${filter.id}" type="reaction">`);
+                lines.push(`    <bins>${bins.map((bin: string) => this.escapeXml(bin)).join(' ')}</bins>`);
+                break;
+            }
+
+            case 'particleproduction': {
+                const particles = filter.particleTypes ?? [];
+                const energies = filter.productionEnergyBins ?? [];
+                if (particles.length === 0) {
+                    warnings?.push(
+                        `Particle-production filter ${filter.id} has no secondary particle types; OpenMC will reject this filter`
+                    );
+                }
+                lines.push(`  <filter id="${filter.id}" type="particleproduction">`);
+                lines.push(`    <particles>${particles.map((particle: string) => this.escapeXml(particle)).join(' ')}</particles>`);
+                if (energies.length > 0) {
+                    lines.push(`    <energies>${energies.join(' ')}</energies>`);
+                }
                 break;
             }
 

@@ -55,7 +55,9 @@ const WRAPPER_FULL: OpenMCCompat = {
     sharedSecondaryBank: true,
     surfaceGrazing: true,
     meshFilterRotation: true,
-    sourceBias: true
+    sourceBias: true,
+    reactionFilter: true,
+    particleProductionFilter: true
 };
 const DIRECT_MIN: OpenMCCompat = {
     raySourceFormat: 'direct',
@@ -70,7 +72,9 @@ const DIRECT_MIN: OpenMCCompat = {
     sharedSecondaryBank: false,
     surfaceGrazing: false,
     meshFilterRotation: false,
-    sourceBias: false
+    sourceBias: false,
+    reactionFilter: false,
+    particleProductionFilter: false
 };
 
 /** Probe subclass with the python spawn mocked out. */
@@ -126,7 +130,7 @@ describe('OpenMCCompatProbeService', () => {
         const probe = makeProbe('/fake/python', undefined);
         expect(
             (probe as any).parseProbeOutput(
-                'direct no-adjoint no-tokamak s2 no-substeps no-keff-search external-rate continuation no-shared-bank no-grazing no-decay no-mesh-rotation no-bias\n'
+                'direct no-adjoint no-tokamak s2 no-substeps no-keff-search external-rate continuation no-shared-bank no-grazing no-decay no-mesh-rotation no-bias no-reaction-filter no-particle-production\n'
             )
         ).toEqual({
             ...DIRECT_MIN,
@@ -142,7 +146,9 @@ describe('OpenMCCompatProbeService', () => {
             surfaceGrazing: false,
             decaySpectrum: false,
             meshFilterRotation: false,
-            sourceBias: false
+            sourceBias: false,
+            reactionFilter: false,
+            particleProductionFilter: false
         });
         expect(
             (probe as any).parseProbeOutput(
@@ -160,7 +166,7 @@ describe('OpenMCCompatProbeService', () => {
         const probe = makeProbe('/fake/python', undefined);
         expect(
             (probe as any).parseProbeOutput(
-                'wrapper adjoint tokamak s2 substeps keff-search external-rate continuation shared-bank grazing decay mesh-rotation bias\n'
+                'wrapper adjoint tokamak s2 substeps keff-search external-rate continuation shared-bank grazing decay mesh-rotation bias reaction-filter particle-production\n'
             )
         ).toEqual(WRAPPER_FULL);
     });

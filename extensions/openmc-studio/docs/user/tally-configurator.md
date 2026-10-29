@@ -67,37 +67,92 @@ Filters restrict scoring to specific regions of phase space.
 
 Click **"Add Filter"** and choose a filter type:
 
-| Filter               | Description                      | Parameters                                       |
-| -------------------- | -------------------------------- | ------------------------------------------------ |
-| `energy`             | Energy bins                      | Lower/upper bounds (eV)                          |
-| `energyout`          | Outgoing energy bins             | Lower/upper bounds (eV)                          |
-| `mu`                 | Cosine of scattering angle       | Bin edges (−1 to 1)                              |
-| `polar`              | Polar angle                      | Bin edges (0 to π radians)                       |
-| `azimuthal`          | Azimuthal angle                  | Bin edges (0 to 2π radians)                      |
-| `cell`               | Specific cells                   | List of cell IDs                                 |
-| `cellborn`           | Cell where particle was born     | List of cell IDs                                 |
-| `cellfrom`           | Cell particle just left          | List of cell IDs                                 |
-| `surface`            | Surface crossings                | List of surface IDs                              |
-| `material`           | Specific materials               | List of material IDs                             |
-| `universe`           | Specific universes               | List of universe IDs                             |
-| `distribcell`        | Instances of a cell in a lattice | Cell ID                                          |
-| `mesh`               | Mesh element bins                | Mesh definition + optional transform (see below) |
-| `delayedgroup`       | Delayed neutron precursor group  | Group numbers (1–6)                              |
-| `energyfunction`     | Functional energy filter         | Energy-response pairs                            |
-| `legendre`           | Legendre scattering moments      | Order (P0, P1, P2, ...)                          |
-| `spatiallegendre`    | Spatial Legendre expansion       | Axis, order                                      |
-| `sphericalharmonics` | Spherical harmonics moments      | Order                                            |
-| `zernike`            | Zernike polynomial moments       | Order, radial basis                              |
-| `zernikeradial`      | Radial-only Zernike moments      | Order                                            |
-| `particle`           | Particle type                    | `neutron`, `photon`                              |
-| `time`               | Time bins                        | Lower/upper bounds (s)                           |
-| `meshsurface`        | Current crossing a mesh surface  | Mesh definition                                  |
+| Filter               | Description                              | Parameters                                       |
+| -------------------- | ---------------------------------------- | ------------------------------------------------ |
+| `energy`             | Energy bins                              | Lower/upper bounds (eV)                          |
+| `energyout`          | Outgoing energy bins                     | Lower/upper bounds (eV)                          |
+| `mu`                 | Cosine of scattering angle               | Bin edges (−1 to 1)                              |
+| `polar`              | Polar angle                              | Bin edges (0 to π radians)                       |
+| `azimuthal`          | Azimuthal angle                          | Bin edges (0 to 2π radians)                      |
+| `cell`               | Specific cells                           | List of cell IDs                                 |
+| `cellborn`           | Cell where particle was born             | List of cell IDs                                 |
+| `cellfrom`           | Cell particle just left                  | List of cell IDs                                 |
+| `surface`            | Surface crossings                        | List of surface IDs                              |
+| `material`           | Specific materials                       | List of material IDs                             |
+| `universe`           | Specific universes                       | List of universe IDs                             |
+| `distribcell`        | Instances of a cell in a lattice         | Cell ID                                          |
+| `mesh`               | Mesh element bins                        | Mesh definition + optional transform (see below) |
+| `delayedgroup`       | Delayed neutron precursor group          | Group numbers (1–6)                              |
+| `energyfunction`     | Functional energy filter                 | Energy-response pairs                            |
+| `legendre`           | Legendre scattering moments              | Order (P0, P1, P2, ...)                          |
+| `spatiallegendre`    | Spatial Legendre expansion               | Axis, order                                      |
+| `sphericalharmonics` | Spherical harmonics moments              | Order                                            |
+| `zernike`            | Zernike polynomial moments               | Order, radial basis                              |
+| `zernikeradial`      | Radial-only Zernike moments              | Order                                            |
+| `particle`           | Particle type                            | `neutron`, `photon`                              |
+| `time`               | Time bins                                | Lower/upper bounds (s)                           |
+| `meshsurface`        | Current crossing a mesh surface          | Mesh definition                                  |
+| `materialfrom`       | Material the particle came from          | Material IDs                                     |
+| `cellinstance`       | One repeated instance of a cell          | Cell ID + instance index (0 = first)             |
+| `parentnuclide`      | Parent nuclide of the event              | Nuclide names (e.g. `U235`, `Am242m`)            |
+| `meshborn`           | Mesh element where the particle was born | Mesh definition + optional transform             |
+| `meshmaterial`       | Mesh element + material pairs            | Zero-based element + material ID per row         |
+| `collision`          | Number of collisions                     | Positive whole collision numbers, ascending      |
+| `reaction`           | ENDF reaction (0.16+)                    | MT number or name, searchable picker             |
+| `particleproduction` | Secondary particle type + energy (0.16+) | Particle names + optional energy boundaries      |
+| `musurface`          | Surface-crossing angle cosine            | Bin edges from −1 to 1                           |
+| `weight`             | Incoming particle weight                 | Non-negative boundaries, ascending               |
+
+The add-filter menu groups these into **Spatial / domain**, **Energy / angle**, **Mesh**,
+**Reaction / particle**, and **Advanced**. Filters can be reordered with the arrow buttons; the order
+is the tally bin order and is written unchanged to XML and Python.
 
 **Filter Examples:**
 
 - **Energy spectrum:** `energy` filter with bins `[1e-5, 1e-3, 1e-1, 1, 1e3, 1e5, 2e7]` eV.
 - **Cell-averaged flux:** `cell` filter with the target cell ID + `flux` score.
 - **Material-wise power:** `material` filter with fuel material IDs + `kappa-fission` score.
+
+### Structured Filters
+
+**Cell instance** (`cellinstance`) bins one occurrence of a repeated cell, so different lattice
+positions can be scored separately. Each row combines a cell picker with an instance index:
+instance `0` is the first occurrence in the geometry, `1` the second, and so on. Without a cell in the
+project yet, type the cell ID directly; the picker appears as soon as geometry exists.
+
+**Mesh material** (`meshmaterial`) bins one mesh element/material combination per row. Element indices
+are zero-based, matching `openmc.MeshMaterialFilter`, and the editor shows the mesh's element count
+when it is known. Add one row per combination; the pair count is shown above the table.
+
+**Reaction** (`reaction`, OpenMC 0.16+) uses a searchable MT/name picker with common reactions pinned.
+Typing an MT number such as `102` adds OpenMC's canonical `(n,gamma)` name. Unknown names are rejected
+inline instead of being written to the deck.
+
+**Particle production** (`particleproduction`, OpenMC 0.16+) selects secondary particles (photon,
+neutron, electron, positron, or a custom nuclide such as `C12`) and optional strictly increasing
+energy boundaries in eV. It is most useful with the `events` score. On environments older than
+OpenMC 0.16 the filter stays in the project but is omitted from generated XML/Python with a warning.
+
+**Mu surface** (`musurface`) bins surface crossings by the cosine of the angle between the particle
+direction and the surface normal. It needs a `surface` filter and the `current` score; the editor
+warns when either is missing.
+
+### Tally Output Options
+
+- **Multiply by density** (default on) writes `multiply_density="false"` only when disabled. Turn it
+  off for scores already normalized per unit mass or atom.
+- **Accumulate higher moments** writes `<higher_moments>true</higher_moments>` and
+  `tally.higher_moments = True` in the Python export.
+
+Sparse storage (`sparse`) and per-batch statistics (`with_batch_statistics`) are statepoint/Python
+analysis options, not simulation input; they have no editor control and are not written to
+`tallies.xml`.
+
+### Random Ray Filters
+
+Random ray supports the filters listed by OpenMC: `cell`, `cellinstance`, `distribcell`, `energy`,
+`material`, `mesh`, and `universe`. The readiness checklist rejects other filters in multi-group mode
+with a message naming the tally and filter.
 
 ### Step 4: Add Nuclides
 
@@ -179,9 +234,11 @@ support; the panel names the missing Python package when the MOAB package is una
 
 Mesh filters support an optional rigid transform under **Mesh transform** in the filter editor:
 
-- **Translate mesh (cm)** — shift the mesh by X/Y/Z for this filter only.
+- **Translate mesh (cm)** — shift the mesh by X/Y/Z for this filter only. Applies to `mesh`,
+  `meshsurface`, `meshborn`, and `meshmaterial`.
 - **Rotate mesh (degrees)** — rotate by `phi`, `theta`, `psi` using OpenMC's intrinsic Tait-Bryan
-  convention (`Rz(psi) Ry(theta) Rx(phi)`). Rotation requires OpenMC 0.16 or newer.
+  convention (`Rz(psi) Ry(theta) Rx(phi)`). Applies to `mesh`, `meshsurface`, and `meshborn`; OpenMC's
+  mesh-material filter has no rotation attribute. Rotation requires OpenMC 0.16 or newer.
 
 Configured transforms show `translated` / `rotated` badges on the filter. On environments without
 mesh-filter rotation, the editor shows an inline warning and generated XML omits the rotation instead

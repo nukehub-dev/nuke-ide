@@ -402,6 +402,38 @@ describe('validateState random ray (multi-group) restrictions', () => {
         expect(result.issues.some((i) => i.message.includes('random ray'))).toBe(false);
     });
 
+    it('accepts cell-instance filters and rejects unsupported filters in random ray mode', async () => {
+        const state = buildState();
+        state.settings.energyMode = 'multigroup';
+        state.tallies = [
+            {
+                id: 1,
+                name: 'Instance flux',
+                scores: ['flux'],
+                nuclides: [],
+                filters: [{ type: 'cellinstance', bins: [1, 0], pairs: [{ first: 1, second: 0 }] }]
+            },
+            {
+                id: 2,
+                name: 'Weighted flux',
+                scores: ['flux'],
+                nuclides: [],
+                filters: [{ type: 'weight', bins: [0, 1] }]
+            }
+        ];
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const result = await backend.validateState({ state });
+
+        const filterError = result.issues.find(
+            (i) => i.severity === 'error' && i.message.includes('Filters not supported in random ray mode')
+        );
+        expect(filterError).toBeDefined();
+        expect(filterError!.message).toContain('tally 2 (Weighted flux): weight');
+        expect(filterError!.message).not.toContain('tally 1');
+        expect(filterError!.suggestion).toContain('cell instance');
+    });
+
     it('errors when multi-group mode has nuclide-decomposed materials', async () => {
         const state = buildState();
         state.settings.energyMode = 'multigroup';

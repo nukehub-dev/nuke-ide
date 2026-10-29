@@ -35,6 +35,7 @@ import { OpenMCStudioService } from '../../openmc-studio-service';
 import { NukeCoreService, NukeCoreStatusBarVisibility, NukeCoreStatusBarVisibilityService } from 'nuke-core/lib/common';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
 import { OpenMCTally, OpenMCMesh } from '../../../common/openmc-state-schema';
+import { OpenMCCompat } from '../../../common/openmc-studio-protocol';
 import { DAGMC_PACKAGES } from '../../../common/packages';
 import { inferUnstructuredMeshLibrary } from '../../../common/mesh-utils';
 import { MeshPanel } from './components/mesh-panel';
@@ -101,8 +102,8 @@ export class TallyConfiguratorWidget extends ReactWidget {
     private readonly meshFileKeys = new Map<number, string>();
     /** Pending debounced file checks, keyed by mesh ID. */
     private readonly meshFileTimers = new Map<number, ReturnType<typeof setTimeout>>();
-    /** Whether mesh-filter rotation is supported by the probe (0.16+). */
-    private meshRotationSupported?: boolean;
+    /** Probed capabilities for 0.16-only filters and mesh-filter rotation. */
+    private compat?: OpenMCCompat;
     /** Avoid re-requesting the compatibility probe on every render. */
     private compatRequested = false;
     /** MOAB package availability in the configured Python environment. */
@@ -246,8 +247,13 @@ export class TallyConfiguratorWidget extends ReactWidget {
         const tallies = state.tallies || [];
         const meshes = state.meshes || [];
         const selectedTally = tallies.find((t) => t.id === this.state.selectedTallyId);
-        if (selectedTally?.filters.some((filter) => filter.type === 'mesh') && !this.compatRequested) {
-            this.ensureMeshRotationCompat();
+        const needsCompat = tallies.some((tally) =>
+            tally.filters.some((filter) =>
+                ['mesh', 'meshsurface', 'meshborn', 'meshmaterial', 'reaction', 'particleproduction'].includes(filter.type)
+            )
+        );
+        if (needsCompat && !this.compatRequested) {
+            this.ensureCompat();
         }
 
         return (
@@ -279,9 +285,12 @@ export class TallyConfiguratorWidget extends ReactWidget {
                             tally={selectedTally}
                             meshes={meshes}
                             materials={state.materials}
+                            cells={state.geometry.cells}
                             triggerBatchInterval={this.stateManager.getState().settings.triggers?.batchInterval}
                             multiGroup={state.settings.energyMode === 'multigroup'}
-                            meshRotationSupported={this.meshRotationSupported}
+                            meshRotationSupported={this.compat?.meshFilterRotation}
+                            reactionFilterSupported={this.compat?.reactionFilter}
+                            particleProductionFilterSupported={this.compat?.particleProductionFilter}
                             onUpdate={(updates) => this.stateManager.updateTally(selectedTally.id, updates)}
                         />
                     ) : (
@@ -338,14 +347,14 @@ export class TallyConfiguratorWidget extends ReactWidget {
     }
 
     /**
-     * Fetch the probed mesh-rotation capability lazily, only when a mesh filter
-     * is on screen. Probing runs Python environment detection on the backend,
-     * so doing it at widget startup would stall unrelated file checks.
+     * Fetch the probed capabilities lazily, only when a filter that depends on
+     * them is on screen. Probing runs Python environment detection on the
+     * backend, so doing it at widget startup would stall unrelated file checks.
      */
-    private ensureMeshRotationCompat(): void {
+    private ensureCompat(): void {
         this.compatRequested = true;
         void this.studioService.getOpenMCCompat().then((compat) => {
-            this.meshRotationSupported = compat.meshFilterRotation;
+            this.compat = compat;
             this.update();
         });
     }

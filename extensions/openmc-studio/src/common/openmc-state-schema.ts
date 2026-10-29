@@ -1472,7 +1472,25 @@ export type OpenMCTallyFilterType =
     | 'sphericalharmonics'
     | 'particle'
     | 'zernike'
-    | 'zernikeradial';
+    | 'zernikeradial'
+    | 'materialfrom'
+    | 'cellinstance'
+    | 'parentnuclide'
+    | 'meshborn'
+    | 'meshmaterial'
+    | 'collision'
+    | 'reaction'
+    | 'particleproduction'
+    | 'musurface'
+    | 'weight';
+
+/** Structured numeric pair used by cell-instance and mesh-material filters. */
+export interface OpenMCBinnedPair {
+    /** Cell ID (`cellinstance`) or zero-based mesh element index (`meshmaterial`). */
+    first: number;
+    /** Cell instance index (`cellinstance`) or material ID (`meshmaterial`). */
+    second: number;
+}
 
 /** Tally filter definition */
 export interface OpenMCTallyFilter {
@@ -1480,7 +1498,21 @@ export interface OpenMCTallyFilter {
     type: OpenMCTallyFilterType;
     /** Filter bins (IDs for cell/material/universe, values for energy, etc.) */
     bins: number[];
-    /** For mesh/meshsurface filter: mesh ID */
+    /**
+     * Structured pairs for `cellinstance` (cell ID + instance index) and
+     * `meshmaterial` (zero-based mesh element + material ID). The flattened
+     * OpenMC `<bins>` encoding is mirrored into {@link bins}.
+     */
+    pairs?: OpenMCBinnedPair[];
+    /** For `parentnuclide`: parent nuclide names (e.g. `U235`, `Pu239`). */
+    nuclideBins?: string[];
+    /** For `reaction`: canonical OpenMC reaction names (e.g. `(n,gamma)`, MT 102). */
+    reactionBins?: string[];
+    /** For `particleproduction`: secondary particle types (e.g. `photon`, `neutron`). */
+    particleTypes?: string[];
+    /** For `particleproduction`: secondary energy boundaries in eV (empty = no energy binning). */
+    productionEnergyBins?: number[];
+    /** For mesh/meshsurface/meshborn/meshmaterial filter: mesh ID */
     meshId?: number;
     /** For expansion filters (legendre, spatiallegendre, sphericalharmonics, zernike, zernikeradial): expansion order */
     order?: number;
@@ -1603,8 +1635,13 @@ export interface OpenMCTally {
     filters: OpenMCTallyFilter[];
     /** Tally estimator */
     estimator?: OpenMCTallyEstimator;
-    /** Whether to multiply by atom density (for some scores) */
+    /** Whether to multiply by atom density (for some scores); absent = true */
     multiplyDensity?: boolean;
+    /**
+     * Accumulate third/fourth central moments in the statepoint
+     * (`<higher_moments>true</higher_moments>`, openmc.Tally.higher_moments).
+     */
+    higherMoments?: boolean;
     /** Per-tally triggers (openmc.Trigger list) */
     triggers?: OpenMCTallyTrigger[];
     /** Material perturbation derivative for this tally (openmc.TallyDerivative) */

@@ -258,11 +258,14 @@ interface OpenMCTally {
   nuclides: string[]; // 'total' or specific nuclide names
   filters: OpenMCTallyFilter[]; // cell, energy, mesh, ...
   estimator?: 'analog' | 'tracklength' | 'collision';
-  multiplyDensity?: boolean;
+  multiplyDensity?: boolean; // absent = true
+  higherMoments?: boolean; // <higher_moments>
 }
 ```
 
-**Concept:** Filters carry `bins` as a flat number array. The interpretation of those numbers depends on `type` (cell IDs vs energy bounds vs mesh IDs). The tally-configurator widget uses the `type` to render appropriate editors (cell picker, energy range slider, mesh selector).
+**Concept:** Filters carry `bins` as a flat number array. The interpretation of those numbers depends on `type` (cell IDs vs energy bounds vs mesh IDs). Structured filters keep dedicated fields so the row order is explicit: `pairs` for `cellinstance` (cell ID + instance) and `meshmaterial` (zero-based mesh element + material ID), `nuclideBins` for `parentnuclide`, `reactionBins` for canonical `reaction` names, and `particleTypes` + `productionEnergyBins` for `particleproduction`. The flat OpenMC encoding is mirrored into `bins` for pair filters; XML generation, import, Python export, and the editor all share `src/common/tally-filter-utils.ts` so no path silently reorders bins. `reaction` and `particleproduction` are 0.16-only and are gated by `OpenMCCompat.reactionFilter` / `particleProductionFilter`.
+
+`multiplyDensity` and `higherMoments` are tally output options that are XML-representable. `sparse` and `with_batch_statistics` are Python/statepoint analysis options and deliberately have no schema field or UI control.
 
 ---
 
