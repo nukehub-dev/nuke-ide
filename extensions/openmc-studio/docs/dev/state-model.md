@@ -484,6 +484,10 @@ The `OPENMC_STATE_SCHEMA_VERSION` constant (currently `'1.2.0'`) is embedded in 
 
 ---
 
+## Project Templates
+
+`src/common/project-templates.ts` owns the runnable templates. Each builder is a pure function returning a complete `OpenMCState`; there is no second schema or hidden template format. `listProjectTemplates()` attaches built default states to the card metadata, and `buildProjectTemplate(id, parameters)` is the single builder used by the New Project dialog and the backend `applyTemplate` RPC. Add or change a template there, keep its preview in `previewProjectTemplate`, and update the template tests.
+
 ## Default State
 
 `createDefaultState()` (in `openmc-state-manager.ts`) produces a minimal valid state:

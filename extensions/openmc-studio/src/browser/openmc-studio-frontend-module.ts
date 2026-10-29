@@ -95,6 +95,7 @@ import { bindOpenMCStudioPreferences } from './openmc-studio-preferences';
 import './icons/openmc-icon-classes.css';
 import './widgets/shared/openmc-widget.css';
 import './widgets/simulation-dashboard/simulation-dashboard.css';
+import './widgets/new-project/new-project.css';
 import './widgets/csg-builder/csg-builder.css';
 import './widgets/dagmc-editor/dagmc-editor.css';
 import './widgets/tally-configurator/tally-configurator.css';

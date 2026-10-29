@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { collectErrors, runCommand, waitForWorkbench } from './helpers';
+import { collectErrors, createBlankProject, waitForWorkbench } from './helpers';
 
 /**
  * Depletion tab advanced controls: CRAM substeps, reactivity control,
@@ -10,7 +10,7 @@ import { collectErrors, runCommand, waitForWorkbench } from './helpers';
 test.setTimeout(240_000);
 
 async function openDepletionTab(page: import('@playwright/test').Page) {
-    await runCommand(page, 'New Project');
+    await createBlankProject(page);
     const dashboard = page.locator('.simulation-dashboard');
     await expect(dashboard).toBeVisible({ timeout: 30_000 });
 

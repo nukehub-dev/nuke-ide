@@ -1,6 +1,6 @@
 # Tally Configurator
 
-The Tally Configurator is the dedicated widget for defining OpenMC tallies — what to score, where to score it, and for which nuclides. It supports both standard tallies and structured mesh tallies.
+The Tally Configurator is the dedicated widget for defining OpenMC tallies — what to score, where to score it, and for which nuclides. It supports both standard tallies and structured mesh tallies. XML import reconstructs every supported filter, structured cell-instance/mesh-material pair, score, trigger, and derivative, and reports anything it cannot map in the dashboard's import report.
 
 ---
 

@@ -139,12 +139,14 @@ export class ProjectCommands {
     }
 
     /**
-     * Reset the application state and open a fresh project in the dashboard.
+     * Open the dashboard and show the New Project template picker.
      */
     private async newProject(): Promise<void> {
-        this.stateManager.reset();
-        this.messageService.info('Created new OpenMC project');
         await this.openDashboard();
+        const widget = await this.widgetManager.getOrCreateWidget(SimulationDashboardWidget.ID);
+        if (widget instanceof SimulationDashboardWidget) {
+            (widget as SimulationDashboardWidget).openNewProjectDialog();
+        }
     }
 
     /**

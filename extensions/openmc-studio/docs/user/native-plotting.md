@@ -2,6 +2,8 @@
 
 The Native Plotting window renders geometry plots with OpenMC's built-in C++ plot mode (`openmc -p`) — no Python plotting stack required. It supports slice plots, voxel plots, and ray-traced renders, and can batch several plot definitions in one run.
 
+XML import restores plot types, camera controls, background colors, cell/material masks, and slice overlap highlighting. Imported appearance fields that OpenMC ignores for a plot type are reported in the dashboard's import report.
+
 ---
 
 ## Opening

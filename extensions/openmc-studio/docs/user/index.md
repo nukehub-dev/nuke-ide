@@ -10,20 +10,21 @@ New to OpenMC Studio? Start here:
 
 ## Feature Guides
 
-| Guide                                                 | What You'll Learn                                                                                                                |
-| ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| [**Simulation Dashboard**](simulation-dashboard.md)   | Configure every aspect of a model across the Settings, Materials, Depletion, Variance Reduction, Random Ray, and Simulation tabs |
-| [**Geometry Workflows**](geometry.md)                 | Build CSG geometry with the interactive cell/surface tree, or import and edit DAGMC geometry                                     |
-| [**DAGMC Editor**](dagmc-editor.md)                   | View and edit faceted DAGMC geometry, manage group tags, apply material overrides, and run imprint/merge operations              |
-| [**Tally Configurator**](tally-configurator.md)       | Build tallies with mesh editors, filter builders, the score catalog, triggers, derivatives, and derived-tally arithmetic         |
-| [**Optimization Framework**](optimization.md)         | Run parameter sweeps and criticality (k-eff) searches                                                                            |
-| [**Volume Calculation**](volume-calculation.md)       | Stochastic volume estimation for cells, materials, and universes                                                                 |
-| [**Native Plotting**](native-plotting.md)             | Slice, voxel, and ray-traced geometry plots via OpenMC's C++ plot mode                                                           |
-| [**MGXS Generator**](mgxs-generator.md)               | Produce multi-group cross-section libraries (automatic and Library modes)                                                        |
-| [**Shutdown Dose**](shutdown-dose.md)                 | Run guided R2S or D1S activation, decay-photon transport, and dose/activity analysis                                             |
-| [**Simulation Comparison**](simulation-comparison.md) | Compare multiple statepoint files side-by-side, analyze tally deltas, and inspect convergence                                    |
-| [**Project Management**](project-management.md)       | Scaffold new OpenMC projects, manage workspace files, and browse run history                                                     |
-| [**CAD Import**](cad-import.md)                       | Import STEP and IGES files and convert them to DAGMC or CSG representations                                                      |
+| Guide                                                 | What You'll Learn                                                                                                        |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| [**Simulation Dashboard**](simulation-dashboard.md)   | Configure the model across the Settings, Materials, Depletion, Variance Reduction, Random Ray, and Simulation tabs       |
+| [**Coverage and Limitations**](coverage.md)           | Exactly which OpenMC features are supported, partial, or out of scope, and what still requires OpenMC/Python             |
+| [**Geometry Workflows**](geometry.md)                 | Build CSG geometry with the interactive cell/surface tree, or import and edit DAGMC geometry                             |
+| [**DAGMC Editor**](dagmc-editor.md)                   | View and edit faceted DAGMC geometry, manage group tags, apply material overrides, and run imprint/merge operations      |
+| [**Tally Configurator**](tally-configurator.md)       | Build tallies with mesh editors, filter builders, the score catalog, triggers, derivatives, and derived-tally arithmetic |
+| [**Optimization Framework**](optimization.md)         | Run parameter sweeps and criticality (k-eff) searches                                                                    |
+| [**Volume Calculation**](volume-calculation.md)       | Stochastic volume estimation for cells, materials, and universes                                                         |
+| [**Native Plotting**](native-plotting.md)             | Slice, voxel, and ray-traced geometry plots via OpenMC's C++ plot mode                                                   |
+| [**MGXS Generator**](mgxs-generator.md)               | Produce multi-group cross-section libraries (automatic and Library modes)                                                |
+| [**Shutdown Dose**](shutdown-dose.md)                 | Run guided R2S or D1S activation, decay-photon transport, and dose/activity analysis                                     |
+| [**Simulation Comparison**](simulation-comparison.md) | Compare multiple statepoint files side-by-side, analyze tally deltas, and inspect convergence                            |
+| [**Project Management**](project-management.md)       | Scaffold new OpenMC projects, manage workspace files, and browse run history                                             |
+| [**CAD Import**](cad-import.md)                       | Import STEP and IGES files and convert them to DAGMC or CSG representations                                              |
 
 ## Quick-Start Workflow
 

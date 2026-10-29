@@ -47,6 +47,13 @@ All files under `extensions/openmc-studio/` except generated artifacts (`lib/`, 
 - Shutdown dose (R2S/D1S) is driver-only: `state.shutdownDose` never enters settings.xml/tallies.xml; `run_r2s.py`/`run_d1s.py`
   take JSON + generated XML, stream `@@NUKE_PROGRESS@@`, and write `r2s_summary.json`/`d1s_summary.json`. `cell.volume` is the only
   model field it needs and round-trips through geometry.xml. See `docs/dev/shutdown-dose.md`.
+- Project templates live in `src/common/project-templates.ts` (one pure `buildProjectTemplate` builder returning `OpenMCState`);
+  the New Project picker, backend `getTemplates`/`applyTemplate`, and tests share it. New projects open the dashboard on the
+  Simulation tab. See `docs/user/project-management.md` and `docs/dev/state-model.md`.
+- XML import returns an `XMLImportReport` (`imported` counts, `ignored`, `needsAttention`) and every parse warning is classified
+  into it; unsupported constructs are reported, never silently dropped. DAGMC `<dagmc_universe>` preserves the filename only;
+  mesh metadata is loaded by the DAGMC Editor. `docs/user/coverage.md` is the user-facing support matrix; update it with each
+  feature and keep `docs/user/index.md`/`simulation-dashboard.md` free of full-coverage claims. See `docs/dev/xml-generation.md`.
 
 ## Work Guidance
 

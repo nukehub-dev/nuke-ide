@@ -1,5 +1,5 @@
 import { test, expect, Page } from '@playwright/test';
-import { collectErrors, expectNonEmptyContent, openFileByQuickOpen, runCommand, waitForWorkbench } from './helpers';
+import { collectErrors, createBlankProject, expectNonEmptyContent, openFileByQuickOpen, runCommand, waitForWorkbench } from './helpers';
 
 /**
  * Warm the workspace file index. The first Quick Open query builds the index
@@ -29,7 +29,7 @@ test.describe('shutdown dose wizard', () => {
         await page.goto('/');
         await waitForWorkbench(page);
 
-        await runCommand(page, 'New Project');
+        await createBlankProject(page);
         await runCommand(page, 'Shutdown Dose');
 
         const widget = page.locator('.shutdown-dose-widget');

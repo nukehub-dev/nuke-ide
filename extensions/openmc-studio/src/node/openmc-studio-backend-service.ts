@@ -47,6 +47,7 @@ import {
     XMLGenerationResult,
     XMLImportRequest,
     XMLImportResult,
+    XMLImportReport,
     XMLValidationResult,
     SimulationRunRequest,
     SimulationRunResult,
@@ -118,6 +119,7 @@ import {
     VarianceReductionIssue
 } from '../common/variance-reduction';
 import { migrateProjectFile } from '../common/openmc-state-migration';
+import { buildProjectTemplate, getProjectTemplate, listProjectTemplates } from '../common/project-templates';
 import { validateDepletionAdvanced, parseDepletionBlock } from '../common/depletion-config';
 import { calculateGeometryBounds, boxOverlapsBounds, pointInBounds } from '../common/geometry-bounds';
 import { reshapeHexLatticeUniverses } from '../common/geometry-lattices';
@@ -326,6 +328,8 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
 
             const warnings: string[] = [];
             const errors: string[] = [];
+            const importedFiles: string[] = [];
+            let importedDagmcFile: string | undefined;
 
             // Use directory name as project name
             const dirName = path.basename(request.directory);
@@ -339,6 +343,7 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                     state.materials = materialsData.materials;
                     materialsCrossSections = materialsData.crossSections;
                     warnings.push(...materialsData.warnings);
+                    importedFiles.push('materials.xml');
                     this.log(`Imported ${materialsData.materials.length} materials`);
                 } catch (err) {
                     const msg = err instanceof Error ? err.message : String(err);
@@ -353,7 +358,9 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                 try {
                     const geometryData = await this.parseGeometryXML(geometryPath);
                     state.geometry = geometryData.geometry;
+                    importedDagmcFile = geometryData.dagmcFile;
                     warnings.push(...geometryData.warnings);
+                    importedFiles.push('geometry.xml');
                     this.log(`Imported ${geometryData.geometry.cells.length} cells, ${geometryData.geometry.surfaces.length} surfaces`);
                 } catch (err) {
                     const msg = err instanceof Error ? err.message : String(err);
@@ -375,6 +382,7 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                     // Variance reduction (weight windows/UFS/generator) lives
                     // on OpenMCState.varianceReduction, not settings.
                     state.varianceReduction = settingsData.varianceReduction;
+                    importedFiles.push('settings.xml');
                     this.log(`Imported settings`);
                 } catch (err) {
                     const msg = err instanceof Error ? err.message : String(err);
@@ -390,6 +398,26 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                 state.settings.mgxsLibrary = materialsCrossSections;
             }
 
+            // geometry.xml owns the DAGMC mesh reference; apply it after
+            // settings.xml replaces the settings object.
+            if (importedDagmcFile) {
+                state.settings.dagmcFile = importedDagmcFile;
+            }
+
+            // Nuclide-wise multi-group mode has no settings.xml flag; it is
+            // encoded by keeping materials nuclide-decomposed instead of
+            // emitting <macroscopic>. Recover the mode from the materials.
+            if (state.settings.energyMode === 'multigroup' && state.materials.length > 0) {
+                const hasMacroscopic = state.materials.some((material) => !!material.macroscopic);
+                const hasNuclides = state.materials.some((material) => !material.macroscopic && material.nuclides.length > 0);
+                if (!hasMacroscopic && hasNuclides) {
+                    state.settings.nuclideWiseMgxs = true;
+                    warnings.push(
+                        'Multi-group materials are nuclide-decomposed without macroscopic data; imported in nuclide-wise MGXS mode.'
+                    );
+                }
+            }
+
             // Import tallies.xml
             const talliesPath = path.join(request.directory, 'tallies.xml');
             if (fs.existsSync(talliesPath)) {
@@ -398,6 +426,7 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                     state.tallies = talliesData.tallies;
                     state.meshes = talliesData.meshes;
                     warnings.push(...talliesData.warnings);
+                    importedFiles.push('tallies.xml');
                     this.log(`Imported ${talliesData.tallies.length} tallies, ${talliesData.meshes.length} meshes`);
                 } catch (err) {
                     const msg = err instanceof Error ? err.message : String(err);
@@ -430,6 +459,7 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                     for (const plot of state.plots) {
                         warnings.push(...validatePlotAppearance(plot, state).map((issue) => issue.message));
                     }
+                    importedFiles.push('plots.xml');
                     this.log(`Imported ${plotsData.plots.length} plots`);
                 } catch (err) {
                     const msg = err instanceof Error ? err.message : String(err);
@@ -437,13 +467,14 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                 }
             }
 
-            if (state.materials.length === 0 && state.geometry.cells.length === 0) {
+            if (state.materials.length === 0 && state.geometry.cells.length === 0 && !state.settings.dagmcFile) {
                 errors.push('No materials or geometry found in XML files');
                 return {
                     success: false,
                     state: undefined,
                     errors,
-                    warnings
+                    warnings,
+                    report: this.buildImportReport(state, warnings, importedFiles)
                 };
             }
 
@@ -451,7 +482,8 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                 success: true,
                 state,
                 errors: errors.length > 0 ? errors : [],
-                warnings: warnings.length > 0 ? warnings : []
+                warnings: warnings.length > 0 ? warnings : [],
+                report: this.buildImportReport(state, warnings, importedFiles)
             };
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
@@ -463,6 +495,53 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                 warnings: []
             };
         }
+    }
+
+    /**
+     * Classify import warnings into ignored constructs versus items that need
+     * attention before a run, and count the reconstructed model objects.
+     * @param state - Imported state.
+     * @param warnings - Raw parse warnings.
+     * @param files - XML files that were parsed.
+     * @returns Structured import report.
+     */
+    private buildImportReport(state: OpenMCState, warnings: string[], files: string[]): XMLImportReport {
+        const ignoredPatterns = [
+            /ignored/i,
+            /not imported/i,
+            /omitted/i,
+            /unsupported/i,
+            /not supported/i,
+            /cannot be represented/i,
+            /not applied/i,
+            /dropped/i,
+            /skipped/i
+        ];
+        const ignored: string[] = [];
+        const needsAttention: string[] = [];
+        for (const warning of warnings) {
+            if (ignoredPatterns.some((pattern) => pattern.test(warning))) {
+                ignored.push(warning);
+            } else {
+                needsAttention.push(warning);
+            }
+        }
+        return {
+            files,
+            imported: {
+                materials: state.materials.length,
+                surfaces: state.geometry.surfaces.length,
+                cells: state.geometry.cells.length,
+                universes: state.geometry.universes.length,
+                lattices: state.geometry.lattices.length,
+                tallies: state.tallies.length,
+                meshes: state.meshes.length,
+                plots: state.plots?.length ?? 0,
+                sources: state.settings.sources?.length ?? 0
+            },
+            ignored,
+            needsAttention
+        };
     }
 
     private createDefaultState(name?: string): OpenMCState {
@@ -574,6 +653,19 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                     material.ncrystalCfg = mat.$.cfg;
                 }
 
+                // Depletion attributes (openmc.Material.to_xml_element)
+                if (mat.$.depletable !== undefined) {
+                    material.isDepletable = mat.$.depletable.toString().toLowerCase() === 'true' || mat.$.depletable.toString() === '1';
+                }
+                if (mat.$.volume !== undefined) {
+                    const volume = parseFloat(mat.$.volume);
+                    if (Number.isFinite(volume) && volume > 0) {
+                        material.volume = volume;
+                    } else {
+                        warnings.push(`Material ${mat.$.id}: volume must be a positive number; got '${mat.$.volume}'`);
+                    }
+                }
+
                 // Parse isotropic-in-lab elastic scattering nuclides
                 if (mat.isotropic !== undefined) {
                     const isotropic = Array.isArray(mat.isotropic) ? mat.isotropic : [mat.isotropic];
@@ -596,7 +688,7 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
         return { materials, warnings, crossSections };
     }
 
-    private async parseGeometryXML(filePath: string): Promise<{ geometry: any; warnings: string[] }> {
+    private async parseGeometryXML(filePath: string): Promise<{ geometry: any; warnings: string[]; dagmcFile?: string }> {
         const fs = await import('fs');
         const xml2js = await import('xml2js');
 
@@ -613,9 +705,26 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             rootUniverseId: 0
         };
 
+        // DAGMC geometry.xml carries a single <dagmc_universe>, not CSG cells.
+        // Record the referenced mesh so validation/run preparation knows the
+        // model is DAGMC-based; loading mesh metadata is the DAGMC editor's job.
+        let dagmcFile: string | undefined;
+        const dagmcUniverse = result.geometry?.dagmc_universe;
+        if (dagmcUniverse) {
+            const first = Array.isArray(dagmcUniverse) ? dagmcUniverse[0] : dagmcUniverse;
+            dagmcFile = first?.$?.filename ? String(first.$.filename) : undefined;
+            if (dagmcFile) {
+                warnings.push(
+                    `DAGMC geometry references '${dagmcFile}'; the mesh file itself is not read during XML import. Open it in the DAGMC Editor to load volume and material metadata.`
+                );
+            } else {
+                warnings.push('DAGMC geometry has no filename attribute; set the DAGMC file in the Settings tab before running');
+            }
+        }
+
         if (!result.geometry) {
             warnings.push('No geometry element found in geometry.xml');
-            return { geometry, warnings };
+            return { geometry, warnings, dagmcFile };
         }
 
         const asArray = <T>(value: T | T[] | undefined): T[] => {
@@ -865,7 +974,7 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             }
         }
 
-        return { geometry, warnings };
+        return { geometry, warnings, dagmcFile };
     }
 
     /**
@@ -1732,9 +1841,12 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
         const sets = wwElems
             .map((element: any): any => {
                 const meshId = parseInt(String(xmlValueFromElement(element, 'mesh') ?? ''));
-                const lowerBound = this.parseNumberList(xmlValueFromElement(element, 'lower_ww_bounds'));
-                const upperBound = this.parseNumberList(xmlValueFromElement(element, 'upper_ww_bounds'));
-                const energyBounds = this.parseNumberList(xmlValueFromElement(element, 'energy_bounds'));
+                const lowerRaw = xmlValueFromElement(element, 'lower_ww_bounds');
+                const upperRaw = xmlValueFromElement(element, 'upper_ww_bounds');
+                const energyRaw = xmlValueFromElement(element, 'energy_bounds');
+                const lowerBound = lowerRaw !== undefined ? this.parseNumberList(lowerRaw) : [];
+                const upperBound = upperRaw !== undefined ? this.parseNumberList(upperRaw) : [];
+                const energyBounds = energyRaw !== undefined ? this.parseNumberList(energyRaw) : [];
                 const set: any = {
                     id: parseInt(String(element?.$?.id ?? '')) || undefined,
                     meshId: Number.isFinite(meshId) ? meshId : undefined,
@@ -1900,6 +2012,11 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             // Independent source (type attribute absent means 'independent')
             if (attrs.particle) {
                 source.particle = attrs.particle;
+                if (attrs.particle !== 'neutron' && attrs.particle !== 'photon') {
+                    warnings.push(
+                        `Source particle '${attrs.particle}' is preserved in XML, but generalized PDG particles are not editable in the source UI; neutron/photon are the supported source particles`
+                    );
+                }
             }
 
             const spatial = parseSpatialXml(src.space, warnings);
@@ -2371,7 +2488,22 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                           .toString()
                           .trim()
                           .split(/\s+/)
-                          .map((token: string) => (token === 'photon' ? 2 : token === 'neutron' ? 1 : parseInt(token) || 1))
+                          .map((token: string) => {
+                              if (token === 'photon') {
+                                  return 2;
+                              }
+                              if (token === 'neutron') {
+                                  return 1;
+                              }
+                              const numeric = parseInt(token, 10);
+                              if (Number.isFinite(numeric)) {
+                                  return numeric;
+                              }
+                              warnings?.push(
+                                  `Particle filter ${filterElem.$?.id ?? ''}: '${token}' is not a neutron/photon particle name; it was imported as neutron because generalized PDG particles are not supported by the editor`
+                              );
+                              return 1;
+                          })
                     : [];
                 break;
 
@@ -4030,64 +4162,39 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
 
     /**
      * Get available project templates.
-     * @returns List of templates with metadata
+     * @returns List of templates with metadata and their default state
      */
     async getTemplates(): Promise<TemplatesResponse> {
         this.log('Getting available templates');
-
-        return {
-            templates: [
-                {
-                    id: 'pin-cell',
-                    name: 'Pin Cell',
-                    description: 'Basic fuel pin cell with cladding and moderator',
-                    icon: 'fa fa-circle',
-                    defaultState: {}
-                },
-                {
-                    id: 'fuel-assembly',
-                    name: 'Fuel Assembly',
-                    description: '17x17 PWR fuel assembly with guide tubes',
-                    icon: 'fa fa-th',
-                    defaultState: {}
-                },
-                {
-                    id: 'full-core',
-                    name: 'Full Core',
-                    description: 'Full reactor core with multiple assemblies',
-                    icon: 'fa fa-dot-circle-o',
-                    defaultState: {}
-                },
-                {
-                    id: 'shielding',
-                    name: 'Shielding',
-                    description: 'Shielding and criticality safety model',
-                    icon: 'fa fa-shield',
-                    defaultState: {}
-                },
-                {
-                    id: 'blank',
-                    name: 'Blank Project',
-                    description: 'Start from scratch',
-                    icon: 'fa fa-file-o',
-                    defaultState: {}
-                }
-            ]
-        };
+        return { templates: listProjectTemplates() };
     }
 
     /**
-     * Apply a template to create or modify state.
+     * Apply a template to create a new state.
      * @param request - Template application request
-     * @returns Result with modified state
+     * @returns Result with the fully built state
      */
     async applyTemplate(request: ApplyTemplateRequest): Promise<{ success: boolean; state?: OpenMCState; error?: string }> {
         this.log(`Applying template: ${request.templateId}`);
-        // TODO: Implement template application with specific configurations
-        return {
-            success: false,
-            error: 'Template application not yet implemented'
-        };
+        try {
+            if (!getProjectTemplate(request.templateId)) {
+                return { success: false, error: `Unknown project template '${request.templateId}'` };
+            }
+            const parameters = { ...(request.parameters ?? {}) };
+            const state = buildProjectTemplate(request.templateId, parameters);
+            if (typeof parameters.projectName === 'string' && parameters.projectName.trim().length > 0) {
+                state.metadata.name = parameters.projectName.trim();
+            }
+            if (request.baseState) {
+                state.metadata.name = state.metadata.name || request.baseState.metadata.name;
+                state.metadata.author = request.baseState.metadata.author;
+                state.metadata.created = request.baseState.metadata.created;
+            }
+            return { success: true, state };
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            return { success: false, error: message };
+        }
     }
 
     // ============================================================================

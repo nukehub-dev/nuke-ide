@@ -47,12 +47,14 @@ import { OpenMCSimulationRunner } from './simulation-runner';
 import { NukeCoreService, NukeCoreStatusBarVisibility, NukeCoreStatusBarVisibilityService } from 'nuke-core/lib/common';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
 import { OpenMCState, OpenMCSettings, OpenMCRunSettings } from '../../../common/openmc-state-schema';
-import { SimulationProgress, SimulationStatusEvent, ValidationIssue } from '../../../common/openmc-studio-protocol';
+import { SimulationProgress, SimulationStatusEvent, ValidationIssue, XMLImportReport } from '../../../common/openmc-studio-protocol';
+import { buildProjectTemplate } from '../../../common/project-templates';
 import { isParticleRestartFile, needsTrackFlagForRun } from '../../../common/particle-restart';
 import { resolveCmfdRunConfig } from '../../../common/cmfd';
 import { STUDIO_CORE_PACKAGES } from '../../../common/packages';
 import { CSGBuilderWidget } from '../csg-builder/csg-builder-widget';
 import { OptimizationWidget } from '../optimization/optimization-widget';
+import { NewProjectDialog, NewProjectRequest } from '../new-project/new-project-dialog';
 import { DashboardTabContribution, DashboardTabRegistry } from './tabs/tab-registry';
 
 /**
@@ -147,6 +149,11 @@ export class SimulationDashboardWidget extends ReactWidget {
     public loadedLogContent = '';
     public filteredLogContent = '';
     public logFilter = '';
+
+    /** Template picker visibility (New Project flow). */
+    public showNewProjectDialog = false;
+    /** Structured report from the last XML import. */
+    public importReport?: XMLImportReport;
 
     // Track last working directory for simulations
     private lastSimulationDirectory?: string;
@@ -376,8 +383,82 @@ export class SimulationDashboardWidget extends ReactWidget {
         return (
             <div className="simulation-dashboard">
                 {this.renderHeader(state)}
+                {this.renderImportReport()}
                 {this.renderTabs(tabs)}
                 <div className="dashboard-content">{activeTab?.render(this, state)}</div>
+                {this.showNewProjectDialog && (
+                    <NewProjectDialog
+                        onCancel={() => this.closeNewProjectDialog()}
+                        onCreate={(request) => this.createProjectFromTemplate(request)}
+                    />
+                )}
+            </div>
+        );
+    }
+
+    /**
+     * Render the structured XML import report above the dashboard tabs.
+     * @returns Report panel, or null when no import has run.
+     */
+    private renderImportReport(): React.ReactNode {
+        const report = this.importReport;
+        if (!report) {
+            return null;
+        }
+        const counts = report.imported;
+        const countText = [
+            `${counts.materials} materials`,
+            `${counts.surfaces} surfaces`,
+            `${counts.cells} cells`,
+            `${counts.universes} universes`,
+            `${counts.lattices} lattices`,
+            `${counts.tallies} tallies`,
+            `${counts.meshes} meshes`,
+            `${counts.plots} plots`,
+            `${counts.sources} sources`
+        ].join(' · ');
+        const hasIssues = report.ignored.length > 0 || report.needsAttention.length > 0;
+        return (
+            <div className={`import-report ${hasIssues ? 'has-issues' : ''}`} role="status" aria-live="polite">
+                <div className="import-report-head">
+                    <div>
+                        <strong>XML import report</strong>
+                        <span className="import-report-files">
+                            {report.files.length > 0 ? report.files.join(', ') : 'No XML files parsed'}
+                        </span>
+                    </div>
+                    <Tooltip content="Dismiss report" position="left">
+                        <button
+                            className="theia-button secondary icon-only"
+                            onClick={() => this.dismissImportReport()}
+                            aria-label="Dismiss import report"
+                        >
+                            <i className="codicon codicon-close"></i>
+                        </button>
+                    </Tooltip>
+                </div>
+                <div className="import-report-counts">{countText}</div>
+                {report.ignored.length > 0 && (
+                    <div className="import-report-section">
+                        <span className="import-report-label">Ignored</span>
+                        <ul>
+                            {report.ignored.map((message) => (
+                                <li key={message}>{message}</li>
+                            ))}
+                        </ul>
+                    </div>
+                )}
+                {report.needsAttention.length > 0 && (
+                    <div className="import-report-section">
+                        <span className="import-report-label">Needs attention</span>
+                        <ul>
+                            {report.needsAttention.map((message) => (
+                                <li key={message}>{message}</li>
+                            ))}
+                        </ul>
+                    </div>
+                )}
+                {!hasIssues && <div className="import-report-clean">Every parsed construct mapped to the project state.</div>}
             </div>
         );
     }
@@ -673,14 +754,50 @@ export class SimulationDashboardWidget extends ReactWidget {
     }
 
     /**
-     * Create a new blank OpenMC project.
+     * Open the New Project template picker.
+     */
+    public openNewProjectDialog(): void {
+        this.showNewProjectDialog = true;
+        this.update();
+    }
+
+    /**
+     * Close the New Project template picker without creating anything.
+     */
+    public closeNewProjectDialog(): void {
+        this.showNewProjectDialog = false;
+        this.update();
+    }
+
+    /**
+     * Dismiss the last XML import report.
+     */
+    public dismissImportReport(): void {
+        this.importReport = undefined;
+        this.update();
+    }
+
+    /**
+     * Create a project from the selected template and open the Simulation tab.
+     * @param request - Template id, project name, and parameter values.
+     */
+    public createProjectFromTemplate(request: NewProjectRequest): void {
+        const state: OpenMCState = buildProjectTemplate(request.templateId, request.parameters);
+        state.metadata.name = request.name;
+        this.stateManager.clearProjectPath();
+        this.stateManager.setState(state);
+        this.showNewProjectDialog = false;
+        this.importReport = undefined;
+        this.activeTab = 'simulation';
+        this.update();
+        this.messageService.info(`Created ${request.name} from the ${request.templateId} template`);
+    }
+
+    /**
+     * Open the New Project template picker (toolbar action).
      */
     private async newProject(): Promise<void> {
-        if (this.stateManager.isDirty) {
-            // TODO: Show confirmation dialog
-        }
-        this.stateManager.reset();
-        this.messageService.info('Created new OpenMC project');
+        this.openNewProjectDialog();
     }
 
     /**
@@ -892,6 +1009,7 @@ export class SimulationDashboardWidget extends ReactWidget {
 
             if (result.success && result.state) {
                 this.stateManager.setState(result.state);
+                this.importReport = result.report;
                 const matCount = result.state.materials?.length || 0;
                 const cellCount = result.state.geometry?.cells?.length || 0;
                 const surfCount = result.state.geometry?.surfaces?.length || 0;
@@ -909,6 +1027,7 @@ export class SimulationDashboardWidget extends ReactWidget {
                     result.warnings.forEach((w) => this.logToConsole(`Warning: ${w}`, 'warn'));
                 }
             } else {
+                this.importReport = result.report;
                 this.messageService.error(`Failed to import XML: ${result.errors.join(', ')}`);
                 this.logToConsole(`Import failed: ${result.errors.join(', ')}`, 'error');
             }

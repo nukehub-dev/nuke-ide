@@ -564,6 +564,36 @@ export interface XMLImportResult {
     errors: string[];
     /** Warnings during import */
     warnings: string[];
+    /** Structured report of what was imported, ignored, or needs attention */
+    report?: XMLImportReport;
+}
+
+/** Counts of model objects reconstructed by an XML import. */
+export interface XMLImportCounts {
+    materials: number;
+    surfaces: number;
+    cells: number;
+    universes: number;
+    lattices: number;
+    tallies: number;
+    meshes: number;
+    plots: number;
+    sources: number;
+}
+
+/**
+ * Import report shown after XML import. Every parse warning is classified so
+ * unsupported or lossy constructs are never silently dropped.
+ */
+export interface XMLImportReport {
+    /** XML files that were present and parsed. */
+    files: string[];
+    /** Reconstructed object counts. */
+    imported: XMLImportCounts;
+    /** Constructs that were deliberately ignored, with the reason. */
+    ignored: string[];
+    /** Constructs that need review before running (missing files, references, environment gates). */
+    needsAttention: string[];
 }
 
 // ============================================================================

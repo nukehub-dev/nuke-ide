@@ -88,3 +88,25 @@ export async function expectNonEmptyContent(locator: ReturnType<Page['locator']>
     const text = (await locator.textContent()) ?? '';
     expect(text.replace(/\s+/g, ' ').trim().length).toBeGreaterThan(minLength);
 }
+
+/** Dismiss Theia notification toasts so they cannot intercept later clicks. */
+export async function dismissNotifications(page: Page): Promise<void> {
+    await page.evaluate(() => {
+        const closers = document.querySelectorAll('.theia-notifications-overlay .theia-notification-actions li.codicon-close');
+        closers.forEach((element) => (element as HTMLElement).click());
+    });
+    await page.waitForTimeout(50);
+}
+
+/**
+ * Run the New Project command and accept the default Blank template.
+ * The template picker is the New Project entry point; specs that only need an
+ * empty project use this helper instead of clicking through the cards.
+ */
+export async function createBlankProject(page: Page): Promise<void> {
+    await runCommand(page, 'New Project');
+    const dialog = page.locator('.new-project-dialog');
+    await expect(dialog).toBeVisible({ timeout: 30_000 });
+    await dialog.getByRole('button', { name: 'Create Project' }).click();
+    await expect(dialog).toBeHidden();
+}

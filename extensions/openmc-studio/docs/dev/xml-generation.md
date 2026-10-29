@@ -468,10 +468,14 @@ OpenMC Studio can parse existing OpenMC XML files back into `OpenMCState`. This 
 Directory containing XML files
     │
     ├── materials.xml ──→ parseMaterialsXML() ──→ state.materials
-    ├── geometry.xml ───→ parseGeometryXML() ───→ state.geometry
-    ├── settings.xml ───→ parseSettingsXML() ───→ state.settings
-    └── (tallies.xml) ──→ (not yet implemented)
+    ├── geometry.xml ───→ parseGeometryXML() ───→ state.geometry (+ settings.dagmcFile)
+    ├── settings.xml ───→ parseSettingsXML() ──→ state.settings, state.depletion,
+    │                                            state.varianceReduction, settings meshes
+    ├── tallies.xml ───→ parseTalliesXML() ───→ state.tallies, state.meshes
+    └── plots.xml ─────→ parsePlotsXML() ────→ state.plots
 ```
+
+Every warning is classified into an `XMLImportReport` (`imported` counts, `ignored`, `needsAttention`) so the dashboard can show what parsed, what was deliberately dropped, and what needs review.
 
 ### Parser Details
 
@@ -487,8 +491,8 @@ const result = await parser.parseStringPromise(xml);
 
 - `id`, `name`, `density` + `units`
 - Nuclides with `ao`/`wo` fraction type detection
-- S(α,β) entries
-- Temperature attribute
+- S(α,β) entries, NCrystal cfg, macroscopic data sets, isotropic nuclides
+- Temperature, depletable flag, and depletion volume attributes
 
 **Geometry parsing** handles:
 
@@ -501,11 +505,7 @@ const result = await parser.parseStringPromise(xml);
 - Universe assignment from `$.universe` (defaults to root universe `0`), plus universe entries for every lattice-referenced and outer universe
 - Warnings for unsupported input (for example a 9-element rotation matrix, which cannot be represented as Tait-Bryan angles)
 
-**Settings parsing** extracts:
-
-- Run mode, particles, batches, inactive
-- Source spatial/energy distributions
-- Seed, temperature, cutoff, photon transport
+**Settings parsing** extracts run mode and counts, every source distribution, seed, output controls, temperature/cutoff/resonance physics, confidence/keff triggers, particle limits, diagnostics, random-ray and MGXS fields, entropy mesh, and depletion/variance-reduction side channels. Sources use the shared `source-utils.ts` parsers so import and export cannot drift. A DAGMC `<dagmc_universe>` records its filename in `settings.dagmcFile`; mesh metadata is loaded later by the DAGMC Editor. Multi-group nuclide-wise mode has no XML flag, so import infers it when materials stay nuclide-decomposed and none carry `<macroscopic>` data.
 
 ---
 
@@ -523,7 +523,9 @@ Full round-trip (state → XML → state) is **lossy** by design. The following 
 | Plot definitions    | Appearance fields round-trip; meshline details collapse to a boolean                            |
 | Project metadata    | Not in OpenMC XML — use `.nuke-openmc` projects                                                 |
 | Depletion settings  | Custom `<depletion>` block in settings.xml; parsed back by the runner (`checkDepletionEnabled`) |
-| Variance reduction  | Partially written; not parsed back                                                              |
+| Variance reduction  | UFS, weight-window sets/file/checkpoints/generator, and source bias round-trip                  |
+| Derived tallies     | Project-only; never written to simulation XML                                                   |
+| DAGMC geometry      | Filename preserved; `.h5m` contents are not read by XML import                                  |
 
 **Best practice:** Use `.nuke-openmc` project files for persistent storage. Use XML generation only for running OpenMC.
 

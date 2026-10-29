@@ -1,0 +1,295 @@
+/* ============================================================================
+   OpenMC Studio - New Project template picker
+   Scoped under .simulation-dashboard so container queries follow the editor.
+   ============================================================================ */
+
+.simulation-dashboard {
+    position: relative;
+}
+
+.new-project-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 18px;
+    background: rgba(0, 0, 0, 0.45);
+    overflow: auto;
+}
+
+.new-project-dialog {
+    width: min(920px, 100%);
+    max-height: calc(100% - 12px);
+    overflow: auto;
+    padding: 18px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 8px;
+    background: var(--theia-editor-background);
+    color: var(--theia-editor-foreground);
+    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
+}
+
+.new-project-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 14px;
+}
+
+.new-project-header h2 {
+    margin: 0 0 4px;
+    font-size: 1.25em;
+    font-weight: 600;
+}
+
+.new-project-header p {
+    margin: 0;
+    color: var(--theia-descriptionForeground);
+    font-size: 0.92em;
+    max-width: 60ch;
+}
+
+.new-project-header .icon-only {
+    flex: 0 0 auto;
+    padding: 4px 7px;
+    min-width: 0;
+}
+
+.new-project-name {
+    display: grid;
+    gap: 4px;
+    margin-bottom: 14px;
+}
+
+.new-project-name label,
+.new-project-parameter label {
+    font-size: 0.88em;
+    font-weight: 600;
+    color: var(--theia-foreground);
+}
+
+.new-project-name input,
+.new-project-parameter input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 5px 7px;
+    border: 1px solid var(--theia-input-border);
+    border-radius: 4px;
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    font: inherit;
+}
+
+.new-project-name input:focus,
+.new-project-parameter input:focus,
+.new-project-card:focus-visible {
+    outline: 1px solid var(--theia-focusBorder);
+    outline-offset: 1px;
+}
+
+.new-project-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: 10px;
+    margin-bottom: 16px;
+}
+
+.new-project-card {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    padding: 12px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 7px;
+    background: var(--theia-sideBar-background, var(--theia-editor-background));
+    cursor: pointer;
+    user-select: none;
+    transition:
+        border-color 0.15s ease,
+        background 0.15s ease;
+}
+
+.new-project-card:hover {
+    border-color: var(--theia-focusBorder);
+}
+
+.new-project-card.selected {
+    border-color: var(--theia-focusBorder);
+    box-shadow: inset 0 0 0 1px var(--theia-focusBorder);
+    background: var(--theia-list-activeSelectionBackground, var(--theia-editor-background));
+}
+
+.new-project-card-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.new-project-card-head i {
+    flex: 0 0 auto;
+    width: 18px;
+    height: 18px;
+    font-size: 16px;
+    color: var(--theia-focusBorder);
+}
+
+.new-project-card-name {
+    font-weight: 600;
+    overflow-wrap: anywhere;
+}
+
+.new-project-card-badge {
+    margin-left: auto;
+    padding: 1px 6px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 10px;
+    color: var(--theia-descriptionForeground);
+    font-size: 0.72em;
+    white-space: nowrap;
+}
+
+.new-project-card-description {
+    margin: 0;
+    color: var(--theia-descriptionForeground);
+    font-size: 0.88em;
+    line-height: 1.35;
+}
+
+.new-project-card-list {
+    margin: 0;
+    padding-left: 16px;
+    color: var(--theia-foreground);
+    font-size: 0.83em;
+    line-height: 1.4;
+}
+
+.new-project-card-list li + li {
+    margin-top: 2px;
+}
+
+.new-project-card-preview {
+    margin-top: auto;
+    padding-top: 7px;
+    border-top: 1px solid var(--theia-panel-border);
+    color: var(--theia-descriptionForeground);
+    font-size: 0.8em;
+    overflow-wrap: anywhere;
+}
+
+.new-project-details {
+    padding: 12px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 7px;
+    background: var(--theia-sideBar-background, var(--theia-editor-background));
+}
+
+.new-project-parameters h3 {
+    margin: 0 0 8px;
+    font-size: 0.98em;
+}
+
+.new-project-parameter-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 10px;
+}
+
+.new-project-parameter {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+}
+
+.new-project-parameter-input {
+    display: flex;
+    align-items: stretch;
+    min-width: 0;
+}
+
+.new-project-parameter-input input {
+    border-radius: 4px 0 0 4px;
+    min-width: 0;
+}
+
+.new-project-parameter-unit {
+    display: inline-flex;
+    align-items: center;
+    padding: 0 8px;
+    border: 1px solid var(--theia-input-border);
+    border-left: none;
+    border-radius: 0 4px 4px 0;
+    background: var(--theia-input-background);
+    color: var(--theia-descriptionForeground);
+    font-size: 0.85em;
+    white-space: nowrap;
+}
+
+.new-project-no-parameters {
+    margin: 0;
+    color: var(--theia-descriptionForeground);
+    font-size: 0.88em;
+}
+
+.new-project-preview-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 10px;
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid var(--theia-panel-border);
+    font-size: 0.88em;
+}
+
+.new-project-preview-label {
+    font-weight: 600;
+    color: var(--theia-focusBorder);
+}
+
+.new-project-requirement {
+    margin: 8px 0 0;
+    color: var(--theia-descriptionForeground);
+    font-size: 0.82em;
+}
+
+.new-project-footnote {
+    margin: 10px 2px 0;
+    color: var(--theia-descriptionForeground);
+    font-size: 0.8em;
+}
+
+.new-project-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+@container (max-width: 640px) {
+    .new-project-overlay {
+        padding: 8px;
+    }
+
+    .new-project-dialog {
+        padding: 12px;
+    }
+
+    .new-project-cards {
+        grid-template-columns: 1fr;
+    }
+
+    .new-project-header {
+        gap: 8px;
+    }
+
+    .new-project-footer {
+        flex-wrap: wrap;
+    }
+
+    .new-project-footer .theia-button {
+        flex: 1 1 130px;
+    }
+}

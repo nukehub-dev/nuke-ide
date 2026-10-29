@@ -96,18 +96,21 @@ OpenMC Studio stores simulation configurations in `.nuke-openmc` project files.
 
 1. Open the **Command Palette** (`Ctrl+Shift+P`).
 2. Run **"OpenMC Studio: New Project"**.
-3. Choose a template:
+3. Choose a template card:
 
-| Template          | Description                                     |
-| ----------------- | ----------------------------------------------- |
-| **Blank Project** | Empty model; build from scratch                 |
-| **Pincell**       | Single fuel pin in coolant; good first tutorial |
-| **Bare Sphere**   | Simple critical sphere of U-235                 |
-| **PWR Assembly**  | 17×17 fuel assembly with guide tubes            |
-| **CANDU Bundle**  | 37-element natural uranium bundle               |
+| Template               | Description                                               |
+| ---------------------- | --------------------------------------------------------- |
+| **Blank Project**      | Empty model; build from scratch (selected by default)     |
+| **Pin Cell**           | Single UO2 fuel pin in light water; good first tutorial   |
+| **17x17 PWR Assembly** | 264 fuel pins, 24 guide tubes, and 1 instrument tube      |
+| **Demonstration Core** | Small 3×3 assembly core for workflow demonstrations       |
+| **Shielding**          | Fixed-source neutrons through a lead slab into a detector |
+| **Criticality Safety** | Bare HEU sphere with a vacuum boundary and fission tally  |
 
-4. Select a folder to save the `.nuke-openmc` file.
-5. The **Simulation Dashboard** opens automatically.
+4. Adjust the template parameters and project name, then click **Create Project**.
+5. The **Simulation Dashboard** opens on the **Simulation** tab. Save the `.nuke-openmc` file with **Save Project As**.
+
+See [Coverage and Limitations](coverage.md) for what each template and the rest of the workbench support.
 
 ### Step 2: Configure Basic Settings
 

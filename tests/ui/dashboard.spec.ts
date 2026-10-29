@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { collectErrors, expectNonEmptyContent, runCommand, waitForWorkbench } from './helpers';
+import { collectErrors, createBlankProject, expectNonEmptyContent, runCommand, waitForWorkbench } from './helpers';
 
 /**
  * Simulation dashboard: opens via the command, every registered tab renders
@@ -39,7 +39,7 @@ test.describe('simulation dashboard', () => {
         await page.goto('/');
         await waitForWorkbench(page);
 
-        await runCommand(page, 'New Project');
+        await createBlankProject(page);
         const dashboard = page.locator('.simulation-dashboard');
         await expect(dashboard).toBeVisible({ timeout: 30_000 });
 

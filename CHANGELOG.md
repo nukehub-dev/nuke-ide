@@ -254,6 +254,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - openmc-studio: every OpenMC 0.16 tally filter is authorable, including cell-instance and mesh-material pairs, reaction MT/name search, particle production, collision, mu-surface, weight, parent-nuclide, material-from, and mesh-born bins.
 - openmc-studio: tally editor exposes multiply-by-density and higher-moments output options, random-ray validation enforces the upstream filter allow-list, and wide filter editors stack cleanly in narrow panels.
 - openmc-studio: Shutdown Dose wizard runs cell/mesh R2S and D1S with dose tallies, parent breakdown, activity/decay heat, and resumable results.
+- openmc-studio: runnable pin-cell, 17x17 PWR assembly, demonstration-core, shielding, and criticality-safety templates with a keyboard-accessible picker and Simulation-tab handoff.
+- openmc-studio: XML import round-trips lattices, transforms, meshes, every tally filter, source distributions/bias, variance reduction, depletion, runtime settings, and plots, with an imported/ignored/needs-attention report.
+- openmc-studio: coverage page documents supported, partial, and unsupported OpenMC surfaces plus what still requires OpenMC/Python.
 - Testing: Playwright UI smoke suite (`yarn test:ui`) covering boot, dashboard tabs, project flow, and windows in weekly CI.
 - Testing: weekly upstream-OpenMC-develop CI lane with the Python suite on a cached conda full profile.
 - Testing: end-to-end layer running real OpenMC drivers and project-file fixtures, env-gated and skipping cleanly otherwise.
@@ -301,6 +304,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - openmc-studio: solid ray-trace plots default to all-opaque domains so they no longer render a blank image.
 - openmc-studio: OpenMC 0.16.0 support — typed plots, PPM fallback for builds without libpng, and updated TokamakSource gates.
 - openmc-studio: source bias moved from the standalone Variance Reduction card to each source distribution; legacy projects migrate the old energy bias on load.
+- openmc-studio: docs describe actual OpenMC coverage and limits instead of claiming every aspect is configurable.
 
 ### Removed
 

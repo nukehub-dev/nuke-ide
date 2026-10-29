@@ -4557,3 +4557,80 @@
         white-space: normal;
     }
 }
+
+/* ============================================================================
+   XML import report
+   ============================================================================ */
+.simulation-dashboard .import-report {
+    margin: 8px 14px 0;
+    padding: 10px 12px;
+    border: 1px solid var(--theia-panel-border);
+    border-left: 3px solid var(--theia-focusBorder);
+    border-radius: 6px;
+    background: var(--theia-textBlock-background, var(--theia-editor-background));
+    color: var(--theia-foreground);
+    font-size: 12px;
+}
+
+.simulation-dashboard .import-report.has-issues {
+    border-left-color: var(--theia-editorWarning-foreground, #d7a12b);
+}
+
+.simulation-dashboard .import-report-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.simulation-dashboard .import-report-head > div {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+}
+
+.simulation-dashboard .import-report-files,
+.simulation-dashboard .import-report-counts,
+.simulation-dashboard .import-report-clean {
+    color: var(--theia-descriptionForeground);
+}
+
+.simulation-dashboard .import-report-counts {
+    margin-top: 5px;
+    overflow-wrap: anywhere;
+}
+
+.simulation-dashboard .import-report-head .icon-only {
+    flex: 0 0 auto;
+    padding: 2px 5px;
+    min-width: 0;
+}
+
+.simulation-dashboard .import-report-section {
+    margin-top: 7px;
+}
+
+.simulation-dashboard .import-report-label {
+    font-weight: 600;
+    color: var(--theia-foreground);
+}
+
+.simulation-dashboard .import-report-section ul {
+    margin: 3px 0 0;
+    padding-left: 18px;
+    color: var(--theia-descriptionForeground);
+}
+
+.simulation-dashboard .import-report-section li {
+    overflow-wrap: anywhere;
+}
+
+.simulation-dashboard .import-report-clean {
+    margin-top: 6px;
+}
+
+@container (max-width: 560px) {
+    .simulation-dashboard .import-report {
+        margin: 6px 8px 0;
+    }
+}

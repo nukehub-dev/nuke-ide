@@ -2416,6 +2416,24 @@ export interface OpenMCProjectFile {
 /** Project template types */
 export type OpenMCProjectTemplateType = 'pin-cell' | 'fuel-assembly' | 'full-core' | 'shielding' | 'criticallity-safety' | 'blank';
 
+/** One meaningful numeric parameter exposed by a project template. */
+export interface OpenMCProjectTemplateParameter {
+    /** Parameter key passed back to the template builder. */
+    key: string;
+    /** Field label. */
+    label: string;
+    /** Unit shown beside the input, if any. */
+    unit?: string;
+    /** Default value. */
+    default: number;
+    /** Minimum accepted value. */
+    min?: number;
+    /** Maximum accepted value. */
+    max?: number;
+    /** Input step. */
+    step?: number;
+}
+
 /** Project template */
 export interface OpenMCProjectTemplate {
     /** Template ID */
@@ -2428,6 +2446,14 @@ export interface OpenMCProjectTemplate {
     icon: string;
     /** Default state for this template */
     defaultState: Partial<OpenMCState>;
+    /** Short "what you get" bullet list shown on the template card. */
+    whatYouGet?: string[];
+    /** Meaningful template parameters (empty for blank/parameterless templates). */
+    parameters?: OpenMCProjectTemplateParameter[];
+    /** Data/environment requirement shown in the picker. */
+    requires?: string;
+    /** Whether the template is explicitly a simplified demonstration. */
+    demonstration?: boolean;
 }
 
 // ============================================================================

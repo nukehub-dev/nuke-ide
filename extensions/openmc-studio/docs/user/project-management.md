@@ -1,42 +1,41 @@
 # Project Management
 
-OpenMC Studio uses `.nuke-openmc` project files to bundle your entire simulation — geometry, materials, settings, tallies, and results — into a single portable workspace.
+OpenMC Studio uses `.nuke-openmc` JSON project files to bundle your simulation state — geometry, materials, settings, tallies, and analysis definitions — with references to external assets. Result files are referenced on disk rather than embedded.
 
 ---
 
 ## Creating a New Project
 
-### Method 1: From Scratch
+### Method 1: New Project Template
 
-1. Go to `File → New → OpenMC Project`.
-2. Choose a **project template** (see below).
-3. Select a folder to save the `.nuke-openmc` file.
-4. The project loads in the **Project Explorer** sidebar.
+1. Run `OpenMC Studio: New Project` from the Command Palette (or click **New Project** in the dashboard header).
+2. Pick a template card (see below) and optionally adjust its parameters.
+3. Enter a project name and click **Create Project**.
+4. The dashboard opens on the **Simulation** tab. Use **Save Project As** to choose a `.nuke-openmc` location.
 
-### Method 2: From Current Workspace
+### Method 2: Import Existing XML
 
-If you already have `geometry.xml`, `materials.xml`, and `settings.xml` open:
-
-1. Go to `File → Save Workspace as Project`.
-2. Enter a project name.
-3. All open files and simulator state are bundled into the new `.nuke-openmc` file.
+1. Run `OpenMC Studio: New Project`, create a blank project, then use **Import XML** in the Simulation tab.
+2. Select the directory containing `geometry.xml`, `materials.xml`, `settings.xml`, `tallies.xml`, and `plots.xml`.
+3. Review the import report for ignored constructs and items that need attention.
 
 ---
 
 ## Saving the Current State
 
-A `.nuke-openmc` file is a compressed archive containing:
+A `.nuke-openmc` file is a JSON project document. It contains the complete model state and references to external files:
 
-| Entry                       | Description                                |
-| --------------------------- | ------------------------------------------ |
-| `manifest.json`             | Project metadata and file index            |
-| `geometry.xml`              | CSG geometry definition                    |
-| `materials.xml`             | Material compositions                      |
-| `settings.xml`              | Simulation settings                        |
-| `tallies.xml` _(optional)_  | Tally definitions                          |
-| `plots.xml` _(optional)_    | Plot specifications                        |
-| `statepoints/` _(optional)_ | Result `.h5` files included in the project |
-| `cad/` _(optional)_         | Imported CAD source files                  |
+| Content                          | Description                                                   |
+| -------------------------------- | ------------------------------------------------------------- |
+| `version` / `state.metadata`     | Schema version, name, description, timestamps                 |
+| `state.geometry`                 | Surfaces, cells, universes, lattices, transforms              |
+| `state.materials`                | Compositions, densities, thermal scattering, volumes          |
+| `state.settings`                 | Run mode, sources, variance reduction, runtime settings       |
+| `state.tallies` / `state.meshes` | Tally definitions and mesh references                         |
+| `state.derivedTallies`           | Analysis-only expression definitions (never simulation input) |
+| `state.plots`, `state.depletion` | Plot and depletion configuration                              |
+| `state.shutdownDose`             | R2S/D1S driver configuration                                  |
+| `fileSync`                       | Optional links to generated XML files                         |
 
 ### Save vs. Save As
 
@@ -45,7 +44,7 @@ A `.nuke-openmc` file is a compressed archive containing:
 | **Save Project**    | Overwrites the existing `.nuke-openmc` file with current state   |
 | **Save Project As** | Creates a new `.nuke-openmc` file; leaves the original untouched |
 
-> **Tip:** Enable `Auto-save on simulation complete` in project settings to automatically capture statepoints after each run.
+> **Tip:** Save the project before a long run; statepoints remain on disk and can be opened from the analysis viewers.
 
 ### Portable Asset Paths
 
@@ -69,34 +68,29 @@ Click a `.nuke-openmc` file in the Explorer sidebar.
 
 ### What Happens on Open
 
-1. The archive is extracted to a temporary workspace.
-2. All XML files are parsed and loaded into the appropriate editors:
-   - `geometry.xml` → CSG Builder
-   - `materials.xml` → Material Editor
-   - `settings.xml` → Simulation Settings panel
-3. Included statepoints are listed in the **Results** tab.
+1. The JSON state is loaded and migrated to the current schema version.
+2. The dashboard, CSG Builder, Tally Configurator, and analysis widgets read the same state.
+3. External asset references (DAGMC mesh, MGXS library, unstructured meshes) resolve relative to the project directory.
+4. Result files such as statepoints remain on disk and are opened from the analysis viewers.
 
 ---
 
 ## Project Templates
 
-Templates give you a verified starting point instead of a blank slate.
+Templates give you a verified starting point instead of a blank slate. They are ordinary project states, not a second schema.
 
-| Template                | Description                                    | Included Files                                            |
-| ----------------------- | ---------------------------------------------- | --------------------------------------------------------- |
-| **Blank**               | Empty project with default placeholders        | `geometry.xml`, `materials.xml`, `settings.xml`           |
-| **PWR Pin Cell**        | Infinite fuel pin with water coolant           | Pin-cell geometry, UO2 + Zircaloy + H2O materials         |
-| **BWR Assembly**        | 8×8 fuel assembly with cruciform control blade | Assembly lattice, gadolinia pins, void slots              |
-| **CANDU Bundle**        | 37-element natural uranium bundle              | Bundle geometry, D2O coolant, pressure tube               |
-| **Sphere of Plutonium** | Bare critical sphere (Godiva-like)             | Simple sphere, Pu-239 metal                               |
-| **Depletion Problem**   | 2D pin cell with chain file ready              | Geometry, materials, depletion settings, sample chain XML |
+| Template               | What you get                                                                                                                    |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| **Blank Project**      | Empty geometry/materials/tallies with default eigenvalue settings                                                               |
+| **Pin Cell**           | One UO2 fuel pin, Zircaloy cladding, light-water moderator, reflective radial and vacuum axial boundaries, fuel fission tally   |
+| **17x17 PWR Assembly** | 17×17 rectangular lattice with 264 fuel pins, 24 guide tubes, and 1 instrument tube; assembly fission and axial-leakage tallies |
+| **Demonstration Core** | 3×3 assembly core with nested 3×3 pin lattices (72 fuel pins, 9 guide tubes); clearly labeled demonstration, not a benchmark    |
+| **Shielding**          | Fixed-source monoenergetic neutrons through a lead slab into a detector cell with a flux tally                                  |
+| **Criticality Safety** | Bare HEU metal sphere with a vacuum boundary, eigenvalue settings, and a fission tally                                          |
 
-### Creating a Custom Template
+The picker shows each card's icon, description, "what's included" list, and a live preview. Enrichment, pitch, source energy, shield thickness, and sphere radius are exposed only where they change the model. **Blank Project** is the default.
 
-1. Set up a project exactly as you want it.
-2. Go to `Project → Save as Template`.
-3. Give it a name and description.
-4. It appears in the template list for future new projects.
+To create a custom starting point, build a project and save it as a normal `.nuke-openmc` file; there is no marketplace or template-authoring format.
 
 ---
 
@@ -198,11 +192,18 @@ You can exchange models with standard OpenMC command-line workflows using XML im
 
 ### Round-Trip Safety
 
-| Feature               | Preserved? | Notes                                                           |
-| --------------------- | ---------- | --------------------------------------------------------------- |
-| CSG geometry          | Yes        | All surfaces, cells, lattices                                   |
-| Materials & nuclides  | Yes        | Densities, enrichment, S(a,b) tables                            |
-| Settings              | Yes        | Batches, particles, temperature methods                         |
-| Tallies               | Yes        | Filters, scores, nuclides                                       |
-| DAGMC geometry        | Partial    | DAGMC file path is preserved; the `.h5m` itself is not embedded |
-| Results / statepoints | No         | XML workflow does not include `.h5` results                     |
+| Feature               | Preserved? | Notes                                                                                          |
+| --------------------- | ---------- | ---------------------------------------------------------------------------------------------- |
+| CSG geometry          | Yes        | Surfaces, cells, universes, lattices, transforms, periodic pairs, albedo                       |
+| Materials             | Yes        | Densities, nuclides/elements, S(α,β), isotropic, depletable/volume, temperature, macroscopic   |
+| Settings              | Yes        | Run mode, sources and distributions, runtime/convergence/physics/limit fields                  |
+| Tallies               | Yes        | Filters (including structured pairs), scores, triggers, derivatives, higher moments            |
+| Meshes                | Yes        | Regular/rectilinear/cylindrical/spherical/unstructured, mesh-filter transforms                 |
+| Variance reduction    | Yes        | UFS, weight-window sets/file/checkpoints/generator                                             |
+| Depletion             | Yes        | Project block, including driver-only substeps/reactivity/feeds/continuation                    |
+| Plots                 | Yes        | Slice/voxel/ray-trace, background, masks, overlap highlighting                                 |
+| Derived tallies       | No         | Analysis-only; they live in `.nuke-openmc` and never enter simulation XML                      |
+| DAGMC geometry        | Partial    | The `<dagmc_universe>` filename is preserved; the `.h5m` is not read or embedded by XML import |
+| Results / statepoints | No         | XML workflow does not include `.h5` results                                                    |
+
+Every import produces a report above the dashboard tabs with imported counts, ignored constructs, and items that need attention. See [Coverage and Limitations](coverage.md) for the full boundary.

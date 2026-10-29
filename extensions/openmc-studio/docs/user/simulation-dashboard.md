@@ -1,6 +1,6 @@
 # Simulation Dashboard
 
-The Simulation Dashboard is the central workspace for building, configuring, and running OpenMC simulations without writing code. It organizes every aspect of a model into focused tabs and provides a unified workflow from configuration to results.
+The Simulation Dashboard is the central workspace for building, configuring, and running OpenMC simulations without writing code. It groups the model's settings, materials, tallies, depletion, variance-reduction, random-ray, and run surfaces into focused tabs. See [Coverage and Limitations](coverage.md) for the exact OpenMC feature boundary.
 
 ---
 
@@ -18,6 +18,23 @@ Click any `.nuke-openmc` file in the Explorer.
 
 `Ctrl+Shift+P` → **"OpenMC Studio: Open Simulation Dashboard"**
 
+### New Project Templates
+
+**New Project** opens a template picker. **Blank Project** is selected by default; other cards provide runnable starting points:
+
+| Template               | Preview                                                              |
+| ---------------------- | -------------------------------------------------------------------- |
+| **Blank Project**      | Empty model with default eigenvalue settings                         |
+| **Pin Cell**           | 1 fuel pin, UO2 + Zircaloy + light water, 4.5% enrichment by default |
+| **17x17 PWR Assembly** | 264 fuel pins, 24 guide tubes, 1 instrument tube                     |
+| **Demonstration Core** | 3×3 assembly demonstration core with nested 3×3 pin lattices         |
+| **Shielding**          | 14.1 MeV neutron source, lead slab, detector flux tally              |
+| **Criticality Safety** | Bare HEU sphere with a vacuum boundary and fission tally             |
+
+Each card shows what is included and a live preview. Template parameters (enrichment, pitch, source energy, shield thickness, sphere radius) are only shown where they change the model. Cards are keyboard-selectable with arrow keys, show a selected state, and stack in a narrow panel. Creating a template opens the dashboard on the **Simulation** tab.
+
+Templates are ordinary project states: you can edit every surface, material, tally, and setting afterwards. The demonstration core is intentionally small and is not a production benchmark.
+
 ---
 
 ## Dashboard Layout
@@ -30,7 +47,7 @@ The dashboard is a single tab with a toolbar at the top and a tabbed panel below
 | ---------------- | ------------------------------------------------------------------------------------------------------ |
 | **New Project**  | Scaffold a new OpenMC project                                                                          |
 | **Open Project** | Open an existing `.nuke-openmc` project                                                                |
-| **Save Project** | Save the current project (the dashboard also auto-saves on every change)                               |
+| **Save Project** | Save the current project to its `.nuke-openmc` file                                                    |
 | **Generate XML** | Export the current configuration to `geometry.xml`, `materials.xml`, `settings.xml`, and `tallies.xml` |
 
 Click the project name in the header to rename it.
@@ -57,6 +74,18 @@ The dashboard responds to the width of its own editor panel, not just the browse
 - Section cards and content padding tighten so controls stay usable down to phone-width panels.
 
 The same behavior applies to the CSG Builder, DAGMC Editor, Tally Configurator, Optimization, and Simulation Comparison windows.
+
+---
+
+## XML Import Report
+
+**Import XML** from the Simulation tab reads `materials.xml`, `geometry.xml`, `settings.xml`, `tallies.xml`, and `plots.xml` from a directory. After import, a report panel above the tabs shows:
+
+- **Imported** — how many materials, surfaces, cells, universes, lattices, tallies, meshes, plots, and sources were reconstructed.
+- **Ignored** — constructs that were deliberately not mapped, with the reason (for example a 9-element rotation matrix that cannot be represented as Tait-Bryan angles).
+- **Needs attention** — references or setup that require review before a run (for example a missing mesh file or a DAGMC `.h5m` that must be opened in the DAGMC Editor).
+
+Every parse warning appears in one of those buckets; import never silently drops a construct. Dismiss the report with its close button.
 
 ---
 
@@ -436,6 +465,6 @@ For DAGMC models, the geometry summary offers a **Copy DAGMC file into run direc
 
 ## Tips
 
-- **Auto-save:** The dashboard auto-saves the `.nuke-openmc` project file on every change.
+- **Save early:** The dashboard tracks unsaved changes (● in the title); save the project before a long run so settings and analysis definitions persist.
 - **XML diff:** After generating XML, use the Explorer's file comparison to diff against a previous version.
 - **Restart runs:** Use **Restart…** on the Simulation tab to continue long runs from the latest statepoint instead of starting over.

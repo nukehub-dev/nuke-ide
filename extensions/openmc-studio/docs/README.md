@@ -37,7 +37,7 @@ Covers architecture, frontend/backend services, widget patterns, RPC protocols, 
 | **Native Plotting**           | Slice, voxel, and ray-traced geometry plots (C++ plot mode)                            | PNG, `.vti`                              |
 | **MGXS Generator**            | Multi-group cross-section libraries (automatic + Library modes)                        | `mgxs.h5`                                |
 | **Simulation Comparison**     | Compare multiple statepoints side-by-side                                              | Delta tables, overlay plots              |
-| **Project Management**        | Scaffold projects and track run history                                                | Project folders, run metadata            |
+| **Project Management**        | Create from runnable templates, import/export XML, and track run history               | Project files, run metadata              |
 | **CAD Import**                | Convert STEP/IGES to DAGMC or CSG                                                      | `.h5m`, `geometry.xml`                   |
 
 ---
@@ -60,6 +60,8 @@ docs/
 │   ├── mgxs-generator.md
 │   ├── simulation-comparison.md
 │   ├── project-management.md
+│   ├── coverage.md
+│   ├── shutdown-dose.md
 │   ├── cad-import.md
 │   └── troubleshooting.md
 └── dev/                   # Developer guides
